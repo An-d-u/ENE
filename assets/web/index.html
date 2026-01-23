@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ENE Avatar</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: transparent;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+    <script src="libs/live2dCubismCore.min.js"></script>
+    <script src="libs/pixi.min.js"></script>
+    <script src="libs/cubism4.min.js"></script>
+    <!-- [추가] 통신 라이브러리 -->
+    <script src="libs/qwebchannel.js"></script>
+</head>
+
+<body>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const app = new PIXI.Application({
+            view: document.getElementById('canvas'),
+            autoStart: true,
+            resizeTo: window,
+            transparent: true,
+            backgroundAlpha: 0
+        });
+
+        const modelPath = '../live2d_models/hiyori/runtime/hiyori_pro_t11.model3.json';
+        let currentModel = null; // 모델 전역 변수
+
+        // [핵심] Python과 통신을 설정하는 함수
+        function setupWebChannel() {
+            new QWebChannel(qt.webChannelTransport, function (channel) {
+                // Python의 'bridge' 객체를 JS로 가져옴
+                window.bridge = channel.objects.bridge;
+
+                // Python에서 'update_transform_signal'을 보낼 때 실행될 함수 연결
+                window.bridge.update_transform_signal.connect(function (x, y, scale) {
+                    if (currentModel) {
+                        currentModel.x = x;
+                        currentModel.y = y;
+                        currentModel.scale.set(scale);
+                    }
+                });
+
+                console.log("WebChannel Connected!");
+            });
+        }
+
+        (async function main() {
+            try {
+                const model = await PIXI.live2d.Live2DModel.from(modelPath);
+                currentModel = model;
+
+                // 초기값 설정
+                model.scale.set(0.25);
+                model.x = 20;
+                model.y = 50;
+
+                app.stage.addChild(model);
+
+                // 로딩 완료 후 통신 채널 연결
+                setupWebChannel();
+
+            } catch (e) {
+                console.error("Load Failed:", e);
+            }
+        })();
+    </script>
+</body>
+
+</html>
