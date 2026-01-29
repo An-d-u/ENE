@@ -3,7 +3,6 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ENE Avatar</title>
     <style>
         body {
@@ -20,8 +19,8 @@
     <script src="libs/live2dCubismCore.min.js"></script>
     <script src="libs/pixi.min.js"></script>
     <script src="libs/cubism4.min.js"></script>
-    <!-- [추가] 통신 라이브러리 -->
-    <script src="libs/qwebchannel.js"></script>
+    <!-- [중요] QWebChannel 라이브러리 추가 (Qt에서 자동 제공) -->
+    <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
 </head>
 
 <body>
@@ -36,56 +35,50 @@
             backgroundAlpha: 0
         });
 
-        // 상대 경로 (상위 폴더의 모델 참조)
         const modelPath = '../live2d_models/hiyori/runtime/hiyori_pro_t11.model3.json';
-
-        // [중요] Python에서 접근할 수 있도록 전역 변수로 선언
         window.currentModel = null;
 
         (async function main() {
             try {
                 const model = await PIXI.live2d.Live2DModel.from(modelPath);
-
-                // 초기 설정
                 model.scale.set(0.25);
                 model.x = (app.screen.width - model.width) / 2;
                 model.y = (app.screen.height - model.height) / 2 + 50;
-
                 app.stage.addChild(model);
-                window.currentModel = model; // 전역 변수에 저장
+                window.currentModel = model;
 
-                console.log("Model loaded successfully!");
-
-                model.interactive = true;
-                model.on('pointertap', () => {
-                    model.motion('TapBody');
-                });
-
-            } catch (e) {
-                console.error("Load Failed:", e);
-                const style = new PIXI.TextStyle({ fill: "red", fontSize: 20 });
-                const text = new PIXI.Text("Error:\n" + e.message, style);
-                app.stage.addChild(text);
-            }
+                // --- [Step 1-3] QWebChannel 연결 설정 ---
+                if (typeof qt !== 'undefined') {
+                    new QWebChannel(qt.webChannelTransport, function (channel) {
+                        // Python의 'pyBridge' 객체와 연결
+                        window.pyBridge = channel.objects.pyBridge;
+                        console.log("Connected to Python Bridge!");
+                    });
+                }
+            } catch (e) { console.error(e); }
         })();
 
-        // [중요] Python에서 호출할 함수: 모델 위치/크기 변경
-        // scale: 배율 (예: 0.1 ~ 2.0)
-        // x, y: 화면 중앙 기준 오프셋 (픽셀 단위)
+        // [감정 변경 함수]
+        window.changeExpression = function (name) {
+            if (!window.currentModel) return;
+            // Hiyori 모델 기준: f01, f02, f03... 또는 exp_01 등으로 저장되어 있음
+            // 예시로 단순히 expression 함수 호출
+            window.currentModel.expression(name);
+            console.log("Expression changed to:", name);
+        };
+
+        // [모션 재생 함수]
+        window.playMotion = function (group, index) {
+            if (!window.currentModel) return;
+            window.currentModel.motion(group, index);
+        };
+
         window.updateModelTransform = function (scale, offsetX, offsetY) {
             if (!window.currentModel) return;
-
             const model = window.currentModel;
             model.scale.set(scale);
-
-            // 화면 중앙 기준 위치 계산
-            const centerX = app.screen.width / 2;
-            const centerY = app.screen.height / 2;
-
-            // 모델의 앵커 포인트가 보통 좌상단이므로, 중심을 맞추기 위한 보정 필요
-            // 하지만 간단하게 절대 좌표 이동으로 구현
-            model.x = (centerX - (model.width / 2)) + offsetX;
-            model.y = (centerY - (model.height / 2)) + offsetY;
+            model.x = (app.screen.width / 2 - model.width / 2) + offsetX;
+            model.y = (app.screen.height / 2 - model.height / 2) + offsetY;
         };
     </script>
 </body>
