@@ -2,3 +2,4 @@ assets/live2d_models/
 .antigravityrules
 ENE_plan.md
 venv/
+__pycache__/
