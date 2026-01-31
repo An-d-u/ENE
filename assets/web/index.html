@@ -1,86 +1,23 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ko">
 
 <head>
     <meta charset="UTF-8">
-    <title>ENE Avatar</title>
-    <style>
-        body {
-            margin: 0;
-            padding: 0;
-            overflow: hidden;
-            background-color: transparent;
-        }
-
-        canvas {
-            display: block;
-        }
-    </style>
-    <script src="libs/live2dCubismCore.min.js"></script>
-    <script src="libs/pixi.min.js"></script>
-    <script src="libs/cubism4.min.js"></script>
-    <!-- [중요] QWebChannel 라이브러리 추가 (Qt에서 자동 제공) -->
-    <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ENE Live2D Viewer</title>
+    <link rel="stylesheet" href="style.css">
 </head>
 
 <body>
-    <canvas id="canvas"></canvas>
+    <canvas id="live2d-canvas"></canvas>
 
-    <script>
-        const app = new PIXI.Application({
-            view: document.getElementById('canvas'),
-            autoStart: true,
-            resizeTo: window,
-            transparent: true,
-            backgroundAlpha: 0
-        });
+    <!-- 로컬 JavaScript 라이브러리 사용 -->
+    <script src="lib/pixi.min.js"></script>
+    <script src="lib/live2dcubismcore.min.js"></script>
+    <script src="lib/pixi-live2d-display.min.js"></script>
 
-        const modelPath = '../live2d_models/hiyori/runtime/hiyori_pro_t11.model3.json';
-        window.currentModel = null;
-
-        (async function main() {
-            try {
-                const model = await PIXI.live2d.Live2DModel.from(modelPath);
-                model.scale.set(0.25);
-                model.x = (app.screen.width - model.width) / 2;
-                model.y = (app.screen.height - model.height) / 2 + 50;
-                app.stage.addChild(model);
-                window.currentModel = model;
-
-                // --- [Step 1-3] QWebChannel 연결 설정 ---
-                if (typeof qt !== 'undefined') {
-                    new QWebChannel(qt.webChannelTransport, function (channel) {
-                        // Python의 'pyBridge' 객체와 연결
-                        window.pyBridge = channel.objects.pyBridge;
-                        console.log("Connected to Python Bridge!");
-                    });
-                }
-            } catch (e) { console.error(e); }
-        })();
-
-        // [감정 변경 함수]
-        window.changeExpression = function (name) {
-            if (!window.currentModel) return;
-            // Hiyori 모델 기준: f01, f02, f03... 또는 exp_01 등으로 저장되어 있음
-            // 예시로 단순히 expression 함수 호출
-            window.currentModel.expression(name);
-            console.log("Expression changed to:", name);
-        };
-
-        // [모션 재생 함수]
-        window.playMotion = function (group, index) {
-            if (!window.currentModel) return;
-            window.currentModel.motion(group, index);
-        };
-
-        window.updateModelTransform = function (scale, offsetX, offsetY) {
-            if (!window.currentModel) return;
-            const model = window.currentModel;
-            model.scale.set(scale);
-            model.x = (app.screen.width / 2 - model.width / 2) + offsetX;
-            model.y = (app.screen.height / 2 - model.height / 2) + offsetY;
-        };
-    </script>
+    <!-- 메인 스크립트 -->
+    <script src="script.js"></script>
 </body>
 
 </html>
