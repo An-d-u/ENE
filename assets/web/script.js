@@ -323,3 +323,166 @@ function updateMouseTracking() {
 // 마우스 트래킹 시작
 requestAnimationFrame(updateMouseTracking);
 console.log("Mouse tracking initialized");
+
+// ==========================================
+// 표정 시스템
+// ==========================================
+
+// 표정 매핑
+const EMOTIONS = {
+    'angry': 'angry',
+    'confused': 'confused',
+    'dizzy': 'dizzy',
+    'excited': 'excited',
+    'joy': 'joy',
+    'love': 'love',
+    'pathetic': 'pathetic',
+    'pervert': 'pervert',
+    'sad': 'sad',
+    'shy': 'shy',
+    'smile': 'smile',
+    'smug': 'smug',
+    'sulk': 'sulk',
+    'teary': 'teary'
+};
+
+/**
+ * 표정 변경 함수
+ * @param {string} emotion - 감정 이름
+ */
+async function changeExpression(emotion) {
+    const model = window.live2dModel;
+    if (!model) {
+        console.warn("Model not loaded, cannot change expression");
+        return;
+    }
+
+    if (!EMOTIONS[emotion]) {
+        console.warn(`Unknown emotion: ${emotion}`);
+        return;
+    }
+
+    try {
+        // 표정 파일 경로
+        const expressionPath = `../live2d_models/jksalt/emotions/${EMOTIONS[emotion]}.exp3.json`;
+        console.log(`Changing expression to: ${emotion} (${expressionPath})`);
+
+        // Live2D 표정 적용
+        if (model.internalModel && model.internalModel.motionManager) {
+            // exp3.json 파일 로드 및 적용
+            const response = await fetch(expressionPath);
+            const expressionData = await response.json();
+
+            // 파라미터 적용
+            expressionData.Parameters.forEach(param => {
+                try {
+                    model.internalModel.coreModel.setParameterValueById(
+                        param.Id,
+                        param.Value
+                    );
+                } catch (e) {
+                    console.warn(`Failed to set parameter ${param.Id}:`, e);
+                }
+            });
+
+            console.log(`Expression changed to: ${emotion}`);
+        }
+    } catch (error) {
+        console.error(`Failed to load expression ${emotion}:`, error);
+    }
+}
+
+// ==========================================
+// 채팅 시스템
+// ==========================================
+
+const chatMessages = document.getElementById('chat-messages');
+const chatInput = document.getElementById('chat-input');
+const sendButton = document.getElementById('send-button');
+
+/**
+ * 메시지를 채팅창에 추가
+ * @param {string} text - 메시지 텍스트
+ * @param {string} role - 'user' 또는 'assistant'
+ */
+function addMessage(text, role) {
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `message ${role}`;
+
+    const bubble = document.createElement('div');
+    bubble.className = 'message-bubble';
+    bubble.textContent = text;
+
+    messageDiv.appendChild(bubble);
+    chatMessages.appendChild(messageDiv);
+
+    // 스크롤을 맨 아래로
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+/**
+ * 사용자 메시지 전송
+ */
+function sendMessage() {
+    const message = chatInput.value.trim();
+
+    if (!message) return;
+
+    // 사용자 메시지 표시
+    addMessage(message, 'user');
+
+    // 입력창 초기화
+    chatInput.value = '';
+
+    // Python으로 메시지 전송
+    if (window.pyBridge) {
+        window.pyBridge.send_to_ai(message);
+    } else {
+        console.error("Python bridge not connected");
+        addMessage("연결 오류가 발생했어요.", 'assistant');
+    }
+}
+
+// 전송 버튼 클릭
+sendButton.addEventListener('click', sendMessage);
+
+// Enter 키로 전송
+chatInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+    }
+});
+
+// ==========================================
+// QWebChannel 브릿지 연결
+// ==========================================
+
+// QWebChannel 초기화
+if (typeof QWebChannel !== 'undefined') {
+    new QWebChannel(qt.webChannelTransport, function (channel) {
+        window.pyBridge = channel.objects.bridge;
+        console.log("QWebChannel bridge connected");
+
+        // Python에서 메시지 수신
+        window.pyBridge.message_received.connect(function (text, emotion) {
+            console.log(`Received from Python: "${text}" [${emotion}]`);
+
+            // 메시지 표시
+            addMessage(text, 'assistant');
+
+            // 표정 변경
+            changeExpression(emotion);
+        });
+
+        // 표정 변경 시그널 연결
+        window.pyBridge.expression_changed.connect(function (emotion) {
+            console.log(`Expression changed: ${emotion}`);
+            changeExpression(emotion);
+        });
+    });
+} else {
+    console.warn("QWebChannel not available - running in standalone mode");
+}
+
+console.log("=== Chat and expression system initialized ===");

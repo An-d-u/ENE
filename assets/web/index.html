@@ -11,10 +11,22 @@
 <body>
     <canvas id="live2d-canvas"></canvas>
 
+    <!-- 채팅 UI -->
+    <div id="chat-container">
+        <div id="chat-messages"></div>
+        <div id="chat-input-wrapper">
+            <input type="text" id="chat-input" placeholder="메시지를 입력하세요...">
+            <button id="send-button">전송</button>
+        </div>
+    </div>
+
     <!-- 로컬 JavaScript 라이브러리 사용 -->
     <script src="lib/pixi.min.js"></script>
     <script src="lib/live2dcubismcore.min.js"></script>
     <script src="lib/pixi-live2d-display.min.js"></script>
+
+    <!-- QWebChannel -->
+    <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
 
     <!-- 메인 스크립트 -->
     <script src="script.js"></script>

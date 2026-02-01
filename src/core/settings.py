@@ -21,6 +21,7 @@ class Settings:
         'model_x_percent': 50,  # 0-100%
         'model_y_percent': 50,  # 0-100%
         'mouse_tracking_enabled': True,  # 마우스 트래킹
+        'gemini_api_key': '',  # Gemini API 키
     }
     
     def __init__(self, config_path: str = 'config.json'):

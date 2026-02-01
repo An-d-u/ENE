@@ -5,10 +5,12 @@ Live2D 모델을 표시하는 프레임리스 투명 윈도우
 from PyQt6.QtWidgets import QWidget, QVBoxLayout
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtCore import Qt, QUrl
+from PyQt6.QtWebChannel import QWebChannel
 from pathlib import Path
 import sys
 
 from ..ui.drag_bar import DragBar
+from .bridge import WebBridge
 
 
 class OverlayWindow(QWidget):
@@ -29,8 +31,14 @@ class OverlayWindow(QWidget):
         # 배경 투명화
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         
+        # Python-JS 브릿지 생성
+        self.bridge = WebBridge(self)
+        
         # UI 설정
         self._setup_ui()
+        
+        # QWebChannel 설정
+        self._setup_webchannel()
         
         # 설정 적용
         self._apply_settings()
@@ -44,11 +52,7 @@ class OverlayWindow(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         
-        # 드래그 바
-        self.drag_bar = DragBar(self)
-        layout.addWidget(self.drag_bar)
-        
-        # QWebEngineView (Live2D 렌더링용)
+        # 웹뷰 (전체 창 사용)
         self.web_view = QWebEngineView(self)
         
         # 웹뷰 배경 투명화
@@ -80,6 +84,15 @@ class OverlayWindow(QWidget):
             print(f"경고: HTML 파일을 찾을 수 없음: {html_path}")
         
         layout.addWidget(self.web_view)
+        
+        # 드래그 바 (absolute positioning - 웹뷰 위에 배치)
+        self.drag_bar = DragBar(self)
+        self.drag_bar.move(0, 0)
+        self.drag_bar.resize(self.width(), 30)
+        # 최상위로 올리기
+        self.drag_bar.raise_()
+        # 마우스 이벤트가 제대로 전달되도록 설정
+        self.drag_bar.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
     
     def _on_page_loaded(self, ok):
         """페이지 로드 완료 시 호출"""
@@ -191,6 +204,12 @@ class OverlayWindow(QWidget):
         self.settings.save()
         return not current
     
+    def resizeEvent(self, event):
+        """창 크기 변경 시 드래그 바 너비 조정"""
+        super().resizeEvent(event)
+        # 드래그 바 너비를 창 너비에 맞춤
+        self.drag_bar.resize(self.width(), 30)
+    
     def closeEvent(self, event):
         """창 닫기 이벤트 - 현재 위치/크기 저장"""
         self.settings.set('window_x', self.x())
@@ -227,6 +246,23 @@ class OverlayWindow(QWidget):
         # JavaScript로 마우스 위치 전달
         js_code = f"window.updateMousePosition({local_pos.x()}, {local_pos.y()});"
         self.web_view.page().runJavaScript(js_code)
+    
+    def _setup_webchannel(self):
+        """QWebChannel 설정"""
+        # WebChannel 생성
+        self.channel = QWebChannel()
+        
+        # 브릿지 등록
+        self.channel.registerObject('bridge', self.bridge)
+        
+        # WebEngineView의 페이지에 채널 설정
+        self.web_view.page().setWebChannel(self.channel)
+        
+        print("QWebChannel initialized")
+    
+    def set_llm_client(self, llm_client):
+        """LLM 클라이언트 설정"""
+        self.bridge.set_llm_client(llm_client)
     
     def toggle_mouse_tracking(self):
         """마우스 트래킹 ON/OFF"""
