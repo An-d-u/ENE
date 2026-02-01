@@ -9,6 +9,7 @@ from .settings import Settings
 from .overlay_window import OverlayWindow
 from .tray_icon import TrayIcon
 from ..ui.settings_dialog import SettingsDialog
+from ..ai.llm_client import GeminiClient
 
 
 class ENEApplication(QObject):
@@ -20,8 +21,12 @@ class ENEApplication(QObject):
         # 설정 관리자
         self.settings = Settings()
         
+        # LLM 클라이언트 초기화
+        self._init_llm_client()
+        
         # 오버레이 윈도우 생성
         self.overlay_window = OverlayWindow(self.settings)
+        self.overlay_window.set_llm_client(self.llm_client)  # LLM 클라이언트 연결
         self.overlay_window.show()
         
         # 트레이 아이콘 생성
@@ -29,6 +34,36 @@ class ENEApplication(QObject):
         
         # 시그널 연결
         self._connect_signals()
+    
+    def _init_llm_client(self):
+        """LLM 클라이언트 초기화"""
+        from pathlib import Path
+        
+        # API 키 파일에서 읽기
+        api_key_file = Path('api_key.txt')
+        
+        if not api_key_file.exists():
+            print("WARNING: api_key.txt 파일이 없습니다.")
+            print("프로젝트 루트에 api_key.txt 파일을 생성하고 Gemini API 키를 입력해주세요.")
+            self.llm_client = None
+            return
+        
+        try:
+            api_key = api_key_file.read_text(encoding='utf-8').strip()
+            
+            if not api_key:
+                print("WARNING: api_key.txt가 비어있습니다.")
+                self.llm_client = None
+                return
+            
+            self.llm_client = GeminiClient(api_key=api_key)
+            print("OK: Gemini API 클라이언트 초기화 성공")
+            
+        except Exception as e:
+            print(f"ERROR: Gemini API 클라이언트 초기화 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            self.llm_client = None
     
     def _connect_signals(self):
         """시그널 연결"""

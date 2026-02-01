@@ -1,5 +1,16 @@
 assets/live2d_models/
-.antigravityrules
-ENE_plan.md
-venv/
+assets/live2d_models/# Python
 __pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+venv/
+.pytest_cache/
+
+# Config files
+config.json
+api_key.txt
+
+# IDE
+.vscode/
+.idea/
