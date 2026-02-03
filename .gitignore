@@ -9,7 +9,10 @@ venv/
 
 # Config files
 config.json
+
+# API Keys
 api_key.txt
+voyage_api_key.txt
 
 # IDE
 .vscode/
