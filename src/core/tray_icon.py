@@ -13,6 +13,7 @@ class TrayIcon(QObject):
     
     # 시그널 정의
     settings_requested = pyqtSignal()
+    memory_requested = pyqtSignal()  # 기억 관리
     toggle_drag_bar_requested = pyqtSignal()
     toggle_mouse_tracking_requested = pyqtSignal()
     quit_requested = pyqtSignal()
@@ -54,6 +55,13 @@ class TrayIcon(QObject):
         settings_action = QAction("설정", self)
         settings_action.triggered.connect(self.settings_requested.emit)
         menu.addAction(settings_action)
+        
+        # 기억 관리 액션
+        memory_action = QAction("기억 관리", self)
+        memory_action.triggered.connect(self.memory_requested.emit)
+        menu.addAction(memory_action)
+        
+        menu.addSeparator()
         
         # 드래그 바 표시/숨김 액션
         self.toggle_bar_action = QAction("드래그 바 숨김", self)

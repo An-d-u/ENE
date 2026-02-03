@@ -350,6 +350,11 @@ const EMOTIONS = {
  * 표정 변경 함수
  * @param {string} emotion - 감정 이름
  */
+// 현재 표정 애니메이션 상태
+let currentExpressionAnimation = null;
+// 이전 표정의 파라미터 ID 목록
+let previousExpressionParams = [];
+
 async function changeExpression(emotion) {
     const model = window.live2dModel;
     if (!model) {
@@ -368,24 +373,88 @@ async function changeExpression(emotion) {
         console.log(`Changing expression to: ${emotion} (${expressionPath})`);
 
         // Live2D 표정 적용
-        if (model.internalModel && model.internalModel.motionManager) {
-            // exp3.json 파일 로드 및 적용
+        if (model.internalModel && model.internalModel.coreModel) {
+            // exp3.json 파일 로드
             const response = await fetch(expressionPath);
             const expressionData = await response.json();
 
-            // 파라미터 적용
-            expressionData.Parameters.forEach(param => {
+            // 이전 애니메이션 취소
+            if (currentExpressionAnimation) {
+                cancelAnimationFrame(currentExpressionAnimation);
+            }
+
+            // 현재 파라미터 값 저장 및 목표값 설정
+            const startValues = {};
+            const targetValues = {};
+
+            // 이전 표정의 파라미터를 0으로 리셋
+            previousExpressionParams.forEach(paramId => {
                 try {
-                    model.internalModel.coreModel.setParameterValueById(
-                        param.Id,
-                        param.Value
-                    );
+                    const currentValue = model.internalModel.coreModel.getParameterValueById(paramId);
+                    startValues[paramId] = currentValue;
+                    targetValues[paramId] = 0; // 이전 표정 파라미터는 0으로
                 } catch (e) {
-                    console.warn(`Failed to set parameter ${param.Id}:`, e);
+                    // 파라미터가 없을 수 있음
                 }
             });
 
-            console.log(`Expression changed to: ${emotion}`);
+            // 새 표정의 파라미터 설정
+            const newExpressionParams = [];
+            expressionData.Parameters.forEach(param => {
+                try {
+                    const currentValue = model.internalModel.coreModel.getParameterValueById(param.Id);
+                    startValues[param.Id] = currentValue;
+                    targetValues[param.Id] = param.Value;
+                    newExpressionParams.push(param.Id);
+                } catch (e) {
+                    console.warn(`Failed to get parameter ${param.Id}:`, e);
+                }
+            });
+
+            // 이전 표정 파라미터 목록 업데이트
+            previousExpressionParams = newExpressionParams;
+
+            // 애니메이션 설정
+            const duration = 500; // 0.5초
+            const startTime = Date.now();
+
+            // 애니메이션 함수
+            function animate() {
+                const elapsed = Date.now() - startTime;
+                const progress = Math.min(elapsed / duration, 1.0);
+
+                // Ease-out 곡선 적용
+                const eased = 1 - Math.pow(1 - progress, 3);
+
+                // 모든 파라미터 보간 (이전 표정 리셋 + 새 표정 적용)
+                Object.keys(targetValues).forEach(paramId => {
+                    try {
+                        const start = startValues[paramId] || 0;
+                        const target = targetValues[paramId];
+                        const value = start + (target - start) * eased;
+
+                        model.internalModel.coreModel.setParameterValueById(
+                            paramId,
+                            value
+                        );
+                    } catch (e) {
+                        // 무시
+                    }
+                });
+
+                // 애니메이션 계속 또는 종료
+                if (progress < 1.0) {
+                    currentExpressionAnimation = requestAnimationFrame(animate);
+                } else {
+                    currentExpressionAnimation = null;
+                    console.log(`Expression animation complete: ${emotion}`);
+                }
+            }
+
+            // 애니메이션 시작
+            animate();
+
+            console.log(`Expression changing to: ${emotion}`);
         }
     } catch (error) {
         console.error(`Failed to load expression ${emotion}:`, error);
