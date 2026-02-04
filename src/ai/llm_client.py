@@ -11,22 +11,20 @@ from .prompt import get_system_prompt, get_available_emotions
 class GeminiClient:
     """Gemini API 클라이언트"""
     
-    def __init__(
-        self, 
-        api_key: str, 
-        model_name: str = "gemini-3-flash-preview",
-        memory_manager=None
-    ):
+    def __init__(self, api_key: str, memory_manager=None, user_profile=None):
         """
+        Gemini API 클라이언트 초기화
+        
         Args:
             api_key: Gemini API 키
-            model_name: 사용할 모델 이름
-            memory_manager: 메모리 매니저 (옵션)
+            memory_manager: 메모리 매니저 인스턴스 (옵션)
+            user_profile: 사용자 프로필 인스턴스 (옵션)
         """
         # genai 클라이언트 초기화
         self.client = genai.Client(api_key=api_key)
-        self.model_name = model_name
+        self.model_name = "gemini-3-flash-preview"
         self.memory_manager = memory_manager
+        self.user_profile = user_profile
         
         # Chat 세션 생성
         self.chat = self.client.chats.create(
@@ -66,13 +64,13 @@ class GeminiClient:
     
     async def _build_memory_context(self, query: str) -> str:
         """
-        메모리 컨텍스트 구성
+        메모리 기반 컨텍스트 구성
         
         Args:
             query: 사용자 쿼리
             
         Returns:
-            메모리 컨텍스트 문자열
+            컨텍스트 문자열
         """
         if not self.memory_manager:
             print("[LLM] 메모리 매니저 없음")
@@ -80,11 +78,36 @@ class GeminiClient:
         
         context_parts = []
         
+        # 0. 사용자 프로필 정보 (최우선)
+        if self.user_profile and hasattr(self.user_profile, 'basic_info'):
+            profile_lines = ["[마스터 기본 정보]"]
+            
+            basic = self.user_profile.basic_info
+            if basic.get('name'):
+                profile_lines.append(f"- 이름: {basic['name']}")
+            if basic.get('gender'):
+                profile_lines.append(f"- 성별: {basic['gender']}")
+            if basic.get('birthday'):
+                profile_lines.append(f"- 생일: {basic['birthday']}")
+            if basic.get('occupation'):
+                profile_lines.append(f"- 직업: {basic['occupation']}")
+            if basic.get('major'):
+                profile_lines.append(f"- 전공: {basic['major']}")
+            
+            # 취미/선호도
+            prefs = self.user_profile.preferences
+            if prefs.get('likes'):
+                profile_lines.append(f"- 좋아하는 것: {', '.join(prefs['likes'])}")
+            
+            if len(profile_lines) > 1:  # 정보가 있으면
+                context_parts.append("\n".join(profile_lines))
+                print(f"[LLM] 프로필 정보 포함: {len(profile_lines)-1}개 항목")
+        
         # 1. 중요 기억 가져오기
         important_memories = self.memory_manager.get_important()
         if important_memories:
             print(f"[LLM] 중요 기억 {len(important_memories)}개 발견")
-            context_parts.append("[중요한 기억]")
+            context_parts.append("\n[중요한 기억]")
             for memory in important_memories[:3]:  # 최대 3개
                 context_parts.append(f"- {memory.summary}")
                 print(f"  ⭐ {memory.summary[:50]}...")
