@@ -4,7 +4,7 @@
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QListWidget, QListWidgetItem, QLineEdit,
-    QMessageBox, QWidget
+    QMessageBox, QWidget, QSpinBox, QGroupBox
 )
 from PyQt6.QtCore import Qt
 from datetime import datetime
@@ -13,21 +13,42 @@ from datetime import datetime
 class MemoryDialog(QDialog):
     """기억 관리 다이얼로그"""
     
-    def __init__(self, memory_manager, parent=None):
+    def __init__(self, memory_manager, bridge=None, parent=None):
         super().__init__(parent)
         self.memory_manager = memory_manager
+        self.bridge = bridge  # WebBridge 참조
         
         self.setWindowTitle("ENE 기억 관리")
-        self.setMinimumSize(600, 500)
+        self.setMinimumSize(600, 550)
         
         self._setup_ui()
         self._load_memories()
+        self._load_settings()
     
     def _setup_ui(self):
         """UI 구성"""
         layout = QVBoxLayout(self)
         
-        # 상단: 통계 및 검색
+        # === 설정 그룹 ===
+        settings_group = QGroupBox("자동 요약 설정")
+        settings_layout = QHBoxLayout(settings_group)
+        
+        settings_layout.addWidget(QLabel("대화"))
+        
+        self.threshold_spinbox = QSpinBox()
+        self.threshold_spinbox.setMinimum(2)
+        self.threshold_spinbox.setMaximum(100)  # 최대 100개
+        self.threshold_spinbox.setValue(10)
+        self.threshold_spinbox.setSuffix("개")
+        self.threshold_spinbox.valueChanged.connect(self._on_threshold_changed)
+        settings_layout.addWidget(self.threshold_spinbox)
+        
+        settings_layout.addWidget(QLabel("이상 시 자동 요약"))
+        settings_layout.addStretch()
+        
+        layout.addWidget(settings_group)
+        
+        # === 통계 및 검색 ===
         top_layout = QHBoxLayout()
         
         # 통계 레이블
@@ -71,6 +92,11 @@ class MemoryDialog(QDialog):
         refresh_btn = QPushButton("🔄 새로고침")
         refresh_btn.clicked.connect(self._load_memories)
         button_layout.addWidget(refresh_btn)
+        
+        # 사용자 정보 관리 버튼
+        profile_btn = QPushButton("👤 사용자 정보 관리")
+        profile_btn.clicked.connect(self._show_profile_dialog)
+        button_layout.addWidget(profile_btn)
         
         close_btn = QPushButton("닫기")
         close_btn.clicked.connect(self.accept)
@@ -252,3 +278,42 @@ class MemoryDialog(QDialog):
                 )
                 
                 item.setHidden(not matched)
+    
+    def _load_settings(self):
+        """설정 로드"""
+        if self.bridge:
+            self.threshold_spinbox.setValue(self.bridge.summarize_threshold)
+    
+    def _on_threshold_changed(self, value):
+        """임계값 변경 시"""
+        if self.bridge:
+            self.bridge.summarize_threshold = value
+            print(f"[Memory Dialog] 자동 요약 임계값: {value}개")
+            
+            # settings에도 저장
+            if hasattr(self.bridge, 'settings') and self.bridge.settings:
+                self.bridge.settings.config['summarize_threshold'] = value
+                self.bridge.settings.save()
+                print(f"[Memory Dialog] 설정 저장 완료")
+    
+    def _show_profile_dialog(self):
+        """사용자 정보 관리 다이얼로그 표시"""
+        if not self.bridge or not hasattr(self.bridge, 'user_profile'):
+            QMessageBox.warning(
+                self,
+                "프로필 없음",
+                "사용자 프로필이 초기화되지 않았습니다."
+            )
+            return
+        
+        if not self.bridge.user_profile:
+            QMessageBox.information(
+                self,
+                "프로필 정보 없음",
+                "아직 저장된 마스터 정보가 없습니다.\n대화를 나누면 자동으로 정보가 추출됩니다."
+            )
+            return
+        
+        from src.ui.profile_dialog import ProfileDialog
+        dialog = ProfileDialog(self.bridge.user_profile, self)
+        dialog.exec()
