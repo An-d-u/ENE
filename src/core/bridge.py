@@ -57,25 +57,35 @@ class WebBridge(QObject):
     message_received = pyqtSignal(str, str)  # (텍스트, 감정)
     expression_changed = pyqtSignal(str)     # 표정 변경
     
-    def __init__(self, parent=None):
+    def __init__(self, settings=None, parent=None):
         super().__init__(parent)
         self.llm_client = None
         self.memory_manager = None
         self.worker = None
+        self.settings = settings
         
         # 대화 추적
         self.conversation_buffer = []  # [(role, message), ...]
-        self.summarize_threshold = 10  # 10개 이상 대화 시 요약
+        
+        # 설정에서 임계값 로드 (기본값: 10)
+        if settings and hasattr(settings, 'config'):
+            self.summarize_threshold = settings.config.get('summarize_threshold', 10)
+        else:
+            self.summarize_threshold = 10
+        
+        print(f"[Bridge] 자동 요약 임계값: {self.summarize_threshold}개")
     
     def set_llm_client(self, client):
         """LLM 클라이언트 설정"""
         self.llm_client = client
         print(f"[Bridge] LLM client set: {client is not None}")
     
-    def set_memory_manager(self, memory_manager, llm_client):
-        """메모리 매니저 설정"""
+    def set_memory_manager(self, memory_manager, llm_client, user_profile=None):
+        """메모리 매니저 및 사용자 프로필 설정"""
         self.memory_manager = memory_manager
+        self.user_profile = user_profile
         print(f"[Bridge] Memory manager set: {memory_manager is not None}")
+        print(f"[Bridge] User profile set: {user_profile is not None}")
     
     @pyqtSlot(str)
     def send_to_ai(self, message: str):
@@ -148,7 +158,7 @@ class WebBridge(QObject):
                 traceback.print_exc()
     
     async def _auto_summarize(self):
-        """대화 자동 요약"""
+        """대화 자동 요약 및 사용자 정보 추출"""
         if not self.conversation_buffer or not self.memory_manager or not self.llm_client:
             return
         
@@ -159,20 +169,32 @@ class WebBridge(QObject):
             messages = self.conversation_buffer.copy()
             original_messages = [msg for role, msg in messages]
             
-            # LLM으로 요약 생성
-            summary = await self.llm_client.summarize_conversation(messages)
+            # LLM으로 요약 + 사용자 정보 생성
+            summary, user_facts = await self.llm_client.summarize_conversation(messages)
             
-            # 메모리에 저장
+            # 메모리에 요약 저장
             await self.memory_manager.add_summary(
                 summary=summary,
                 original_messages=original_messages,
                 is_important=False
             )
             
+            # 사용자 정보 저장
+            if user_facts and hasattr(self, 'user_profile') and self.user_profile:
+                print(f"[Bridge] 마스터 정보 {len(user_facts)}개 저장")
+                for fact in user_facts:
+                    self.user_profile.add_fact(
+                        content=fact,
+                        category="fact",
+                        source=f"대화 요약 ({datetime.now().strftime('%Y-%m-%d %H:%M')})"
+                    )
+            
             # 버퍼 클리어
             self.conversation_buffer = []
             
-            print(f"[Bridge] 대화 요약 완료 및 저장: {summary[:50]}...")
+            print(f"[Bridge] 대화 요약 완료: {summary[:50]}...")
+            if user_facts:
+                print(f"[Bridge] 마스터 정보: {user_facts}")
             
         except Exception as e:
             print(f"[Bridge] 자동 요약 실패: {e}")

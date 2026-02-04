@@ -9,6 +9,8 @@ venv/
 
 # Config files
 config.json
+memory.json
+user_profile.json
 
 # API Keys
 api_key.txt

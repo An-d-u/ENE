@@ -170,15 +170,15 @@ class GeminiClient:
             traceback.print_exc()
             raise
     
-    async def summarize_conversation(self, messages: list) -> str:
+    async def summarize_conversation(self, messages: list) -> tuple[str, list[str]]:
         """
-        대화 내용 요약 생성
+        대화 내용 요약 및 사용자 정보 추출
         
         Args:
             messages: [(role, content), ...] 형식의 메시지 리스트
             
         Returns:
-            요약 텍스트
+            (요약 텍스트, 사용자 정보 목록) 튜플
         """
         try:
             # 현재 시간 가져오기
@@ -191,16 +191,23 @@ class GeminiClient:
                 f"{role}: {content}" for role, content in messages
             ])
             
-            # 요약 프롬프트 (시간 정보 포함)
-            summarize_prompt = f"""다음 대화를 간결하게 요약해주세요. 
-중요한 사실, 감정, 맥락을 포함하고, 반드시 대화 시점({time_str})도 명시해주세요.
+            # 요약 + 정보 추출 프롬프트
+            summarize_prompt = f"""다음 대화를 요약하고, 마스터에 대한 새로운 정보를 추출해주세요.
 
 대화:
 {conversation_text}
 
-요약 (2-3문장으로, 시간 정보 포함):"""
+다음 형식으로 답변해주세요:
+
+[요약]
+{time_str}에 이루어진 대화 요약 (2-3문장)
+
+[마스터 정보]
+- 마스터에 대해 새로 알게 된 정보나 사실 나열 (없으면 "없음")
+- 예: "커피를 좋아함", "프로그래머로 일함", "고양이 알러지가 있음"
+"""
             
-            print(f"[LLM] 대화 요약 생성 중... (메시지 수: {len(messages)})")
+            print(f"[LLM] 대화 요약 및 정보 추출 중... (메시지 수: {len(messages)})")
             
             # 일회성 요청으로 요약 생성 (Chat 세션과 별도)
             response = self.client.models.generate_content(
@@ -209,17 +216,74 @@ class GeminiClient:
                 config={'temperature': 0.5}  # 요약은 더 일관성 있게
             )
             
-            summary = response.text.strip()
-            print(f"[LLM] 요약 생성 완료: {summary[:50]}...")
+            response_text = response.text.strip()
             
-            return summary
+            # 응답 파싱
+            summary, user_facts = self._parse_summary_response(response_text)
+            
+            print(f"[LLM] 요약 생성 완료: {summary[:50]}...")
+            if user_facts:
+                print(f"[LLM] 마스터 정보 {len(user_facts)}개 추출: {user_facts}")
+            
+            return summary, user_facts
             
         except Exception as e:
             print(f"[LLM] 요약 생성 실패: {e}")
             import traceback
             traceback.print_exc()
             # 실패 시 간단한 요약 반환
-            return f"대화 {len(messages)}개 메시지"
+            return f"대화 {len(messages)}개 메시지", []
+    
+    def _parse_summary_response(self, response_text: str) -> tuple[str, list[str]]:
+        """
+        요약 응답 파싱 ([요약] 및 [마스터 정보] 분리)
+        
+        Args:
+            response_text: LLM 응답 텍스트
+            
+        Returns:
+            (요약, 사용자 정보 목록) 튜플
+        """
+        summary = ""
+        user_facts = []
+        
+        try:
+            lines = response_text.split('\n')
+            current_section = None
+            
+            for line in lines:
+                line = line.strip()
+                
+                if '[요약]' in line or 'Summary' in line:
+                    current_section = 'summary'
+                    continue
+                elif '[마스터 정보]' in line or 'Master Info' in line or '[사용자 정보]' in line:
+                    current_section = 'facts'
+                    continue
+                
+                if not line:
+                    continue
+                
+                if current_section == 'summary':
+                    summary += line + " "
+                elif current_section == 'facts':
+                    # "- " 로 시작하거나 "없음"이 아닌 경우
+                    if line.startswith('-'):
+                        fact = line[1:].strip()
+                        if fact and fact.lower() not in ['없음', 'none', '없습니다']:
+                            user_facts.append(fact)
+            
+            summary = summary.strip()
+            
+            # 섹션이 없는 경우 전체를 요약으로 간주
+            if not summary:
+                summary = response_text.strip()
+            
+        except Exception as e:
+            print(f"[LLM] 응답 파싱 실패: {e}")
+            summary = response_text.strip()
+        
+        return summary, user_facts
     
     def _parse_response(self, response_text: str) -> Tuple[str, str]:
         """

@@ -31,8 +31,8 @@ class OverlayWindow(QWidget):
         # 배경 투명화
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         
-        # Python-JS 브릿지 생성
-        self.bridge = WebBridge(self)
+        # Python-JS 브릿지 생성 (settings 전달)
+        self.bridge = WebBridge(settings=self.settings, parent=self)
         
         # UI 설정
         self._setup_ui()

@@ -61,6 +61,9 @@ class ENEApplication(QObject):
             # 메모리 매니저를 먼저 초기화
             self._init_memory_manager()
             
+            # 사용자 프로필 초기화
+            self._init_user_profile()
+            
             # LLM 클라이언트 초기화 (메모리 매니저 전달)
             self.llm_client = GeminiClient(
                 api_key=api_key,
@@ -81,6 +84,20 @@ class ENEApplication(QObject):
             traceback.print_exc()
             self.llm_client = None
             self.memory_manager = None
+    
+    def _init_user_profile(self):
+        """사용자 프로필 초기화"""
+        try:
+            from src.ai.user_profile import UserProfile
+            
+            self.user_profile = UserProfile(profile_file="user_profile.json")
+            print("OK: 사용자 프로필 초기화 성공")
+            
+        except Exception as e:
+            print(f"ERROR: 사용자 프로필 초기화 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            self.user_profile = None
     
     def _init_memory_manager(self):
         """메모리 매니저 초기화"""
@@ -128,9 +145,11 @@ class ENEApplication(QObject):
         # WebBridge에 LLM 클라이언트 및 메모리 매니저 전달
         self.overlay_window.bridge.set_llm_client(self.llm_client)
         if hasattr(self, 'memory_manager'):
+            user_profile = self.user_profile if hasattr(self, 'user_profile') else None
             self.overlay_window.bridge.set_memory_manager(
                 self.memory_manager,
-                self.llm_client
+                self.llm_client,
+                user_profile
             )
         # 트레이 아이콘 시그널
         self.tray_icon.settings_requested.connect(self._show_settings_dialog)
@@ -162,7 +181,10 @@ class ENEApplication(QObject):
             return
         
         from src.ui.memory_dialog import MemoryDialog
-        dialog = MemoryDialog(self.memory_manager)
+        
+        # WebBridge 참조 전달
+        bridge = self.overlay_window.bridge if hasattr(self.overlay_window, 'bridge') else None
+        dialog = MemoryDialog(self.memory_manager, bridge)
         dialog.exec()
     
     def _on_settings_changed(self, new_settings: dict):
