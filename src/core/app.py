@@ -64,10 +64,11 @@ class ENEApplication(QObject):
             # 사용자 프로필 초기화
             self._init_user_profile()
             
-            # LLM 클라이언트 초기화 (메모리 매니저 전달)
+            # LLM 클라이언트 초기화 (메모리 매니저 + 프로필 전달)
             self.llm_client = GeminiClient(
                 api_key=api_key,
-                memory_manager=self.memory_manager
+                memory_manager=self.memory_manager,
+                user_profile=self.user_profile if hasattr(self, 'user_profile') else None
             )
             print("OK: Gemini API 클라이언트 초기화 성공")
             
