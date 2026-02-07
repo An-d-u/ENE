@@ -153,14 +153,22 @@ class MemoryManager:
             
             # 유사도 계산
             similarities = []
+            max_similarity = 0.0
+            
             for memory in memories_with_embedding:
                 similarity = self.embedding_generator.cosine_similarity(
                     query_embedding,
                     memory.embedding
                 )
                 
+                if similarity > max_similarity:
+                    max_similarity = similarity
+                
                 if similarity >= min_similarity:
                     similarities.append((memory, similarity))
+            
+            # 디버깅: 최대 유사도 출력
+            print(f"[Memory] 검색 쿼리: '{query}' (최대 유사도: {max_similarity:.4f})")
             
             # 유사도 높은 순으로 정렬
             similarities.sort(key=lambda x: x[1], reverse=True)
@@ -168,9 +176,12 @@ class MemoryManager:
             # 상위 k개 반환
             result = similarities[:top_k]
             
-            print(f"[Memory] 유사 기억 {len(result)}개 찾음")
-            for memory, sim in result:
-                print(f"  - [{sim:.3f}] {memory.summary[:50]}...")
+            if result:
+                print(f"[Memory] 유사 기억 {len(result)}개 찾음 (임계값: {min_similarity})")
+                for memory, sim in result:
+                    print(f"  - [{sim:.3f}] {memory.summary[:50]}...")
+            else:
+                print(f"[Memory] 임계값({min_similarity}) 이상의 유사 기억 없음 (최대: {max_similarity:.3f})")
             
             return result
             

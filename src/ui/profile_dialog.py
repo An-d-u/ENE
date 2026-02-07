@@ -67,7 +67,73 @@ class ProfileDialog(QDialog):
         
         # 통계 업데이트
         total_facts = len(self.user_profile.facts)
-        self.stats_label.setText(f"총 {total_facts}개의 마스터 정보")
+        basic_count = len([k for k, v in self.user_profile.basic_info.items() if v])
+        likes_count = len(self.user_profile.preferences.get('likes', []))
+        
+        self.stats_label.setText(
+            f"기본 정보 {basic_count}개 | 추출된 정보 {total_facts}개 | 취미/선호 {likes_count}개"
+        )
+        
+        # 1. 기본 정보 표시
+        if self.user_profile.basic_info:
+            self._add_basic_info_section()
+        
+        # 2. 취미/선호도 표시
+        if self.user_profile.preferences.get('likes'):
+            self._add_preferences_section()
+        
+        # 3. 자동 추출된 정보 표시
+        if self.user_profile.facts:
+            self._add_facts_section()
+        
+        # 아무것도 없으면
+        if not self.user_profile.basic_info and not self.user_profile.facts:
+            item = QListWidgetItem("등록된 마스터 정보가 없습니다.")
+            self.profile_list.addItem(item)
+    
+    def _add_basic_info_section(self):
+        """기본 정보 섹션 추가"""
+        # 헤더
+        header_item = QListWidgetItem("📋 기본 정보")
+        header_item.setBackground(Qt.GlobalColor.lightGray)
+        self.profile_list.addItem(header_item)
+        
+        basic = self.user_profile.basic_info
+        info_lines = []
+        
+        if basic.get('name'):
+            info_lines.append(f"이름: {basic['name']}")
+        if basic.get('gender'):
+            info_lines.append(f"성별: {basic['gender']}")
+        if basic.get('birthday'):
+            info_lines.append(f"생일: {basic['birthday']}")
+        if basic.get('occupation'):
+            info_lines.append(f"직업: {basic['occupation']}")
+        if basic.get('major'):
+            info_lines.append(f"전공: {basic['major']}")
+        
+        for line in info_lines:
+            item = QListWidgetItem(f"  • {line}")
+            self.profile_list.addItem(item)
+    
+    def _add_preferences_section(self):
+        """취미/선호도 섹션 추가"""
+        # 헤더
+        header_item = QListWidgetItem("❤️ 취미 / 좋아하는 것")
+        header_item.setBackground(Qt.GlobalColor.lightGray)
+        self.profile_list.addItem(header_item)
+        
+        likes = self.user_profile.preferences.get('likes', [])
+        for like in likes:
+            item = QListWidgetItem(f"  • {like}")
+            self.profile_list.addItem(item)
+    
+    def _add_facts_section(self):
+        """자동 추출 정보 섹션 추가"""
+        # 헤더
+        header_item = QListWidgetItem("🤖 자동 추출된 정보")
+        header_item.setBackground(Qt.GlobalColor.lightGray)
+        self.profile_list.addItem(header_item)
         
         # 시간순 정렬 (최신순)
         facts = sorted(

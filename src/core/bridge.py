@@ -2,6 +2,7 @@
 Python-JavaScript 브릿지 (QWebChannel)
 """
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, QThread
+from datetime import datetime
 
 
 class AIWorker(QThread):
@@ -10,36 +11,42 @@ class AIWorker(QThread):
     response_ready = pyqtSignal(str, str)  # (텍스트, 감정)
     error_occurred = pyqtSignal(str)  # 오류 메시지
     
-    def __init__(self, llm_client, message, use_memory=True):
+    def __init__(self, llm_client, message, use_memory=True, images=None):
         super().__init__()
         self.llm_client = llm_client
         self.message = message
         self.use_memory = use_memory
+        self.images = images or []  # 이미지 데이터 리스트
     
     def run(self):
         """스레드 실행"""
         try:
             print(f"[AI Worker] Processing message: {self.message[:50]}...")
             
-            # 메모리를 활용할지 결정
-            if self.use_memory and hasattr(self.llm_client, 'send_message_with_memory'):
+            # 비동기 메서드이므로 asyncio로 실행
+            import asyncio
+            
+            # 새 이벤트 루프 생성 (워커 스레드용)
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            # 이미지가 있으면 멀티모달로 처리
+            if self.images:
+                print(f"[AI Worker] 이미지 {len(self.images)}개 포함 - 멀티모달 모드")
+                response_text, emotion = loop.run_until_complete(
+                    self.llm_client.send_message_with_images(self.message, self.images)
+                )
+            elif self.use_memory and hasattr(self.llm_client, 'send_message_with_memory'):
                 print(f"[AI Worker] 메모리 활용 모드")
-                # 비동기 메서드이므로 asyncio로 실행
-                import asyncio
-                
-                # 새 이벤트 루프 생성 (워커 스레드용)
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                
                 response_text, emotion = loop.run_until_complete(
                     self.llm_client.send_message_with_memory(self.message)
                 )
-                
-                loop.close()
             else:
                 print(f"[AI Worker] 일반 모드 (메모리 없음)")
                 # 메모리 없이 일반 전송
                 response_text, emotion = self.llm_client.send_message(self.message)
+            
+            loop.close()
             
             print(f"[AI Worker] Response: {response_text[:50]}... [{emotion}]")
             self.response_ready.emit(response_text, emotion)
@@ -102,17 +109,14 @@ class WebBridge(QObject):
             self.message_received.emit("AI가 초기화되지 않았어요.", "sad")
             return
         
-        # 현재 날짜와 시간 추가
-        from datetime import datetime
+        # 타임스탬프 추가
         now = datetime.now()
         timestamp = now.strftime("%Y년 %m월 %d일 %H시 %M분")
-        
-        # 시간 정보를 포함한 메시지
         message_with_time = f"[현재 시각: {timestamp}]\n{message}"
         print(f"[Bridge] Message with timestamp: {message_with_time}")
         
-        # 대화 버퍼에 추가 (원본 메시지)
-        self.conversation_buffer.append(("user", message))
+        # 대화 버퍼에 추가 (원본 메시지 + 타임스탬프)
+        self.conversation_buffer.append(("user", message, timestamp))
         
         # 이전 워커가 실행 중이면 대기
         if self.worker and self.worker.isRunning():
@@ -126,13 +130,67 @@ class WebBridge(QObject):
         self.worker.start()
         print("[Bridge] Worker thread started")
     
+    @pyqtSlot(str, str)
+    def send_to_ai_with_images(self, message: str, images_json: str):
+        """
+        JavaScript에서 호출: 이미지와 함께 메시지 전송
+        
+        Args:
+            message: 사용자 메시지
+            images_json: 이미지 데이터 JSON 배열
+        """
+        import json
+        
+        print(f"[Bridge] Received message with images from JS")
+        
+        if not self.llm_client:
+            print("[Bridge] LLM client not initialized")
+            self.message_received.emit("AI가 초기화되지 않았어요.", "sad")
+            return
+        
+        # 이미지 데이터 파싱
+        try:
+            images_data = json.loads(images_json)
+            print(f"[Bridge] Parsed {len(images_data)} images")
+        except Exception as e:
+            print(f"[Bridge] Failed to parse images: {e}")
+            images_data = []
+        
+        # 현재 날짜와 시간 추가
+        now = datetime.now()
+        timestamp = now.strftime("%Y년 %m월 %d일 %H시 %M분")
+        message_with_time = f"[현재 시각: {timestamp}]\n{message}"
+        
+        # 대화 버퍼에 추가 (이미지는 [이미지]로 표시 + 타임스탬프)
+        img_note = f" [이미지 {len(images_data)}장]" if images_data else ""
+        self.conversation_buffer.append(("user", message + img_note, timestamp))
+        
+        # 이전 워커가 실행 중이면 대기
+        if self.worker and self.worker.isRunning():
+            print("[Bridge] Worker still running, waiting...")
+            self.worker.wait()
+        
+        # 새 워커 스레드 생성 (이미지 포함)
+        self.worker = AIWorker(
+            self.llm_client, 
+            message_with_time,
+            images=images_data
+        )
+        self.worker.response_ready.connect(self._on_response_ready)
+        self.worker.error_occurred.connect(self._on_error)
+        self.worker.start()
+        print(f"[Bridge] Worker thread started with {len(images_data)} images")
+
+    
     def _on_response_ready(self, text: str, emotion: str):
         """AI 응답 준비 완료"""
         print(f"[Bridge] Sending response to JS: {text} [{emotion}]")
         self.message_received.emit(text, emotion)
         
-        # 대화 버퍼에 응답 추가
-        self.conversation_buffer.append(("assistant", text))
+        # 대화 버퍼에 응답 추가 (+ 타임스탬프)
+        now = datetime.now()
+        timestamp = now.strftime("%Y년 %m월 %d일 %H시 %M분")
+        self.conversation_buffer.append(("assistant", text, timestamp))
         
         # 자동 요약 확인
         self._check_auto_summarize()
@@ -167,7 +225,14 @@ class WebBridge(QObject):
             
             # 대화 내용
             messages = self.conversation_buffer.copy()
-            original_messages = [msg for role, msg in messages]
+            
+            # 원본 메시지 추출 (타임스탬프 제외)
+            original_messages = []
+            for item in messages:
+                if len(item) == 3:
+                    original_messages.append(item[1])  # (role, msg, time)
+                else:
+                    original_messages.append(item[1])  # (role, msg)
             
             # LLM으로 요약 + 사용자 정보 생성
             summary, user_facts = await self.llm_client.summarize_conversation(messages)
