@@ -159,3 +159,67 @@ body {
 #send-button:active {
     transform: translateY(0);
 }
+
+/* 이미지 첨부 버튼 */
+#attach-button {
+    padding: 8px 12px;
+    border: none;
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+    font-size: 16px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+#attach-button:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+/* 이미지 미리보기 컨테이너 */
+#image-preview-container {
+    display: flex;
+    gap: 8px;
+    padding: 8px 12px;
+    overflow-x: auto;
+    background: rgba(0, 0, 0, 0.3);
+}
+
+#image-preview-container:empty {
+    display: none;
+}
+
+/* 이미지 미리보기 아이템 */
+.image-preview-item {
+    position: relative;
+    flex-shrink: 0;
+}
+
+.image-preview-item img {
+    width: 60px;
+    height: 60px;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+}
+
+.image-preview-item .remove-btn {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: rgba(255, 80, 80, 0.9);
+    border: none;
+    color: white;
+    font-size: 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.image-preview-item .remove-btn:hover {
+    background: rgba(255, 50, 50, 1);
+}

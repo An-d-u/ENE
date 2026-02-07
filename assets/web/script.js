@@ -468,19 +468,51 @@ async function changeExpression(emotion) {
 const chatMessages = document.getElementById('chat-messages');
 const chatInput = document.getElementById('chat-input');
 const sendButton = document.getElementById('send-button');
+const attachButton = document.getElementById('attach-button');
+const imageInput = document.getElementById('image-input');
+const imagePreviewContainer = document.getElementById('image-preview-container');
+
+// 첨부된 이미지 경로 목록
+let attachedImages = [];
 
 /**
  * 메시지를 채팅창에 추가
  * @param {string} text - 메시지 텍스트
  * @param {string} role - 'user' 또는 'assistant'
+ * @param {Array} images - 이미지 URL 배열 (옵션)
  */
-function addMessage(text, role) {
+function addMessage(text, role, images = []) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${role}`;
 
     const bubble = document.createElement('div');
     bubble.className = 'message-bubble';
-    bubble.textContent = text;
+
+    // 이미지가 있으면 먼저 표시
+    if (images && images.length > 0) {
+        const imagesDiv = document.createElement('div');
+        imagesDiv.style.display = 'flex';
+        imagesDiv.style.gap = '4px';
+        imagesDiv.style.marginBottom = '8px';
+        imagesDiv.style.flexWrap = 'wrap';
+
+        images.forEach(imgSrc => {
+            const img = document.createElement('img');
+            img.src = imgSrc;
+            img.style.maxWidth = '100px';
+            img.style.maxHeight = '100px';
+            img.style.borderRadius = '8px';
+            img.style.objectFit = 'cover';
+            imagesDiv.appendChild(img);
+        });
+
+        bubble.appendChild(imagesDiv);
+    }
+
+    // 텍스트 추가
+    const textSpan = document.createElement('span');
+    textSpan.textContent = text;
+    bubble.appendChild(textSpan);
 
     messageDiv.appendChild(bubble);
     chatMessages.appendChild(messageDiv);
@@ -490,26 +522,128 @@ function addMessage(text, role) {
 }
 
 /**
+ * 이미지 첨부 버튼 클릭
+ */
+attachButton.addEventListener('click', () => {
+    imageInput.click();
+});
+
+/**
+ * 이미지 선택 시
+ */
+imageInput.addEventListener('change', (e) => {
+    const files = Array.from(e.target.files);
+
+    files.forEach(file => {
+        if (!file.type.startsWith('image/')) return;
+
+        // 최대 5개 제한
+        if (attachedImages.length >= 5) {
+            alert('이미지는 최대 5개까지 첨부할 수 있어요.');
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const imageData = {
+                dataUrl: event.target.result,
+                name: file.name,
+                type: file.type
+            };
+
+            attachedImages.push(imageData);
+            updateImagePreview();
+        };
+        reader.readAsDataURL(file);
+    });
+
+    // 입력 초기화 (같은 파일 다시 선택 가능하게)
+    imageInput.value = '';
+});
+
+/**
+ * 이미지 미리보기 업데이트
+ */
+function updateImagePreview() {
+    console.log("[Preview] Updating preview, images:", attachedImages.length);
+
+    if (!imagePreviewContainer) {
+        console.error("[Preview] imagePreviewContainer is null!");
+        return;
+    }
+
+    imagePreviewContainer.innerHTML = '';
+
+    attachedImages.forEach((img, index) => {
+        console.log("[Preview] Adding image:", img.name);
+
+        const item = document.createElement('div');
+        item.className = 'image-preview-item';
+
+        const imgEl = document.createElement('img');
+        imgEl.src = img.dataUrl;
+
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'remove-btn';
+        removeBtn.textContent = '×';
+        removeBtn.onclick = () => {
+            attachedImages.splice(index, 1);
+            updateImagePreview();
+        };
+
+        item.appendChild(imgEl);
+        item.appendChild(removeBtn);
+        imagePreviewContainer.appendChild(item);
+    });
+
+    // 강제로 display 설정
+    if (attachedImages.length > 0) {
+        imagePreviewContainer.style.display = 'flex';
+    } else {
+        imagePreviewContainer.style.display = 'none';
+    }
+
+    console.log("[Preview] Preview container children:", imagePreviewContainer.children.length);
+}
+
+
+/**
  * 사용자 메시지 전송
  */
 function sendMessage() {
     const message = chatInput.value.trim();
 
-    if (!message) return;
+    if (!message && attachedImages.length === 0) return;
 
-    // 사용자 메시지 표시
-    addMessage(message, 'user');
+    // 사용자 메시지 표시 (이미지 포함)
+    const imageUrls = attachedImages.map(img => img.dataUrl);
+    addMessage(message || '(이미지)', 'user', imageUrls);
 
     // 입력창 초기화
     chatInput.value = '';
 
     // Python으로 메시지 전송
     if (window.pyBridge) {
-        window.pyBridge.send_to_ai(message);
+        if (attachedImages.length > 0) {
+            // 이미지와 함께 전송
+            const imageDataList = JSON.stringify(attachedImages.map(img => ({
+                dataUrl: img.dataUrl,
+                name: img.name,
+                type: img.type
+            })));
+            window.pyBridge.send_to_ai_with_images(message, imageDataList);
+        } else {
+            // 텍스트만 전송
+            window.pyBridge.send_to_ai(message);
+        }
     } else {
         console.error("Python bridge not connected");
         addMessage("연결 오류가 발생했어요.", 'assistant');
     }
+
+    // 첨부 이미지 초기화
+    attachedImages = [];
+    updateImagePreview();
 }
 
 // 전송 버튼 클릭
@@ -520,6 +654,47 @@ chatInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         sendMessage();
+    }
+});
+
+/**
+ * 붙여넣기(Ctrl+V) 이벤트 처리
+ */
+chatInput.addEventListener('paste', (e) => {
+    const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+
+    let hasImage = false;
+
+    for (const item of items) {
+        if (item.type.indexOf('image') === 0) {
+            hasImage = true;
+            const blob = item.getAsFile();
+
+            // 최대 개수 체크
+            if (attachedImages.length >= 5) {
+                alert('이미지는 최대 5개까지 첨부할 수 있어요.');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const imageData = {
+                    dataUrl: event.target.result,
+                    name: "pasted_image.png", // 임의의 이름
+                    type: item.type
+                };
+
+                attachedImages.push(imageData);
+                updateImagePreview();
+            };
+            reader.readAsDataURL(blob);
+        }
+    }
+
+    // 이미지가 있으면 붙여넣기 후에도 포커스 유지
+    if (hasImage) {
+        // 텍스트 붙여넣기도 동시에 될 수 있으므로 기본 동작은 막지 않음
+        // (단, 이미지 파일만 있는 경우 텍스트 입력창에 이상한 문자열이 들어가는 건 막고 싶다면 preventDefault 고려)
     }
 });
 

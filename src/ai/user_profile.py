@@ -7,6 +7,7 @@ from typing import List, Dict, Optional
 from datetime import datetime
 import json
 from pathlib import Path
+import difflib
 
 
 @dataclass
@@ -81,10 +82,12 @@ class UserProfile:
     
     def add_fact(self, content: str, category: str = "fact", source: str = ""):
         """새로운 사실 추가"""
-        # 중복 체크 (비슷한 내용이 이미 있는지)
+        content = content.replace("마스터는", "").replace("마스터가", "").strip()
+        
+        # 완전 일치 중복 체크
         for fact in self.facts:
-            if fact.content.lower() == content.lower():
-                print(f"[Profile] 중복 정보 무시: {content}")
+            if fact.content == content:
+                print(f"[Profile] 이미 존재하는 정보: {content}")
                 return
         
         fact = ProfileFact(

@@ -14,7 +14,15 @@
     <!-- 채팅 UI -->
     <div id="chat-container">
         <div id="chat-messages"></div>
+
+        <!-- 이미지 미리보기 영역 -->
+        <div id="image-preview-container"></div>
+
         <div id="chat-input-wrapper">
+            <!-- 이미지 첨부 버튼 -->
+            <button id="attach-button" title="이미지 첨부">📎</button>
+            <input type="file" id="image-input" accept="image/*" multiple hidden>
+
             <input type="text" id="chat-input" placeholder="메시지를 입력하세요...">
             <button id="send-button">전송</button>
         </div>
