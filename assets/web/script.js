@@ -471,9 +471,24 @@ const sendButton = document.getElementById('send-button');
 const attachButton = document.getElementById('attach-button');
 const imageInput = document.getElementById('image-input');
 const imagePreviewContainer = document.getElementById('image-preview-container');
+const loadingIndicator = document.getElementById('loading-indicator');
 
 // 첨부된 이미지 경로 목록
 let attachedImages = [];
+
+/**
+ * 로딩 인디케이터 표시/숨김
+ * @param {boolean} show - true면 표시, false면 숨김
+ */
+function showLoadingIndicator(show) {
+    if (loadingIndicator) {
+        loadingIndicator.style.display = show ? 'flex' : 'none';
+        // 로딩 표시 시 채팅창 스크롤
+        if (show) {
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+    }
+}
 
 /**
  * 메시지를 채팅창에 추가
@@ -624,6 +639,9 @@ function sendMessage() {
 
     // Python으로 메시지 전송
     if (window.pyBridge) {
+        // 로딩 인디케이터 표시
+        showLoadingIndicator(true);
+
         if (attachedImages.length > 0) {
             // 이미지와 함께 전송
             const imageDataList = JSON.stringify(attachedImages.map(img => ({
@@ -712,6 +730,9 @@ if (typeof QWebChannel !== 'undefined') {
         window.pyBridge.message_received.connect(function (text, emotion) {
             console.log(`Received from Python: "${text}" [${emotion}]`);
 
+            // 로딩 인디케이터 숨김
+            showLoadingIndicator(false);
+
             // 메시지 표시
             addMessage(text, 'assistant');
 
@@ -724,9 +745,53 @@ if (typeof QWebChannel !== 'undefined') {
             console.log(`Expression changed: ${emotion}`);
             changeExpression(emotion);
         });
+
+        // 립싱크 시그널 연결
+        if (window.pyBridge.lip_sync_update) {
+            window.pyBridge.lip_sync_update.connect(function (mouthValue) {
+                setMouthOpen(mouthValue);
+            });
+            console.log("Lip sync signal connected");
+        }
     });
 } else {
     console.warn("QWebChannel not available - running in standalone mode");
 }
 
+// ==========================================
+// 립싱크 제어
+// ==========================================
+
+/**
+ * Live2D 모델의 입 벌림 정도 설정
+ * @param {number} value - 입 벌림 값 (0.0 ~ 1.0)
+ */
+function setMouthOpen(value) {
+    const model = window.live2dModel;
+    if (!model || !model.internalModel) {
+        return;
+    }
+
+    try {
+        // ParamMouthOpenY 파라미터 설정
+        const core = model.internalModel.coreModel;
+        if (core && typeof core.setParameterValueById === 'function') {
+            core.setParameterValueById('ParamMouthOpenY', value);
+        } else if (model.internalModel.setParameterValueById) {
+            model.internalModel.setParameterValueById('ParamMouthOpenY', value);
+        }
+    } catch (e) {
+        // 파라미터가 없을 수 있음 (모델마다 다름)
+        // 첫 호출에만 경고
+        if (!window._mouthOpenWarned) {
+            console.warn("ParamMouthOpenY not available:", e);
+            window._mouthOpenWarned = true;
+        }
+    }
+}
+
+// 전역으로 노출 (Python에서도 호출 가능하게)
+window.setMouthOpen = setMouthOpen;
+
 console.log("=== Chat and expression system initialized ===");
+console.log("=== Lip sync system ready ===");

@@ -39,7 +39,7 @@ class GeminiClient:
         if self.memory_manager:
             print("[LLM] Memory manager connected")
     
-    async def send_message_with_memory(self, message: str) -> Tuple[str, str]:
+    async def send_message_with_memory(self, message: str) -> Tuple[str, str, str]:
         """
         메모리를 활용한 메시지 전송
         
@@ -47,7 +47,7 @@ class GeminiClient:
             message: 사용자 메시지
             
         Returns:
-            (응답 텍스트, 감정 태그) 튜플
+            (응답 텍스트, 감정 태그, 일본어 번역) 튜플
         """
         # 메모리 컨텍스트 구성
         memory_context = await self._build_memory_context(message)
@@ -62,7 +62,7 @@ class GeminiClient:
         # 일반 메시지 전송
         return self.send_message(enhanced_message)
     
-    async def send_message_with_images(self, message: str, images_data: list) -> Tuple[str, str]:
+    async def send_message_with_images(self, message: str, images_data: list) -> Tuple[str, str, str]:
         """
         이미지와 함께 메시지 전송 (멀티모달)
         
@@ -71,7 +71,7 @@ class GeminiClient:
             images_data: 이미지 데이터 리스트 [{"dataUrl": ..., "name": ...}, ...]
             
         Returns:
-            (응답 텍스트, 감정 태그) 튜플
+            (응답 텍스트, 감정 태그, 일본어 번역) 튜플
         """
         import base64
         from PIL import Image
@@ -134,16 +134,20 @@ class GeminiClient:
             print(f"[LLM] 멀티모달 응답: {response_text[:100]}...")
             
             # 응답에서 텍스트와 감정 분리 (기존 메서드 활용)
-            clean_text, emotion = self._parse_response(response_text)
+            clean_text, emotion, japanese_text = self._parse_response(response_text)
             
-            return clean_text, emotion
+            # 일본어가 있으면 로깅
+            if japanese_text:
+                print(f"[LLM] 일본어 번역: {japanese_text[:30]}...")
+            
+            return clean_text, emotion, japanese_text
 
             
         except Exception as e:
             print(f"[LLM] 멀티모달 처리 실패: {e}")
             import traceback
             traceback.print_exc()
-            return f"이미지를 처리하는 중에 문제가 생겼어요... ({str(e)[:50]})", "confused"
+            return f"이미지를 처리하는 중에 문제가 생겼어요... ({str(e)[:50]})", "confused", None
 
     
     async def _build_memory_context(self, query: str) -> str:
@@ -274,7 +278,7 @@ class GeminiClient:
         except Exception as e:
             print(f"[LLM] 토큰 계산 실패: {e}")
 
-    def send_message(self, message: str) -> Tuple[str, str]:
+    def send_message(self, message: str) -> Tuple[str, str, str]:
         """
         메시지 전송 및 응답 받기
         
@@ -282,7 +286,7 @@ class GeminiClient:
             message: 사용자 메시지
             
         Returns:
-            (응답 텍스트, 감정 태그) 튜플
+            (응답 텍스트, 감정 태그, 일본어 번역) 튜플
         """
         try:
             print(f"[LLM] Sending message: {message}")
@@ -299,9 +303,13 @@ class GeminiClient:
             print(f"[LLM] Received response: {response_text[:50]}...")
             
             # 응답에서 텍스트와 감정 분리
-            text, emotion = self._parse_response(response_text)
+            text, emotion, japanese_text = self._parse_response(response_text)
             
-            return text, emotion
+            # 일본어가 있으면 로깅
+            if japanese_text:
+                print(f"[LLM] 일본어 번역: {japanese_text[:30]}...")
+            
+            return text, emotion, japanese_text
             
         except Exception as e:
             print(f"[LLM] Error: {e}")
@@ -477,15 +485,15 @@ class GeminiClient:
         
         return summary, user_facts
     
-    def _parse_response(self, response_text: str) -> Tuple[str, str]:
+    def _parse_response(self, response_text: str) -> Tuple[str, str, str]:
         """
-        응답 텍스트에서 감정 태그 추출
+        응답 텍스트에서 감정 태그 및 일본어 추출
         
         Args:
             response_text: AI 응답 텍스트
             
         Returns:
-            (텍스트, 감정) 튜플
+            (텍스트, 감정, 일본어) 튜플
         """
         # [emotion] 패턴 찾기
         emotion_pattern = r'\[(\w+)\]'
@@ -503,7 +511,39 @@ class GeminiClient:
                 emotion = match.lower()
                 break
         
-        return clean_text, emotion
+        # 일본어 추출 (마지막 줄에 있을 것으로 예상)
+        japanese_text = None
+        lines = clean_text.split('\n')
+        
+        if len(lines) >= 2:
+            # 마지막 줄이 일본어인지 확인 (히라가나/카타카나/한자 포함)
+            last_line = lines[-1].strip()
+            if last_line and self._is_japanese(last_line):
+                japanese_text = last_line
+                # 한국어 부분만 남기기
+                clean_text = '\n'.join(lines[:-1]).strip()
+        
+        return clean_text, emotion, japanese_text
+    
+    def _is_japanese(self, text: str) -> bool:
+        """일본어 텍스트인지 확인"""
+        # 히라가나, 카타카나, 한자 유니코드 범위
+        japanese_ranges = [
+            (0x3040, 0x309F),  # Hiragana
+            (0x30A0, 0x30FF),  # Katakana
+            (0x4E00, 0x9FFF),  # CJK Unified Ideographs
+        ]
+        
+        japanese_chars = 0
+        for char in text:
+            code = ord(char)
+            for start, end in japanese_ranges:
+                if start <= code <= end:
+                    japanese_chars += 1
+                    break
+        
+        # 텍스트의 20% 이상이 일본어 문자면 일본어로 판단
+        return japanese_chars / len(text) > 0.2 if len(text) > 0 else False
     
     def clear_context(self):
         """대화 컨텍스트 초기화 - 새로운 Chat 세션 생성"""
