@@ -8,7 +8,7 @@ from datetime import datetime
 class AIWorker(QThread):
     """AI 응답을 비동기로 처리하는 워커 스레드"""
     
-    response_ready = pyqtSignal(str, str)  # (텍스트, 감정)
+    response_ready = pyqtSignal(str, str, str)  # (텍스트, 감정, 일본어)
     error_occurred = pyqtSignal(str)  # 오류 메시지
     
     def __init__(self, llm_client, message, use_memory=True, images=None):
@@ -33,25 +33,92 @@ class AIWorker(QThread):
             # 이미지가 있으면 멀티모달로 처리
             if self.images:
                 print(f"[AI Worker] 이미지 {len(self.images)}개 포함 - 멀티모달 모드")
-                response_text, emotion = loop.run_until_complete(
+                response_text, emotion, japanese_text = loop.run_until_complete(
                     self.llm_client.send_message_with_images(self.message, self.images)
                 )
             elif self.use_memory and hasattr(self.llm_client, 'send_message_with_memory'):
                 print(f"[AI Worker] 메모리 활용 모드")
-                response_text, emotion = loop.run_until_complete(
+                response_text, emotion, japanese_text = loop.run_until_complete(
                     self.llm_client.send_message_with_memory(self.message)
                 )
             else:
                 print(f"[AI Worker] 일반 모드 (메모리 없음)")
                 # 메모리 없이 일반 전송
-                response_text, emotion = self.llm_client.send_message(self.message)
+                response_text, emotion, japanese_text = self.llm_client.send_message(self.message)
             
             loop.close()
             
             print(f"[AI Worker] Response: {response_text[:50]}... [{emotion}]")
-            self.response_ready.emit(response_text, emotion)
+            if japanese_text:
+                print(f"[AI Worker] Japanese: {japanese_text[:30]}...")
+            
+            self.response_ready.emit(response_text, emotion, japanese_text or "")
         except Exception as e:
             print(f"[AI Worker] Error: {e}")
+            import traceback
+            traceback.print_exc()
+            self.error_occurred.emit(str(e))
+
+
+class TTSWorker(QThread):
+    """TTS 생성 및 립싱크 분석을 비동기로 처리하는 워커 스레드"""
+    
+    tts_ready = pyqtSignal(bytes, list)  # (audio_data, lip_sync_data)
+    error_occurred = pyqtSignal(str)
+    
+    def __init__(self, tts_client, text):
+        super().__init__()
+        self.tts_client = tts_client
+        self.text = text
+    
+    def run(self):
+        """스레드 실행"""
+        try:
+            import asyncio
+            import tempfile
+            from pathlib import Path
+            from src.ai.audio_analyzer import AudioAnalyzer
+            
+            print(f"[TTS Worker] Generating speech for: {self.text[:30]}...")
+            
+            # 새 이벤트 루프 생성
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            # TTS API로 오디오 생성
+            audio_data = loop.run_until_complete(
+                self.tts_client.generate_speech(self.text)
+            )
+            
+            loop.close()
+            
+            print(f"[TTS Worker] Audio generated: {len(audio_data)} bytes")
+            
+            # 임시 WAV 파일로 저장 (분석용)
+            temp_fd, temp_path = tempfile.mkstemp(suffix=".wav")
+            with open(temp_fd, 'wb') as f:
+                f.write(audio_data)
+            
+            # 오디오 분석하여 립싱크 데이터 생성
+            try:
+                analyzer = AudioAnalyzer(frame_duration_ms=50)
+                lip_sync_data = analyzer.analyze(temp_path)
+                print(f"[TTS Worker] Lip sync data: {len(lip_sync_data)} frames")
+            except Exception as e:
+                print(f"[TTS Worker] Lip sync analysis failed: {e}")
+                lip_sync_data = []
+            
+            # 임시 파일 정리
+            try:
+                Path(temp_path).unlink(missing_ok=True)
+            except:
+                pass
+            
+            # 결과 전송
+            self.tts_ready.emit(audio_data, lip_sync_data)
+            
+        except Exception as e:
+            print(f"[TTS Worker] Error: {e}")
             import traceback
             traceback.print_exc()
             self.error_occurred.emit(str(e))
@@ -63,6 +130,7 @@ class WebBridge(QObject):
     # Python -> JavaScript 시그널
     message_received = pyqtSignal(str, str)  # (텍스트, 감정)
     expression_changed = pyqtSignal(str)     # 표정 변경
+    lip_sync_update = pyqtSignal(float)      # 립싱크 업데이트 (mouth_value)
     
     def __init__(self, settings=None, parent=None):
         super().__init__(parent)
@@ -71,16 +139,32 @@ class WebBridge(QObject):
         self.worker = None
         self.settings = settings
         
+        # TTS 및 오디오 재생
+        self.tts_client = None
+        self.audio_player = None
+        self.enable_tts = False  # TTS 활성화 여부
+        self.tts_worker = None  # TTS 워커 스레드
+        
+        # 립싱크 데이터 및 타이머
+        self.lip_sync_data = None
+        self.lip_sync_timer = None
+        self.lip_sync_start_time = None
+        
+        # 보류 중인 응답 (TTS 대기)
+        self.pending_response = None  # (text, emotion)
+        
         # 대화 추적
-        self.conversation_buffer = []  # [(role, message), ...]
+        self.conversation_buffer = []  # [(role, message, timestamp), ...]
         
         # 설정에서 임계값 로드 (기본값: 10)
         if settings and hasattr(settings, 'config'):
             self.summarize_threshold = settings.config.get('summarize_threshold', 10)
+            self.enable_tts = settings.config.get('enable_tts', False)
         else:
             self.summarize_threshold = 10
         
         print(f"[Bridge] 자동 요약 임계값: {self.summarize_threshold}개")
+        print(f"[Bridge] TTS 활성화: {self.enable_tts}")
     
     def set_llm_client(self, client):
         """LLM 클라이언트 설정"""
@@ -93,6 +177,13 @@ class WebBridge(QObject):
         self.user_profile = user_profile
         print(f"[Bridge] Memory manager set: {memory_manager is not None}")
         print(f"[Bridge] User profile set: {user_profile is not None}")
+    
+    def set_tts(self, tts_client, audio_player):
+        """TTS 클라이언트 및 오디오 플레이어 설정"""
+        self.tts_client = tts_client
+        self.audio_player = audio_player
+        print(f"[Bridge] TTS client set: {tts_client is not None}")
+        print(f"[Bridge] Audio player set: {audio_player is not None}")
     
     @pyqtSlot(str)
     def send_to_ai(self, message: str):
@@ -115,7 +206,9 @@ class WebBridge(QObject):
         message_with_time = f"[현재 시각: {timestamp}]\n{message}"
         print(f"[Bridge] Message with timestamp: {message_with_time}")
         
-        # 대화 버퍼에 추가 (원본 메시지 + 타임스탬프)
+        # 대화 버퍼에 메시지 추가 (+ 타임스탬프)
+        now = datetime.now()
+        timestamp = now.strftime("%Y년 %m월 %d일 %H시 %M분")
         self.conversation_buffer.append(("user", message, timestamp))
         
         # 이전 워커가 실행 중이면 대기
@@ -182,18 +275,128 @@ class WebBridge(QObject):
         print(f"[Bridge] Worker thread started with {len(images_data)} images")
 
     
-    def _on_response_ready(self, text: str, emotion: str):
+    def _on_response_ready(self, text: str, emotion: str, japanese_text: str):
         """AI 응답 준비 완료"""
-        print(f"[Bridge] Sending response to JS: {text} [{emotion}]")
-        self.message_received.emit(text, emotion)
+        print(f"[Bridge] Response ready: {text[:50]}... [{emotion}]")
         
         # 대화 버퍼에 응답 추가 (+ 타임스탬프)
         now = datetime.now()
         timestamp = now.strftime("%Y년 %m월 %d일 %H시 %M분")
         self.conversation_buffer.append(("assistant", text, timestamp))
         
+        # TTS 재생 (일본어가 있고 TTS가 활성화되어 있으면)
+        if japanese_text and self.enable_tts and self.tts_client and self.audio_player:
+            print(f"[Bridge] TTS 활성화 - 텍스트 보류 중, TTS 생성 시작")
+            # 텍스트를 보류하고 TTS 완료 대기
+            self.pending_response = (text, emotion)
+            self._play_tts(japanese_text)
+        else:
+            # TTS 비활성화 또는 일본어 없음 - 즉시 텍스트 전송
+            print(f"[Bridge] TTS 비활성화 - 텍스트 즉시 전송")
+            self.message_received.emit(text, emotion)
+            if japanese_text:
+                print(f"[Bridge] TTS 비활성화 또는 클라이언트 없음 (일본어: {japanese_text[:20]}...)")
+        
         # 자동 요약 확인
         self._check_auto_summarize()
+    
+    def _play_tts(self, text: str):
+        """립싱크를 포함한 TTS 재생 (비동기 스레드)"""
+        # 기존 TTS 워커 종료
+        if self.tts_worker and self.tts_worker.isRunning():
+            self.tts_worker.quit()
+            self.tts_worker.wait()
+        
+        # 새 TTS 워커 생성
+        self.tts_worker = TTSWorker(self.tts_client, text)
+        self.tts_worker.tts_ready.connect(self._on_tts_ready)
+        self.tts_worker.error_occurred.connect(self._on_tts_error)
+        self.tts_worker.start()
+        
+        print(f"[Bridge] TTS 워커 시작 (백그라운드)")
+    
+    def _on_tts_ready(self, audio_data: bytes, lip_sync_data: list):
+        """비동기 TTS 완료 후 오디오 재생"""
+        print(f"[Bridge] TTS 준비 완료: {len(audio_data)} bytes, {len(lip_sync_data)} 프레임")
+        
+        # 립싱크 데이터 저장
+        self.lip_sync_data = lip_sync_data if lip_sync_data else None
+        
+        # 보류된 텍스트가 있으면 이제 전송 (텍스트 + 음성 동시 제공)
+        if self.pending_response:
+            text, emotion = self.pending_response
+            print(f"[Bridge] 보류된 응답 전송: {text[:50]}... [{emotion}]")
+            self.message_received.emit(text, emotion)
+            self.pending_response = None
+        
+        # 오디오 재생
+        self.audio_player.play(audio_data)
+        
+        # 립싱크 시작
+        if self.lip_sync_data:
+            self._start_lip_sync()
+    
+    def _on_tts_error(self, error_msg: str):
+        """TTS 오류 처리"""
+        print(f"[Bridge] TTS 오류: {error_msg}")
+    
+    def _start_lip_sync(self):
+        """립싱크 타이머 시작"""
+        from PyQt6.QtCore import QTimer, QTime
+        
+        if not self.lip_sync_data:
+            return
+        
+        # 기존 타이머 정리
+        if self.lip_sync_timer:
+            self.lip_sync_timer.stop()
+            self.lip_sync_timer = None
+        
+        # 시작 시간 기록
+        self.lip_sync_start_time = QTime.currentTime()
+        self.lip_sync_index = 0
+        
+        # 타이머 생성 (10ms 간격으로 체크)
+        self.lip_sync_timer = QTimer(self)
+        self.lip_sync_timer.timeout.connect(self._update_lip_sync)
+        self.lip_sync_timer.start(10)
+        
+        print(f"[Bridge] 립싱크 타이머 시작")
+    
+    def _update_lip_sync(self):
+        """립싱크 업데이트 (타이머 콜백)"""
+        if not self.lip_sync_data or not self.lip_sync_start_time:
+            return
+        
+        from PyQt6.QtCore import QTime
+        
+        # 경과 시간 계산 (초)
+        elapsed_ms = self.lip_sync_start_time.msecsTo(QTime.currentTime())
+        elapsed_sec = elapsed_ms / 1000.0
+        
+        # 현재 시간에 해당하는 립싱크 값 찾기
+        mouth_value = 0.0
+        found = False
+        
+        for i in range(self.lip_sync_index, len(self.lip_sync_data)):
+            timestamp, value = self.lip_sync_data[i]
+            
+            if timestamp <= elapsed_sec:
+                mouth_value = value
+                self.lip_sync_index = i
+                found = True
+            else:
+                break
+        
+        # 값 전송
+        if found:
+            self.lip_sync_update.emit(mouth_value)
+        
+        # 모든 데이터 처리 완료 시 타이머 종료
+        if self.lip_sync_index >= len(self.lip_sync_data) - 1:
+            self.lip_sync_timer.stop()
+            self.lip_sync_update.emit(0.0)  # 입 닫기
+            print(f"[Bridge] 립싱크 완료")
     
     def _check_auto_summarize(self):
         """자동 요약 확인"""

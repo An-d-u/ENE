@@ -1,0 +1,27 @@
+    def _init_tts(self):
+        """TTS 및 오디오 플레이어 초기화"""
+        try:
+            from src.ai.tts_client import TTSClient
+            from src.core.audio_player import AudioPlayer
+            
+            # TTS 클라이언트 초기화
+            self.tts_client = TTSClient()
+            
+            # 오디오 플레이어 초기화
+            self.audio_player = AudioPlayer()
+            
+            # TTS 사용 가능 여부 확인
+            if self.tts_client.is_available():
+                print("OK: TTS 클라이언트 초기화 성공")
+            else:
+                print("WARNING: 참조 오디오 파일이 없습니다.")
+                print(f"경로: {self.tts_client.ref_audio_path}")
+                self.tts_client = None
+                self.audio_player = None
+            
+        except Exception as e:
+            print(f"WARNING: TTS 초기화 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            self.tts_client = None
+            self.audio_player = None

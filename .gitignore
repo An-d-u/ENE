@@ -1,11 +1,13 @@
 assets/live2d_models/
 assets/live2d_models/# Python
+assets/ref_audio/
 __pycache__/
 *.py[cod]
 *.so
 *.egg-info/
 venv/
 .pytest_cache/
+
 
 # Config files
 config.json

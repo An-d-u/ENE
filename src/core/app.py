@@ -72,12 +72,8 @@ class ENEApplication(QObject):
             )
             print("OK: Gemini API 클라이언트 초기화 성공")
             
-        except Exception as e:
-            print(f"ERROR: Gemini API 클라이언트 초기화 실패: {e}")
-            import traceback
-            traceback.print_exc()
-            self.llm_client = None
-            self.memory_manager = None
+            # TTS 및 오디오 플레이어 초기화
+            self._init_tts()
             
         except Exception as e:
             print(f"ERROR: Gemini API 클라이언트 초기화 실패: {e}")
@@ -129,10 +125,9 @@ class ENEApplication(QObject):
             
             # 메모리 매니저 생성
             self.memory_manager = MemoryManager(
-                memory_file=str(memory_file),
+                memory_file="memory.json",
                 embedding_generator=embedding_gen
             )
-            
             print("OK: 메모리 매니저 초기화 성공")
             
         except Exception as e:
@@ -140,6 +135,34 @@ class ENEApplication(QObject):
             import traceback
             traceback.print_exc()
             self.memory_manager = None
+    
+    def _init_tts(self):
+        """TTS 및 오디오 플레이어 초기화"""
+        try:
+            from src.ai.tts_client import TTSClient
+            from src.core.audio_player import AudioPlayer
+            
+            # TTS 클라이언트 초기화
+            self.tts_client = TTSClient()
+            
+            # 오디오 플레이어 초기화
+            self.audio_player = AudioPlayer()
+            
+            # TTS 사용 가능 여부 확인
+            if self.tts_client.is_available():
+                print("OK: TTS 클라이언트 초기화 성공")
+            else:
+                print("WARNING: 참조 오디오 파일이 없습니다.")
+                print(f"경로: {self.tts_client.ref_audio_path}")
+                self.tts_client = None
+                self.audio_player = None
+            
+        except Exception as e:
+            print(f"WARNING: TTS 초기화 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            self.tts_client = None
+            self.audio_player = None
     
     def _connect_signals(self):
         """시그널 연결"""
@@ -152,6 +175,11 @@ class ENEApplication(QObject):
                 self.llm_client,
                 user_profile
             )
+        
+        # TTS 클라이언트 및 오디오 플레이어 연결
+        if hasattr(self, 'tts_client') and self.tts_client:
+            self.overlay_window.bridge.set_tts(self.tts_client, self.audio_player)
+        
         # 트레이 아이콘 시그널
         self.tray_icon.settings_requested.connect(self._show_settings_dialog)
         self.tray_icon.memory_requested.connect(self._show_memory_dialog)
