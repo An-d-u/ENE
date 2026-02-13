@@ -14,6 +14,7 @@ class TrayIcon(QObject):
     # 시그널 정의
     settings_requested = pyqtSignal()
     memory_requested = pyqtSignal()  # 기억 관리
+    calendar_requested = pyqtSignal()  # 캘린더
     toggle_drag_bar_requested = pyqtSignal()
     toggle_mouse_tracking_requested = pyqtSignal()
     quit_requested = pyqtSignal()
@@ -60,6 +61,11 @@ class TrayIcon(QObject):
         memory_action = QAction("기억 관리", self)
         memory_action.triggered.connect(self.memory_requested.emit)
         menu.addAction(memory_action)
+        
+        # 캘린더 액션
+        calendar_action = QAction("📅 캘린더", self)
+        calendar_action.triggered.connect(self.calendar_requested.emit)
+        menu.addAction(calendar_action)
         
         menu.addSeparator()
         

@@ -328,8 +328,9 @@ console.log("Mouse tracking initialized");
 // 표정 시스템
 // ==========================================
 
-// 표정 매핑
+// 감정 → 표정 파일 매핑
 const EMOTIONS = {
+    'normal': 'normal',
     'angry': 'angry',
     'confused': 'confused',
     'dizzy': 'dizzy',
@@ -368,6 +369,71 @@ async function changeExpression(emotion) {
     }
 
     try {
+        // 'normal' 감정은 기본 표정(표정 없음)으로 리셋
+        if (emotion === 'normal') {
+            console.log('Resetting to normal expression');
+
+            // 이전 애니메이션 취소
+            if (currentExpressionAnimation) {
+                cancelAnimationFrame(currentExpressionAnimation);
+            }
+
+            // 모든 이전 표정 파라미터를 0으로 리셋
+            const model = window.live2dModel;
+            if (model.internalModel && model.internalModel.coreModel) {
+                const startValues = {};
+                const targetValues = {};
+
+                previousExpressionParams.forEach(paramId => {
+                    try {
+                        const currentValue = model.internalModel.coreModel.getParameterValueById(paramId);
+                        startValues[paramId] = currentValue;
+                        targetValues[paramId] = 0;
+                    } catch (e) {
+                        // 파라미터가 없을 수 있음
+                    }
+                });
+
+                // 애니메이션으로 부드럽게 리셋
+                const duration = 300;
+                const startTime = Date.now();
+
+                function animate() {
+                    const elapsed = Date.now() - startTime;
+                    const progress = Math.min(elapsed / duration, 1.0);
+                    const eased = 1 - Math.pow(1 - progress, 3);
+
+                    Object.keys(targetValues).forEach(paramId => {
+                        try {
+                            const start = startValues[paramId] || 0;
+                            const target = targetValues[paramId];
+                            const value = start + (target - start) * eased;
+                            model.internalModel.coreModel.setParameterValueById(paramId, value);
+                        } catch (e) {
+                            // 무시
+                        }
+                    });
+
+                    if (progress < 1.0) {
+                        currentExpressionAnimation = requestAnimationFrame(animate);
+                    } else {
+                        currentExpressionAnimation = null;
+                        previousExpressionParams = [];
+                        console.log('Reset to normal complete');
+                    }
+                }
+
+                animate();
+            }
+            return;
+        }
+
+        // 일반 감정 처리
+        if (!EMOTIONS[emotion]) {
+            console.warn(`Unknown emotion: ${emotion}`);
+            return;
+        }
+
         // 표정 파일 경로
         const expressionPath = `../live2d_models/jksalt/emotions/${EMOTIONS[emotion]}.exp3.json`;
         console.log(`Changing expression to: ${emotion} (${expressionPath})`);
@@ -636,6 +702,8 @@ function sendMessage() {
 
     // 입력창 초기화
     chatInput.value = '';
+    // 높이 리셋
+    autoResizeTextarea();
 
     // Python으로 메시지 전송
     if (window.pyBridge) {
@@ -664,6 +732,14 @@ function sendMessage() {
     updateImagePreview();
 }
 
+/**
+ * textarea 자동 높이 조절
+ */
+function autoResizeTextarea() {
+    chatInput.style.height = 'auto';  // 높이 초기화
+    chatInput.style.height = chatInput.scrollHeight + 'px';  // 스크롤 높이에 맞춤
+}
+
 // 전송 버튼 클릭
 sendButton.addEventListener('click', sendMessage);
 
@@ -674,6 +750,9 @@ chatInput.addEventListener('keypress', (e) => {
         sendMessage();
     }
 });
+
+// 입력 시 자동 높이 조절
+chatInput.addEventListener('input', autoResizeTextarea);
 
 /**
  * 붙여넣기(Ctrl+V) 이벤트 처리

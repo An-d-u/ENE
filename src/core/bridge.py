@@ -8,7 +8,7 @@ from datetime import datetime
 class AIWorker(QThread):
     """AI 응답을 비동기로 처리하는 워커 스레드"""
     
-    response_ready = pyqtSignal(str, str, str)  # (텍스트, 감정, 일본어)
+    response_ready = pyqtSignal(str, str, str, list)  # (텍스트, 감정, 일본어, 이벤트)
     error_occurred = pyqtSignal(str)  # 오류 메시지
     
     def __init__(self, llm_client, message, use_memory=True, images=None):
@@ -30,29 +30,34 @@ class AIWorker(QThread):
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             
+            events = []
+            
             # 이미지가 있으면 멀티모달로 처리
             if self.images:
                 print(f"[AI Worker] 이미지 {len(self.images)}개 포함 - 멀티모달 모드")
-                response_text, emotion, japanese_text = loop.run_until_complete(
+                response_text, emotion, japanese_text, events = loop.run_until_complete(
                     self.llm_client.send_message_with_images(self.message, self.images)
                 )
             elif self.use_memory and hasattr(self.llm_client, 'send_message_with_memory'):
                 print(f"[AI Worker] 메모리 활용 모드")
-                response_text, emotion, japanese_text = loop.run_until_complete(
+                response_text, emotion, japanese_text, events = loop.run_until_complete(
                     self.llm_client.send_message_with_memory(self.message)
                 )
             else:
                 print(f"[AI Worker] 일반 모드 (메모리 없음)")
-                # 메모리 없이 일반 전송
-                response_text, emotion, japanese_text = self.llm_client.send_message(self.message)
+                # send_message는 4개 값 반환 (text, emotion, japanese, events)
+                response_text, emotion, japanese_text, events = self.llm_client.send_message(self.message)
             
             loop.close()
             
             print(f"[AI Worker] Response: {response_text[:50]}... [{emotion}]")
             if japanese_text:
                 print(f"[AI Worker] Japanese: {japanese_text[:30]}...")
+            if events:
+                print(f"[AI Worker] {len(events)}개 일정 추출")
             
-            self.response_ready.emit(response_text, emotion, japanese_text or "")
+            # events도 함께 emit (signal에는 리스트로 전달 가능)
+            self.response_ready.emit(response_text, emotion, japanese_text or "", events)
         except Exception as e:
             print(f"[AI Worker] Error: {e}")
             import traceback
@@ -195,6 +200,11 @@ class WebBridge(QObject):
         """
         print(f"[Bridge] Received message from JS: {message}")
         
+        # 대화 횟수 증가
+        if hasattr(self, 'calendar_manager') and self.calendar_manager:
+            self.calendar_manager.increment_conversation_count()
+            print("[Bridge] 대화 횟수 증가")
+        
         if not self.llm_client:
             print("[Bridge] LLM client not initialized")
             self.message_received.emit("AI가 초기화되지 않았어요.", "sad")
@@ -275,7 +285,7 @@ class WebBridge(QObject):
         print(f"[Bridge] Worker thread started with {len(images_data)} images")
 
     
-    def _on_response_ready(self, text: str, emotion: str, japanese_text: str):
+    def _on_response_ready(self, text: str, emotion: str, japanese_text: str, events: list = None):
         """AI 응답 준비 완료"""
         print(f"[Bridge] Response ready: {text[:50]}... [{emotion}]")
         
@@ -283,6 +293,20 @@ class WebBridge(QObject):
         now = datetime.now()
         timestamp = now.strftime("%Y년 %m월 %d일 %H시 %M분")
         self.conversation_buffer.append(("assistant", text, timestamp))
+        
+        # 일정 저장 (CalendarManager가 있으면)
+        if events and hasattr(self, 'calendar_manager') and self.calendar_manager:
+            for event_data in events:
+                try:
+                    event = self.calendar_manager.add_event(
+                        date=event_data['date'],
+                        title=event_data['title'],
+                        description=event_data.get('description', ''),
+                        source="ai_extracted"
+                    )
+                    print(f"[Bridge] 일정 추가: {event.date} - {event.title}")
+                except Exception as e:
+                    print(f"[Bridge] 일정 추가 실패: {e}")
         
         # TTS 재생 (일본어가 있고 TTS가 활성화되어 있으면)
         if japanese_text and self.enable_tts and self.tts_client and self.audio_player:

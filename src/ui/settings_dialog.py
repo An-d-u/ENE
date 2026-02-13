@@ -1,6 +1,7 @@
 """
 설정 다이얼로그
 윈도우 위치, 크기, 모델 위치/스케일 등을 조정
+비모달(Modeless) 방식으로 설정 중에도 인터페이스 조작 가능
 """
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
                               QSpinBox, QDoubleSpinBox, QSlider, QPushButton, 
@@ -9,20 +10,33 @@ from PyQt6.QtCore import Qt, pyqtSignal
 
 
 class SettingsDialog(QDialog):
-    """설정 다이얼로그"""
+    """설정 다이얼로그 (비모달)"""
     
-    # 설정 변경 시그널
+    # 설정 저장 시그널
     settings_changed = pyqtSignal(dict)
-    settings_preview = pyqtSignal(dict)  # 실시간 미리보기용
+    # 미리보기 시그널
+    settings_preview = pyqtSignal(dict)
+    # 취소 (복원) 시그널
+    settings_cancelled = pyqtSignal()
     
     def __init__(self, current_settings: dict, parent=None):
         super().__init__(parent)
         
-        self.current_settings = current_settings.copy()
+        # 원본 설정 백업 (취소 시 복원용)
+        self._original_settings = current_settings.copy()
+        # UI 업데이트 중 시그널 방지 플래그
+        self._loading = False
         
         self.setWindowTitle("ENE 설정")
         self.setMinimumWidth(450)
         self.setMinimumHeight(500)
+        
+        # 비모달 다이얼로그 - 항상 위에 표시
+        self.setWindowFlags(
+            Qt.WindowType.Dialog |
+            Qt.WindowType.WindowStaysOnTopHint
+        )
+        self.setModal(False)
         
         self._setup_ui()
         self._load_values()
@@ -44,7 +58,7 @@ class SettingsDialog(QDialog):
         
         layout.addWidget(tabs)
         
-        # 저장/취소 버튼만 남김
+        # 저장/취소 버튼
         button_layout = QHBoxLayout()
         
         save_btn = QPushButton("저장")
@@ -52,7 +66,7 @@ class SettingsDialog(QDialog):
         button_layout.addWidget(save_btn)
         
         cancel_btn = QPushButton("취소")
-        cancel_btn.clicked.connect(self.reject)
+        cancel_btn.clicked.connect(self._cancel_settings)
         button_layout.addWidget(cancel_btn)
         
         layout.addLayout(button_layout)
@@ -69,11 +83,13 @@ class SettingsDialog(QDialog):
         self.window_x_spin = QSpinBox()
         self.window_x_spin.setRange(-9999, 9999)
         self.window_x_spin.setSuffix(" px")
+        self.window_x_spin.valueChanged.connect(self._on_setting_changed)
         position_layout.addRow("X 좌표:", self.window_x_spin)
         
         self.window_y_spin = QSpinBox()
         self.window_y_spin.setRange(-9999, 9999)
         self.window_y_spin.setSuffix(" px")
+        self.window_y_spin.valueChanged.connect(self._on_setting_changed)
         position_layout.addRow("Y 좌표:", self.window_y_spin)
         
         position_group.setLayout(position_layout)
@@ -86,11 +102,13 @@ class SettingsDialog(QDialog):
         self.window_width_spin = QSpinBox()
         self.window_width_spin.setRange(200, 3840)
         self.window_width_spin.setSuffix(" px")
+        self.window_width_spin.valueChanged.connect(self._on_setting_changed)
         size_layout.addRow("너비:", self.window_width_spin)
         
         self.window_height_spin = QSpinBox()
         self.window_height_spin.setRange(200, 2160)
         self.window_height_spin.setSuffix(" px")
+        self.window_height_spin.valueChanged.connect(self._on_setting_changed)
         size_layout.addRow("높이:", self.window_height_spin)
         
         size_group.setLayout(size_layout)
@@ -118,9 +136,11 @@ class SettingsDialog(QDialog):
         other_layout = QVBoxLayout()
         
         self.show_drag_bar_check = QCheckBox("드래그 바 표시")
+        self.show_drag_bar_check.toggled.connect(self._on_setting_changed)
         other_layout.addWidget(self.show_drag_bar_check)
         
         self.mouse_tracking_check = QCheckBox("마우스 트래킹 활성화")
+        self.mouse_tracking_check.toggled.connect(self._on_setting_changed)
         other_layout.addWidget(self.mouse_tracking_check)
         
         other_group.setLayout(other_layout)
@@ -142,8 +162,8 @@ class SettingsDialog(QDialog):
         scale_form = QFormLayout()
         
         self.model_scale_spin = QDoubleSpinBox()
-        self.model_scale_spin.setRange(0.1, 5.0)
-        self.model_scale_spin.setSingleStep(0.1)
+        self.model_scale_spin.setRange(0.1, 2.0)
+        self.model_scale_spin.setSingleStep(0.05)
         self.model_scale_spin.setDecimals(2)
         self.model_scale_spin.setSuffix("x")
         scale_form.addRow("스케일:", self.model_scale_spin)
@@ -152,9 +172,9 @@ class SettingsDialog(QDialog):
         
         # 스케일 슬라이더
         self.scale_slider = QSlider(Qt.Orientation.Horizontal)
-        self.scale_slider.setRange(10, 500)  # 0.1x ~ 5.0x
+        self.scale_slider.setRange(10, 200)  # 0.1x ~ 2.0x
         self.scale_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
-        self.scale_slider.setTickInterval(50)
+        self.scale_slider.setTickInterval(10)
         scale_layout.addWidget(self.scale_slider)
         
         # 스핀박스와 슬라이더 연결
@@ -166,7 +186,7 @@ class SettingsDialog(QDialog):
         )
         
         # 실시간 미리보기 연결
-        self.scale_slider.valueChanged.connect(self._on_setting_changed)
+        self.model_scale_spin.valueChanged.connect(self._on_setting_changed)
         
         scale_group.setLayout(scale_layout)
         layout.addWidget(scale_group)
@@ -253,25 +273,40 @@ class SettingsDialog(QDialog):
         return widget
     
     def _on_setting_changed(self):
-        """설정 값이 변경될 때 호출 - 항상 실시간 미리보기"""
+        """설정 값이 변경될 때 호출 - 실시간 미리보기"""
+        if self._loading:
+            return
         self._preview_settings()
     
     def _load_values(self):
         """현재 설정값을 UI에 로드"""
-        # 창 설정
-        self.window_x_spin.setValue(self.current_settings.get('window_x', 100))
-        self.window_y_spin.setValue(self.current_settings.get('window_y', 100))
-        self.window_width_spin.setValue(self.current_settings.get('window_width', 400))
-        self.window_height_spin.setValue(self.current_settings.get('window_height', 600))
-        self.show_drag_bar_check.setChecked(self.current_settings.get('show_drag_bar', True))
-        self.mouse_tracking_check.setChecked(self.current_settings.get('mouse_tracking_enabled', True))
-        
-        # 모델 설정
-        model_scale = self.current_settings.get('model_scale', 1.0)
-        self.model_scale_spin.setValue(model_scale)
-        
-        self.model_x_slider.setValue(int(self.current_settings.get('model_x_percent', 50)))
-        self.model_y_slider.setValue(int(self.current_settings.get('model_y_percent', 50)))
+        self._loading = True
+        try:
+            # 창 설정
+            self.window_x_spin.setValue(self._original_settings.get('window_x', 100))
+            self.window_y_spin.setValue(self._original_settings.get('window_y', 100))
+            self.window_width_spin.setValue(self._original_settings.get('window_width', 400))
+            self.window_height_spin.setValue(self._original_settings.get('window_height', 600))
+            self.show_drag_bar_check.setChecked(self._original_settings.get('show_drag_bar', True))
+            self.mouse_tracking_check.setChecked(self._original_settings.get('mouse_tracking_enabled', True))
+            
+            # 모델 설정
+            model_scale = self._original_settings.get('model_scale', 1.0)
+            self.model_scale_spin.setValue(model_scale)
+            
+            self.model_x_slider.setValue(int(self._original_settings.get('model_x_percent', 50)))
+            self.model_y_slider.setValue(int(self._original_settings.get('model_y_percent', 50)))
+        finally:
+            self._loading = False
+    
+    def update_position(self, x: int, y: int):
+        """외부에서 위치가 변경될 때 UI 업데이트 (드래그 바 이동 등)"""
+        self._loading = True
+        try:
+            self.window_x_spin.setValue(x)
+            self.window_y_spin.setValue(y)
+        finally:
+            self._loading = False
     
     def _preset_center(self):
         """화면 중앙 프리셋"""
@@ -325,12 +360,27 @@ class SettingsDialog(QDialog):
         }
     
     def _preview_settings(self):
-        """미리보기 - 설정을 임시로 적용 (항상 활성화)"""
+        """미리보기 - settings 객체 수정 없이 화면에만 적용"""
         new_settings = self._get_current_values()
         self.settings_preview.emit(new_settings)
     
     def _save_settings(self):
         """설정 저장 및 적용"""
+        self._saved = True
         new_settings = self._get_current_values()
         self.settings_changed.emit(new_settings)
-        self.accept()
+        self.close()
+    
+    def _cancel_settings(self):
+        """설정 취소 - 원본 설정으로 복원"""
+        self._saved = False
+        self.settings_cancelled.emit()
+        self.close()
+    
+    def closeEvent(self, event):
+        """창 닫기 이벤트 - X 버튼으로 닫을 때도 복원"""
+        # 저장 또는 취소 버튼으로 이미 처리된 경우 스킵
+        if not hasattr(self, '_saved'):
+            # X 버튼으로 닫은 경우 → 복원
+            self.settings_cancelled.emit()
+        event.accept()

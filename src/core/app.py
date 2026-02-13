@@ -24,9 +24,20 @@ class ENEApplication(QObject):
         # LLM 클라이언트 초기화
         self._init_llm_client()
         
+        # 캘린더 매니저 초기화
+        self._init_calendar_manager()
+        
         # 오버레이 윈도우 생성
         self.overlay_window = OverlayWindow(self.settings)
         self.overlay_window.set_llm_client(self.llm_client)  # LLM 클라이언트 연결
+        
+        # 캘린더 매니저 연결
+        if hasattr(self, 'calendar_manager') and self.calendar_manager:
+            self.overlay_window.bridge.calendar_manager = self.calendar_manager
+            if self.overlay_window.bridge.llm_client:
+                self.overlay_window.bridge.llm_client.calendar_manager = self.calendar_manager
+            print("[App] Bridge에 캘린더 매니저 연결")
+        
         self.overlay_window.show()
         
         # 트레이 아이콘 생성
@@ -68,7 +79,9 @@ class ENEApplication(QObject):
             self.llm_client = GeminiClient(
                 api_key=api_key,
                 memory_manager=self.memory_manager,
-                user_profile=self.user_profile if hasattr(self, 'user_profile') else None
+                user_profile=self.user_profile if hasattr(self, 'user_profile') else None,
+                settings=self.settings,
+                calendar_manager=self.calendar_manager if hasattr(self, 'calendar_manager') else None
             )
             print("OK: Gemini API 클라이언트 초기화 성공")
             
@@ -95,6 +108,19 @@ class ENEApplication(QObject):
             import traceback
             traceback.print_exc()
             self.user_profile = None
+    
+    def _init_calendar_manager(self):
+        """캘린더 매니저 초기화"""
+        from src.ai.calendar_manager import CalendarManager
+        
+        try:
+            self.calendar_manager = CalendarManager()
+            print("OK: 캘린더 매니저 초기화 성공")
+        except Exception as e:
+            print(f"ERROR: 캘린더 매니저 초기화 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            self.calendar_manager = None
     
     def _init_memory_manager(self):
         """메모리 매니저 초기화"""
@@ -183,20 +209,32 @@ class ENEApplication(QObject):
         # 트레이 아이콘 시그널
         self.tray_icon.settings_requested.connect(self._show_settings_dialog)
         self.tray_icon.memory_requested.connect(self._show_memory_dialog)
+        self.tray_icon.calendar_requested.connect(self._show_calendar_dialog)
         self.tray_icon.toggle_drag_bar_requested.connect(self._toggle_drag_bar)
         self.tray_icon.toggle_mouse_tracking_requested.connect(self._toggle_mouse_tracking)
         self.tray_icon.quit_requested.connect(self._quit_application)
     
     def _show_settings_dialog(self):
-        """설정 다이얼로그 표시"""
-        dialog = SettingsDialog(self.settings.config, self.overlay_window)
-        if dialog.exec() == SettingsDialog.DialogCode.Accepted:
-            # 설정 저장
-            self.settings.config = dialog.get_settings()
-            self.settings.save()
-            
-            # 설정 적용
-            self.overlay_window.apply_settings(self.settings.config)
+        """설정 다이얼로그 표시 (비모달)"""
+        # 이미 열려있으면 포커스
+        if hasattr(self, '_settings_dialog') and self._settings_dialog and self._settings_dialog.isVisible():
+            self._settings_dialog.raise_()
+            self._settings_dialog.activateWindow()
+            return
+        
+        dialog = SettingsDialog(self.settings.config)
+        self._settings_dialog = dialog
+        
+        # 시그널 연결
+        dialog.settings_changed.connect(self._on_settings_changed)
+        dialog.settings_preview.connect(self._on_settings_preview)
+        dialog.settings_cancelled.connect(self._on_settings_cancelled)
+        
+        # 드래그 바의 위치 변경 시그널을 설정창에 연결
+        self.overlay_window.drag_bar.position_changed.connect(dialog.update_position)
+        
+        # 비모달로 표시
+        dialog.show()
     
     def _show_memory_dialog(self):
         """기억 관리 다이얼로그 표시"""
@@ -216,16 +254,28 @@ class ENEApplication(QObject):
         dialog = MemoryDialog(self.memory_manager, bridge)
         dialog.exec()
     
+    def _show_calendar_dialog(self):
+        """캘린더 다이얼로그 표시"""
+        from src.ui.calendar_dialog import CalendarDialog
+        
+        if not hasattr(self, 'calendar_manager') or not self.calendar_manager:
+            print("[App] Calendar manager가 없습니다")
+            return
+        
+        dialog = CalendarDialog(self.calendar_manager)
+        dialog.exec()
+    
     def _on_settings_changed(self, new_settings: dict):
         """설정 변경 시 (저장)"""
         self.overlay_window.apply_new_settings(new_settings)
     
     def _on_settings_preview(self, new_settings: dict):
-        """설정 미리보기 (저장하지 않음)"""
-        # 임시로 설정 적용 (저장하지 않음)
-        self.overlay_window.settings.update(new_settings)
-        self.overlay_window._apply_settings()
-        self.overlay_window._apply_model_settings()
+        """설정 미리보기 (settings 객체 수정 없이 화면에만 적용)"""
+        self.overlay_window.preview_settings(new_settings)
+    
+    def _on_settings_cancelled(self):
+        """설정 취소 - 저장된 값으로 복원"""
+        self.overlay_window.restore_settings()
     
     def _toggle_drag_bar(self):
         """드래그 바 토글"""
