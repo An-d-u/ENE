@@ -29,7 +29,7 @@ class MemoryDialog(QDialog):
         """UI 구성"""
         layout = QVBoxLayout(self)
         
-        # === 설정 그룹 ===
+        # === 자동 요약 설정 그룹 ===
         settings_group = QGroupBox("자동 요약 설정")
         settings_layout = QHBoxLayout(settings_group)
         
@@ -37,7 +37,7 @@ class MemoryDialog(QDialog):
         
         self.threshold_spinbox = QSpinBox()
         self.threshold_spinbox.setMinimum(2)
-        self.threshold_spinbox.setMaximum(100)  # 최대 100개
+        self.threshold_spinbox.setMaximum(100)
         self.threshold_spinbox.setValue(10)
         self.threshold_spinbox.setSuffix("개")
         self.threshold_spinbox.valueChanged.connect(self._on_threshold_changed)
@@ -47,6 +47,64 @@ class MemoryDialog(QDialog):
         settings_layout.addStretch()
         
         layout.addWidget(settings_group)
+        
+        # === 기억 검색 설정 그룹 ===
+        memory_settings_group = QGroupBox("기억 검색 설정")
+        memory_settings_layout = QVBoxLayout(memory_settings_group)
+        
+        # 첫째 줄: 중요 기억 / 유사 기억
+        row1 = QHBoxLayout()
+        
+        row1.addWidget(QLabel("최대 중요 기억:"))
+        self.important_spinbox = QSpinBox()
+        self.important_spinbox.setMinimum(0)
+        self.important_spinbox.setMaximum(20)
+        self.important_spinbox.setValue(3)
+        self.important_spinbox.setSuffix("개")
+        self.important_spinbox.valueChanged.connect(self._on_memory_setting_changed)
+        row1.addWidget(self.important_spinbox)
+        
+        row1.addSpacing(15)
+        
+        row1.addWidget(QLabel("최대 유사 기억:"))
+        self.similar_spinbox = QSpinBox()
+        self.similar_spinbox.setMinimum(0)
+        self.similar_spinbox.setMaximum(20)
+        self.similar_spinbox.setValue(3)
+        self.similar_spinbox.setSuffix("개")
+        self.similar_spinbox.valueChanged.connect(self._on_memory_setting_changed)
+        row1.addWidget(self.similar_spinbox)
+        
+        row1.addStretch()
+        memory_settings_layout.addLayout(row1)
+        
+        # 둘째 줄: 최근 기억 / 최소 유사도
+        row2 = QHBoxLayout()
+        
+        row2.addWidget(QLabel("최대 최근 기억:"))
+        self.recent_spinbox = QSpinBox()
+        self.recent_spinbox.setMinimum(0)
+        self.recent_spinbox.setMaximum(20)
+        self.recent_spinbox.setValue(2)
+        self.recent_spinbox.setSuffix("개")
+        self.recent_spinbox.valueChanged.connect(self._on_memory_setting_changed)
+        row2.addWidget(self.recent_spinbox)
+        
+        row2.addSpacing(15)
+        
+        row2.addWidget(QLabel("최소 유사도:"))
+        self.similarity_spinbox = QSpinBox()
+        self.similarity_spinbox.setMinimum(1)
+        self.similarity_spinbox.setMaximum(100)
+        self.similarity_spinbox.setValue(35)
+        self.similarity_spinbox.setSuffix("%")
+        self.similarity_spinbox.valueChanged.connect(self._on_memory_setting_changed)
+        row2.addWidget(self.similarity_spinbox)
+        
+        row2.addStretch()
+        memory_settings_layout.addLayout(row2)
+        
+        layout.addWidget(memory_settings_group)
         
         # === 통계 및 검색 ===
         top_layout = QHBoxLayout()
@@ -283,6 +341,14 @@ class MemoryDialog(QDialog):
         """설정 로드"""
         if self.bridge:
             self.threshold_spinbox.setValue(self.bridge.summarize_threshold)
+            
+            # 기억 검색 설정 로드
+            if hasattr(self.bridge, 'settings') and self.bridge.settings:
+                config = self.bridge.settings.config
+                self.important_spinbox.setValue(config.get('max_important_memories', 3))
+                self.similar_spinbox.setValue(config.get('max_similar_memories', 3))
+                self.similarity_spinbox.setValue(int(config.get('min_similarity', 0.35) * 100))
+                self.recent_spinbox.setValue(config.get('max_recent_memories', 2))
     
     def _on_threshold_changed(self, value):
         """임계값 변경 시"""
@@ -295,6 +361,26 @@ class MemoryDialog(QDialog):
                 self.bridge.settings.config['summarize_threshold'] = value
                 self.bridge.settings.save()
                 print(f"[Memory Dialog] 설정 저장 완료")
+    
+    def _on_memory_setting_changed(self):
+        """기억 검색 설정 변경 시"""
+        if not self.bridge or not hasattr(self.bridge, 'settings') or not self.bridge.settings:
+            return
+        
+        config = self.bridge.settings.config
+        config['max_important_memories'] = self.important_spinbox.value()
+        config['max_similar_memories'] = self.similar_spinbox.value()
+        config['min_similarity'] = self.similarity_spinbox.value() / 100.0
+        config['max_recent_memories'] = self.recent_spinbox.value()
+        
+        self.bridge.settings.save()
+        
+        print(f"[Memory Dialog] 기억 검색 설정 변경: "
+              f"중요={config['max_important_memories']}, "
+              f"유사={config['max_similar_memories']}, "
+              f"유사도={config['min_similarity']:.2f}, "
+              f"최근={config['max_recent_memories']}")
+
     
     def _show_profile_dialog(self):
         """사용자 정보 관리 다이얼로그 표시"""

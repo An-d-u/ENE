@@ -3,18 +3,22 @@
 윈도우를 드래그하여 이동할 수 있는 바
 """
 from PyQt6.QtWidgets import QWidget, QLabel, QHBoxLayout
-from PyQt6.QtCore import Qt, QPoint
+from PyQt6.QtCore import Qt, QPoint, pyqtSignal
 from PyQt6.QtGui import QPalette, QColor
 
 
 class DragBar(QWidget):
     """반투명 드래그 바"""
     
+    # 드래그 완료 시 위치 변경 시그널 (x, y)
+    position_changed = pyqtSignal(int, int)
+    
     def __init__(self, parent=None):
         super().__init__(parent)
         
         # 드래그 상태
         self._drag_position = QPoint()
+        self._is_dragging = False
         
         # UI 설정
         self.setFixedHeight(30)
@@ -44,11 +48,24 @@ class DragBar(QWidget):
         if event.button() == Qt.MouseButton.LeftButton:
             # 현재 마우스 위치를 전역 좌표로 저장
             self._drag_position = event.globalPosition().toPoint() - self.window().frameGeometry().topLeft()
+            self._is_dragging = True
             event.accept()
     
     def mouseMoveEvent(self, event):
         """마우스 이동 - 윈도우 드래그"""
-        if event.buttons() == Qt.MouseButton.LeftButton:
+        if event.buttons() == Qt.MouseButton.LeftButton and self._is_dragging:
             # 윈도우를 새 위치로 이동
-            self.window().move(event.globalPosition().toPoint() - self._drag_position)
+            new_pos = event.globalPosition().toPoint() - self._drag_position
+            self.window().move(new_pos)
+            # 실시간으로 위치 시그널 발생
+            self.position_changed.emit(new_pos.x(), new_pos.y())
+            event.accept()
+    
+    def mouseReleaseEvent(self, event):
+        """마우스 놓기 - 드래그 종료"""
+        if event.button() == Qt.MouseButton.LeftButton and self._is_dragging:
+            self._is_dragging = False
+            # 최종 위치 시그널 발생
+            window = self.window()
+            self.position_changed.emit(window.x(), window.y())
             event.accept()

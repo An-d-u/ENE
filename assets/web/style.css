@@ -176,6 +176,33 @@ body {
     font-size: 14px;
     outline: none;
     transition: all 0.2s;
+    resize: none;
+    /* 수동 크기 조절 비활성화 */
+    overflow-y: auto;
+    /* 세로 스크롤 자동 */
+    min-height: 40px;
+    /* 최소 높이 (1줄) */
+    max-height: 200px;
+    /* 최대 높이 (약 8줄) */
+    line-height: 1.4;
+    /* 줄 간격 */
+    font-family: inherit;
+    /* 폰트 상속 */
+    white-space: pre-wrap;
+    /* 줄바꿈 유지 */
+    word-wrap: break-word;
+    /* 긴 단어 줄바꿈 */
+}
+
+/* 스크롤바 숨기기 (웹킷 브라우저) */
+#chat-input::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+}
+
+/* 스크롤바 숨기기 (파이어폭스) */
+#chat-input {
+    scrollbar-width: none;
 }
 
 #chat-input::placeholder {

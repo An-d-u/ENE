@@ -176,7 +176,7 @@ class OverlayWindow(QWidget):
         self.drag_bar.setVisible(show_bar)
     
     def apply_new_settings(self, new_settings: dict):
-        """새 설정 적용"""
+        """새 설정 적용 및 저장"""
         # 마우스 트래킹 설정 변경 확인
         old_tracking = self.settings.get('mouse_tracking_enabled', True)
         new_tracking = new_settings.get('mouse_tracking_enabled', True)
@@ -195,6 +195,46 @@ class OverlayWindow(QWidget):
                 self.web_view.page().runJavaScript("window.setMouseTrackingEnabled(false);")
         
         self.settings.save()
+    
+    def preview_settings(self, new_settings: dict):
+        """설정 미리보기 (settings 객체 수정 없이 화면에만 적용)"""
+        # 위치
+        x = new_settings.get('window_x', self.settings.get('window_x', 100))
+        y = new_settings.get('window_y', self.settings.get('window_y', 100))
+        self.move(x, y)
+        
+        # 크기
+        width = new_settings.get('window_width', self.settings.get('window_width', 400))
+        height = new_settings.get('window_height', self.settings.get('window_height', 600))
+        self.resize(width, height)
+        
+        # 드래그 바 표시 여부
+        show_bar = new_settings.get('show_drag_bar', self.settings.get('show_drag_bar', True))
+        self.drag_bar.setVisible(show_bar)
+        
+        # 모델 설정 적용 (JS 호출)
+        scale = new_settings.get('model_scale', self.settings.get('model_scale', 1.0))
+        x_percent = new_settings.get('model_x_percent', self.settings.get('model_x_percent', 50))
+        y_percent = new_settings.get('model_y_percent', self.settings.get('model_y_percent', 50))
+        
+        js_code = f"""
+        (function() {{
+            const model = window.live2dModel;
+            if (model) {{
+                model.scale.set({scale});
+                const canvasWidth = window.innerWidth;
+                const canvasHeight = window.innerHeight;
+                model.x = canvasWidth * {x_percent / 100};
+                model.y = canvasHeight * {y_percent / 100};
+            }}
+        }})();
+        """
+        self.web_view.page().runJavaScript(js_code)
+    
+    def restore_settings(self):
+        """설정을 저장된 값으로 복원"""
+        self._apply_settings()
+        self._apply_model_settings()
     
     def toggle_drag_bar(self):
         """드래그 바 표시/숨김 토글"""
