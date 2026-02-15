@@ -144,6 +144,7 @@ class WebBridge(QObject):
     expression_changed = pyqtSignal(str)     # 표정 변경
     lip_sync_update = pyqtSignal(float)      # 립싱크 업데이트 (mouth_value)
     reroll_state_changed = pyqtSignal(bool)  # 리롤 응답 교체 모드 on/off
+    summary_notice = pyqtSignal(str, str)    # (메시지, 레벨)
     
     def __init__(self, settings=None, parent=None):
         super().__init__(parent)
@@ -334,6 +335,40 @@ class WebBridge(QObject):
         self.reroll_state_changed.emit(True)
         self._start_ai_worker(payload["message_with_time"], payload.get("images") or [])
         print("[Bridge] Reroll started")
+
+    @pyqtSlot()
+    def summarize_now(self):
+        """UI에서 호출: 현재 대화를 즉시 요약해 메모리에 저장."""
+        if self.worker and self.worker.isRunning():
+            print("[Bridge] Manual summarize ignored: worker is still running")
+            self.summary_notice.emit("응답 생성 중에는 요약할 수 없어요.", "error")
+            return
+
+        if not self.llm_client or not self.memory_manager:
+            print("[Bridge] Manual summarize ignored: llm/memory not initialized")
+            self.summary_notice.emit("요약 기능이 아직 준비되지 않았어요.", "error")
+            return
+
+        if not self.conversation_buffer:
+            print("[Bridge] Manual summarize ignored: no conversation to summarize")
+            self.summary_notice.emit("요약할 대화가 없어요.", "info")
+            return
+
+        import asyncio
+        loop = None
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self._auto_summarize())
+            self.summary_notice.emit("대화 요약을 저장했어요.", "success")
+        except Exception as e:
+            print(f"[Bridge] Manual summarize failed: {e}")
+            import traceback
+            traceback.print_exc()
+            self.summary_notice.emit("요약 중 오류가 발생했어요.", "error")
+        finally:
+            if loop is not None:
+                loop.close()
 
     
     def _on_response_ready(self, text: str, emotion: str, japanese_text: str, events: list = None):
