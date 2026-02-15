@@ -36,6 +36,21 @@
         </div>
     </div>
 
+    <button id="manual-summarize-floating-btn" title="대화 요약">요약</button>
+
+    <div id="summary-confirm-overlay" class="hidden" role="dialog" aria-modal="true" aria-labelledby="summary-confirm-title">
+        <div id="summary-confirm-dialog">
+            <div id="summary-confirm-title">수동 요약</div>
+            <div id="summary-confirm-body">수동 요약을 진행하시겠습니까?</div>
+            <div id="summary-confirm-actions">
+                <button id="summary-confirm-no" type="button">아니오</button>
+                <button id="summary-confirm-yes" type="button">예</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast-container" aria-live="polite" aria-atomic="true"></div>
+
     <!-- 로컬 JavaScript 라이브러리 사용 -->
     <script src="lib/pixi.min.js"></script>
     <script src="lib/live2dcubismcore.min.js"></script>

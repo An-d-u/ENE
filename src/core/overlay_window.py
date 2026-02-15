@@ -89,6 +89,7 @@ class OverlayWindow(QWidget):
         self._sync_mouse_tracking_state_to_js()
         self._sync_idle_motion_settings_to_js()
         self._sync_reroll_button_visibility_to_js()
+        self._sync_manual_summary_button_visibility_to_js()
         print("Web page loaded")
 
     def _apply_model_settings(self):
@@ -151,6 +152,7 @@ class OverlayWindow(QWidget):
 
         self._sync_idle_motion_settings_to_js()
         self._sync_reroll_button_visibility_to_js()
+        self._sync_manual_summary_button_visibility_to_js()
         self.settings.save()
 
     def preview_settings(self, new_settings: dict):
@@ -182,12 +184,14 @@ class OverlayWindow(QWidget):
         if self._page_loaded:
             self._sync_idle_motion_settings_to_js(new_settings)
             self._sync_reroll_button_visibility_to_js(new_settings)
+            self._sync_manual_summary_button_visibility_to_js(new_settings)
 
     def restore_settings(self):
         self._apply_settings()
         self._apply_model_settings()
         self._sync_idle_motion_settings_to_js()
         self._sync_reroll_button_visibility_to_js()
+        self._sync_manual_summary_button_visibility_to_js()
 
     def toggle_drag_bar(self):
         visible = not self.drag_bar.isVisible()
@@ -308,6 +312,13 @@ class OverlayWindow(QWidget):
         source = settings_override if settings_override is not None else self.settings.config
         enabled = "true" if bool(source.get("show_recent_reroll_button", True)) else "false"
         self.web_view.page().runJavaScript(f"window.setRerollButtonEnabled({enabled});")
+
+    def _sync_manual_summary_button_visibility_to_js(self, settings_override: dict | None = None):
+        if not self._page_loaded:
+            return
+        source = settings_override if settings_override is not None else self.settings.config
+        enabled = "true" if bool(source.get("show_manual_summary_button", True)) else "false"
+        self.web_view.page().runJavaScript(f"window.setManualSummaryButtonEnabled({enabled});")
 
     def _set_mouse_tracking_enabled(self, enabled: bool):
         if enabled:
