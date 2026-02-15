@@ -222,7 +222,15 @@ class ENEApplication(QObject):
             self._settings_dialog.activateWindow()
             return
         
-        dialog = SettingsDialog(self.settings.config)
+        # 설정창은 "현재 화면 상태"를 기준으로 열어야 체크/토글 시 위치가 튀지 않는다.
+        current_settings = dict(self.settings.config)
+        if hasattr(self, 'overlay_window') and self.overlay_window:
+            current_settings['window_x'] = self.overlay_window.x()
+            current_settings['window_y'] = self.overlay_window.y()
+            current_settings['window_width'] = self.overlay_window.width()
+            current_settings['window_height'] = self.overlay_window.height()
+
+        dialog = SettingsDialog(current_settings)
         self._settings_dialog = dialog
         
         # 시그널 연결

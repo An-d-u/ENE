@@ -1,67 +1,72 @@
 """
-ENE 설정 관리 모듈
-사용자 설정을 JSON 파일로 저장/로드
+ENE settings manager.
+Loads and saves user settings to JSON.
 """
 import json
-import os
 from pathlib import Path
 
 
 class Settings:
-    """애플리케이션 설정 관리 클래스"""
-    
+    """Application settings manager."""
+
     DEFAULT_CONFIG = {
-        'window_x': 100,
-        'window_y': 100,
-        'window_width': 400,
-        'window_height': 600,
-        'zoom_level': 1.0,
-        'show_drag_bar': True,
-        'model_scale': 1.0,
-        'model_x_percent': 50,  # 0-100%
-        'model_y_percent': 50,  # 0-100%
-        'mouse_tracking_enabled': True,  # 마우스 트래킹
-        'gemini_api_key': '',  # Gemini API 키
-        'summarize_threshold': 10,  # 자동 요약 임계값
+        "window_x": 100,
+        "window_y": 100,
+        "window_width": 400,
+        "window_height": 600,
+        "zoom_level": 1.0,
+        "show_drag_bar": True,
+        "show_recent_reroll_button": True,
+        "model_scale": 1.0,
+        "model_x_percent": 50,  # 0-100%
+        "model_y_percent": 50,  # 0-100%
+        "mouse_tracking_enabled": True,
+        "enable_idle_motion": True,
+        "idle_motion_strength": 1.0,  # 0.2 ~ 2.0
+        "idle_motion_speed": 1.0,  # 0.5 ~ 2.0
+        "idle_motion_dynamic_mode": False,
+        "enable_head_pat": True,
+        "head_pat_strength": 1.0,  # 0.5 ~ 2.5
+        "head_pat_fade_in_ms": 180,
+        "head_pat_fade_out_ms": 220,
+        "head_pat_active_emotion_default": "eyeclose",
+        "head_pat_active_emotion_custom": "",
+        "head_pat_end_emotion_default": "shy",
+        "head_pat_end_emotion_custom": "",
+        "head_pat_end_emotion_duration_sec": 5,
+        "gemini_api_key": "",
+        "summarize_threshold": 10,
     }
-    
-    def __init__(self, config_path: str = 'config.json'):
-        """
-        Args:
-            config_path: 설정 파일 경로
-        """
+
+    def __init__(self, config_path: str = "config.json"):
         self.config_path = Path(config_path)
         self.config = self.load()
-    
+
     def load(self) -> dict:
-        """설정 파일 로드. 없으면 기본값 반환"""
+        """Load settings. Return defaults on failure."""
         if self.config_path.exists():
             try:
-                with open(self.config_path, 'r', encoding='utf-8') as f:
+                with open(self.config_path, "r", encoding="utf-8") as f:
                     loaded_config = json.load(f)
-                # 기본값과 병합 (누락된 키 보완)
                 return {**self.DEFAULT_CONFIG, **loaded_config}
             except Exception as e:
-                print(f"설정 파일 로드 실패: {e}")
+                print(f"Settings load failed: {e}")
                 return self.DEFAULT_CONFIG.copy()
         return self.DEFAULT_CONFIG.copy()
-    
+
     def save(self):
-        """현재 설정을 파일에 저장"""
+        """Persist current settings."""
         try:
-            with open(self.config_path, 'w', encoding='utf-8') as f:
+            with open(self.config_path, "w", encoding="utf-8") as f:
                 json.dump(self.config, f, indent=2, ensure_ascii=False)
         except Exception as e:
-            print(f"설정 파일 저장 실패: {e}")
-    
+            print(f"Settings save failed: {e}")
+
     def get(self, key: str, default=None):
-        """설정 값 가져오기"""
         return self.config.get(key, default)
-    
+
     def set(self, key: str, value):
-        """설정 값 변경"""
         self.config[key] = value
-    
+
     def update(self, updates: dict):
-        """여러 설정 값 한 번에 업데이트"""
         self.config.update(updates)

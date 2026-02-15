@@ -1,38 +1,38 @@
-/**
- * Live2D 모델 렌더링 스크립트
- * Pixi.js와 pixi-live2d-display를 사용하여 Live2D 모델 로드
+﻿/**
+ * Live2D 紐⑤뜽 ?뚮뜑留??ㅽ겕由쏀듃
+ * Pixi.js? pixi-live2d-display瑜??ъ슜?섏뿬 Live2D 紐⑤뜽 濡쒕뱶
  */
 
-// 디버그 로그
+// ?붾쾭洹?濡쒓렇
 console.log("=== Live2D script loaded ===");
 console.log("Window location:", window.location.href);
 
-// Pixi.js 및 Live2D 라이브러리 확인
+// Pixi.js 諛?Live2D ?쇱씠釉뚮윭由??뺤씤
 console.log("PIXI available:", typeof PIXI !== 'undefined');
 console.log("Live2DCubismCore available:", typeof Live2DCubismCore !== 'undefined');
 console.log("PIXI.live2d available:", typeof PIXI !== 'undefined' && typeof PIXI.live2d !== 'undefined');
 
-// PIXI가 없으면 중단
+// PIXI媛 ?놁쑝硫?以묐떒
 if (typeof PIXI === 'undefined') {
     console.error("CRITICAL: PIXI.js is not loaded!");
-    document.body.innerHTML = '<div style="color: red; font-family: Arial; text-align: center; margin-top: 50px; font-size: 18px;">PIXI.js 로드 실패<br><br>페이지를 새로고침해 주세요.</div>';
+    document.body.innerHTML = '<div style="color: red; font-family: Arial; text-align: center; margin-top: 50px; font-size: 18px;">PIXI.js 濡쒕뱶 ?ㅽ뙣<br><br>?섏씠吏瑜??덈줈怨좎묠??二쇱꽭??</div>';
     throw new Error("PIXI.js not loaded");
 }
 
-// PIXI.live2d가 없으면 중단
+// PIXI.live2d媛 ?놁쑝硫?以묐떒
 if (typeof PIXI.live2d === 'undefined') {
     console.error("CRITICAL: PIXI.live2d is not available!");
     console.log("Available PIXI properties:", Object.keys(PIXI));
     document.body.innerHTML = '<div style="color: red; font-family: Arial; text-align: center; margin-top: 50px; font-size: 16px;">' +
-        'pixi-live2d-display 라이브러리 로드 실패<br><br>' +
-        '사용 가능한 PIXI: ' + Object.keys(PIXI).slice(0, 10).join(', ') + '...<br><br>' +
-        '페이지를 새로고침해 주세요.</div>';
+        'pixi-live2d-display ?쇱씠釉뚮윭由?濡쒕뱶 ?ㅽ뙣<br><br>' +
+        '?ъ슜 媛?ν븳 PIXI: ' + Object.keys(PIXI).slice(0, 10).join(', ') + '...<br><br>' +
+        '?섏씠吏瑜??덈줈怨좎묠??二쇱꽭??</div>';
     throw new Error("PIXI.live2d not available");
 }
 
-console.log("✓ All libraries loaded successfully");
+console.log("??All libraries loaded successfully");
 
-// Pixi 앱 초기화
+// Pixi ??珥덇린??
 const app = new PIXI.Application({
     view: document.getElementById('live2d-canvas'),
     transparent: true,
@@ -44,41 +44,41 @@ const app = new PIXI.Application({
 console.log("Pixi app initialized");
 console.log("Canvas size:", window.innerWidth, "x", window.innerHeight);
 
-// 모델 경로 (상대 경로로 설정)
+// 紐⑤뜽 寃쎈줈 (?곷? 寃쎈줈濡??ㅼ젙)
 const modelPath = '../live2d_models/jksalt/jksalt.model3.json';
 
-// 절대 경로 계산 (디버깅용)
+// ?덈? 寃쎈줈 怨꾩궛 (?붾쾭源낆슜)
 const baseUrl = window.location.href.substring(0, window.location.href.lastIndexOf('/'));
 const absoluteModelPath = new URL(modelPath, baseUrl + '/').href;
 console.log("Model path (relative):", modelPath);
 console.log("Model path (absolute):", absoluteModelPath);
 
-// Live2D 모델 로드
+// Live2D 紐⑤뜽 濡쒕뱶
 async function loadModel() {
     try {
         console.log(`\n=== Loading model ===`);
         console.log(`Path: ${modelPath}`);
 
-        // pixi-live2d-display 사용
+        // pixi-live2d-display ?ъ슜
         console.log("Calling PIXI.live2d.Live2DModel.from()...");
         const model = await PIXI.live2d.Live2DModel.from(modelPath);
 
-        console.log("✓ Model loaded successfully!");
+        console.log("??Model loaded successfully!");
         console.log("Model size:", model.width, "x", model.height);
 
-        // 모델을 전역 변수에 저장 (Python에서 접근 가능하게)
+        // 紐⑤뜽???꾩뿭 蹂?섏뿉 ???(Python?먯꽌 ?묎렐 媛?ν븯寃?
         window.live2dModel = model;
 
-        // 모델을 스테이지에 추가
+        // 紐⑤뜽???ㅽ뀒?댁???異붽?
         app.stage.addChild(model);
 
-        // 앵커 설정 (중심 기준)
+        // ?듭빱 ?ㅼ젙 (以묒떖 湲곗?)
         model.anchor.set(0.5, 0.5);
 
-        // 기본 크기 및 위치 (Python 설정으로 덮어씌워질 예정)
+        // 湲곕낯 ?ш린 諛??꾩튂 (Python ?ㅼ젙?쇰줈 ??뼱?뚯썙吏??덉젙)
         const scaleX = window.innerWidth / model.width;
         const scaleY = window.innerHeight / model.height;
-        const scale = Math.min(scaleX, scaleY) * 0.8;  // 80% 크기로
+        const scale = Math.min(scaleX, scaleY) * 0.8;  // 80% ?ш린濡?
 
         model.scale.set(scale);
         model.x = window.innerWidth / 2;
@@ -87,7 +87,7 @@ async function loadModel() {
         console.log(`Model positioned at (${model.x}, ${model.y}) with scale ${scale}`);
 
 
-        // 자동 모션 재생 (있는 경우)
+        // ?먮룞 紐⑥뀡 ?ъ깮 (?덈뒗 寃쎌슦)
         if (model.internalModel && model.internalModel.motionManager) {
             console.log("Motion manager available");
             try {
@@ -100,18 +100,18 @@ async function loadModel() {
             console.log("No motion manager found");
         }
 
-        // 눈 깜빡임 (존재하는 경우)
+        // ??源쒕묀??(議댁옱?섎뒗 寃쎌슦)
         if (model.internalModel && model.internalModel.eyeBlink) {
             console.log("Eye blink enabled");
         }
 
-        // 전역 참조 저장
+        // ?꾩뿭 李몄“ ???
         window.live2dModel = model;
 
         console.log("=== Model setup complete ===\n");
 
     } catch (error) {
-        console.error("❌ Failed to load Live2D model");
+        console.error("??Failed to load Live2D model");
         console.error("Error:", error);
         console.error("Error type:", error.constructor.name);
         console.error("Error message:", error.message);
@@ -119,13 +119,13 @@ async function loadModel() {
             console.error("Stack trace:", error.stack);
         }
 
-        // 에러 메시지 표시
+        // ?먮윭 硫붿떆吏 ?쒖떆
         const errorText = new PIXI.Text(
-            `Live2D 모델 로드 실패\n\n` +
-            `에러: ${error.message}\n\n` +
-            `경로: ${modelPath}\n` +
-            `절대경로: ${absoluteModelPath}\n\n` +
-            `콘솔을 확인하세요 (F12)`,
+            `Live2D 紐⑤뜽 濡쒕뱶 ?ㅽ뙣\n\n` +
+            `?먮윭: ${error.message}\n\n` +
+            `寃쎈줈: ${modelPath}\n` +
+            `?덈?寃쎈줈: ${absoluteModelPath}\n\n` +
+            `肄섏넄???뺤씤?섏꽭??(F12)`,
             {
                 fontFamily: 'Arial',
                 fontSize: 14,
@@ -142,7 +142,7 @@ async function loadModel() {
     }
 }
 
-// 윈도우 리사이즈 처리
+// ?덈룄??由ъ궗?댁쫰 泥섎━
 window.addEventListener('resize', () => {
     if (window.live2dModel) {
         const model = window.live2dModel;
@@ -159,176 +159,668 @@ window.addEventListener('resize', () => {
     }
 });
 
-// 모델 로드 시작
+// 紐⑤뜽 濡쒕뱶 ?쒖옉
 console.log("\n=== Starting model load ===");
 loadModel();
 
 // ==========================================
-// 마우스 트래킹 기능
+// 留덉슦???몃옒??湲곕뒫
 // ==========================================
 
-// 현재 마우스 위치 (정규화된 값: -1 ~ 1)
+// ?꾩옱 留덉슦???꾩튂 (?뺢퇋?붾맂 媛? -1 ~ 1)
 let currentMouseX = 0;
 let currentMouseY = 0;
 
-// 목표 마우스 위치 (부드러운 전환을 위한 중간값)
+// 紐⑺몴 留덉슦???꾩튂 (遺?쒕윭???꾪솚???꾪븳 以묎컙媛?
 let targetMouseX = 0;
 let targetMouseY = 0;
 
-// 마우스 트래킹 활성화 여부
+// 留덉슦???몃옒???쒖꽦???щ?
 let mouseTrackingEnabled = true;
+let lastMouseUpdateAt = performance.now();
+let lastTargetUpdateAt = performance.now();
+let trackingParamSupport = null;
+let headPatEyeParamSupport = null;
+let idleMotionEnabled = true;
+let idleMotionDynamicMode = false;
+let idleMotionPhase = 0;
+let lastSpeechAt = 0;
+let headPatEnabled = true;
+let headPatStrength = 1.0;
+let headPatEventsBound = false;
+let isHeadPatting = false;
+let headPatPointerId = null;
+let headPatLastX = 0;
+let headPatLastY = 0;
+let headPatLastMoveAt = 0;
+let patRawIntensity = 0;
+let patDirection = 0;
+let patBlend = 0;
+let patBlendMode = 'idle'; // idle | in | hold | out
+let patFadeElapsedMs = 0;
+let patOffsetsCurrent = { angleX: 0, angleY: 0, bodyX: 0, eyeY: 0 };
+let patOffsetsApplied = { angleX: 0, angleY: 0, bodyX: 0, eyeY: 0 };
+let lastNonPatTrackingState = { angleX: 0, angleY: 0, bodyX: 0, eyeY: 0 };
+let previousEmotionBeforePat = 'normal';
+let currentEmotionTag = 'normal';
+let pendingPatEmotionTimer = null;
+let pendingPatRestoreEmotion = null;
+let headPatFadeInMs = 180;
+let headPatFadeOutMs = 220;
+let headPatActiveEmotion = 'eyeclose';
+let headPatEndEmotion = 'shy';
+let headPatEndEmotionDurationMs = 5000;
+let headPatSessionCounted = false;
+let headPatSavedEyeBlink = undefined;
+let headPatEyeBlinkDisabled = false;
 
-/**
- * Python에서 호출: 전역 마우스 위치 업데이트
- * @param {number} mouseX - 캔버스 내 마우스 X 좌표 (픽셀)
- * @param {number} mouseY - 캔버스 내 마우스 Y 좌표 (픽셀)
- */
-window.updateMousePosition = function (mouseX, mouseY) {
-    if (!mouseTrackingEnabled) return;
+const TRACKING_CLAMP = 1.5;
+// Vertical bias for gaze tracking.
+// Negative: look slightly upward, Positive: look slightly downward.
+const TRACKING_Y_OFFSET = 0.08;
+const TRACKING_IDLE_TIMEOUT_MS = 1200;
+const TRACKING_DAMPING_AT_60FPS = 0.2;
+const TRACKING_FACE_Y_RATIO = 0.32;
+const IDLE_MOTION_BASE_SPEED_HZ = 0.12;
+const IDLE_MOTION_BASE_ANGLE_X = 2.5;
+const IDLE_MOTION_BASE_ANGLE_Y = 0.8;
+const IDLE_MOTION_BASE_BODY_X = 1.3;
+const SPEECH_IDLE_BLOCK_MS = 450;
+const HEAD_PAT_SPEED_EMA = 0.28;
+const HEAD_PAT_INTENSITY_EMA = 0.22;
+const HEAD_PAT_DIRECTION_EMA = 0.35;
+const HEAD_PAT_SPEED_GAIN = 0.95;
+const HEAD_PAT_DECAY_AT_60FPS = 0.84;
 
+let idleMotionSpeedHz = IDLE_MOTION_BASE_SPEED_HZ;
+let idleMotionAngleX = IDLE_MOTION_BASE_ANGLE_X;
+let idleMotionAngleY = IDLE_MOTION_BASE_ANGLE_Y;
+let idleMotionBodyX = IDLE_MOTION_BASE_BODY_X;
+
+function getTrackingCoreModel() {
     const model = window.live2dModel;
-    if (!model) return;
-
-    // 캔버스 크기
-    const canvasWidth = window.innerWidth;
-    const canvasHeight = window.innerHeight;
-
-    // 모델의 위치 (중심점)
-    const modelX = model.x;
-    const modelY = model.y;
-
-    // 모델 기준 상대 위치 계산
-    const relativeX = mouseX - modelX;
-    const relativeY = mouseY - modelY;
-
-    // 정규화 (-1 ~ 1 범위로)
-    // 화면 크기의 50%를 기준으로 정규화 (너무 과장되지 않게)
-    const normalizedX = (relativeX / (canvasWidth * 0.5));
-
-    // Y축은 오프셋을 추가하여 기본 시선이 정면을 향하도록 조정
-    // 마우스가 모델 위치보다 아래에 있을 때 약간 위쪽으로 오프셋
-    const normalizedY = (relativeY / (canvasHeight * 0.5)) - 0.3;  // -0.3 오프셋 추가
-
-    // 범위 제한 (-1.5 ~ 1.5로 약간 여유를 둠)
-    targetMouseX = Math.max(-1.5, Math.min(1.5, normalizedX));
-    targetMouseY = Math.max(-1.5, Math.min(1.5, normalizedY));
-};
-
-/**
- * 마우스 트래킹 ON/OFF
- * @param {boolean} enabled 
- */
-window.setMouseTrackingEnabled = function (enabled) {
-    mouseTrackingEnabled = enabled;
-    console.log("Mouse tracking:", enabled ? "enabled" : "disabled");
-
-    // 비활성화 시 원위치로
-    if (!enabled) {
-        targetMouseX = 0;
-        targetMouseY = 0;
-        currentMouseX = 0;
-        currentMouseY = 0;
-
-        // 파라미터 즉시 초기화
-        const model = window.live2dModel;
-        if (model && model.internalModel) {
-            try {
-                model.internalModel.coreModel.setParameterValueById('ParamAngleX', 0);
-                model.internalModel.coreModel.setParameterValueById('ParamAngleY', 0);
-                model.internalModel.coreModel.setParameterValueById('ParamBodyAngleX', 0);
-                model.internalModel.coreModel.setParameterValueById('ParamEyeBallX', 0);
-                model.internalModel.coreModel.setParameterValueById('ParamEyeBallY', 0);
-            } catch (e) {
-                // 파라미터 없어도 무시
-            }
-        }
+    if (!model || !model.internalModel || !model.internalModel.coreModel) {
+        return null;
     }
+    return model.internalModel.coreModel;
+}
+
+function detectTrackingParams(coreModel) {
+    if (trackingParamSupport) {
+        return trackingParamSupport;
+    }
+
+    const hasParam = (paramId) => {
+        try {
+            return coreModel.getParameterIndex(paramId) >= 0;
+        } catch (_) {
+            return false;
+        }
+    };
+
+    trackingParamSupport = {
+        angleX: hasParam('ParamAngleX'),
+        angleY: hasParam('ParamAngleY'),
+        bodyAngleX: hasParam('ParamBodyAngleX'),
+        eyeBallX: hasParam('ParamEyeBallX'),
+        eyeBallY: hasParam('ParamEyeBallY'),
+    };
+
+    return trackingParamSupport;
+}
+
+function applyTrackingParams(coreModel, x, y, idleOffsets = null) {
+    const support = detectTrackingParams(coreModel);
+    const idleAngleX = idleOffsets ? idleOffsets.angleX : 0;
+    const idleAngleY = idleOffsets ? idleOffsets.angleY : 0;
+    const idleBodyX = idleOffsets ? idleOffsets.bodyX : 0;
+    const idleEyeY = idleOffsets && Number.isFinite(idleOffsets.eyeY) ? idleOffsets.eyeY : 0;
+    if (support.angleX) coreModel.setParameterValueById('ParamAngleX', (x * 15) + idleAngleX);
+    if (support.angleY) coreModel.setParameterValueById('ParamAngleY', (-y * 15) + idleAngleY);
+    if (support.bodyAngleX) coreModel.setParameterValueById('ParamBodyAngleX', (x * 5) + idleBodyX);
+    if (support.eyeBallX) coreModel.setParameterValueById('ParamEyeBallX', x * 0.8);
+    if (support.eyeBallY) coreModel.setParameterValueById('ParamEyeBallY', (-y * 0.8) + idleEyeY);
+}
+
+function detectHeadPatEyeParams(coreModel) {
+    if (headPatEyeParamSupport) {
+        return headPatEyeParamSupport;
+    }
+
+    const hasParam = (paramId) => {
+        try {
+            return coreModel.getParameterIndex(paramId) >= 0;
+        } catch (_) {
+            return false;
+        }
+    };
+
+    headPatEyeParamSupport = {
+        eyeLOpen: hasParam('ParamEyeLOpen'),
+        eyeROpen: hasParam('ParamEyeROpen'),
+        eyeLSquint: hasParam('ParamEyeLSquint'),
+        eyeRSquint: hasParam('ParamEyeRSquint'),
+    };
+    return headPatEyeParamSupport;
+}
+
+function applyHeadPatEyeCloseOverride(coreModel, blend) {
+    const support = detectHeadPatEyeParams(coreModel);
+    const closeAmount = clamp01(blend);
+    const openValue = 1 - closeAmount;
+
+    if (support.eyeLOpen) coreModel.setParameterValueById('ParamEyeLOpen', openValue);
+    if (support.eyeROpen) coreModel.setParameterValueById('ParamEyeROpen', openValue);
+    if (support.eyeLSquint) coreModel.setParameterValueById('ParamEyeLSquint', closeAmount);
+    if (support.eyeRSquint) coreModel.setParameterValueById('ParamEyeRSquint', closeAmount);
+}
+
+function isSpeakingNow(nowMs) {
+    return (nowMs - lastSpeechAt) < SPEECH_IDLE_BLOCK_MS;
+}
+
+window.setIdleMotionEnabled = function (enabled) {
+    idleMotionEnabled = Boolean(enabled);
+    if (!idleMotionEnabled) {
+        idleMotionPhase = 0;
+    }
+    console.log("Idle motion:", idleMotionEnabled ? "enabled" : "disabled");
 };
 
-// 애니메이션 루프: 부드러운 전환 및 모델 업데이트
-function updateMouseTracking() {
+window.setIdleMotionConfig = function (strength, speed) {
+    const s = Number.isFinite(strength) ? Math.min(2.0, Math.max(0.2, Number(strength))) : 1.0;
+    const v = Number.isFinite(speed) ? Math.min(2.0, Math.max(0.5, Number(speed))) : 1.0;
+
+    idleMotionAngleX = IDLE_MOTION_BASE_ANGLE_X * s;
+    idleMotionAngleY = IDLE_MOTION_BASE_ANGLE_Y * s;
+    idleMotionBodyX = IDLE_MOTION_BASE_BODY_X * s;
+    idleMotionSpeedHz = IDLE_MOTION_BASE_SPEED_HZ * v;
+};
+
+window.setIdleMotionDynamic = function (enabled) {
+    idleMotionDynamicMode = Boolean(enabled);
+    console.log("Idle motion dynamic mode:", idleMotionDynamicMode ? "enabled" : "disabled");
+};
+
+window.setHeadPatConfig = function (
+    enabled,
+    strength,
+    fadeInMs = 180,
+    fadeOutMs = 220,
+    activeEmotion = 'eyeclose',
+    endEmotion = 'shy',
+    endEmotionDurationSec = 5
+) {
+    headPatEnabled = Boolean(enabled);
+    headPatStrength = Number.isFinite(strength) ? Math.min(2.5, Math.max(0.5, Number(strength))) : 1.0;
+    headPatFadeInMs = Number.isFinite(fadeInMs) ? Math.min(1000, Math.max(50, Number(fadeInMs))) : 180;
+    headPatFadeOutMs = Number.isFinite(fadeOutMs) ? Math.min(1200, Math.max(50, Number(fadeOutMs))) : 220;
+    headPatActiveEmotion = typeof activeEmotion === 'string' && activeEmotion.trim() ? activeEmotion.trim() : 'eyeclose';
+    headPatEndEmotion = typeof endEmotion === 'string' && endEmotion.trim() ? endEmotion.trim() : 'shy';
+    headPatEndEmotionDurationMs = Number.isFinite(endEmotionDurationSec)
+        ? Math.min(30000, Math.max(1000, Number(endEmotionDurationSec) * 1000))
+        : 5000;
+
+    if (!headPatEnabled) {
+        isHeadPatting = false;
+        headPatPointerId = null;
+        patRawIntensity = 0;
+        patDirection = 0;
+        patBlend = 0;
+        patBlendMode = 'idle';
+        setHeadPatEyeBlinkEnabled(true);
+    }
+    console.log(
+        "Head pat:",
+        headPatEnabled ? "enabled" : "disabled",
+        "strength=", headPatStrength,
+        "fadeIn=", headPatFadeInMs,
+        "fadeOut=", headPatFadeOutMs,
+        "activeEmotion=", headPatActiveEmotion,
+        "emotion=", headPatEndEmotion,
+        "durationMs=", headPatEndEmotionDurationMs
+    );
+};
+
+window.setHeadPatEmotionConfig = function (activeEmotion = 'eyeclose', endEmotion = 'shy', endEmotionDurationSec = 5) {
+    headPatActiveEmotion = typeof activeEmotion === 'string' && activeEmotion.trim() ? activeEmotion.trim() : 'eyeclose';
+    headPatEndEmotion = typeof endEmotion === 'string' && endEmotion.trim() ? endEmotion.trim() : 'shy';
+    headPatEndEmotionDurationMs = Number.isFinite(endEmotionDurationSec)
+        ? Math.min(30000, Math.max(1000, Number(endEmotionDurationSec) * 1000))
+        : 5000;
+};
+
+function clamp01(v) {
+    return Math.max(0, Math.min(1, v));
+}
+
+function easeInOutCubic(t) {
+    const x = clamp01(t);
+    return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+}
+
+function lerp(a, b, t) {
+    return a + ((b - a) * t);
+}
+
+function isHeadPatPoint(pointerX, pointerY) {
     const model = window.live2dModel;
-    if (!model || !mouseTrackingEnabled) {
-        requestAnimationFrame(updateMouseTracking);
+    if (!model) return false;
+
+    try {
+        if (typeof model.hitTest === 'function' && model.hitTest('Head', pointerX, pointerY)) {
+            return true;
+        }
+    } catch (_) {
+        // hitTest failed, continue with bounds fallback
+    }
+
+    try {
+        if (typeof model.getBounds !== 'function') return false;
+        const bounds = model.getBounds();
+        if (!bounds || !Number.isFinite(bounds.width) || !Number.isFinite(bounds.height)) return false;
+        if (bounds.width <= 0 || bounds.height <= 0) return false;
+
+        const minX = bounds.x + (bounds.width * 0.20);
+        const maxX = bounds.x + (bounds.width * 0.80);
+        const minY = bounds.y + (bounds.height * 0.08);
+        const maxY = bounds.y + (bounds.height * 0.40);
+        return pointerX >= minX && pointerX <= maxX && pointerY >= minY && pointerY <= maxY;
+    } catch (_) {
+        return false;
+    }
+}
+
+function onHeadPatPointerDown(event) {
+    if (!headPatEnabled || event.button !== 0) return;
+
+    const chatContainer = document.getElementById('chat-container');
+    if (chatContainer && chatContainer.contains(event.target)) {
         return;
     }
 
-    // 부드러운 감쇠 (Damping) - 20% 씩 목표값에 가까워짐
-    const dampingFactor = 0.2;
-    currentMouseX += (targetMouseX - currentMouseX) * dampingFactor;
-    currentMouseY += (targetMouseY - currentMouseY) * dampingFactor;
+    if (!isHeadPatPoint(event.clientX, event.clientY)) {
+        return;
+    }
 
-    // Live2D 파라미터 업데이트
-    if (model.internalModel) {
-        try {
-            // Cubism SDK의 파라미터 ID
-            // 일반적인 파라미터: ParamAngleX, ParamAngleY, ParamBodyAngleX 등
+    const restoreBaseEmotion = pendingPatRestoreEmotion || currentEmotionTag || 'normal';
+    cancelPendingPatEmotionRestore();
+    previousEmotionBeforePat = restoreBaseEmotion;
+    triggerPatStartEmotion();
+    setHeadPatEyeBlinkEnabled(false);
+    isHeadPatting = true;
+    headPatSessionCounted = false;
+    headPatPointerId = event.pointerId;
+    headPatLastX = event.clientX;
+    headPatLastY = event.clientY;
+    headPatLastMoveAt = performance.now();
+    patRawIntensity = Math.max(patRawIntensity, 0.12);
+    patBlendMode = 'in';
+    patFadeElapsedMs = 0;
+    lastNonPatTrackingState = { ...patOffsetsApplied };
+    event.preventDefault();
+}
 
-            // 얼굴 각도 (좌우) - 범위 축소
-            const angleXParam = model.internalModel.coreModel.getParameterIndex('ParamAngleX');
-            if (angleXParam >= 0) {
-                // -15 ~ 15도 범위로 매핑 (자연스러운 움직임)
-                model.internalModel.coreModel.setParameterValueById(
-                    'ParamAngleX',
-                    currentMouseX * 15
-                );
-            }
+function onHeadPatPointerMove(event) {
+    if (!isHeadPatting || !headPatEnabled) return;
+    if (event.pointerId !== headPatPointerId) return;
 
-            // 얼굴 각도 (상하) - Y축 반전 및 범위 조정
-            const angleYParam = model.internalModel.coreModel.getParameterIndex('ParamAngleY');
-            if (angleYParam >= 0) {
-                // -15 ~ 15도 범위로 매핑, Y축 반전 (위쪽이 양수)
-                model.internalModel.coreModel.setParameterValueById(
-                    'ParamAngleY',
-                    -currentMouseY * 15
-                );
-            }
+    const nowMs = performance.now();
+    const dtMs = Math.max(1, nowMs - headPatLastMoveAt);
+    const dx = event.clientX - headPatLastX;
+    const dy = event.clientY - headPatLastY;
+    const distance = Math.sqrt((dx * dx) + (dy * dy));
+    const speedPxPerMs = distance / dtMs;
 
-            // 몸 각도 (좌우) - 더 작은 범위로 자연스럽게
-            const bodyAngleXParam = model.internalModel.coreModel.getParameterIndex('ParamBodyAngleX');
-            if (bodyAngleXParam >= 0) {
-                // -5 ~ 5도 범위로 매핑 (얼굴보다 덜 움직임)
-                model.internalModel.coreModel.setParameterValueById(
-                    'ParamBodyAngleX',
-                    currentMouseX * 5
-                );
-            }
+    patRawIntensity += (speedPxPerMs - patRawIntensity) * HEAD_PAT_SPEED_EMA;
+    patRawIntensity = Math.max(0, Math.min(1, patRawIntensity * HEAD_PAT_SPEED_GAIN * headPatStrength));
 
-            // 눈동자 위치 (있다면) - 범위 축소
-            const eyeBallXParam = model.internalModel.coreModel.getParameterIndex('ParamEyeBallX');
-            if (eyeBallXParam >= 0) {
-                model.internalModel.coreModel.setParameterValueById(
-                    'ParamEyeBallX',
-                    currentMouseX * 0.8
-                );
-            }
+    const directionRaw = dx / (Math.abs(dx) + Math.abs(dy) + 0.0001);
+    patDirection += (directionRaw - patDirection) * HEAD_PAT_DIRECTION_EMA;
 
-            const eyeBallYParam = model.internalModel.coreModel.getParameterIndex('ParamEyeBallY');
-            if (eyeBallYParam >= 0) {
-                // Y축 반전
-                model.internalModel.coreModel.setParameterValueById(
-                    'ParamEyeBallY',
-                    -currentMouseY * 0.8
-                );
-            }
+    headPatLastX = event.clientX;
+    headPatLastY = event.clientY;
+    headPatLastMoveAt = nowMs;
+}
 
-        } catch (e) {
-            // 파라미터가 없어도 에러 무시 (모델마다 다름)
+function onHeadPatPointerUp(event) {
+    if (!isHeadPatting) return;
+    if (event.pointerId !== headPatPointerId) return;
+
+    isHeadPatting = false;
+    headPatPointerId = null;
+    patBlendMode = 'out';
+    patFadeElapsedMs = 0;
+    if (!headPatSessionCounted) {
+        notifyHeadPatSessionCount();
+        headPatSessionCounted = true;
+    }
+    triggerPatEndEmotion();
+}
+
+function notifyHeadPatSessionCount() {
+    if (!window.pyBridge || typeof window.pyBridge.increment_head_pat_count_from_js !== 'function') {
+        return;
+    }
+    try {
+        window.pyBridge.increment_head_pat_count_from_js();
+    } catch (e) {
+        console.warn("Failed to sync head pat count:", e);
+    }
+}
+
+function cancelPendingPatEmotionRestore() {
+    if (pendingPatEmotionTimer) {
+        clearTimeout(pendingPatEmotionTimer);
+        pendingPatEmotionTimer = null;
+    }
+    pendingPatRestoreEmotion = null;
+}
+
+function triggerPatEndEmotion() {
+    cancelPendingPatEmotionRestore();
+    let endEmotion = (headPatEndEmotion || 'shy').trim();
+    if (!endEmotion) endEmotion = 'shy';
+    changeExpression(endEmotion);
+    pendingPatRestoreEmotion = previousEmotionBeforePat || 'normal';
+    pendingPatEmotionTimer = setTimeout(() => {
+        pendingPatEmotionTimer = null;
+        const restoreEmotion = pendingPatRestoreEmotion || 'normal';
+        pendingPatRestoreEmotion = null;
+        if (!isHeadPatting) {
+            changeExpression(restoreEmotion);
         }
+    }, headPatEndEmotionDurationMs);
+}
+
+function triggerPatStartEmotion() {
+    let activeEmotion = (headPatActiveEmotion || 'eyeclose').trim();
+    if (!activeEmotion) activeEmotion = 'eyeclose';
+    changeExpression(activeEmotion);
+}
+
+function ensureHeadPatEventBindings() {
+    if (headPatEventsBound) return;
+
+    const canvas = document.getElementById('live2d-canvas');
+    if (!canvas) return;
+
+    canvas.style.touchAction = 'none';
+    canvas.addEventListener('pointerdown', onHeadPatPointerDown);
+    window.addEventListener('pointermove', onHeadPatPointerMove, { passive: true });
+    window.addEventListener('pointerup', onHeadPatPointerUp, { passive: true });
+    window.addEventListener('pointercancel', onHeadPatPointerUp, { passive: true });
+    headPatEventsBound = true;
+}
+
+function updateHeadPatState(dtMs) {
+    if (!headPatEnabled) {
+        patRawIntensity = 0;
+        patDirection = 0;
+        patBlend = 0;
+        patBlendMode = 'idle';
+        return;
+    }
+
+    const frameScale = dtMs > 0 ? dtMs / (1000 / 60) : 1;
+    if (!isHeadPatting) {
+        patRawIntensity *= Math.pow(HEAD_PAT_DECAY_AT_60FPS, frameScale);
+        patDirection *= Math.pow(0.92, frameScale);
+        if (patRawIntensity < 0.0005) patRawIntensity = 0;
+        if (Math.abs(patDirection) < 0.0005) patDirection = 0;
+    }
+
+    if (patBlendMode === 'in') {
+        patFadeElapsedMs += dtMs;
+        patBlend = easeInOutCubic(patFadeElapsedMs / Math.max(1, headPatFadeInMs));
+        if (patBlend >= 0.999) {
+            patBlend = 1;
+            patBlendMode = isHeadPatting ? 'hold' : 'out';
+            patFadeElapsedMs = 0;
+        }
+    } else if (patBlendMode === 'out') {
+        patFadeElapsedMs += dtMs;
+        const outT = easeInOutCubic(patFadeElapsedMs / Math.max(1, headPatFadeOutMs));
+        patBlend = 1 - outT;
+        if (patBlend <= 0.001) {
+            patBlend = 0;
+            patBlendMode = 'idle';
+            patFadeElapsedMs = 0;
+            setHeadPatEyeBlinkEnabled(true);
+        }
+    } else if (patBlendMode === 'hold') {
+        patBlend = 1;
+    } else {
+        patBlend = 0;
+    }
+}
+
+function buildHeadPatOffsets(nowMs) {
+    const intensity = Math.max(clamp01(patRawIntensity), clamp01(patBlend * 0.95));
+    const sway = Math.sin(nowMs * 0.010) * 0.6 * intensity;
+
+    return {
+        angleX: Math.max(-10, Math.min(10, (patDirection * 7.5 * intensity) + sway)),
+        angleY: Math.max(-8, Math.min(8, -1.8 - (6.0 * intensity))),
+        bodyX: Math.max(-6, Math.min(6, patDirection * 4.2 * intensity)),
+        eyeY: Math.max(-0.3, Math.min(0.3, -0.18 * intensity)),
+    };
+}
+
+function setHeadPatEyeBlinkEnabled(enabled) {
+    const model = window.live2dModel;
+    if (!model || !model.internalModel) return;
+
+    try {
+        if (enabled) {
+            if (headPatEyeBlinkDisabled) {
+                model.internalModel.eyeBlink = headPatSavedEyeBlink ?? null;
+                headPatEyeBlinkDisabled = false;
+                console.log("Head pat: EyeBlink restored");
+            }
+            return;
+        }
+
+        if (headPatEyeBlinkDisabled) return;
+        headPatSavedEyeBlink = model.internalModel.eyeBlink;
+        if (headPatSavedEyeBlink) {
+            model.internalModel.eyeBlink = null;
+            headPatEyeBlinkDisabled = true;
+            console.log("Head pat: EyeBlink disabled");
+        }
+    } catch (e) {
+        console.warn("Head pat EyeBlink toggle failed:", e);
+    }
+}
+
+/**
+ * Python?먯꽌 ?몄텧: ?꾩뿭 留덉슦???꾩튂 ?낅뜲?댄듃
+ * @param {number} mouseX - 罹붾쾭????留덉슦??X 醫뚰몴 (?쎌?)
+ * @param {number} mouseY - 罹붾쾭????留덉슦??Y 醫뚰몴 (?쎌?)
+ */
+window.updateMousePosition = function (mouseX, mouseY) {
+    if (!mouseTrackingEnabled) return;
+    if (!Number.isFinite(mouseX) || !Number.isFinite(mouseY)) return;
+    
+    const model = window.live2dModel;
+    if (!model) return;
+
+    // 罹붾쾭???ш린
+    const canvasWidth = window.innerWidth;
+    const canvasHeight = window.innerHeight;
+
+    // 紐⑤뜽???꾩튂 (以묒떖??
+    let trackingOriginX = model.x;
+    let trackingOriginY = model.y;
+
+    // 紐⑤뜽 湲곗? ?곷? ?꾩튂 怨꾩궛
+    try {
+        if (typeof model.getBounds === 'function') {
+            const bounds = model.getBounds();
+            if (bounds && Number.isFinite(bounds.width) && Number.isFinite(bounds.height) && bounds.width > 0 && bounds.height > 0) {
+                trackingOriginX = bounds.x + (bounds.width * 0.5);
+                trackingOriginY = bounds.y + (bounds.height * TRACKING_FACE_Y_RATIO);
+            }
+        }
+    } catch (_) {
+        // getBounds ?ㅽ뙣 ??model.x/y ?ъ슜
+    }
+
+    trackingOriginX = Math.max(0, Math.min(canvasWidth, trackingOriginX));
+    trackingOriginY = Math.max(0, Math.min(canvasHeight, trackingOriginY));
+
+    const relativeX = mouseX - trackingOriginX;
+    const relativeY = mouseY - trackingOriginY;
+
+    // ?뺢퇋??(-1 ~ 1 踰붿쐞濡?
+    // ?붾㈃ ?ш린??50%瑜?湲곗??쇰줈 ?뺢퇋??(?덈Т 怨쇱옣?섏? ?딄쾶)
+    const normalizedX = (relativeX / (canvasWidth * 0.5));
+
+    // Adjust baseline vertical gaze with an offset.
+    const normalizedY = (relativeY / (canvasHeight * 0.5)) + TRACKING_Y_OFFSET;
+
+    // 踰붿쐞 ?쒗븳 (-1.5 ~ 1.5濡??쎄컙 ?ъ쑀瑜???
+    targetMouseX = Math.max(-TRACKING_CLAMP, Math.min(TRACKING_CLAMP, normalizedX));
+    targetMouseY = Math.max(-TRACKING_CLAMP, Math.min(TRACKING_CLAMP, normalizedY));
+    lastTargetUpdateAt = performance.now();
+};
+
+/**
+ * 留덉슦???몃옒??ON/OFF
+ * @param {boolean} enabled 
+ */
+window.setMouseTrackingEnabled = function (enabled) {
+    mouseTrackingEnabled = Boolean(enabled);
+    console.log("Mouse tracking:", mouseTrackingEnabled ? "enabled" : "disabled");
+
+    // 鍮꾪솢?깊솕 ???먯쐞移섎줈
+    if (!mouseTrackingEnabled) {
+        targetMouseX = 0;
+        targetMouseY = 0;
+    }
+
+    currentMouseX = 0;
+    currentMouseY = 0;
+    lastTargetUpdateAt = performance.now();
+    patBlend = 0;
+    patBlendMode = 'idle';
+    patRawIntensity = 0;
+    patDirection = 0;
+
+    const coreModel = getTrackingCoreModel();
+    if (!coreModel) return;
+
+    try {
+        applyTrackingParams(coreModel, 0, 0);
+    } catch (_) {
+        // 紐⑤뜽蹂??뚮씪誘명꽣 李⑥씠??臾댁떆
+    }
+};
+
+// ?좊땲硫붿씠??猷⑦봽: 遺?쒕윭???꾪솚 諛?紐⑤뜽 ?낅뜲?댄듃
+function updateMouseTracking(nowMs) {
+    ensureHeadPatEventBindings();
+
+    const coreModel = getTrackingCoreModel();
+    if (!coreModel) {
+        lastMouseUpdateAt = nowMs;
+        requestAnimationFrame(updateMouseTracking);
+        return;
+    }
+    
+    if (!mouseTrackingEnabled) {
+        targetMouseX = 0;
+        targetMouseY = 0;
+    }
+
+    // ?쇱젙 ?쒓컙 ?낅젰???놁쑝硫??쒖꽑???뺣㈃?쇰줈 蹂듦?
+    if (nowMs - lastTargetUpdateAt > TRACKING_IDLE_TIMEOUT_MS) {
+        targetMouseX = 0;
+        targetMouseY = 0;
+    }
+
+    // ?꾨젅?꾨젅?댄듃? 臾닿??섍쾶 ?좎궗??媛먯뇿 媛먭컖???좎?
+    const dtMs = Math.max(0, Math.min(100, nowMs - lastMouseUpdateAt));
+    lastMouseUpdateAt = nowMs;
+    const frameScale = dtMs > 0 ? dtMs / (1000 / 60) : 1;
+    const damping = 1 - Math.pow(1 - TRACKING_DAMPING_AT_60FPS, frameScale);
+
+    currentMouseX += (targetMouseX - currentMouseX) * damping;
+    currentMouseY += (targetMouseY - currentMouseY) * damping;
+
+    // 誘몄꽭 ?⑤┝ ?쒓굅
+    if (Math.abs(currentMouseX) < 0.0005) currentMouseX = 0;
+    if (Math.abs(currentMouseY) < 0.0005) currentMouseY = 0;
+    
+    // 留먰븯吏 ?딆쓣 ?뚮쭔 ?좏쑕 紐⑥뀡 ?곸슜
+    updateHeadPatState(dtMs);
+    const hasHeadPatEffect = headPatEnabled && patBlend > 0.001;
+
+    let idleOffsets = null;
+    if (!hasHeadPatEffect && idleMotionEnabled && !isSpeakingNow(nowMs)) {
+        idleMotionPhase += dtMs / 1000.0 * Math.PI * 2 * idleMotionSpeedHz;
+        if (idleMotionDynamicMode) {
+            // Dynamic mode: stronger, layered movement with occasional pulse.
+            const pulse = 0.65 + (Math.sin(idleMotionPhase * 0.21 + 0.9) * 0.35);
+            const angleXDynamic =
+                (Math.sin(idleMotionPhase * 1.6) * idleMotionAngleX * 2.8) +
+                (Math.sin(idleMotionPhase * 3.2 + 0.4) * idleMotionAngleX * 0.9 * pulse);
+            const angleYDynamic =
+                (Math.sin(idleMotionPhase * 1.2 + 1.1) * idleMotionAngleY * 2.4) +
+                (Math.sin(idleMotionPhase * 2.8 + 0.2) * idleMotionAngleY * 0.8);
+            const bodyXDynamic =
+                (Math.sin(idleMotionPhase * 1.05 + 0.6) * idleMotionBodyX * 2.6) +
+                (Math.sin(idleMotionPhase * 2.1 + 1.4) * idleMotionBodyX * 0.75);
+
+            idleOffsets = {
+                angleX: Math.max(-18, Math.min(18, angleXDynamic)),
+                angleY: Math.max(-12, Math.min(12, angleYDynamic)),
+                bodyX: Math.max(-10, Math.min(10, bodyXDynamic))
+            };
+        } else {
+            idleOffsets = {
+                angleX: Math.sin(idleMotionPhase) * idleMotionAngleX,
+                angleY: Math.sin(idleMotionPhase * 0.7 + 1.2) * idleMotionAngleY,
+                bodyX: Math.sin(idleMotionPhase * 0.5 + 0.6) * idleMotionBodyX
+            };
+        }
+    }
+
+    const baseTrackingOffsets = idleOffsets || { angleX: 0, angleY: 0, bodyX: 0, eyeY: 0 };
+    if (!hasHeadPatEffect) {
+        lastNonPatTrackingState = { ...baseTrackingOffsets };
+    }
+    patOffsetsCurrent = buildHeadPatOffsets(nowMs);
+    patOffsetsApplied = {
+        angleX: lerp(lastNonPatTrackingState.angleX, patOffsetsCurrent.angleX, patBlend),
+        angleY: lerp(lastNonPatTrackingState.angleY, patOffsetsCurrent.angleY, patBlend),
+        bodyX: lerp(lastNonPatTrackingState.bodyX, patOffsetsCurrent.bodyX, patBlend),
+        eyeY: lerp(lastNonPatTrackingState.eyeY, patOffsetsCurrent.eyeY, patBlend),
+    };
+
+    try {
+        if (hasHeadPatEffect) {
+            applyTrackingParams(coreModel, 0, 0, patOffsetsApplied);
+            applyHeadPatEyeCloseOverride(coreModel, patBlend);
+        } else {
+            applyTrackingParams(coreModel, currentMouseX, currentMouseY, idleOffsets);
+        }
+    } catch (_) {
+        // 紐⑤뜽蹂??뚮씪誘명꽣 李⑥씠??臾댁떆
     }
 
     requestAnimationFrame(updateMouseTracking);
 }
 
-// 마우스 트래킹 시작
+// 留덉슦???몃옒???쒖옉
 requestAnimationFrame(updateMouseTracking);
 console.log("Mouse tracking initialized");
 
 // ==========================================
-// 표정 시스템
+// ?쒖젙 ?쒖뒪??
 // ==========================================
 
-// 감정 → 표정 파일 매핑
+// 媛먯젙 ???쒖젙 ?뚯씪 留ㅽ븨
 const EMOTIONS = {
     'normal': 'normal',
     'angry': 'angry',
@@ -348,12 +840,12 @@ const EMOTIONS = {
 };
 
 /**
- * 표정 변경 함수
- * @param {string} emotion - 감정 이름
+ * ?쒖젙 蹂寃??⑥닔
+ * @param {string} emotion - 媛먯젙 ?대쫫
  */
-// 현재 표정 애니메이션 상태
+// ?꾩옱 ?쒖젙 ?좊땲硫붿씠???곹깭
 let currentExpressionAnimation = null;
-// 이전 표정의 파라미터 ID 목록
+// ?댁쟾 ?쒖젙???뚮씪誘명꽣 ID 紐⑸줉
 let previousExpressionParams = [];
 
 async function changeExpression(emotion) {
@@ -369,16 +861,16 @@ async function changeExpression(emotion) {
     }
 
     try {
-        // 'normal' 감정은 기본 표정(표정 없음)으로 리셋
+        // 'normal' 媛먯젙? 湲곕낯 ?쒖젙(?쒖젙 ?놁쓬)?쇰줈 由ъ뀑
         if (emotion === 'normal') {
             console.log('Resetting to normal expression');
 
-            // 이전 애니메이션 취소
+            // ?댁쟾 ?좊땲硫붿씠??痍⑥냼
             if (currentExpressionAnimation) {
                 cancelAnimationFrame(currentExpressionAnimation);
             }
 
-            // 모든 이전 표정 파라미터를 0으로 리셋
+            // 紐⑤뱺 ?댁쟾 ?쒖젙 ?뚮씪誘명꽣瑜?0?쇰줈 由ъ뀑
             const model = window.live2dModel;
             if (model.internalModel && model.internalModel.coreModel) {
                 const startValues = {};
@@ -390,11 +882,11 @@ async function changeExpression(emotion) {
                         startValues[paramId] = currentValue;
                         targetValues[paramId] = 0;
                     } catch (e) {
-                        // 파라미터가 없을 수 있음
+                        // ?뚮씪誘명꽣媛 ?놁쓣 ???덉쓬
                     }
                 });
 
-                // 애니메이션으로 부드럽게 리셋
+                // ?좊땲硫붿씠?섏쑝濡?遺?쒕읇寃?由ъ뀑
                 const duration = 300;
                 const startTime = Date.now();
 
@@ -410,7 +902,7 @@ async function changeExpression(emotion) {
                             const value = start + (target - start) * eased;
                             model.internalModel.coreModel.setParameterValueById(paramId, value);
                         } catch (e) {
-                            // 무시
+                            // 臾댁떆
                         }
                     });
 
@@ -428,43 +920,43 @@ async function changeExpression(emotion) {
             return;
         }
 
-        // 일반 감정 처리
+        // ?쇰컲 媛먯젙 泥섎━
         if (!EMOTIONS[emotion]) {
             console.warn(`Unknown emotion: ${emotion}`);
             return;
         }
 
-        // 표정 파일 경로
+        // ?쒖젙 ?뚯씪 寃쎈줈
         const expressionPath = `../live2d_models/jksalt/emotions/${EMOTIONS[emotion]}.exp3.json`;
         console.log(`Changing expression to: ${emotion} (${expressionPath})`);
 
-        // Live2D 표정 적용
+        // Live2D ?쒖젙 ?곸슜
         if (model.internalModel && model.internalModel.coreModel) {
-            // exp3.json 파일 로드
+            // exp3.json ?뚯씪 濡쒕뱶
             const response = await fetch(expressionPath);
             const expressionData = await response.json();
 
-            // 이전 애니메이션 취소
+            // ?댁쟾 ?좊땲硫붿씠??痍⑥냼
             if (currentExpressionAnimation) {
                 cancelAnimationFrame(currentExpressionAnimation);
             }
 
-            // 현재 파라미터 값 저장 및 목표값 설정
+            // ?꾩옱 ?뚮씪誘명꽣 媛????諛?紐⑺몴媛??ㅼ젙
             const startValues = {};
             const targetValues = {};
 
-            // 이전 표정의 파라미터를 0으로 리셋
+            // ?댁쟾 ?쒖젙???뚮씪誘명꽣瑜?0?쇰줈 由ъ뀑
             previousExpressionParams.forEach(paramId => {
                 try {
                     const currentValue = model.internalModel.coreModel.getParameterValueById(paramId);
                     startValues[paramId] = currentValue;
-                    targetValues[paramId] = 0; // 이전 표정 파라미터는 0으로
+                    targetValues[paramId] = 0; // ?댁쟾 ?쒖젙 ?뚮씪誘명꽣??0?쇰줈
                 } catch (e) {
-                    // 파라미터가 없을 수 있음
+                    // ?뚮씪誘명꽣媛 ?놁쓣 ???덉쓬
                 }
             });
 
-            // 새 표정의 파라미터 설정
+            // ???쒖젙???뚮씪誘명꽣 ?ㅼ젙
             const newExpressionParams = [];
             expressionData.Parameters.forEach(param => {
                 try {
@@ -477,22 +969,22 @@ async function changeExpression(emotion) {
                 }
             });
 
-            // 이전 표정 파라미터 목록 업데이트
+            // ?댁쟾 ?쒖젙 ?뚮씪誘명꽣 紐⑸줉 ?낅뜲?댄듃
             previousExpressionParams = newExpressionParams;
 
-            // 애니메이션 설정
-            const duration = 500; // 0.5초
+            // ?좊땲硫붿씠???ㅼ젙
+            const duration = 500; // 0.5珥?
             const startTime = Date.now();
 
-            // 애니메이션 함수
+            // ?좊땲硫붿씠???⑥닔
             function animate() {
                 const elapsed = Date.now() - startTime;
                 const progress = Math.min(elapsed / duration, 1.0);
 
-                // Ease-out 곡선 적용
+                // Ease-out 怨≪꽑 ?곸슜
                 const eased = 1 - Math.pow(1 - progress, 3);
 
-                // 모든 파라미터 보간 (이전 표정 리셋 + 새 표정 적용)
+                // 紐⑤뱺 ?뚮씪誘명꽣 蹂닿컙 (?댁쟾 ?쒖젙 由ъ뀑 + ???쒖젙 ?곸슜)
                 Object.keys(targetValues).forEach(paramId => {
                     try {
                         const start = startValues[paramId] || 0;
@@ -504,11 +996,11 @@ async function changeExpression(emotion) {
                             value
                         );
                     } catch (e) {
-                        // 무시
+                        // 臾댁떆
                     }
                 });
 
-                // 애니메이션 계속 또는 종료
+                // ?좊땲硫붿씠??怨꾩냽 ?먮뒗 醫낅즺
                 if (progress < 1.0) {
                     currentExpressionAnimation = requestAnimationFrame(animate);
                 } else {
@@ -517,7 +1009,7 @@ async function changeExpression(emotion) {
                 }
             }
 
-            // 애니메이션 시작
+            // ?좊땲硫붿씠???쒖옉
             animate();
 
             console.log(`Expression changing to: ${emotion}`);
@@ -528,7 +1020,7 @@ async function changeExpression(emotion) {
 }
 
 // ==========================================
-// 채팅 시스템
+// 梨꾪똿 ?쒖뒪??
 // ==========================================
 
 const chatMessages = document.getElementById('chat-messages');
@@ -539,28 +1031,100 @@ const imageInput = document.getElementById('image-input');
 const imagePreviewContainer = document.getElementById('image-preview-container');
 const loadingIndicator = document.getElementById('loading-indicator');
 
-// 첨부된 이미지 경로 목록
+// 泥⑤????대?吏 寃쎈줈 紐⑸줉
 let attachedImages = [];
+let rerollButtonVisibleBySetting = true;
+let hasAssistantMessage = false;
+let isRequestPending = false;
+let shouldReplaceNextAssistant = false;
+let lastAssistantMessageEl = null;
 
 /**
- * 로딩 인디케이터 표시/숨김
- * @param {boolean} show - true면 표시, false면 숨김
+ * 濡쒕뵫 ?몃뵒耳?댄꽣 ?쒖떆/?④?
+ * @param {boolean} show - true硫??쒖떆, false硫??④?
  */
 function showLoadingIndicator(show) {
     if (loadingIndicator) {
         loadingIndicator.style.display = show ? 'flex' : 'none';
-        // 로딩 표시 시 채팅창 스크롤
+        // 濡쒕뵫 ?쒖떆 ??梨꾪똿李??ㅽ겕濡?
         if (show) {
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
     }
 }
 
+function syncLastAssistantMessageRef() {
+    const nodes = chatMessages.querySelectorAll('.message.assistant');
+    if (!nodes || nodes.length === 0) {
+        lastAssistantMessageEl = null;
+        hasAssistantMessage = false;
+        return;
+    }
+    lastAssistantMessageEl = nodes[nodes.length - 1];
+    hasAssistantMessage = true;
+}
+
+function updateRerollButtonState() {
+    syncLastAssistantMessageRef();
+
+    const oldButtons = chatMessages.querySelectorAll('.message-reroll-btn');
+    oldButtons.forEach(btn => btn.remove());
+
+    if (!rerollButtonVisibleBySetting || !hasAssistantMessage || !lastAssistantMessageEl) {
+        return;
+    }
+
+    const btn = document.createElement('button');
+    btn.className = 'message-reroll-btn';
+    btn.textContent = 'Reroll';
+    btn.title = '理쒓렐 ENE ?듬? ?ㅼ떆 ?앹꽦';
+    btn.disabled = isRequestPending || !window.pyBridge || !window.pyBridge.reroll_last_response;
+    btn.addEventListener('click', () => {
+        if (!window.pyBridge || !window.pyBridge.reroll_last_response) return;
+        if (isRequestPending) return;
+        isRequestPending = true;
+        showLoadingIndicator(true);
+        updateRerollButtonState();
+        window.pyBridge.reroll_last_response();
+    });
+    const bubble = lastAssistantMessageEl.querySelector('.message-bubble');
+    if (!bubble) {
+        return;
+    }
+    bubble.appendChild(btn);
+}
+
+window.setRerollButtonEnabled = function (enabled) {
+    rerollButtonVisibleBySetting = Boolean(enabled);
+    updateRerollButtonState();
+};
+
+function replaceLastAssistantMessage(text) {
+    if (!lastAssistantMessageEl || !chatMessages.contains(lastAssistantMessageEl)) {
+        syncLastAssistantMessageRef();
+    }
+    if (!lastAssistantMessageEl) {
+        return false;
+    }
+
+    const bubble = lastAssistantMessageEl.querySelector('.message-bubble');
+    if (!bubble) {
+        return false;
+    }
+
+    bubble.innerHTML = '';
+    const textSpan = document.createElement('span');
+    textSpan.textContent = text;
+    bubble.appendChild(textSpan);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+    return true;
+}
+
 /**
- * 메시지를 채팅창에 추가
- * @param {string} text - 메시지 텍스트
- * @param {string} role - 'user' 또는 'assistant'
- * @param {Array} images - 이미지 URL 배열 (옵션)
+ * 硫붿떆吏瑜?梨꾪똿李쎌뿉 異붽?
+ * @param {string} text - 硫붿떆吏 ?띿뒪??
+ * @param {string} role - 'user' ?먮뒗 'assistant'
+ * @param {Array} images - ?대?吏 URL 諛곗뿴 (?듭뀡)
  */
 function addMessage(text, role, images = []) {
     const messageDiv = document.createElement('div');
@@ -569,7 +1133,7 @@ function addMessage(text, role, images = []) {
     const bubble = document.createElement('div');
     bubble.className = 'message-bubble';
 
-    // 이미지가 있으면 먼저 표시
+    // ?대?吏媛 ?덉쑝硫?癒쇱? ?쒖떆
     if (images && images.length > 0) {
         const imagesDiv = document.createElement('div');
         imagesDiv.style.display = 'flex';
@@ -590,7 +1154,7 @@ function addMessage(text, role, images = []) {
         bubble.appendChild(imagesDiv);
     }
 
-    // 텍스트 추가
+    // ?띿뒪??異붽?
     const textSpan = document.createElement('span');
     textSpan.textContent = text;
     bubble.appendChild(textSpan);
@@ -598,19 +1162,25 @@ function addMessage(text, role, images = []) {
     messageDiv.appendChild(bubble);
     chatMessages.appendChild(messageDiv);
 
-    // 스크롤을 맨 아래로
+    // ?ㅽ겕濡ㅼ쓣 留??꾨옒濡?
     chatMessages.scrollTop = chatMessages.scrollHeight;
+    if (role === 'assistant') {
+        hasAssistantMessage = true;
+        lastAssistantMessageEl = messageDiv;
+    }
+    updateRerollButtonState();
+    return messageDiv;
 }
 
 /**
- * 이미지 첨부 버튼 클릭
+ * ?대?吏 泥⑤? 踰꾪듉 ?대┃
  */
 attachButton.addEventListener('click', () => {
     imageInput.click();
 });
 
 /**
- * 이미지 선택 시
+ * ?대?吏 ?좏깮 ??
  */
 imageInput.addEventListener('change', (e) => {
     const files = Array.from(e.target.files);
@@ -618,9 +1188,9 @@ imageInput.addEventListener('change', (e) => {
     files.forEach(file => {
         if (!file.type.startsWith('image/')) return;
 
-        // 최대 5개 제한
+        // 理쒕? 5媛??쒗븳
         if (attachedImages.length >= 5) {
-            alert('이미지는 최대 5개까지 첨부할 수 있어요.');
+            alert('?대?吏??理쒕? 5媛쒓퉴吏 泥⑤??????덉뼱??');
             return;
         }
 
@@ -638,12 +1208,12 @@ imageInput.addEventListener('change', (e) => {
         reader.readAsDataURL(file);
     });
 
-    // 입력 초기화 (같은 파일 다시 선택 가능하게)
+    // ?낅젰 珥덇린??(媛숈? ?뚯씪 ?ㅼ떆 ?좏깮 媛?ν븯寃?
     imageInput.value = '';
 });
 
 /**
- * 이미지 미리보기 업데이트
+ * ?대?吏 誘몃━蹂닿린 ?낅뜲?댄듃
  */
 function updateImagePreview() {
     console.log("[Preview] Updating preview, images:", attachedImages.length);
@@ -666,7 +1236,7 @@ function updateImagePreview() {
 
         const removeBtn = document.createElement('button');
         removeBtn.className = 'remove-btn';
-        removeBtn.textContent = '×';
+        removeBtn.textContent = '횞';
         removeBtn.onclick = () => {
             attachedImages.splice(index, 1);
             updateImagePreview();
@@ -677,7 +1247,7 @@ function updateImagePreview() {
         imagePreviewContainer.appendChild(item);
     });
 
-    // 강제로 display 설정
+    // 媛뺤젣濡?display ?ㅼ젙
     if (attachedImages.length > 0) {
         imagePreviewContainer.style.display = 'flex';
     } else {
@@ -689,29 +1259,32 @@ function updateImagePreview() {
 
 
 /**
- * 사용자 메시지 전송
+ * ?ъ슜??硫붿떆吏 ?꾩넚
  */
 function sendMessage() {
     const message = chatInput.value.trim();
 
     if (!message && attachedImages.length === 0) return;
 
-    // 사용자 메시지 표시 (이미지 포함)
+    // ?ъ슜??硫붿떆吏 ?쒖떆 (?대?吏 ?ы븿)
     const imageUrls = attachedImages.map(img => img.dataUrl);
-    addMessage(message || '(이미지)', 'user', imageUrls);
+    addMessage(message || '(?대?吏)', 'user', imageUrls);
 
-    // 입력창 초기화
+    // ?낅젰李?珥덇린??
     chatInput.value = '';
-    // 높이 리셋
+    // ?믪씠 由ъ뀑
     autoResizeTextarea();
 
-    // Python으로 메시지 전송
+    // Python?쇰줈 硫붿떆吏 ?꾩넚
     if (window.pyBridge) {
-        // 로딩 인디케이터 표시
+        // 濡쒕뵫 ?몃뵒耳?댄꽣 ?쒖떆
+        isRequestPending = true;
+        shouldReplaceNextAssistant = false;
+        updateRerollButtonState();
         showLoadingIndicator(true);
 
         if (attachedImages.length > 0) {
-            // 이미지와 함께 전송
+            // ?대?吏? ?④퍡 ?꾩넚
             const imageDataList = JSON.stringify(attachedImages.map(img => ({
                 dataUrl: img.dataUrl,
                 name: img.name,
@@ -719,31 +1292,34 @@ function sendMessage() {
             })));
             window.pyBridge.send_to_ai_with_images(message, imageDataList);
         } else {
-            // 텍스트만 전송
+            // ?띿뒪?몃쭔 ?꾩넚
             window.pyBridge.send_to_ai(message);
         }
     } else {
         console.error("Python bridge not connected");
-        addMessage("연결 오류가 발생했어요.", 'assistant');
+        addMessage("?곌껐 ?ㅻ쪟媛 諛쒖깮?덉뼱??", 'assistant');
+        isRequestPending = false;
+        shouldReplaceNextAssistant = false;
+        updateRerollButtonState();
     }
 
-    // 첨부 이미지 초기화
+    // 泥⑤? ?대?吏 珥덇린??
     attachedImages = [];
     updateImagePreview();
 }
 
 /**
- * textarea 자동 높이 조절
+ * textarea ?먮룞 ?믪씠 議곗젅
  */
 function autoResizeTextarea() {
-    chatInput.style.height = 'auto';  // 높이 초기화
-    chatInput.style.height = chatInput.scrollHeight + 'px';  // 스크롤 높이에 맞춤
+    chatInput.style.height = 'auto';  // ?믪씠 珥덇린??
+    chatInput.style.height = chatInput.scrollHeight + 'px';  // ?ㅽ겕濡??믪씠??留욎땄
 }
 
-// 전송 버튼 클릭
+// ?꾩넚 踰꾪듉 ?대┃
 sendButton.addEventListener('click', sendMessage);
 
-// Enter 키로 전송
+// Enter ?ㅻ줈 ?꾩넚
 chatInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
@@ -751,11 +1327,11 @@ chatInput.addEventListener('keypress', (e) => {
     }
 });
 
-// 입력 시 자동 높이 조절
+// ?낅젰 ???먮룞 ?믪씠 議곗젅
 chatInput.addEventListener('input', autoResizeTextarea);
 
 /**
- * 붙여넣기(Ctrl+V) 이벤트 처리
+ * 遺숈뿬?ｊ린(Ctrl+V) ?대깽??泥섎━
  */
 chatInput.addEventListener('paste', (e) => {
     const items = (e.clipboardData || e.originalEvent.clipboardData).items;
@@ -767,9 +1343,9 @@ chatInput.addEventListener('paste', (e) => {
             hasImage = true;
             const blob = item.getAsFile();
 
-            // 최대 개수 체크
+            // 理쒕? 媛쒖닔 泥댄겕
             if (attachedImages.length >= 5) {
-                alert('이미지는 최대 5개까지 첨부할 수 있어요.');
+                alert('?대?吏??理쒕? 5媛쒓퉴吏 泥⑤??????덉뼱??');
                 return;
             }
 
@@ -777,7 +1353,7 @@ chatInput.addEventListener('paste', (e) => {
             reader.onload = (event) => {
                 const imageData = {
                     dataUrl: event.target.result,
-                    name: "pasted_image.png", // 임의의 이름
+                    name: "pasted_image.png", // ?꾩쓽???대쫫
                     type: item.type
                 };
 
@@ -788,49 +1364,70 @@ chatInput.addEventListener('paste', (e) => {
         }
     }
 
-    // 이미지가 있으면 붙여넣기 후에도 포커스 유지
+    // ?대?吏媛 ?덉쑝硫?遺숈뿬?ｊ린 ?꾩뿉???ъ빱???좎?
     if (hasImage) {
-        // 텍스트 붙여넣기도 동시에 될 수 있으므로 기본 동작은 막지 않음
-        // (단, 이미지 파일만 있는 경우 텍스트 입력창에 이상한 문자열이 들어가는 건 막고 싶다면 preventDefault 고려)
+        // ?띿뒪??遺숈뿬?ｊ린???숈떆???????덉쑝誘濡?湲곕낯 ?숈옉? 留됱? ?딆쓬
+        // (?? ?대?吏 ?뚯씪留??덈뒗 寃쎌슦 ?띿뒪???낅젰李쎌뿉 ?댁긽??臾몄옄?댁씠 ?ㅼ뼱媛??嫄?留됯퀬 ?띕떎硫?preventDefault 怨좊젮)
     }
 });
 
+updateRerollButtonState();
+
 // ==========================================
-// QWebChannel 브릿지 연결
+// QWebChannel 釉뚮┸吏 ?곌껐
 // ==========================================
 
-// QWebChannel 초기화
+// QWebChannel 珥덇린??
 if (typeof QWebChannel !== 'undefined') {
     new QWebChannel(qt.webChannelTransport, function (channel) {
         window.pyBridge = channel.objects.bridge;
         console.log("QWebChannel bridge connected");
 
-        // Python에서 메시지 수신
+        // Python?먯꽌 硫붿떆吏 ?섏떊
         window.pyBridge.message_received.connect(function (text, emotion) {
             console.log(`Received from Python: "${text}" [${emotion}]`);
 
-            // 로딩 인디케이터 숨김
+            // 濡쒕뵫 ?몃뵒耳?댄꽣 ?④?
             showLoadingIndicator(false);
+            isRequestPending = false;
 
-            // 메시지 표시
-            addMessage(text, 'assistant');
+            // 由щ·?대㈃ 理쒓렐 assistant 踰꾨툝留?援먯껜, ?ㅽ뙣 ??append
+            if (shouldReplaceNextAssistant) {
+                const replaced = replaceLastAssistantMessage(text);
+                if (!replaced) {
+                    addMessage(text, 'assistant');
+                }
+            } else {
+                addMessage(text, 'assistant');
+            }
+            shouldReplaceNextAssistant = false;
+            updateRerollButtonState();
 
-            // 표정 변경
+            // ?쒖젙 蹂寃?
             changeExpression(emotion);
         });
 
-        // 표정 변경 시그널 연결
+        // ?쒖젙 蹂寃??쒓렇???곌껐
         window.pyBridge.expression_changed.connect(function (emotion) {
             console.log(`Expression changed: ${emotion}`);
             changeExpression(emotion);
         });
 
-        // 립싱크 시그널 연결
+        // 由쎌떛???쒓렇???곌껐
         if (window.pyBridge.lip_sync_update) {
             window.pyBridge.lip_sync_update.connect(function (mouthValue) {
                 setMouthOpen(mouthValue);
             });
             console.log("Lip sync signal connected");
+        }
+
+        if (window.pyBridge.reroll_state_changed) {
+            window.pyBridge.reroll_state_changed.connect(function (active) {
+                shouldReplaceNextAssistant = Boolean(active);
+                isRequestPending = Boolean(active);
+                showLoadingIndicator(Boolean(active));
+                updateRerollButtonState();
+            });
         }
     });
 } else {
@@ -838,12 +1435,12 @@ if (typeof QWebChannel !== 'undefined') {
 }
 
 // ==========================================
-// 립싱크 제어
+// 由쎌떛???쒖뼱
 // ==========================================
 
 /**
- * Live2D 모델의 입 벌림 정도 설정
- * @param {number} value - 입 벌림 값 (0.0 ~ 1.0)
+ * Live2D 紐⑤뜽????踰뚮┝ ?뺣룄 ?ㅼ젙
+ * @param {number} value - ??踰뚮┝ 媛?(0.0 ~ 1.0)
  */
 function setMouthOpen(value) {
     const model = window.live2dModel;
@@ -852,7 +1449,7 @@ function setMouthOpen(value) {
     }
 
     try {
-        // ParamMouthOpenY 파라미터 설정
+        // ParamMouthOpenY ?뚮씪誘명꽣 ?ㅼ젙
         const core = model.internalModel.coreModel;
         if (core && typeof core.setParameterValueById === 'function') {
             core.setParameterValueById('ParamMouthOpenY', value);
@@ -860,8 +1457,8 @@ function setMouthOpen(value) {
             model.internalModel.setParameterValueById('ParamMouthOpenY', value);
         }
     } catch (e) {
-        // 파라미터가 없을 수 있음 (모델마다 다름)
-        // 첫 호출에만 경고
+        // ?뚮씪誘명꽣媛 ?놁쓣 ???덉쓬 (紐⑤뜽留덈떎 ?ㅻ쫫)
+        // 泥??몄텧?먮쭔 寃쎄퀬
         if (!window._mouthOpenWarned) {
             console.warn("ParamMouthOpenY not available:", e);
             window._mouthOpenWarned = true;
@@ -869,8 +1466,11 @@ function setMouthOpen(value) {
     }
 }
 
-// 전역으로 노출 (Python에서도 호출 가능하게)
+// ?꾩뿭?쇰줈 ?몄텧 (Python?먯꽌???몄텧 媛?ν븯寃?
 window.setMouthOpen = setMouthOpen;
 
 console.log("=== Chat and expression system initialized ===");
 console.log("=== Lip sync system ready ===");
+
+
+

@@ -42,6 +42,7 @@ class CalendarManager:
         self.calendar_file = Path(calendar_file)
         self.events: List[CalendarEvent] = []
         self.conversation_counts: Dict[str, int] = {}
+        self.head_pat_counts: Dict[str, int] = {}
         self.load()
     
     def load(self):
@@ -52,11 +53,13 @@ class CalendarManager:
                     data = json.load(f)
                     self.events = [CalendarEvent.from_dict(e) for e in data.get('events', [])]
                     self.conversation_counts = data.get('conversation_counts', {})
+                    self.head_pat_counts = data.get('head_pat_counts', {})
                 print(f"[Calendar] 로드 완료: {len(self.events)}개 일정, {len(self.conversation_counts)}일 대화 기록")
             except Exception as e:
                 print(f"[Calendar] 로드 실패: {e}")
                 self.events = []
                 self.conversation_counts = {}
+                self.head_pat_counts = {}
         else:
             print("[Calendar] 새 캘린더 파일 생성 예정")
     
@@ -65,7 +68,8 @@ class CalendarManager:
         try:
             data = {
                 'events': [e.to_dict() for e in self.events],
-                'conversation_counts': self.conversation_counts
+                'conversation_counts': self.conversation_counts,
+                'head_pat_counts': self.head_pat_counts,
             }
             with open(self.calendar_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
@@ -194,6 +198,17 @@ class CalendarManager:
             대화 횟수
         """
         return self.conversation_counts.get(date, 0)
+
+    def increment_head_pat_count(self, date: str = None):
+        """Increment head pat count for a specific date."""
+        if date is None:
+            date = datetime.now().strftime("%Y-%m-%d")
+        self.head_pat_counts[date] = self.head_pat_counts.get(date, 0) + 1
+        self.save()
+
+    def get_head_pat_count(self, date: str) -> int:
+        """Return head pat count for a specific date."""
+        return self.head_pat_counts.get(date, 0)
     
     def get_recent_conversation_counts(self, days: int = 7, exclude_today: bool = True) -> Dict[str, int]:
         """
@@ -231,5 +246,7 @@ class CalendarManager:
         return {
             'total_events': len(self.events),
             'total_conversation_days': len(self.conversation_counts),
-            'total_conversations': sum(self.conversation_counts.values())
+            'total_conversations': sum(self.conversation_counts.values()),
+            'total_head_pat_days': len(self.head_pat_counts),
+            'total_head_pats': sum(self.head_pat_counts.values()),
         }
