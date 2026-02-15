@@ -13,6 +13,7 @@ backups/
 config.json
 memory.json
 user_profile.json
+calendar.json
 
 # API Keys
 api_key.txt
