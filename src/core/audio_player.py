@@ -3,6 +3,7 @@
 """
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PyQt6.QtCore import QUrl, QObject, pyqtSignal
+import os
 import tempfile
 from pathlib import Path
 
@@ -55,7 +56,7 @@ class AudioPlayer(QObject):
             
             # 새 임시 파일 생성
             temp_fd, self.temp_file = tempfile.mkstemp(suffix=".wav")
-            with open(temp_fd, 'wb') as f:
+            with os.fdopen(temp_fd, 'wb') as f:
                 f.write(audio_data)
             
             print(f"[AudioPlayer] Playing audio from temp file: {self.temp_file}")
@@ -74,7 +75,7 @@ class AudioPlayer(QObject):
         try:
             Path(file_path).unlink(missing_ok=True)
             print(f"[AudioPlayer] Cleaned old temp file: {file_path}")
-        except Exception as e:
+        except Exception:
             # 조용히 무시 (파일이 이미 삭제되었거나 접근 불가)
             pass
     
@@ -114,5 +115,5 @@ class AudioPlayer(QObject):
         if self.temp_file:
             try:
                 Path(self.temp_file).unlink(missing_ok=True)
-            except:
+            except Exception:
                 pass

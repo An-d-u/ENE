@@ -19,6 +19,7 @@ class AIWorker(QThread):
         self.images = images or []  # 이미지 데이터 리스트
     
     def run(self):
+        loop = None
         """스레드 실행"""
         try:
             print(f"[AI Worker] Processing message: {self.message[:50]}...")
@@ -48,7 +49,6 @@ class AIWorker(QThread):
                 # send_message는 4개 값 반환 (text, emotion, japanese, events)
                 response_text, emotion, japanese_text, events = self.llm_client.send_message(self.message)
             
-            loop.close()
             
             print(f"[AI Worker] Response: {response_text[:50]}... [{emotion}]")
             if japanese_text:
@@ -63,6 +63,9 @@ class AIWorker(QThread):
             import traceback
             traceback.print_exc()
             self.error_occurred.emit(str(e))
+        finally:
+            if loop is not None:
+                loop.close()
 
 
 class TTSWorker(QThread):
@@ -77,9 +80,11 @@ class TTSWorker(QThread):
         self.text = text
     
     def run(self):
+        loop = None
         """스레드 실행"""
         try:
             import asyncio
+            import os
             import tempfile
             from pathlib import Path
             from src.ai.audio_analyzer import AudioAnalyzer
@@ -95,13 +100,12 @@ class TTSWorker(QThread):
                 self.tts_client.generate_speech(self.text)
             )
             
-            loop.close()
             
             print(f"[TTS Worker] Audio generated: {len(audio_data)} bytes")
             
             # 임시 WAV 파일로 저장 (분석용)
             temp_fd, temp_path = tempfile.mkstemp(suffix=".wav")
-            with open(temp_fd, 'wb') as f:
+            with os.fdopen(temp_fd, 'wb') as f:
                 f.write(audio_data)
             
             # 오디오 분석하여 립싱크 데이터 생성
@@ -116,7 +120,7 @@ class TTSWorker(QThread):
             # 임시 파일 정리
             try:
                 Path(temp_path).unlink(missing_ok=True)
-            except:
+            except Exception:
                 pass
             
             # 결과 전송
@@ -127,6 +131,9 @@ class TTSWorker(QThread):
             import traceback
             traceback.print_exc()
             self.error_occurred.emit(str(e))
+        finally:
+            if loop is not None:
+                loop.close()
 
 
 class WebBridge(QObject):
@@ -136,6 +143,7 @@ class WebBridge(QObject):
     message_received = pyqtSignal(str, str)  # (텍스트, 감정)
     expression_changed = pyqtSignal(str)     # 표정 변경
     lip_sync_update = pyqtSignal(float)      # 립싱크 업데이트 (mouth_value)
+    reroll_state_changed = pyqtSignal(bool)  # 리롤 응답 교체 모드 on/off
     
     def __init__(self, settings=None, parent=None):
         super().__init__(parent)
@@ -160,6 +168,9 @@ class WebBridge(QObject):
         
         # 대화 추적
         self.conversation_buffer = []  # [(role, message, timestamp), ...]
+        self._last_request_payload = None
+        self._last_assistant_response = None
+        self._is_rerolling = False
         
         # 설정에서 임계값 로드 (기본값: 10)
         if settings and hasattr(settings, 'config'):
@@ -176,7 +187,7 @@ class WebBridge(QObject):
         self.llm_client = client
         print(f"[Bridge] LLM client set: {client is not None}")
     
-    def set_memory_manager(self, memory_manager, llm_client, user_profile=None):
+    def set_memory_manager(self, memory_manager, _llm_client, user_profile=None):
         """메모리 매니저 및 사용자 프로필 설정"""
         self.memory_manager = memory_manager
         self.user_profile = user_profile
@@ -189,6 +200,29 @@ class WebBridge(QObject):
         self.audio_player = audio_player
         print(f"[Bridge] TTS client set: {tts_client is not None}")
         print(f"[Bridge] Audio player set: {audio_player is not None}")
+
+    def _now_timestamp(self) -> str:
+        """Return current timestamp in a consistent format."""
+        return datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    def _append_conversation(self, role: str, message: str, timestamp: str | None = None):
+        """Append a conversation tuple to the in-memory buffer."""
+        self.conversation_buffer.append((role, message, timestamp or self._now_timestamp()))
+
+    def _start_ai_worker(self, message_with_time: str, images_data: list | None = None):
+        """Start AI worker with current payload."""
+        if self.worker and self.worker.isRunning():
+            print("[Bridge] Worker still running, waiting...")
+            self.worker.wait()
+
+        self.worker = AIWorker(
+            self.llm_client,
+            message_with_time,
+            images=images_data or []
+        )
+        self.worker.response_ready.connect(self._on_response_ready)
+        self.worker.error_occurred.connect(self._on_error)
+        self.worker.start()
     
     @pyqtSlot(str)
     def send_to_ai(self, message: str):
@@ -211,26 +245,23 @@ class WebBridge(QObject):
             return
         
         # 타임스탬프 추가
-        now = datetime.now()
-        timestamp = now.strftime("%Y년 %m월 %d일 %H시 %M분")
+        timestamp = self._now_timestamp()
         message_with_time = f"[현재 시각: {timestamp}]\n{message}"
         print(f"[Bridge] Message with timestamp: {message_with_time}")
         
         # 대화 버퍼에 메시지 추가 (+ 타임스탬프)
-        now = datetime.now()
-        timestamp = now.strftime("%Y년 %m월 %d일 %H시 %M분")
-        self.conversation_buffer.append(("user", message, timestamp))
-        
-        # 이전 워커가 실행 중이면 대기
-        if self.worker and self.worker.isRunning():
-            print("[Bridge] Worker still running, waiting...")
-            self.worker.wait()
-        
+        self._append_conversation("user", message, timestamp)
+
+        self._last_request_payload = {
+            "type": "text",
+            "message": message,
+            "message_with_time": message_with_time,
+            "images": [],
+        }
+        self._is_rerolling = False
+
         # 새 워커 스레드 생성 (원본 메시지 제목으로 사용, 타임스탬프 포함 메시지 전송)
-        self.worker = AIWorker(self.llm_client, message_with_time)
-        self.worker.response_ready.connect(self._on_response_ready)
-        self.worker.error_occurred.connect(self._on_error)
-        self.worker.start()
+        self._start_ai_worker(message_with_time)
         print("[Bridge] Worker thread started")
     
     @pyqtSlot(str, str)
@@ -260,39 +291,58 @@ class WebBridge(QObject):
             images_data = []
         
         # 현재 날짜와 시간 추가
-        now = datetime.now()
-        timestamp = now.strftime("%Y년 %m월 %d일 %H시 %M분")
+        timestamp = self._now_timestamp()
         message_with_time = f"[현재 시각: {timestamp}]\n{message}"
         
         # 대화 버퍼에 추가 (이미지는 [이미지]로 표시 + 타임스탬프)
         img_note = f" [이미지 {len(images_data)}장]" if images_data else ""
-        self.conversation_buffer.append(("user", message + img_note, timestamp))
-        
-        # 이전 워커가 실행 중이면 대기
-        if self.worker and self.worker.isRunning():
-            print("[Bridge] Worker still running, waiting...")
-            self.worker.wait()
-        
+        self._append_conversation("user", message + img_note, timestamp)
+
+        self._last_request_payload = {
+            "type": "images",
+            "message": message,
+            "message_with_time": message_with_time,
+            "images": images_data,
+        }
+        self._is_rerolling = False
+
         # 새 워커 스레드 생성 (이미지 포함)
-        self.worker = AIWorker(
-            self.llm_client, 
-            message_with_time,
-            images=images_data
-        )
-        self.worker.response_ready.connect(self._on_response_ready)
-        self.worker.error_occurred.connect(self._on_error)
-        self.worker.start()
+        self._start_ai_worker(message_with_time, images_data)
         print(f"[Bridge] Worker thread started with {len(images_data)} images")
+
+    @pyqtSlot()
+    def reroll_last_response(self):
+        """마지막 사용자 요청을 다시 실행해 최근 assistant 응답만 교체."""
+        if not self.llm_client:
+            print("[Bridge] Reroll ignored: LLM client not initialized")
+            return
+
+        if not self._last_request_payload:
+            print("[Bridge] Reroll ignored: no previous request payload")
+            return
+
+        if self.worker and self.worker.isRunning():
+            print("[Bridge] Reroll ignored: worker is still running")
+            return
+
+        # 교체 의미를 지키기 위해 최근 assistant 응답 하나를 버퍼에서 제거
+        if self.conversation_buffer and self.conversation_buffer[-1][0] == "assistant":
+            self.conversation_buffer.pop()
+
+        payload = self._last_request_payload
+        self._is_rerolling = True
+        self.reroll_state_changed.emit(True)
+        self._start_ai_worker(payload["message_with_time"], payload.get("images") or [])
+        print("[Bridge] Reroll started")
 
     
     def _on_response_ready(self, text: str, emotion: str, japanese_text: str, events: list = None):
         """AI 응답 준비 완료"""
         print(f"[Bridge] Response ready: {text[:50]}... [{emotion}]")
+        self._last_assistant_response = {"text": text, "emotion": emotion}
         
         # 대화 버퍼에 응답 추가 (+ 타임스탬프)
-        now = datetime.now()
-        timestamp = now.strftime("%Y년 %m월 %d일 %H시 %M분")
-        self.conversation_buffer.append(("assistant", text, timestamp))
+        self._append_conversation("assistant", text)
         
         # 일정 저장 (CalendarManager가 있으면)
         if events and hasattr(self, 'calendar_manager') and self.calendar_manager:
@@ -318,6 +368,9 @@ class WebBridge(QObject):
             # TTS 비활성화 또는 일본어 없음 - 즉시 텍스트 전송
             print(f"[Bridge] TTS 비활성화 - 텍스트 즉시 전송")
             self.message_received.emit(text, emotion)
+            if self._is_rerolling:
+                self._is_rerolling = False
+                self.reroll_state_changed.emit(False)
             if japanese_text:
                 print(f"[Bridge] TTS 비활성화 또는 클라이언트 없음 (일본어: {japanese_text[:20]}...)")
         
@@ -351,6 +404,9 @@ class WebBridge(QObject):
             text, emotion = self.pending_response
             print(f"[Bridge] 보류된 응답 전송: {text[:50]}... [{emotion}]")
             self.message_received.emit(text, emotion)
+            if self._is_rerolling:
+                self._is_rerolling = False
+                self.reroll_state_changed.emit(False)
             self.pending_response = None
         
         # 오디오 재생
@@ -496,6 +552,9 @@ class WebBridge(QObject):
     def _on_error(self, error_msg: str):
         """오류 발생"""
         print(f"[Bridge] Error occurred: {error_msg}")
+        if self._is_rerolling:
+            self._is_rerolling = False
+            self.reroll_state_changed.emit(False)
         self.message_received.emit("음... 무슨 일이 있었나봐요.", "confused")
     
     @pyqtSlot()
@@ -517,6 +576,9 @@ class WebBridge(QObject):
         
         # 대화 버퍼 클리어
         self.conversation_buffer = []
+        self._last_request_payload = None
+        self._last_assistant_response = None
+        self._is_rerolling = False
         
         # LLM 컨텍스트 초기화
         if self.llm_client:
@@ -527,3 +589,10 @@ class WebBridge(QObject):
     def log_from_js(self, message: str):
         """JavaScript에서 로그 받기"""
         print(f"[JS] {message}")
+
+    @pyqtSlot()
+    def increment_head_pat_count_from_js(self):
+        """JavaScript에서 호출: 머리 쓰다듬기 횟수 증가."""
+        if hasattr(self, "calendar_manager") and self.calendar_manager:
+            self.calendar_manager.increment_head_pat_count()
+            print("[Bridge] 쓰다듬기 횟수 증가")
