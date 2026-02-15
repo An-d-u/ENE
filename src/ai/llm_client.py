@@ -175,10 +175,10 @@ class GeminiClient:
         context_parts = []
         
         # 0. 사용자 프로필 정보 (최우선)
-        if self.user_profile and hasattr(self.user_profile, 'basic_info'):
+        if self.user_profile:
             profile_lines = ["[마스터 기본 정보]"]
             
-            basic = self.user_profile.basic_info
+            basic = getattr(self.user_profile, "basic_info", {}) or {}
             if basic.get('name'):
                 profile_lines.append(f"- 이름: {basic['name']}")
             if basic.get('gender'):
@@ -191,13 +191,23 @@ class GeminiClient:
                 profile_lines.append(f"- 전공: {basic['major']}")
             
             # 취미/선호도
-            prefs = self.user_profile.preferences
+            prefs = getattr(self.user_profile, "preferences", {}) or {}
             if prefs.get('likes'):
                 profile_lines.append(f"- 좋아하는 것: {', '.join(prefs['likes'])}")
             
             if len(profile_lines) > 1:  # 정보가 있으면
                 context_parts.append("\n".join(profile_lines))
                 print(f"[LLM] 프로필 정보 포함: {len(profile_lines)-1}개 항목")
+
+            # facts 전체를 컨텍스트에 포함
+            if hasattr(self.user_profile, "get_all_facts"):
+                facts = self.user_profile.get_all_facts()
+                if facts:
+                    fact_lines = ["[마스터에 대한 정보]"]
+                    for fact in facts:
+                        fact_lines.append(f"- [{fact.category}] : {fact.content}")
+                    context_parts.append("\n".join(fact_lines))
+                    print(f"[LLM] facts 포함: {len(facts)}개 항목")
         
         # 설정값 가져오기
         settings_config = self.settings.config if self.settings else {}
@@ -296,6 +306,15 @@ class GeminiClient:
                     except:
                         pass
                 print(f"[LLM] 최근 대화 횟수 {len(recent_counts)}일 포함")
+
+        # 6. 오늘 쓰다듬기 횟수 추가
+        if self.calendar_manager:
+            from datetime import datetime
+
+            today_str = datetime.now().strftime("%Y-%m-%d")
+            head_pat_count = self.calendar_manager.get_head_pat_count(today_str)
+            context_parts.append("\n[오늘 상호작용]")
+            context_parts.append(f"- 쓰다듬기: {head_pat_count}회")
         
         # 컨텍스트 문자열 생성
         if context_parts:
@@ -377,33 +396,6 @@ class GeminiClient:
             traceback.print_exc()
             raise
     
-    async def send_message_with_memory(self, message: str) -> Tuple[str, str]:
-        """
-        메모리를 활용한 메시지 전송
-        
-        Args:
-            message: 사용자 메시지
-            
-        Returns:
-            (응답 텍스트, 감정 태그) 튜플
-        """
-        # 메모리 컨텍스트 구성
-        memory_context = await self._build_memory_context(message)
-        
-        # 메모리가 있으면 메시지 앞에 추가
-        if memory_context:
-            enhanced_message = f"{memory_context}\n\n{message}"
-            print(f"[LLM] 메모리 컨텍스트 추가 (길이: {len(memory_context)})")
-        else:
-            enhanced_message = message
-            
-        # 토큰 계산
-        await self._count_and_log_tokens(enhanced_message)
-        
-        # 일반 메시지 전송
-        return self.send_message(enhanced_message)
-
-    
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str]]:
         """
         대화 내용 요약 및 사용자 정보 추출
@@ -445,44 +437,130 @@ class GeminiClient:
                 time_range = f"{first_time} ~ {last_time}"
             else:
                 time_range = time_str
-            
-            # 현재 알고 있는 마스터 정보 가져오기
+
+            # 첫 대화~마지막 대화의 경과 시간 계산
+            elapsed_hint = ""
+            elapsed_minutes = 0
+            if first_time and last_time:
+                try:
+                    start_dt = datetime.strptime(first_time, "%Y-%m-%d %H:%M")
+                    end_dt = datetime.strptime(last_time, "%Y-%m-%d %H:%M")
+                    delta = end_dt - start_dt
+                    total_minutes = int(delta.total_seconds() // 60)
+                    if total_minutes < 0:
+                        total_minutes = 0
+                    elapsed_minutes = total_minutes
+                    hours = total_minutes // 60
+                    minutes = total_minutes % 60
+                    if hours > 0 and minutes > 0:
+                        elapsed_hint = f"{hours}시간 {minutes}분"
+                    elif hours > 0:
+                        elapsed_hint = f"{hours}시간"
+                    else:
+                        elapsed_hint = f"{minutes}분"
+                except Exception:
+                    elapsed_hint = ""
+                    elapsed_minutes = 0
+
+            # 현재 user_profile 스냅샷(기본정보/선호/기존 facts) 가져오기
             current_profile = ""
             if self.user_profile:
-                # 최신 20개 정도만 가져와서 컨텍스트로 제공
-                facts = self.user_profile.get_all_facts()
-                sorted_facts = sorted(facts, key=lambda x: x.timestamp, reverse=True)[:20]
-                if sorted_facts:
-                    current_profile = "현재 알고 있는 마스터 정보:\n" + "\n".join([f"- {f.content}" for f in sorted_facts])
+                profile_lines = ["현재 user_profile 스냅샷 (중복 금지 기준):"]
+
+                # basic_info 포함
+                if hasattr(self.user_profile, "basic_info"):
+                    basic = self.user_profile.basic_info or {}
+                    basic_lines = []
+                    if basic.get("name"):
+                        basic_lines.append(f"- 이름: {basic['name']}")
+                    if basic.get("gender"):
+                        basic_lines.append(f"- 성별: {basic['gender']}")
+                    if basic.get("birthday"):
+                        basic_lines.append(f"- 생일: {basic['birthday']}")
+                    if basic.get("occupation"):
+                        basic_lines.append(f"- 직업: {basic['occupation']}")
+                    if basic.get("major"):
+                        basic_lines.append(f"- 전공: {basic['major']}")
+                    if basic_lines:
+                        profile_lines.append("[basic_info]")
+                        profile_lines.extend(basic_lines)
+
+                # preferences 포함
+                if hasattr(self.user_profile, "preferences"):
+                    prefs = self.user_profile.preferences or {}
+                    likes = prefs.get("likes", [])
+                    dislikes = prefs.get("dislikes", [])
+                    if likes or dislikes:
+                        profile_lines.append("[preferences]")
+                        if likes:
+                            profile_lines.append(f"- likes: {', '.join(likes)}")
+                        if dislikes:
+                            profile_lines.append(f"- dislikes: {', '.join(dislikes)}")
+
+                # 최신 facts 포함
+                if hasattr(self.user_profile, "get_all_facts"):
+                    facts = self.user_profile.get_all_facts()
+                    sorted_facts = sorted(facts, key=lambda x: x.timestamp, reverse=True)[:20]
+                    if sorted_facts:
+                        profile_lines.append("[facts]")
+                        profile_lines.extend([f"- [{f.category}] {f.content}" for f in sorted_facts])
+
+                if len(profile_lines) > 1:
+                    current_profile = "\n".join(profile_lines)
             
             # 요약 + 정보 추출 프롬프트 (시간 정보 강조)
-            summarize_prompt = f"""다음 대화를 요약하고, 마스터에 대한 새로운 정보를 추출해주세요.
-
+            summarize_prompt = f"""아래 대화를 요약하고, 마스터 정보를 추출하세요.
+[CURRENT_PROFILE]
 {current_profile}
 
-대화 시간: {time_range}
+[TIME_RANGE]
+{time_range}
 
-대화:
+[ELAPSED_HINT]
+{elapsed_hint}
+
+[CONVERSATION]
 {conversation_text}
 
-다음 형식으로 답변해주세요:
+[OUTPUT_FORMAT]
+[SUMMARY]
+- {time_str}에 이루어진 대화 요약
+- [CONVERSATION]의 타임스탬프를 우선 기준으로 각 시간 흐름을 요약하세요.
+- 문장 수를 기계적으로 고정하지 말고, 자연스럽고 읽기 좋은 길이(보통 1~3문장)로 작성하세요.
+- [TIME_RANGE]와 [ELAPSED_HINT]는 참고용이며, 그대로 복붙하지 말고 맥락에 맞게 표현하세요.
+- 같은 사건을 반복하지 말고, 핵심 행동만 요약하세요.
+- 예 : "2026년 2월 9일 오후 5시경, 마스터가 생굴을 먹고 노로바이러스에 걸려 고통을 호소하며 에네와 증상 및 식단에 대해 대화를 나눴습니다. 오후 6시 30분 무렵에는 직접 찍은 도트 이미지를 공유하며 무료함을 달랬고, 오후 9시 20분경부터는 미연시 게임을 플레이하며 등장인물의 외모에 대해 에네와 실랑이를 벌였습니다."
 
-[요약]
-**반드시 시간 정보를 포함**하여 요약해주세요 (2-3문장):
-- 언제 (날짜/시간대)
-- 무슨 일이 있었는지
-- 대화 중 시간이 흐른 경우 시간 흐름 반영
+[MASTER_INFO]
+- 없으면: none
+- 있으면 아래 형식으로만 작성:
+- [basic] ...
+- [preference] ...
+- [goal] ...
+- [habit] ...
 
-예시: "2월 8일 저녁 9시경, 마스터가 새 프로젝트에 대해 질문했습니다. 10시쯤 구체적인 구현 방법에 대해 논의했습니다."
+[ALLOW]
+- basic: 신상/직업/학력/환경/관계 같은 정적 정보
+- preference: 선호하는 방식이나 취향/스타일
+- goal: 달성하려는 목표
+- habit: 반복되는 행동/루틴 성향
 
-[마스터 정보]
-- 위 '현재 알고 있는 마스터 정보'에 없는 완전히 새로운 사실만 나열하세요.
-- 기존 정보와 의미가 겹치거나 포함 관계라면 절대 적지 마세요.
-- 기존 정보와 모순되거나 변경된 경우에만 적으세요.
-- 해당 사항이 없으면 "없음"이라고 적어주세요.
-- 예: "커피를 좋아함", "프로그래머로 일함", "고양이 알러지가 있음"
+[DISALLOW]
+- 감정/기분/피곤함/흥분 등 일시적 상태
+- 단순 인사/추임새
+- 이미 basic 정보와 중복되는 취업/전공 진술
+- 근거 없는 추측성 정보
+
+[DEDUP]
+- 기존 정보와 의미가 같으면 새로 쓰지 마세요.
+- 같은 의미의 문장은 더 구체적인 1개만 남기세요.
+
+[STYLE]
+- 너무 길지 않게 간결하게 작성하세요.
+- 출력 형식을 정확히 지키세요.
+- "**"와 같은 강조표시의 사용은 금지합니다.
 """
-            
+
             print(f"[LLM] 대화 요약 및 정보 추출 중... (메시지 수: {len(messages)})")
             
             # 일회성 요청으로 요약 생성 (Chat 세션과 별도)
@@ -496,6 +574,14 @@ class GeminiClient:
             
             # 응답 파싱
             summary, user_facts = self._parse_summary_response(response_text)
+
+            # 요약에 날짜 정보가 없으면 최소한 시간 범위를 보강
+            has_date = (
+                re.search(r"\d{4}[-/.]\d{1,2}[-/.]\d{1,2}", summary) is not None
+                or re.search(r"\d{4}\s*년\s*\d{1,2}\s*월\s*\d{1,2}\s*일", summary) is not None
+            )
+            if not has_date:
+                summary = f"[{time_range}] {summary}".strip()
             
             print(f"[LLM] 요약 생성 완료: {summary[:50]}...")
             if user_facts:
@@ -511,56 +597,76 @@ class GeminiClient:
             return f"대화 {len(messages)}개 메시지", []
     
     def _parse_summary_response(self, response_text: str) -> tuple[str, list[str]]:
-        """
-        요약 응답 파싱 ([요약] 및 [마스터 정보] 분리)
-        
-        Args:
-            response_text: LLM 응답 텍스트
-            
-        Returns:
-            (요약, 사용자 정보 목록) 튜플
-        """
-        summary = ""
-        user_facts = []
-        
+        """요약 응답 파싱 ([SUMMARY]와 [MASTER_INFO] 분리)."""
+        summary_lines: list[str] = []
+        user_facts: list[str] = []
+
         try:
-            lines = response_text.split('\n')
+            lines = response_text.split("\n")
             current_section = None
-            
-            for line in lines:
-                line = line.strip()
-                
-                if '[요약]' in line or 'Summary' in line:
-                    current_section = 'summary'
-                    continue
-                elif '[마스터 정보]' in line or 'Master Info' in line or '[사용자 정보]' in line:
-                    current_section = 'facts'
-                    continue
-                
+
+            for raw in lines:
+                line = raw.strip()
                 if not line:
                     continue
-                
-                if current_section == 'summary':
-                    summary += line + " "
-                elif current_section == 'facts':
-                    # "- " 로 시작하거나 "없음"이 아닌 경우
-                    if line.startswith('-'):
-                        fact = line[1:].strip()
-                        if fact and fact.lower() not in ['없음', 'none', '없습니다']:
-                            user_facts.append(fact)
-            
-            summary = summary.strip()
-            
-            # 섹션이 없는 경우 전체를 요약으로 간주
+
+                upper = line.upper()
+                # 섹션 헤더 감지: ASCII 토큰 + 구형 출력 호환
+                if upper in {"[SUMMARY]", "SUMMARY"} or "[요약]" in line:
+                    current_section = "summary"
+                    continue
+                if (
+                    upper in {"[MASTER_INFO]", "MASTER_INFO"}
+                    or "[마스터 정보]" in line
+                    or "[사용자 정보]" in line
+                    or "MASTER INFO" in upper
+                ):
+                    current_section = "facts"
+                    continue
+
+                if current_section == "summary":
+                    # 사실 라인 형태는 summary에 섞이지 않게 제외
+                    if re.match(r"^-\s*\[(basic|preference|goal|habit)\]\s*.+$", line, re.IGNORECASE):
+                        continue
+                    if line.startswith("-"):
+                        line = line[1:].strip()
+                    summary_lines.append(line)
+                    continue
+
+                if current_section == "facts":
+                    if not line.startswith("-"):
+                        continue
+                    fact_line = line[1:].strip()
+                    if not fact_line:
+                        continue
+                    if fact_line.lower() in {"none", "none.", "없음"}:
+                        continue
+
+                    tagged = re.match(r"^\[(basic|preference|goal|habit)\]\s*(.+)$", fact_line, re.IGNORECASE)
+                    if tagged:
+                        category = tagged.group(1).lower()
+                        content = tagged.group(2).strip()
+                        if content:
+                            user_facts.append(f"[{category}] {content}")
+                    else:
+                        # 구형 형식도 최소 호환
+                        user_facts.append(fact_line)
+
+            summary = " ".join(summary_lines).strip()
+            summary = re.sub(r"\s+", " ", summary).strip()
             if not summary:
-                summary = response_text.strip()
-            
+                # fallback: 섹션 파싱 실패 시 상단 2줄만 요약으로 사용
+                non_empty = [ln.strip() for ln in response_text.split("\n") if ln.strip()]
+                summary = " ".join(non_empty[:2]).strip()
+
         except Exception as e:
-            print(f"[LLM] 응답 파싱 실패: {e}")
-            summary = response_text.strip()
-        
+            print(f"[LLM] 요약 파싱 실패: {e}")
+            non_empty = [ln.strip() for ln in response_text.split("\n") if ln.strip()]
+            summary = " ".join(non_empty[:2]).strip()
+            user_facts = []
+
         return summary, user_facts
-    
+
     def _parse_response(self, response_text: str) -> Tuple[str, str, str, List[Dict]]:
         """
         응답 텍스트에서 감정 태그, 일본어, 일정 추출
