@@ -203,6 +203,7 @@ let patOffsetsApplied = { angleX: 0, angleY: 0, bodyX: 0, eyeY: 0 };
 let lastNonPatTrackingState = { angleX: 0, angleY: 0, bodyX: 0, eyeY: 0 };
 let previousEmotionBeforePat = 'normal';
 let currentEmotionTag = 'normal';
+let baseEmotionTag = 'normal';
 let pendingPatEmotionTimer = null;
 let pendingPatRestoreEmotion = null;
 let headPatFadeInMs = 180;
@@ -443,7 +444,7 @@ function onHeadPatPointerDown(event) {
         return;
     }
 
-    const restoreBaseEmotion = pendingPatRestoreEmotion || currentEmotionTag || 'normal';
+    const restoreBaseEmotion = pendingPatRestoreEmotion || baseEmotionTag || currentEmotionTag || 'normal';
     cancelPendingPatEmotionRestore();
     previousEmotionBeforePat = restoreBaseEmotion;
     triggerPatStartEmotion();
@@ -522,15 +523,21 @@ function triggerPatEndEmotion() {
     let endEmotion = (headPatEndEmotion || 'shy').trim();
     if (!endEmotion) endEmotion = 'shy';
     changeExpression(endEmotion);
-    pendingPatRestoreEmotion = previousEmotionBeforePat || 'normal';
-    pendingPatEmotionTimer = setTimeout(() => {
-        pendingPatEmotionTimer = null;
+    pendingPatRestoreEmotion = previousEmotionBeforePat || baseEmotionTag || 'normal';
+    const applyRestoreWhenPossible = () => {
         const restoreEmotion = pendingPatRestoreEmotion || 'normal';
-        pendingPatRestoreEmotion = null;
-        if (!isHeadPatting) {
-            changeExpression(restoreEmotion);
+        if (isHeadPatting) {
+            // 쓰다듬는 중에는 복귀를 미루고 원래 감정을 유지한다.
+            pendingPatEmotionTimer = setTimeout(applyRestoreWhenPossible, 250);
+            return;
         }
-    }, headPatEndEmotionDurationMs);
+
+        pendingPatEmotionTimer = null;
+        pendingPatRestoreEmotion = null;
+        baseEmotionTag = restoreEmotion;
+        changeExpression(restoreEmotion);
+    };
+    pendingPatEmotionTimer = setTimeout(applyRestoreWhenPossible, headPatEndEmotionDurationMs);
 }
 
 function triggerPatStartEmotion() {
@@ -1026,14 +1033,20 @@ async function changeExpression(emotion) {
 const chatMessages = document.getElementById('chat-messages');
 const chatInput = document.getElementById('chat-input');
 const sendButton = document.getElementById('send-button');
+const manualSummarizeButton = document.getElementById('manual-summarize-floating-btn');
 const attachButton = document.getElementById('attach-button');
 const imageInput = document.getElementById('image-input');
 const imagePreviewContainer = document.getElementById('image-preview-container');
 const loadingIndicator = document.getElementById('loading-indicator');
+const summaryConfirmOverlay = document.getElementById('summary-confirm-overlay');
+const summaryConfirmYesButton = document.getElementById('summary-confirm-yes');
+const summaryConfirmNoButton = document.getElementById('summary-confirm-no');
+const toastContainer = document.getElementById('toast-container');
 
 // 泥⑤????대?吏 寃쎈줈 紐⑸줉
 let attachedImages = [];
 let rerollButtonVisibleBySetting = true;
+let manualSummaryButtonVisibleBySetting = true;
 let hasAssistantMessage = false;
 let isRequestPending = false;
 let shouldReplaceNextAssistant = false;
@@ -1065,6 +1078,15 @@ function syncLastAssistantMessageRef() {
 }
 
 function updateRerollButtonState() {
+    if (manualSummarizeButton) {
+        const enabledByBridge = !!window.pyBridge && !!window.pyBridge.summarize_now;
+        manualSummarizeButton.style.display = manualSummaryButtonVisibleBySetting ? 'inline-flex' : 'none';
+        manualSummarizeButton.disabled = isRequestPending || !enabledByBridge;
+    }
+    if (summaryConfirmYesButton) {
+        summaryConfirmYesButton.disabled = isRequestPending || !window.pyBridge || !window.pyBridge.summarize_now;
+    }
+
     syncLastAssistantMessageRef();
 
     const oldButtons = chatMessages.querySelectorAll('.message-reroll-btn');
@@ -1076,7 +1098,7 @@ function updateRerollButtonState() {
 
     const btn = document.createElement('button');
     btn.className = 'message-reroll-btn';
-    btn.textContent = 'Reroll';
+    btn.textContent = '⟲';
     btn.title = '理쒓렐 ENE ?듬? ?ㅼ떆 ?앹꽦';
     btn.disabled = isRequestPending || !window.pyBridge || !window.pyBridge.reroll_last_response;
     btn.addEventListener('click', () => {
@@ -1098,6 +1120,42 @@ window.setRerollButtonEnabled = function (enabled) {
     rerollButtonVisibleBySetting = Boolean(enabled);
     updateRerollButtonState();
 };
+
+window.setManualSummaryButtonEnabled = function (enabled) {
+    manualSummaryButtonVisibleBySetting = Boolean(enabled);
+    updateRerollButtonState();
+};
+
+function showSummaryConfirm() {
+    if (!summaryConfirmOverlay) return;
+    summaryConfirmOverlay.classList.remove('hidden');
+}
+
+function hideSummaryConfirm() {
+    if (!summaryConfirmOverlay) return;
+    summaryConfirmOverlay.classList.add('hidden');
+}
+
+function showToast(message, level = 'info') {
+    if (!toastContainer || !message) return;
+    const toast = document.createElement('div');
+    toast.className = `toast-item toast-${level}`;
+    toast.textContent = message;
+    toastContainer.appendChild(toast);
+
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(-4px)';
+        toast.style.transition = 'opacity 0.16s ease, transform 0.16s ease';
+        setTimeout(() => toast.remove(), 180);
+    }, 2200);
+}
+
+function requestManualSummary() {
+    if (!window.pyBridge || !window.pyBridge.summarize_now) return;
+    if (isRequestPending) return;
+    showSummaryConfirm();
+}
 
 function replaceLastAssistantMessage(text) {
     if (!lastAssistantMessageEl || !chatMessages.contains(lastAssistantMessageEl)) {
@@ -1319,6 +1377,37 @@ function autoResizeTextarea() {
 // ?꾩넚 踰꾪듉 ?대┃
 sendButton.addEventListener('click', sendMessage);
 
+if (manualSummarizeButton) {
+    manualSummarizeButton.addEventListener('click', requestManualSummary);
+}
+
+if (summaryConfirmNoButton) {
+    summaryConfirmNoButton.addEventListener('click', hideSummaryConfirm);
+}
+
+if (summaryConfirmYesButton) {
+    summaryConfirmYesButton.addEventListener('click', () => {
+        hideSummaryConfirm();
+        if (!window.pyBridge || !window.pyBridge.summarize_now) return;
+        if (isRequestPending) return;
+        window.pyBridge.summarize_now();
+    });
+}
+
+if (summaryConfirmOverlay) {
+    summaryConfirmOverlay.addEventListener('click', (e) => {
+        if (e.target === summaryConfirmOverlay) {
+            hideSummaryConfirm();
+        }
+    });
+}
+
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && summaryConfirmOverlay && !summaryConfirmOverlay.classList.contains('hidden')) {
+        hideSummaryConfirm();
+    }
+});
+
 // Enter ?ㅻ줈 ?꾩넚
 chatInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -1382,6 +1471,7 @@ if (typeof QWebChannel !== 'undefined') {
     new QWebChannel(qt.webChannelTransport, function (channel) {
         window.pyBridge = channel.objects.bridge;
         console.log("QWebChannel bridge connected");
+        updateRerollButtonState();
 
         // Python?먯꽌 硫붿떆吏 ?섏떊
         window.pyBridge.message_received.connect(function (text, emotion) {
@@ -1404,12 +1494,16 @@ if (typeof QWebChannel !== 'undefined') {
             updateRerollButtonState();
 
             // ?쒖젙 蹂寃?
+            cancelPendingPatEmotionRestore();
+            baseEmotionTag = (typeof emotion === 'string' && emotion.trim()) ? emotion.trim() : 'normal';
             changeExpression(emotion);
         });
 
         // ?쒖젙 蹂寃??쒓렇???곌껐
         window.pyBridge.expression_changed.connect(function (emotion) {
             console.log(`Expression changed: ${emotion}`);
+            cancelPendingPatEmotionRestore();
+            baseEmotionTag = (typeof emotion === 'string' && emotion.trim()) ? emotion.trim() : 'normal';
             changeExpression(emotion);
         });
 
@@ -1426,6 +1520,14 @@ if (typeof QWebChannel !== 'undefined') {
                 shouldReplaceNextAssistant = Boolean(active);
                 isRequestPending = Boolean(active);
                 showLoadingIndicator(Boolean(active));
+                updateRerollButtonState();
+            });
+        }
+
+        if (window.pyBridge.summary_notice) {
+            window.pyBridge.summary_notice.connect(function (message, level) {
+                const normalizedLevel = (typeof level === 'string' && level.trim()) ? level.trim().toLowerCase() : 'info';
+                showToast(message, normalizedLevel);
                 updateRerollButtonState();
             });
         }
