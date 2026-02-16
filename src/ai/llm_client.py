@@ -125,14 +125,7 @@ class GeminiClient:
             await self._count_and_log_tokens(contents)
             
             print(f"[LLM] Gemini 멀티모달 요청 전송...")
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=contents,
-                config={
-                    'system_instruction': get_system_prompt(),
-                    'temperature': 0.9
-                }
-            )
+            response = self.chat.send_message(contents)
             
             response_text = response.text.strip()
             print(f"[LLM] 멀티모달 응답: {response_text[:100]}...")

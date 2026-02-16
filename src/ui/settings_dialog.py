@@ -303,6 +303,35 @@ class SettingsDialog(QDialog):
         pat_layout.addRow("감정 유지 시간:", self.head_pat_end_emotion_duration_spin)
         layout.addWidget(pat_group)
 
+        away_group = QGroupBox("자리 비움/유휴 감지")
+        away_layout = QFormLayout(away_group)
+
+        self.enable_away_nudge_check = QCheckBox("유휴 감지 자동 말걸기 활성화")
+        self.enable_away_nudge_check.toggled.connect(self._on_setting_changed)
+        away_layout.addRow(self.enable_away_nudge_check)
+
+        self.away_idle_minutes_spin = QSpinBox()
+        self.away_idle_minutes_spin.setRange(5, 240)
+        self.away_idle_minutes_spin.setSuffix(" 분")
+        self.away_idle_minutes_spin.valueChanged.connect(self._on_setting_changed)
+        away_layout.addRow("유휴 시간:", self.away_idle_minutes_spin)
+
+        self.away_diff_threshold_spin = QDoubleSpinBox()
+        self.away_diff_threshold_spin.setRange(1.0, 15.0)
+        self.away_diff_threshold_spin.setSingleStep(0.5)
+        self.away_diff_threshold_spin.setDecimals(1)
+        self.away_diff_threshold_spin.setSuffix(" %")
+        self.away_diff_threshold_spin.valueChanged.connect(self._on_setting_changed)
+        away_layout.addRow("화면 차이 민감도:", self.away_diff_threshold_spin)
+
+        self.away_retry_limit_spin = QSpinBox()
+        self.away_retry_limit_spin.setRange(0, 20)
+        self.away_retry_limit_spin.setSuffix(" 회")
+        self.away_retry_limit_spin.valueChanged.connect(self._on_setting_changed)
+        away_layout.addRow("추가 재실행 횟수:", self.away_retry_limit_spin)
+
+        layout.addWidget(away_group)
+
         layout.addStretch()
         return widget
 
@@ -358,6 +387,10 @@ class SettingsDialog(QDialog):
             self.head_pat_end_emotion_duration_spin.setValue(
                 int(self._original_settings.get("head_pat_end_emotion_duration_sec", 5))
             )
+            self.enable_away_nudge_check.setChecked(self._original_settings.get("enable_away_nudge", True))
+            self.away_idle_minutes_spin.setValue(int(self._original_settings.get("away_idle_minutes", 60)))
+            self.away_diff_threshold_spin.setValue(float(self._original_settings.get("away_diff_threshold_percent", 3.0)))
+            self.away_retry_limit_spin.setValue(int(self._original_settings.get("away_additional_retry_limit", 0)))
 
             self.model_scale_spin.setValue(self._original_settings.get("model_scale", 1.0))
             self.model_x_slider.setValue(int(self._original_settings.get("model_x_percent", 50)))
@@ -435,6 +468,10 @@ class SettingsDialog(QDialog):
             "head_pat_end_emotion_custom": custom_emotion,
             "head_pat_end_emotion": resolved_emotion,
             "head_pat_end_emotion_duration_sec": self.head_pat_end_emotion_duration_spin.value(),
+            "enable_away_nudge": self.enable_away_nudge_check.isChecked(),
+            "away_idle_minutes": self.away_idle_minutes_spin.value(),
+            "away_diff_threshold_percent": self.away_diff_threshold_spin.value(),
+            "away_additional_retry_limit": self.away_retry_limit_spin.value(),
             "model_scale": self.model_scale_spin.value(),
             "model_x_percent": self.model_x_slider.value(),
             "model_y_percent": self.model_y_slider.value(),
