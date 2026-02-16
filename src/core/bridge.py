@@ -1,8 +1,21 @@
-"""
+﻿"""
 Python-JavaScript 브릿지 (QWebChannel)
 """
-from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, QThread
+from PyQt6.QtCore import (
+    QObject,
+    pyqtSignal,
+    pyqtSlot,
+    QThread,
+    QBuffer,
+    QByteArray,
+    QIODevice,
+    QTimer,
+    Qt,
+)
+from PyQt6.QtGui import QGuiApplication, QImage, QPainter
+from PyQt6.QtWidgets import QApplication
 from datetime import datetime
+import numpy as np
 
 
 class AIWorker(QThread):
@@ -172,6 +185,30 @@ class WebBridge(QObject):
         self._last_request_payload = None
         self._last_assistant_response = None
         self._is_rerolling = False
+
+        # 자리 비움/유휴 감지 상태
+        self.last_user_message_at = None
+        self.user_message_count = 0
+        self.away_check_in_progress = False
+        self.away_already_triggered_since_last_user_msg = False
+        self.away_trigger_count_since_last_user_msg = 0
+        self.last_away_trigger_at = None
+        self.away_first_capture_data_url = None
+        self.away_first_capture_image = None
+        self.away_idle_minutes = 60
+        self.away_compare_delay_seconds = 30
+        self.away_diff_threshold_percent = 3.0
+        self.away_additional_retry_limit = 0
+        self.enable_away_nudge = True
+
+        # 유휴 감지 타이머
+        self.away_timer = QTimer(self)
+        self.away_timer.setInterval(10_000)
+        self.away_timer.timeout.connect(self._check_away_nudge_condition)
+
+        self.away_second_shot_timer = QTimer(self)
+        self.away_second_shot_timer.setSingleShot(True)
+        self.away_second_shot_timer.timeout.connect(self._complete_away_capture_pipeline)
         
         # 설정에서 임계값 로드 (기본값: 10)
         if settings and hasattr(settings, 'config'):
@@ -179,6 +216,8 @@ class WebBridge(QObject):
             self.enable_tts = settings.config.get('enable_tts', False)
         else:
             self.summarize_threshold = 10
+
+        self.refresh_away_settings()
         
         print(f"[Bridge] 자동 요약 임계값: {self.summarize_threshold}개")
         print(f"[Bridge] TTS 활성화: {self.enable_tts}")
@@ -202,6 +241,261 @@ class WebBridge(QObject):
         print(f"[Bridge] TTS client set: {tts_client is not None}")
         print(f"[Bridge] Audio player set: {audio_player is not None}")
 
+    def refresh_away_settings(self):
+        """설정 파일에서 유휴 감지 관련 값을 다시 읽는다."""
+        if self.settings and hasattr(self.settings, "config"):
+            config = self.settings.config
+            self.enable_away_nudge = bool(config.get("enable_away_nudge", True))
+            self.away_idle_minutes = int(config.get("away_idle_minutes", 60))
+            self.away_compare_delay_seconds = int(config.get("away_compare_delay_seconds", 30))
+            self.away_diff_threshold_percent = float(config.get("away_diff_threshold_percent", 3.0))
+            self.away_additional_retry_limit = int(config.get("away_additional_retry_limit", 0))
+        else:
+            self.enable_away_nudge = True
+            self.away_idle_minutes = 60
+            self.away_compare_delay_seconds = 30
+            self.away_diff_threshold_percent = 3.0
+            self.away_additional_retry_limit = 0
+
+        self.away_idle_minutes = max(1, min(self.away_idle_minutes, 1440))
+        self.away_compare_delay_seconds = max(1, min(self.away_compare_delay_seconds, 600))
+        self.away_diff_threshold_percent = max(0.1, min(self.away_diff_threshold_percent, 100.0))
+        self.away_additional_retry_limit = max(0, min(self.away_additional_retry_limit, 20))
+
+    def start_away_monitor(self):
+        """유휴 감지 타이머를 시작한다."""
+        if not self.away_timer.isActive():
+            self.away_timer.start()
+
+    def stop_away_monitor(self):
+        """유휴 감지 타이머와 진행 중 파이프라인을 정리한다."""
+        if self.away_timer.isActive():
+            self.away_timer.stop()
+        self._cancel_away_pipeline()
+
+    def _mark_user_activity(self):
+        """사용자 발화를 기준으로 유휴 감지 상태를 재무장한다."""
+        self.last_user_message_at = datetime.now()
+        self.user_message_count += 1
+        self.away_already_triggered_since_last_user_msg = False
+        self.away_trigger_count_since_last_user_msg = 0
+        self.last_away_trigger_at = None
+        self._cancel_away_pipeline()
+
+    def _cancel_away_pipeline(self):
+        """진행 중인 2차 캡처 대기/임시 상태를 정리한다."""
+        if self.away_second_shot_timer.isActive():
+            self.away_second_shot_timer.stop()
+        self.away_check_in_progress = False
+        self.away_first_capture_data_url = None
+        self.away_first_capture_image = None
+
+    def _check_away_nudge_condition(self):
+        """주기적으로 유휴 조건과 실행 가능 상태를 확인한다."""
+        if not self.enable_away_nudge:
+            return
+        if self.away_check_in_progress:
+            return
+        if self.user_message_count <= 0 or self.last_user_message_at is None:
+            return
+        if self.worker and self.worker.isRunning():
+            return
+
+        max_total_runs = 1 + self.away_additional_retry_limit
+        if self.away_trigger_count_since_last_user_msg >= max_total_runs:
+            self.away_already_triggered_since_last_user_msg = True
+            return
+
+        # 첫 실행은 마지막 사용자 발화 기준, 이후 재실행은 마지막 유휴 실행 시점 기준
+        if self.away_trigger_count_since_last_user_msg == 0 or self.last_away_trigger_at is None:
+            idle_base_time = self.last_user_message_at
+        else:
+            idle_base_time = self.last_away_trigger_at
+
+        idle_minutes = (datetime.now() - idle_base_time).total_seconds() / 60.0
+        if idle_minutes < self.away_idle_minutes:
+            return
+
+        self._start_away_capture_pipeline()
+
+    def _start_away_capture_pipeline(self):
+        """1차 캡처 후 2차 캡처 타이머를 시작한다."""
+        if self.away_check_in_progress:
+            return
+
+        self.away_check_in_progress = True
+        first_result = self._capture_full_desktop_hidden_overlay()
+        if first_result is None:
+            print("[Bridge] Away capture(1차) 실패")
+            self._cancel_away_pipeline()
+            return
+
+        first_image, first_data_url = first_result
+        self.away_first_capture_image = first_image
+        self.away_first_capture_data_url = first_data_url
+        self.away_second_shot_timer.start(self.away_compare_delay_seconds * 1000)
+
+    def _complete_away_capture_pipeline(self):
+        """2차 캡처 후 차이율을 계산하고 기능 1/2로 분기한다."""
+        if self.worker and self.worker.isRunning():
+            self.away_second_shot_timer.start(10_000)
+            return
+
+        first_image = self.away_first_capture_image
+        if first_image is None:
+            self._cancel_away_pipeline()
+            return
+
+        second_result = self._capture_full_desktop_hidden_overlay()
+        if second_result is None:
+            print("[Bridge] Away capture(2차) 실패")
+            self._cancel_away_pipeline()
+            return
+
+        second_image, second_data_url = second_result
+
+        use_feature_1 = False
+        diff_percent = None
+        try:
+            diff_percent = self._calculate_image_diff_percent(first_image, second_image)
+            use_feature_1 = diff_percent <= self.away_diff_threshold_percent
+        except Exception as e:
+            print(f"[Bridge] 화면 비교 실패, 기능2로 폴백: {e}")
+            use_feature_1 = False
+
+        idle_text = f"{self.away_idle_minutes}분"
+        if use_feature_1:
+            prompt = (
+                f"상태 알림: 마스터가 현재 자리 비움 상태야. "
+                f"참고로 최근 {idle_text} 동안 너에게 새 메시지를 보내지 않았고, "
+                f"30초 간격 화면 비교에서 변화가 거의 없었어(차이율 {diff_percent:.2f}%). "
+                f"방금 첨부한 최신 전체 화면 1장을 보고, 혼잣말처럼 자연스럽게 한 마디 하거나 "
+                f"자리 비운 마스터에게 남길 말을 짧게 해줘."
+            )
+        else:
+            if diff_percent is None:
+                diff_note = "비교 실패로 보수적으로"
+            else:
+                diff_note = f"차이율 {diff_percent:.2f}%로"
+            prompt = (
+                f"상태 알림: 마스터가 최근 {idle_text} 동안 너에게 말을 걸지 않았어. "
+                f"{diff_note} 화면 변화가 있는 상태로 판단했어. "
+                f"방금 첨부한 최신 전체 화면 1장을 보고, 마스터가 너에게 말을 조금 걸어줬으면 좋겠다는 "
+                f"티가 나는 짧은 한마디를 해줘."
+            )
+
+        timestamp = self._now_timestamp()
+        message_with_time = f"[현재 시각: {timestamp}]\n{prompt}"
+        images_data = [{
+            "dataUrl": second_data_url,
+            "name": "away_latest_screen.png",
+            "type": "image/png",
+        }]
+
+        self._last_request_payload = {
+            "type": "images",
+            "message": prompt,
+            "message_with_time": message_with_time,
+            "images": images_data,
+        }
+        self._is_rerolling = False
+        self.away_trigger_count_since_last_user_msg += 1
+        self.last_away_trigger_at = datetime.now()
+        max_total_runs = 1 + self.away_additional_retry_limit
+        self.away_already_triggered_since_last_user_msg = (
+            self.away_trigger_count_since_last_user_msg >= max_total_runs
+        )
+        self._start_ai_worker(message_with_time, images_data)
+
+        self.away_check_in_progress = False
+        self.away_first_capture_data_url = None
+        self.away_first_capture_image = None
+
+    def _capture_full_desktop_hidden_overlay(self):
+        """ENE 창을 잠시 숨긴 뒤 전체 모니터를 합성 캡처한다."""
+        overlay = self.parent() if self.parent() else None
+        was_visible = False
+        if overlay and hasattr(overlay, "isVisible"):
+            try:
+                was_visible = bool(overlay.isVisible())
+                if was_visible:
+                    overlay.hide()
+                    QApplication.processEvents()
+            except Exception:
+                was_visible = False
+
+        try:
+            image = self._capture_full_desktop_image()
+            if image is None:
+                return None
+            data_url = self._qimage_to_data_url(image)
+            return image, data_url
+        finally:
+            if overlay and was_visible:
+                try:
+                    overlay.show()
+                    QApplication.processEvents()
+                except Exception:
+                    pass
+
+    def _capture_full_desktop_image(self):
+        """모든 모니터를 하나의 이미지로 합성한다."""
+        screens = QGuiApplication.screens()
+        if not screens:
+            return None
+
+        virtual_rect = screens[0].geometry()
+        for screen in screens[1:]:
+            virtual_rect = virtual_rect.united(screen.geometry())
+
+        canvas = QImage(virtual_rect.size(), QImage.Format.Format_RGBA8888)
+        canvas.fill(Qt.GlobalColor.transparent)
+
+        painter = QPainter(canvas)
+        try:
+            for screen in screens:
+                geo = screen.geometry()
+                pixmap = screen.grabWindow(0)
+                x = geo.x() - virtual_rect.x()
+                y = geo.y() - virtual_rect.y()
+                painter.drawPixmap(x, y, pixmap)
+        finally:
+            painter.end()
+
+        return canvas
+
+    def _qimage_to_data_url(self, image: QImage) -> str:
+        """QImage를 data:image/png;base64 형태로 변환한다."""
+        byte_array = QByteArray()
+        buffer = QBuffer(byte_array)
+        buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+        image.save(buffer, "PNG")
+        buffer.close()
+        encoded = bytes(byte_array.toBase64()).decode("ascii")
+        return f"data:image/png;base64,{encoded}"
+
+    def _calculate_image_diff_percent(self, image_a: QImage, image_b: QImage) -> float:
+        """RGBA 절대차 평균 기반 변화율(%) 계산."""
+        if image_a.size() != image_b.size():
+            raise ValueError("캡처 해상도가 서로 다릅니다.")
+
+        img_a = image_a.convertToFormat(QImage.Format.Format_RGBA8888)
+        img_b = image_b.convertToFormat(QImage.Format.Format_RGBA8888)
+
+        width = img_a.width()
+        height = img_a.height()
+        total_bytes = width * height * 4
+
+        ptr_a = img_a.bits()
+        ptr_b = img_b.bits()
+        ptr_a.setsize(total_bytes)
+        ptr_b.setsize(total_bytes)
+
+        arr_a = np.frombuffer(ptr_a, dtype=np.uint8).reshape((height, width, 4))
+        arr_b = np.frombuffer(ptr_b, dtype=np.uint8).reshape((height, width, 4))
+        diff = np.abs(arr_a.astype(np.int16) - arr_b.astype(np.int16))
+        return float((diff.mean() / 255.0) * 100.0)
+
     def _now_timestamp(self) -> str:
         """Return current timestamp in a consistent format."""
         return datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -224,33 +518,25 @@ class WebBridge(QObject):
         self.worker.response_ready.connect(self._on_response_ready)
         self.worker.error_occurred.connect(self._on_error)
         self.worker.start()
-    
     @pyqtSlot(str)
     def send_to_ai(self, message: str):
-        """
-        JavaScript에서 호출: 사용자 메시지를 AI에 전송
-        
-        Args:
-            message: 사용자 메시지
-        """
+        """JavaScript에서 호출: 사용자 텍스트 메시지를 AI로 전송."""
         print(f"[Bridge] Received message from JS: {message}")
-        
-        # 대화 횟수 증가
+
         if hasattr(self, 'calendar_manager') and self.calendar_manager:
             self.calendar_manager.increment_conversation_count()
             print("[Bridge] 대화 횟수 증가")
-        
+
         if not self.llm_client:
             print("[Bridge] LLM client not initialized")
             self.message_received.emit("AI가 초기화되지 않았어요.", "sad")
             return
-        
-        # 타임스탬프 추가
+
         timestamp = self._now_timestamp()
         message_with_time = f"[현재 시각: {timestamp}]\n{message}"
         print(f"[Bridge] Message with timestamp: {message_with_time}")
-        
-        # 대화 버퍼에 메시지 추가 (+ 타임스탬프)
+
+        self._mark_user_activity()
         self._append_conversation("user", message, timestamp)
 
         self._last_request_payload = {
@@ -261,41 +547,32 @@ class WebBridge(QObject):
         }
         self._is_rerolling = False
 
-        # 새 워커 스레드 생성 (원본 메시지 제목으로 사용, 타임스탬프 포함 메시지 전송)
         self._start_ai_worker(message_with_time)
         print("[Bridge] Worker thread started")
-    
+
     @pyqtSlot(str, str)
     def send_to_ai_with_images(self, message: str, images_json: str):
-        """
-        JavaScript에서 호출: 이미지와 함께 메시지 전송
-        
-        Args:
-            message: 사용자 메시지
-            images_json: 이미지 데이터 JSON 배열
-        """
+        """JavaScript에서 호출: 이미지 포함 메시지를 AI로 전송."""
         import json
-        
-        print(f"[Bridge] Received message with images from JS")
-        
+
+        print("[Bridge] Received message with images from JS")
+
         if not self.llm_client:
             print("[Bridge] LLM client not initialized")
             self.message_received.emit("AI가 초기화되지 않았어요.", "sad")
             return
-        
-        # 이미지 데이터 파싱
+
         try:
             images_data = json.loads(images_json)
             print(f"[Bridge] Parsed {len(images_data)} images")
         except Exception as e:
             print(f"[Bridge] Failed to parse images: {e}")
             images_data = []
-        
-        # 현재 날짜와 시간 추가
+
         timestamp = self._now_timestamp()
         message_with_time = f"[현재 시각: {timestamp}]\n{message}"
-        
-        # 대화 버퍼에 추가 (이미지는 [이미지]로 표시 + 타임스탬프)
+
+        self._mark_user_activity()
         img_note = f" [이미지 {len(images_data)}장]" if images_data else ""
         self._append_conversation("user", message + img_note, timestamp)
 
@@ -307,7 +584,6 @@ class WebBridge(QObject):
         }
         self._is_rerolling = False
 
-        # 새 워커 스레드 생성 (이미지 포함)
         self._start_ai_worker(message_with_time, images_data)
         print(f"[Bridge] Worker thread started with {len(images_data)} images")
 
@@ -614,6 +890,10 @@ class WebBridge(QObject):
         self._last_request_payload = None
         self._last_assistant_response = None
         self._is_rerolling = False
+        self.away_already_triggered_since_last_user_msg = False
+        self.away_trigger_count_since_last_user_msg = 0
+        self.last_away_trigger_at = None
+        self._cancel_away_pipeline()
         
         # LLM 컨텍스트 초기화
         if self.llm_client:
@@ -631,3 +911,4 @@ class WebBridge(QObject):
         if hasattr(self, "calendar_manager") and self.calendar_manager:
             self.calendar_manager.increment_head_pat_count()
             print("[Bridge] 쓰다듬기 횟수 증가")
+
