@@ -37,6 +37,11 @@ class Settings:
         "head_pat_end_emotion_duration_sec": 5,
         "gemini_api_key": "",
         "summarize_threshold": 10,
+        "enable_away_nudge": True,
+        "away_idle_minutes": 60,
+        "away_compare_delay_seconds": 30,
+        "away_diff_threshold_percent": 3.0,
+        "away_additional_retry_limit": 0,
     }
 
     def __init__(self, config_path: str = "config.json"):
