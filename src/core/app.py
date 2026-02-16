@@ -205,6 +205,9 @@ class ENEApplication(QObject):
         # TTS 클라이언트 및 오디오 플레이어 연결
         if hasattr(self, 'tts_client') and self.tts_client:
             self.overlay_window.bridge.set_tts(self.tts_client, self.audio_player)
+
+        # 유휴 감지 모니터 시작
+        self.overlay_window.bridge.start_away_monitor()
         
         # 트레이 아이콘 시그널
         self.tray_icon.settings_requested.connect(self._show_settings_dialog)
@@ -302,6 +305,7 @@ class ENEApplication(QObject):
         # 종료 전 남은 대화 요약
         if hasattr(self, 'overlay_window') and hasattr(self.overlay_window, 'bridge'):
             bridge = self.overlay_window.bridge
+            bridge.stop_away_monitor()
             
             # 남은 대화가 있으면 요약
             if bridge.conversation_buffer:

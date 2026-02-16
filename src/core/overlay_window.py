@@ -153,6 +153,8 @@ class OverlayWindow(QWidget):
         self._sync_idle_motion_settings_to_js()
         self._sync_reroll_button_visibility_to_js()
         self._sync_manual_summary_button_visibility_to_js()
+        if hasattr(self, "bridge") and self.bridge:
+            self.bridge.refresh_away_settings()
         self.settings.save()
 
     def preview_settings(self, new_settings: dict):
