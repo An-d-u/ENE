@@ -602,6 +602,13 @@ class WebBridge(QObject):
             print("[Bridge] Reroll ignored: worker is still running")
             return
 
+        # LLM 내부 chat 히스토리에서도 마지막 assistant 턴을 롤백해야
+        # 직전 응답을 본 상태로 재생성되는 문제를 막을 수 있다.
+        if hasattr(self.llm_client, "rollback_last_assistant_turn"):
+            rolled_back = self.llm_client.rollback_last_assistant_turn()
+            if not rolled_back:
+                print("[Bridge] Reroll warning: failed to rollback LLM assistant turn")
+
         # 교체 의미를 지키기 위해 최근 assistant 응답 하나를 버퍼에서 제거
         if self.conversation_buffer and self.conversation_buffer[-1][0] == "assistant":
             self.conversation_buffer.pop()
