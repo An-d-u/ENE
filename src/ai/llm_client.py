@@ -31,17 +31,24 @@ class GeminiClient:
         self.calendar_manager = calendar_manager
         
         # Chat 세션 생성
-        self.chat = self.client.chats.create(
-            model=self.model_name,
-            config={
-                'system_instruction': get_system_prompt(),
-                'temperature': 0.9,
-            }
-        )
+        self.chat = self._create_chat_session()
         
         print(f"[LLM] Chat session created with model: {self.model_name}")
         if self.memory_manager:
             print("[LLM] Memory manager connected")
+
+    def _create_chat_session(self, history=None):
+        """Gemini chat 세션을 생성한다."""
+        kwargs = {
+            "model": self.model_name,
+            "config": {
+                "system_instruction": get_system_prompt(),
+                "temperature": 0.9,
+            },
+        }
+        if history is not None:
+            kwargs["history"] = history
+        return self.client.chats.create(**kwargs)
     
     async def send_message_with_memory(self, message: str) -> Tuple[str, str, str, List[Dict]]:
         """
@@ -758,18 +765,66 @@ class GeminiClient:
     
     def clear_context(self):
         """대화 컨텍스트 초기화 - 새로운 Chat 세션 생성"""
-        self.chat = self.client.chats.create(
-            model=self.model_name,
-            config={
-                'system_instruction': get_system_prompt(),
-                'temperature': 0.9,
-            }
-        )
+        self.chat = self._create_chat_session()
         print("[LLM] Chat session reset")
+
+    def _get_item_role(self, item) -> str:
+        """히스토리 아이템에서 role 값을 안전하게 추출한다."""
+        if item is None:
+            return ""
+        if isinstance(item, dict):
+            return str(item.get("role", "")).lower()
+        role = getattr(item, "role", "")
+        return str(role).lower()
+
+    def rollback_last_assistant_turn(self) -> bool:
+        """
+        마지막 assistant(model) 턴 1개를 제거한 히스토리로 chat 세션을 재구성한다.
+        리롤 시 직전 assistant 응답이 컨텍스트에 남는 문제를 방지한다.
+        """
+        history = self.get_conversation_history()
+        if not history:
+            print("[LLM] rollback skipped: history empty")
+            return False
+
+        trimmed_history = list(history)
+        if not trimmed_history:
+            print("[LLM] rollback skipped: history conversion failed")
+            return False
+
+        # 정상 흐름에서는 마지막 턴이 model(assistant)이다.
+        removed = False
+        if self._get_item_role(trimmed_history[-1]) in ("assistant", "model"):
+            trimmed_history.pop()
+            removed = True
+        else:
+            # 혹시 구조가 달라도 끝에서 가장 가까운 assistant/model 턴 1개를 제거 시도
+            for idx in range(len(trimmed_history) - 1, -1, -1):
+                if self._get_item_role(trimmed_history[idx]) in ("assistant", "model"):
+                    del trimmed_history[idx]
+                    removed = True
+                    break
+
+        if not removed:
+            print("[LLM] rollback skipped: no assistant/model turn found")
+            return False
+
+        try:
+            self.chat = self._create_chat_session(history=trimmed_history)
+            print("[LLM] rollback_last_assistant_turn: success")
+            return True
+        except Exception as e:
+            print(f"[LLM] rollback_last_assistant_turn failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
     
     def get_conversation_history(self):
         """대화 내역 반환"""
         # Chat 세션에서 히스토리를 가져올 수 있다면 반환
         if hasattr(self.chat, 'history'):
-            return self.chat.history
+            try:
+                return list(self.chat.history)
+            except Exception:
+                return self.chat.history
         return []
