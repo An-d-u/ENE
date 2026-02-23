@@ -779,8 +779,9 @@ class GeminiClient:
 
     def rollback_last_assistant_turn(self) -> bool:
         """
-        마지막 assistant(model) 턴 1개를 제거한 히스토리로 chat 세션을 재구성한다.
-        리롤 시 직전 assistant 응답이 컨텍스트에 남는 문제를 방지한다.
+        리롤 직전 턴(user+assistant)을 롤백한 히스토리로 chat 세션을 재구성한다.
+        끝부분이 [user, model] 형태일 때만 안전하게 롤백하고,
+        모호한 히스토리 구조에서는 실패로 반환해 리롤을 중단하게 한다.
         """
         history = self.get_conversation_history()
         if not history:
@@ -792,29 +793,62 @@ class GeminiClient:
             print("[LLM] rollback skipped: history conversion failed")
             return False
 
-        # 정상 흐름에서는 마지막 턴이 model(assistant)이다.
-        removed = False
-        if self._get_item_role(trimmed_history[-1]) in ("assistant", "model"):
-            trimmed_history.pop()
-            removed = True
-        else:
-            # 혹시 구조가 달라도 끝에서 가장 가까운 assistant/model 턴 1개를 제거 시도
-            for idx in range(len(trimmed_history) - 1, -1, -1):
-                if self._get_item_role(trimmed_history[idx]) in ("assistant", "model"):
-                    del trimmed_history[idx]
-                    removed = True
-                    break
-
-        if not removed:
-            print("[LLM] rollback skipped: no assistant/model turn found")
+        # 리롤은 마지막 assistant 응답 1개를 기준으로 동작하므로
+        # 히스토리 tail이 반드시 model/assistant여야 한다.
+        last_role = self._get_item_role(trimmed_history[-1])
+        if last_role not in ("assistant", "model"):
+            print(f"[LLM] rollback skipped: unexpected tail role '{last_role}'")
             return False
+
+        # 마지막 assistant/model 제거
+        trimmed_history.pop()
+
+        # 직전 user 제거 (같은 user 입력 재전송 시 누적 방지)
+        if not trimmed_history:
+            print("[LLM] rollback skipped: missing user turn before assistant")
+            return False
+        last_user_role = self._get_item_role(trimmed_history[-1])
+        if last_user_role != "user":
+            print(f"[LLM] rollback skipped: expected user before assistant, got '{last_user_role}'")
+            return False
+        trimmed_history.pop()
 
         try:
             self.chat = self._create_chat_session(history=trimmed_history)
-            print("[LLM] rollback_last_assistant_turn: success")
+            print("[LLM] rollback_last_assistant_turn: success (user+assistant rolled back)")
             return True
         except Exception as e:
             print(f"[LLM] rollback_last_assistant_turn failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    def rebuild_context_from_conversation(self, conversation_buffer: list) -> bool:
+        """
+        Bridge의 conversation_buffer를 기반으로 chat 세션을 재구성한다.
+        SDK history 접근이 비어있는 환경에서 리롤 폴백 용도로 사용한다.
+        """
+        try:
+            history = []
+            for item in conversation_buffer or []:
+                if not item or len(item) < 2:
+                    continue
+                role = str(item[0]).strip().lower()
+                content = str(item[1]) if item[1] is not None else ""
+                if role == "assistant":
+                    role = "model"
+                elif role != "user":
+                    continue
+                history.append({
+                    "role": role,
+                    "parts": [{"text": content}],
+                })
+
+            self.chat = self._create_chat_session(history=history)
+            print(f"[LLM] rebuild_context_from_conversation: success ({len(history)} turns)")
+            return True
+        except Exception as e:
+            print(f"[LLM] rebuild_context_from_conversation failed: {e}")
             import traceback
             traceback.print_exc()
             return False

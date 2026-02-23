@@ -602,12 +602,30 @@ class WebBridge(QObject):
             print("[Bridge] Reroll ignored: worker is still running")
             return
 
-        # LLM 내부 chat 히스토리에서도 마지막 assistant 턴을 롤백해야
-        # 직전 응답을 본 상태로 재생성되는 문제를 막을 수 있다.
+        # 리롤 직전 기준 컨텍스트(..., user C, assistant D)에서
+        # D와 C를 제외한 상태(..., B)를 폴백 재구성용으로 준비한다.
+        fallback_context = list(self.conversation_buffer)
+        if fallback_context and fallback_context[-1][0] == "assistant":
+            fallback_context.pop()
+        if fallback_context and fallback_context[-1][0] == "user":
+            fallback_context.pop()
+
+        # LLM 내부 chat 히스토리에서도 직전 user+assistant 턴을 롤백해야
+        # 같은 user 입력이 누적되는 리롤 왜곡을 막을 수 있다.
+        rolled_back = False
         if hasattr(self.llm_client, "rollback_last_assistant_turn"):
-            rolled_back = self.llm_client.rollback_last_assistant_turn()
-            if not rolled_back:
-                print("[Bridge] Reroll warning: failed to rollback LLM assistant turn")
+            rolled_back = bool(self.llm_client.rollback_last_assistant_turn())
+
+        # 일부 SDK 환경에서는 history가 비어 rollback이 실패한다.
+        # 이 경우 Bridge 버퍼 기반으로 컨텍스트를 재구성해 폴백한다.
+        if not rolled_back and hasattr(self.llm_client, "rebuild_context_from_conversation"):
+            rolled_back = bool(self.llm_client.rebuild_context_from_conversation(fallback_context))
+            if rolled_back:
+                print("[Bridge] Reroll fallback: rebuilt LLM context from conversation buffer")
+
+        if not rolled_back:
+            print("[Bridge] Reroll aborted: failed to rollback/rebuild LLM context")
+            return
 
         # 교체 의미를 지키기 위해 최근 assistant 응답 하나를 버퍼에서 제거
         if self.conversation_buffer and self.conversation_buffer[-1][0] == "assistant":
