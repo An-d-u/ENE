@@ -37,6 +37,31 @@
     </div>
 
     <button id="manual-summarize-floating-btn" title="대화 요약">요약</button>
+    <button id="mood-toggle-floating-btn" title="기분 상태">기분</button>
+    <div id="mood-status-widget" class="hidden" aria-live="polite">
+        <div id="mood-status-header">
+            <div id="mood-status-label">기분: 로딩 중</div>
+            <button id="mood-status-collapse-btn" type="button" title="접기">_</button>
+        </div>
+        <div id="mood-status-meters">
+            <div class="mood-meter-row">
+                <span class="mood-meter-name">긍정</span>
+                <div class="mood-meter-track"><div id="mood-meter-valence" class="mood-meter-fill mood-meter-fill-valence"></div></div>
+            </div>
+            <div class="mood-meter-row">
+                <span class="mood-meter-name">친밀</span>
+                <div class="mood-meter-track"><div id="mood-meter-bond" class="mood-meter-fill"></div></div>
+            </div>
+            <div class="mood-meter-row">
+                <span class="mood-meter-name">활력</span>
+                <div class="mood-meter-track"><div id="mood-meter-energy" class="mood-meter-fill"></div></div>
+            </div>
+            <div class="mood-meter-row">
+                <span class="mood-meter-name">긴장</span>
+                <div class="mood-meter-track"><div id="mood-meter-stress" class="mood-meter-fill mood-meter-fill-stress"></div></div>
+            </div>
+        </div>
+    </div>
 
     <div id="summary-confirm-overlay" class="hidden" role="dialog" aria-modal="true" aria-labelledby="summary-confirm-title">
         <div id="summary-confirm-dialog">

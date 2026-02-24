@@ -10,6 +10,7 @@ from .overlay_window import OverlayWindow
 from .tray_icon import TrayIcon
 from ..ui.settings_dialog import SettingsDialog
 from ..ai.llm_client import GeminiClient
+from ..ai.mood_manager import MoodManager
 
 
 class ENEApplication(QObject):
@@ -74,6 +75,7 @@ class ENEApplication(QObject):
             
             # 사용자 프로필 초기화
             self._init_user_profile()
+            self._init_mood_manager()
             
             # LLM 클라이언트 초기화 (메모리 매니저 + 프로필 전달)
             self.llm_client = GeminiClient(
@@ -81,7 +83,8 @@ class ENEApplication(QObject):
                 memory_manager=self.memory_manager,
                 user_profile=self.user_profile if hasattr(self, 'user_profile') else None,
                 settings=self.settings,
-                calendar_manager=self.calendar_manager if hasattr(self, 'calendar_manager') else None
+                calendar_manager=self.calendar_manager if hasattr(self, 'calendar_manager') else None,
+                mood_manager=self.mood_manager if hasattr(self, "mood_manager") else None
             )
             print("OK: Gemini API 클라이언트 초기화 성공")
             
@@ -95,6 +98,20 @@ class ENEApplication(QObject):
             self.llm_client = None
             self.memory_manager = None
     
+    def _init_mood_manager(self):
+        """기분 매니저 초기화"""
+        try:
+            state_file = "mood_state.json"
+            if self.settings and hasattr(self.settings, "config"):
+                state_file = str(self.settings.config.get("mood_state_file", state_file))
+            self.mood_manager = MoodManager(state_file=state_file, settings=self.settings)
+            print("OK: 기분 매니저 초기화 성공")
+        except Exception as e:
+            print(f"ERROR: 기분 매니저 초기화 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            self.mood_manager = None
+
     def _init_user_profile(self):
         """사용자 프로필 초기화"""
         try:
@@ -194,6 +211,8 @@ class ENEApplication(QObject):
         """시그널 연결"""
         # WebBridge에 LLM 클라이언트 및 메모리 매니저 전달
         self.overlay_window.bridge.set_llm_client(self.llm_client)
+        if hasattr(self, "mood_manager") and self.mood_manager:
+            self.overlay_window.bridge.set_mood_manager(self.mood_manager)
         if hasattr(self, 'memory_manager'):
             user_profile = self.user_profile if hasattr(self, 'user_profile') else None
             self.overlay_window.bridge.set_memory_manager(

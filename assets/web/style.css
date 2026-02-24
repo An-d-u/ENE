@@ -261,6 +261,116 @@ body {
     cursor: not-allowed;
 }
 
+#mood-toggle-floating-btn {
+    position: fixed;
+    right: 12px;
+    top: 76px;
+    z-index: 1200;
+    padding: 8px 12px;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 16px;
+    background: rgba(25, 25, 28, 0.52);
+    color: rgba(255, 255, 255, 0.95);
+    font-size: 13px;
+    cursor: pointer;
+    backdrop-filter: blur(4px);
+    transition: background 0.2s ease, transform 0.2s ease;
+}
+
+#mood-toggle-floating-btn:hover {
+    background: rgba(40, 40, 44, 0.7);
+    transform: translateY(-1px);
+}
+
+#mood-status-widget {
+    position: fixed;
+    right: 12px;
+    top: 112px;
+    z-index: 1200;
+    width: 182px;
+    padding: 9px 10px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    background: rgba(18, 18, 22, 0.62);
+    color: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(4px);
+}
+
+#mood-status-widget.hidden {
+    display: none;
+}
+
+#mood-status-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+}
+
+#mood-status-label {
+    font-size: 12px;
+    font-weight: 600;
+}
+
+#mood-status-collapse-btn {
+    border: none;
+    background: rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.9);
+    width: 20px;
+    height: 20px;
+    line-height: 15px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    padding: 0;
+}
+
+#mood-status-collapse-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+#mood-status-meters {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.mood-meter-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.mood-meter-name {
+    width: 28px;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.82);
+}
+
+.mood-meter-track {
+    flex: 1;
+    height: 6px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.14);
+    overflow: hidden;
+}
+
+.mood-meter-fill {
+    width: 50%;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, rgba(103, 177, 255, 0.7), rgba(142, 245, 206, 0.85));
+    transition: width 0.22s ease;
+}
+
+.mood-meter-fill-valence {
+    background: linear-gradient(90deg, rgba(116, 205, 123, 0.75), rgba(132, 234, 174, 0.88));
+}
+
+.mood-meter-fill-stress {
+    background: linear-gradient(90deg, rgba(255, 191, 118, 0.7), rgba(255, 114, 124, 0.82));
+}
+
 #summary-confirm-overlay {
     position: fixed;
     inset: 0;
@@ -327,7 +437,7 @@ body {
 #toast-container {
     position: fixed;
     right: 12px;
-    top: 76px;
+    top: 236px;
     z-index: 2100;
     display: flex;
     flex-direction: column;

@@ -42,6 +42,11 @@ class Settings:
         "away_compare_delay_seconds": 30,
         "away_diff_threshold_percent": 3.0,
         "away_additional_retry_limit": 0,
+        "enable_mood_system": True,
+        "mood_update_speed": "normal",
+        "mood_personality_profile": "affectionate",
+        "mood_decay_per_hour": 0.08,
+        "mood_state_file": "mood_state.json",
     }
 
     def __init__(self, config_path: str = "config.json"):
