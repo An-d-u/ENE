@@ -15,6 +15,7 @@ from PyQt6.QtCore import (
 from PyQt6.QtGui import QGuiApplication, QImage, QPainter
 from PyQt6.QtWidgets import QApplication
 from datetime import datetime
+import json
 import numpy as np
 
 
@@ -158,6 +159,7 @@ class WebBridge(QObject):
     lip_sync_update = pyqtSignal(float)      # 립싱크 업데이트 (mouth_value)
     reroll_state_changed = pyqtSignal(bool)  # 리롤 응답 교체 모드 on/off
     summary_notice = pyqtSignal(str, str)    # (메시지, 레벨)
+    mood_changed = pyqtSignal(str, float, float, float, float)  # (라벨, valence, energy, bond, stress)
     
     def __init__(self, settings=None, parent=None):
         super().__init__(parent)
@@ -165,6 +167,7 @@ class WebBridge(QObject):
         self.memory_manager = None
         self.worker = None
         self.settings = settings
+        self.mood_manager = None
         
         # TTS 및 오디오 재생
         self.tts_client = None
@@ -225,7 +228,31 @@ class WebBridge(QObject):
     def set_llm_client(self, client):
         """LLM 클라이언트 설정"""
         self.llm_client = client
+        if self.llm_client and self.mood_manager:
+            self.llm_client.mood_manager = self.mood_manager
         print(f"[Bridge] LLM client set: {client is not None}")
+
+    def set_mood_manager(self, mood_manager):
+        """기분 매니저 설정"""
+        self.mood_manager = mood_manager
+        if self.llm_client and self.mood_manager:
+            self.llm_client.mood_manager = self.mood_manager
+        if self.mood_manager:
+            snapshot = self.mood_manager.get_snapshot()
+            self._emit_mood_changed(snapshot)
+
+    def _emit_mood_changed(self, snapshot: dict):
+        """기분 상태 변경 시 UI로 전달"""
+        try:
+            self.mood_changed.emit(
+                str(snapshot.get("current_mood", "calm")),
+                float(snapshot.get("valence", 0.0)),
+                float(snapshot.get("energy", 0.0)),
+                float(snapshot.get("bond", 0.0)),
+                float(snapshot.get("stress", 0.0)),
+            )
+        except Exception as e:
+            print(f"[Bridge] mood_changed emit 실패: {e}")
     
     def set_memory_manager(self, memory_manager, _llm_client, user_profile=None):
         """메모리 매니저 및 사용자 프로필 설정"""
@@ -538,6 +565,9 @@ class WebBridge(QObject):
 
         self._mark_user_activity()
         self._append_conversation("user", message, timestamp)
+        if self.mood_manager:
+            snapshot = self.mood_manager.on_user_message(message, image_count=0)
+            self._emit_mood_changed(snapshot)
 
         self._last_request_payload = {
             "type": "text",
@@ -575,6 +605,9 @@ class WebBridge(QObject):
         self._mark_user_activity()
         img_note = f" [이미지 {len(images_data)}장]" if images_data else ""
         self._append_conversation("user", message + img_note, timestamp)
+        if self.mood_manager:
+            snapshot = self.mood_manager.on_user_message(message, image_count=len(images_data))
+            self._emit_mood_changed(snapshot)
 
         self._last_request_payload = {
             "type": "images",
@@ -676,6 +709,9 @@ class WebBridge(QObject):
         """AI 응답 준비 완료"""
         print(f"[Bridge] Response ready: {text[:50]}... [{emotion}]")
         self._last_assistant_response = {"text": text, "emotion": emotion}
+        if self.mood_manager:
+            snapshot = self.mood_manager.on_assistant_emotion(emotion)
+            self._emit_mood_changed(snapshot)
         
         # 대화 버퍼에 응답 추가 (+ 타임스탬프)
         self._append_conversation("assistant", text)
@@ -936,4 +972,19 @@ class WebBridge(QObject):
         if hasattr(self, "calendar_manager") and self.calendar_manager:
             self.calendar_manager.increment_head_pat_count()
             print("[Bridge] 쓰다듬기 횟수 증가")
+        if self.mood_manager:
+            snapshot = self.mood_manager.on_head_pat()
+            self._emit_mood_changed(snapshot)
+
+    @pyqtSlot(result=str)
+    def get_mood_snapshot_json(self) -> str:
+        """JavaScript에서 호출: 현재 기분 상태를 JSON 문자열로 반환."""
+        if not self.mood_manager:
+            return ""
+        try:
+            snapshot = self.mood_manager.get_snapshot()
+            return json.dumps(snapshot, ensure_ascii=False)
+        except Exception as e:
+            print(f"[Bridge] 기분 스냅샷 반환 실패: {e}")
+            return ""
 
