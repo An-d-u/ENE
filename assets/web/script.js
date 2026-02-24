@@ -1042,6 +1042,14 @@ const summaryConfirmOverlay = document.getElementById('summary-confirm-overlay')
 const summaryConfirmYesButton = document.getElementById('summary-confirm-yes');
 const summaryConfirmNoButton = document.getElementById('summary-confirm-no');
 const toastContainer = document.getElementById('toast-container');
+const moodToggleButton = document.getElementById('mood-toggle-floating-btn');
+const moodWidget = document.getElementById('mood-status-widget');
+const moodCollapseButton = document.getElementById('mood-status-collapse-btn');
+const moodStatusLabel = document.getElementById('mood-status-label');
+const moodMeterValence = document.getElementById('mood-meter-valence');
+const moodMeterBond = document.getElementById('mood-meter-bond');
+const moodMeterEnergy = document.getElementById('mood-meter-energy');
+const moodMeterStress = document.getElementById('mood-meter-stress');
 
 // 泥⑤????대?吏 寃쎈줈 紐⑸줉
 let attachedImages = [];
@@ -1051,6 +1059,60 @@ let hasAssistantMessage = false;
 let isRequestPending = false;
 let shouldReplaceNextAssistant = false;
 let lastAssistantMessageEl = null;
+let moodPanelOpen = false;
+
+function normalizeMoodAxis(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return 0.5;
+    return Math.max(0, Math.min(1, (n + 1) / 2));
+}
+
+function formatMoodLabel(label) {
+    const map = {
+        calm: '차분함',
+        cheerful: '상쾌함',
+        affectionate: '애정 충만',
+        tired: '피곤함',
+        tense: '긴장됨',
+        lonely: '쓸쓸함',
+    };
+    return map[label] || label || '알 수 없음';
+}
+
+function setMoodMeterWidth(el, normalized) {
+    if (!el) return;
+    const width = Math.round(Math.max(0, Math.min(1, normalized)) * 100);
+    el.style.width = `${width}%`;
+}
+
+function setMoodPanelOpen(open) {
+    moodPanelOpen = Boolean(open);
+    if (moodWidget) {
+        moodWidget.classList.toggle('hidden', !moodPanelOpen);
+    }
+}
+
+function updateMoodWidget(label, valence, energy, bond, stress) {
+    if (moodStatusLabel) {
+        moodStatusLabel.textContent = `기분: ${formatMoodLabel(label)}`;
+    }
+
+    setMoodMeterWidth(moodMeterValence, normalizeMoodAxis(valence));
+    setMoodMeterWidth(moodMeterBond, normalizeMoodAxis(bond));
+    setMoodMeterWidth(moodMeterEnergy, normalizeMoodAxis(energy));
+    setMoodMeterWidth(moodMeterStress, normalizeMoodAxis(stress));
+
+    if (moodMeterValence) moodMeterValence.title = `긍정 ${Number(valence).toFixed(2)}`;
+    if (moodMeterBond) moodMeterBond.title = `친밀 ${Number(bond).toFixed(2)}`;
+    if (moodMeterEnergy) moodMeterEnergy.title = `활력 ${Number(energy).toFixed(2)}`;
+    if (moodMeterStress) moodMeterStress.title = `긴장 ${Number(stress).toFixed(2)}`;
+    if (moodStatusLabel) {
+        moodStatusLabel.title = `긍정 ${Number(valence).toFixed(2)} / 친밀 ${Number(bond).toFixed(2)} / 활력 ${Number(energy).toFixed(2)} / 긴장 ${Number(stress).toFixed(2)}`;
+    }
+}
+
+updateMoodWidget('calm', 0, 0, 0, 0);
+setMoodPanelOpen(false);
 
 /**
  * 濡쒕뵫 ?몃뵒耳?댄꽣 ?쒖떆/?④?
@@ -1377,6 +1439,14 @@ function autoResizeTextarea() {
 // ?꾩넚 踰꾪듉 ?대┃
 sendButton.addEventListener('click', sendMessage);
 
+if (moodToggleButton) {
+    moodToggleButton.addEventListener('click', () => setMoodPanelOpen(true));
+}
+
+if (moodCollapseButton) {
+    moodCollapseButton.addEventListener('click', () => setMoodPanelOpen(false));
+}
+
 if (manualSummarizeButton) {
     manualSummarizeButton.addEventListener('click', requestManualSummary);
 }
@@ -1530,6 +1600,30 @@ if (typeof QWebChannel !== 'undefined') {
                 showToast(message, normalizedLevel);
                 updateRerollButtonState();
             });
+        }
+
+        if (window.pyBridge.mood_changed) {
+            window.pyBridge.mood_changed.connect(function (label, valence, energy, bond, stress) {
+                updateMoodWidget(label, valence, energy, bond, stress);
+            });
+        }
+
+        if (window.pyBridge.get_mood_snapshot_json) {
+            try {
+                const snapshotJson = window.pyBridge.get_mood_snapshot_json();
+                if (snapshotJson) {
+                    const snapshot = JSON.parse(snapshotJson);
+                    updateMoodWidget(
+                        snapshot.current_mood,
+                        snapshot.valence,
+                        snapshot.energy,
+                        snapshot.bond,
+                        snapshot.stress
+                    );
+                }
+            } catch (e) {
+                console.warn("Failed to initialize mood widget:", e);
+            }
         }
     });
 } else {

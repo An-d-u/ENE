@@ -11,7 +11,15 @@ from .prompt import get_system_prompt, get_available_emotions
 class GeminiClient:
     """Gemini API 클라이언트"""
     
-    def __init__(self, api_key: str, memory_manager=None, user_profile=None, settings=None, calendar_manager=None):
+    def __init__(
+        self,
+        api_key: str,
+        memory_manager=None,
+        user_profile=None,
+        settings=None,
+        calendar_manager=None,
+        mood_manager=None,
+    ):
         """
         Gemini API 클라이언트 초기화
         
@@ -29,6 +37,7 @@ class GeminiClient:
         self.user_profile = user_profile
         self.settings = settings
         self.calendar_manager = calendar_manager
+        self.mood_manager = mood_manager
         
         # Chat 세션 생성
         self.chat = self._create_chat_session()
@@ -210,6 +219,15 @@ class GeminiClient:
                     print(f"[LLM] facts 포함: {len(facts)}개 항목")
         
         # 설정값 가져오기
+        if self.mood_manager and hasattr(self.mood_manager, "build_context_block"):
+            try:
+                mood_block = self.mood_manager.build_context_block()
+                if mood_block:
+                    context_parts.append("\n" + mood_block)
+                    print("[LLM] Mood context included")
+            except Exception as e:
+                print(f"[LLM] Mood context append failed: {e}")
+
         settings_config = self.settings.config if self.settings else {}
         max_important = settings_config.get('max_important_memories', 3)
         max_similar = settings_config.get('max_similar_memories', 3)
@@ -230,7 +248,7 @@ class GeminiClient:
         # 2. 유사 기억 검색
         try:
             similar_memories = await self.memory_manager.find_similar(
-                query, 
+                query,
                 top_k=max_similar,
                 min_similarity=min_sim
             )
