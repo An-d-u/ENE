@@ -17,6 +17,7 @@ class Settings:
         "zoom_level": 1.0,
         "show_drag_bar": True,
         "show_recent_reroll_button": True,
+        "show_recent_edit_button": True,
         "show_manual_summary_button": True,
         "model_scale": 1.0,
         "model_x_percent": 50,  # 0-100%
