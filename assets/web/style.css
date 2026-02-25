@@ -482,8 +482,8 @@ body {
 
 .message-reroll-btn {
     position: absolute;
-    right: -2px;
-    bottom: -2px;
+    right: -20px;
+    bottom: 2px;
     border: none;
     background: transparent;
     color: rgba(255, 255, 255, 0.6);
@@ -510,7 +510,7 @@ body {
 
 .message-edit-btn {
     position: absolute;
-    left: -10px;
+    left: -25px;
     bottom: -2px;
     border: none;
     background: transparent;
