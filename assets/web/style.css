@@ -97,6 +97,7 @@ body {
     border-radius: 18px;
     font-size: 14px;
     line-height: 1.4;
+    white-space: pre-wrap;
     word-wrap: break-word;
     position: relative;
 }
@@ -481,8 +482,8 @@ body {
 
 .message-reroll-btn {
     position: absolute;
-    right: -12px;
-    bottom: -12px;
+    right: -2px;
+    bottom: -2px;
     border: none;
     background: transparent;
     color: rgba(255, 255, 255, 0.6);
@@ -505,6 +506,76 @@ body {
 .message-reroll-btn:disabled {
     opacity: 0.35;
     cursor: not-allowed;
+}
+
+.message-edit-btn {
+    position: absolute;
+    left: -10px;
+    bottom: -2px;
+    border: none;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.68);
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+    transition: color 0.2s ease, transform 0.2s ease;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+    padding: 0;
+}
+
+.message-edit-btn:hover:not(:disabled) {
+    color: rgba(255, 255, 255, 0.95);
+    transform: translateY(-1px);
+}
+
+.message-edit-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.inline-edit-wrap {
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.inline-edit-input {
+    width: 100%;
+    min-height: 52px;
+    resize: vertical;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    background: rgba(0, 0, 0, 0.18);
+    color: #fff;
+    padding: 8px 10px;
+    font-size: 13px;
+    line-height: 1.4;
+    outline: none;
+}
+
+.inline-edit-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+.inline-edit-cancel,
+.inline-edit-save {
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 8px;
+    padding: 4px 8px;
+    font-size: 12px;
+    cursor: pointer;
+    color: #fff;
+}
+
+.inline-edit-cancel {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.inline-edit-save {
+    background: rgba(100, 150, 255, 0.72);
 }
 
 /* 이미지 첨부 버튼 */

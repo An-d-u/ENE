@@ -89,6 +89,7 @@ class OverlayWindow(QWidget):
         self._sync_mouse_tracking_state_to_js()
         self._sync_idle_motion_settings_to_js()
         self._sync_reroll_button_visibility_to_js()
+        self._sync_edit_button_visibility_to_js()
         self._sync_manual_summary_button_visibility_to_js()
         print("Web page loaded")
 
@@ -152,6 +153,7 @@ class OverlayWindow(QWidget):
 
         self._sync_idle_motion_settings_to_js()
         self._sync_reroll_button_visibility_to_js()
+        self._sync_edit_button_visibility_to_js()
         self._sync_manual_summary_button_visibility_to_js()
         if hasattr(self, "bridge") and self.bridge:
             self.bridge.refresh_away_settings()
@@ -186,6 +188,7 @@ class OverlayWindow(QWidget):
         if self._page_loaded:
             self._sync_idle_motion_settings_to_js(new_settings)
             self._sync_reroll_button_visibility_to_js(new_settings)
+            self._sync_edit_button_visibility_to_js(new_settings)
             self._sync_manual_summary_button_visibility_to_js(new_settings)
 
     def restore_settings(self):
@@ -193,6 +196,7 @@ class OverlayWindow(QWidget):
         self._apply_model_settings()
         self._sync_idle_motion_settings_to_js()
         self._sync_reroll_button_visibility_to_js()
+        self._sync_edit_button_visibility_to_js()
         self._sync_manual_summary_button_visibility_to_js()
 
     def toggle_drag_bar(self):
@@ -314,6 +318,13 @@ class OverlayWindow(QWidget):
         source = settings_override if settings_override is not None else self.settings.config
         enabled = "true" if bool(source.get("show_recent_reroll_button", True)) else "false"
         self.web_view.page().runJavaScript(f"window.setRerollButtonEnabled({enabled});")
+
+    def _sync_edit_button_visibility_to_js(self, settings_override: dict | None = None):
+        if not self._page_loaded:
+            return
+        source = settings_override if settings_override is not None else self.settings.config
+        enabled = "true" if bool(source.get("show_recent_edit_button", True)) else "false"
+        self.web_view.page().runJavaScript(f"window.setRecentEditButtonEnabled({enabled});")
 
     def _sync_manual_summary_button_visibility_to_js(self, settings_override: dict | None = None):
         if not self._page_loaded:

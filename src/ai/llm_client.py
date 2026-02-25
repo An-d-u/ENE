@@ -137,11 +137,9 @@ class GeminiClient:
             # contents에 이미지와 텍스트를 함께 전달
             contents = pil_images + [enhanced_message]
             
-            # 토큰 계산
-            await self._count_and_log_tokens(contents)
-            
             print(f"[LLM] Gemini 멀티모달 요청 전송...")
             response = self.chat.send_message(contents)
+            self._log_turn_token_usage(response, label="멀티모달")
             
             response_text = response.text.strip()
             print(f"[LLM] 멀티모달 응답: {response_text[:100]}...")
@@ -269,7 +267,7 @@ class GeminiClient:
         
         # 3. 최근 기억도 추가 (임베딩 없어도 사용 가능)
         recent_memories = self.memory_manager.get_recent(count=max_recent)
-        if recent_memories and not context_parts:  # 중요/유사 기억이 없을 때만
+        if recent_memories:
             print(f"[LLM] 최근 기억 {len(recent_memories)}개 사용")
             context_parts.append("[최근 대화 기록]")
             for memory in recent_memories:
@@ -343,33 +341,49 @@ class GeminiClient:
         print("[LLM] 사용 가능한 기억 없음")
         return ""
     
-    async def _count_and_log_tokens(self, contents):
-        """
-        토큰 수 계산 및 로깅
-        
-        Args:
-            contents: 토큰을 계산할 컨텐츠 (문자열 또는 리스트)
-        """
-        try:
-            # 시스템 프롬프트도 포함해야 정확함
-            system_prompt = get_system_prompt()
-            
-            if isinstance(contents, str):
-                full_contents = [system_prompt, contents]
-            elif isinstance(contents, list):
-                full_contents = [system_prompt] + contents
-            else:
-                full_contents = [system_prompt, str(contents)]
-                
-            response = self.client.models.count_tokens(
-                model=self.model_name,
-                contents=full_contents
-            )
-            
-            print(f"[LLM] 🎫 Token Usage: {response.total_tokens} tokens (Prompt: {full_contents.__len__()} parts)")
-            
-        except Exception as e:
-            print(f"[LLM] 토큰 계산 실패: {e}")
+    def _log_turn_token_usage(self, response, label: str = "텍스트"):
+        """응답 메타데이터에서 1회 입력/출력 토큰 사용량을 로깅한다."""
+        def _read_field(container, *names):
+            if container is None:
+                return None
+            for name in names:
+                if hasattr(container, name):
+                    value = getattr(container, name)
+                    if value is not None:
+                        return value
+                if isinstance(container, dict) and name in container:
+                    value = container.get(name)
+                    if value is not None:
+                        return value
+            return None
+
+        usage = None
+        if hasattr(response, "usage_metadata"):
+            usage = getattr(response, "usage_metadata")
+        elif isinstance(response, dict):
+            usage = response.get("usage_metadata")
+
+        input_tokens = _read_field(
+            usage,
+            "prompt_token_count",
+            "input_token_count",
+            "prompt_tokens",
+            "input_tokens",
+        )
+        output_tokens = _read_field(
+            usage,
+            "candidates_token_count",
+            "output_token_count",
+            "completion_token_count",
+            "output_tokens",
+            "completion_tokens",
+        )
+        total_tokens = _read_field(usage, "total_token_count", "total_tokens")
+
+        in_str = str(input_tokens) if isinstance(input_tokens, int) else "N/A"
+        out_str = str(output_tokens) if isinstance(output_tokens, int) else "N/A"
+        total_str = str(total_tokens) if isinstance(total_tokens, int) else "N/A"
+        print(f"[LLM] 🎫 Token Usage ({label}) | input={in_str}, output={out_str}, total={total_str}")
 
     def send_message(self, message: str) -> Tuple[str, str, str, List[Dict]]:
         """
@@ -390,6 +404,7 @@ class GeminiClient:
             
             # Chat 세션으로 메시지 전송
             response = self.chat.send_message(message)
+            self._log_turn_token_usage(response, label="텍스트")
             
             # 응답 텍스트 추출
             response_text = response.text
