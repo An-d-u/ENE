@@ -210,6 +210,10 @@ class SettingsDialog(QDialog):
         self.show_recent_reroll_button_check.toggled.connect(self._on_setting_changed)
         drag_row.addWidget(self.show_recent_reroll_button_check)
 
+        self.show_recent_edit_button_check = QCheckBox("최근 메시지 수정 버튼 표시")
+        self.show_recent_edit_button_check.toggled.connect(self._on_setting_changed)
+        drag_row.addWidget(self.show_recent_edit_button_check)
+
         self.show_manual_summary_button_check = QCheckBox("수동 요약 버튼 표시")
         self.show_manual_summary_button_check.toggled.connect(self._on_setting_changed)
         drag_row.addWidget(self.show_manual_summary_button_check)
@@ -352,6 +356,9 @@ class SettingsDialog(QDialog):
             self.show_recent_reroll_button_check.setChecked(
                 self._original_settings.get("show_recent_reroll_button", True)
             )
+            self.show_recent_edit_button_check.setChecked(
+                self._original_settings.get("show_recent_edit_button", True)
+            )
             self.show_manual_summary_button_check.setChecked(
                 self._original_settings.get("show_manual_summary_button", True)
             )
@@ -451,6 +458,7 @@ class SettingsDialog(QDialog):
             "window_height": self.window_height_spin.value(),
             "show_drag_bar": self.show_drag_bar_check.isChecked(),
             "show_recent_reroll_button": self.show_recent_reroll_button_check.isChecked(),
+            "show_recent_edit_button": self.show_recent_edit_button_check.isChecked(),
             "show_manual_summary_button": self.show_manual_summary_button_check.isChecked(),
             "mouse_tracking_enabled": self.mouse_tracking_check.isChecked(),
             "enable_idle_motion": self.idle_motion_check.isChecked(),

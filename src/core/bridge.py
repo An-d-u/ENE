@@ -635,6 +635,22 @@ class WebBridge(QObject):
             print("[Bridge] Reroll ignored: worker is still running")
             return
 
+        if not self._rollback_last_turn_pair_for_retry():
+            print("[Bridge] Reroll aborted: failed to rollback/rebuild LLM context")
+            return
+
+        # 교체 의미를 지키기 위해 최근 assistant 응답 하나를 버퍼에서 제거
+        if self.conversation_buffer and self.conversation_buffer[-1][0] == "assistant":
+            self.conversation_buffer.pop()
+
+        payload = self._last_request_payload
+        self._is_rerolling = True
+        self.reroll_state_changed.emit(True)
+        self._start_ai_worker(payload["message_with_time"], payload.get("images") or [])
+        print("[Bridge] Reroll started")
+
+    def _rollback_last_turn_pair_for_retry(self) -> bool:
+        """리롤/수정 재요청 전에 직전 user+assistant 턴을 되돌린다."""
         # 리롤 직전 기준 컨텍스트(..., user C, assistant D)에서
         # D와 C를 제외한 상태(..., B)를 폴백 재구성용으로 준비한다.
         fallback_context = list(self.conversation_buffer)
@@ -657,18 +673,61 @@ class WebBridge(QObject):
                 print("[Bridge] Reroll fallback: rebuilt LLM context from conversation buffer")
 
         if not rolled_back:
-            print("[Bridge] Reroll aborted: failed to rollback/rebuild LLM context")
+            return False
+        return True
+
+    @pyqtSlot(str)
+    def edit_last_user_message(self, edited_message: str):
+        """최근 user 메시지를 수정하고 같은 턴을 다시 생성한다."""
+        edited_message = (edited_message or "").strip()
+        if not edited_message:
+            print("[Bridge] Edit ignored: empty message")
             return
 
-        # 교체 의미를 지키기 위해 최근 assistant 응답 하나를 버퍼에서 제거
+        if not self.llm_client:
+            print("[Bridge] Edit ignored: LLM client not initialized")
+            return
+
+        if not self._last_request_payload:
+            print("[Bridge] Edit ignored: no previous request payload")
+            return
+
+        if self.worker and self.worker.isRunning():
+            print("[Bridge] Edit ignored: worker is still running")
+            return
+
+        # 최근 user/assistant 턴을 LLM 컨텍스트에서 롤백
+        if not self._rollback_last_turn_pair_for_retry():
+            print("[Bridge] Edit aborted: failed to rollback/rebuild LLM context")
+            return
+
+        # 대화 버퍼의 최근 assistant/user 턴 제거
         if self.conversation_buffer and self.conversation_buffer[-1][0] == "assistant":
             self.conversation_buffer.pop()
+        if self.conversation_buffer and self.conversation_buffer[-1][0] == "user":
+            self.conversation_buffer.pop()
 
-        payload = self._last_request_payload
+        timestamp = self._now_timestamp()
+        payload_type = self._last_request_payload.get("type", "text")
+        images = self._last_request_payload.get("images") or []
+        if payload_type == "images":
+            img_note = f" [이미지 {len(images)}장]" if images else ""
+            self._append_conversation("user", edited_message + img_note, timestamp)
+        else:
+            self._append_conversation("user", edited_message, timestamp)
+
+        message_with_time = f"[현재 시각: {timestamp}]\n{edited_message}"
+        self._last_request_payload = {
+            "type": payload_type,
+            "message": edited_message,
+            "message_with_time": message_with_time,
+            "images": images,
+        }
+
         self._is_rerolling = True
         self.reroll_state_changed.emit(True)
-        self._start_ai_worker(payload["message_with_time"], payload.get("images") or [])
-        print("[Bridge] Reroll started")
+        self._start_ai_worker(message_with_time, images)
+        print("[Bridge] Edit last user message started")
 
     @pyqtSlot()
     def summarize_now(self):

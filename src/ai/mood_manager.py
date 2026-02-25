@@ -17,9 +17,9 @@ class MoodManager:
     AXES = ("valence", "energy", "bond", "stress")
 
     PROFILE_BASELINES = {
-        "calm": {"valence": 0.10, "energy": 0.00, "bond": 0.20, "stress": -0.10},
-        "affectionate": {"valence": 0.25, "energy": 0.05, "bond": 0.45, "stress": -0.15},
-        "playful": {"valence": 0.20, "energy": 0.25, "bond": 0.25, "stress": 0.00},
+        "calm": {"valence": 0.02, "energy": 0.00, "bond": 0.08, "stress": -0.02},
+        "affectionate": {"valence": 0.10, "energy": 0.03, "bond": 0.22, "stress": -0.06},
+        "playful": {"valence": 0.12, "energy": 0.18, "bond": 0.14, "stress": -0.02},
     }
 
     def __init__(self, state_file: str = "mood_state.json", settings=None):
@@ -97,6 +97,16 @@ class MoodManager:
     def _clip(self, value: float) -> float:
         return max(-1.0, min(1.0, value))
 
+    def _scale_delta_by_axis_state(self, current: float, delta: float) -> float:
+        if delta == 0.0:
+            return 0.0
+        if delta > 0:
+            headroom = max(0.0, min(1.0, (1.0 - current) / 2.0))
+        else:
+            headroom = max(0.0, min(1.0, (1.0 + current) / 2.0))
+        scale = 0.2 + (0.8 * headroom)
+        return delta * scale
+
     def _add_event(self, source: str, reason: str, deltas: dict[str, float]):
         item = {
             "time": self._now_iso(),
@@ -137,7 +147,8 @@ class MoodManager:
             if axis not in self.AXES:
                 continue
             current = float(axes.get(axis, 0.0))
-            axes[axis] = self._clip(current + delta)
+            scaled_delta = self._scale_delta_by_axis_state(current, float(delta))
+            axes[axis] = self._clip(current + scaled_delta)
         self.state["current_mood"] = self._infer_mood_label()
         self.state["updated_at"] = self._now_iso()
 
@@ -169,22 +180,22 @@ class MoodManager:
 
         positive_pattern = r"(고마|감사|좋아|사랑|귀여|잘했|대단|수고|최고|love|thanks|great|good job)"
         negative_pattern = r"(싫어|짜증|꺼져|미워|닥쳐|별로|한심|바보|hate|annoy|stupid|shut up)"
-        warm_pattern = r"(에네|ene|쓰다듬|안아|보고싶|같이|우리)"
+        warm_pattern = r"(쓰다듬|안아|보고싶|같이 있고|곁에)"
 
         if re.search(positive_pattern, t):
-            deltas["valence"] += 0.09
-            deltas["bond"] += 0.10
-            deltas["stress"] -= 0.05
+            deltas["valence"] += 0.05
+            deltas["bond"] += 0.05
+            deltas["stress"] -= 0.03
             reasons.append("긍정 표현")
 
         if re.search(negative_pattern, t):
-            deltas["valence"] -= 0.12
-            deltas["bond"] -= 0.10
-            deltas["stress"] += 0.12
+            deltas["valence"] -= 0.14
+            deltas["bond"] -= 0.12
+            deltas["stress"] += 0.14
             reasons.append("부정 표현")
 
         if re.search(warm_pattern, t):
-            deltas["bond"] += 0.06
+            deltas["bond"] += 0.02
             reasons.append("친밀 상호작용")
 
         if "?" in t or "?" in text:
@@ -202,8 +213,8 @@ class MoodManager:
             reasons.append("심야 시간대")
 
         if image_count > 0:
-            deltas["bond"] += min(0.08, 0.03 + image_count * 0.01)
-            deltas["valence"] += 0.03
+            deltas["bond"] += min(0.05, 0.02 + image_count * 0.008)
+            deltas["valence"] += 0.015
             reasons.append("이미지 공유")
 
         for axis in deltas:
@@ -238,7 +249,7 @@ class MoodManager:
             "excited": {"energy": 0.05, "valence": 0.03},
             "teary": {"valence": -0.01, "bond": 0.02},
         }
-        deltas = {k: v * 0.6 for k, v in (mapping.get(e, {}) or {}).items()}
+        deltas = {k: v * 0.35 for k, v in (mapping.get(e, {}) or {}).items()}
         if deltas:
             self._apply_deltas(deltas)
             self._add_event("assistant_emotion", e, deltas)
