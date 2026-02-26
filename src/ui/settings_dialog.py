@@ -10,11 +10,13 @@ from PyQt6.QtWidgets import (
     QDialog,
     QDoubleSpinBox,
     QFormLayout,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
+    QScrollArea,
     QSlider,
     QSpinBox,
     QTabWidget,
@@ -37,16 +39,95 @@ class SettingsDialog(QDialog):
         self._loading = False
 
         self.setWindowTitle("ENE 설정")
-        self.setMinimumWidth(520)
+        self.setMinimumWidth(600)
         self.setMinimumHeight(640)
-        self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.WindowStaysOnTopHint)
+        self.resize(600, 680)
+        self.setWindowFlags(
+            Qt.WindowType.Dialog 
+            | Qt.WindowType.FramelessWindowHint 
+            | Qt.WindowType.WindowStaysOnTopHint
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setModal(False)
+        self._is_dragging = False
+        self._drag_pos = None
 
         self._setup_ui()
         self._load_values()
 
+    def _apply_stylesheet(self):
+        style = """
+        QDialog { background-color: transparent; }
+        #MainFrame { background-color: rgba(10, 10, 14, 0.95); border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; }
+        #TitleBar { background-color: rgba(0, 0, 0, 0.5); border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom: 1px solid rgba(255,255,255,0.07); }
+        #TitleLabel { color: rgba(255,255,255,0.9); font-weight: bold; font-family: 'Segoe UI', sans-serif; font-size: 14px; padding-left: 8px; }
+        #CloseButton { background-color: transparent; border: none; font-size: 16px; color: rgba(255,255,255,0.5); border-top-right-radius: 12px; }
+        #CloseButton:hover { background-color: rgba(255, 80, 80, 0.75); color: white; }
+
+        QWidget { background-color: transparent; }
+        QLabel, QCheckBox { color: rgba(255,255,255,0.85); font-size: 13px; font-family: 'Segoe UI', sans-serif; }
+        QGroupBox { background-color: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; margin-top: 14px; margin-bottom: 8px; padding-top: 20px; padding-bottom: 12px; font-weight: bold; color: rgba(255,255,255,0.7); }
+        QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 12px; padding: 0px 4px; color: rgba(100,150,255,1); }
+        QTabWidget::pane { border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; background: rgba(0,0,0,0.3); top: -1px; margin-top: 2px; }
+        QTabBar::tab { background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.5); border: 1px solid rgba(255,255,255,0.08); border-bottom-color: transparent; padding: 6px 16px; margin-right: 2px; border-top-left-radius: 6px; border-top-right-radius: 6px; }
+        QTabBar::tab:selected { background: rgba(0,0,0,0.3); color: rgba(100,150,255,1); border-bottom: 2px solid rgba(100,150,255,0.9); font-weight: bold; }
+        QTabBar::tab:hover:!selected { background: rgba(255,255,255,0.09); color: rgba(255,255,255,0.75); }
+        QPushButton { background-color: rgba(100,150,255,0.8); color: white; border: none; border-radius: 20px; padding: 6px 20px; font-weight: bold; font-size: 13px; }
+        QPushButton:hover { background-color: rgba(100,150,255,1); }
+        QPushButton:pressed { background-color: rgba(70,120,230,1); }
+        QPushButton:disabled { background-color: rgba(255,255,255,0.1); color: rgba(255,255,255,0.3); }
+        QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox { background-color: rgba(255,255,255,0.08); color: rgba(255,255,255,0.9); border: 1px solid rgba(255,255,255,0.18); border-radius: 8px; padding: 4px 8px; min-height: 28px; font-size: 13px; font-family: 'Segoe UI', sans-serif; selection-background-color: rgba(100,150,255,0.6); selection-color: white; }
+        QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus { border: 1px solid rgba(100,150,255,0.6); background-color: rgba(255,255,255,0.13); }
+        QLineEdit::placeholder, QLineEdit[placeholderText] { color: rgba(255,255,255,0.4); }
+        QComboBox::drop-down { border: none; width: 28px; }
+        QComboBox QAbstractItemView { background-color: rgba(20,20,26,0.97); color: rgba(255,255,255,0.85); border: 1px solid rgba(255,255,255,0.15); selection-background-color: rgba(100,150,255,0.5); outline: none; padding: 4px; }
+        QSlider::groove:horizontal { border: 1px solid rgba(255,255,255,0.15); height: 6px; background: rgba(255,255,255,0.08); border-radius: 3px; }
+        QSlider::sub-page:horizontal { background: rgba(100,150,255,0.8); border-radius: 3px; }
+        QSlider::handle:horizontal { background: white; border: 2px solid rgba(100,150,255,0.8); width: 14px; height: 14px; margin: -5px 0; border-radius: 7px; }
+        QSlider::handle:horizontal:hover { background: white; border: 2px solid rgba(100,150,255,1); }
+        QScrollBar:vertical { border: none; background: rgba(255,255,255,0.03); width: 8px; border-radius: 4px; }
+        QScrollBar::handle:vertical { background: rgba(255,255,255,0.18); min-height: 20px; border-radius: 4px; }
+        QScrollBar::handle:vertical:hover { background: rgba(255,255,255,0.3); }
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { border: none; background: none; }
+        """
+        self.setStyleSheet(style)
+
     def _setup_ui(self):
-        layout = QVBoxLayout(self)
+        self._apply_stylesheet()
+        
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.main_frame = QWidget()
+        self.main_frame.setObjectName("MainFrame")
+        layout = QVBoxLayout(self.main_frame)
+        layout.setContentsMargins(15, 0, 15, 15)
+        
+        # 커스텀 타이틀바
+        self.title_bar = QWidget()
+        self.title_bar.setObjectName("TitleBar")
+        self.title_bar.setFixedHeight(40)
+        title_layout = QHBoxLayout(self.title_bar)
+        title_layout.setContentsMargins(5, 0, 0, 0)
+        
+        icon_label = QLabel("⚙️")
+        icon_label.setStyleSheet("font-size: 16px; background: transparent;")
+        title_layout.addWidget(icon_label)
+        
+        title_label = QLabel("  ENE 설정")
+        title_label.setObjectName("TitleLabel")
+        title_layout.addWidget(title_label)
+        
+        title_layout.addStretch()
+        
+        close_btn = QPushButton("✕")
+        close_btn.setObjectName("CloseButton")
+        close_btn.setFixedSize(40, 40)
+        close_btn.clicked.connect(self._cancel_settings)
+        title_layout.addWidget(close_btn)
+        
+        main_layout.addWidget(self.main_frame)
+        layout.addWidget(self.title_bar)
 
         tabs = QTabWidget()
         tabs.addTab(self._create_window_tab(), "창 설정")
@@ -121,11 +202,20 @@ class SettingsDialog(QDialog):
         return widget
 
     def _create_model_tab(self):
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        
         widget = QWidget()
         layout = QVBoxLayout(widget)
+        layout.setSpacing(10)
+        layout.setContentsMargins(10, 10, 10, 10)
 
         scale_group = QGroupBox("모델 크기")
         scale_layout = QVBoxLayout()
+        scale_layout.setSpacing(5)
+        scale_layout.setContentsMargins(10, 15, 10, 10)
         scale_form = QFormLayout()
         self.model_scale_spin = QDoubleSpinBox()
         self.model_scale_spin.setRange(0.1, 2.0)
@@ -148,6 +238,8 @@ class SettingsDialog(QDialog):
 
         x_group = QGroupBox("모델 X 위치 (좌우)")
         x_layout = QVBoxLayout()
+        x_layout.setSpacing(5)
+        x_layout.setContentsMargins(10, 15, 10, 10)
         x_info = QHBoxLayout()
         x_info.addWidget(QLabel("좌측 ↓ ↓"))
         x_info.addStretch()
@@ -167,6 +259,8 @@ class SettingsDialog(QDialog):
 
         y_group = QGroupBox("모델 Y 위치 (상하)")
         y_layout = QVBoxLayout()
+        y_layout.setSpacing(5)
+        y_layout.setContentsMargins(10, 15, 10, 10)
         y_info = QHBoxLayout()
         y_info.addWidget(QLabel("상단 ↓ ↓"))
         y_info.addStretch()
@@ -197,14 +291,24 @@ class SettingsDialog(QDialog):
         layout.addLayout(preset_layout)
 
         layout.addStretch()
-        return widget
+        scroll.setWidget(widget)
+        return scroll
 
     def _create_llm_tab(self):
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+
         widget = QWidget()
         layout = QVBoxLayout(widget)
+        layout.setSpacing(10)
+        layout.setContentsMargins(10, 10, 10, 10)
 
         llm_group = QGroupBox("LLM 설정")
         llm_form = QFormLayout(llm_group)
+        llm_form.setSpacing(8)
+        llm_form.setContentsMargins(10, 15, 10, 10)
 
         self.llm_provider_combo = QComboBox()
         self._provider_values = []
@@ -291,11 +395,19 @@ class SettingsDialog(QDialog):
 
         layout.addWidget(llm_group)
         layout.addStretch()
-        return widget
+        scroll.setWidget(widget)
+        return scroll
 
     def _create_behavior_tab(self):
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+
         widget = QWidget()
         layout = QVBoxLayout(widget)
+        layout.setSpacing(10)
+        layout.setContentsMargins(10, 10, 10, 10)
 
         self.show_drag_bar_check = QCheckBox("드래그 바 표시")
         self.show_drag_bar_check.toggled.connect(self._on_setting_changed)
@@ -309,19 +421,24 @@ class SettingsDialog(QDialog):
         self.show_recent_edit_button_check = QCheckBox("최근 메시지 수정 버튼 표시")
         self.show_recent_edit_button_check.toggled.connect(self._on_setting_changed)
         drag_row.addWidget(self.show_recent_edit_button_check)
-
-        self.show_manual_summary_button_check = QCheckBox("수동 요약 버튼 표시")
-        self.show_manual_summary_button_check.toggled.connect(self._on_setting_changed)
-        drag_row.addWidget(self.show_manual_summary_button_check)
         drag_row.addStretch()
         layout.addLayout(drag_row)
 
+        tracking_row = QHBoxLayout()
         self.mouse_tracking_check = QCheckBox("마우스 트래킹 활성화")
         self.mouse_tracking_check.toggled.connect(self._on_setting_changed)
-        layout.addWidget(self.mouse_tracking_check)
+        tracking_row.addWidget(self.mouse_tracking_check)
+
+        self.show_manual_summary_button_check = QCheckBox("수동 요약 버튼 표시")
+        self.show_manual_summary_button_check.toggled.connect(self._on_setting_changed)
+        tracking_row.addWidget(self.show_manual_summary_button_check)
+        tracking_row.addStretch()
+        layout.addLayout(tracking_row)
 
         idle_group = QGroupBox("유휴 모션")
         idle_layout = QFormLayout(idle_group)
+        idle_layout.setSpacing(8)
+        idle_layout.setContentsMargins(10, 15, 10, 10)
         self.idle_motion_check = QCheckBox("유휴 모션 활성화 (말하지 않을 때 자동 움직임)")
         self.idle_motion_check.toggled.connect(self._on_setting_changed)
         idle_layout.addRow(self.idle_motion_check)
@@ -349,6 +466,8 @@ class SettingsDialog(QDialog):
 
         pat_group = QGroupBox("머리 쓰다듬기")
         pat_layout = QFormLayout(pat_group)
+        pat_layout.setSpacing(8)
+        pat_layout.setContentsMargins(10, 15, 10, 10)
         self.head_pat_check = QCheckBox("머리 쓰다듬기 활성화")
         self.head_pat_check.toggled.connect(self._on_setting_changed)
         pat_layout.addRow(self.head_pat_check)
@@ -405,6 +524,8 @@ class SettingsDialog(QDialog):
 
         away_group = QGroupBox("자리 비움/유휴 감지")
         away_layout = QFormLayout(away_group)
+        away_layout.setSpacing(8)
+        away_layout.setContentsMargins(10, 15, 10, 10)
 
         self.enable_away_nudge_check = QCheckBox("유휴 감지 자동 말걸기 활성화")
         self.enable_away_nudge_check.toggled.connect(self._on_setting_changed)
@@ -433,7 +554,8 @@ class SettingsDialog(QDialog):
         layout.addWidget(away_group)
 
         layout.addStretch()
-        return widget
+        scroll.setWidget(widget)
+        return scroll
 
     def _on_llm_provider_changed(self, *_):
         provider = str(self.llm_provider_combo.currentData() or "gemini")
@@ -766,3 +888,21 @@ class SettingsDialog(QDialog):
         if not hasattr(self, "_saved"):
             self.settings_cancelled.emit()
         event.accept()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            # 타이틀바(높이 40) 영역 내에서만 드래그 허용
+            if event.pos().y() < 40:
+                self._is_dragging = True
+                self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+                event.accept()
+
+    def mouseMoveEvent(self, event):
+        if hasattr(self, '_is_dragging') and self._is_dragging:
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
+            event.accept()
+
+    def mouseReleaseEvent(self, event):
+        if hasattr(self, '_is_dragging') and self._is_dragging:
+            self._is_dragging = False
+            event.accept()
