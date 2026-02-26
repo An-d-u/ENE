@@ -7,6 +7,7 @@ __pycache__/
 *.egg-info/
 venv/
 .pytest_cache/
+.coverage
 backups/
 **/prompt.py
 
@@ -19,6 +20,7 @@ calendar.json
 # API Keys
 api_key.txt
 voyage_api_key.txt
+api_keys.json
 
 # IDE
 .vscode/

@@ -36,6 +36,49 @@ class Settings:
         "head_pat_end_emotion_default": "shy",
         "head_pat_end_emotion_custom": "",
         "head_pat_end_emotion_duration_sec": 5,
+        "llm_provider": "gemini",
+        "llm_model": "gemini-3-flash-preview",
+        "llm_models": {
+            "gemini": "gemini-3-flash-preview",
+            "openai": "gpt-4o-mini",
+            "anthropic": "claude-3-5-sonnet-latest",
+            "openrouter": "openai/gpt-4o-mini",
+            "deepseek": "deepseek-chat",
+            "ollama": "llama3.1",
+            "custom_api": "",
+        },
+        "llm_model_params": {
+            "gemini": {
+                "gemini-3-flash-preview": {"temperature": 0.9, "top_p": 1.0, "max_tokens": 2048},
+                "__default__": {"temperature": 0.9, "top_p": 1.0, "max_tokens": 2048},
+            },
+            "openai": {
+                "gpt-4o-mini": {"temperature": 0.9, "top_p": 1.0, "max_tokens": 2048},
+                "__default__": {"temperature": 0.9, "top_p": 1.0, "max_tokens": 2048},
+            },
+            "anthropic": {
+                "claude-3-5-sonnet-latest": {"temperature": 0.9, "top_p": 1.0, "max_tokens": 2048},
+                "__default__": {"temperature": 0.9, "top_p": 1.0, "max_tokens": 2048},
+            },
+            "openrouter": {
+                "openai/gpt-4o-mini": {"temperature": 0.9, "top_p": 1.0, "max_tokens": 2048},
+                "__default__": {"temperature": 0.9, "top_p": 1.0, "max_tokens": 2048},
+            },
+            "deepseek": {
+                "deepseek-chat": {"temperature": 0.9, "top_p": 1.0, "max_tokens": 2048},
+                "__default__": {"temperature": 0.9, "top_p": 1.0, "max_tokens": 2048},
+            },
+            "ollama": {
+                "llama3.1": {"temperature": 0.9, "top_p": 1.0, "max_tokens": 2048},
+                "__default__": {"temperature": 0.9, "top_p": 1.0, "max_tokens": 2048},
+            },
+            "custom_api": {
+                "__default__": {"temperature": 0.9, "top_p": 1.0, "max_tokens": 2048},
+            },
+        },
+        "custom_api_url": "",
+        "custom_api_request_model": "",
+        "custom_api_format": "openai_compatible",
         "gemini_api_key": "",
         "summarize_threshold": 10,
         "enable_away_nudge": True,
@@ -50,9 +93,27 @@ class Settings:
         "mood_state_file": "mood_state.json",
     }
 
-    def __init__(self, config_path: str = "config.json"):
+    DEFAULT_SECRET_CONFIG = {
+        "llm_api_keys": {
+            "gemini": "",
+            "openai": "",
+            "anthropic": "",
+            "openrouter": "",
+            "deepseek": "",
+            "ollama": "",
+            "custom_api": "",
+        },
+        "custom_api_key_or_password": "",
+    }
+
+    SECRET_KEYS = set(DEFAULT_SECRET_CONFIG.keys())
+
+    def __init__(self, config_path: str = "config.json", secret_path: str = "api_keys.json"):
         self.config_path = Path(config_path)
+        self.secret_path = Path(secret_path)
         self.config = self.load()
+        self.secret_config = self.load_secret()
+        self._migrate_secrets_from_legacy_config()
 
     def load(self) -> dict:
         """Load settings. Return defaults on failure."""
@@ -60,25 +121,121 @@ class Settings:
             try:
                 with open(self.config_path, "r", encoding="utf-8") as f:
                     loaded_config = json.load(f)
-                return {**self.DEFAULT_CONFIG, **loaded_config}
+                if not isinstance(loaded_config, dict):
+                    loaded_config = {}
+                # 비밀값은 api_keys.json으로 분리 관리한다.
+                loaded_config = {
+                    k: v for k, v in loaded_config.items()
+                    if k not in self.SECRET_KEYS
+                }
+                merged = {**self.DEFAULT_CONFIG, **loaded_config}
+
+                base_models = dict(self.DEFAULT_CONFIG["llm_models"])
+                loaded_models = loaded_config.get("llm_models", {})
+                if isinstance(loaded_models, dict):
+                    base_models.update(loaded_models)
+                merged["llm_models"] = base_models
+
+                base_params = json.loads(json.dumps(self.DEFAULT_CONFIG["llm_model_params"]))
+                loaded_params = loaded_config.get("llm_model_params", {})
+                if isinstance(loaded_params, dict):
+                    for provider, provider_params in loaded_params.items():
+                        if not isinstance(provider_params, dict):
+                            continue
+                        store = base_params.setdefault(provider, {})
+                        for model_name, params in provider_params.items():
+                            if isinstance(params, dict):
+                                store[model_name] = params
+                merged["llm_model_params"] = base_params
+
+                return merged
             except Exception as e:
                 print(f"Settings load failed: {e}")
                 return self.DEFAULT_CONFIG.copy()
         return self.DEFAULT_CONFIG.copy()
 
+    def load_secret(self) -> dict:
+        """Load secret settings. Return defaults on failure."""
+        if self.secret_path.exists():
+            try:
+                with open(self.secret_path, "r", encoding="utf-8") as f:
+                    loaded_secret = json.load(f)
+                if not isinstance(loaded_secret, dict):
+                    loaded_secret = {}
+                merged = {**self.DEFAULT_SECRET_CONFIG, **loaded_secret}
+                # 중첩 딕셔너리는 안전하게 병합한다.
+                base_api_keys = dict(self.DEFAULT_SECRET_CONFIG["llm_api_keys"])
+                loaded_api_keys = merged.get("llm_api_keys", {})
+                if isinstance(loaded_api_keys, dict):
+                    base_api_keys.update(loaded_api_keys)
+                merged["llm_api_keys"] = base_api_keys
+                return merged
+            except Exception as e:
+                print(f"Secret settings load failed: {e}")
+                return self.DEFAULT_SECRET_CONFIG.copy()
+        return self.DEFAULT_SECRET_CONFIG.copy()
+
+    def _migrate_secrets_from_legacy_config(self):
+        """
+        과거 config.json에 저장된 비밀값을 api_keys.json으로 1회 이전한다.
+        """
+        if not self.config_path.exists():
+            return
+
+        try:
+            with open(self.config_path, "r", encoding="utf-8") as f:
+                raw_config = json.load(f)
+            if not isinstance(raw_config, dict):
+                return
+        except Exception:
+            return
+
+        moved = False
+        for key in list(self.SECRET_KEYS):
+            if key in raw_config:
+                value = raw_config.get(key)
+                if key == "llm_api_keys" and isinstance(value, dict):
+                    merged_keys = dict(self.secret_config.get("llm_api_keys", {}))
+                    for provider, provider_key in value.items():
+                        if provider_key:
+                            merged_keys[provider] = provider_key
+                    self.secret_config["llm_api_keys"] = merged_keys
+                elif value:
+                    self.secret_config[key] = value
+                # 현재 메모리 config에는 이미 secret key가 없지만,
+                # 혹시 포함되어 있으면 안전하게 제거한다.
+                self.config.pop(key, None)
+                moved = True
+        if moved:
+            self.save()
+
     def save(self):
-        """Persist current settings."""
+        """Persist current settings and secret settings."""
         try:
             with open(self.config_path, "w", encoding="utf-8") as f:
                 json.dump(self.config, f, indent=2, ensure_ascii=False)
         except Exception as e:
             print(f"Settings save failed: {e}")
+        try:
+            with open(self.secret_path, "w", encoding="utf-8") as f:
+                json.dump(self.secret_config, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"Secret settings save failed: {e}")
 
     def get(self, key: str, default=None):
+        if key in self.SECRET_KEYS:
+            return self.secret_config.get(key, default)
         return self.config.get(key, default)
 
     def set(self, key: str, value):
+        if key in self.SECRET_KEYS:
+            self.secret_config[key] = value
+            return
         self.config[key] = value
 
     def update(self, updates: dict):
-        self.config.update(updates)
+        for key, value in updates.items():
+            if key in self.SECRET_KEYS:
+                self.secret_config[key] = value
+            else:
+                self.config[key] = value

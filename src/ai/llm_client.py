@@ -14,6 +14,8 @@ class GeminiClient:
     def __init__(
         self,
         api_key: str,
+        model_name: str = "gemini-3-flash-preview",
+        generation_params: dict | None = None,
         memory_manager=None,
         user_profile=None,
         settings=None,
@@ -32,7 +34,8 @@ class GeminiClient:
         """
         # genai 클라이언트 초기화
         self.client = genai.Client(api_key=api_key)
-        self.model_name = "gemini-3-flash-preview"
+        self.model_name = model_name
+        self.generation_params = self._normalize_generation_params(generation_params)
         self.memory_manager = memory_manager
         self.user_profile = user_profile
         self.settings = settings
@@ -50,15 +53,46 @@ class GeminiClient:
         """Gemini chat 세션을 생성한다."""
         kwargs = {
             "model": self.model_name,
-            "config": {
-                "system_instruction": get_system_prompt(),
-                "temperature": 0.9,
-            },
+            "config": self._build_chat_config(),
         }
         if history is not None:
             kwargs["history"] = history
         return self.client.chats.create(**kwargs)
-    
+
+    def _normalize_generation_params(self, params: dict | None) -> dict:
+        defaults = {
+            "temperature": 0.9,
+            "top_p": 1.0,
+            "max_tokens": 2048,
+        }
+        if not isinstance(params, dict):
+            return defaults
+
+        normalized = dict(defaults)
+        try:
+            normalized["temperature"] = max(0.0, min(2.0, float(params.get("temperature", defaults["temperature"]))))
+        except (TypeError, ValueError):
+            pass
+        try:
+            normalized["top_p"] = max(0.0, min(1.0, float(params.get("top_p", defaults["top_p"]))))
+        except (TypeError, ValueError):
+            pass
+        try:
+            normalized["max_tokens"] = max(0, int(params.get("max_tokens", defaults["max_tokens"])))
+        except (TypeError, ValueError):
+            pass
+        return normalized
+
+    def _build_chat_config(self) -> dict:
+        config = {
+            "system_instruction": get_system_prompt(),
+            "temperature": self.generation_params["temperature"],
+            "top_p": self.generation_params["top_p"],
+        }
+        if self.generation_params["max_tokens"] > 0:
+            config["max_output_tokens"] = self.generation_params["max_tokens"]
+        return config
+
     async def send_message_with_memory(self, message: str) -> Tuple[str, str, str, List[Dict]]:
         """
         메모리를 활용한 메시지 전송
