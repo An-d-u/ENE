@@ -629,7 +629,7 @@ function setHeadPatEyeBlinkEnabled(enabled) {
 window.updateMousePosition = function (mouseX, mouseY) {
     if (!mouseTrackingEnabled) return;
     if (!Number.isFinite(mouseX) || !Number.isFinite(mouseY)) return;
-    
+
     const model = window.live2dModel;
     if (!model) return;
     const canvasWidth = window.innerWidth;
@@ -700,7 +700,7 @@ function updateMouseTracking(nowMs) {
         requestAnimationFrame(updateMouseTracking);
         return;
     }
-    
+
     if (!mouseTrackingEnabled) {
         targetMouseX = 0;
         targetMouseY = 0;
@@ -1122,7 +1122,7 @@ function updateRerollButtonState() {
     }
     const editBtn = document.createElement('button');
     editBtn.className = 'message-edit-btn';
-    editBtn.textContent = '수정';
+    editBtn.textContent = 'Edit';
     editBtn.title = '최근 메시지 수정';
     editBtn.disabled = isRequestPending || !window.pyBridge || !window.pyBridge.edit_last_user_message;
     editBtn.addEventListener('click', () => {
