@@ -511,7 +511,7 @@ body {
 .message-edit-btn {
     position: absolute;
     left: -25px;
-    bottom: -2px;
+    bottom: 2px;
     border: none;
     background: transparent;
     color: rgba(255, 255, 255, 0.68);
@@ -544,6 +544,7 @@ body {
     width: 100%;
     min-height: 52px;
     resize: vertical;
+    overflow-y: auto;
     border-radius: 10px;
     border: 1px solid rgba(255, 255, 255, 0.25);
     background: rgba(0, 0, 0, 0.18);
@@ -552,6 +553,23 @@ body {
     font-size: 13px;
     line-height: 1.4;
     outline: none;
+}
+
+.inline-edit-input::-webkit-scrollbar {
+    width: 6px;
+}
+
+.inline-edit-input::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.inline-edit-input::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 3px;
+}
+
+.inline-edit-input::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.3);
 }
 
 .inline-edit-actions {
