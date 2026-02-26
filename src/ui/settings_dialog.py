@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ..ai.prompt import get_available_emotions
+from ..ai.llm_provider import LLMFormat, get_llm_provider_catalog
 
 
 class SettingsDialog(QDialog):
@@ -50,6 +51,7 @@ class SettingsDialog(QDialog):
         tabs = QTabWidget()
         tabs.addTab(self._create_window_tab(), "창 설정")
         tabs.addTab(self._create_model_tab(), "모델 설정")
+        tabs.addTab(self._create_llm_tab(), "LLM 설정")
         tabs.addTab(self._create_behavior_tab(), "동작 설정")
         layout.addWidget(tabs)
 
@@ -197,6 +199,100 @@ class SettingsDialog(QDialog):
         layout.addStretch()
         return widget
 
+    def _create_llm_tab(self):
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        llm_group = QGroupBox("LLM 설정")
+        llm_form = QFormLayout(llm_group)
+
+        self.llm_provider_combo = QComboBox()
+        self._provider_values = []
+        catalog = get_llm_provider_catalog()
+        for provider in sorted(catalog.keys()):
+            meta = catalog[provider]
+            self.llm_provider_combo.addItem(f"{meta.display_name} ({provider})", provider)
+            self._provider_values.append(provider)
+        self._llm_api_keys = {}
+        self._llm_models = {}
+        self._llm_model_params = {}
+        self._active_model_key_by_provider = {}
+        self.llm_provider_combo.currentIndexChanged.connect(self._on_llm_provider_changed)
+        llm_form.addRow("공급자:", self.llm_provider_combo)
+
+        self.llm_api_key_edit = QLineEdit()
+        self.llm_api_key_edit.setPlaceholderText("선택한 공급자의 API 키")
+        self.llm_api_key_edit.textChanged.connect(self._on_llm_api_key_changed)
+        llm_form.addRow("API 키:", self.llm_api_key_edit)
+
+        self.llm_model_edit = QLineEdit()
+        self.llm_model_edit.setPlaceholderText("예: gemini-3-flash-preview, gpt-4o-mini")
+        self.llm_model_edit.textChanged.connect(self._on_llm_model_changed)
+        llm_form.addRow("모델:", self.llm_model_edit)
+
+        self.llm_temperature_spin = QDoubleSpinBox()
+        self.llm_temperature_spin.setRange(0.0, 2.0)
+        self.llm_temperature_spin.setSingleStep(0.1)
+        self.llm_temperature_spin.setDecimals(2)
+        self.llm_temperature_spin.valueChanged.connect(self._on_llm_param_changed)
+        llm_form.addRow("Temperature:", self.llm_temperature_spin)
+
+        self.llm_top_p_spin = QDoubleSpinBox()
+        self.llm_top_p_spin.setRange(0.0, 1.0)
+        self.llm_top_p_spin.setSingleStep(0.05)
+        self.llm_top_p_spin.setDecimals(2)
+        self.llm_top_p_spin.valueChanged.connect(self._on_llm_param_changed)
+        llm_form.addRow("Top P:", self.llm_top_p_spin)
+
+        self.llm_max_tokens_spin = QSpinBox()
+        self.llm_max_tokens_spin.setRange(0, 65536)
+        self.llm_max_tokens_spin.setSpecialValueText("자동")
+        self.llm_max_tokens_spin.valueChanged.connect(self._on_llm_param_changed)
+        llm_form.addRow("Max Tokens:", self.llm_max_tokens_spin)
+
+        self.custom_api_group = QGroupBox("Custom API")
+        custom_form = QFormLayout(self.custom_api_group)
+
+        self.custom_api_url_edit = QLineEdit()
+        self.custom_api_url_edit.setPlaceholderText("예: https://api.example.com/v1/chat/completions")
+        self.custom_api_url_edit.textChanged.connect(self._on_setting_changed)
+        custom_form.addRow("URL:", self.custom_api_url_edit)
+
+        self.custom_api_key_or_password_edit = QLineEdit()
+        self.custom_api_key_or_password_edit.setPlaceholderText("키 또는 패스워드")
+        self.custom_api_key_or_password_edit.textChanged.connect(self._on_setting_changed)
+        custom_form.addRow("키/패스워드:", self.custom_api_key_or_password_edit)
+
+        self.custom_api_request_model_edit = QLineEdit()
+        self.custom_api_request_model_edit.setPlaceholderText("요청 모델명")
+        self.custom_api_request_model_edit.textChanged.connect(self._on_setting_changed)
+        custom_form.addRow("요청 모델:", self.custom_api_request_model_edit)
+
+        self.custom_api_format_combo = QComboBox()
+        custom_format_options = [
+            ("OpenAI Compatible", LLMFormat.OPENAI_COMPATIBLE.value),
+            ("OpenAI Response API", LLMFormat.OPENAI_RESPONSE_API.value),
+            ("Anthropic Claude", LLMFormat.ANTHROPIC.value),
+            ("Mistral", LLMFormat.MISTRAL.value),
+            ("Google Cloud", LLMFormat.GOOGLE_CLOUD.value),
+            ("Cohere", LLMFormat.COHERE.value),
+        ]
+        for label, value in custom_format_options:
+            self.custom_api_format_combo.addItem(label, value)
+        self.custom_api_format_combo.currentIndexChanged.connect(self._on_setting_changed)
+        custom_form.addRow("포맷:", self.custom_api_format_combo)
+
+        self.custom_api_group.setVisible(False)
+        llm_form.addRow(self.custom_api_group)
+
+        self.llm_restart_info = QLabel("주의: LLM 설정 변경은 앱 재시작 후 완전히 반영됩니다.")
+        self.llm_restart_info.setWordWrap(True)
+        llm_form.addRow(self.llm_restart_info)
+
+        layout.addWidget(llm_group)
+        layout.addStretch()
+        return widget
+
     def _create_behavior_tab(self):
         widget = QWidget()
         layout = QVBoxLayout(widget)
@@ -339,6 +435,105 @@ class SettingsDialog(QDialog):
         layout.addStretch()
         return widget
 
+    def _on_llm_provider_changed(self, *_):
+        provider = str(self.llm_provider_combo.currentData() or "gemini")
+
+        self._loading = True
+        try:
+            self.llm_api_key_edit.setText(str(self._llm_api_keys.get(provider, "")))
+            model_text = str(self._llm_models.get(provider, ""))
+            self.llm_model_edit.setText(model_text)
+            self._active_model_key_by_provider[provider] = self._model_param_key(model_text)
+            self._apply_model_params_to_widgets(provider, model_text)
+            self.custom_api_group.setVisible(provider == "custom_api")
+        finally:
+            self._loading = False
+
+        self._on_setting_changed()
+
+    def _on_llm_api_key_changed(self, text: str):
+        provider = str(self.llm_provider_combo.currentData() or "gemini")
+        self._llm_api_keys[provider] = text
+        self._on_setting_changed()
+
+    def _on_llm_model_changed(self, text: str):
+        provider = str(self.llm_provider_combo.currentData() or "gemini")
+        old_key = self._active_model_key_by_provider.get(provider, "__default__")
+        new_key = self._model_param_key(text)
+        provider_params = self._llm_model_params.setdefault(provider, {})
+        if new_key not in provider_params:
+            provider_params[new_key] = dict(provider_params.get(old_key, self._default_model_params()))
+        self._active_model_key_by_provider[provider] = new_key
+        self._llm_models[provider] = text.strip()
+        self._apply_model_params_to_widgets(provider, text)
+        self._on_setting_changed()
+
+    def _on_llm_param_changed(self, *_):
+        if self._loading:
+            return
+        self._set_current_model_params()
+        self._on_setting_changed()
+
+    def _default_model_params(self) -> dict:
+        return {"temperature": 0.9, "top_p": 1.0, "max_tokens": 2048}
+
+    def _model_param_key(self, model_name: str) -> str:
+        key = str(model_name or "").strip()
+        return key if key else "__default__"
+
+    def _normalize_model_params(self, params) -> dict:
+        defaults = self._default_model_params()
+        if not isinstance(params, dict):
+            return defaults
+        normalized = dict(defaults)
+        try:
+            normalized["temperature"] = max(0.0, min(2.0, float(params.get("temperature", defaults["temperature"]))))
+        except (TypeError, ValueError):
+            pass
+        try:
+            normalized["top_p"] = max(0.0, min(1.0, float(params.get("top_p", defaults["top_p"]))))
+        except (TypeError, ValueError):
+            pass
+        try:
+            normalized["max_tokens"] = max(0, int(params.get("max_tokens", defaults["max_tokens"])))
+        except (TypeError, ValueError):
+            pass
+        return normalized
+
+    def _get_model_params(self, provider: str, model_name: str) -> dict:
+        store = self._llm_model_params.setdefault(provider, {})
+        model_key = self._model_param_key(model_name)
+        params = store.get(model_key)
+        if not isinstance(params, dict):
+            params = store.get("__default__")
+        if not isinstance(params, dict):
+            params = self._default_model_params()
+        normalized = self._normalize_model_params(params)
+        store[model_key] = dict(normalized)
+        store.setdefault("__default__", dict(normalized))
+        return normalized
+
+    def _set_current_model_params(self):
+        provider = str(self.llm_provider_combo.currentData() or "gemini")
+        model_text = self.llm_model_edit.text().strip()
+        model_key = self._model_param_key(model_text)
+        self._active_model_key_by_provider[provider] = model_key
+        provider_store = self._llm_model_params.setdefault(provider, {})
+        provider_store[model_key] = self._normalize_model_params(
+            {
+                "temperature": self.llm_temperature_spin.value(),
+                "top_p": self.llm_top_p_spin.value(),
+                "max_tokens": self.llm_max_tokens_spin.value(),
+            }
+        )
+        provider_store.setdefault("__default__", dict(provider_store[model_key]))
+
+    def _apply_model_params_to_widgets(self, provider: str, model_name: str):
+        params = self._get_model_params(provider, model_name)
+        self.llm_temperature_spin.setValue(float(params["temperature"]))
+        self.llm_top_p_spin.setValue(float(params["top_p"]))
+        self.llm_max_tokens_spin.setValue(int(params["max_tokens"]))
+
     def _on_setting_changed(self):
         if self._loading:
             return
@@ -402,6 +597,61 @@ class SettingsDialog(QDialog):
             self.model_scale_spin.setValue(self._original_settings.get("model_scale", 1.0))
             self.model_x_slider.setValue(int(self._original_settings.get("model_x_percent", 50)))
             self.model_y_slider.setValue(int(self._original_settings.get("model_y_percent", 50)))
+
+            llm_provider = str(self._original_settings.get("llm_provider", "gemini")).strip().lower()
+            loaded_keys = self._original_settings.get("llm_api_keys", {})
+            self._llm_api_keys = loaded_keys.copy() if isinstance(loaded_keys, dict) else {}
+            for provider_name in self._provider_values:
+                self._llm_api_keys.setdefault(provider_name, "")
+
+            loaded_models = self._original_settings.get("llm_models", {})
+            self._llm_models = loaded_models.copy() if isinstance(loaded_models, dict) else {}
+            legacy_model = str(self._original_settings.get("llm_model", "gemini-3-flash-preview")).strip()
+            for provider_name in self._provider_values:
+                if provider_name not in self._llm_models:
+                    self._llm_models[provider_name] = legacy_model if provider_name == "gemini" else ""
+                self._active_model_key_by_provider[provider_name] = self._model_param_key(
+                    self._llm_models.get(provider_name, "")
+                )
+
+            loaded_params = self._original_settings.get("llm_model_params", {})
+            self._llm_model_params = {}
+            if isinstance(loaded_params, dict):
+                for provider_name, provider_params in loaded_params.items():
+                    if isinstance(provider_params, dict):
+                        mapped = {}
+                        for model_name, params in provider_params.items():
+                            mapped[str(model_name)] = self._normalize_model_params(params)
+                        self._llm_model_params[str(provider_name)] = mapped
+            for provider_name in self._provider_values:
+                provider_store = self._llm_model_params.setdefault(provider_name, {})
+                active_key = self._active_model_key_by_provider.get(provider_name, "__default__")
+                if active_key not in provider_store:
+                    provider_store[active_key] = self._default_model_params()
+                provider_store.setdefault("__default__", dict(provider_store[active_key]))
+
+            if llm_provider in self._provider_values:
+                idx = self.llm_provider_combo.findData(llm_provider)
+                if idx >= 0:
+                    self.llm_provider_combo.setCurrentIndex(idx)
+            selected_provider = str(self.llm_provider_combo.currentData() or "gemini")
+            self.llm_model_edit.setText(str(self._llm_models.get(selected_provider, "")))
+            self._apply_model_params_to_widgets(selected_provider, self.llm_model_edit.text())
+
+            self.custom_api_url_edit.setText(str(self._original_settings.get("custom_api_url", "")))
+            self.custom_api_key_or_password_edit.setText(
+                str(self._original_settings.get("custom_api_key_or_password", ""))
+            )
+            self.custom_api_request_model_edit.setText(
+                str(self._original_settings.get("custom_api_request_model", ""))
+            )
+            custom_api_format = str(self._original_settings.get("custom_api_format", LLMFormat.OPENAI_COMPATIBLE.value))
+            format_index = self.custom_api_format_combo.findData(custom_api_format)
+            if format_index >= 0:
+                self.custom_api_format_combo.setCurrentIndex(format_index)
+
+            self.llm_api_key_edit.setText(str(self._llm_api_keys.get(selected_provider, "")))
+            self.custom_api_group.setVisible(selected_provider == "custom_api")
         finally:
             self._loading = False
 
@@ -438,6 +688,11 @@ class SettingsDialog(QDialog):
         self.model_y_slider.setValue(int(y_percent))
 
     def _get_current_values(self):
+        current_provider = str(self.llm_provider_combo.currentData() or "gemini")
+        self._llm_api_keys[current_provider] = self.llm_api_key_edit.text()
+        self._llm_models[current_provider] = self.llm_model_edit.text().strip()
+        self._set_current_model_params()
+
         active_custom_emotion = self.head_pat_active_emotion_custom_edit.text().strip()
         active_default_emotion = self.head_pat_active_emotion_combo.currentText().strip() or "eyeclose"
         resolved_active_emotion = active_custom_emotion if active_custom_emotion else active_default_emotion
@@ -483,6 +738,15 @@ class SettingsDialog(QDialog):
             "model_scale": self.model_scale_spin.value(),
             "model_x_percent": self.model_x_slider.value(),
             "model_y_percent": self.model_y_slider.value(),
+            "llm_provider": str(self.llm_provider_combo.currentData() or "gemini"),
+            "llm_model": self.llm_model_edit.text().strip() or "gemini-3-flash-preview",
+            "llm_models": dict(self._llm_models),
+            "llm_model_params": dict(self._llm_model_params),
+            "llm_api_keys": dict(self._llm_api_keys),
+            "custom_api_url": self.custom_api_url_edit.text().strip(),
+            "custom_api_key_or_password": self.custom_api_key_or_password_edit.text().strip(),
+            "custom_api_request_model": self.custom_api_request_model_edit.text().strip(),
+            "custom_api_format": str(self.custom_api_format_combo.currentData() or LLMFormat.OPENAI_COMPATIBLE.value),
         }
 
     def _preview_settings(self):
