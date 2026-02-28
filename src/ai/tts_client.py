@@ -1,4 +1,4 @@
-"""
+﻿"""
 GPT-SoVITS TTS 클라이언트
 """
 import aiohttp
@@ -35,6 +35,28 @@ class TTSClient:
         
         print(f"[TTS] Initialized with API: {self.api_url}")
         print(f"[TTS] Reference audio: {self.ref_audio_path}")
+
+    @staticmethod
+    def _normalize_tts_text(text: str) -> str:
+        """
+        GPT-SoVITS 전송 전 텍스트 줄바꿈을 정규화한다.
+        - CRLF/CR -> LF
+        - 연속 빈 줄 축약
+        - 줄 앞뒤 공백 정리
+        """
+        normalized = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+        normalized_lines = [line.strip() for line in normalized.split("\n")]
+
+        compact_lines = []
+        prev_blank = False
+        for line in normalized_lines:
+            is_blank = (line == "")
+            if is_blank and prev_blank:
+                continue
+            compact_lines.append(line)
+            prev_blank = is_blank
+
+        return "\n".join(compact_lines).strip()
     
     async def generate_speech(self, text: str) -> bytes:
         """
@@ -49,10 +71,11 @@ class TTSClient:
         Raises:
             Exception: TTS 생성 실패 시
         """
-        if not text:
+        normalized_text = self._normalize_tts_text(text)
+        if not normalized_text:
             raise ValueError("Text cannot be empty")
         
-        print(f"[TTS] Generating speech for: {text[:50]}...")
+        print(f"[TTS] Generating speech for: {normalized_text[:50]}...")
         
         try:
             # 참조 오디오 파일 존재 여부 확인
@@ -62,7 +85,7 @@ class TTSClient:
             
             # API 요청 파라미터
             params = {
-                "text": text,
+                "text": normalized_text,
                 "text_lang": self.target_language,
                 "ref_audio_path": str(ref_path.absolute()),
                 "prompt_text": self.ref_text,
