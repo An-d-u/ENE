@@ -10,6 +10,8 @@ venv/
 .coverage
 backups/
 **/prompt.py
+src/ai/sub_prompt.py
+diary/
 
 # Config files
 config.json
