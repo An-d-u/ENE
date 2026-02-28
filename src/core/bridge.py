@@ -18,6 +18,8 @@ from datetime import datetime
 import json
 import numpy as np
 
+from ..ai.diary_service import DiaryService
+
 
 class AIWorker(QThread):
     """AI 응답을 비동기로 처리하는 워커 스레드"""
@@ -25,12 +27,22 @@ class AIWorker(QThread):
     response_ready = pyqtSignal(str, str, str, list)  # (텍스트, 감정, 일본어, 이벤트)
     error_occurred = pyqtSignal(str)  # 오류 메시지
     
-    def __init__(self, llm_client, message, use_memory=True, images=None):
+    def __init__(
+        self,
+        llm_client,
+        message,
+        use_memory=True,
+        images=None,
+        diary_request: str = "",
+        diary_service: DiaryService | None = None,
+    ):
         super().__init__()
         self.llm_client = llm_client
         self.message = message
         self.use_memory = use_memory
         self.images = images or []  # 이미지 데이터 리스트
+        self.diary_request = (diary_request or "").strip()
+        self.diary_service = diary_service
     
     def run(self):
         loop = None
@@ -46,9 +58,14 @@ class AIWorker(QThread):
             asyncio.set_event_loop(loop)
             
             events = []
-            
+
+            if self.diary_request and self.diary_service:
+                print("[AI Worker] /diary 모드")
+                response_text, emotion, japanese_text, events = loop.run_until_complete(
+                    self._run_diary_flow()
+                )
             # 이미지가 있으면 멀티모달로 처리
-            if self.images:
+            elif self.images:
                 print(f"[AI Worker] 이미지 {len(self.images)}개 포함 - 멀티모달 모드")
                 response_text, emotion, japanese_text, events = loop.run_until_complete(
                     self.llm_client.send_message_with_images(self.message, self.images)
@@ -80,6 +97,32 @@ class AIWorker(QThread):
         finally:
             if loop is not None:
                 loop.close()
+
+    async def _run_diary_flow(self):
+        """일기/문서 생성 전용 플로우."""
+        if not hasattr(self.llm_client, "generate_markdown_document"):
+            raise RuntimeError("현재 LLM 클라이언트는 /diary를 지원하지 않습니다.")
+
+        markdown_text = await self.llm_client.generate_markdown_document(self.message)
+        result = self.diary_service.save_markdown(self.diary_request, markdown_text)
+
+        completion_context = (
+            "아래 정보를 바탕으로 마스터에게 파일 작성 완료를 알려주세요.\n"
+            "- 문장 안에 반드시 다음 문구를 포함하세요: 성공적으로 파일 작성에 완료되었습니다.\n"
+            f"- 작성된 md 파일: {result.relative_path}\n"
+            "[작성된 md 파일 본문]\n"
+            f"{result.content}"
+        )
+
+        if hasattr(self.llm_client, "generate_diary_completion_reply"):
+            text, emotion, japanese_text, events = await self.llm_client.generate_diary_completion_reply(completion_context)
+            required = "성공적으로 파일 작성에 완료되었습니다."
+            if required not in text:
+                text = f"{required}\n{text}".strip()
+            return text, emotion, japanese_text, events
+
+        # 하위 호환 폴백 (기존 클라이언트 경로)
+        return self.llm_client.send_message(completion_context)
 
 
 class TTSWorker(QThread):
@@ -168,6 +211,7 @@ class WebBridge(QObject):
         self.worker = None
         self.settings = settings
         self.mood_manager = None
+        self.diary_service = DiaryService("diary")
         
         # TTS 및 오디오 재생
         self.tts_client = None
@@ -545,6 +589,48 @@ class WebBridge(QObject):
         self.worker.response_ready.connect(self._on_response_ready)
         self.worker.error_occurred.connect(self._on_error)
         self.worker.start()
+
+    def _start_diary_worker(self, diary_request: str, message_with_time: str):
+        """Start /diary worker with isolated context."""
+        if self.worker and self.worker.isRunning():
+            print("[Bridge] Worker still running, waiting...")
+            self.worker.wait()
+
+        self.worker = AIWorker(
+            self.llm_client,
+            message_with_time,
+            diary_request=diary_request,
+            diary_service=self.diary_service,
+        )
+        self.worker.response_ready.connect(self._on_response_ready)
+        self.worker.error_occurred.connect(self._on_error)
+        self.worker.start()
+
+    def _handle_diary_command(self, message: str) -> bool:
+        """'/diary' 명령을 감지해 전용 처리한다."""
+        is_diary, diary_body = self.diary_service.parse_diary_command(message)
+        if not is_diary:
+            return False
+
+        self._mark_user_activity()
+        if self.mood_manager:
+            snapshot = self.mood_manager.on_user_message(message, image_count=0)
+            self._emit_mood_changed(snapshot)
+
+        if not diary_body:
+            self.message_received.emit("`/diary` 뒤에 작성할 내용을 함께 입력해 주세요.", "confused")
+            return True
+
+        timestamp = self._now_timestamp()
+        message_with_time = f"[현재 시각: {timestamp}]\n{diary_body}"
+
+        # /diary는 일반 리롤/수정 payload에서 제외해 원문/본문 누적을 막는다.
+        self._last_request_payload = None
+        self._is_rerolling = False
+
+        self._start_diary_worker(diary_body, message_with_time)
+        print("[Bridge] /diary worker thread started")
+        return True
     @pyqtSlot(str)
     def send_to_ai(self, message: str):
         """JavaScript에서 호출: 사용자 텍스트 메시지를 AI로 전송."""
@@ -557,6 +643,9 @@ class WebBridge(QObject):
         if not self.llm_client:
             print("[Bridge] LLM client not initialized")
             self.message_received.emit("AI가 초기화되지 않았어요.", "sad")
+            return
+
+        if self._handle_diary_command(message):
             return
 
         timestamp = self._now_timestamp()

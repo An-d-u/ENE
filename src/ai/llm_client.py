@@ -1,4 +1,4 @@
-"""
+﻿"""
 Gemini LLM 클라이언트 (google-genai SDK 사용)
 """
 import re
@@ -53,7 +53,7 @@ class GeminiClient:
         """Gemini chat 세션을 생성한다."""
         kwargs = {
             "model": self.model_name,
-            "config": self._build_chat_config(),
+            "config": self._build_chat_config(include_sub_prompt=True),
         }
         if history is not None:
             kwargs["history"] = history
@@ -83,15 +83,42 @@ class GeminiClient:
             pass
         return normalized
 
-    def _build_chat_config(self) -> dict:
+    def _build_chat_config(self, include_sub_prompt: bool = True) -> dict:
         config = {
-            "system_instruction": get_system_prompt(),
+            "system_instruction": get_system_prompt(include_sub_prompt=include_sub_prompt),
             "temperature": self.generation_params["temperature"],
             "top_p": self.generation_params["top_p"],
         }
         if self.generation_params["max_tokens"] > 0:
             config["max_output_tokens"] = self.generation_params["max_tokens"]
         return config
+
+    def _generate_one_shot_text(self, message: str, include_sub_prompt: bool) -> str:
+        """히스토리를 남기지 않는 일회성 생성 호출."""
+        response = self.client.models.generate_content(
+            model=self.model_name,
+            contents=message,
+            config=self._build_chat_config(include_sub_prompt=include_sub_prompt),
+        )
+        return (response.text or "").strip()
+
+    async def generate_markdown_document(self, message: str) -> str:
+        """sub prompt 없이 마크다운 문서를 생성한다."""
+        memory_context = await self._build_memory_context(message)
+        enhanced = f"{memory_context}\n\n{message}" if memory_context else message
+        diary_prompt = (
+            "아래 요청에 맞춰 마크다운 문서를 작성하세요.\n"
+            "- 출력은 마크다운 본문만 작성하세요.\n"
+            "- 감정 태그, 일본어 번역, 부가 설명은 절대 포함하지 마세요.\n"
+            "- 요청의 목적에 맞는 제목/본문 구조를 자연스럽게 구성하세요.\n\n"
+            f"{enhanced}"
+        )
+        return self._generate_one_shot_text(diary_prompt, include_sub_prompt=False)
+
+    async def generate_diary_completion_reply(self, context_message: str) -> Tuple[str, str, str, List[Dict]]:
+        """파일 작성 완료 안내 응답을 생성한다."""
+        response_text = self._generate_one_shot_text(context_message, include_sub_prompt=True)
+        return self._parse_response(response_text)
 
     async def send_message_with_memory(self, message: str) -> Tuple[str, str, str, List[Dict]]:
         """
