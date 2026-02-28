@@ -830,8 +830,8 @@ class GeminiClient:
         if japanese_lines:
             # 일본어 줄 수만큼 뒤에서 제거
             korean_lines = lines[:-len(japanese_lines)]
-            # 첫 번째 일본어 줄만 TTS용으로 사용
-            japanese_text = japanese_lines[0]
+            # 일본어 줄 전체를 TTS용으로 사용 (여러 줄 허용)
+            japanese_text = '\n'.join(japanese_lines).strip()
             # 한국어 텍스트 재구성
             clean_text = '\n'.join(korean_lines).strip()
         
