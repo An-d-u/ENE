@@ -1,4 +1,4 @@
-"""
+﻿"""
 Gemini 외 공급자용 HTTP 기반 LLM 클라이언트.
 OpenAI 호환, Anthropic, Ollama 경로를 제공한다.
 """
@@ -43,6 +43,26 @@ def _normalize_generation_params(params: dict | None) -> dict:
 
 
 class _CommonMixin:
+    def _build_diary_markdown_prompt(self, message: str, memory_context: str) -> str:
+        enhanced = f"{memory_context}\n\n{message}" if memory_context else message
+        return (
+            "아래 요청에 맞춰 마크다운 문서를 작성하세요.\n"
+            "- 출력은 마크다운 본문만 작성하세요.\n"
+            "- 감정 태그, 일본어 번역, 부가 설명은 절대 포함하지 마세요.\n"
+            "- 요청의 목적에 맞는 제목/본문 구조를 자연스럽게 구성하세요.\n\n"
+            f"{enhanced}"
+        )
+
+    async def generate_markdown_document(self, message: str) -> str:
+        memory_context = await self._build_memory_context(message)
+        diary_prompt = self._build_diary_markdown_prompt(message, memory_context)
+        response_text = self._request_one_shot_raw(diary_prompt, include_sub_prompt=False)
+        return (response_text or "").strip()
+
+    async def generate_diary_completion_reply(self, context_message: str) -> Tuple[str, str, str, List[Dict]]:
+        response_text = self._request_one_shot_raw(context_message, include_sub_prompt=True)
+        return self._parse_response(response_text)
+
     def _parse_response(self, response_text: str) -> Tuple[str, str, str, List[Dict]]:
         try:
             from .llm_client import GeminiClient
@@ -125,8 +145,8 @@ class _CommonMixin:
         except Exception:
             return ""
 
-    def _messages_for_openai(self, user_content):
-        messages = [{"role": "system", "content": get_system_prompt()}]
+    def _messages_for_openai(self, user_content, include_sub_prompt: bool = True):
+        messages = [{"role": "system", "content": get_system_prompt(include_sub_prompt=include_sub_prompt)}]
         messages.extend(self._history)
         messages.append({"role": "user", "content": user_content})
         return messages
@@ -207,10 +227,31 @@ class OpenAICompatibleClient(_CommonMixin):
         headers.update(self.extra_headers)
         return headers
 
-    def _request_openai(self, user_content) -> str:
+    def _request_openai(self, user_content, include_sub_prompt: bool = True) -> str:
         payload = {
             "model": self.model_name,
-            "messages": self._messages_for_openai(user_content),
+            "messages": self._messages_for_openai(user_content, include_sub_prompt=include_sub_prompt),
+            "temperature": self.generation_params["temperature"],
+            "top_p": self.generation_params["top_p"],
+            "stream": False,
+        }
+        if self.generation_params["max_tokens"] > 0:
+            payload["max_tokens"] = self.generation_params["max_tokens"]
+        response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=60)
+        response.raise_for_status()
+        data = response.json()
+        content = data["choices"][0]["message"]["content"]
+        if isinstance(content, list):
+            return "\n".join([c.get("text", "") for c in content if isinstance(c, dict)]).strip()
+        return str(content).strip()
+
+    def _request_one_shot_raw(self, user_content, include_sub_prompt: bool = True) -> str:
+        payload = {
+            "model": self.model_name,
+            "messages": [
+                {"role": "system", "content": get_system_prompt(include_sub_prompt=include_sub_prompt)},
+                {"role": "user", "content": user_content},
+            ],
             "temperature": self.generation_params["temperature"],
             "top_p": self.generation_params["top_p"],
             "stream": False,
@@ -378,6 +419,37 @@ class OpenAIResponseAPIClient(_CommonMixin):
         data = response.json()
         return self._extract_text(data)
 
+    def _request_one_shot_raw(self, user_content, include_sub_prompt: bool = True) -> str:
+        user_item = {"role": "user", "content": []}
+        if isinstance(user_content, list):
+            for part in user_content:
+                if not isinstance(part, dict):
+                    continue
+                if part.get("type") == "text":
+                    user_item["content"].append({"type": "input_text", "text": str(part.get("text", ""))})
+                elif part.get("type") == "image_url":
+                    image_url = part.get("image_url", {}) or {}
+                    url = image_url.get("url")
+                    if url:
+                        user_item["content"].append({"type": "input_image", "detail": "auto", "image_url": url})
+        else:
+            user_item["content"].append({"type": "input_text", "text": str(user_content)})
+
+        payload = {
+            "model": self.model_name,
+            "instructions": get_system_prompt(include_sub_prompt=include_sub_prompt),
+            "input": [user_item],
+            "store": False,
+            "temperature": self.generation_params["temperature"],
+            "top_p": self.generation_params["top_p"],
+        }
+        if self.generation_params["max_tokens"] > 0:
+            payload["max_output_tokens"] = self.generation_params["max_tokens"]
+        response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=60)
+        response.raise_for_status()
+        data = response.json()
+        return self._extract_text(data)
+
     async def send_message_with_memory(self, message: str) -> Tuple[str, str, str, List[Dict]]:
         memory_context = await self._build_memory_context(message)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
@@ -430,8 +502,8 @@ class OpenAIResponseAPIClient(_CommonMixin):
 
 
 class MistralClient(OpenAICompatibleClient):
-    def _mistral_messages(self, user_content) -> list[dict]:
-        source = self._messages_for_openai(user_content)
+    def _mistral_messages(self, user_content, include_sub_prompt: bool = True) -> list[dict]:
+        source = self._messages_for_openai(user_content, include_sub_prompt=include_sub_prompt)
         reformatted = []
         for idx, msg in enumerate(source):
             role = str(msg.get("role", "user"))
@@ -463,10 +535,27 @@ class MistralClient(OpenAICompatibleClient):
                 reformatted.append({"role": role, "content": content})
         return reformatted
 
-    def _request_openai(self, user_content) -> str:
+    def _request_openai(self, user_content, include_sub_prompt: bool = True) -> str:
         payload = {
             "model": self.model_name,
-            "messages": self._mistral_messages(user_content),
+            "messages": self._mistral_messages(user_content, include_sub_prompt=include_sub_prompt),
+            "safe_prompt": False,
+            "temperature": self.generation_params["temperature"],
+            "top_p": self.generation_params["top_p"],
+            "stream": False,
+        }
+        if self.generation_params["max_tokens"] > 0:
+            payload["max_tokens"] = self.generation_params["max_tokens"]
+        response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=60)
+        response.raise_for_status()
+        data = response.json()
+        content = data["choices"][0]["message"]["content"]
+        return str(content).strip()
+
+    def _request_one_shot_raw(self, user_content, include_sub_prompt: bool = True) -> str:
+        payload = {
+            "model": self.model_name,
+            "messages": self._mistral_messages(user_content, include_sub_prompt=include_sub_prompt)[:2],
             "safe_prompt": False,
             "temperature": self.generation_params["temperature"],
             "top_p": self.generation_params["top_p"],
@@ -534,7 +623,12 @@ class GoogleCloudClient(_CommonMixin):
             parts.append({"inlineData": {"mimeType": media_type, "data": b64}})
         return parts
 
-    def _request_google(self, message: str, images_data: list | None = None) -> str:
+    def _request_google(
+        self,
+        message: str,
+        images_data: list | None = None,
+        include_sub_prompt: bool = True,
+    ) -> str:
         contents = []
         for h in self._history:
             role = "model" if h.get("role") == "assistant" else "user"
@@ -546,7 +640,30 @@ class GoogleCloudClient(_CommonMixin):
                 "temperature": self.generation_params["temperature"],
                 "topP": self.generation_params["top_p"],
             },
-            "systemInstruction": {"parts": [{"text": get_system_prompt()}]},
+            "systemInstruction": {"parts": [{"text": get_system_prompt(include_sub_prompt=include_sub_prompt)}]},
+        }
+        if self.generation_params["max_tokens"] > 0:
+            payload["generation_config"]["maxOutputTokens"] = self.generation_params["max_tokens"]
+        response = requests.post(self._endpoint(), headers=self._headers(), json=payload, timeout=60)
+        response.raise_for_status()
+        data = response.json()
+        candidates = data.get("candidates", []) or []
+        for cand in candidates:
+            content = cand.get("content", {}) or {}
+            for part in content.get("parts", []) or []:
+                text = part.get("text")
+                if isinstance(text, str) and text.strip():
+                    return text.strip()
+        return ""
+
+    def _request_one_shot_raw(self, message: str, include_sub_prompt: bool = True) -> str:
+        payload = {
+            "contents": [{"role": "user", "parts": [{"text": str(message)}]}],
+            "generation_config": {
+                "temperature": self.generation_params["temperature"],
+                "topP": self.generation_params["top_p"],
+            },
+            "systemInstruction": {"parts": [{"text": get_system_prompt(include_sub_prompt=include_sub_prompt)}]},
         }
         if self.generation_params["max_tokens"] > 0:
             payload["generation_config"]["maxOutputTokens"] = self.generation_params["max_tokens"]
@@ -638,9 +755,9 @@ class CohereClient(_CommonMixin):
             "Content-Type": "application/json",
         }
 
-    def _request_cohere(self, message: str) -> str:
+    def _request_cohere(self, message: str, include_sub_prompt: bool = True) -> str:
         chat_history = []
-        preamble = get_system_prompt()
+        preamble = get_system_prompt(include_sub_prompt=include_sub_prompt)
         for h in self._history:
             role = str(h.get("role", "user"))
             content = str(h.get("content", ""))
@@ -662,6 +779,25 @@ class CohereClient(_CommonMixin):
         if self.generation_params["max_tokens"] > 0:
             payload["max_tokens"] = self.generation_params["max_tokens"]
 
+        response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=60)
+        response.raise_for_status()
+        data = response.json()
+        text = data.get("text")
+        if isinstance(text, str):
+            return text.strip()
+        return ""
+
+    def _request_one_shot_raw(self, message: str, include_sub_prompt: bool = True) -> str:
+        payload = {
+            "model": self.model_name,
+            "message": message,
+            "chat_history": [],
+            "preamble": get_system_prompt(include_sub_prompt=include_sub_prompt),
+            "temperature": self.generation_params["temperature"],
+            "p": self.generation_params["top_p"],
+        }
+        if self.generation_params["max_tokens"] > 0:
+            payload["max_tokens"] = self.generation_params["max_tokens"]
         response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=60)
         response.raise_for_status()
         data = response.json()
@@ -743,7 +879,7 @@ class AnthropicClient(_CommonMixin):
             "content-type": "application/json",
         }
 
-    def _request_anthropic(self, user_content_blocks: list[dict]) -> str:
+    def _request_anthropic(self, user_content_blocks: list[dict], include_sub_prompt: bool = True) -> str:
         messages = []
         for h in self._history:
             role = h.get("role", "user")
@@ -755,8 +891,23 @@ class AnthropicClient(_CommonMixin):
             "max_tokens": max(1, self.generation_params["max_tokens"] or DEFAULT_GENERATION_PARAMS["max_tokens"]),
             "temperature": self.generation_params["temperature"],
             "top_p": self.generation_params["top_p"],
-            "system": get_system_prompt(),
+            "system": get_system_prompt(include_sub_prompt=include_sub_prompt),
             "messages": messages,
+        }
+        response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=60)
+        response.raise_for_status()
+        data = response.json()
+        text_parts = [p.get("text", "") for p in data.get("content", []) if p.get("type") == "text"]
+        return "\n".join(text_parts).strip()
+
+    def _request_one_shot_raw(self, message: str, include_sub_prompt: bool = True) -> str:
+        payload = {
+            "model": self.model_name,
+            "max_tokens": max(1, self.generation_params["max_tokens"] or DEFAULT_GENERATION_PARAMS["max_tokens"]),
+            "temperature": self.generation_params["temperature"],
+            "top_p": self.generation_params["top_p"],
+            "system": get_system_prompt(include_sub_prompt=include_sub_prompt),
+            "messages": [{"role": "user", "content": [{"type": "text", "text": str(message)}]}],
         }
         response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=60)
         response.raise_for_status()
@@ -849,8 +1000,13 @@ class OllamaClient(_CommonMixin):
         self.generation_params = _normalize_generation_params(generation_params)
         self._history = []
 
-    def _request_ollama(self, message: str, images_data: list | None = None) -> str:
-        messages = [{"role": "system", "content": get_system_prompt()}]
+    def _request_ollama(
+        self,
+        message: str,
+        images_data: list | None = None,
+        include_sub_prompt: bool = True,
+    ) -> str:
+        messages = [{"role": "system", "content": get_system_prompt(include_sub_prompt=include_sub_prompt)}]
         messages.extend(self._history)
         user_msg = {"role": "user", "content": message}
         if images_data:
@@ -866,6 +1022,26 @@ class OllamaClient(_CommonMixin):
         payload = {
             "model": self.model_name,
             "messages": messages,
+            "stream": False,
+            "options": {
+                "temperature": self.generation_params["temperature"],
+                "top_p": self.generation_params["top_p"],
+            },
+        }
+        if self.generation_params["max_tokens"] > 0:
+            payload["options"]["num_predict"] = self.generation_params["max_tokens"]
+        response = requests.post(self.endpoint, json=payload, timeout=60)
+        response.raise_for_status()
+        data = response.json()
+        return str(data.get("message", {}).get("content", "")).strip()
+
+    def _request_one_shot_raw(self, message: str, include_sub_prompt: bool = True) -> str:
+        payload = {
+            "model": self.model_name,
+            "messages": [
+                {"role": "system", "content": get_system_prompt(include_sub_prompt=include_sub_prompt)},
+                {"role": "user", "content": str(message)},
+            ],
             "stream": False,
             "options": {
                 "temperature": self.generation_params["temperature"],
