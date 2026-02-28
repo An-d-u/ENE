@@ -1,4 +1,4 @@
-"""
+﻿"""
 LLM 공급자 추상화 레이어.
 현재는 Gemini를 기본 제공하며, 동일 인터페이스로 공급자를 확장할 수 있다.
 """
@@ -19,6 +19,12 @@ class LLMClientProtocol(Protocol):
         ...
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str]]:
+        ...
+
+    async def generate_markdown_document(self, message: str) -> str:
+        ...
+
+    async def generate_diary_completion_reply(self, context_message: str) -> Tuple[str, str, str, List[Dict]]:
         ...
 
     def clear_context(self):
