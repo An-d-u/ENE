@@ -166,3 +166,22 @@ def test_aiworker_diary_flow_uses_one_shot_and_does_not_need_history(tmp_path: P
     assert result[0].startswith("성공적으로 파일 작성에 완료되었습니다.")
     saved_files = list((tmp_path / "diary").glob("*.md"))
     assert len(saved_files) == 1
+
+def test_bridge_tts_error_restores_pending_response():
+    _ensure_qt_app()
+
+    bridge = WebBridge()
+    bridge.pending_response = ("복구할 응답", "normal")
+    bridge._is_rerolling = True
+
+    received = []
+    reroll_states = []
+    bridge.message_received.connect(lambda text, emotion: received.append((text, emotion)))
+    bridge.reroll_state_changed.connect(lambda state: reroll_states.append(bool(state)))
+
+    bridge._on_tts_error("mock error")
+
+    assert received == [("복구할 응답", "normal")]
+    assert bridge.pending_response is None
+    assert bridge._is_rerolling is False
+    assert reroll_states and reroll_states[-1] is False

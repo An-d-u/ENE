@@ -939,6 +939,15 @@ class WebBridge(QObject):
     def _on_tts_error(self, error_msg: str):
         """TTS 오류 처리"""
         print(f"[Bridge] TTS 오류: {error_msg}")
+        # TTS 실패 시 보류 중이던 텍스트를 즉시 복구 전송한다.
+        if self.pending_response:
+            text, emotion = self.pending_response
+            print(f"[Bridge] TTS 실패로 보류 응답 복구 전송: {text[:50]}... [{emotion}]")
+            self.message_received.emit(text, emotion)
+            self.pending_response = None
+        if self._is_rerolling:
+            self._is_rerolling = False
+            self.reroll_state_changed.emit(False)
     
     def _start_lip_sync(self):
         """립싱크 타이머 시작"""
