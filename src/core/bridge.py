@@ -297,6 +297,16 @@ class WebBridge(QObject):
             )
         except Exception as e:
             print(f"[Bridge] mood_changed emit 실패: {e}")
+
+    def _reset_pending_ui_state(self, notice: str | None = None):
+        """
+        프런트가 로딩 상태로 고정되지 않도록 pending UI 상태를 강제로 해제한다.
+        주로 reroll/edit 조기 종료 경로에서 사용한다.
+        """
+        self._is_rerolling = False
+        self.reroll_state_changed.emit(False)
+        if notice:
+            self.summary_notice.emit(notice, "info")
     
     def set_memory_manager(self, memory_manager, _llm_client, user_profile=None):
         """메모리 매니저 및 사용자 프로필 설정"""
@@ -714,18 +724,22 @@ class WebBridge(QObject):
         """마지막 사용자 요청을 다시 실행해 최근 assistant 응답만 교체."""
         if not self.llm_client:
             print("[Bridge] Reroll ignored: LLM client not initialized")
+            self._reset_pending_ui_state("리롤할 수 있는 최근 요청이 없어요.")
             return
 
         if not self._last_request_payload:
             print("[Bridge] Reroll ignored: no previous request payload")
+            self._reset_pending_ui_state("리롤할 수 있는 최근 요청이 없어요.")
             return
 
         if self.worker and self.worker.isRunning():
             print("[Bridge] Reroll ignored: worker is still running")
+            self._reset_pending_ui_state("이미 응답 생성 중이에요.")
             return
 
         if not self._rollback_last_turn_pair_for_retry():
             print("[Bridge] Reroll aborted: failed to rollback/rebuild LLM context")
+            self._reset_pending_ui_state("리롤 준비 중 문제가 생겼어요.")
             return
 
         # 교체 의미를 지키기 위해 최근 assistant 응답 하나를 버퍼에서 제거
@@ -771,23 +785,28 @@ class WebBridge(QObject):
         edited_message = (edited_message or "").strip()
         if not edited_message:
             print("[Bridge] Edit ignored: empty message")
+            self._reset_pending_ui_state("빈 메시지는 수정 저장할 수 없어요.")
             return
 
         if not self.llm_client:
             print("[Bridge] Edit ignored: LLM client not initialized")
+            self._reset_pending_ui_state("수정 재요청을 처리할 수 없어요.")
             return
 
         if not self._last_request_payload:
             print("[Bridge] Edit ignored: no previous request payload")
+            self._reset_pending_ui_state("/diary 응답은 Edit로 다시 생성할 수 없어요.")
             return
 
         if self.worker and self.worker.isRunning():
             print("[Bridge] Edit ignored: worker is still running")
+            self._reset_pending_ui_state("이미 응답 생성 중이에요.")
             return
 
         # 최근 user/assistant 턴을 LLM 컨텍스트에서 롤백
         if not self._rollback_last_turn_pair_for_retry():
             print("[Bridge] Edit aborted: failed to rollback/rebuild LLM context")
+            self._reset_pending_ui_state("수정 재요청 준비 중 문제가 생겼어요.")
             return
 
         # 대화 버퍼의 최근 assistant/user 턴 제거
