@@ -185,3 +185,40 @@ def test_bridge_tts_error_restores_pending_response():
     assert bridge.pending_response is None
     assert bridge._is_rerolling is False
     assert reroll_states and reroll_states[-1] is False
+
+
+def test_bridge_edit_without_payload_resets_pending_ui_state():
+    _ensure_qt_app()
+
+    bridge = WebBridge()
+    bridge.llm_client = object()
+
+    reroll_states = []
+    notices = []
+    bridge.reroll_state_changed.connect(lambda state: reroll_states.append(bool(state)))
+    bridge.summary_notice.connect(lambda message, level: notices.append((message, level)))
+
+    bridge.edit_last_user_message("수정 메시지")
+
+    assert reroll_states and reroll_states[-1] is False
+    assert notices
+    assert "/diary 응답은 Edit로 다시 생성할 수 없어요." in notices[-1][0]
+    assert notices[-1][1] == "info"
+
+
+def test_bridge_reroll_without_payload_resets_pending_ui_state():
+    _ensure_qt_app()
+
+    bridge = WebBridge()
+    bridge.llm_client = object()
+
+    reroll_states = []
+    notices = []
+    bridge.reroll_state_changed.connect(lambda state: reroll_states.append(bool(state)))
+    bridge.summary_notice.connect(lambda message, level: notices.append((message, level)))
+
+    bridge.reroll_last_response()
+
+    assert reroll_states and reroll_states[-1] is False
+    assert notices
+    assert notices[-1][1] == "info"
