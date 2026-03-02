@@ -1,4 +1,4 @@
-* {
+﻿* {
     margin: 0;
     padding: 0;
     box-sizing: border-box;
@@ -236,10 +236,19 @@ body {
     transform: translateY(0);
 }
 
-#manual-summarize-floating-btn {
+#floating-action-buttons {
     position: fixed;
     right: 12px;
     top: 38px;
+    z-index: 1200;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+#manual-summarize-floating-btn,
+#obs-note-floating-btn,
+#mood-toggle-floating-btn {
     z-index: 1200;
     padding: 8px 12px;
     border: 1px solid rgba(255, 255, 255, 0.3);
@@ -249,6 +258,9 @@ body {
     font-size: 13px;
     cursor: pointer;
     backdrop-filter: blur(4px);
+}
+
+#manual-summarize-floating-btn {
     transition: background 0.2s ease, opacity 0.2s ease, transform 0.2s ease;
 }
 
@@ -263,24 +275,111 @@ body {
 }
 
 #mood-toggle-floating-btn {
-    position: fixed;
-    right: 12px;
-    top: 76px;
-    z-index: 1200;
-    padding: 8px 12px;
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    border-radius: 16px;
-    background: rgba(25, 25, 28, 0.52);
-    color: rgba(255, 255, 255, 0.95);
-    font-size: 13px;
-    cursor: pointer;
-    backdrop-filter: blur(4px);
     transition: background 0.2s ease, transform 0.2s ease;
 }
 
 #mood-toggle-floating-btn:hover {
     background: rgba(40, 40, 44, 0.7);
     transform: translateY(-1px);
+}
+
+#obs-note-floating-btn {
+    transition: background 0.2s ease, transform 0.2s ease;
+}
+
+#obs-note-floating-btn:hover {
+    background: rgba(40, 40, 44, 0.7);
+    transform: translateY(-1px);
+}
+
+#obs-panel {
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    width: 290px;
+    max-height: 48vh;
+    z-index: 1200;
+    border: 1px solid rgba(255, 255, 255, 0.24);
+    border-radius: 12px;
+    background: rgba(16, 16, 20, 0.58);
+    backdrop-filter: blur(5px);
+    color: rgba(255, 255, 255, 0.92);
+    padding: 10px 10px 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+#obs-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+#obs-panel-title {
+    font-size: 13px;
+    font-weight: 700;
+}
+
+#obs-refresh-btn {
+    border: 1px solid rgba(255, 255, 255, 0.24);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+    width: 28px;
+    height: 24px;
+    cursor: pointer;
+}
+
+#obs-panel-subtitle {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.75);
+}
+
+#obs-tree {
+    overflow: auto;
+    max-height: calc(48vh - 54px);
+    padding-right: 4px;
+}
+
+#obs-tree::-webkit-scrollbar {
+    width: 6px;
+}
+
+#obs-tree::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+#obs-tree::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.22);
+    border-radius: 3px;
+}
+
+.obs-node {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 2px 0;
+    font-size: 12px;
+    line-height: 1.25;
+}
+
+.obs-node.obs-dir {
+    color: rgba(180, 218, 255, 0.95);
+    font-weight: 600;
+}
+
+.obs-node.obs-file {
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.obs-node input[type="checkbox"] {
+    width: 13px;
+    height: 13px;
+}
+
+.obs-path {
+    word-break: break-all;
 }
 
 #mood-status-widget {
@@ -306,6 +405,7 @@ body {
     align-items: center;
     justify-content: space-between;
     margin-bottom: 6px;
+    cursor: move;
 }
 
 #mood-status-label {
