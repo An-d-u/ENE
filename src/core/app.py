@@ -1,4 +1,4 @@
-"""
+﻿"""
 ENE 메인 애플리케이션
 오버레이 윈도우와 트레이 아이콘을 관리
 """
@@ -8,6 +8,7 @@ from PyQt6.QtCore import QObject
 from .settings import Settings
 from .overlay_window import OverlayWindow
 from .tray_icon import TrayIcon
+from ..ui.obsidian_panel_window import ObsidianPanelWindow
 from ..ui.settings_dialog import SettingsDialog
 from ..ai.llm_provider import LLMProviderConfig, create_llm_client
 from ..ai.mood_manager import MoodManager
@@ -38,8 +39,17 @@ class ENEApplication(QObject):
             if self.overlay_window.bridge.llm_client:
                 self.overlay_window.bridge.llm_client.calendar_manager = self.calendar_manager
             print("[App] Bridge에 캘린더 매니저 연결")
-        
+
+        # Obsidian 패널 창 생성 (ENE 외부 플로팅)
+        self.obsidian_panel_window = ObsidianPanelWindow(
+            bridge=self.overlay_window.bridge,
+            obs_settings=self.overlay_window.bridge.obs_settings,
+        )
+        self.overlay_window.bridge.set_obs_panel_window(self.obsidian_panel_window)
+
         self.overlay_window.show()
+        if bool(self.overlay_window.bridge.obs_settings.get("panel_visible", True)):
+            self.obsidian_panel_window.show()
         
         # 트레이 아이콘 생성
         self.tray_icon = TrayIcon()
@@ -390,4 +400,6 @@ class ENEApplication(QObject):
                     print(f"종료 전 요약 실패: {e}")
         
         self.overlay_window.close()
+        if hasattr(self, "obsidian_panel_window") and self.obsidian_panel_window:
+            self.obsidian_panel_window.close()
         QApplication.quit()

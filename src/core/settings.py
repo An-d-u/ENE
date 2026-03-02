@@ -1,4 +1,4 @@
-"""
+﻿"""
 ENE settings manager.
 Loads and saves user settings to JSON.
 """
@@ -19,6 +19,8 @@ class Settings:
         "show_recent_reroll_button": True,
         "show_recent_edit_button": True,
         "show_manual_summary_button": True,
+        "show_obsidian_note_button": True,
+        "show_mood_toggle_button": True,
         "model_scale": 1.0,
         "model_x_percent": 50,  # 0-100%
         "model_y_percent": 50,  # 0-100%
@@ -91,6 +93,13 @@ class Settings:
         "mood_personality_profile": "affectionate",
         "mood_decay_per_hour": 0.08,
         "mood_state_file": "mood_state.json",
+        "obsidian_cli_enabled": False,
+        "obsidian_cli_bin": "obsidian",
+        "obsidian_cli_command": "",
+        "obsidian_cli_timeout_sec": 20,
+        "obsidian_cli_primary_for_diary": True,
+        "diary_keep_local_copy_on_cli_success": False,
+        "include_obsidian_context_in_general_chat": False,
     }
 
     DEFAULT_SECRET_CONFIG = {
