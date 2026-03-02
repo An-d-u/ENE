@@ -1,4 +1,4 @@
-"""
+﻿"""
 Transparent overlay window for Live2D.
 """
 import json
@@ -91,6 +91,8 @@ class OverlayWindow(QWidget):
         self._sync_reroll_button_visibility_to_js()
         self._sync_edit_button_visibility_to_js()
         self._sync_manual_summary_button_visibility_to_js()
+        self._sync_obsidian_note_button_visibility_to_js()
+        self._sync_mood_toggle_button_visibility_to_js()
         print("Web page loaded")
 
     def _apply_model_settings(self):
@@ -155,6 +157,8 @@ class OverlayWindow(QWidget):
         self._sync_reroll_button_visibility_to_js()
         self._sync_edit_button_visibility_to_js()
         self._sync_manual_summary_button_visibility_to_js()
+        self._sync_obsidian_note_button_visibility_to_js()
+        self._sync_mood_toggle_button_visibility_to_js()
         if hasattr(self, "bridge") and self.bridge:
             self.bridge.refresh_away_settings()
         self.settings.save()
@@ -190,6 +194,8 @@ class OverlayWindow(QWidget):
             self._sync_reroll_button_visibility_to_js(new_settings)
             self._sync_edit_button_visibility_to_js(new_settings)
             self._sync_manual_summary_button_visibility_to_js(new_settings)
+            self._sync_obsidian_note_button_visibility_to_js(new_settings)
+            self._sync_mood_toggle_button_visibility_to_js(new_settings)
 
     def restore_settings(self):
         self._apply_settings()
@@ -198,6 +204,8 @@ class OverlayWindow(QWidget):
         self._sync_reroll_button_visibility_to_js()
         self._sync_edit_button_visibility_to_js()
         self._sync_manual_summary_button_visibility_to_js()
+        self._sync_obsidian_note_button_visibility_to_js()
+        self._sync_mood_toggle_button_visibility_to_js()
 
     def toggle_drag_bar(self):
         visible = not self.drag_bar.isVisible()
@@ -332,6 +340,20 @@ class OverlayWindow(QWidget):
         source = settings_override if settings_override is not None else self.settings.config
         enabled = "true" if bool(source.get("show_manual_summary_button", True)) else "false"
         self.web_view.page().runJavaScript(f"window.setManualSummaryButtonEnabled({enabled});")
+
+    def _sync_obsidian_note_button_visibility_to_js(self, settings_override: dict | None = None):
+        if not self._page_loaded:
+            return
+        source = settings_override if settings_override is not None else self.settings.config
+        enabled = "true" if bool(source.get("show_obsidian_note_button", True)) else "false"
+        self.web_view.page().runJavaScript(f"window.setObsidianNoteButtonEnabled({enabled});")
+
+    def _sync_mood_toggle_button_visibility_to_js(self, settings_override: dict | None = None):
+        if not self._page_loaded:
+            return
+        source = settings_override if settings_override is not None else self.settings.config
+        enabled = "true" if bool(source.get("show_mood_toggle_button", True)) else "false"
+        self.web_view.page().runJavaScript(f"window.setMoodToggleButtonEnabled({enabled});")
 
     def _set_mouse_tracking_enabled(self, enabled: bool):
         if enabled:

@@ -956,17 +956,24 @@ const summaryConfirmYesButton = document.getElementById('summary-confirm-yes');
 const summaryConfirmNoButton = document.getElementById('summary-confirm-no');
 const toastContainer = document.getElementById('toast-container');
 const moodToggleButton = document.getElementById('mood-toggle-floating-btn');
+const obsNoteButton = document.getElementById('obs-note-floating-btn');
 const moodWidget = document.getElementById('mood-status-widget');
+const moodStatusHeader = document.getElementById('mood-status-header');
 const moodCollapseButton = document.getElementById('mood-status-collapse-btn');
 const moodStatusLabel = document.getElementById('mood-status-label');
 const moodMeterValence = document.getElementById('mood-meter-valence');
 const moodMeterBond = document.getElementById('mood-meter-bond');
 const moodMeterEnergy = document.getElementById('mood-meter-energy');
 const moodMeterStress = document.getElementById('mood-meter-stress');
+const obsPanel = document.getElementById('obs-panel');
+const obsTree = document.getElementById('obs-tree');
+const obsRefreshBtn = document.getElementById('obs-refresh-btn');
 let attachedImages = [];
 let rerollButtonVisibleBySetting = true;
 let recentEditButtonVisibleBySetting = true;
 let manualSummaryButtonVisibleBySetting = true;
+let moodToggleButtonVisibleBySetting = true;
+let obsidianNoteButtonVisibleBySetting = true;
 let hasAssistantMessage = false;
 let hasUserMessage = false;
 let isRequestPending = false;
@@ -975,6 +982,8 @@ let lastAssistantMessageEl = null;
 let lastUserMessageEl = null;
 let moodPanelOpen = false;
 let activeInlineEditBubble = null;
+let obsCheckedPaths = new Set();
+let moodWidgetDragState = null;
 
 // -1~1 축값을 게이지 표시용 0~1 값으로 정규화한다.
 function normalizeMoodAxis(value) {
@@ -1011,6 +1020,38 @@ function setMoodPanelOpen(open) {
     }
 }
 
+// 기분 패널을 드래그 가능하게 설정한다.
+function initMoodWidgetDrag() {
+    if (!moodWidget || !moodStatusHeader) return;
+
+    moodStatusHeader.addEventListener('mousedown', (e) => {
+        // 닫기 버튼 클릭은 드래그 시작하지 않는다.
+        if (e.target && e.target.id === 'mood-status-collapse-btn') return;
+        const rect = moodWidget.getBoundingClientRect();
+        moodWidget.style.right = 'auto';
+        moodWidget.style.left = `${rect.left}px`;
+        moodWidget.style.top = `${rect.top}px`;
+
+        moodWidgetDragState = {
+            offsetX: e.clientX - rect.left,
+            offsetY: e.clientY - rect.top,
+        };
+        e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!moodWidgetDragState || !moodWidget) return;
+        const left = Math.max(0, e.clientX - moodWidgetDragState.offsetX);
+        const top = Math.max(0, e.clientY - moodWidgetDragState.offsetY);
+        moodWidget.style.left = `${left}px`;
+        moodWidget.style.top = `${top}px`;
+    });
+
+    document.addEventListener('mouseup', () => {
+        moodWidgetDragState = null;
+    });
+}
+
 // mood 텍스트/게이지/툴팁을 한 번에 갱신한다.
 function updateMoodWidget(label, valence, energy, bond, stress) {
     if (moodStatusLabel) {
@@ -1033,6 +1074,82 @@ function updateMoodWidget(label, valence, energy, bond, stress) {
 
 updateMoodWidget('calm', 0, 0, 0, 0);
 setMoodPanelOpen(false);
+initMoodWidgetDrag();
+
+// Obsidian 트리 데이터를 렌더링한다.
+function renderObsTree(payload) {
+    if (!obsTree) return;
+    obsTree.innerHTML = '';
+
+    if (!payload || !payload.ok) {
+        const msg = document.createElement('div');
+        msg.className = 'obs-node obs-file';
+        msg.textContent = payload && payload.error
+            ? `연결 실패: ${payload.error}`
+            : 'Vault 연결 정보가 없습니다.';
+        obsTree.appendChild(msg);
+        return;
+    }
+
+    const checked = new Set(payload.checked_files || []);
+    obsCheckedPaths = checked;
+
+    const createNode = (node, depth = 0) => {
+        const row = document.createElement('div');
+        row.className = `obs-node ${node.type === 'dir' ? 'obs-dir' : 'obs-file'}`;
+        row.style.paddingLeft = `${depth * 12}px`;
+
+        if (node.type === 'file') {
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.checked = checked.has(node.path);
+            cb.addEventListener('change', () => {
+                if (!window.pyBridge || !window.pyBridge.set_obs_file_checked) return;
+                window.pyBridge.set_obs_file_checked(node.path, cb.checked);
+            });
+            row.appendChild(cb);
+        } else {
+            const icon = document.createElement('span');
+            icon.textContent = '📁';
+            row.appendChild(icon);
+        }
+
+        const label = document.createElement('span');
+        label.className = 'obs-path';
+        label.textContent = node.path || node.name;
+        row.appendChild(label);
+        obsTree.appendChild(row);
+
+        if (node.type === 'dir' && Array.isArray(node.children)) {
+            node.children.forEach((child) => createNode(child, depth + 1));
+        }
+    };
+
+    (payload.nodes || []).forEach((node) => createNode(node, 0));
+}
+
+function requestObsTree() {
+    if (!window.pyBridge || !window.pyBridge.get_obs_tree_json) return;
+    try {
+        const result = window.pyBridge.get_obs_tree_json();
+        const apply = (value) => {
+            if (!value) return;
+            try {
+                const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+                renderObsTree(parsed);
+            } catch (e) {
+                renderObsTree({ ok: false, error: `트리 파싱 실패: ${e}` });
+            }
+        };
+        if (result && typeof result.then === 'function') {
+            result.then(apply).catch((e) => renderObsTree({ ok: false, error: String(e) }));
+        } else {
+            apply(result);
+        }
+    } catch (e) {
+        renderObsTree({ ok: false, error: String(e) });
+    }
+}
 
 /**
  * 로딩 인디케이터 표시 상태를 갱신한다.
@@ -1149,6 +1266,25 @@ window.setRecentEditButtonEnabled = function (enabled) {
 window.setManualSummaryButtonEnabled = function (enabled) {
     manualSummaryButtonVisibleBySetting = Boolean(enabled);
     updateRerollButtonState();
+};
+
+// 설정창 값에 따라 기분 버튼 표시 여부를 반영한다.
+window.setMoodToggleButtonEnabled = function (enabled) {
+    moodToggleButtonVisibleBySetting = Boolean(enabled);
+    if (moodToggleButton) {
+        moodToggleButton.style.display = moodToggleButtonVisibleBySetting ? 'inline-flex' : 'none';
+    }
+    if (!moodToggleButtonVisibleBySetting) {
+        setMoodPanelOpen(false);
+    }
+};
+
+// 설정창 값에 따라 노트 버튼 표시 여부를 반영한다.
+window.setObsidianNoteButtonEnabled = function (enabled) {
+    obsidianNoteButtonVisibleBySetting = Boolean(enabled);
+    if (obsNoteButton) {
+        obsNoteButton.style.display = obsidianNoteButtonVisibleBySetting ? 'inline-flex' : 'none';
+    }
 };
 
 // 수동 요약 확인 모달을 연다.
@@ -1476,9 +1612,26 @@ function autoResizeTextarea() {
     chatInput.style.height = chatInput.scrollHeight + 'px';
 }
 sendButton.addEventListener('click', sendMessage);
+if (obsRefreshBtn) {
+    obsRefreshBtn.addEventListener('click', () => {
+        if (window.pyBridge && window.pyBridge.refresh_obs_tree) {
+            window.pyBridge.refresh_obs_tree();
+        } else {
+            requestObsTree();
+        }
+    });
+}
 
 if (moodToggleButton) {
-    moodToggleButton.addEventListener('click', () => setMoodPanelOpen(true));
+    moodToggleButton.addEventListener('click', () => setMoodPanelOpen(!moodPanelOpen));
+}
+
+if (obsNoteButton) {
+    obsNoteButton.addEventListener('click', () => {
+        if (window.pyBridge && window.pyBridge.toggle_obs_panel) {
+            window.pyBridge.toggle_obs_panel();
+        }
+    });
 }
 
 if (moodCollapseButton) {
@@ -1616,6 +1769,17 @@ if (typeof QWebChannel !== 'undefined') {
             });
         }
 
+        if (window.pyBridge.obs_tree_updated) {
+            window.pyBridge.obs_tree_updated.connect(function (value) {
+                try {
+                    const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+                    renderObsTree(parsed);
+                } catch (e) {
+                    renderObsTree({ ok: false, error: `트리 파싱 실패: ${e}` });
+                }
+            });
+        }
+
         if (window.pyBridge.mood_changed) {
             window.pyBridge.mood_changed.connect(function (label, valence, energy, bond, stress) {
                 updateMoodWidget(label, valence, energy, bond, stress);
@@ -1662,9 +1826,11 @@ if (typeof QWebChannel !== 'undefined') {
                 console.warn("Failed to initialize mood widget:", e);
             }
         }
+
     });
 } else {
     console.warn("QWebChannel not available - running in standalone mode");
+    renderObsTree({ ok: false, error: "QWebChannel 연결 없음" });
 }
 
 // ==========================================
