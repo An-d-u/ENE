@@ -17,8 +17,11 @@ from PyQt6.QtWidgets import QApplication
 from datetime import datetime
 import json
 import numpy as np
+import re
 
 from ..ai.diary_service import DiaryService
+from ..ai.obsidian_manager import ObsidianManager
+from .obs_settings import ObsSettings
 
 
 class AIWorker(QThread):
@@ -35,6 +38,7 @@ class AIWorker(QThread):
         images=None,
         diary_request: str = "",
         diary_service: DiaryService | None = None,
+        use_obsidian_priority: bool = False,
     ):
         super().__init__()
         self.llm_client = llm_client
@@ -43,6 +47,7 @@ class AIWorker(QThread):
         self.images = images or []  # 이미지 데이터 리스트
         self.diary_request = (diary_request or "").strip()
         self.diary_service = diary_service
+        self.use_obsidian_priority = bool(use_obsidian_priority)
     
     def run(self):
         loop = None
@@ -104,7 +109,10 @@ class AIWorker(QThread):
             raise RuntimeError("현재 LLM 클라이언트는 /diary를 지원하지 않습니다.")
 
         markdown_text = await self.llm_client.generate_markdown_document(self.message)
-        result = self.diary_service.save_markdown(self.diary_request, markdown_text)
+        if self.use_obsidian_priority:
+            result = self.diary_service.save_markdown_via_priority(self.diary_request, markdown_text)
+        else:
+            result = self.diary_service.save_markdown(self.diary_request, markdown_text)
 
         completion_context = (
             "아래 정보를 바탕으로 마스터에게 파일 작성 완료를 알려주세요.\n"
@@ -113,6 +121,15 @@ class AIWorker(QThread):
             "[작성된 md 파일 본문]\n"
             f"{result.content}"
         )
+        completion_context += (
+            "\n[저장 결과]\n"
+            f"- 대상: {result.storage_target}\n"
+            f"- 경로: {result.absolute_path}"
+        )
+        if result.obsidian_output_path and result.obsidian_output_path != result.absolute_path:
+            completion_context += f"\n- Obsidian 경로: {result.obsidian_output_path}"
+        if result.obsidian_cli_error:
+            completion_context += f"\n- 비고: {result.obsidian_cli_error}"
 
         if hasattr(self.llm_client, "generate_diary_completion_reply"):
             text, emotion, japanese_text, events = await self.llm_client.generate_diary_completion_reply(completion_context)
@@ -203,6 +220,7 @@ class WebBridge(QObject):
     reroll_state_changed = pyqtSignal(bool)  # 리롤 응답 교체 모드 on/off
     summary_notice = pyqtSignal(str, str)    # (메시지, 레벨)
     mood_changed = pyqtSignal(str, float, float, float, float)  # (라벨, valence, energy, bond, stress)
+    obs_tree_updated = pyqtSignal(str)       # Obsidian 트리 JSON
     
     def __init__(self, settings=None, parent=None):
         super().__init__(parent)
@@ -211,7 +229,10 @@ class WebBridge(QObject):
         self.worker = None
         self.settings = settings
         self.mood_manager = None
-        self.diary_service = DiaryService("diary")
+        self.diary_service = DiaryService("diary", settings=settings)
+        self.obs_settings = ObsSettings("obs_config.json")
+        self.obsidian_manager = ObsidianManager(settings=self.settings, obs_settings=self.obs_settings)
+        self.obs_panel_window = None
         
         # TTS 및 오디오 재생
         self.tts_client = None
@@ -321,6 +342,10 @@ class WebBridge(QObject):
         self.audio_player = audio_player
         print(f"[Bridge] TTS client set: {tts_client is not None}")
         print(f"[Bridge] Audio player set: {audio_player is not None}")
+
+    def set_obs_panel_window(self, panel_window):
+        """Obsidian 플로팅 패널 참조를 등록한다."""
+        self.obs_panel_window = panel_window
 
     def refresh_away_settings(self):
         """설정 파일에서 유휴 감지 관련 값을 다시 읽는다."""
@@ -600,7 +625,7 @@ class WebBridge(QObject):
         self.worker.error_occurred.connect(self._on_error)
         self.worker.start()
 
-    def _start_diary_worker(self, diary_request: str, message_with_time: str):
+    def _start_diary_worker(self, diary_request: str, message_with_time: str, use_obsidian_priority: bool = False):
         """Start /diary worker with isolated context."""
         if self.worker and self.worker.isRunning():
             print("[Bridge] Worker still running, waiting...")
@@ -611,13 +636,14 @@ class WebBridge(QObject):
             message_with_time,
             diary_request=diary_request,
             diary_service=self.diary_service,
+            use_obsidian_priority=use_obsidian_priority,
         )
         self.worker.response_ready.connect(self._on_response_ready)
         self.worker.error_occurred.connect(self._on_error)
         self.worker.start()
 
     def _handle_diary_command(self, message: str) -> bool:
-        """'/diary' 명령을 감지해 전용 처리한다."""
+        """'/diary' 명령을 감지해 로컬 저장 전용 처리한다."""
         is_diary, diary_body = self.diary_service.parse_diary_command(message)
         if not is_diary:
             return False
@@ -638,9 +664,198 @@ class WebBridge(QObject):
         self._last_request_payload = None
         self._is_rerolling = False
 
-        self._start_diary_worker(diary_body, message_with_time)
+        self._start_diary_worker(diary_body, message_with_time, use_obsidian_priority=False)
         print("[Bridge] /diary worker thread started")
         return True
+
+    def _build_obsidian_context_block(self, include_checked_files: bool = True) -> str:
+        """Obsidian 트리/체크 파일 컨텍스트 블록을 생성한다."""
+        parts = ["[Obsidian 트리 구조]"]
+        for line in self.obsidian_manager.get_tree_lines(max_lines=120):
+            parts.append(f"- {line}")
+
+        if include_checked_files:
+            checked_contents = self.obsidian_manager.get_checked_file_contents(
+                max_files=8,
+                max_chars_per_file=3000,
+                total_max_chars=12000,
+            )
+            if checked_contents:
+                parts.append("\n[Obsidian 체크된 파일 본문]")
+                for rel, content in checked_contents:
+                    parts.append(f"[파일:{rel}]")
+                    parts.append(content)
+        return "\n".join(parts)
+
+    def _should_include_obsidian_context_in_general_chat(self) -> bool:
+        """일반 채팅에서 Obsidian 컨텍스트를 포함할지 설정값으로 판단한다."""
+        if not self.settings:
+            return False
+        try:
+            return bool(self.settings.get("include_obsidian_context_in_general_chat", False))
+        except Exception:
+            return False
+
+    def _parse_obs_subcommand(self, body: str) -> tuple[str, dict]:
+        """
+        /obs 하위 명령 파싱.
+        지원 형식:
+        - summarize <path.md>
+        - read <path.md>
+        - append <path.md> :: <text>
+        - replace <path.md> :: <before> => <after>
+        """
+        raw = (body or "").strip()
+        low = raw.lower()
+
+        m = re.match(r"^summarize\s+(.+\.md)\s*$", raw, re.IGNORECASE)
+        if m:
+            return "summarize", {"path": m.group(1).strip()}
+
+        m = re.match(r"^read\s+(.+\.md)\s*$", raw, re.IGNORECASE)
+        if m:
+            return "read", {"path": m.group(1).strip()}
+
+        m = re.match(r"^append\s+(.+\.md)\s*::\s*([\s\S]+)$", raw, re.IGNORECASE)
+        if m:
+            return "append", {"path": m.group(1).strip(), "content": m.group(2).strip()}
+
+        m = re.match(r"^replace\s+(.+\.md)\s*::\s*([\s\S]+?)\s*=>\s*([\s\S]+)$", raw, re.IGNORECASE)
+        if m:
+            return "replace", {"path": m.group(1).strip(), "before": m.group(2), "after": m.group(3)}
+
+        # 한국어 요약 자연어 최소 지원: "test.md 파일 요약좀"
+        m = re.search(r"([^\s]+\.md).*(요약|정리)", raw, re.IGNORECASE)
+        if m:
+            return "summarize", {"path": m.group(1).strip()}
+
+        return "ask", {"instruction": raw, "low": low}
+
+    def _handle_obs_command(self, message: str) -> bool:
+        """'/obs' 명령을 감지해 Obsidian 명령/질의를 처리한다."""
+        is_obs, obs_body = self.diary_service.parse_obs_command(message)
+        if not is_obs:
+            return False
+
+        self._mark_user_activity()
+        if self.mood_manager:
+            snapshot = self.mood_manager.on_user_message(message, image_count=0)
+            self._emit_mood_changed(snapshot)
+
+        if not obs_body:
+            self.message_received.emit("`/obs` 뒤에 작성할 내용을 함께 입력해 주세요.", "confused")
+            return True
+
+        command, payload = self._parse_obs_subcommand(obs_body)
+        self._last_request_payload = None
+        self._is_rerolling = False
+
+        # 명령형: read/append/replace는 로컬에서 즉시 처리
+        if command == "read":
+            try:
+                text = self.obsidian_manager.read_file(payload["path"])
+                preview = text[:4000]
+                if len(text) > len(preview):
+                    preview += "\n...(생략)"
+                self.message_received.emit(preview, "normal")
+            except Exception as e:
+                self.message_received.emit(f"파일 읽기 실패: {e}", "confused")
+            return True
+
+        if command == "append":
+            result = self.obsidian_manager.append_file(payload["path"], payload["content"], create_if_missing=True)
+            if result.ok:
+                self.message_received.emit(f"추가 완료: {result.path}", "smile")
+            else:
+                self.message_received.emit(f"추가 실패: {result.message}", "confused")
+            return True
+
+        if command == "replace":
+            result = self.obsidian_manager.replace_in_file(payload["path"], payload["before"], payload["after"])
+            if result.ok:
+                self.message_received.emit(f"교체 완료: {result.path}", "smile")
+            else:
+                self.message_received.emit(f"교체 실패: {result.message}", "confused")
+            return True
+
+        # summarize/ask: Obsidian 컨텍스트 포함하여 LLM 질의
+        timestamp = self._now_timestamp()
+        obs_context = self._build_obsidian_context_block(include_checked_files=True)
+        if command == "summarize":
+            try:
+                target = self.obsidian_manager.read_file(payload["path"])
+            except Exception as e:
+                self.message_received.emit(f"요약 대상 파일 읽기 실패: {e}", "confused")
+                return True
+            prompt = (
+                f"{obs_context}\n\n"
+                f"[요약 대상 파일: {payload['path']}]\n{target}\n\n"
+                "위 파일을 핵심만 간결히 요약해 주세요."
+            )
+        else:
+            prompt = f"{obs_context}\n\n[OBS 지시사항]\n{payload.get('instruction', obs_body)}"
+
+        message_with_time = f"[현재 시각: {timestamp}]\n{prompt}"
+        self._start_ai_worker(message_with_time)
+        print("[Bridge] /obs AI worker thread started")
+        return True
+
+    @pyqtSlot(result=str)
+    def get_obs_tree_json(self) -> str:
+        """JS에서 호출: Obsidian 트리 구조를 JSON으로 반환."""
+        try:
+            return self.obsidian_manager.get_tree_json()
+        except Exception as e:
+            return json.dumps({"ok": False, "error": str(e), "nodes": []}, ensure_ascii=False)
+
+    @pyqtSlot(result=str)
+    def get_obs_checked_files_json(self) -> str:
+        """JS에서 호출: 체크된 파일 목록 반환."""
+        try:
+            files = self.obs_settings.get_checked_files()
+            return json.dumps({"checked_files": files}, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({"checked_files": [], "error": str(e)}, ensure_ascii=False)
+
+    @pyqtSlot(str, bool)
+    def set_obs_file_checked(self, rel_path: str, checked: bool):
+        """JS에서 호출: 파일 체크 상태를 저장한다."""
+        try:
+            self.obs_settings.set_file_checked(rel_path, bool(checked))
+            self.obs_tree_updated.emit(self.obsidian_manager.get_tree_json())
+        except Exception as e:
+            print(f"[Bridge] set_obs_file_checked failed: {e}")
+
+    @pyqtSlot()
+    def refresh_obs_tree(self):
+        """JS에서 호출: 트리를 새로고침한다."""
+        try:
+            self.obs_tree_updated.emit(self.obsidian_manager.get_tree_json())
+        except Exception as e:
+            print(f"[Bridge] refresh_obs_tree failed: {e}")
+
+    @pyqtSlot()
+    def toggle_obs_panel(self):
+        """JS에서 호출: Obsidian 플로팅 패널 표시를 토글한다."""
+        panel = self.obs_panel_window
+        if panel is None:
+            print("[Bridge] toggle_obs_panel ignored: panel window not attached")
+            return
+
+        try:
+            if panel.isVisible():
+                panel.hide()
+                self.obs_settings.set("panel_visible", False)
+                self.obs_settings.save()
+            else:
+                panel.show()
+                panel.raise_()
+                panel.activateWindow()
+                self.obs_settings.set("panel_visible", True)
+                self.obs_settings.save()
+                self.refresh_obs_tree()
+        except Exception as e:
+            print(f"[Bridge] toggle_obs_panel failed: {e}")
     @pyqtSlot(str)
     def send_to_ai(self, message: str):
         """JavaScript에서 호출: 사용자 텍스트 메시지를 AI로 전송."""
@@ -655,11 +870,18 @@ class WebBridge(QObject):
             self.message_received.emit("AI가 초기화되지 않았어요.", "sad")
             return
 
+        if self._handle_obs_command(message):
+            return
+
         if self._handle_diary_command(message):
             return
 
         timestamp = self._now_timestamp()
-        message_with_time = f"[현재 시각: {timestamp}]\n{message}"
+        prompt = message
+        if self._should_include_obsidian_context_in_general_chat():
+            obs_context = self._build_obsidian_context_block(include_checked_files=True)
+            prompt = f"{obs_context}\n\n[사용자 메시지]\n{message}"
+        message_with_time = f"[현재 시각: {timestamp}]\n{prompt}"
         print(f"[Bridge] Message with timestamp: {message_with_time}")
 
         self._mark_user_activity()
@@ -699,7 +921,11 @@ class WebBridge(QObject):
             images_data = []
 
         timestamp = self._now_timestamp()
-        message_with_time = f"[현재 시각: {timestamp}]\n{message}"
+        prompt = message
+        if self._should_include_obsidian_context_in_general_chat():
+            obs_context = self._build_obsidian_context_block(include_checked_files=True)
+            prompt = f"{obs_context}\n\n[사용자 메시지]\n{message}"
+        message_with_time = f"[현재 시각: {timestamp}]\n{prompt}"
 
         self._mark_user_activity()
         img_note = f" [이미지 {len(images_data)}장]" if images_data else ""

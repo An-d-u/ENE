@@ -1,0 +1,158 @@
+﻿import subprocess
+
+from src.ai.obsidian_manager import ObsidianManager
+
+
+class DummySettings:
+    def __init__(self):
+        self._values = {
+            "obsidian_cli_bin": "obsidian",
+            "obsidian_cli_timeout_sec": 7,
+        }
+
+    def get(self, key, default=None):
+        return self._values.get(key, default)
+
+
+class DummyObsSettings:
+    def get_checked_files(self):
+        return ["notes/a.md"]
+
+
+def test_parse_files_output_extracts_paths():
+    output = """
+notes/a.md
+notes/folder/
+├── notes/b.md
+|-- notes/c.md
+"""
+    paths = ObsidianManager._parse_files_output(output)
+    assert "notes/a.md" in paths
+    assert "notes/b.md" in paths
+    assert "notes/c.md" in paths
+
+
+def test_build_tree_from_paths_creates_dir_and_file_nodes():
+    paths = ["notes/a.md", "notes/sub/b.md"]
+    nodes = ObsidianManager._build_tree_from_paths(paths)
+    assert any(n.get("type") == "dir" and n.get("path") == "notes" for n in nodes)
+
+
+def test_build_tree_uses_cli_files(monkeypatch):
+    manager = ObsidianManager(settings=DummySettings(), obs_settings=DummyObsSettings())
+
+    class DummyCompleted:
+        returncode = 0
+        stdout = "notes/a.md\nnotes/sub/b.md\n"
+        stderr = ""
+
+    monkeypatch.setattr(manager, "_run_cli", lambda args: DummyCompleted())
+
+    tree = manager.build_tree()
+    assert tree["ok"] is True
+    assert tree["checked_files"] == ["notes/a.md"]
+    assert tree["nodes"]
+
+
+def test_read_file_calls_cli(monkeypatch):
+    manager = ObsidianManager(settings=DummySettings(), obs_settings=DummyObsSettings())
+
+    class DummyCompleted:
+        returncode = 0
+        stdout = "hello"
+        stderr = ""
+
+    captured = {}
+
+    def fake_run(args):
+        captured["args"] = args
+        return DummyCompleted()
+
+    monkeypatch.setattr(manager, "_run_cli", fake_run)
+
+    text = manager.read_file("notes/a.md")
+    assert text == "hello"
+    assert captured["args"] == ["read", "notes/a.md"]
+
+
+def test_run_cli_windows_shell_fallback(monkeypatch):
+    manager = ObsidianManager(settings=DummySettings(), obs_settings=DummyObsSettings())
+
+    monkeypatch.setattr("src.ai.obsidian_manager.os.name", "nt")
+    monkeypatch.setattr("src.ai.obsidian_manager.shutil.which", lambda _: None)
+
+    calls = {"n": 0}
+
+    class DummyCompleted:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    def fake_run(_cmd, **kwargs):
+        calls["n"] += 1
+        if kwargs.get("shell") is False:
+            raise FileNotFoundError("not found")
+        return DummyCompleted()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    completed = manager._run_cli(["files"])
+    assert completed.stdout == "ok"
+    assert calls["n"] >= 2
+
+
+def test_run_cli_windows_powershell_fallback_when_not_recognized(monkeypatch):
+    manager = ObsidianManager(settings=DummySettings(), obs_settings=DummyObsSettings())
+
+    monkeypatch.setattr("src.ai.obsidian_manager.os.name", "nt")
+    monkeypatch.setattr("src.ai.obsidian_manager.shutil.which", lambda _: None)
+
+    class NotFoundCompleted:
+        returncode = 1
+        stdout = ""
+        stderr = "'obsidian' is not recognized as an internal or external command,"
+
+    class OkCompleted:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    captured = {"ps_called": False}
+
+    def fake_run(cmd, **kwargs):
+        if kwargs.get("shell") is False:
+            if isinstance(cmd, list) and len(cmd) >= 3 and cmd[0] == "powershell" and cmd[1] == "-Command":
+                captured["ps_called"] = True
+                return OkCompleted()
+            raise FileNotFoundError("not found")
+        return NotFoundCompleted()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    completed = manager._run_cli(["files"])
+    assert completed.stdout == "ok"
+    assert captured["ps_called"] is True
+
+
+def test_run_cli_supports_multi_token_cli_bin(monkeypatch):
+    manager = ObsidianManager(settings=DummySettings(), obs_settings=DummyObsSettings())
+    manager.settings._values["obsidian_cli_bin"] = "npx obsidian"
+
+    captured = {}
+
+    class DummyCompleted:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        captured["shell"] = kwargs.get("shell")
+        return DummyCompleted()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    completed = manager._run_cli(["files"])
+    assert completed.stdout == "ok"
+    assert captured["shell"] is False
+    assert captured["cmd"] == ["npx", "obsidian", "files"]
