@@ -120,6 +120,17 @@ class GeminiClient:
         response_text = self._generate_one_shot_text(context_message, include_sub_prompt=True)
         return self._parse_response(response_text)
 
+    async def generate_note_command_plan(self, context_message: str) -> str:
+        """sub prompt 없이 /note 실행 계획(Markdown)을 생성한다."""
+        memory_context = await self._build_memory_context(context_message)
+        enhanced = f"{memory_context}\n\n{context_message}" if memory_context else context_message
+        return self._generate_one_shot_text(enhanced, include_sub_prompt=False)
+
+    async def generate_note_execution_report(self, context_message: str) -> Tuple[str, str, str, List[Dict]]:
+        """sub prompt 적용 상태로 /note 실행 결과 보고 응답을 생성한다."""
+        response_text = self._generate_one_shot_text(context_message, include_sub_prompt=True)
+        return self._parse_response(response_text)
+
     async def send_message_with_memory(self, message: str) -> Tuple[str, str, str, List[Dict]]:
         """
         메모리를 활용한 메시지 전송

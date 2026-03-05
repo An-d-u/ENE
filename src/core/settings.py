@@ -97,9 +97,10 @@ class Settings:
         "obsidian_cli_bin": "obsidian",
         "obsidian_cli_command": "",
         "obsidian_cli_timeout_sec": 20,
+        "obsidian_cli_retry_count": 2,
+        "obsidian_cli_retry_delay_ms": 500,
         "obsidian_cli_primary_for_diary": True,
         "diary_keep_local_copy_on_cli_success": False,
-        "include_obsidian_context_in_general_chat": False,
     }
 
     DEFAULT_SECRET_CONFIG = {

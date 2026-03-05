@@ -12,6 +12,7 @@ backups/
 **/prompt.py
 src/ai/sub_prompt.py
 diary/
+note_runs/
 
 # Config files
 config.json
