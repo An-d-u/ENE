@@ -9,7 +9,7 @@ def test_load_missing_file_uses_default_config(tmp_path):
     settings = Settings(config_path=str(config_path), secret_path=str(secret_path))
     assert settings.get("window_width") == Settings.DEFAULT_CONFIG["window_width"]
     assert settings.get("enable_away_nudge") is True
-    assert settings.get("include_obsidian_context_in_general_chat") is False
+    assert settings.get("show_obsidian_note_button") is True
 
 
 def test_save_and_reload_roundtrip(tmp_path):
