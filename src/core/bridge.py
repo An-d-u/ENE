@@ -20,6 +20,7 @@ import numpy as np
 import re
 
 from ..ai.diary_service import DiaryService
+from ..ai.note_service import NoteService, NoteCommand, NoteCommandResult, NotePlan
 from ..ai.obsidian_manager import ObsidianManager
 from .obs_settings import ObsSettings
 
@@ -37,7 +38,10 @@ class AIWorker(QThread):
         use_memory=True,
         images=None,
         diary_request: str = "",
+        note_request: str = "",
         diary_service: DiaryService | None = None,
+        note_service: NoteService | None = None,
+        obsidian_manager=None,
         use_obsidian_priority: bool = False,
     ):
         super().__init__()
@@ -46,7 +50,10 @@ class AIWorker(QThread):
         self.use_memory = use_memory
         self.images = images or []  # 이미지 데이터 리스트
         self.diary_request = (diary_request or "").strip()
+        self.note_request = (note_request or "").strip()
         self.diary_service = diary_service
+        self.note_service = note_service
+        self.obsidian_manager = obsidian_manager
         self.use_obsidian_priority = bool(use_obsidian_priority)
     
     def run(self):
@@ -64,7 +71,12 @@ class AIWorker(QThread):
             
             events = []
 
-            if self.diary_request and self.diary_service:
+            if self.note_request and self.note_service and self.obsidian_manager:
+                print("[AI Worker] /note 모드")
+                response_text, emotion, japanese_text, events = loop.run_until_complete(
+                    self._run_note_flow()
+                )
+            elif self.diary_request and self.diary_service:
                 print("[AI Worker] /diary 모드")
                 response_text, emotion, japanese_text, events = loop.run_until_complete(
                     self._run_diary_flow()
@@ -141,6 +153,90 @@ class AIWorker(QThread):
         # 하위 호환 폴백 (기존 클라이언트 경로)
         return self.llm_client.send_message(completion_context)
 
+    async def _run_note_flow(self):
+        """Obsidian 계획 실행 전용 플로우."""
+        if not hasattr(self.llm_client, "generate_note_command_plan"):
+            raise RuntimeError("현재 LLM 클라이언트는 /note 계획 생성을 지원하지 않습니다.")
+        if not hasattr(self.llm_client, "generate_note_execution_report"):
+            raise RuntimeError("현재 LLM 클라이언트는 /note 결과 보고 생성을 지원하지 않습니다.")
+
+        obs_tree_lines = self.obsidian_manager.get_tree_lines(max_lines=120)
+        checked_files = self.obsidian_manager.get_checked_file_contents(
+            max_files=8,
+            max_chars_per_file=3000,
+            total_max_chars=12000,
+        )
+        plan_prompt = self.note_service.build_plan_prompt(
+            user_instruction=self.note_request,
+            obs_tree_lines=obs_tree_lines,
+            checked_files=checked_files,
+        )
+        plan_raw = await self.llm_client.generate_note_command_plan(plan_prompt)
+        planner_error = ""
+        plan = NotePlan(summary="요청 기반 실행", commands=[], stop_on_error=True)
+        results: list[NoteCommandResult] = []
+        try:
+            plan = self.note_service.parse_plan(plan_raw)
+            self.note_service.validate_plan(plan)
+            results = self.note_service.execute_plan(self.obsidian_manager, plan)
+        except Exception as e:
+            planner_error = str(e)
+            plan = NotePlan(summary=f"계획 오류 폴백: {planner_error[:120]}", commands=[], stop_on_error=True)
+
+        # 문서 작성 요청이면 "실제 본문 쓰기 성공"이 확인될 때까지 보강한다.
+        needs_document = self.note_service.is_document_generation_request(self.note_request)
+        wrote_content = self.note_service.has_successful_content_writing_result(plan, results)
+        if needs_document and not wrote_content:
+            target = (
+                self.note_service.extract_target_markdown_path(self.note_request)
+                or self.note_service.extract_target_markdown_path_from_plan(plan)
+            )
+            if target:
+                generated_markdown = await self.llm_client.generate_markdown_document(self.note_request)
+                if not (generated_markdown or "").strip():
+                    generated_markdown = self.note_service.build_default_markdown(self.note_request, target)
+                fallback_cmd = NoteCommand(
+                    args=["create", f"path={target}", f"content={generated_markdown}", "overwrite"],
+                    reason="문서 작성 보강: 본문이 없거나 쓰기 실패하여 create(content) 재시도",
+                )
+                completed = self.obsidian_manager.execute_cli_args(fallback_cmd.args)
+                fallback_stdout = (completed.stdout or "").strip()
+                fallback_stderr = (completed.stderr or "").strip()
+                fallback_ok = completed.returncode == 0 and not self.note_service.has_cli_error_output(
+                    fallback_stdout,
+                    fallback_stderr,
+                )
+                fallback_result = NoteCommandResult(
+                    args=fallback_cmd.args,
+                    returncode=int(completed.returncode),
+                    stdout=fallback_stdout[:5000],
+                    stderr=fallback_stderr[:3000],
+                    ok=fallback_ok,
+                )
+                plan = NotePlan(
+                    summary=plan.summary + " + content-write-fallback",
+                    commands=[*plan.commands, fallback_cmd],
+                    stop_on_error=plan.stop_on_error,
+                )
+                results = [*results, fallback_result]
+            elif not planner_error:
+                planner_error = "문서 작성 요청으로 감지됐지만 대상 .md 경로를 찾지 못했습니다."
+
+        self.note_service.save_run_log(
+            user_instruction=self.note_request,
+            plan=plan,
+            results=results,
+            plan_raw=plan_raw,
+            planner_error=planner_error,
+        )
+        report_context = self.note_service.build_report_context(
+            user_instruction=self.note_request,
+            plan=plan,
+            results=results,
+            planner_error=planner_error,
+        )
+        return await self.llm_client.generate_note_execution_report(report_context)
+
 
 class TTSWorker(QThread):
     """TTS 생성 및 립싱크 분석을 비동기로 처리하는 워커 스레드"""
@@ -210,6 +306,24 @@ class TTSWorker(QThread):
                 loop.close()
 
 
+class ObsidianTreeWorker(QThread):
+    """Obsidian 트리 조회를 백그라운드에서 처리하는 워커."""
+
+    tree_ready = pyqtSignal(str)
+    error_occurred = pyqtSignal(str)
+
+    def __init__(self, obsidian_manager):
+        super().__init__()
+        self.obsidian_manager = obsidian_manager
+
+    def run(self):
+        try:
+            payload = self.obsidian_manager.get_tree_json()
+            self.tree_ready.emit(payload)
+        except Exception as e:
+            self.error_occurred.emit(str(e))
+
+
 class WebBridge(QObject):
     """Python과 JavaScript 간 통신 브릿지"""
     
@@ -230,9 +344,15 @@ class WebBridge(QObject):
         self.settings = settings
         self.mood_manager = None
         self.diary_service = DiaryService("diary", settings=settings)
+        self.note_service = NoteService("note_runs")
         self.obs_settings = ObsSettings("obs_config.json")
         self.obsidian_manager = ObsidianManager(settings=self.settings, obs_settings=self.obs_settings)
         self.obs_panel_window = None
+        self.obs_tree_worker = None
+        self._cached_obs_tree_json = json.dumps(
+            {"ok": True, "nodes": [], "checked_files": self.obs_settings.get_checked_files()},
+            ensure_ascii=False
+        )
         
         # TTS 및 오디오 재생
         self.tts_client = None
@@ -642,6 +762,23 @@ class WebBridge(QObject):
         self.worker.error_occurred.connect(self._on_error)
         self.worker.start()
 
+    def _start_note_worker(self, note_request: str, message_with_time: str):
+        """Start /note worker."""
+        if self.worker and self.worker.isRunning():
+            print("[Bridge] Worker still running, waiting...")
+            self.worker.wait()
+
+        self.worker = AIWorker(
+            self.llm_client,
+            message_with_time,
+            note_request=note_request,
+            note_service=self.note_service,
+            obsidian_manager=self.obsidian_manager,
+        )
+        self.worker.response_ready.connect(self._on_response_ready)
+        self.worker.error_occurred.connect(self._on_error)
+        self.worker.start()
+
     def _handle_diary_command(self, message: str) -> bool:
         """'/diary' 명령을 감지해 로컬 저장 전용 처리한다."""
         is_diary, diary_body = self.diary_service.parse_diary_command(message)
@@ -668,11 +805,37 @@ class WebBridge(QObject):
         print("[Bridge] /diary worker thread started")
         return True
 
-    def _build_obsidian_context_block(self, include_checked_files: bool = True) -> str:
+    def _handle_note_command(self, message: str) -> bool:
+        """/note 명령을 감지해 계획-실행-보고 플로우를 처리한다."""
+        is_note, note_body = self.diary_service.parse_note_command(message)
+        if not is_note:
+            return False
+
+        self._mark_user_activity()
+        if self.mood_manager:
+            snapshot = self.mood_manager.on_user_message(message, image_count=0)
+            self._emit_mood_changed(snapshot)
+
+        if not note_body:
+            self.message_received.emit("`/note` 뒤에 실행할 내용을 함께 입력해 주세요.", "confused")
+            return True
+
+        timestamp = self._now_timestamp()
+        message_with_time = f"[현재 시각: {timestamp}]\n{note_body}"
+        self._last_request_payload = None
+        self._is_rerolling = False
+
+        self._start_note_worker(note_body, message_with_time)
+        print("[Bridge] /note worker thread started")
+        return True
+
+    def _build_obsidian_context_block(self, include_tree: bool = True, include_checked_files: bool = True) -> str:
         """Obsidian 트리/체크 파일 컨텍스트 블록을 생성한다."""
-        parts = ["[Obsidian 트리 구조]"]
-        for line in self.obsidian_manager.get_tree_lines(max_lines=120):
-            parts.append(f"- {line}")
+        parts: list[str] = []
+        if include_tree:
+            parts.append("[Obsidian 트리 구조]")
+            for line in self.obsidian_manager.get_tree_lines(max_lines=120):
+                parts.append(f"- {line}")
 
         if include_checked_files:
             checked_contents = self.obsidian_manager.get_checked_file_contents(
@@ -681,20 +844,21 @@ class WebBridge(QObject):
                 total_max_chars=12000,
             )
             if checked_contents:
-                parts.append("\n[Obsidian 체크된 파일 본문]")
+                parts.append("[Obsidian 체크된 파일 본문]")
                 for rel, content in checked_contents:
                     parts.append(f"[파일:{rel}]")
                     parts.append(content)
         return "\n".join(parts)
 
-    def _should_include_obsidian_context_in_general_chat(self) -> bool:
-        """일반 채팅에서 Obsidian 컨텍스트를 포함할지 설정값으로 판단한다."""
-        if not self.settings:
-            return False
-        try:
-            return bool(self.settings.get("include_obsidian_context_in_general_chat", False))
-        except Exception:
-            return False
+    def _build_general_chat_prompt(self, message: str) -> str:
+        """
+        일반 채팅 프롬프트를 구성한다.
+        체크된 파일 본문은 항상 기본 컨텍스트에 포함한다.
+        """
+        obs_context = self._build_obsidian_context_block(include_tree=False, include_checked_files=True).strip()
+        if not obs_context:
+            return message
+        return f"{obs_context}\n\n[사용자 메시지]\n{message}"
 
     def _parse_obs_subcommand(self, body: str) -> tuple[str, dict]:
         """
@@ -780,7 +944,7 @@ class WebBridge(QObject):
 
         # summarize/ask: Obsidian 컨텍스트 포함하여 LLM 질의
         timestamp = self._now_timestamp()
-        obs_context = self._build_obsidian_context_block(include_checked_files=True)
+        obs_context = self._build_obsidian_context_block(include_tree=True, include_checked_files=True)
         if command == "summarize":
             try:
                 target = self.obsidian_manager.read_file(payload["path"])
@@ -803,10 +967,9 @@ class WebBridge(QObject):
     @pyqtSlot(result=str)
     def get_obs_tree_json(self) -> str:
         """JS에서 호출: Obsidian 트리 구조를 JSON으로 반환."""
-        try:
-            return self.obsidian_manager.get_tree_json()
-        except Exception as e:
-            return json.dumps({"ok": False, "error": str(e), "nodes": []}, ensure_ascii=False)
+        # UI 블로킹을 피하기 위해 캐시를 즉시 반환하고 백그라운드 갱신을 시작한다.
+        self._start_obs_tree_refresh()
+        return self._cached_obs_tree_json
 
     @pyqtSlot(result=str)
     def get_obs_checked_files_json(self) -> str:
@@ -822,17 +985,15 @@ class WebBridge(QObject):
         """JS에서 호출: 파일 체크 상태를 저장한다."""
         try:
             self.obs_settings.set_file_checked(rel_path, bool(checked))
-            self.obs_tree_updated.emit(self.obsidian_manager.get_tree_json())
+            # 체크 상태 변경은 CLI 재호출 없이 캐시에 즉시 반영해 UI 지연을 줄인다.
+            self._emit_obs_tree_with_updated_checked_files()
         except Exception as e:
             print(f"[Bridge] set_obs_file_checked failed: {e}")
 
     @pyqtSlot()
     def refresh_obs_tree(self):
         """JS에서 호출: 트리를 새로고침한다."""
-        try:
-            self.obs_tree_updated.emit(self.obsidian_manager.get_tree_json())
-        except Exception as e:
-            print(f"[Bridge] refresh_obs_tree failed: {e}")
+        self._start_obs_tree_refresh()
 
     @pyqtSlot()
     def toggle_obs_panel(self):
@@ -853,9 +1014,48 @@ class WebBridge(QObject):
                 panel.activateWindow()
                 self.obs_settings.set("panel_visible", True)
                 self.obs_settings.save()
-                self.refresh_obs_tree()
+                # 표시를 먼저 완료하고 트리는 백그라운드에서 갱신한다.
+                QTimer.singleShot(0, self.refresh_obs_tree)
         except Exception as e:
             print(f"[Bridge] toggle_obs_panel failed: {e}")
+
+    def _start_obs_tree_refresh(self):
+        """Obsidian 트리 갱신을 백그라운드 워커로 실행한다."""
+        if self.obs_tree_worker and self.obs_tree_worker.isRunning():
+            return
+
+        self.obs_tree_worker = ObsidianTreeWorker(self.obsidian_manager)
+        self.obs_tree_worker.tree_ready.connect(self._on_obs_tree_ready)
+        self.obs_tree_worker.error_occurred.connect(self._on_obs_tree_error)
+        self.obs_tree_worker.start()
+
+    def _on_obs_tree_ready(self, tree_json: str):
+        self._cached_obs_tree_json = tree_json
+        self.obs_tree_updated.emit(tree_json)
+
+    def _on_obs_tree_error(self, error_msg: str):
+        payload = json.dumps({"ok": False, "error": f"Obsidian 트리 갱신 실패: {error_msg}", "nodes": []}, ensure_ascii=False)
+        self._cached_obs_tree_json = payload
+        self.obs_tree_updated.emit(payload)
+
+    def _emit_obs_tree_with_updated_checked_files(self):
+        checked = self.obs_settings.get_checked_files()
+        try:
+            parsed = json.loads(self._cached_obs_tree_json or "{}")
+            if not isinstance(parsed, dict):
+                parsed = {}
+        except Exception:
+            parsed = {}
+
+        if "ok" not in parsed:
+            parsed["ok"] = True
+        parsed["checked_files"] = checked
+        if "nodes" not in parsed:
+            parsed["nodes"] = []
+
+        payload = json.dumps(parsed, ensure_ascii=False)
+        self._cached_obs_tree_json = payload
+        self.obs_tree_updated.emit(payload)
     @pyqtSlot(str)
     def send_to_ai(self, message: str):
         """JavaScript에서 호출: 사용자 텍스트 메시지를 AI로 전송."""
@@ -870,6 +1070,9 @@ class WebBridge(QObject):
             self.message_received.emit("AI가 초기화되지 않았어요.", "sad")
             return
 
+        if self._handle_note_command(message):
+            return
+
         if self._handle_obs_command(message):
             return
 
@@ -877,10 +1080,7 @@ class WebBridge(QObject):
             return
 
         timestamp = self._now_timestamp()
-        prompt = message
-        if self._should_include_obsidian_context_in_general_chat():
-            obs_context = self._build_obsidian_context_block(include_checked_files=True)
-            prompt = f"{obs_context}\n\n[사용자 메시지]\n{message}"
+        prompt = self._build_general_chat_prompt(message)
         message_with_time = f"[현재 시각: {timestamp}]\n{prompt}"
         print(f"[Bridge] Message with timestamp: {message_with_time}")
 
@@ -921,10 +1121,7 @@ class WebBridge(QObject):
             images_data = []
 
         timestamp = self._now_timestamp()
-        prompt = message
-        if self._should_include_obsidian_context_in_general_chat():
-            obs_context = self._build_obsidian_context_block(include_checked_files=True)
-            prompt = f"{obs_context}\n\n[사용자 메시지]\n{message}"
+        prompt = self._build_general_chat_prompt(message)
         message_with_time = f"[현재 시각: {timestamp}]\n{prompt}"
 
         self._mark_user_activity()

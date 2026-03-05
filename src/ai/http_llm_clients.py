@@ -63,6 +63,16 @@ class _CommonMixin:
         response_text = self._request_one_shot_raw(context_message, include_sub_prompt=True)
         return self._parse_response(response_text)
 
+    async def generate_note_command_plan(self, context_message: str) -> str:
+        memory_context = await self._build_memory_context(context_message)
+        enhanced = f"{memory_context}\n\n{context_message}" if memory_context else context_message
+        response_text = self._request_one_shot_raw(enhanced, include_sub_prompt=False)
+        return (response_text or "").strip()
+
+    async def generate_note_execution_report(self, context_message: str) -> Tuple[str, str, str, List[Dict]]:
+        response_text = self._request_one_shot_raw(context_message, include_sub_prompt=True)
+        return self._parse_response(response_text)
+
     def _parse_response(self, response_text: str) -> Tuple[str, str, str, List[Dict]]:
         try:
             from .llm_client import GeminiClient

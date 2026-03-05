@@ -8,6 +8,8 @@ class DummySettings:
         self._values = {
             "obsidian_cli_bin": "obsidian",
             "obsidian_cli_timeout_sec": 7,
+            "obsidian_cli_retry_count": 2,
+            "obsidian_cli_retry_delay_ms": 1,
         }
 
     def get(self, key, default=None):
@@ -156,3 +158,49 @@ def test_run_cli_supports_multi_token_cli_bin(monkeypatch):
     assert completed.stdout == "ok"
     assert captured["shell"] is False
     assert captured["cmd"] == ["npx", "obsidian", "files"]
+
+
+def test_run_cli_retries_non_mutating_command(monkeypatch):
+    manager = ObsidianManager(settings=DummySettings(), obs_settings=DummyObsSettings())
+    call_count = {"n": 0}
+
+    class FailedCompleted:
+        returncode = 1
+        stdout = ""
+        stderr = ""
+
+    class OkCompleted:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    def fake_once(_args):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            return FailedCompleted()
+        return OkCompleted()
+
+    monkeypatch.setattr(manager, "_run_cli_once", fake_once)
+
+    completed = manager._run_cli(["files"])
+    assert completed.returncode == 0
+    assert call_count["n"] == 2
+
+
+def test_run_cli_does_not_retry_mutating_command(monkeypatch):
+    manager = ObsidianManager(settings=DummySettings(), obs_settings=DummyObsSettings())
+    call_count = {"n": 0}
+
+    class FailedCompleted:
+        returncode = 1
+        stdout = ""
+        stderr = ""
+
+    def fake_once(_args):
+        call_count["n"] += 1
+        return FailedCompleted()
+
+    monkeypatch.setattr(manager, "_run_cli_once", fake_once)
+    completed = manager._run_cli(["append", "notes/a.md", "hello"])
+    assert completed.returncode == 1
+    assert call_count["n"] == 1

@@ -435,13 +435,6 @@ class SettingsDialog(QDialog):
         tracking_row.addStretch()
         layout.addLayout(tracking_row)
 
-        obs_context_row = QHBoxLayout()
-        self.include_obsidian_context_in_general_chat_check = QCheckBox("일반 채팅에 Obsidian 컨텍스트 포함")
-        self.include_obsidian_context_in_general_chat_check.toggled.connect(self._on_setting_changed)
-        obs_context_row.addWidget(self.include_obsidian_context_in_general_chat_check)
-        obs_context_row.addStretch()
-        layout.addLayout(obs_context_row)
-
         floating_row = QHBoxLayout()
         self.show_obsidian_note_button_check = QCheckBox("노트 버튼 표시")
         self.show_obsidian_note_button_check.toggled.connect(self._on_setting_changed)
@@ -703,9 +696,6 @@ class SettingsDialog(QDialog):
             self.show_mood_toggle_button_check.setChecked(
                 self._original_settings.get("show_mood_toggle_button", True)
             )
-            self.include_obsidian_context_in_general_chat_check.setChecked(
-                self._original_settings.get("include_obsidian_context_in_general_chat", False)
-            )
             self.mouse_tracking_check.setChecked(self._original_settings.get("mouse_tracking_enabled", True))
 
             self.idle_motion_check.setChecked(self._original_settings.get("enable_idle_motion", True))
@@ -866,7 +856,6 @@ class SettingsDialog(QDialog):
             "show_manual_summary_button": self.show_manual_summary_button_check.isChecked(),
             "show_obsidian_note_button": self.show_obsidian_note_button_check.isChecked(),
             "show_mood_toggle_button": self.show_mood_toggle_button_check.isChecked(),
-            "include_obsidian_context_in_general_chat": self.include_obsidian_context_in_general_chat_check.isChecked(),
             "mouse_tracking_enabled": self.mouse_tracking_check.isChecked(),
             "enable_idle_motion": self.idle_motion_check.isChecked(),
             "idle_motion_dynamic_mode": self.idle_motion_dynamic_check.isChecked(),

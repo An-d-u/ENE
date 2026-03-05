@@ -71,6 +71,20 @@ def test_obs_command_parse():
     assert body3 == ""
 
 
+def test_note_command_parse():
+    is_note, body = DiaryService.parse_note_command("/note test.md 요약해줘")
+    assert is_note is True
+    assert body == "test.md 요약해줘"
+
+    is_note2, body2 = DiaryService.parse_note_command("/note   ")
+    assert is_note2 is True
+    assert body2 == ""
+
+    is_note3, body3 = DiaryService.parse_note_command("일반 메시지")
+    assert is_note3 is False
+    assert body3 == ""
+
+
 def test_diary_save_markdown_creates_utf8_bom_file(tmp_path: Path):
     service = DiaryService(tmp_path / "diary")
     result = service.save_markdown("기획서 초안을 써줘", "# 제목\n\n본문")
@@ -270,6 +284,76 @@ def test_bridge_send_to_ai_routes_obs(monkeypatch):
     assert called["diary"] == 0
 
 
+def test_bridge_send_to_ai_routes_note(monkeypatch):
+    _ensure_qt_app()
+
+    bridge = WebBridge()
+    bridge.llm_client = object()
+
+    called = {"note": 0, "obs": 0, "diary": 0}
+
+    def fake_note(message: str) -> bool:
+        called["note"] += 1
+        return True
+
+    def fake_obs(message: str) -> bool:
+        called["obs"] += 1
+        return False
+
+    def fake_diary(message: str) -> bool:
+        called["diary"] += 1
+        return False
+
+    monkeypatch.setattr(bridge, "_handle_note_command", fake_note)
+    monkeypatch.setattr(bridge, "_handle_obs_command", fake_obs)
+    monkeypatch.setattr(bridge, "_handle_diary_command", fake_diary)
+
+    bridge.send_to_ai("/note 테스트")
+
+    assert called["note"] == 1
+    assert called["obs"] == 0
+    assert called["diary"] == 0
+
+
+def test_bridge_general_chat_includes_checked_obsidian_context(monkeypatch):
+    _ensure_qt_app()
+
+    bridge = WebBridge()
+    bridge.llm_client = object()
+
+    class DummyObsManager:
+        def get_checked_file_contents(self, **kwargs):
+            return [("notes/test.md", "# 테스트\n본문")]
+
+    bridge.obsidian_manager = DummyObsManager()
+
+    captured = {}
+
+    def fake_note(message: str) -> bool:
+        return False
+
+    def fake_obs(message: str) -> bool:
+        return False
+
+    def fake_diary(message: str) -> bool:
+        return False
+
+    def fake_start(message_with_time: str, images_data=None):
+        captured["message_with_time"] = message_with_time
+
+    monkeypatch.setattr(bridge, "_handle_note_command", fake_note)
+    monkeypatch.setattr(bridge, "_handle_obs_command", fake_obs)
+    monkeypatch.setattr(bridge, "_handle_diary_command", fake_diary)
+    monkeypatch.setattr(bridge, "_start_ai_worker", fake_start)
+
+    bridge.send_to_ai("안녕")
+
+    assert "[Obsidian 체크된 파일 본문]" in captured["message_with_time"]
+    assert "[파일:notes/test.md]" in captured["message_with_time"]
+    assert "# 테스트" in captured["message_with_time"]
+    assert "[사용자 메시지]\n안녕" in captured["message_with_time"]
+
+
 def test_bridge_obs_append_command_emits_success():
     _ensure_qt_app()
 
@@ -363,6 +447,130 @@ def test_aiworker_diary_flow_uses_one_shot_and_does_not_need_history(tmp_path: P
     assert result[0].startswith("성공적으로 파일 작성에 완료되었습니다.")
     saved_files = list((tmp_path / "diary").glob("*.md"))
     assert len(saved_files) == 1
+
+
+def test_aiworker_note_flow_fallbacks_when_plan_write_content_is_empty():
+    _ensure_qt_app()
+
+    class DummyLLM:
+        async def generate_note_command_plan(self, context_message: str) -> str:
+            return """
+# NOTE PLAN
+- summary: 빈 본문 계획
+- stop_on_error: true
+## COMMANDS
+1. obsidian write "ene_01.md" ""
+"""
+
+        async def generate_markdown_document(self, message: str) -> str:
+            return "# 에네의 자기소개\n\n안녕하세요, 에네입니다."
+
+        async def generate_note_execution_report(self, context_message: str):
+            assert "content-write-fallback" in context_message
+            return "완료 보고", "normal", "", []
+
+    class DummyCompleted:
+        def __init__(self):
+            self.returncode = 0
+            self.stdout = "ok"
+            self.stderr = ""
+
+    class DummyObsManager:
+        def __init__(self):
+            self.calls = []
+
+        def get_tree_lines(self, max_lines=120):
+            return ["[FILE] ene_01.md"]
+
+        def get_checked_file_contents(self, **kwargs):
+            return []
+
+        def execute_cli_args(self, args):
+            self.calls.append(list(args))
+            return DummyCompleted()
+
+    from src.ai.note_service import NoteService
+    from src.core.bridge import AIWorker
+
+    manager = DummyObsManager()
+    worker = AIWorker(
+        llm_client=DummyLLM(),
+        message="[현재 시각: 2026-03-06 10:00]\n에네 자기소개 작성",
+        note_request="에네의 자기소개를 ene_01.md라는 제목으로 작성해줘",
+        note_service=NoteService(),
+        obsidian_manager=manager,
+    )
+
+    result = asyncio.run(worker._run_note_flow())
+    assert result[0] == "완료 보고"
+    assert len(manager.calls) == 1
+    assert manager.calls[0][0] == "create"
+    assert manager.calls[0][1] == "path=ene_01.md"
+    assert manager.calls[0][2].startswith("content=# 에네의 자기소개")
+    assert "overwrite" in manager.calls[0]
+
+
+def test_aiworker_note_flow_uses_plan_path_when_request_has_no_md_path():
+    _ensure_qt_app()
+
+    class DummyLLM:
+        async def generate_note_command_plan(self, context_message: str) -> str:
+            return """
+# NOTE PLAN
+- summary: 경로는 계획에서 제공
+- stop_on_error: true
+## COMMANDS
+1. obsidian create "notes/ene_auto.md"
+"""
+
+        async def generate_markdown_document(self, message: str) -> str:
+            return "# 자동 생성\n\n본문"
+
+        async def generate_note_execution_report(self, context_message: str):
+            assert "notes/ene_auto.md" in context_message
+            return "완료 보고", "normal", "", []
+
+    class DummyCompleted:
+        def __init__(self):
+            self.returncode = 0
+            self.stdout = "ok"
+            self.stderr = ""
+
+    class DummyObsManager:
+        def __init__(self):
+            self.calls = []
+
+        def get_tree_lines(self, max_lines=120):
+            return []
+
+        def get_checked_file_contents(self, **kwargs):
+            return []
+
+        def execute_cli_args(self, args):
+            self.calls.append(list(args))
+            return DummyCompleted()
+
+    from src.ai.note_service import NoteService
+    from src.core.bridge import AIWorker
+
+    manager = DummyObsManager()
+    worker = AIWorker(
+        llm_client=DummyLLM(),
+        message="[현재 시각: 2026-03-06 10:00]\n에네 자기소개 작성",
+        note_request="에네의 자기소개를 작성해줘",
+        note_service=NoteService(),
+        obsidian_manager=manager,
+    )
+
+    result = asyncio.run(worker._run_note_flow())
+    assert result[0] == "완료 보고"
+    assert len(manager.calls) == 2
+    assert manager.calls[0][0] == "create"
+    assert manager.calls[0][1] == "path=notes/ene_auto.md"
+    assert manager.calls[1][0] == "create"
+    assert manager.calls[1][1] == "path=notes/ene_auto.md"
+    assert manager.calls[1][2].startswith("content=# 자동 생성")
+    assert "overwrite" in manager.calls[1]
 
 def test_bridge_tts_error_restores_pending_response():
     _ensure_qt_app()
