@@ -11,6 +11,8 @@ import shlex
 import shutil
 import subprocess
 import sys
+import threading
+import time
 from pathlib import PurePosixPath
 
 
@@ -27,6 +29,7 @@ class ObsidianManager:
     def __init__(self, settings, obs_settings):
         self.settings = settings
         self.obs_settings = obs_settings
+        self._cli_lock = threading.RLock()
 
     def _cli_bin(self) -> str:
         if self.settings is None:
@@ -38,6 +41,18 @@ class ObsidianManager:
             return 20
         value = int(self.settings.get("obsidian_cli_timeout_sec", 20) or 20)
         return max(1, min(value, 120))
+
+    def _retry_count(self) -> int:
+        if self.settings is None:
+            return 2
+        value = int(self.settings.get("obsidian_cli_retry_count", 2) or 2)
+        return max(0, min(value, 5))
+
+    def _retry_delay_sec(self) -> float:
+        if self.settings is None:
+            return 0.5
+        value_ms = int(self.settings.get("obsidian_cli_retry_delay_ms", 500) or 500)
+        return max(0.1, min(value_ms, 5000)) / 1000.0
 
     def _resolve_cli_candidates(self) -> list[str]:
         """
@@ -91,7 +106,45 @@ class ObsidianManager:
             parts = [raw]
         return parts or ["obsidian"]
 
-    def _run_cli(self, args: list[str]) -> subprocess.CompletedProcess:
+    @staticmethod
+    def _is_mutating_command(args: list[str]) -> bool:
+        if not args:
+            return False
+        cmd = str(args[0]).strip().lower()
+        return cmd in {"append", "update", "write"}
+
+    @staticmethod
+    def _looks_transient_error(stderr_text: str) -> bool:
+        text = (stderr_text or "").lower()
+        transient_hints = (
+            "timed out",
+            "timeout",
+            "temporar",
+            "busy",
+            "try again",
+            "connection",
+            "econn",
+            "resource",
+            "잠시",
+            "일시",
+        )
+        return any(hint in text for hint in transient_hints)
+
+    @staticmethod
+    def _is_retryable_exception(exc: Exception) -> bool:
+        if isinstance(exc, subprocess.TimeoutExpired):
+            return True
+        if isinstance(exc, OSError):
+            return True
+        text = str(exc).lower()
+        if "timed out" in text or "timeout" in text:
+            return True
+        # 실행 파일 미탐색은 재시도해도 성공 가능성이 낮다.
+        if "실행 파일을 찾지 못했습니다" in text:
+            return False
+        return False
+
+    def _run_cli_once(self, args: list[str]) -> subprocess.CompletedProcess:
         timeout = self._timeout_sec()
         last_error: Exception | None = None
         base_parts = self._split_cli_bin()
@@ -154,6 +207,62 @@ class ObsidianManager:
         if last_error:
             raise RuntimeError(f"Obsidian CLI 실행 파일을 찾지 못했습니다. ({details}) 원인: {last_error}") from last_error
         raise RuntimeError(f"Obsidian CLI 실행에 실패했습니다. ({details})")
+
+    def _run_cli(self, args: list[str]) -> subprocess.CompletedProcess:
+        """
+        Obsidian CLI 실행 진입점.
+        - 동시 실행 충돌을 줄이기 위해 전역 락 적용
+        - 비파괴 명령에 한해 재시도(backoff) 적용
+        - 상세 로그 출력
+        """
+        max_attempts = 1 + self._retry_count()
+        retryable = not self._is_mutating_command(args)
+        delay = self._retry_delay_sec()
+        last_exception: Exception | None = None
+        last_completed: subprocess.CompletedProcess | None = None
+
+        with self._cli_lock:
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    completed = self._run_cli_once(args)
+                    last_completed = completed
+                    stderr = (completed.stderr or "").strip()
+                    if completed.returncode == 0:
+                        if attempt > 1:
+                            print(f"[ObsidianCLI] 복구 성공 (attempt {attempt}/{max_attempts}) args={args}")
+                        return completed
+
+                    print(
+                        f"[ObsidianCLI] 실패 rc={completed.returncode} "
+                        f"(attempt {attempt}/{max_attempts}) args={args} stderr={stderr[:240]}"
+                    )
+                    should_retry = (
+                        retryable
+                        and attempt < max_attempts
+                        and (self._looks_transient_error(stderr) or not stderr)
+                    )
+                    if should_retry:
+                        time.sleep(delay * (2 ** (attempt - 1)))
+                        continue
+                    return completed
+                except Exception as e:
+                    last_exception = e
+                    print(f"[ObsidianCLI] 예외 (attempt {attempt}/{max_attempts}) args={args}: {e}")
+                    should_retry = retryable and attempt < max_attempts and self._is_retryable_exception(e)
+                    if should_retry:
+                        time.sleep(delay * (2 ** (attempt - 1)))
+                        continue
+                    raise
+
+        if last_exception:
+            raise last_exception
+        if last_completed is not None:
+            return last_completed
+        raise RuntimeError("Obsidian CLI 실행 결과를 얻지 못했습니다.")
+
+    def execute_cli_args(self, args: list[str]) -> subprocess.CompletedProcess:
+        """외부 오케스트레이터에서 사용할 CLI 실행 진입점."""
+        return self._run_cli(list(args or []))
 
     @staticmethod
     def _looks_like_not_found(stderr_text: str) -> bool:

@@ -106,7 +106,7 @@ class ObsidianPanelWindow(QWidget):
 
         self.title_label = QLabel("Obsidian", self.header)
         self.title_label.setObjectName("obsTitle")
-        self.subtitle_label = QLabel("드래그로 이동 / 체크 파일은 /obs 컨텍스트 포함", self.header)
+        self.subtitle_label = QLabel("드래그로 이동 / 체크 파일은 컨텍스트에 포함", self.header)
         self.subtitle_label.setObjectName("obsSubTitle")
         subtitle_wrap = QVBoxLayout()
         subtitle_wrap.setContentsMargins(0, 0, 0, 0)
