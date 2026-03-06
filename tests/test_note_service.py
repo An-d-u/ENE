@@ -161,3 +161,32 @@ def test_execute_plan_treats_stdout_error_as_failure():
     results = service.execute_plan(DummyManager(), plan)
     assert len(results) == 1
     assert results[0].ok is False
+
+
+def test_parse_plan_keeps_quoted_content_value_as_single_token():
+    service = NoteService()
+    raw = """
+# NOTE PLAN
+- summary: quoted content
+- stop_on_error: true
+## COMMANDS
+1. obsidian create path="자소서.md" content="# 자기소개서\\n\\n- 성함: 양승완\\n- 전공: 컴퓨터과학"
+"""
+    plan = service.parse_plan(raw)
+    assert len(plan.commands) == 1
+    args = plan.commands[0].args
+    assert args[0] == "create"
+    assert args[1] == "path=자소서.md"
+    assert args[2].startswith("content=# 자기소개서")
+
+
+def test_build_plan_prompt_includes_recent_context_block():
+    service = NoteService()
+    prompt = service.build_plan_prompt(
+        user_instruction="자기소개서 수정해줘",
+        obs_tree_lines=[],
+        checked_files=[],
+        recent_context="[2026-03-07 00:10][마스터] 가쿠치카 보강해줘",
+    )
+    assert "[최근 대화 맥락]" in prompt
+    assert "가쿠치카 보강해줘" in prompt

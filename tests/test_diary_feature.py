@@ -315,6 +315,80 @@ def test_bridge_send_to_ai_routes_note(monkeypatch):
     assert called["diary"] == 0
 
 
+def test_bridge_note_recent_context_includes_last_n_turns(monkeypatch):
+    _ensure_qt_app()
+
+    bridge = WebBridge()
+    bridge.llm_client = object()
+    bridge.conversation_buffer = [
+        ("user", "첫 질문", "2026-03-07 00:01"),
+        ("assistant", "첫 답변", "2026-03-07 00:01"),
+        ("user", "둘째 질문", "2026-03-07 00:02"),
+        ("assistant", "둘째 답변", "2026-03-07 00:02"),
+    ]
+
+    class DummySettings:
+        def get(self, key, default=None):
+            values = {
+                "note_include_recent_context": True,
+                "note_recent_context_turns": 1,
+            }
+            return values.get(key, default)
+
+    bridge.settings = DummySettings()
+    captured = {}
+
+    def fake_start(note_request: str, message_with_time: str, note_recent_context: str = ""):
+        captured["note_request"] = note_request
+        captured["message_with_time"] = message_with_time
+        captured["note_recent_context"] = note_recent_context
+
+    monkeypatch.setattr(bridge, "_start_note_worker", fake_start)
+
+    handled = bridge._handle_note_command("/note 자기소개서 수정해줘")
+    assert handled is True
+    assert captured["note_request"] == "자기소개서 수정해줘"
+    assert "둘째 질문" in captured["note_recent_context"]
+    assert "둘째 답변" in captured["note_recent_context"]
+    assert "첫 질문" not in captured["note_recent_context"]
+
+
+def test_bridge_note_recent_context_zero_includes_full_session(monkeypatch):
+    _ensure_qt_app()
+
+    bridge = WebBridge()
+    bridge.llm_client = object()
+    bridge.conversation_buffer = [
+        ("user", "첫 질문", "2026-03-07 00:01"),
+        ("assistant", "첫 답변", "2026-03-07 00:01"),
+        ("user", "둘째 질문", "2026-03-07 00:02"),
+        ("assistant", "둘째 답변", "2026-03-07 00:02"),
+    ]
+
+    class DummySettings:
+        def get(self, key, default=None):
+            values = {
+                "note_include_recent_context": True,
+                "note_recent_context_turns": 0,
+            }
+            return values.get(key, default)
+
+    bridge.settings = DummySettings()
+    captured = {}
+
+    def fake_start(note_request: str, message_with_time: str, note_recent_context: str = ""):
+        captured["note_recent_context"] = note_recent_context
+
+    monkeypatch.setattr(bridge, "_start_note_worker", fake_start)
+
+    handled = bridge._handle_note_command("/note 자기소개서 수정해줘")
+    assert handled is True
+    assert "첫 질문" in captured["note_recent_context"]
+    assert "첫 답변" in captured["note_recent_context"]
+    assert "둘째 질문" in captured["note_recent_context"]
+    assert "둘째 답변" in captured["note_recent_context"]
+
+
 def test_bridge_general_chat_includes_checked_obsidian_context(monkeypatch):
     _ensure_qt_app()
 
