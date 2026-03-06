@@ -10,6 +10,8 @@ def test_load_missing_file_uses_default_config(tmp_path):
     assert settings.get("window_width") == Settings.DEFAULT_CONFIG["window_width"]
     assert settings.get("enable_away_nudge") is True
     assert settings.get("show_obsidian_note_button") is True
+    assert settings.get("note_include_recent_context") is False
+    assert settings.get("note_recent_context_turns") == 4
 
 
 def test_save_and_reload_roundtrip(tmp_path):
