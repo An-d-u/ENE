@@ -39,6 +39,7 @@ class AIWorker(QThread):
         images=None,
         diary_request: str = "",
         note_request: str = "",
+        note_recent_context: str = "",
         diary_service: DiaryService | None = None,
         note_service: NoteService | None = None,
         obsidian_manager=None,
@@ -51,6 +52,7 @@ class AIWorker(QThread):
         self.images = images or []  # 이미지 데이터 리스트
         self.diary_request = (diary_request or "").strip()
         self.note_request = (note_request or "").strip()
+        self.note_recent_context = (note_recent_context or "").strip()
         self.diary_service = diary_service
         self.note_service = note_service
         self.obsidian_manager = obsidian_manager
@@ -170,6 +172,7 @@ class AIWorker(QThread):
             user_instruction=self.note_request,
             obs_tree_lines=obs_tree_lines,
             checked_files=checked_files,
+            recent_context=self.note_recent_context,
         )
         plan_raw = await self.llm_client.generate_note_command_plan(plan_prompt)
         planner_error = ""
@@ -762,7 +765,7 @@ class WebBridge(QObject):
         self.worker.error_occurred.connect(self._on_error)
         self.worker.start()
 
-    def _start_note_worker(self, note_request: str, message_with_time: str):
+    def _start_note_worker(self, note_request: str, message_with_time: str, note_recent_context: str = ""):
         """Start /note worker."""
         if self.worker and self.worker.isRunning():
             print("[Bridge] Worker still running, waiting...")
@@ -772,12 +775,52 @@ class WebBridge(QObject):
             self.llm_client,
             message_with_time,
             note_request=note_request,
+            note_recent_context=note_recent_context,
             note_service=self.note_service,
             obsidian_manager=self.obsidian_manager,
         )
         self.worker.response_ready.connect(self._on_response_ready)
         self.worker.error_occurred.connect(self._on_error)
         self.worker.start()
+
+    def _resolve_note_context_settings(self) -> tuple[bool, int]:
+        """노트 최근 대화 주입 설정을 읽어 정규화한다."""
+        if not self.settings:
+            return False, 0
+        try:
+            enabled = bool(self.settings.get("note_include_recent_context", False))
+            turns = int(self.settings.get("note_recent_context_turns", 4) or 0)
+        except Exception:
+            return False, 0
+        turns = max(0, min(turns, 200))
+        return enabled, turns
+
+    def _build_note_recent_context(self, max_turns: int) -> str:
+        """
+        /note 계획 프롬프트에 넣을 최근 대화 맥락을 생성한다.
+        - max_turns == 0: 현재 세션 전체
+        - max_turns > 0: 최근 N턴(사용자+에네 페어 단위)
+        """
+        if not self.conversation_buffer:
+            return ""
+
+        entries = list(self.conversation_buffer)
+        if max_turns > 0:
+            entries = entries[-(max_turns * 2):]
+
+        lines: list[str] = []
+        for item in entries:
+            if not item or len(item) < 2:
+                continue
+            role = str(item[0]).strip().lower()
+            text = str(item[1] or "").strip()
+            if not text:
+                continue
+            ts = str(item[2]).strip() if len(item) >= 3 and item[2] else ""
+            role_label = "마스터" if role == "user" else "에네" if role == "assistant" else role
+            prefix = f"[{ts}][{role_label}]" if ts else f"[{role_label}]"
+            lines.append(f"{prefix} {text}")
+        return "\n".join(lines).strip()
 
     def _handle_diary_command(self, message: str) -> bool:
         """'/diary' 명령을 감지해 로컬 저장 전용 처리한다."""
@@ -825,7 +868,10 @@ class WebBridge(QObject):
         self._last_request_payload = None
         self._is_rerolling = False
 
-        self._start_note_worker(note_body, message_with_time)
+        use_recent_context, recent_turns = self._resolve_note_context_settings()
+        note_recent_context = self._build_note_recent_context(recent_turns) if use_recent_context else ""
+
+        self._start_note_worker(note_body, message_with_time, note_recent_context)
         print("[Bridge] /note worker thread started")
         return True
 
