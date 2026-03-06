@@ -8,6 +8,7 @@ from datetime import datetime
 import json
 from pathlib import Path
 import re
+import shlex
 
 
 @dataclass(frozen=True)
@@ -34,7 +35,6 @@ class NoteCommandResult:
 
 class NoteService:
     """LLM 계획 기반 /note 실행을 담당한다."""
-    _TOKEN_PATTERN = re.compile(r'"([^"]*)"|\'([^\']*)\'|(\S+)')
 
     # https://aiandgamedev.com/ai/obsidian-cli-guide/ 기반으로 정리한 허용 명령 집합
     ALLOWED_COMMANDS = {
@@ -153,16 +153,27 @@ class NoteService:
                         continue
         return ""
 
-    def build_plan_prompt(self, user_instruction: str, obs_tree_lines: list[str], checked_files: list[tuple[str, str]]) -> str:
+    def build_plan_prompt(
+        self,
+        user_instruction: str,
+        obs_tree_lines: list[str],
+        checked_files: list[tuple[str, str]],
+        recent_context: str = "",
+    ) -> str:
         tree_block = "\n".join(f"- {line}" for line in (obs_tree_lines or []))
         checked_block_lines: list[str] = []
         for rel, content in checked_files or []:
             checked_block_lines.append(f"[파일:{rel}]")
             checked_block_lines.append(content)
         checked_block = "\n".join(checked_block_lines)
+        recent_block = (recent_context or "").strip()
 
         cli_ref = self.load_cli_reference_text()
         ref_block = f"\n[Obsidian CLI 레퍼런스]\n{cli_ref}\n" if cli_ref else ""
+
+        recent_context_section = ""
+        if recent_block:
+            recent_context_section = f"[최근 대화 맥락]\n{recent_block}\n\n"
 
         return (
             "너의 작업은 /note 요청을 Obsidian CLI 실행 계획(Markdown)으로 만드는 것이다.\n"
@@ -187,6 +198,7 @@ class NoteService:
             f"{tree_block}\n\n"
             "[체크된 파일 본문]\n"
             f"{checked_block}\n\n"
+            f"{recent_context_section}"
             "[사용자 요청]\n"
             f"{user_instruction}\n"
         ).strip()
@@ -245,16 +257,71 @@ class NoteService:
                 reasons.append(match.group(1).strip())
         return reasons
 
+    @staticmethod
+    def _split_tokens_preserve_backslash(raw: str) -> list[str]:
+        tokens: list[str] = []
+        buf: list[str] = []
+        quote: str | None = None
+        i = 0
+        n = len(raw)
+
+        def flush():
+            if buf:
+                tokens.append("".join(buf))
+                buf.clear()
+
+        while i < n:
+            ch = raw[i]
+            if quote is None:
+                if ch.isspace():
+                    flush()
+                    i += 1
+                    continue
+                if ch in {"'", '"'}:
+                    quote = ch
+                    i += 1
+                    continue
+                buf.append(ch)
+                i += 1
+                continue
+
+            if ch == "\\":
+                nxt = raw[i + 1] if i + 1 < n else ""
+                if nxt in {quote, "\\"}:
+                    buf.append(nxt)
+                    i += 2
+                    continue
+                # \n 같은 시퀀스는 원문 보존을 위해 백슬래시를 유지한다.
+                buf.append("\\")
+                i += 1
+                continue
+
+            if ch == quote:
+                quote = None
+                i += 1
+                continue
+
+            buf.append(ch)
+            i += 1
+
+        flush()
+        return tokens
+
     def _tokenize_command(self, command_line: str) -> list[str]:
         raw = (command_line or "").strip()
         if not raw:
             return []
-        tokens: list[str] = []
-        for match in self._TOKEN_PATTERN.finditer(raw):
-            token = next((group for group in match.groups() if group is not None), None)
-            if token is None:
-                continue
-            tokens.append(token)
+        try:
+            tokens = shlex.split(raw, posix=True)
+        except Exception:
+            tokens = self._split_tokens_preserve_backslash(raw)
+
+        # shlex가 백슬래시 경로를 소거한 것으로 보이면 보존 파서로 재시도한다.
+        if "\\" in raw and all("\\" not in token for token in tokens):
+            fallback = self._split_tokens_preserve_backslash(raw)
+            if fallback:
+                tokens = fallback
+
         if tokens and tokens[0].lower() == "obsidian":
             tokens = tokens[1:]
         return tokens

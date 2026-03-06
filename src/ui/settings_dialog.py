@@ -446,6 +446,23 @@ class SettingsDialog(QDialog):
         floating_row.addStretch()
         layout.addLayout(floating_row)
 
+        note_group = QGroupBox("노트 설정")
+        note_layout = QFormLayout(note_group)
+        note_layout.setSpacing(8)
+        note_layout.setContentsMargins(10, 15, 10, 10)
+
+        self.note_include_recent_context_check = QCheckBox("/note에 최근 대화 맥락 자동 주입")
+        self.note_include_recent_context_check.toggled.connect(self._on_note_context_toggle)
+        note_layout.addRow(self.note_include_recent_context_check)
+
+        self.note_recent_context_turns_spin = QSpinBox()
+        self.note_recent_context_turns_spin.setRange(0, 200)
+        self.note_recent_context_turns_spin.setSpecialValueText("전체 세션")
+        self.note_recent_context_turns_spin.setSuffix(" 턴")
+        self.note_recent_context_turns_spin.valueChanged.connect(self._on_setting_changed)
+        note_layout.addRow("주입 턴 수 (0=전체):", self.note_recent_context_turns_spin)
+        layout.addWidget(note_group)
+
         idle_group = QGroupBox("유휴 모션")
         idle_layout = QFormLayout(idle_group)
         idle_layout.setSpacing(8)
@@ -672,6 +689,10 @@ class SettingsDialog(QDialog):
             return
         self._preview_settings()
 
+    def _on_note_context_toggle(self, checked: bool):
+        self.note_recent_context_turns_spin.setEnabled(bool(checked))
+        self._on_setting_changed()
+
     def _load_values(self):
         self._loading = True
         try:
@@ -695,6 +716,17 @@ class SettingsDialog(QDialog):
             )
             self.show_mood_toggle_button_check.setChecked(
                 self._original_settings.get("show_mood_toggle_button", True)
+            )
+            self.note_include_recent_context_check.setChecked(
+                self._original_settings.get("note_include_recent_context", False)
+            )
+            try:
+                note_turns = int(self._original_settings.get("note_recent_context_turns", 4) or 0)
+            except Exception:
+                note_turns = 4
+            self.note_recent_context_turns_spin.setValue(max(0, min(note_turns, 200)))
+            self.note_recent_context_turns_spin.setEnabled(
+                bool(self.note_include_recent_context_check.isChecked())
             )
             self.mouse_tracking_check.setChecked(self._original_settings.get("mouse_tracking_enabled", True))
 
@@ -856,6 +888,8 @@ class SettingsDialog(QDialog):
             "show_manual_summary_button": self.show_manual_summary_button_check.isChecked(),
             "show_obsidian_note_button": self.show_obsidian_note_button_check.isChecked(),
             "show_mood_toggle_button": self.show_mood_toggle_button_check.isChecked(),
+            "note_include_recent_context": self.note_include_recent_context_check.isChecked(),
+            "note_recent_context_turns": self.note_recent_context_turns_spin.value(),
             "mouse_tracking_enabled": self.mouse_tracking_check.isChecked(),
             "enable_idle_motion": self.idle_motion_check.isChecked(),
             "idle_motion_dynamic_mode": self.idle_motion_dynamic_check.isChecked(),

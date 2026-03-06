@@ -101,6 +101,8 @@ class Settings:
         "obsidian_cli_retry_delay_ms": 500,
         "obsidian_cli_primary_for_diary": True,
         "diary_keep_local_copy_on_cli_success": False,
+        "note_include_recent_context": False,
+        "note_recent_context_turns": 4,
     }
 
     DEFAULT_SECRET_CONFIG = {
