@@ -1,18 +1,37 @@
-assets/live2d_models/
-assets/live2d_models/# Python
+﻿assets/live2d_models/
 assets/ref_audio/
+
+# Python
 __pycache__/
 *.py[cod]
 *.so
 *.egg-info/
 venv/
+.venv/
+env/
+ENV/
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.hypothesis/
+.tox/
+.nox/
 .coverage
+.coverage.*
+htmlcov/
+coverage.xml
+build/
+dist/
+.eggs/
+pip-wheel-metadata/
+
+# Local runtime files
 backups/
 **/prompt.py
 src/ai/sub_prompt.py
 diary/
 note_runs/
+*.log
 
 # Config files
 config.json
@@ -28,3 +47,8 @@ api_keys.json
 # IDE
 .vscode/
 .idea/
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
