@@ -373,6 +373,34 @@ class OverlayWindow(QWidget):
     def set_llm_client(self, llm_client):
         self.bridge.set_llm_client(llm_client)
 
+    def send_voice_text(self, text: str):
+        """PTT로 인식된 텍스트를 웹 채팅 전송 경로로 주입한다."""
+        if not self._page_loaded:
+            print("[Overlay] 음성 텍스트 전송 실패: 웹 페이지 미로딩")
+            return
+        payload = json.dumps(str(text or ""), ensure_ascii=False)
+        self.web_view.page().runJavaScript(
+            "(function(){"
+            "if (typeof window.submitVoiceText === 'function') {"
+            f"window.submitVoiceText({payload});"
+            "}"
+            "})();"
+        )
+
+    def show_toast(self, message: str, level: str = "info"):
+        """웹 UI 토스트로 상태 메시지를 표시한다."""
+        if not self._page_loaded:
+            return
+        msg = json.dumps(str(message or ""), ensure_ascii=False)
+        lv = json.dumps(str(level or "info"), ensure_ascii=False)
+        self.web_view.page().runJavaScript(
+            "(function(){"
+            "if (typeof window.showToast === 'function') {"
+            f"window.showToast({msg}, {lv});"
+            "}"
+            "})();"
+        )
+
     def toggle_mouse_tracking(self):
         new_enabled = not self.mouse_tracking_timer.isActive()
         self._set_mouse_tracking_enabled(new_enabled)

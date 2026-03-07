@@ -1314,6 +1314,7 @@ function showToast(message, level = 'info') {
         setTimeout(() => toast.remove(), 180);
     }, 2200);
 }
+window.showToast = showToast;
 
 // 인라인 수정 UI를 닫고 표시 상태를 정리한다.
 function closeInlineEdit(bubble, keepText = true) {
@@ -1602,6 +1603,29 @@ function sendMessage() {
     attachedImages = [];
     updateImagePreview();
 }
+
+// Python 전역 PTT가 호출하는 텍스트 전송 진입점.
+function submitVoiceText(text) {
+    const message = (text || '').trim();
+    if (!message) return;
+
+    addMessage(message, 'user');
+    if (window.pyBridge && window.pyBridge.send_to_ai) {
+        isRequestPending = true;
+        shouldReplaceNextAssistant = false;
+        updateRerollButtonState();
+        showLoadingIndicator(true);
+        window.pyBridge.send_to_ai(message);
+        return;
+    }
+
+    console.error("Python bridge not connected");
+    addMessage("연결 오류가 발생했어요.", 'assistant');
+    isRequestPending = false;
+    shouldReplaceNextAssistant = false;
+    updateRerollButtonState();
+}
+window.submitVoiceText = submitVoiceText;
 
 /**
  * 입력창 높이를 내용에 맞게 자동 조절한다.

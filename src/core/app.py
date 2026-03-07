@@ -7,6 +7,7 @@ from PyQt6.QtCore import QObject
 
 from .settings import Settings
 from .overlay_window import OverlayWindow
+from .global_ptt import GlobalPTTController
 from .tray_icon import TrayIcon
 from ..ui.obsidian_panel_window import ObsidianPanelWindow
 from ..ui.settings_dialog import SettingsDialog
@@ -22,6 +23,7 @@ class ENEApplication(QObject):
         
         # 설정 관리자
         self.settings = Settings()
+        self.interrupt_tts_on_ptt = bool(self.settings.get("interrupt_tts_on_ptt", True))
         
         # LLM 클라이언트 초기화
         self._init_llm_client()
@@ -56,6 +58,9 @@ class ENEApplication(QObject):
         
         # 시그널 연결
         self._connect_signals()
+
+        # 전역 PTT 초기화
+        self._init_global_ptt()
     
     def _init_llm_client(self):
         """LLM 클라이언트 초기화"""
@@ -295,6 +300,41 @@ class ENEApplication(QObject):
         self.tray_icon.toggle_drag_bar_requested.connect(self._toggle_drag_bar)
         self.tray_icon.toggle_mouse_tracking_requested.connect(self._toggle_mouse_tracking)
         self.tray_icon.quit_requested.connect(self._quit_application)
+
+    def _init_global_ptt(self):
+        """전역 PTT 컨트롤러 초기화"""
+        try:
+            self.global_ptt = GlobalPTTController(self.settings.config)
+            self.global_ptt.transcription_ready.connect(self._on_ptt_transcription_ready)
+            self.global_ptt.recording_started.connect(self._on_ptt_recording_started)
+            self.global_ptt.notice.connect(self._on_ptt_notice)
+            print("OK: 전역 PTT 초기화 성공")
+        except Exception as e:
+            print(f"WARNING: 전역 PTT 초기화 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            self.global_ptt = None
+
+    def _on_ptt_transcription_ready(self, text: str):
+        """STT 결과 텍스트를 기존 채팅 경로로 전달"""
+        cleaned = str(text or "").strip()
+        if not cleaned:
+            return
+        if hasattr(self, "overlay_window") and self.overlay_window:
+            self.overlay_window.send_voice_text(cleaned)
+
+    def _on_ptt_notice(self, message: str, level: str = "info"):
+        """PTT 상태를 토스트/로그로 전달"""
+        print(f"[PTT][{level}] {message}")
+        if hasattr(self, "overlay_window") and self.overlay_window:
+            self.overlay_window.show_toast(message, level)
+
+    def _on_ptt_recording_started(self):
+        """PTT 녹음 시작 시 설정에 따라 TTS 출력을 중단한다."""
+        if not bool(self.interrupt_tts_on_ptt):
+            return
+        if hasattr(self, "overlay_window") and self.overlay_window and hasattr(self.overlay_window, "bridge"):
+            self.overlay_window.bridge.interrupt_tts_for_ptt()
     
     def _show_settings_dialog(self):
         """설정 다이얼로그 표시 (비모달)"""
@@ -360,14 +400,23 @@ class ENEApplication(QObject):
     def _on_settings_changed(self, new_settings: dict):
         """설정 변경 시 (저장)"""
         self.overlay_window.apply_new_settings(new_settings)
-    
+        self.interrupt_tts_on_ptt = bool(new_settings.get("interrupt_tts_on_ptt", True))
+        if hasattr(self, "global_ptt") and self.global_ptt:
+            self.global_ptt.apply_settings(new_settings)
+
     def _on_settings_preview(self, new_settings: dict):
         """설정 미리보기 (settings 객체 수정 없이 화면에만 적용)"""
         self.overlay_window.preview_settings(new_settings)
-    
+        self.interrupt_tts_on_ptt = bool(new_settings.get("interrupt_tts_on_ptt", True))
+        if hasattr(self, "global_ptt") and self.global_ptt:
+            self.global_ptt.apply_settings(new_settings)
+
     def _on_settings_cancelled(self):
         """설정 취소 - 저장된 값으로 복원"""
         self.overlay_window.restore_settings()
+        self.interrupt_tts_on_ptt = bool(self.settings.get("interrupt_tts_on_ptt", True))
+        if hasattr(self, "global_ptt") and self.global_ptt:
+            self.global_ptt.apply_settings(self.settings.config)
     
     def _toggle_drag_bar(self):
         """드래그 바 토글"""
@@ -402,4 +451,6 @@ class ENEApplication(QObject):
         self.overlay_window.close()
         if hasattr(self, "obsidian_panel_window") and self.obsidian_panel_window:
             self.obsidian_panel_window.close()
+        if hasattr(self, "global_ptt") and self.global_ptt:
+            self.global_ptt.shutdown()
         QApplication.quit()

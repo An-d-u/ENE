@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 
 from PyQt6.QtCore import Qt, QPoint
+from PyQt6.QtGui import QGuiApplication
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -136,6 +137,27 @@ class ObsidianPanelWindow(QWidget):
         w = int(self.obs_settings.get("floating_window_width", 360) or 360)
         h = int(self.obs_settings.get("floating_window_height", 520) or 520)
         self.setGeometry(x, y, max(280, w), max(360, h))
+        self._ensure_visible_on_screen()
+
+    def _ensure_visible_on_screen(self):
+        """패널이 화면 밖으로 벗어나면 현재 화면 안으로 보정한다."""
+        screens = QGuiApplication.screens() or []
+        if not screens:
+            return
+
+        frame = self.frameGeometry()
+        # 현재 프레임과 교차하는 화면이 있으면 그대로 둔다.
+        for screen in screens:
+            if screen.availableGeometry().intersects(frame):
+                return
+
+        primary = QGuiApplication.primaryScreen()
+        if not primary:
+            primary = screens[0]
+        area = primary.availableGeometry()
+        x = max(area.left(), min(area.right() - self.width() + 1, area.left() + 40))
+        y = max(area.top(), min(area.bottom() - self.height() + 1, area.top() + 80))
+        self.move(x, y)
 
     def _save_geometry(self):
         self.obs_settings.set("floating_window_x", int(self.x()))
