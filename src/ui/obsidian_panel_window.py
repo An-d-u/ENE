@@ -92,7 +92,6 @@ class ObsidianPanelWindow(QWidget):
         self._setup_ui()
         self._restore_geometry()
         self._connect_bridge_signals()
-        self.refresh_tree()
 
     def _setup_ui(self):
         root_layout = QVBoxLayout(self)
