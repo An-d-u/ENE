@@ -2,6 +2,16 @@
 ENE 메인 애플리케이션
 오버레이 윈도우와 트레이 아이콘을 관리
 """
+import os
+
+# Windows + PyQt6 환경에서 faster-whisper 모델 로딩 시 강종을 피하기 위해
+# STT 런타임을 먼저 import 해 둔다. (실패해도 앱 동작은 계속)
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+try:
+    import faster_whisper  # type: ignore  # noqa: F401
+except Exception:
+    pass
+
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QObject
 
@@ -308,6 +318,7 @@ class ENEApplication(QObject):
             self.global_ptt.transcription_ready.connect(self._on_ptt_transcription_ready)
             self.global_ptt.recording_started.connect(self._on_ptt_recording_started)
             self.global_ptt.notice.connect(self._on_ptt_notice)
+            self.global_ptt.start()
             print("OK: 전역 PTT 초기화 성공")
         except Exception as e:
             print(f"WARNING: 전역 PTT 초기화 실패: {e}")
