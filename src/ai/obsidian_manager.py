@@ -70,18 +70,6 @@ class ObsidianManager:
                 seeds.append(f"{raw_bin}.cmd")
             if not lowered.endswith(".exe"):
                 seeds.append(f"{raw_bin}.exe")
-            # Obsidian Desktop 기본 설치 경로를 CLI 후보로 추가한다.
-            known_bins = [
-                r"C:\Program Files\Obsidian\Obsidian.exe",
-                r"C:\Program Files (x86)\Obsidian\Obsidian.exe",
-            ]
-            local_app = os.environ.get("LOCALAPPDATA", "")
-            if local_app:
-                known_bins.append(os.path.join(local_app, "Programs", "Obsidian", "Obsidian.exe"))
-                known_bins.append(os.path.join(local_app, "Programs", "obsidian", "Obsidian.exe"))
-            for kb in known_bins:
-                if kb and os.path.exists(kb):
-                    seeds.append(kb)
 
         candidates: list[str] = []
         seen = set()

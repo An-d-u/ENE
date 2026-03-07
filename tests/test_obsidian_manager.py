@@ -204,3 +204,14 @@ def test_run_cli_does_not_retry_mutating_command(monkeypatch):
     completed = manager._run_cli(["append", "notes/a.md", "hello"])
     assert completed.returncode == 1
     assert call_count["n"] == 1
+
+
+def test_resolve_cli_candidates_excludes_desktop_app_fallback(monkeypatch):
+    manager = ObsidianManager(settings=DummySettings(), obs_settings=DummyObsSettings())
+    monkeypatch.setattr("src.ai.obsidian_manager.os.name", "nt")
+    monkeypatch.setattr("src.ai.obsidian_manager.shutil.which", lambda _: None)
+
+    candidates = manager._resolve_cli_candidates()
+    joined = "\n".join(candidates).lower()
+    assert "program files\\obsidian\\obsidian.exe" not in joined
+    assert "programs\\obsidian\\obsidian.exe" not in joined

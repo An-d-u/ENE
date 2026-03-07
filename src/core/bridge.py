@@ -370,6 +370,7 @@ class WebBridge(QObject):
         
         # 보류 중인 응답 (TTS 대기)
         self.pending_response = None  # (text, emotion)
+        self._tts_interrupted_for_ptt = False
         
         # 대화 추적
         self.conversation_buffer = []  # [(role, message, timestamp), ...]
@@ -1055,6 +1056,8 @@ class WebBridge(QObject):
                 self.obs_settings.set("panel_visible", False)
                 self.obs_settings.save()
             else:
+                if hasattr(panel, "_ensure_visible_on_screen"):
+                    panel._ensure_visible_on_screen()
                 panel.show()
                 panel.raise_()
                 panel.activateWindow()
@@ -1387,6 +1390,7 @@ class WebBridge(QObject):
     
     def _play_tts(self, text: str):
         """립싱크를 포함한 TTS 재생 (비동기 스레드)"""
+        self._tts_interrupted_for_ptt = False
         # 기존 TTS 워커 종료
         if self.tts_worker and self.tts_worker.isRunning():
             self.tts_worker.quit()
@@ -1399,7 +1403,62 @@ class WebBridge(QObject):
         self.tts_worker.start()
         
         print(f"[Bridge] TTS 워커 시작 (백그라운드)")
-    
+
+    def _flush_pending_response_if_any(self):
+        """TTS 대기 중 응답이 있으면 즉시 채팅으로 복구 전송한다."""
+        if not self.pending_response:
+            return
+        text, emotion = self.pending_response
+        print(f"[Bridge] 보류된 응답 즉시 전송: {text[:50]}... [{emotion}]")
+        self.message_received.emit(text, emotion)
+        if self._is_rerolling:
+            self._is_rerolling = False
+            self.reroll_state_changed.emit(False)
+        self.pending_response = None
+
+    def interrupt_tts_for_ptt(self):
+        """PTT 시작 시 현재 음성 출력/립싱크를 즉시 중단한다."""
+        is_audio_playing = False
+        if self.audio_player and hasattr(self.audio_player, "player"):
+            try:
+                from PyQt6.QtMultimedia import QMediaPlayer
+                is_audio_playing = (
+                    self.audio_player.player.playbackState()
+                    != QMediaPlayer.PlaybackState.StoppedState
+                )
+            except Exception:
+                is_audio_playing = False
+        has_active_tts = bool(self.pending_response) or bool(
+            self.tts_worker and self.tts_worker.isRunning()
+        ) or bool(
+            self.lip_sync_timer and self.lip_sync_timer.isActive()
+        ) or is_audio_playing
+        if not has_active_tts:
+            return
+
+        self._tts_interrupted_for_ptt = True
+
+        # 재생 중 오디오 중단
+        if self.audio_player:
+            try:
+                self.audio_player.stop()
+            except Exception as e:
+                print(f"[Bridge] PTT TTS 중단 실패(audio): {e}")
+
+        # 립싱크 중단 및 입 닫기
+        if self.lip_sync_timer:
+            try:
+                self.lip_sync_timer.stop()
+            except Exception:
+                pass
+            self.lip_sync_timer = None
+        self.lip_sync_data = None
+        self.lip_sync_start_time = None
+        self.lip_sync_update.emit(0.0)
+
+        # 보류 중 텍스트가 있으면 즉시 표시
+        self._flush_pending_response_if_any()
+
     def _on_tts_ready(self, audio_data: bytes, lip_sync_data: list):
         """비동기 TTS 완료 후 오디오 재생"""
         print(f"[Bridge] TTS 준비 완료: {len(audio_data)} bytes, {len(lip_sync_data)} 프레임")
@@ -1408,14 +1467,15 @@ class WebBridge(QObject):
         self.lip_sync_data = lip_sync_data if lip_sync_data else None
         
         # 보류된 텍스트가 있으면 이제 전송 (텍스트 + 음성 동시 제공)
-        if self.pending_response:
-            text, emotion = self.pending_response
-            print(f"[Bridge] 보류된 응답 전송: {text[:50]}... [{emotion}]")
-            self.message_received.emit(text, emotion)
-            if self._is_rerolling:
-                self._is_rerolling = False
-                self.reroll_state_changed.emit(False)
-            self.pending_response = None
+        self._flush_pending_response_if_any()
+        
+        # PTT로 끊긴 경우, 이번 오디오는 재생하지 않는다.
+        if self._tts_interrupted_for_ptt:
+            self._tts_interrupted_for_ptt = False
+            self.lip_sync_data = None
+            self.lip_sync_update.emit(0.0)
+            print("[Bridge] PTT 중단 플래그로 오디오 재생 생략")
+            return
         
         # 오디오 재생
         self.audio_player.play(audio_data)
@@ -1428,11 +1488,7 @@ class WebBridge(QObject):
         """TTS 오류 처리"""
         print(f"[Bridge] TTS 오류: {error_msg}")
         # TTS 실패 시 보류 중이던 텍스트를 즉시 복구 전송한다.
-        if self.pending_response:
-            text, emotion = self.pending_response
-            print(f"[Bridge] TTS 실패로 보류 응답 복구 전송: {text[:50]}... [{emotion}]")
-            self.message_received.emit(text, emotion)
-            self.pending_response = None
+        self._flush_pending_response_if_any()
         if self._is_rerolling:
             self._is_rerolling = False
             self.reroll_state_changed.emit(False)

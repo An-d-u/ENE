@@ -21,6 +21,14 @@ class Settings:
         "show_manual_summary_button": True,
         "show_obsidian_note_button": True,
         "show_mood_toggle_button": True,
+        "enable_global_ptt": True,
+        "global_ptt_hotkey": "alt",
+        "interrupt_tts_on_ptt": True,
+        "stt_model_size": "small",
+        "stt_language": "ko",
+        "stt_device": "auto",
+        "stt_compute_type": "int8",
+        "stt_min_record_sec": 0.25,
         "model_scale": 1.0,
         "model_x_percent": 50,  # 0-100%
         "model_y_percent": 50,  # 0-100%
