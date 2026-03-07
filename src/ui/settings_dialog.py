@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
 
 from ..ai.prompt import get_available_emotions
 from ..ai.llm_provider import LLMFormat, get_llm_provider_catalog
+from ..core.hotkey_utils import hotkey_to_display, normalize_hotkey_text
 
 
 class SettingsDialog(QDialog):
@@ -37,6 +38,11 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self._original_settings = current_settings.copy()
         self._loading = False
+        self._capturing_ptt_hotkey = False
+        self._ptt_hotkey_value = normalize_hotkey_text(
+            str(self._original_settings.get("global_ptt_hotkey", "alt")),
+            default="alt",
+        )
 
         self.setWindowTitle("ENE 설정")
         self.setMinimumWidth(600)
@@ -446,6 +452,43 @@ class SettingsDialog(QDialog):
         floating_row.addStretch()
         layout.addLayout(floating_row)
 
+        ptt_group = QGroupBox("음성 입력 (전역 PTT)")
+        ptt_layout = QFormLayout(ptt_group)
+        ptt_layout.setSpacing(8)
+        ptt_layout.setContentsMargins(10, 15, 10, 10)
+
+        self.enable_global_ptt_check = QCheckBox("전역 Push-to-Talk 활성화")
+        self.enable_global_ptt_check.toggled.connect(self._on_setting_changed)
+        ptt_layout.addRow(self.enable_global_ptt_check)
+
+        self.interrupt_tts_on_ptt_check = QCheckBox("PTT 시작 시 ENE 음성 출력 끊기")
+        self.interrupt_tts_on_ptt_check.toggled.connect(self._on_setting_changed)
+        ptt_layout.addRow(self.interrupt_tts_on_ptt_check)
+
+        ptt_hotkey_row = QHBoxLayout()
+        self.global_ptt_hotkey_value_label = QLabel("")
+        self.global_ptt_hotkey_value_label.setMinimumWidth(140)
+        self.global_ptt_hotkey_value_label.setStyleSheet(
+            "padding: 6px 10px; border-radius: 8px; background: rgba(255,255,255,0.08);"
+        )
+        ptt_hotkey_row.addWidget(self.global_ptt_hotkey_value_label)
+
+        self.global_ptt_hotkey_set_button = QPushButton("단축키 설정")
+        self.global_ptt_hotkey_set_button.clicked.connect(self._start_ptt_hotkey_capture)
+        ptt_hotkey_row.addWidget(self.global_ptt_hotkey_set_button)
+
+        self.global_ptt_hotkey_reset_button = QPushButton("기본값")
+        self.global_ptt_hotkey_reset_button.clicked.connect(self._reset_ptt_hotkey)
+        ptt_hotkey_row.addWidget(self.global_ptt_hotkey_reset_button)
+        ptt_layout.addRow("PTT 단축키:", ptt_hotkey_row)
+
+        self.global_ptt_hotkey_hint_label = QLabel("")
+        self.global_ptt_hotkey_hint_label.setWordWrap(True)
+        self.global_ptt_hotkey_hint_label.setStyleSheet("color: rgba(255,255,255,0.65); font-size: 12px;")
+        ptt_layout.addRow(self.global_ptt_hotkey_hint_label)
+
+        layout.addWidget(ptt_group)
+
         note_group = QGroupBox("노트 설정")
         note_layout = QFormLayout(note_group)
         note_layout.setSpacing(8)
@@ -585,6 +628,129 @@ class SettingsDialog(QDialog):
         scroll.setWidget(widget)
         return scroll
 
+    def _qt_key_to_hotkey_token(self, event) -> str:
+        key = event.key()
+        special_map = {
+            Qt.Key.Key_Space: "space",
+            Qt.Key.Key_Return: "enter",
+            Qt.Key.Key_Enter: "enter",
+            Qt.Key.Key_Escape: "esc",
+            Qt.Key.Key_Tab: "tab",
+            Qt.Key.Key_Backspace: "backspace",
+            Qt.Key.Key_Delete: "delete",
+            Qt.Key.Key_Insert: "insert",
+            Qt.Key.Key_Home: "home",
+            Qt.Key.Key_End: "end",
+            Qt.Key.Key_PageUp: "page_up",
+            Qt.Key.Key_PageDown: "page_down",
+            Qt.Key.Key_Up: "up",
+            Qt.Key.Key_Down: "down",
+            Qt.Key.Key_Left: "left",
+            Qt.Key.Key_Right: "right",
+            Qt.Key.Key_Minus: "minus",
+            Qt.Key.Key_Equal: "plus",
+            Qt.Key.Key_Comma: "comma",
+            Qt.Key.Key_Period: "period",
+            Qt.Key.Key_Slash: "slash",
+            Qt.Key.Key_Backslash: "backslash",
+            Qt.Key.Key_Semicolon: "semicolon",
+            Qt.Key.Key_Apostrophe: "quote",
+            Qt.Key.Key_QuoteLeft: "backquote",
+            Qt.Key.Key_BracketLeft: "left_bracket",
+            Qt.Key.Key_BracketRight: "right_bracket",
+            Qt.Key.Key_Control: "ctrl",
+            Qt.Key.Key_Shift: "shift",
+            Qt.Key.Key_Alt: "alt",
+            Qt.Key.Key_Meta: "meta",
+        }
+        if key in special_map:
+            return special_map[key]
+        if Qt.Key.Key_A <= key <= Qt.Key.Key_Z:
+            return chr(ord("a") + (key - Qt.Key.Key_A))
+        if Qt.Key.Key_0 <= key <= Qt.Key.Key_9:
+            return chr(ord("0") + (key - Qt.Key.Key_0))
+        if Qt.Key.Key_F1 <= key <= Qt.Key.Key_F35:
+            return f"f{key - Qt.Key.Key_F1 + 1}"
+
+        text = str(event.text() or "").strip().lower()
+        if not text:
+            return ""
+        if text == "+":
+            return "plus"
+        if text == "-":
+            return "minus"
+        if text == ",":
+            return "comma"
+        if text == ".":
+            return "period"
+        if text == "/":
+            return "slash"
+        if text == "\\":
+            return "backslash"
+        if text == ";":
+            return "semicolon"
+        if text == "'":
+            return "quote"
+        if text == "`":
+            return "backquote"
+        if text == "[":
+            return "left_bracket"
+        if text == "]":
+            return "right_bracket"
+        if len(text) == 1 and text.isprintable():
+            return text
+        return ""
+
+    def _build_hotkey_from_event(self, event) -> str:
+        modifier_tokens: list[str] = []
+        mods = event.modifiers()
+        if mods & Qt.KeyboardModifier.ControlModifier:
+            modifier_tokens.append("ctrl")
+        if mods & Qt.KeyboardModifier.ShiftModifier:
+            modifier_tokens.append("shift")
+        if mods & Qt.KeyboardModifier.AltModifier:
+            modifier_tokens.append("alt")
+        if mods & Qt.KeyboardModifier.MetaModifier:
+            modifier_tokens.append("meta")
+
+        trigger = self._qt_key_to_hotkey_token(event)
+        if not trigger:
+            return ""
+        modifier_tokens = [mod for mod in modifier_tokens if mod != trigger]
+
+        ordered = [mod for mod in ("ctrl", "shift", "alt", "meta") if mod in modifier_tokens]
+        if trigger not in ordered:
+            ordered.append(trigger)
+        return normalize_hotkey_text("+".join(ordered), default="alt")
+
+    def _update_ptt_hotkey_ui(self):
+        self.global_ptt_hotkey_value_label.setText(hotkey_to_display(self._ptt_hotkey_value, default="alt"))
+        if self._capturing_ptt_hotkey:
+            self.global_ptt_hotkey_set_button.setText("입력 대기 중...")
+            self.global_ptt_hotkey_hint_label.setText("설정할 키를 누르세요. Esc를 누르면 취소됩니다.")
+        else:
+            self.global_ptt_hotkey_set_button.setText("단축키 설정")
+            self.global_ptt_hotkey_hint_label.setText("누르고 있는 동안만 녹음됩니다.")
+
+    def _start_ptt_hotkey_capture(self):
+        if self._capturing_ptt_hotkey:
+            return
+        self._capturing_ptt_hotkey = True
+        self._update_ptt_hotkey_ui()
+        self.grabKeyboard()
+
+    def _stop_ptt_hotkey_capture(self):
+        if not self._capturing_ptt_hotkey:
+            return
+        self._capturing_ptt_hotkey = False
+        self.releaseKeyboard()
+        self._update_ptt_hotkey_ui()
+
+    def _reset_ptt_hotkey(self):
+        self._ptt_hotkey_value = normalize_hotkey_text("alt", default="alt")
+        self._update_ptt_hotkey_ui()
+        self._on_setting_changed()
+
     def _on_llm_provider_changed(self, *_):
         provider = str(self.llm_provider_combo.currentData() or "gemini")
 
@@ -717,6 +883,17 @@ class SettingsDialog(QDialog):
             self.show_mood_toggle_button_check.setChecked(
                 self._original_settings.get("show_mood_toggle_button", True)
             )
+            self.enable_global_ptt_check.setChecked(
+                self._original_settings.get("enable_global_ptt", True)
+            )
+            self.interrupt_tts_on_ptt_check.setChecked(
+                self._original_settings.get("interrupt_tts_on_ptt", True)
+            )
+            self._ptt_hotkey_value = normalize_hotkey_text(
+                str(self._original_settings.get("global_ptt_hotkey", "alt")),
+                default="alt",
+            )
+            self._update_ptt_hotkey_ui()
             self.note_include_recent_context_check.setChecked(
                 self._original_settings.get("note_include_recent_context", False)
             )
@@ -888,6 +1065,9 @@ class SettingsDialog(QDialog):
             "show_manual_summary_button": self.show_manual_summary_button_check.isChecked(),
             "show_obsidian_note_button": self.show_obsidian_note_button_check.isChecked(),
             "show_mood_toggle_button": self.show_mood_toggle_button_check.isChecked(),
+            "enable_global_ptt": self.enable_global_ptt_check.isChecked(),
+            "interrupt_tts_on_ptt": self.interrupt_tts_on_ptt_check.isChecked(),
+            "global_ptt_hotkey": normalize_hotkey_text(self._ptt_hotkey_value, default="alt"),
             "note_include_recent_context": self.note_include_recent_context_check.isChecked(),
             "note_recent_context_turns": self.note_recent_context_turns_spin.value(),
             "mouse_tracking_enabled": self.mouse_tracking_check.isChecked(),
@@ -938,11 +1118,15 @@ class SettingsDialog(QDialog):
         self.close()
 
     def closeEvent(self, event):
+        self._stop_ptt_hotkey_capture()
         if not hasattr(self, "_saved"):
             self.settings_cancelled.emit()
         event.accept()
 
     def mousePressEvent(self, event):
+        if self._capturing_ptt_hotkey:
+            event.accept()
+            return
         if event.button() == Qt.MouseButton.LeftButton:
             # 타이틀바(높이 40) 영역 내에서만 드래그 허용
             if event.pos().y() < 40:
@@ -951,11 +1135,39 @@ class SettingsDialog(QDialog):
                 event.accept()
 
     def mouseMoveEvent(self, event):
+        if self._capturing_ptt_hotkey:
+            event.accept()
+            return
         if hasattr(self, '_is_dragging') and self._is_dragging:
             self.move(event.globalPosition().toPoint() - self._drag_pos)
             event.accept()
 
+    def keyPressEvent(self, event):
+        if self._capturing_ptt_hotkey:
+            if event.key() == Qt.Key.Key_Escape:
+                self._stop_ptt_hotkey_capture()
+                event.accept()
+                return
+
+            hotkey_text = self._build_hotkey_from_event(event)
+            if hotkey_text:
+                self._ptt_hotkey_value = normalize_hotkey_text(hotkey_text, default="alt")
+                self._stop_ptt_hotkey_capture()
+                self._on_setting_changed()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
     def mouseReleaseEvent(self, event):
+        if self._capturing_ptt_hotkey:
+            event.accept()
+            return
         if hasattr(self, '_is_dragging') and self._is_dragging:
             self._is_dragging = False
             event.accept()
+
+    def keyReleaseEvent(self, event):
+        if self._capturing_ptt_hotkey:
+            event.accept()
+            return
+        super().keyReleaseEvent(event)
