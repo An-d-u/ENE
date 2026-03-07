@@ -14,7 +14,7 @@ from dataclasses import dataclass
 import numpy as np
 from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal
 
-from .hotkey_utils import MODIFIER_TOKENS, hotkey_to_spec, normalize_hotkey_text
+from .hotkey_utils import hotkey_to_spec, normalize_hotkey_text
 
 # Windows symlink 미지원 환경에서 발생하는 HF 캐시 경고를 기본적으로 숨긴다.
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
@@ -41,16 +41,16 @@ def _prepare_windows_cuda_runtime_path():
         for base in site.getsitepackages():
             candidates.append(os.path.join(base, "nvidia", "cublas", "bin"))
             candidates.append(os.path.join(base, "nvidia", "cudnn", "bin"))
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[PTT] site-packages 조회 실패: {e}")
 
     try:
         user_site = site.getusersitepackages()
         if user_site:
             candidates.append(os.path.join(user_site, "nvidia", "cublas", "bin"))
             candidates.append(os.path.join(user_site, "nvidia", "cudnn", "bin"))
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[PTT] user site-packages 조회 실패: {e}")
 
     for raw_path in candidates:
         path = os.path.normpath(str(raw_path or "").strip())
@@ -68,8 +68,8 @@ def _prepare_windows_cuda_runtime_path():
         try:
             handle = os.add_dll_directory(path)  # type: ignore[attr-defined]
             _CUDA_DLL_DIR_HANDLES.append(handle)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[PTT] DLL 검색 경로 등록 실패: {path} ({e})")
 
 
 _prepare_windows_cuda_runtime_path()
@@ -294,12 +294,14 @@ class _FasterWhisperService:
         lowered = str(error_text or "").lower()
         markers = (
             "cublas64_12.dll",
+            "cublaslt64_12.dll",
             "cudnn",
             "cublas",
-            "cuda",
             "nvcuda.dll",
             "libcudart",
             "libcublas",
+            "libcudnn",
+            "cudnn64",
         )
         return any(token in lowered for token in markers)
 
@@ -587,8 +589,8 @@ class GlobalPTTController(QObject):
         if listener is not None:
             try:
                 listener.stop()
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[PTT] listener 종료 실패: {e}")
 
         with self._pressed_lock:
             self._pressed_tokens.clear()
@@ -600,8 +602,8 @@ class GlobalPTTController(QObject):
         self._is_recording = False
         try:
             self._recorder.stop(silent=True)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[PTT] 녹음 정리 실패: {e}")
 
     def _cleanup_stt_worker(self, wait_ms: int = 0):
         worker = self._stt_worker
