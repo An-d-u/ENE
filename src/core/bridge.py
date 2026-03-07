@@ -1418,25 +1418,10 @@ class WebBridge(QObject):
 
     def interrupt_tts_for_ptt(self):
         """PTT 시작 시 현재 음성 출력/립싱크를 즉시 중단한다."""
-        is_audio_playing = False
-        if self.audio_player and hasattr(self.audio_player, "player"):
-            try:
-                from PyQt6.QtMultimedia import QMediaPlayer
-                is_audio_playing = (
-                    self.audio_player.player.playbackState()
-                    != QMediaPlayer.PlaybackState.StoppedState
-                )
-            except Exception:
-                is_audio_playing = False
-        has_active_tts = bool(self.pending_response) or bool(
+        # 생성 중인 TTS 결과가 곧 도착할 수 있으면 다음 오디오 재생을 1회 스킵한다.
+        self._tts_interrupted_for_ptt = bool(self.pending_response) or bool(
             self.tts_worker and self.tts_worker.isRunning()
-        ) or bool(
-            self.lip_sync_timer and self.lip_sync_timer.isActive()
-        ) or is_audio_playing
-        if not has_active_tts:
-            return
-
-        self._tts_interrupted_for_ptt = True
+        )
 
         # 재생 중 오디오 중단
         if self.audio_player:
@@ -1458,6 +1443,7 @@ class WebBridge(QObject):
 
         # 보류 중 텍스트가 있으면 즉시 표시
         self._flush_pending_response_if_any()
+        print(f"[Bridge] PTT로 TTS 중단 처리 완료 (skip_next={self._tts_interrupted_for_ptt})")
 
     def _on_tts_ready(self, audio_data: bytes, lip_sync_data: list):
         """비동기 TTS 완료 후 오디오 재생"""

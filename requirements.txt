@@ -1,6 +1,5 @@
 PyQt6>=6.6.0
 PyQt6-WebEngine>=6.6.0
-PyQt6-Multimedia>=6.6.0
 google-genai>=1.0.0
 voyageai>=0.2.0
 numpy>=1.24.0
