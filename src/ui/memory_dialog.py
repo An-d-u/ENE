@@ -2,8 +2,9 @@
 기억 관리 다이얼로그
 """
 from datetime import datetime
+import re
 
-from PyQt6.QtCore import QPoint, Qt
+from PyQt6.QtCore import QPoint, QSize, Qt, QTimer
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QDialog,
@@ -47,6 +48,13 @@ class MemoryDialog(QDialog):
         self.memory_manager = memory_manager
         self.bridge = bridge
         self._embedded = embedded
+        self._theme_defaults = {
+            "theme_accent_color": "#0071E3",
+            "settings_window_bg_color": "#EEF1F5",
+            "settings_card_bg_color": "#FFFFFF",
+            "settings_input_bg_color": "#F8FAFC",
+        }
+        self._theme_values = dict(self._theme_defaults)
         self._drag_active = False
         self._drag_offset = QPoint()
         self._resize_active = False
@@ -75,43 +83,107 @@ class MemoryDialog(QDialog):
         self._load_settings()
         self._load_memories()
 
+    def _normalize_theme_color(self, value: str, fallback: str | None = None) -> str:
+        match = re.fullmatch(r"#?([0-9A-Fa-f]{6})", str(value or "").strip())
+        if not match:
+            return fallback or self._theme_defaults["theme_accent_color"]
+        return f"#{match.group(1).upper()}"
+
+    def _theme_rgba(self, color_value: str, alpha: float) -> str:
+        color = QColor(self._normalize_theme_color(color_value))
+        return f"rgba({color.red()}, {color.green()}, {color.blue()}, {alpha:.3f})"
+
+    def _theme_text_color(self, color_value: str) -> str:
+        color = QColor(self._normalize_theme_color(color_value))
+        return "#FFFFFF" if color.lightnessF() < 0.62 else "#111827"
+
+    def _theme_muted_text_color(self, color_value: str) -> str:
+        color = QColor(self._normalize_theme_color(color_value))
+        return "#CBD5E1" if color.lightnessF() < 0.42 else "#6B7280"
+
+    def _theme_border_color(self, color_value: str, alpha: float = 0.14) -> str:
+        return self._theme_rgba(self._theme_text_color(color_value), alpha)
+
+    def apply_theme(self, theme_values: dict | None = None) -> None:
+        if isinstance(theme_values, dict):
+            for key, default_value in self._theme_defaults.items():
+                self._theme_values[key] = self._normalize_theme_color(
+                    str(theme_values.get(key, default_value)),
+                    fallback=default_value,
+                )
+        self._apply_stylesheet()
+
     def _apply_stylesheet(self) -> None:
+        accent = self._theme_values["theme_accent_color"]
+        settings_window = self._theme_values["settings_window_bg_color"]
+        settings_card = self._theme_values["settings_card_bg_color"]
+        settings_input = self._theme_values["settings_input_bg_color"]
+        primary_text = self._theme_text_color(settings_card)
+        muted_text = self._theme_muted_text_color(settings_card)
+        body_text = self._theme_muted_text_color(settings_input)
+        input_text = self._theme_text_color(settings_input)
+        card_border = self._theme_border_color(settings_card, 0.10)
+        input_border = self._theme_border_color(settings_input, 0.14)
+        window_border = self._theme_border_color(settings_window, 0.10)
+        accent_hover = QColor(accent).darker(108).name().upper()
+        accent_soft = self._theme_rgba(accent, 0.10)
+        accent_border = self._theme_rgba(accent, 0.24)
+        selected_bg = self._theme_rgba(accent, 0.08)
+
         self.setStyleSheet(
             """
-            QDialog { background: #EEF1F5; color: #111827; font-family: 'Malgun Gothic', 'Segoe UI Variable', 'Segoe UI', sans-serif; }
+            QDialog { background: __SETTINGS_WINDOW__; color: __PRIMARY_TEXT__; font-family: 'Malgun Gothic', 'Segoe UI Variable', 'Segoe UI', sans-serif; }
             QWidget { background: transparent; }
-            QFrame#Surface { background: rgba(248, 249, 252, 0.98); border: 1px solid rgba(214, 218, 228, 0.92); border-radius: 30px; }
-            QFrame#TitleBar { background: rgba(255, 255, 255, 0.78); border: 1px solid rgba(222, 226, 235, 0.96); border-radius: 22px; }
-            QFrame#Card, QFrame#MetricCard, QFrame#ListCard, QFrame#MemoryItem { background: rgba(255, 255, 255, 0.98); border: 1px solid rgba(225, 229, 237, 0.96); border-radius: 26px; }
-            QFrame#MemoryItem[selected='true'] { border: 1px solid rgba(0, 113, 227, 0.36); background: rgba(246, 250, 255, 0.98); }
-            QLabel#WindowTitle { color: #111827; font-size: 18px; font-weight: 700; }
-            QLabel#WindowSubtitle { color: #6B7280; font-size: 12px; font-weight: 600; }
-            QLabel#CardTitle { color: #111827; font-size: 18px; font-weight: 700; }
-            QLabel#Body { color: #4B5563; font-size: 14px; line-height: 1.5; }
-            QLabel#MetricValue { color: #111827; font-size: 24px; font-weight: 700; }
-            QLabel#MetricLabel { color: #6B7280; font-size: 12px; font-weight: 600; }
+            QFrame#Surface { background: __SETTINGS_WINDOW__; border: 1px solid __WINDOW_BORDER__; border-radius: 30px; }
+            QFrame#TitleBar { background: __SETTINGS_CARD__; border: 1px solid __CARD_BORDER__; border-radius: 22px; }
+            QFrame#Card, QFrame#MetricCard, QFrame#ListCard, QFrame#MemoryItem { background: __SETTINGS_CARD__; border: 1px solid __CARD_BORDER__; border-radius: 26px; }
+            QFrame#MemoryItem[selected='true'] { border: 1px solid __ACCENT_BORDER__; background: __SELECTED_BG__; }
+            QLabel#WindowTitle { color: __PRIMARY_TEXT__; font-size: 18px; font-weight: 700; }
+            QLabel#WindowSubtitle { color: __MUTED_TEXT__; font-size: 12px; font-weight: 600; }
+            QLabel#CardTitle { color: __PRIMARY_TEXT__; font-size: 18px; font-weight: 700; }
+            QLabel#Body { color: __BODY_TEXT__; font-size: 14px; line-height: 1.5; }
+            QLabel#MetricValue { color: __PRIMARY_TEXT__; font-size: 24px; font-weight: 700; }
+            QLabel#MetricLabel { color: __MUTED_TEXT__; font-size: 12px; font-weight: 600; }
             QLabel#Pill, QLabel#TagPill, QLabel#BluePill, QLabel#MutedPill { border-radius: 14px; padding: 6px 12px; font-size: 12px; font-weight: 600; }
-            QLabel#Pill { background: rgba(17, 24, 39, 0.06); color: #374151; border: 1px solid rgba(209, 213, 219, 0.9); }
-            QLabel#TagPill { background: rgba(241, 245, 249, 0.96); color: #475569; border: 1px solid rgba(226, 232, 240, 0.96); }
-            QLabel#BluePill { background: rgba(0, 113, 227, 0.1); color: #005BB5; border: 1px solid rgba(147, 197, 253, 0.8); }
-            QLabel#MutedPill { background: rgba(255, 255, 255, 0.86); color: #6B7280; border: 1px solid rgba(229, 231, 235, 0.96); }
-            QLabel#KeyValueLabel { color: #6B7280; font-size: 13px; font-weight: 600; }
-            QLabel#KeyValueValue { color: #111827; font-size: 14px; font-weight: 600; }
-            QLineEdit, QSpinBox { min-height: 44px; padding: 0 14px; border-radius: 16px; background: rgba(248, 250, 252, 0.98); border: 1px solid rgba(218, 223, 233, 1); color: #111827; font-size: 14px; font-weight: 600; }
-            QLineEdit:focus, QSpinBox:focus { border: 1px solid rgba(0, 113, 227, 0.55); background: #FFFFFF; }
+            QLabel#Pill { background: __TEXT_SOFT__; color: __PRIMARY_TEXT__; border: 1px solid __CARD_BORDER__; }
+            QLabel#TagPill { background: __SETTINGS_INPUT__; color: __BODY_TEXT__; border: 1px solid __INPUT_BORDER__; }
+            QLabel#BluePill { background: __ACCENT_SOFT__; color: __ACCENT__; border: 1px solid __ACCENT_BORDER__; }
+            QLabel#MutedPill { background: __SETTINGS_CARD__; color: __MUTED_TEXT__; border: 1px solid __CARD_BORDER__; }
+            QLabel#KeyValueLabel { color: __MUTED_TEXT__; font-size: 13px; font-weight: 600; }
+            QLabel#KeyValueValue { color: __PRIMARY_TEXT__; font-size: 14px; font-weight: 600; }
+            QLineEdit, QSpinBox { min-height: 44px; padding: 0 14px; border-radius: 16px; background: __SETTINGS_INPUT__; border: 1px solid __INPUT_BORDER__; color: __INPUT_TEXT__; font-size: 14px; font-weight: 600; }
+            QLineEdit:focus, QSpinBox:focus { border: 1px solid __ACCENT_BORDER__; background: __SETTINGS_INPUT__; }
             QSpinBox::up-button, QSpinBox::down-button { width: 28px; border: none; background: transparent; }
-            QPushButton { min-height: 44px; padding: 0 18px; border-radius: 18px; border: 1px solid rgba(214, 218, 228, 0.98); background: rgba(255, 255, 255, 0.96); color: #111827; font-size: 13px; font-weight: 600; }
-            QPushButton:hover { background: rgba(248, 250, 252, 1); }
-            QPushButton[accent='true'] { background: #0071E3; color: white; border: 1px solid #0071E3; }
-            QPushButton[accent='true']:hover { background: #0067CF; }
-            QPushButton[ghost='true'] { background: transparent; border: none; min-width: 34px; min-height: 34px; padding: 0; border-radius: 17px; color: #6B7280; }
-            QPushButton[ghost='true']:hover { background: rgba(17, 24, 39, 0.06); }
+            QPushButton { min-height: 44px; padding: 0 18px; border-radius: 18px; border: 1px solid __CARD_BORDER__; background: __SETTINGS_CARD__; color: __PRIMARY_TEXT__; font-size: 13px; font-weight: 600; }
+            QPushButton:hover { background: __SETTINGS_INPUT__; }
+            QPushButton[accent='true'] { background: __ACCENT__; color: __ACCENT_TEXT__; border: 1px solid __ACCENT__; }
+            QPushButton[accent='true']:hover { background: __ACCENT_HOVER__; }
+            QPushButton[ghost='true'] { background: transparent; border: none; min-width: 34px; min-height: 34px; padding: 0; border-radius: 17px; color: __MUTED_TEXT__; }
+            QPushButton[ghost='true']:hover { background: __TEXT_SOFT__; }
             QListWidget { border: none; background: transparent; outline: none; }
-            QListWidget::item { border: none; padding: 0; margin: 0 0 12px 0; }
+            QListWidget::item { border: none; padding: 0; margin: 0 0 10px 0; }
             QScrollBar:vertical { width: 10px; background: transparent; margin: 8px 0; }
-            QScrollBar::handle:vertical { background: rgba(148, 163, 184, 0.45); border-radius: 5px; min-height: 42px; }
+            QScrollBar::handle:vertical { background: __SCROLLBAR__; border-radius: 5px; min-height: 42px; }
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; background: transparent; border: none; }
             """
+            .replace("__ACCENT__", accent)
+            .replace("__ACCENT_HOVER__", accent_hover)
+            .replace("__ACCENT_TEXT__", self._theme_text_color(accent))
+            .replace("__ACCENT_SOFT__", accent_soft)
+            .replace("__ACCENT_BORDER__", accent_border)
+            .replace("__SETTINGS_WINDOW__", settings_window)
+            .replace("__SETTINGS_CARD__", settings_card)
+            .replace("__SETTINGS_INPUT__", settings_input)
+            .replace("__PRIMARY_TEXT__", primary_text)
+            .replace("__MUTED_TEXT__", muted_text)
+            .replace("__BODY_TEXT__", body_text)
+            .replace("__INPUT_TEXT__", input_text)
+            .replace("__CARD_BORDER__", card_border)
+            .replace("__INPUT_BORDER__", input_border)
+            .replace("__WINDOW_BORDER__", window_border)
+            .replace("__SELECTED_BG__", selected_bg)
+            .replace("__TEXT_SOFT__", self._theme_rgba(primary_text, 0.06))
+            .replace("__SCROLLBAR__", self._theme_rgba(muted_text, 0.40))
         )
 
     def _setup_ui(self) -> None:
@@ -230,8 +302,8 @@ class MemoryDialog(QDialog):
     def _build_memory_list_card(self) -> QWidget:
         card = CardFrame("ListCard")
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(18, 18, 18, 18)
-        layout.setSpacing(14)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
 
         top = QHBoxLayout()
         top.addWidget(self._pill("기억 목록", "MutedPill"))
@@ -243,6 +315,8 @@ class MemoryDialog(QDialog):
         layout.addLayout(top)
 
         self.memory_list = QListWidget()
+        self.memory_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.memory_list.verticalScrollBar().rangeChanged.connect(lambda *_args: self._refresh_memory_item_size_hints())
         self.memory_list.itemSelectionChanged.connect(self._on_selection_changed)
         layout.addWidget(self.memory_list, 1)
         return card
@@ -452,11 +526,49 @@ class MemoryDialog(QDialog):
             self._item_frames[memory.id] = widget
 
         self._apply_filters()
+        QTimer.singleShot(0, self._refresh_memory_item_size_hints)
 
         if selected_id:
             self._select_memory_by_id(selected_id)
         elif self.memory_list.count() > 0:
             self._select_first_visible_item()
+
+    def _memory_preview_text(self, memory) -> str:
+        text = re.sub(r"\s+", " ", str(memory.summary or "")).strip()
+        if not text:
+            return "요약된 내용이 아직 없습니다."
+
+        preview_limit = 104
+        if len(text) <= preview_limit:
+            return text
+
+        trimmed = text[:preview_limit].rstrip(" ,.;:")
+        return f"{trimmed}..."
+
+    def _memory_meta_pill(self, text: str, object_name: str, width: int) -> QLabel:
+        label = self._pill(text, object_name)
+        label.setFixedWidth(width)
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        return label
+
+    def _refresh_memory_item_size_hints(self) -> None:
+        if not hasattr(self, "memory_list"):
+            return
+
+        viewport_width = max(0, self.memory_list.viewport().width() - 2)
+        if viewport_width <= 0:
+            return
+
+        for index in range(self.memory_list.count()):
+            item = self.memory_list.item(index)
+            widget = self.memory_list.itemWidget(item)
+            if widget is None:
+                continue
+
+            widget.setFixedWidth(viewport_width)
+            widget.layout().activate()
+            height = max(84, widget.sizeHint().height())
+            item.setSizeHint(QSize(viewport_width, height))
 
     def _create_memory_widget(self, memory):
         card = CardFrame("MemoryItem")
@@ -465,35 +577,31 @@ class MemoryDialog(QDialog):
         card.style().polish(card)
 
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(18, 18, 18, 18)
-        layout.setSpacing(10)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(9)
 
         top = QHBoxLayout()
         top.setSpacing(8)
-        top.addWidget(self._pill(self._format_timestamp(memory.timestamp), "MutedPill"))
+        top.addWidget(self._memory_meta_pill(self._format_timestamp(memory.timestamp), "MutedPill", 116))
         if memory.is_important:
-            top.addWidget(self._pill("중요", "BluePill"))
+            top.addWidget(self._memory_meta_pill("중요", "BluePill", 68))
         if memory.embedding:
-            top.addWidget(self._pill("임베딩", "TagPill"))
+            top.addWidget(self._memory_meta_pill("임베딩", "TagPill", 68))
         top.addStretch()
         layout.addLayout(top)
 
-        title = QLabel((memory.summary or "요약 없음")[:42])
-        title.setObjectName("CardTitle")
-        title.setWordWrap(True)
-        layout.addWidget(title)
-
-        summary = QLabel(memory.summary or "")
+        summary = QLabel(self._memory_preview_text(memory))
         summary.setObjectName("Body")
         summary.setWordWrap(True)
         layout.addWidget(summary)
 
-        tags_row = QHBoxLayout()
-        tags_row.setSpacing(8)
-        for tag in memory.tags[:4]:
-            tags_row.addWidget(self._pill(f"#{tag}", "TagPill"))
-        tags_row.addStretch()
-        layout.addLayout(tags_row)
+        if memory.tags:
+            tags_row = QHBoxLayout()
+            tags_row.setSpacing(8)
+            for tag in memory.tags[:4]:
+                tags_row.addWidget(self._pill(f"#{tag}", "TagPill"))
+            tags_row.addStretch()
+            layout.addLayout(tags_row)
         return card
 
     def _update_stats(self, total: int, important: int, with_embedding: int) -> None:
@@ -711,6 +819,10 @@ class MemoryDialog(QDialog):
             return datetime.fromisoformat(timestamp).strftime("%Y-%m-%d %H:%M")
         except Exception:
             return str(timestamp)[:16]
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        QTimer.singleShot(0, self._refresh_memory_item_size_hints)
 
     def _hit_test_resize_edge(self, pos: QPoint) -> str:
         margin = self._resize_margin
