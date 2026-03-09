@@ -2,7 +2,6 @@
 ENE - AI Desktop Partner
 Live2D 기반 데스크톱 AI 어시스턴트
 """
-import ctypes
 import os
 import sys
 from pathlib import Path
@@ -38,21 +37,8 @@ def _get_base_path() -> Path:
     return Path(__file__).resolve().parent
 
 
-def _apply_windows_app_identity() -> None:
-    """Windows 작업표시줄에서 ENE를 별도 앱으로 식별하도록 설정한다."""
-    if sys.platform != "win32":
-        return
-
-    try:
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("ENE.Desktop.App")
-    except Exception as e:
-        print(f"WARNING: Windows AppUserModelID 설정 실패: {e}")
-
-
 def main():
     """메인 진입점"""
-    _apply_windows_app_identity()
-
     # Qt 애플리케이션 초기화
     app = QApplication(sys.argv)
     app.setApplicationName("ENE")
