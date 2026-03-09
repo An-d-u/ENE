@@ -1,4 +1,4 @@
-"""
+﻿"""
 User profile manager.
 Stores durable user facts extracted from conversations.
 """
@@ -49,7 +49,7 @@ class UserProfile:
             return
 
         try:
-            with open(self.profile_file, "r", encoding="utf-8") as f:
+            with open(self.profile_file, "r", encoding="utf-8-sig") as f:
                 data = json.load(f)
 
             self.facts = [ProfileFact(**fact) for fact in data.get("facts", [])]
@@ -71,8 +71,9 @@ class UserProfile:
                 "last_updated": datetime.now().isoformat(),
             }
 
-            with open(self.profile_file, "w", encoding="utf-8") as f:
+            with open(self.profile_file, "w", encoding="utf-8-sig") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
+                f.write("\n")
 
             print(f"[Profile] Saved {len(self.facts)} facts")
 

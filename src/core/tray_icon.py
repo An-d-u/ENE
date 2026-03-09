@@ -1,4 +1,4 @@
-"""
+﻿"""
 시스템 트레이 아이콘 및 메뉴
 """
 from PyQt6.QtWidgets import QSystemTrayIcon, QMenu
@@ -13,7 +13,6 @@ class TrayIcon(QObject):
     
     # 시그널 정의
     settings_requested = pyqtSignal()
-    memory_requested = pyqtSignal()  # 기억 관리
     calendar_requested = pyqtSignal()  # 캘린더
     toggle_drag_bar_requested = pyqtSignal()
     toggle_mouse_tracking_requested = pyqtSignal()
@@ -30,7 +29,9 @@ class TrayIcon(QObject):
             # 개발 모드
             base_path = Path(__file__).parent.parent.parent
         
-        icon_path = base_path / "assets" / "icons" / "tray_icon.png"
+        icon_path = base_path / "assets" / "icons" / "ene_app.ico"
+        if not icon_path.exists():
+            icon_path = base_path / "assets" / "icons" / "tray_icon.png"
         
         # 트레이 아이콘 생성
         self.tray_icon = QSystemTrayIcon()
@@ -57,11 +58,6 @@ class TrayIcon(QObject):
         settings_action.triggered.connect(self.settings_requested.emit)
         menu.addAction(settings_action)
         
-        # 기억 관리 액션
-        memory_action = QAction("기억 관리", self)
-        memory_action.triggered.connect(self.memory_requested.emit)
-        menu.addAction(memory_action)
-        
         # 캘린더 액션
         calendar_action = QAction("📅 캘린더", self)
         calendar_action.triggered.connect(self.calendar_requested.emit)
@@ -70,7 +66,7 @@ class TrayIcon(QObject):
         menu.addSeparator()
         
         # 드래그 바 표시/숨김 액션
-        self.toggle_bar_action = QAction("드래그 바 숨김", self)
+        self.toggle_bar_action = QAction("드래그 바 보임/숨김", self)
         self.toggle_bar_action.triggered.connect(self.toggle_drag_bar_requested.emit)
         menu.addAction(self.toggle_bar_action)
         

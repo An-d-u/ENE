@@ -1,10 +1,9 @@
-"""
+﻿"""
 반투명 드래그 바 위젯
 윈도우를 드래그하여 이동할 수 있는 바
 """
 from PyQt6.QtWidgets import QWidget, QLabel, QHBoxLayout
 from PyQt6.QtCore import Qt, QPoint, pyqtSignal
-from PyQt6.QtGui import QPalette, QColor
 
 
 class DragBar(QWidget):
@@ -15,6 +14,8 @@ class DragBar(QWidget):
     
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setObjectName("DragBar")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         
         # 드래그 상태
         self._drag_position = QPoint()
@@ -31,17 +32,28 @@ class DragBar(QWidget):
         layout.setContentsMargins(10, 0, 10, 0)
         
         # 라벨
-        label = QLabel("ENE")
-        label.setStyleSheet("color: white; font-weight: bold;")
-        layout.addWidget(label)
+        self.label = QLabel("ENE")
+        self.label.setObjectName("DragBarLabel")
+        layout.addWidget(self.label)
         
         layout.addStretch()
-        
-        # 배경 색상 (반투명 검은색)
-        self.setAutoFillBackground(True)
-        palette = self.palette()
-        palette.setColor(QPalette.ColorRole.Window, QColor(0, 0, 0, 77))  # alpha=77 (약 30%)
-        self.setPalette(palette)
+        self.apply_theme("rgba(0, 0, 0, 0.30)", "#FFFFFF", "rgba(255, 255, 255, 0.08)")
+
+    def apply_theme(self, background: str, text_color: str, border_color: str) -> None:
+        """현재 테마에 맞춰 드래그 바 색을 적용한다."""
+        self.setStyleSheet(
+            f"""
+            QWidget#DragBar {{
+                background-color: {background};
+                border-bottom: 1px solid {border_color};
+            }}
+            QLabel#DragBarLabel {{
+                background: transparent;
+                color: {text_color};
+                font-weight: 700;
+            }}
+            """
+        )
     
     def mousePressEvent(self, event):
         """마우스 누름 - 드래그 시작"""

@@ -4,6 +4,36 @@
     box-sizing: border-box;
 }
 
+:root {
+    --ene-accent: #0071E3;
+    --ene-accent-hover: #0067CF;
+    --ene-accent-rgb: 0, 113, 227;
+    --ene-accent-soft: rgba(0, 113, 227, 0.12);
+    --ene-accent-soft-strong: rgba(0, 113, 227, 0.18);
+    --ene-accent-border: rgba(0, 113, 227, 0.38);
+    --ene-chat-panel-bg: rgba(17, 18, 20, 0.78);
+    --ene-chat-panel-border: rgba(255, 255, 255, 0.12);
+    --ene-chat-panel-divider: rgba(255, 255, 255, 0.06);
+    --ene-chat-panel-text: rgba(255, 255, 255, 0.95);
+    --ene-chat-panel-muted-text: rgba(255, 255, 255, 0.78);
+    --ene-chat-input-wrap-bg: rgba(17, 18, 20, 0.66);
+    --ene-chat-input-bg: rgba(27, 29, 34, 0.94);
+    --ene-chat-input-focus-bg: rgba(27, 29, 34, 0.98);
+    --ene-chat-input-border: rgba(255, 255, 255, 0.16);
+    --ene-chat-input-text: #FFFFFF;
+    --ene-chat-input-placeholder: rgba(255, 255, 255, 0.5);
+    --ene-chat-assistant-bubble-bg: rgba(255, 255, 255, 0.96);
+    --ene-chat-assistant-bubble-text: #111827;
+    --ene-chat-user-bubble-bg: rgba(0, 113, 227, 0.88);
+    --ene-chat-user-bubble-text: #FFFFFF;
+    --ene-floating-panel-bg: rgba(17, 18, 20, 0.74);
+    --ene-floating-panel-border: rgba(255, 255, 255, 0.18);
+    --ene-floating-panel-text: rgba(255, 255, 255, 0.95);
+    --ene-floating-panel-muted-text: rgba(255, 255, 255, 0.75);
+    --ene-floating-panel-button-bg: rgba(255, 255, 255, 0.10);
+    --ene-floating-panel-button-hover: rgba(255, 255, 255, 0.18);
+}
+
 html,
 body {
     margin: 0;
@@ -27,9 +57,9 @@ body {
     bottom: 0;
     left: 0;
     right: 0;
-    background: rgba(0, 0, 0, 0.7);
+    background: var(--ene-chat-panel-bg);
     backdrop-filter: blur(10px);
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    border-top: 1px solid var(--ene-chat-panel-border);
     max-height: 250px;
     display: flex;
     flex-direction: column;
@@ -103,13 +133,13 @@ body {
 }
 
 .message.user .message-bubble {
-    background: rgba(100, 150, 255, 0.8);
-    color: white;
+    background: var(--ene-chat-user-bubble-bg);
+    color: var(--ene-chat-user-bubble-text);
 }
 
 .message.assistant .message-bubble {
-    background: rgba(255, 255, 255, 0.9);
-    color: #333;
+    background: var(--ene-chat-assistant-bubble-bg);
+    color: var(--ene-chat-assistant-bubble-text);
 }
 
 /* 로딩 인디케이터 */
@@ -124,7 +154,7 @@ body {
 .typing-dot {
     width: 8px;
     height: 8px;
-    background: rgba(255, 255, 255, 0.6);
+    background: var(--ene-chat-panel-muted-text);
     border-radius: 50%;
     display: inline-block;
     animation: typing 1.4s infinite;
@@ -139,7 +169,7 @@ body {
 }
 
 .typing-text {
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--ene-chat-panel-muted-text);
     font-size: 13px;
     margin-left: 4px;
 }
@@ -164,17 +194,17 @@ body {
     display: flex;
     padding: 12px;
     gap: 8px;
-    background: rgba(0, 0, 0, 0.5);
-    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    background: var(--ene-chat-input-wrap-bg);
+    border-top: 1px solid var(--ene-chat-panel-divider);
 }
 
 #chat-input {
     flex: 1;
     padding: 10px 14px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    border: 1px solid var(--ene-chat-input-border);
     border-radius: 20px;
-    background: rgba(255, 255, 255, 0.1);
-    color: white;
+    background: var(--ene-chat-input-bg);
+    color: var(--ene-chat-input-text);
     font-size: 14px;
     outline: none;
     transition: all 0.2s;
@@ -208,19 +238,19 @@ body {
 }
 
 #chat-input::placeholder {
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--ene-chat-input-placeholder);
 }
 
 #chat-input:focus {
-    background: rgba(255, 255, 255, 0.15);
-    border-color: rgba(100, 150, 255, 0.5);
+    background: var(--ene-chat-input-focus-bg);
+    border-color: var(--ene-accent-border);
 }
 
 #send-button {
     padding: 10px 20px;
     border: none;
     border-radius: 20px;
-    background: rgba(100, 150, 255, 0.8);
+    background: rgba(var(--ene-accent-rgb), 0.82);
     color: white;
     font-size: 14px;
     cursor: pointer;
@@ -228,7 +258,7 @@ body {
 }
 
 #send-button:hover {
-    background: rgba(100, 150, 255, 1);
+    background: var(--ene-accent);
     transform: translateY(-2px);
 }
 
@@ -251,10 +281,10 @@ body {
 #mood-toggle-floating-btn {
     z-index: 1200;
     padding: 8px 12px;
-    border: 1px solid rgba(255, 255, 255, 0.3);
+    border: 1px solid var(--ene-floating-panel-border);
     border-radius: 16px;
-    background: rgba(25, 25, 28, 0.52);
-    color: rgba(255, 255, 255, 0.95);
+    background: var(--ene-floating-panel-bg);
+    color: var(--ene-floating-panel-text);
     font-size: 13px;
     cursor: pointer;
     backdrop-filter: blur(4px);
@@ -265,7 +295,7 @@ body {
 }
 
 #manual-summarize-floating-btn:hover:not(:disabled) {
-    background: rgba(40, 40, 44, 0.7);
+    background: var(--ene-floating-panel-button-hover);
     transform: translateY(-1px);
 }
 
@@ -279,7 +309,7 @@ body {
 }
 
 #mood-toggle-floating-btn:hover {
-    background: rgba(40, 40, 44, 0.7);
+    background: var(--ene-floating-panel-button-hover);
     transform: translateY(-1px);
 }
 
@@ -288,7 +318,7 @@ body {
 }
 
 #obs-note-floating-btn:hover {
-    background: rgba(40, 40, 44, 0.7);
+    background: var(--ene-floating-panel-button-hover);
     transform: translateY(-1px);
 }
 
@@ -299,11 +329,11 @@ body {
     width: 290px;
     max-height: 48vh;
     z-index: 1200;
-    border: 1px solid rgba(255, 255, 255, 0.24);
+    border: 1px solid var(--ene-floating-panel-border);
     border-radius: 12px;
-    background: rgba(16, 16, 20, 0.58);
+    background: var(--ene-floating-panel-bg);
     backdrop-filter: blur(5px);
-    color: rgba(255, 255, 255, 0.92);
+    color: var(--ene-floating-panel-text);
     padding: 10px 10px 8px 10px;
     display: flex;
     flex-direction: column;
@@ -322,10 +352,10 @@ body {
 }
 
 #obs-refresh-btn {
-    border: 1px solid rgba(255, 255, 255, 0.24);
+    border: 1px solid var(--ene-floating-panel-border);
     border-radius: 8px;
-    background: rgba(255, 255, 255, 0.1);
-    color: #fff;
+    background: var(--ene-floating-panel-button-bg);
+    color: var(--ene-floating-panel-text);
     width: 28px;
     height: 24px;
     cursor: pointer;
@@ -333,7 +363,7 @@ body {
 
 #obs-panel-subtitle {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.75);
+    color: var(--ene-floating-panel-muted-text);
 }
 
 #obs-tree {
@@ -370,7 +400,7 @@ body {
 }
 
 .obs-node.obs-file {
-    color: rgba(255, 255, 255, 0.9);
+    color: var(--ene-floating-panel-text);
 }
 
 .obs-node input[type="checkbox"] {
@@ -390,9 +420,9 @@ body {
     width: 182px;
     padding: 9px 10px;
     border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.28);
-    background: rgba(18, 18, 22, 0.62);
-    color: rgba(255, 255, 255, 0.95);
+    border: 1px solid var(--ene-floating-panel-border);
+    background: var(--ene-floating-panel-bg);
+    color: var(--ene-floating-panel-text);
     backdrop-filter: blur(4px);
 }
 
@@ -415,8 +445,8 @@ body {
 
 #mood-status-collapse-btn {
     border: none;
-    background: rgba(255, 255, 255, 0.12);
-    color: rgba(255, 255, 255, 0.9);
+    background: var(--ene-floating-panel-button-bg);
+    color: var(--ene-floating-panel-text);
     width: 20px;
     height: 20px;
     line-height: 15px;
@@ -427,7 +457,7 @@ body {
 }
 
 #mood-status-collapse-btn:hover {
-    background: rgba(255, 255, 255, 0.2);
+    background: var(--ene-floating-panel-button-hover);
 }
 
 #mood-status-meters {
@@ -445,14 +475,14 @@ body {
 .mood-meter-name {
     width: 28px;
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.82);
+    color: var(--ene-floating-panel-muted-text);
 }
 
 .mood-meter-track {
     flex: 1;
     height: 6px;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.14);
+    background: var(--ene-floating-panel-button-bg);
     overflow: hidden;
 }
 
@@ -460,7 +490,7 @@ body {
     width: 50%;
     height: 100%;
     border-radius: inherit;
-    background: linear-gradient(90deg, rgba(103, 177, 255, 0.7), rgba(142, 245, 206, 0.85));
+    background: linear-gradient(90deg, rgba(var(--ene-accent-rgb), 0.76), rgba(var(--ene-accent-rgb), 0.38));
     transition: width 0.22s ease;
 }
 
@@ -490,9 +520,9 @@ body {
     width: min(360px, calc(100vw - 32px));
     padding: 18px;
     border-radius: 14px;
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    background: rgba(20, 20, 24, 0.94);
-    color: white;
+    border: 1px solid var(--ene-floating-panel-border);
+    background: var(--ene-floating-panel-bg);
+    color: var(--ene-floating-panel-text);
     box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
 }
 
@@ -504,7 +534,7 @@ body {
 #summary-confirm-body {
     margin-top: 10px;
     font-size: 14px;
-    color: rgba(255, 255, 255, 0.9);
+    color: var(--ene-floating-panel-text);
 }
 
 #summary-confirm-actions {
@@ -519,15 +549,15 @@ body {
     padding: 8px 12px;
     border-radius: 10px;
     font-size: 13px;
-    border: 1px solid rgba(255, 255, 255, 0.22);
-    color: white;
-    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--ene-floating-panel-border);
+    color: var(--ene-floating-panel-text);
+    background: var(--ene-floating-panel-button-bg);
     cursor: pointer;
 }
 
 #summary-confirm-yes {
-    background: rgba(100, 150, 255, 0.8);
-    border-color: rgba(100, 150, 255, 0.9);
+    background: rgba(var(--ene-accent-rgb), 0.84);
+    border-color: rgba(var(--ene-accent-rgb), 0.92);
 }
 
 #summary-confirm-no:hover,
@@ -551,10 +581,10 @@ body {
     max-width: min(360px, calc(100vw - 32px));
     padding: 9px 12px;
     border-radius: 10px;
-    color: white;
+    color: var(--ene-floating-panel-text);
     font-size: 13px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    background: rgba(25, 25, 28, 0.9);
+    border: 1px solid var(--ene-floating-panel-border);
+    background: var(--ene-floating-panel-bg);
     box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
     opacity: 0;
     transform: translateY(-4px);
@@ -570,7 +600,7 @@ body {
 }
 
 .toast-item.toast-info {
-    border-color: rgba(130, 180, 255, 0.6);
+    border-color: rgba(var(--ene-accent-rgb), 0.62);
 }
 
 @keyframes toastFadeIn {
@@ -646,9 +676,9 @@ body {
     resize: vertical;
     overflow-y: auto;
     border-radius: 10px;
-    border: 1px solid rgba(255, 255, 255, 0.25);
+    border: 1px solid var(--ene-floating-panel-border);
     background: rgba(0, 0, 0, 0.18);
-    color: #fff;
+    color: var(--ene-floating-panel-text);
     padding: 8px 10px;
     font-size: 13px;
     line-height: 1.4;
@@ -680,20 +710,20 @@ body {
 
 .inline-edit-cancel,
 .inline-edit-save {
-    border: 1px solid rgba(255, 255, 255, 0.25);
+    border: 1px solid var(--ene-floating-panel-border);
     border-radius: 8px;
     padding: 4px 8px;
     font-size: 12px;
     cursor: pointer;
-    color: #fff;
+    color: var(--ene-floating-panel-text);
 }
 
 .inline-edit-cancel {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--ene-floating-panel-button-bg);
 }
 
 .inline-edit-save {
-    background: rgba(100, 150, 255, 0.72);
+    background: rgba(var(--ene-accent-rgb), 0.78);
 }
 
 /* 이미지 첨부 버튼 */
