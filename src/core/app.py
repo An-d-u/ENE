@@ -3,9 +3,10 @@ ENE 메인 애플리케이션
 오버레이 윈도우와 트레이 아이콘을 관리
 """
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import QObject
+from PyQt6.QtCore import QObject, QTimer
 
 from .settings import Settings
+from .system_theme import get_theme_preset, get_windows_theme_mode
 from .overlay_window import OverlayWindow
 from .global_ptt import GlobalPTTController
 from .tray_icon import TrayIcon
@@ -23,6 +24,8 @@ class ENEApplication(QObject):
         
         # 설정 관리자
         self.settings = Settings()
+        self._last_system_theme_mode = None
+        self._apply_followed_system_theme(save=True)
         self.interrupt_tts_on_ptt = bool(self.settings.get("interrupt_tts_on_ptt", True))
         
         # LLM 클라이언트 초기화
@@ -62,6 +65,7 @@ class ENEApplication(QObject):
 
         # 전역 PTT 초기화
         self._init_global_ptt()
+        self._init_system_theme_sync()
     
     def _init_llm_client(self):
         """LLM 클라이언트 초기화"""
@@ -296,7 +300,6 @@ class ENEApplication(QObject):
         
         # 트레이 아이콘 시그널
         self.tray_icon.settings_requested.connect(self._show_settings_dialog)
-        self.tray_icon.memory_requested.connect(self._show_memory_dialog)
         self.tray_icon.calendar_requested.connect(self._show_calendar_dialog)
         self.tray_icon.toggle_drag_bar_requested.connect(self._toggle_drag_bar)
         self.tray_icon.toggle_mouse_tracking_requested.connect(self._toggle_mouse_tracking)
@@ -316,6 +319,56 @@ class ENEApplication(QObject):
             import traceback
             traceback.print_exc()
             self.global_ptt = None
+
+    def _apply_followed_system_theme(self, save: bool = False) -> bool:
+        """
+        윈도우 테마 따라가기가 켜져 있으면 현재 시스템 테마 프리셋을 설정에 반영한다.
+        실제 반영이 일어났는지 여부를 반환한다.
+        """
+        if not bool(self.settings.get("follow_system_theme", False)):
+            return False
+
+        mode = get_windows_theme_mode()
+        preset = get_theme_preset(mode)
+        changed = False
+        for key, value in preset.items():
+            if self.settings.get(key) != value:
+                self.settings.set(key, value)
+                changed = True
+        if self.settings.get("theme_mode", "light") != mode:
+            self.settings.set("theme_mode", mode)
+            changed = True
+        self._last_system_theme_mode = mode
+        if changed and save:
+            self.settings.save()
+        return changed
+
+    def _init_system_theme_sync(self):
+        """윈도우 테마 추적 타이머를 시작한다."""
+        self.system_theme_timer = QTimer(self)
+        self.system_theme_timer.setInterval(3000)
+        self.system_theme_timer.timeout.connect(self._sync_system_theme_if_needed)
+        self.system_theme_timer.start()
+
+    def _sync_system_theme_if_needed(self):
+        """윈도우 테마 변경을 감지해 ENE 테마를 동기화한다."""
+        if not bool(self.settings.get("follow_system_theme", False)):
+            self._last_system_theme_mode = None
+            return
+
+        current_mode = get_windows_theme_mode()
+        if current_mode == self._last_system_theme_mode:
+            return
+
+        changed = self._apply_followed_system_theme(save=True)
+        if changed and hasattr(self, "overlay_window") and self.overlay_window:
+            self.overlay_window.apply_new_settings(dict(self.settings.config))
+        if hasattr(self, "_settings_dialog") and self._settings_dialog and self._settings_dialog.isVisible():
+            current_settings = dict(self.settings.config)
+            if hasattr(self.settings, "secret_config") and isinstance(self.settings.secret_config, dict):
+                current_settings.update(self.settings.secret_config)
+            self._settings_dialog._original_settings = current_settings
+            self._settings_dialog._load_values()
 
     def _on_ptt_transcription_ready(self, text: str):
         """STT 결과 텍스트를 기존 채팅 경로로 전달"""
@@ -356,7 +409,9 @@ class ENEApplication(QObject):
             current_settings['window_width'] = self.overlay_window.width()
             current_settings['window_height'] = self.overlay_window.height()
 
-        dialog = SettingsDialog(current_settings)
+        memory_manager = self.memory_manager if hasattr(self, "memory_manager") else None
+        bridge = self.overlay_window.bridge if hasattr(self.overlay_window, "bridge") else None
+        dialog = SettingsDialog(current_settings, memory_manager=memory_manager, bridge=bridge)
         self._settings_dialog = dialog
         
         # 시그널 연결
@@ -433,6 +488,9 @@ class ENEApplication(QObject):
     def _quit_application(self):
         """애플리케이션 종료"""
         print("애플리케이션 종료 중...")
+
+        if hasattr(self, "system_theme_timer") and self.system_theme_timer:
+            self.system_theme_timer.stop()
         
         # 종료 전 남은 대화 요약
         if hasattr(self, 'overlay_window') and hasattr(self.overlay_window, 'bridge'):
@@ -449,7 +507,11 @@ class ENEApplication(QObject):
                     print("요약 완료")
                 except Exception as e:
                     print(f"종료 전 요약 실패: {e}")
-        
+
+        if hasattr(self, "_settings_dialog") and self._settings_dialog and self._settings_dialog.isVisible():
+            self._settings_dialog.close()
+
+        self.overlay_window.shutdown()
         self.overlay_window.close()
         if hasattr(self, "obsidian_panel_window") and self.obsidian_panel_window:
             self.obsidian_panel_window.close()

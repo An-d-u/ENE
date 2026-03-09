@@ -32,33 +32,224 @@ const app = new PIXI.Application({
 
 console.log("Pixi app initialized");
 console.log("Canvas size:", window.innerWidth, "x", window.innerHeight);
-const modelPath = '../live2d_models/jksalt/jksalt.model3.json';
-const baseUrl = window.location.href.substring(0, window.location.href.lastIndexOf('/'));
-const absoluteModelPath = new URL(modelPath, baseUrl + '/').href;
-console.log("Model path (relative):", modelPath);
-console.log("Model path (absolute):", absoluteModelPath);
+const DEFAULT_MODEL_PATH = '../live2d_models/jksalt/jksalt.model3.json';
+const DEFAULT_THEME = {
+    accentColor: '#0071E3',
+    settingsWindowBgColor: '#EEF1F5',
+    settingsCardBgColor: '#FFFFFF',
+    settingsInputBgColor: '#F8FAFC',
+    chatPanelBgColor: '#111214',
+    chatInputBgColor: '#1B1D22',
+    chatAssistantBubbleColor: '#FFFFFF',
+    chatUserBubbleColor: '#0071E3'
+};
+window.eneModelConfig = window.eneModelConfig || {};
+window.eneThemeConfig = window.eneThemeConfig || {};
+let currentModelPath = '';
+let currentEmotionsBasePath = '';
+let currentModelLoadToken = 0;
+let currentModelErrorText = null;
+let currentThemeAccent = DEFAULT_THEME.accentColor;
+
+function resolveModelPathFromConfig() {
+    return window.eneModelConfig.modelPath || DEFAULT_MODEL_PATH;
+}
+
+function resolveEmotionsBasePathFromConfig() {
+    if (window.eneModelConfig.emotionsBasePath) {
+        return window.eneModelConfig.emotionsBasePath;
+    }
+    const absoluteModelUrl = new URL(resolveModelPathFromConfig(), window.location.href);
+    return new URL('./emotions/', absoluteModelUrl).href;
+}
+
+function normalizeThemeHex(value) {
+    const raw = typeof value === 'string' ? value.trim() : '';
+    const match = raw.match(/^#?([0-9A-Fa-f]{6})$/);
+    if (!match) {
+        return DEFAULT_THEME.accentColor;
+    }
+    return `#${match[1].toUpperCase()}`;
+}
+
+function hexToRgbTriplet(hex) {
+    const normalized = normalizeThemeHex(hex);
+    const color = normalized.slice(1);
+    const red = parseInt(color.slice(0, 2), 16);
+    const green = parseInt(color.slice(2, 4), 16);
+    const blue = parseInt(color.slice(4, 6), 16);
+    return `${red}, ${green}, ${blue}`;
+}
+
+function darkenThemeHex(hex, factor = 0.9) {
+    const normalized = normalizeThemeHex(hex);
+    const color = normalized.slice(1);
+    const toChannel = (offset) => Math.max(0, Math.min(255, Math.round(parseInt(color.slice(offset, offset + 2), 16) * factor)));
+    const red = toChannel(0).toString(16).padStart(2, '0');
+    const green = toChannel(2).toString(16).padStart(2, '0');
+    const blue = toChannel(4).toString(16).padStart(2, '0');
+    return `#${(red + green + blue).toUpperCase()}`;
+}
+
+function hexToRgba(hex, alpha) {
+    return `rgba(${hexToRgbTriplet(hex)}, ${alpha})`;
+}
+
+function getThemeTextColor(hex) {
+    const normalized = normalizeThemeHex(hex);
+    const color = normalized.slice(1);
+    const red = parseInt(color.slice(0, 2), 16);
+    const green = parseInt(color.slice(2, 4), 16);
+    const blue = parseInt(color.slice(4, 6), 16);
+    const luminance = (0.2126 * red + 0.7152 * green + 0.0722 * blue) / 255;
+    return luminance < 0.62 ? '#FFFFFF' : '#111827';
+}
+
+function applyThemeVariables(themeConfig) {
+    const normalizedTheme = {
+        accentColor: normalizeThemeHex(themeConfig.accentColor || DEFAULT_THEME.accentColor),
+        settingsWindowBgColor: normalizeThemeHex(themeConfig.settingsWindowBgColor || DEFAULT_THEME.settingsWindowBgColor),
+        settingsCardBgColor: normalizeThemeHex(themeConfig.settingsCardBgColor || DEFAULT_THEME.settingsCardBgColor),
+        settingsInputBgColor: normalizeThemeHex(themeConfig.settingsInputBgColor || DEFAULT_THEME.settingsInputBgColor),
+        chatPanelBgColor: normalizeThemeHex(themeConfig.chatPanelBgColor || DEFAULT_THEME.chatPanelBgColor),
+        chatInputBgColor: normalizeThemeHex(themeConfig.chatInputBgColor || DEFAULT_THEME.chatInputBgColor),
+        chatAssistantBubbleColor: normalizeThemeHex(themeConfig.chatAssistantBubbleColor || DEFAULT_THEME.chatAssistantBubbleColor),
+        chatUserBubbleColor: normalizeThemeHex(themeConfig.chatUserBubbleColor || DEFAULT_THEME.chatUserBubbleColor)
+    };
+
+    const accent = normalizedTheme.accentColor;
+    const rgbTriplet = hexToRgbTriplet(accent);
+    const root = document.documentElement;
+    const panelText = getThemeTextColor(normalizedTheme.chatPanelBgColor);
+    const panelTextRgb = hexToRgbTriplet(panelText);
+    const inputText = getThemeTextColor(normalizedTheme.chatInputBgColor);
+    const inputTextRgb = hexToRgbTriplet(inputText);
+    const assistantText = getThemeTextColor(normalizedTheme.chatAssistantBubbleColor);
+    const userText = getThemeTextColor(normalizedTheme.chatUserBubbleColor);
+
+    root.style.setProperty('--ene-accent', accent);
+    root.style.setProperty('--ene-accent-hover', darkenThemeHex(accent, 0.9));
+    root.style.setProperty('--ene-accent-rgb', rgbTriplet);
+    root.style.setProperty('--ene-accent-soft', `rgba(${rgbTriplet}, 0.12)`);
+    root.style.setProperty('--ene-accent-soft-strong', `rgba(${rgbTriplet}, 0.18)`);
+    root.style.setProperty('--ene-accent-border', `rgba(${rgbTriplet}, 0.38)`);
+    root.style.setProperty('--ene-chat-panel-bg', hexToRgba(normalizedTheme.chatPanelBgColor, 0.78));
+    root.style.setProperty('--ene-chat-panel-border', `rgba(${panelTextRgb}, 0.12)`);
+    root.style.setProperty('--ene-chat-panel-divider', `rgba(${panelTextRgb}, 0.06)`);
+    root.style.setProperty('--ene-chat-panel-text', `rgba(${panelTextRgb}, 0.95)`);
+    root.style.setProperty('--ene-chat-panel-muted-text', `rgba(${panelTextRgb}, 0.78)`);
+    root.style.setProperty('--ene-chat-input-wrap-bg', hexToRgba(normalizedTheme.chatPanelBgColor, 0.66));
+    root.style.setProperty('--ene-chat-input-bg', hexToRgba(normalizedTheme.chatInputBgColor, 0.94));
+    root.style.setProperty('--ene-chat-input-focus-bg', hexToRgba(normalizedTheme.chatInputBgColor, 0.98));
+    root.style.setProperty('--ene-chat-input-border', `rgba(${inputTextRgb}, 0.16)`);
+    root.style.setProperty('--ene-chat-input-text', inputText);
+    root.style.setProperty('--ene-chat-input-placeholder', `rgba(${inputTextRgb}, 0.50)`);
+    root.style.setProperty('--ene-chat-assistant-bubble-bg', hexToRgba(normalizedTheme.chatAssistantBubbleColor, 0.96));
+    root.style.setProperty('--ene-chat-assistant-bubble-text', assistantText);
+    root.style.setProperty('--ene-chat-user-bubble-bg', hexToRgba(normalizedTheme.chatUserBubbleColor, 0.88));
+    root.style.setProperty('--ene-chat-user-bubble-text', userText);
+    root.style.setProperty('--ene-floating-panel-bg', hexToRgba(normalizedTheme.chatPanelBgColor, 0.74));
+    root.style.setProperty('--ene-floating-panel-border', `rgba(${panelTextRgb}, 0.18)`);
+    root.style.setProperty('--ene-floating-panel-text', `rgba(${panelTextRgb}, 0.95)`);
+    root.style.setProperty('--ene-floating-panel-muted-text', `rgba(${panelTextRgb}, 0.75)`);
+    root.style.setProperty('--ene-floating-panel-button-bg', `rgba(${panelTextRgb}, 0.10)`);
+    root.style.setProperty('--ene-floating-panel-button-hover', `rgba(${panelTextRgb}, 0.18)`);
+
+    currentThemeAccent = accent;
+    return normalizedTheme;
+}
+
+window.applyENETheme = function applyENETheme(config) {
+    window.eneThemeConfig = { ...DEFAULT_THEME, ...(window.eneThemeConfig || {}), ...(config || {}) };
+    return applyThemeVariables(window.eneThemeConfig);
+};
+
+window.applyENETheme(window.eneThemeConfig);
+
+function removeCurrentModelArtifacts() {
+    if (window.live2dModel) {
+        app.stage.removeChild(window.live2dModel);
+        if (typeof window.live2dModel.destroy === 'function') {
+            window.live2dModel.destroy();
+        }
+        window.live2dModel = null;
+    }
+    if (currentModelErrorText) {
+        app.stage.removeChild(currentModelErrorText);
+        currentModelErrorText.destroy();
+        currentModelErrorText = null;
+    }
+    trackingParamSupport = null;
+    headPatEyeParamSupport = null;
+    isHeadPatting = false;
+    headPatPointerId = null;
+    patRawIntensity = 0;
+    patDirection = 0;
+    patBlend = 0;
+    patBlendMode = 'idle';
+}
+
+function applyCurrentModelPlacement() {
+    const model = window.live2dModel;
+    if (!model) {
+        return;
+    }
+
+    const config = window.eneModelConfig || {};
+    const scale = Number(config.scale ?? 1.0);
+    const xPercent = Number(config.xPercent ?? 50);
+    const yPercent = Number(config.yPercent ?? 50);
+
+    model.anchor.set(0.5, 0.5);
+    model.scale.set(scale);
+    model.x = window.innerWidth * (xPercent / 100);
+    model.y = window.innerHeight * (yPercent / 100);
+}
+
+window.applyENEModelSettings = async function applyENEModelSettings(config) {
+    window.eneModelConfig = { ...(window.eneModelConfig || {}), ...(config || {}) };
+
+    const nextModelPath = resolveModelPathFromConfig();
+    const nextEmotionsBasePath = resolveEmotionsBasePathFromConfig();
+
+    if (nextModelPath !== currentModelPath) {
+        currentModelPath = nextModelPath;
+        currentEmotionsBasePath = nextEmotionsBasePath;
+        await loadModel();
+        return;
+    }
+
+    currentEmotionsBasePath = nextEmotionsBasePath;
+    applyCurrentModelPlacement();
+};
+
 // Live2D 모델 파일을 로드하고 초기 배치/초기 모션을 적용한다.
 async function loadModel() {
+    const requestToken = ++currentModelLoadToken;
+    const modelPath = resolveModelPathFromConfig();
+    const absoluteModelPath = new URL(modelPath, window.location.href).href;
+
     try {
         console.log(`\n=== Loading model ===`);
         console.log(`Path: ${modelPath}`);
+        console.log(`Absolute path: ${absoluteModelPath}`);
+        removeCurrentModelArtifacts();
         console.log("Calling PIXI.live2d.Live2DModel.from()...");
         const model = await PIXI.live2d.Live2DModel.from(modelPath);
+        if (requestToken !== currentModelLoadToken) {
+            if (typeof model.destroy === 'function') {
+                model.destroy();
+            }
+            return;
+        }
 
         console.log("Model loaded successfully!");
         console.log("Model size:", model.width, "x", model.height);
         window.live2dModel = model;
         app.stage.addChild(model);
-        model.anchor.set(0.5, 0.5);
-        const scaleX = window.innerWidth / model.width;
-        const scaleY = window.innerHeight / model.height;
-        const scale = Math.min(scaleX, scaleY) * 0.8;
+        applyCurrentModelPlacement();
 
-        model.scale.set(scale);
-        model.x = window.innerWidth / 2;
-        model.y = window.innerHeight / 2;
-
-        console.log(`Model positioned at (${model.x}, ${model.y}) with scale ${scale}`);
+        console.log(`Model positioned at (${model.x}, ${model.y}) with scale ${model.scale.x}`);
         if (model.internalModel && model.internalModel.motionManager) {
             console.log("Motion manager available");
             try {
@@ -85,7 +276,7 @@ async function loadModel() {
         if (error.stack) {
             console.error("Stack trace:", error.stack);
         }
-        const errorText = new PIXI.Text(
+        currentModelErrorText = new PIXI.Text(
             `Live2D 모델 로드 실패\n\n` +
             `에러: ${error.message}\n\n` +
             `경로: ${modelPath}\n` +
@@ -100,30 +291,28 @@ async function loadModel() {
                 wordWrapWidth: window.innerWidth - 40
             }
         );
-        errorText.x = window.innerWidth / 2;
-        errorText.y = window.innerHeight / 2;
-        errorText.anchor.set(0.5);
-        app.stage.addChild(errorText);
+        currentModelErrorText.x = window.innerWidth / 2;
+        currentModelErrorText.y = window.innerHeight / 2;
+        currentModelErrorText.anchor.set(0.5);
+        app.stage.addChild(currentModelErrorText);
     }
 }
 // 창 크기가 바뀌면 모델의 스케일/중심 좌표를 다시 맞춘다.
 window.addEventListener('resize', () => {
     if (window.live2dModel) {
-        const model = window.live2dModel;
-
-        const scaleX = window.innerWidth / model.width;
-        const scaleY = window.innerHeight / model.height;
-        const scale = Math.min(scaleX, scaleY) * 0.8;
-
-        model.scale.set(scale);
-        model.x = window.innerWidth / 2;
-        model.y = window.innerHeight / 2;
-
+        applyCurrentModelPlacement();
         console.log("Window resized, model repositioned");
     }
 });
-console.log("\n=== Starting model load ===");
-loadModel();
+window.addEventListener('load', () => {
+    if (window.live2dModel || currentModelLoadToken > 0) {
+        return;
+    }
+    console.log("\n=== Starting model load ===");
+    currentModelPath = resolveModelPathFromConfig();
+    currentEmotionsBasePath = resolveEmotionsBasePathFromConfig();
+    loadModel();
+});
 
 // ==========================================
 // 마우스 트래킹/쓰다듬기 상태
@@ -380,8 +569,16 @@ function isHeadPatPoint(pointerX, pointerY) {
     if (!model) return false;
 
     try {
-        if (typeof model.hitTest === 'function' && model.hitTest('Head', pointerX, pointerY)) {
-            return true;
+        if (typeof model.hitTest === 'function') {
+            const hitAreas = ['Head', 'head', 'Face', 'face', 'HeadTouch', 'Body'];
+            for (const areaName of hitAreas) {
+                try {
+                    if (model.hitTest(areaName, pointerX, pointerY)) {
+                        return true;
+                    }
+                } catch (_) {
+                }
+            }
         }
     } catch (_) {
         // hitTest failed, continue with bounds fallback
@@ -393,10 +590,10 @@ function isHeadPatPoint(pointerX, pointerY) {
         if (!bounds || !Number.isFinite(bounds.width) || !Number.isFinite(bounds.height)) return false;
         if (bounds.width <= 0 || bounds.height <= 0) return false;
 
-        const minX = bounds.x + (bounds.width * 0.20);
-        const maxX = bounds.x + (bounds.width * 0.80);
-        const minY = bounds.y + (bounds.height * 0.08);
-        const maxY = bounds.y + (bounds.height * 0.40);
+        const minX = bounds.x + (bounds.width * 0.12);
+        const maxX = bounds.x + (bounds.width * 0.88);
+        const minY = bounds.y + (bounds.height * 0.02);
+        const maxY = bounds.y + (bounds.height * 0.58);
         return pointerX >= minX && pointerX <= maxX && pointerY >= minY && pointerY <= maxY;
     } catch (_) {
         return false;
@@ -405,7 +602,8 @@ function isHeadPatPoint(pointerX, pointerY) {
 
 // 쓰다듬기 시작 이벤트 처리.
 function onHeadPatPointerDown(event) {
-    if (!headPatEnabled || event.button !== 0) return;
+    if (!headPatEnabled) return;
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
 
     const chatContainer = document.getElementById('chat-container');
     if (chatContainer && chatContainer.contains(event.target)) {
@@ -431,6 +629,12 @@ function onHeadPatPointerDown(event) {
     patBlendMode = 'in';
     patFadeElapsedMs = 0;
     lastNonPatTrackingState = { ...patOffsetsApplied };
+    if (event.target && typeof event.target.setPointerCapture === 'function') {
+        try {
+            event.target.setPointerCapture(event.pointerId);
+        } catch (_) {
+        }
+    }
     event.preventDefault();
 }
 
@@ -469,6 +673,12 @@ function onHeadPatPointerUp(event) {
     if (!headPatSessionCounted) {
         notifyHeadPatSessionCount();
         headPatSessionCounted = true;
+    }
+    if (event.target && typeof event.target.releasePointerCapture === 'function') {
+        try {
+            event.target.releasePointerCapture(event.pointerId);
+        } catch (_) {
+        }
     }
     triggerPatEndEmotion();
 }
@@ -873,7 +1083,7 @@ async function changeExpression(emotion) {
             console.warn(`Unknown emotion: ${emotion}`);
             return;
         }
-        const expressionPath = `../live2d_models/jksalt/emotions/${EMOTIONS[emotion]}.exp3.json`;
+        const expressionPath = new URL(`${EMOTIONS[emotion]}.exp3.json`, currentEmotionsBasePath).href;
         console.log(`Changing expression to: ${emotion} (${expressionPath})`);
         if (model.internalModel && model.internalModel.coreModel) {
             const response = await fetch(expressionPath);

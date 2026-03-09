@@ -2,21 +2,39 @@
 Settings dialog for ENE.
 Provides live preview without immediate persistence.
 """
-from PyQt6.QtCore import Qt, pyqtSignal
+import ast
+import ctypes
+import importlib
+import json
+import re
+import sys
+from datetime import datetime
+from pathlib import Path
+
+from PyQt6.QtCore import QPoint, QRect, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QColor, QIcon, QImage, QLinearGradient, QPainter, QPen
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
     QDoubleSpinBox,
+    QFileDialog,
     QFormLayout,
     QFrame,
+    QGraphicsDropShadowEffect,
     QGroupBox,
     QHBoxLayout,
+    QListWidget,
+    QListWidgetItem,
+    QListView,
     QLabel,
     QLineEdit,
+    QMessageBox,
+    QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSlider,
     QSpinBox,
     QTabWidget,
@@ -26,7 +44,342 @@ from PyQt6.QtWidgets import (
 
 from ..ai.prompt import get_available_emotions
 from ..ai.llm_provider import LLMFormat, get_llm_provider_catalog
+from ..core.system_theme import THEME_PRESETS, THEME_VARIANT_PRESETS, get_theme_preset, get_windows_theme_mode
 from ..core.hotkey_utils import hotkey_to_display, normalize_hotkey_text
+from .memory_dialog import MemoryDialog
+
+
+def apply_soft_shadow(widget: QWidget, blur: int = 36, alpha: int = 28) -> None:
+    effect = QGraphicsDropShadowEffect(widget)
+    effect.setBlurRadius(blur)
+    effect.setOffset(0, 12)
+    effect.setColor(QColor(15, 23, 42, alpha))
+    widget.setGraphicsEffect(effect)
+
+
+class ClickableFrame(QFrame):
+    clicked = pyqtSignal()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+
+class ColorPlaneWidget(QWidget):
+    colorChanged = pyqtSignal(int, int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._hue = 0
+        self._saturation = 255
+        self._value = 255
+        self._image: QImage | None = None
+        self.setFixedSize(220, 220)
+        self.setCursor(Qt.CursorShape.CrossCursor)
+        self._rebuild_image()
+
+    def set_hsv(self, hue: int, saturation: int, value: int) -> None:
+        new_hue = max(0, min(int(hue), 359))
+        hue_changed = new_hue != self._hue
+        self._hue = new_hue
+        self._saturation = max(0, min(int(saturation), 255))
+        self._value = max(0, min(int(value), 255))
+        if hue_changed:
+            self._rebuild_image()
+        self.update()
+
+    def set_hue(self, hue: int) -> None:
+        self._hue = max(0, min(int(hue), 359))
+        self._rebuild_image()
+        self.update()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._rebuild_image()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = self.rect().adjusted(1, 1, -1, -1)
+        if self._image is not None:
+            painter.drawImage(rect, self._image)
+
+        painter.setPen(QPen(QColor(17, 24, 39, 30), 1))
+        painter.drawRect(rect)
+
+        x = rect.left() + round((self._saturation / 255.0) * rect.width())
+        y = rect.top() + round((1.0 - (self._value / 255.0)) * rect.height())
+        painter.setPen(QPen(QColor("#FFFFFF"), 2))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawEllipse(QPoint(x, y), 7, 7)
+        painter.setPen(QPen(QColor(17, 24, 39, 120), 1))
+        painter.drawEllipse(QPoint(x, y), 8, 8)
+
+    def _rebuild_image(self) -> None:
+        width = max(1, self.width() - 2)
+        height = max(1, self.height() - 2)
+        image = QImage(width, height, QImage.Format.Format_RGB32)
+        max_x = max(1, width - 1)
+        max_y = max(1, height - 1)
+        for y in range(height):
+            value = round((1.0 - (y / max_y)) * 255)
+            for x in range(width):
+                saturation = round((x / max_x) * 255)
+                image.setPixelColor(x, y, QColor.fromHsv(self._hue, saturation, value))
+        self._image = image
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._update_from_pos(event.position().toPoint())
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() & Qt.MouseButton.LeftButton:
+            self._update_from_pos(event.position().toPoint())
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def _update_from_pos(self, pos: QPoint) -> None:
+        rect = self.rect().adjusted(1, 1, -1, -1)
+        x = max(rect.left(), min(pos.x(), rect.right()))
+        y = max(rect.top(), min(pos.y(), rect.bottom()))
+        saturation = round(((x - rect.left()) / max(1, rect.width())) * 255)
+        value = round((1.0 - ((y - rect.top()) / max(1, rect.height()))) * 255)
+        self._saturation = max(0, min(saturation, 255))
+        self._value = max(0, min(value, 255))
+        self.update()
+        self.colorChanged.emit(self._saturation, self._value)
+
+
+class HueSliderWidget(QWidget):
+    hueChanged = pyqtSignal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._hue = 0
+        self.setFixedSize(24, 220)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def set_hue(self, hue: int) -> None:
+        self._hue = max(0, min(int(hue), 359))
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = self.rect().adjusted(4, 1, -4, -1)
+
+        gradient = QLinearGradient(rect.center().x(), rect.top(), rect.center().x(), rect.bottom())
+        gradient.setColorAt(0.00, QColor.fromHsv(0, 255, 255))
+        gradient.setColorAt(0.17, QColor.fromHsv(300, 255, 255))
+        gradient.setColorAt(0.33, QColor.fromHsv(240, 255, 255))
+        gradient.setColorAt(0.50, QColor.fromHsv(180, 255, 255))
+        gradient.setColorAt(0.67, QColor.fromHsv(120, 255, 255))
+        gradient.setColorAt(0.83, QColor.fromHsv(60, 255, 255))
+        gradient.setColorAt(1.00, QColor.fromHsv(0, 255, 255))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(gradient)
+        painter.drawRoundedRect(rect, 10, 10)
+
+        marker_y = rect.top() + round((self._hue / 359.0) * rect.height())
+        marker_rect = QRect(rect.left() - 3, marker_y - 4, rect.width() + 6, 8)
+        painter.setPen(QPen(QColor("#FFFFFF"), 2))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRoundedRect(marker_rect, 4, 4)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._update_from_pos(event.position().toPoint())
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() & Qt.MouseButton.LeftButton:
+            self._update_from_pos(event.position().toPoint())
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def _update_from_pos(self, pos: QPoint) -> None:
+        rect = self.rect().adjusted(4, 1, -4, -1)
+        y = max(rect.top(), min(pos.y(), rect.bottom()))
+        hue = round(((y - rect.top()) / max(1, rect.height())) * 359)
+        self._hue = max(0, min(hue, 359))
+        self.update()
+        self.hueChanged.emit(self._hue)
+
+
+class ThemeColorPickerPopup(QDialog):
+    colorChanged = pyqtSignal(str)
+    closed = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+        self.setModal(False)
+        self._updating = False
+        self._current_title = ""
+        self._current_hue = 0
+        self._current_saturation = 255
+        self._current_value = 255
+
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.surface = QFrame()
+        self.surface.setObjectName("ThemeColorPickerPopup")
+        apply_soft_shadow(self.surface, blur=34, alpha=34)
+        outer_layout.addWidget(self.surface)
+
+        layout = QVBoxLayout(self.surface)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
+        header_row = QHBoxLayout()
+        header_row.setSpacing(10)
+        header_text = QVBoxLayout()
+        header_text.setSpacing(2)
+        self.title_label = QLabel("색상 선택")
+        header_text.addWidget(self.title_label)
+        self.value_label = QLabel("#FFFFFF")
+        header_text.addWidget(self.value_label)
+        header_row.addLayout(header_text)
+        header_row.addStretch()
+
+        self.preview = QFrame()
+        self.preview.setFixedSize(34, 34)
+        header_row.addWidget(self.preview)
+        layout.addLayout(header_row)
+
+        picker_row = QHBoxLayout()
+        picker_row.setSpacing(12)
+        self.color_plane = ColorPlaneWidget()
+        self.color_plane.colorChanged.connect(self._on_plane_changed)
+        picker_row.addWidget(self.color_plane)
+
+        self.hue_slider = HueSliderWidget()
+        self.hue_slider.hueChanged.connect(self._on_hue_changed)
+        picker_row.addWidget(self.hue_slider)
+        layout.addLayout(picker_row)
+
+        self.swatch_row = QHBoxLayout()
+        self.swatch_row.setSpacing(8)
+        layout.addLayout(self.swatch_row)
+
+    def hideEvent(self, event):
+        self.closed.emit()
+        super().hideEvent(event)
+
+    def apply_theme(self, settings_window: str, settings_card: str, settings_input: str, accent: str, text_color: str, muted_text: str, border_color: str) -> None:
+        self.setStyleSheet(
+            """
+            QFrame#ThemeColorPickerPopup {
+                background: __CARD__;
+                border: 1px solid __BORDER__;
+                border-radius: 22px;
+            }
+            QLabel {
+                color: __TEXT__;
+            }
+            QPushButton {
+                min-height: 26px;
+                padding: 0 10px;
+                border-radius: 13px;
+                border: 1px solid __BORDER__;
+                background: __INPUT__;
+                color: __TEXT__;
+                font-size: 11px;
+                font-weight: 700;
+            }
+            QPushButton:hover {
+                border: 1px solid __ACCENT__;
+            }
+            """
+            .replace("__WINDOW__", settings_window)
+            .replace("__CARD__", settings_card)
+            .replace("__INPUT__", settings_input)
+            .replace("__ACCENT__", accent)
+            .replace("__TEXT__", text_color)
+            .replace("__MUTED__", muted_text)
+            .replace("__BORDER__", border_color)
+        )
+        self.title_label.setStyleSheet(f"color: {text_color}; font-size: 13px; font-weight: 800;")
+        self.value_label.setStyleSheet(f"color: {muted_text}; font-size: 12px; font-weight: 700;")
+
+    def set_title(self, title: str) -> None:
+        self._current_title = str(title or "").strip()
+        self.title_label.setText(self._current_title or "색상 선택")
+
+    def set_recommended_colors(self, colors: list[str], border_fn) -> None:
+        while self.swatch_row.count():
+            item = self.swatch_row.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        for hex_color in colors:
+            swatch = ClickableFrame()
+            swatch.setFixedSize(24, 24)
+            swatch.setCursor(Qt.CursorShape.PointingHandCursor)
+            swatch.setToolTip(hex_color)
+            swatch.setStyleSheet(
+                f"background: {hex_color}; border: 1px solid {border_fn(hex_color, 0.22)}; border-radius: 12px;"
+            )
+            swatch.clicked.connect(lambda selected=hex_color: self.set_color(selected, emit_signal=True))
+            self.swatch_row.addWidget(swatch)
+        self.swatch_row.addStretch()
+
+    def set_color(self, color_value: str, emit_signal: bool = False) -> None:
+        color = QColor(str(color_value or "#FFFFFF"))
+        if not color.isValid():
+            color = QColor("#FFFFFF")
+        source_hex = color.name().upper()
+        hue = color.hsvHue()
+        if hue < 0:
+            hue = 0
+
+        self._updating = True
+        self._current_hue = int(hue)
+        self._current_saturation = int(color.hsvSaturation())
+        self._current_value = int(color.value())
+        self.color_plane.set_hsv(self._current_hue, self._current_saturation, self._current_value)
+        self.hue_slider.set_hue(self._current_hue)
+        self._apply_current_preview(source_hex)
+        self._updating = False
+
+        if emit_signal:
+            self.colorChanged.emit(source_hex)
+
+    def _apply_current_preview(self, override_hex: str | None = None) -> None:
+        if override_hex:
+            hex_color = str(override_hex).upper()
+        else:
+            color = QColor.fromHsv(self._current_hue, self._current_saturation, self._current_value)
+            hex_color = color.name().upper()
+        self.preview.setStyleSheet(f"background: {hex_color}; border-radius: 17px; border: 1px solid rgba(17, 24, 39, 0.08);")
+        self.value_label.setText(hex_color)
+
+    def _on_plane_changed(self, saturation: int, value: int) -> None:
+        if self._updating:
+            return
+        self._current_saturation = int(saturation)
+        self._current_value = int(value)
+        self._apply_current_preview()
+        self.colorChanged.emit(QColor.fromHsv(self._current_hue, self._current_saturation, self._current_value).name().upper())
+
+    def _on_hue_changed(self, hue: int) -> None:
+        if self._updating:
+            return
+        self._current_hue = int(hue)
+        self.color_plane.set_hue(self._current_hue)
+        self._apply_current_preview()
+        self.colorChanged.emit(QColor.fromHsv(self._current_hue, self._current_saturation, self._current_value).name().upper())
 
 
 class SettingsDialog(QDialog):
@@ -34,20 +387,95 @@ class SettingsDialog(QDialog):
     settings_preview = pyqtSignal(dict)
     settings_cancelled = pyqtSignal()
 
-    def __init__(self, current_settings: dict, parent=None):
+    def __init__(self, current_settings: dict, memory_manager=None, bridge=None, parent=None):
         super().__init__(parent)
         self._original_settings = current_settings.copy()
+        self._memory_manager = memory_manager
+        self._bridge = bridge
+        self._project_root = Path(__file__).resolve().parents[2]
+        self._prompt_path = self._project_root / "src" / "ai" / "prompt.py"
+        self._sub_prompt_path = self._project_root / "src" / "ai" / "sub_prompt.py"
+        self._user_profile_path = self._project_root / "user_profile.json"
+        self._prompt_status_label: QLabel | None = None
+        self._profile_status_label: QLabel | None = None
+        self._emotion_items: list[dict[str, str]] = []
+        self._emotion_current_index = -1
+        self._basic_info_items: list[tuple[str, str]] = []
+        self._basic_info_current_index = -1
+        self._fact_items: list[dict[str, str]] = []
+        self._fact_current_index = -1
         self._loading = False
         self._capturing_ptt_hotkey = False
+        self._theme_defaults = {
+            "theme_accent_color": "#0071E3",
+            "settings_window_bg_color": "#EEF1F5",
+            "settings_card_bg_color": "#FFFFFF",
+            "settings_input_bg_color": "#F8FAFC",
+            "chat_panel_bg_color": "#111214",
+            "chat_input_bg_color": "#1B1D22",
+            "chat_assistant_bubble_color": "#FFFFFF",
+            "chat_user_bubble_color": "#0071E3",
+        }
+        self._theme_color_edits: dict[str, QLineEdit] = {}
+        self._theme_preset_frames: dict[str, ClickableFrame] = {}
+        self._theme_preset_titles: dict[str, QLabel] = {}
+        self._theme_preset_meta: dict[str, QLabel] = {}
+        self._theme_preset_input: dict[str, QLabel] = {}
+        self._theme_preset_assistant: dict[str, QLabel] = {}
+        self._theme_preset_user: dict[str, QLabel] = {}
+        self._theme_variant_frames: dict[str, ClickableFrame] = {}
+        self._theme_variant_titles: dict[str, QLabel] = {}
+        self._theme_variant_meta: dict[str, QLabel] = {}
+        self._theme_color_swatches: dict[str, ClickableFrame] = {}
+        self._theme_color_reset_buttons: dict[str, QPushButton] = {}
+        self._theme_color_titles: dict[str, str] = {}
+        self._theme_picker_panels: dict[str, QFrame] = {}
+        self._theme_picker_previews: dict[str, QFrame] = {}
+        self._theme_picker_value_labels: dict[str, QLabel] = {}
+        self._theme_picker_hue_sliders: dict[str, QSlider] = {}
+        self._theme_picker_saturation_sliders: dict[str, QSlider] = {}
+        self._theme_picker_lightness_sliders: dict[str, QSlider] = {}
+        self._theme_picker_popup: ThemeColorPickerPopup | None = None
+        self._theme_picker_active_key: str | None = None
+        self._theme_live_update_timer = QTimer(self)
+        self._theme_live_update_timer.setSingleShot(True)
+        self._theme_live_update_timer.setInterval(24)
+        self._theme_live_update_timer.timeout.connect(self._flush_theme_live_update)
+        self._lazy_tab_hosts: dict[str, QWidget] = {}
+        self._lazy_tab_builders: dict[str, callable] = {}
+        self._lazy_tab_loaded: set[str] = set()
+        self._lazy_tab_index_to_id: dict[int, str] = {}
+        self._theme_values = {
+            key: self._normalize_theme_color(
+                str(self._original_settings.get(key, default_value)),
+                fallback=default_value,
+            )
+            for key, default_value in self._theme_defaults.items()
+        }
+        self._theme_mode = str(self._original_settings.get("theme_mode", "light")).strip().lower()
+        if self._theme_mode not in THEME_PRESETS:
+            self._theme_mode = "light"
+        self._follow_system_theme = bool(self._original_settings.get("follow_system_theme", False))
+        if self._follow_system_theme:
+            self._theme_mode = get_windows_theme_mode()
+            self._theme_values.update(get_theme_preset(self._theme_mode))
         self._ptt_hotkey_value = normalize_hotkey_text(
             str(self._original_settings.get("global_ptt_hotkey", "alt")),
             default="alt",
         )
 
         self.setWindowTitle("ENE 설정")
-        self.setMinimumWidth(600)
-        self.setMinimumHeight(640)
-        self.resize(600, 680)
+        self._window_icon_handles: list[int] = []
+        icon_path = self._project_root / "assets" / "icons" / "ene_app.ico"
+        if not icon_path.exists():
+            icon_path = self._project_root / "assets" / "icons" / "tray_icon.png"
+        if icon_path.exists():
+            self._window_icon_path = icon_path
+            self.setWindowIcon(QIcon(str(icon_path)))
+        else:
+            self._window_icon_path = None
+        self.setMinimumSize(1020, 700)
+        self.resize(1180, 780)
         self.setWindowFlags(
             Qt.WindowType.Dialog 
             | Qt.WindowType.FramelessWindowHint 
@@ -55,109 +483,986 @@ class SettingsDialog(QDialog):
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setModal(False)
-        self._is_dragging = False
-        self._drag_pos = None
+        self._drag_active = False
+        self._drag_offset = QPoint()
+        self._resize_active = False
+        self._resize_edge = ""
+        self._resize_start_global = QPoint()
+        self._resize_start_geometry = self.geometry()
+        self._resize_margin = 12
+        self.setMouseTracking(True)
 
         self._setup_ui()
         self._load_values()
 
-    def _apply_stylesheet(self):
-        style = """
-        QDialog { background-color: transparent; }
-        #MainFrame { background-color: rgba(10, 10, 14, 0.95); border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; }
-        #TitleBar { background-color: rgba(0, 0, 0, 0.5); border-top-left-radius: 12px; border-top-right-radius: 12px; border-bottom: 1px solid rgba(255,255,255,0.07); }
-        #TitleLabel { color: rgba(255,255,255,0.9); font-weight: bold; font-family: 'Segoe UI', sans-serif; font-size: 14px; padding-left: 8px; }
-        #CloseButton { background-color: transparent; border: none; font-size: 16px; color: rgba(255,255,255,0.5); border-top-right-radius: 12px; }
-        #CloseButton:hover { background-color: rgba(255, 80, 80, 0.75); color: white; }
+    def _apply_native_window_icon(self) -> None:
+        if not self._window_icon_path or self.windowHandle() is None:
+            return
+        if ctypes is None:
+            return
+        if str(self._window_icon_path).lower().endswith(".ico") is False:
+            return
+        if sys.platform != "win32":
+            return
 
-        QWidget { background-color: transparent; }
-        QLabel, QCheckBox { color: rgba(255,255,255,0.85); font-size: 13px; font-family: 'Segoe UI', sans-serif; }
-        QGroupBox { background-color: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; margin-top: 14px; margin-bottom: 8px; padding-top: 20px; padding-bottom: 12px; font-weight: bold; color: rgba(255,255,255,0.7); }
-        QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 12px; padding: 0px 4px; color: rgba(100,150,255,1); }
-        QTabWidget::pane { border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; background: rgba(0,0,0,0.3); top: -1px; margin-top: 2px; }
-        QTabBar::tab { background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.5); border: 1px solid rgba(255,255,255,0.08); border-bottom-color: transparent; padding: 6px 16px; margin-right: 2px; border-top-left-radius: 6px; border-top-right-radius: 6px; }
-        QTabBar::tab:selected { background: rgba(0,0,0,0.3); color: rgba(100,150,255,1); border-bottom: 2px solid rgba(100,150,255,0.9); font-weight: bold; }
-        QTabBar::tab:hover:!selected { background: rgba(255,255,255,0.09); color: rgba(255,255,255,0.75); }
-        QPushButton { background-color: rgba(100,150,255,0.8); color: white; border: none; border-radius: 20px; padding: 6px 20px; font-weight: bold; font-size: 13px; }
-        QPushButton:hover { background-color: rgba(100,150,255,1); }
-        QPushButton:pressed { background-color: rgba(70,120,230,1); }
-        QPushButton:disabled { background-color: rgba(255,255,255,0.1); color: rgba(255,255,255,0.3); }
-        QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox { background-color: rgba(255,255,255,0.08); color: rgba(255,255,255,0.9); border: 1px solid rgba(255,255,255,0.18); border-radius: 8px; padding: 4px 8px; min-height: 28px; font-size: 13px; font-family: 'Segoe UI', sans-serif; selection-background-color: rgba(100,150,255,0.6); selection-color: white; }
-        QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus { border: 1px solid rgba(100,150,255,0.6); background-color: rgba(255,255,255,0.13); }
-        QLineEdit::placeholder, QLineEdit[placeholderText] { color: rgba(255,255,255,0.4); }
+        try:
+            hwnd = int(self.winId())
+            user32 = ctypes.windll.user32
+            WM_SETICON = 0x0080
+            ICON_SMALL = 0
+            ICON_BIG = 1
+            IMAGE_ICON = 1
+            LR_LOADFROMFILE = 0x0010
+
+            for size, icon_kind in ((32, ICON_SMALL), (256, ICON_BIG)):
+                hicon = user32.LoadImageW(
+                    None,
+                    str(self._window_icon_path),
+                    IMAGE_ICON,
+                    size,
+                    size,
+                    LR_LOADFROMFILE,
+                )
+                if hicon:
+                    self._window_icon_handles.append(hicon)
+                    user32.SendMessageW(hwnd, WM_SETICON, icon_kind, hicon)
+        except Exception:
+            pass
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._apply_native_window_icon()
+
+    def _normalize_theme_color(self, value: str, fallback: str | None = None) -> str:
+        match = re.fullmatch(r"#?([0-9A-Fa-f]{6})", str(value or "").strip())
+        if not match:
+            return fallback or self._theme_defaults["theme_accent_color"]
+        return f"#{match.group(1).upper()}"
+
+    def _is_valid_theme_color(self, value: str) -> bool:
+        return bool(re.fullmatch(r"#?([0-9A-Fa-f]{6})", str(value or "").strip()))
+
+    def _theme_rgba(self, color_value: str, alpha: float) -> str:
+        color = QColor(self._normalize_theme_color(color_value))
+        return f"rgba({color.red()}, {color.green()}, {color.blue()}, {alpha:.3f})"
+
+    def _theme_variant(self, color_value: str, *, darker: int | None = None, lighter: int | None = None) -> str:
+        color = QColor(self._normalize_theme_color(color_value))
+        if darker is not None:
+            color = color.darker(darker)
+        if lighter is not None:
+            color = color.lighter(lighter)
+        return color.name().upper()
+
+    def _theme_text_color(self, color_value: str) -> str:
+        color = QColor(self._normalize_theme_color(color_value))
+        return "#FFFFFF" if color.lightnessF() < 0.62 else "#111827"
+
+    def _theme_muted_text_color(self, color_value: str) -> str:
+        color = QColor(self._normalize_theme_color(color_value))
+        return "#CBD5E1" if color.lightnessF() < 0.42 else "#6B7280"
+
+    def _theme_border_color(self, color_value: str, alpha: float = 0.14) -> str:
+        return self._theme_rgba(self._theme_text_color(color_value), alpha)
+
+    def _set_theme_editors_enabled(self, enabled: bool) -> None:
+        for line_edit in self._theme_color_edits.values():
+            line_edit.setEnabled(enabled)
+        for swatch in self._theme_color_swatches.values():
+            swatch.setEnabled(enabled)
+            swatch.setCursor(Qt.CursorShape.PointingHandCursor if enabled else Qt.CursorShape.ArrowCursor)
+        for button in self._theme_color_reset_buttons.values():
+            button.setEnabled(enabled)
+        if not enabled:
+            self._close_all_theme_pickers()
+        for frame in self._theme_preset_frames.values():
+            frame.setEnabled(True)
+            frame.setCursor(Qt.CursorShape.PointingHandCursor if enabled else Qt.CursorShape.ArrowCursor)
+
+    def _apply_theme_mode(self, mode: str, *, emit_preview: bool = True) -> None:
+        normalized_mode = str(mode or "").strip().lower()
+        if normalized_mode not in THEME_PRESETS:
+            normalized_mode = "light"
+        self._close_all_theme_pickers()
+        self._theme_mode = normalized_mode
+        preset = get_theme_preset(normalized_mode)
+        self._theme_values.update(preset)
+
+        for key, value in preset.items():
+            if key not in self._theme_color_edits:
+                continue
+            line_edit = self._theme_color_edits[key]
+            was_blocked = line_edit.blockSignals(True)
+            line_edit.setText(value)
+            line_edit.blockSignals(was_blocked)
+
+        self._apply_stylesheet()
+        self._refresh_theme_editor_state()
+        if emit_preview and not self._loading:
+            self._preview_settings()
+
+    def _on_theme_mode_selected(self, mode: str) -> None:
+        self._follow_system_theme = False
+        if hasattr(self, "follow_system_theme_check"):
+            self.follow_system_theme_check.blockSignals(True)
+            self.follow_system_theme_check.setChecked(False)
+            self.follow_system_theme_check.blockSignals(False)
+        self._set_theme_editors_enabled(True)
+        self._apply_theme_mode(mode)
+
+    def _on_follow_system_theme_toggled(self, checked: bool) -> None:
+        self._follow_system_theme = bool(checked)
+        self._set_theme_editors_enabled(not self._follow_system_theme)
+        if self._follow_system_theme:
+            self._apply_theme_mode(get_windows_theme_mode(), emit_preview=False)
+            self._refresh_theme_editor_state()
+            if not self._loading:
+                self._preview_settings()
+            return
+
+        self._refresh_theme_editor_state()
+        if not self._loading:
+            self._preview_settings()
+
+    def _pick_theme_color(self, key: str) -> None:
+        if self._follow_system_theme:
+            return
+        popup = self._ensure_theme_picker_popup()
+        swatch = self._theme_color_swatches.get(key)
+        if swatch is None:
+            return
+
+        is_same_target = popup.isVisible() and self._theme_picker_active_key == key
+        self._close_all_theme_pickers()
+        if is_same_target:
+            return
+
+        self._theme_picker_active_key = key
+        popup.set_title(self._theme_color_titles.get(key, "색상 선택"))
+        popup.apply_theme(
+            self._theme_values["settings_window_bg_color"],
+            self._theme_values["settings_card_bg_color"],
+            self._theme_values["settings_input_bg_color"],
+            self._theme_values["theme_accent_color"],
+            self._theme_text_color(self._theme_values["settings_card_bg_color"]),
+            self._theme_muted_text_color(self._theme_values["settings_card_bg_color"]),
+            self._theme_border_color(self._theme_values["settings_card_bg_color"], 0.10),
+        )
+        popup.set_recommended_colors(self._recommended_theme_swatches(key), self._theme_border_color)
+        popup.set_color(self._theme_values.get(key, self._theme_defaults[key]), emit_signal=False)
+        popup.adjustSize()
+
+        anchor = swatch.mapToGlobal(QPoint(swatch.width() + 10, 0))
+        screen = QApplication.screenAt(anchor) or QApplication.primaryScreen()
+        if screen is not None:
+            available = screen.availableGeometry()
+            x = min(anchor.x(), available.right() - popup.width() - 10)
+            y = min(anchor.y(), available.bottom() - popup.height() - 10)
+            x = max(available.left() + 10, x)
+            y = max(available.top() + 10, y)
+            popup.move(x, y)
+        else:
+            popup.move(anchor)
+        popup.show()
+        popup.raise_()
+        popup.activateWindow()
+
+    def _close_all_theme_pickers(self) -> None:
+        self._theme_picker_active_key = None
+        if self._theme_picker_popup is not None:
+            self._theme_picker_popup.hide()
+        for panel in self._theme_picker_panels.values():
+            panel.setVisible(False)
+
+    def _ensure_theme_picker_popup(self) -> ThemeColorPickerPopup:
+        if self._theme_picker_popup is None:
+            self._theme_picker_popup = ThemeColorPickerPopup(self)
+            self._theme_picker_popup.colorChanged.connect(self._on_theme_popup_color_changed)
+            self._theme_picker_popup.closed.connect(self._on_theme_popup_closed)
+        return self._theme_picker_popup
+
+    def _on_theme_popup_color_changed(self, hex_color: str) -> None:
+        if not self._theme_picker_active_key:
+            return
+        normalized = self._normalize_theme_color(hex_color)
+        edit = self._theme_color_edits[self._theme_picker_active_key]
+        if edit.text().strip().upper() == normalized:
+            return
+        edit.setText(normalized)
+
+    def _on_theme_popup_closed(self) -> None:
+        self._theme_picker_active_key = None
+
+    def _sync_theme_picker_controls(self, key: str) -> None:
+        if key not in self._theme_picker_panels:
+            return
+        color_value = self._theme_values.get(key, self._theme_defaults[key])
+        color = QColor(color_value)
+        hue = color.hslHue()
+        if hue < 0:
+            hue = 0
+
+        preview = self._theme_picker_previews.get(key)
+        if preview is not None:
+            preview.setStyleSheet(
+                f"background: {color_value}; border: 1px solid {self._theme_border_color(color_value, 0.22)}; border-radius: 18px;"
+            )
+
+        value_label = self._theme_picker_value_labels.get(key)
+        if value_label is not None:
+            value_label.setText(color_value)
+            value_label.setStyleSheet(
+                f"color: {self._theme_text_color(self._theme_values['settings_card_bg_color'])}; font-size: 13px; font-weight: 800;"
+            )
+
+        slider_map = (
+            (self._theme_picker_hue_sliders, hue),
+            (self._theme_picker_saturation_sliders, color.hslSaturation()),
+            (self._theme_picker_lightness_sliders, color.lightness()),
+        )
+        for slider_dict, value in slider_map:
+            slider = slider_dict.get(key)
+            if slider is None:
+                continue
+            was_blocked = slider.blockSignals(True)
+            slider.setValue(int(value))
+            slider.blockSignals(was_blocked)
+
+    def _on_theme_picker_slider_changed(self, key: str) -> None:
+        hue_slider = self._theme_picker_hue_sliders.get(key)
+        saturation_slider = self._theme_picker_saturation_sliders.get(key)
+        lightness_slider = self._theme_picker_lightness_sliders.get(key)
+        if not hue_slider or not saturation_slider or not lightness_slider:
+            return
+
+        color = QColor()
+        color.setHsl(
+            int(hue_slider.value()),
+            int(saturation_slider.value()),
+            int(lightness_slider.value()),
+        )
+        self._theme_color_edits[key].setText(color.name().upper())
+
+    def _recommended_theme_swatches(self, key: str) -> list[str]:
+        if key in {"theme_accent_color", "chat_user_bubble_color"}:
+            return ["#0071E3", "#0D9A73", "#B86A24", "#7C5CFA", "#D94A67", "#111827"]
+        return ["#EEF1F5", "#F2E7D8", "#DFF2EB", "#111724", "#1A1A1C", "#121915"]
+
+    def _build_inline_theme_picker(self, key: str) -> QFrame:
+        panel = QFrame()
+        panel.setObjectName("ThemePickerPanel")
+        panel.setVisible(False)
+
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(10)
+
+        header_row = QHBoxLayout()
+        header_row.setSpacing(10)
+        preview = QFrame()
+        preview.setFixedSize(36, 36)
+        self._theme_picker_previews[key] = preview
+        header_row.addWidget(preview)
+
+        header_text = QVBoxLayout()
+        header_text.setSpacing(2)
+        title = QLabel("색상 미세 조정")
+        title.setStyleSheet("font-size: 12px; font-weight: 800;")
+        header_text.addWidget(title)
+        value_label = QLabel(self._theme_defaults[key])
+        self._theme_picker_value_labels[key] = value_label
+        header_text.addWidget(value_label)
+        header_row.addLayout(header_text)
+        header_row.addStretch()
+
+        close_button = QPushButton("닫기")
+        close_button.setMinimumWidth(72)
+        close_button.clicked.connect(lambda _checked=False, field_key=key: self._theme_picker_panels[field_key].setVisible(False))
+        header_row.addWidget(close_button)
+        layout.addLayout(header_row)
+
+        palette_row = QHBoxLayout()
+        palette_row.setSpacing(8)
+        for swatch_color in self._recommended_theme_swatches(key):
+            swatch_button = ClickableFrame()
+            swatch_button.setFixedSize(26, 26)
+            swatch_button.setCursor(Qt.CursorShape.PointingHandCursor)
+            swatch_button.setToolTip(swatch_color)
+            swatch_button.setStyleSheet(
+                f"background: {swatch_color}; border: 1px solid {self._theme_border_color(swatch_color, 0.24)}; border-radius: 13px;"
+            )
+            swatch_button.clicked.connect(lambda selected=swatch_color, field_key=key: self._theme_color_edits[field_key].setText(selected))
+            palette_row.addWidget(swatch_button)
+        palette_row.addStretch()
+        layout.addLayout(palette_row)
+
+        slider_specs = [
+            ("색조", 0, 359, self._theme_picker_hue_sliders),
+            ("채도", 0, 255, self._theme_picker_saturation_sliders),
+            ("밝기", 0, 255, self._theme_picker_lightness_sliders),
+        ]
+        for label_text, minimum, maximum, slider_store in slider_specs:
+            row = QHBoxLayout()
+            row.setSpacing(10)
+            label = QLabel(label_text)
+            label.setFixedWidth(34)
+            row.addWidget(label)
+            slider = QSlider(Qt.Orientation.Horizontal)
+            slider.setRange(minimum, maximum)
+            slider.valueChanged.connect(lambda _value, field_key=key: self._on_theme_picker_slider_changed(field_key))
+            slider_store[key] = slider
+            row.addWidget(slider, 1)
+            layout.addLayout(row)
+
+        self._theme_picker_panels[key] = panel
+        return panel
+
+    def _apply_theme_variant(self, mode: str, variant_id: str) -> None:
+        variant_bundle = THEME_VARIANT_PRESETS.get(mode, {}).get(variant_id)
+        if not variant_bundle:
+            return
+
+        self._follow_system_theme = False
+        if hasattr(self, "follow_system_theme_check"):
+            self.follow_system_theme_check.blockSignals(True)
+            self.follow_system_theme_check.setChecked(False)
+            self.follow_system_theme_check.blockSignals(False)
+        self._set_theme_editors_enabled(True)
+
+        self._close_all_theme_pickers()
+        self._theme_mode = mode
+        palette = variant_bundle["colors"]
+        self._theme_values.update(palette)
+        for key, value in palette.items():
+            if key not in self._theme_color_edits:
+                continue
+            line_edit = self._theme_color_edits[key]
+            was_blocked = line_edit.blockSignals(True)
+            line_edit.setText(value)
+            line_edit.blockSignals(was_blocked)
+
+        self._apply_stylesheet()
+        self._refresh_theme_editor_state()
+        if not self._loading:
+            self._preview_settings()
+
+    def _current_theme_variant_id(self, mode: str) -> str | None:
+        for variant_id, bundle in THEME_VARIANT_PRESETS.get(mode, {}).items():
+            palette = bundle["colors"]
+            if all(
+                self._theme_values.get(key, "").upper() == self._normalize_theme_color(value).upper()
+                for key, value in palette.items()
+            ):
+                return variant_id
+        return None
+
+    def _build_theme_color_editor(self, key: str, title: str, description: str) -> QWidget:
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        self._theme_color_titles[key] = title
+
+        title_label = QLabel(title)
+        title_label.setStyleSheet("font-size: 13px; font-weight: 700; color: #111827;")
+        layout.addWidget(title_label)
+
+        desc_label = QLabel(description)
+        desc_label.setWordWrap(True)
+        desc_label.setStyleSheet("font-size: 12px; font-weight: 600; color: #6B7280;")
+        layout.addWidget(desc_label)
+
+        row = QHBoxLayout()
+        row.setSpacing(8)
+
+        line_edit = QLineEdit()
+        line_edit.setPlaceholderText(self._theme_defaults[key])
+        line_edit.setMaxLength(7)
+        line_edit.textChanged.connect(lambda text, field_key=key: self._on_theme_color_field_changed(field_key, text))
+        self._theme_color_edits[key] = line_edit
+        row.addWidget(line_edit, 1)
+
+        swatch = ClickableFrame()
+        swatch.setFixedSize(38, 38)
+        swatch.setCursor(Qt.CursorShape.PointingHandCursor)
+        swatch.setToolTip("클릭해서 색상 선택")
+        swatch.clicked.connect(lambda field_key=key: self._pick_theme_color(field_key))
+        self._theme_color_swatches[key] = swatch
+        setattr(self, f"{key}_swatch", swatch)
+        row.addWidget(swatch)
+
+        reset_button = QPushButton("기본값")
+        reset_button.setMinimumWidth(84)
+        reset_button.clicked.connect(
+            lambda _checked=False, field_key=key: self._theme_color_edits[field_key].setText(self._theme_defaults[field_key])
+        )
+        self._theme_color_reset_buttons[key] = reset_button
+        row.addWidget(reset_button)
+        layout.addLayout(row)
+        return container
+
+    def _build_theme_mode_preview(self, mode: str, title: str, description: str) -> QFrame:
+        frame = ClickableFrame()
+        frame.clicked.connect(lambda selected_mode=mode: self._on_theme_mode_selected(selected_mode))
+        frame.setCursor(Qt.CursorShape.PointingHandCursor)
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)
+
+        title_label = QLabel(title)
+        title_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        layout.addWidget(title_label)
+        self._theme_preset_titles[mode] = title_label
+
+        meta_label = QLabel(description)
+        meta_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        meta_label.setWordWrap(True)
+        layout.addWidget(meta_label)
+        self._theme_preset_meta[mode] = meta_label
+
+        sample_row = QHBoxLayout()
+        sample_row.setSpacing(10)
+        assistant = QLabel("응답")
+        assistant.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        assistant.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        sample_row.addWidget(assistant, 1)
+        user = QLabel("사용자")
+        user.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        user.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        sample_row.addWidget(user, 1)
+        layout.addLayout(sample_row)
+        self._theme_preset_assistant[mode] = assistant
+        self._theme_preset_user[mode] = user
+
+        input_preview = QLabel("입력 필드 예시")
+        input_preview.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        layout.addWidget(input_preview)
+        self._theme_preset_input[mode] = input_preview
+
+        self._theme_preset_frames[mode] = frame
+        return frame
+
+    def _build_theme_variant_preview(self, mode: str, variant_id: str, title: str, description: str) -> QFrame:
+        frame = ClickableFrame()
+        frame.clicked.connect(lambda selected_mode=mode, selected_variant=variant_id: self._apply_theme_variant(selected_mode, selected_variant))
+        frame.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(8)
+
+        title_label = QLabel(title)
+        title_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        layout.addWidget(title_label)
+        self._theme_variant_titles[variant_id] = title_label
+
+        meta_label = QLabel(description)
+        meta_label.setWordWrap(True)
+        meta_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        layout.addWidget(meta_label)
+        self._theme_variant_meta[variant_id] = meta_label
+
+        swatch_row = QHBoxLayout()
+        swatch_row.setSpacing(6)
+        for palette_key in ("settings_window_bg_color", "settings_card_bg_color", "chat_panel_bg_color", "theme_accent_color"):
+            swatch = QFrame()
+            swatch.setFixedSize(22, 22)
+            swatch.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+            setattr(self, f"{variant_id}_{palette_key}_swatch", swatch)
+            swatch_row.addWidget(swatch)
+        swatch_row.addStretch()
+        layout.addLayout(swatch_row)
+
+        self._theme_variant_frames[variant_id] = frame
+        return frame
+
+    def _refresh_theme_editor_state(self) -> None:
+        invalid_keys = []
+        settings_card = self._theme_values["settings_card_bg_color"]
+        settings_input = self._theme_values["settings_input_bg_color"]
+        for key, line_edit in self._theme_color_edits.items():
+            raw_value = line_edit.text().strip()
+            is_valid = self._is_valid_theme_color(raw_value)
+            color_value = self._theme_values[key] if is_valid else self._theme_defaults[key]
+            swatch = getattr(self, f"{key}_swatch", None)
+            if swatch is not None:
+                swatch.setStyleSheet(
+                    f"background: {color_value}; border: 1px solid rgba(17, 24, 39, 0.10); border-radius: 12px;"
+                )
+            panel = self._theme_picker_panels.get(key)
+            if panel is not None:
+                panel.setStyleSheet(
+                    f"QFrame#ThemePickerPanel {{ background: {settings_input}; border: 1px solid {self._theme_border_color(settings_card, 0.10)}; border-radius: 18px; }}"
+                    f" QLabel {{ color: {self._theme_text_color(settings_card)}; font-size: 12px; font-weight: 700; }}"
+                )
+                self._sync_theme_picker_controls(key)
+            if not is_valid and raw_value:
+                invalid_keys.append(key)
+
+        if self._theme_picker_popup is not None and self._theme_picker_popup.isVisible() and self._theme_picker_active_key:
+            active_key = self._theme_picker_active_key
+            self._theme_picker_popup.apply_theme(
+                self._theme_values["settings_window_bg_color"],
+                self._theme_values["settings_card_bg_color"],
+                self._theme_values["settings_input_bg_color"],
+                self._theme_values["theme_accent_color"],
+                self._theme_text_color(self._theme_values["settings_card_bg_color"]),
+                self._theme_muted_text_color(self._theme_values["settings_card_bg_color"]),
+                self._theme_border_color(self._theme_values["settings_card_bg_color"], 0.10),
+            )
+            self._theme_picker_popup.set_recommended_colors(
+                self._recommended_theme_swatches(active_key),
+                self._theme_border_color,
+            )
+            self._theme_picker_popup.set_color(self._theme_values.get(active_key, self._theme_defaults[active_key]), emit_signal=False)
+
+        for mode, preset in THEME_PRESETS.items():
+            frame = self._theme_preset_frames.get(mode)
+            if frame is None:
+                continue
+
+            accent = preset["theme_accent_color"]
+            settings_window = preset["settings_window_bg_color"]
+            settings_card = preset["settings_card_bg_color"]
+            settings_input = preset["settings_input_bg_color"]
+            chat_panel = preset["chat_panel_bg_color"]
+            chat_input = preset["chat_input_bg_color"]
+            chat_assistant = preset["chat_assistant_bubble_color"]
+            chat_user = preset["chat_user_bubble_color"]
+            is_active = self._theme_mode == mode
+
+            frame.setStyleSheet(
+                f"background: {settings_window}; "
+                f"border: 1px solid {self._theme_border_color(settings_window, 0.12)}; "
+                "border-radius: 22px;"
+            )
+            self._theme_preset_titles[mode].setStyleSheet(
+                f"color: {self._theme_text_color(settings_window)}; font-size: 15px; font-weight: 800;"
+            )
+            meta_suffix = "윈도우와 동기화 중" if self._follow_system_theme and self._theme_mode == mode else ("현재 선택됨" if is_active else "클릭해서 적용")
+            self._theme_preset_meta[mode].setText(
+                f"{'밝고 가벼운 표면 중심 구성' if mode == 'light' else '차분하고 대비가 강한 다크 구성'} · {meta_suffix}"
+            )
+            self._theme_preset_meta[mode].setStyleSheet(
+                f"color: {self._theme_muted_text_color(settings_window)}; font-size: 12px; font-weight: 600;"
+            )
+            self._theme_preset_assistant[mode].setStyleSheet(
+                f"background: {chat_assistant}; color: {self._theme_text_color(chat_assistant)}; "
+                "border-radius: 16px; padding: 10px 14px; font-size: 12px; font-weight: 700;"
+            )
+            self._theme_preset_user[mode].setStyleSheet(
+                f"background: {chat_user}; color: {self._theme_text_color(chat_user)}; "
+                "border-radius: 16px; padding: 10px 14px; font-size: 12px; font-weight: 700;"
+            )
+            self._theme_preset_input[mode].setStyleSheet(
+                f"background: {settings_input if mode == 'light' else chat_input}; "
+                f"color: {self._theme_text_color(settings_input if mode == 'light' else chat_input)}; "
+                f"border: 1px solid {self._theme_border_color(settings_card if mode == 'light' else chat_panel, 0.14)}; "
+                "border-radius: 14px; padding: 10px 12px; font-size: 12px; font-weight: 600;"
+            )
+
+        for mode, variant_map in THEME_VARIANT_PRESETS.items():
+            active_variant_id = self._current_theme_variant_id(mode)
+            for variant_id, bundle in variant_map.items():
+                frame = self._theme_variant_frames.get(variant_id)
+                if frame is None:
+                    continue
+
+                palette = bundle["colors"]
+                window_color = palette["settings_window_bg_color"]
+                card_color = palette["settings_card_bg_color"]
+                is_active = self._theme_mode == mode and active_variant_id == variant_id
+                border_color = self._theme_border_color(window_color, 0.18 if is_active else 0.10)
+                frame.setStyleSheet(
+                    f"background: {card_color}; "
+                    f"border: 1px solid {border_color}; "
+                    "border-radius: 18px;"
+                )
+                self._theme_variant_titles[variant_id].setStyleSheet(
+                    f"color: {self._theme_text_color(card_color)}; font-size: 13px; font-weight: 800;"
+                )
+                suffix = "현재 팔레트" if is_active else "클릭해서 적용"
+                self._theme_variant_meta[variant_id].setText(f"{bundle['description']} · {suffix}")
+                self._theme_variant_meta[variant_id].setStyleSheet(
+                    f"color: {self._theme_muted_text_color(card_color)}; font-size: 11px; font-weight: 600;"
+                )
+
+                for palette_key in ("settings_window_bg_color", "settings_card_bg_color", "chat_panel_bg_color", "theme_accent_color"):
+                    swatch = getattr(self, f"{variant_id}_{palette_key}_swatch", None)
+                    if swatch is None:
+                        continue
+                    swatch.setStyleSheet(
+                        f"background: {palette[palette_key]}; "
+                        f"border: 1px solid {self._theme_border_color(palette[palette_key], 0.20)}; "
+                        "border-radius: 11px;"
+                    )
+
+        if hasattr(self, "theme_status_label"):
+            if invalid_keys:
+                self.theme_status_label.setStyleSheet("color: #B42318; font-size: 12px; font-weight: 600;")
+                self.theme_status_label.setText("모든 테마 값은 `#RRGGBB` 형식의 6자리 HEX 코드여야 합니다.")
+            else:
+                self.theme_status_label.setStyleSheet("color: #6B7280; font-size: 12px; font-weight: 600;")
+                if self._follow_system_theme:
+                    current_mode_text = "라이트" if self._theme_mode == "light" else "다크"
+                    self.theme_status_label.setText(f"현재 윈도우 앱 테마({current_mode_text})를 따라가고 있습니다.")
+                else:
+                    self.theme_status_label.setText("설정창과 채팅창이 같은 테마 모드로 함께 움직이도록 구성되어 있습니다.")
+
+    def _on_theme_color_field_changed(self, key: str, text: str) -> None:
+        if self._is_valid_theme_color(text):
+            self._theme_values[key] = self._normalize_theme_color(text, fallback=self._theme_defaults[key])
+            self._schedule_theme_live_update()
+            return
+
+        self._refresh_theme_editor_state()
+
+    def _schedule_theme_live_update(self) -> None:
+        if self._loading:
+            return
+        self._theme_live_update_timer.start()
+
+    def _flush_theme_live_update(self) -> None:
+        self._apply_stylesheet()
+        self._refresh_theme_editor_state()
+        if not self._loading:
+            self._preview_settings()
+
+    def _apply_stylesheet(self):
+        accent = self._theme_values["theme_accent_color"]
+        settings_window = self._theme_values["settings_window_bg_color"]
+        settings_card = self._theme_values["settings_card_bg_color"]
+        settings_input = self._theme_values["settings_input_bg_color"]
+        primary_text = self._theme_text_color(settings_card)
+        muted_text = self._theme_muted_text_color(settings_card)
+        title_muted = self._theme_muted_text_color(settings_window)
+        input_text = self._theme_text_color(settings_input)
+        card_border = self._theme_border_color(settings_card, 0.10)
+        window_border = self._theme_border_color(settings_window, 0.10)
+        input_border = self._theme_border_color(settings_input, 0.14)
+        tab_shell_bg = self._theme_variant(settings_window, lighter=102) if self._theme_text_color(settings_window) == "#111827" else self._theme_variant(settings_window, darker=104)
+        accent_hover = self._theme_variant(accent, darker=108)
+        accent_title = self._theme_variant(accent, darker=116)
+        accent_soft = self._theme_rgba(accent, 0.10)
+        accent_soft_strong = self._theme_rgba(accent, 0.18)
+        accent_border = self._theme_rgba(accent, 0.22)
+        accent_focus = self._theme_rgba(accent, 0.55)
+        accent_slider = self._theme_rgba(accent, 0.80)
+        accent_slider_hover = self._theme_rgba(accent, 1.0)
+        accent_dropdown = self._theme_rgba(accent, 0.12)
+        style = """
+        QDialog { background: __SETTINGS_WINDOW__; color: __PRIMARY_TEXT__; font-family: 'Malgun Gothic', 'Segoe UI Variable', 'Segoe UI', sans-serif; }
+        QWidget { background: transparent; }
+        #MainFrame { background: __SETTINGS_CARD__; border: 1px solid __WINDOW_BORDER__; border-radius: 30px; }
+        #TitleBar, #FooterCard, #TabShell { background: __SETTINGS_CARD__; border: 1px solid __CARD_BORDER__; border-radius: 24px; }
+        #TitleLabel { color: __PRIMARY_TEXT__; font-size: 18px; font-weight: 700; }
+        #TitleSubLabel { color: __TITLE_MUTED__; font-size: 12px; font-weight: 600; }
+        #CloseButton { background: transparent; border: none; color: __MUTED_TEXT__; min-width: 34px; min-height: 34px; border-radius: 17px; font-size: 18px; }
+        #CloseButton:hover { background: __PRIMARY_TEXT_SOFT__; color: __PRIMARY_TEXT__; }
+        #FooterTitle { color: __PRIMARY_TEXT__; font-size: 15px; font-weight: 700; }
+        #FooterBody { color: __MUTED_TEXT__; font-size: 13px; }
+        #InlineHint { color: __MUTED_TEXT__; font-size: 12px; font-weight: 600; }
+        #ValueBadge { color: __PRIMARY_TEXT__; font-size: 13px; font-weight: 700; background: __SETTINGS_INPUT__; border: 1px solid __INPUT_BORDER__; border-radius: 12px; padding: 8px 12px; }
+
+        QLabel, QCheckBox { color: __PRIMARY_TEXT__; font-size: 13px; }
+        QGroupBox { background: __SETTINGS_CARD__; border: 1px solid __CARD_BORDER__; border-radius: 22px; margin-top: 16px; padding-top: 22px; padding-left: 18px; padding-right: 18px; padding-bottom: 18px; font-weight: 700; color: __PRIMARY_TEXT__; }
+        QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 16px; padding: 0 6px; color: __ACCENT_TITLE__; background: __SETTINGS_CARD__; }
+        QTabWidget#MainTabs { background: transparent; }
+        QTabWidget#MainTabs::pane { border: none; background: transparent; top: 12px; }
+        QTabBar#MainTabBar { background: __TAB_SHELL_BG__; border: 1px solid __CARD_BORDER__; border-radius: 22px; padding: 4px; }
+        QTabBar#MainTabBar::tab { background: transparent; color: __MUTED_TEXT__; border: 1px solid transparent; padding: 11px 18px; margin: 0 6px 0 0; border-radius: 18px; min-width: 96px; font-size: 13px; font-weight: 600; }
+        QTabBar#MainTabBar::tab:last { margin-right: 0px; }
+        QTabBar#MainTabBar::tab:selected { background: __SETTINGS_CARD__; color: __PRIMARY_TEXT__; border: 1px solid __CARD_BORDER__; }
+        QTabBar#MainTabBar::tab:hover:!selected { background: __PRIMARY_TEXT_SOFT__; color: __PRIMARY_TEXT__; }
+        QPushButton { min-height: 44px; padding: 0 18px; border-radius: 18px; border: 1px solid __CARD_BORDER__; background: __SETTINGS_CARD__; color: __PRIMARY_TEXT__; font-size: 13px; font-weight: 600; }
+        QPushButton:hover { background: __SETTINGS_INPUT__; }
+        QPushButton:disabled { background: __SETTINGS_CARD__; color: __DISABLED_TEXT__; }
+        QPushButton[accent='true'] { background: __ACCENT__; color: __ACCENT_TEXT__; border: 1px solid __ACCENT__; }
+        QPushButton[accent='true']:hover { background: __ACCENT_HOVER__; }
+        QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox { min-height: 42px; padding: 0 14px; border-radius: 16px; background: __SETTINGS_INPUT__; color: __INPUT_TEXT__; border: 1px solid __INPUT_BORDER__; font-size: 13px; selection-background-color: __ACCENT_SOFT_STRONG__; }
+        QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus { border: 1px solid __ACCENT_FOCUS__; background: __SETTINGS_INPUT__; }
+        QPlainTextEdit { background: __SETTINGS_INPUT__; color: __INPUT_TEXT__; border: 1px solid __INPUT_BORDER__; border-radius: 18px; padding: 14px; font-size: 13px; font-family: 'Consolas', 'D2Coding', 'Malgun Gothic', monospace; selection-background-color: __ACCENT_SOFT_STRONG__; }
+        QPlainTextEdit:focus { border: 1px solid __ACCENT_FOCUS__; background: __SETTINGS_INPUT__; }
+        QListWidget { background: __SETTINGS_INPUT__; color: __INPUT_TEXT__; border: 1px solid __INPUT_BORDER__; border-radius: 18px; padding: 8px; outline: none; }
+        QListWidget::item { color: __INPUT_TEXT__; background: transparent; border: 1px solid transparent; border-radius: 14px; padding: 10px 12px; margin: 2px 0; }
+        QListWidget::item:hover { background: __PRIMARY_TEXT_SOFT__; border: 1px solid __CARD_BORDER__; }
+        QListWidget::item:selected { background: __ACCENT_SOFT__; color: __INPUT_TEXT__; border: 1px solid __ACCENT_BORDER__; }
         QComboBox::drop-down { border: none; width: 28px; }
-        QComboBox QAbstractItemView { background-color: rgba(20,20,26,0.97); color: rgba(255,255,255,0.85); border: 1px solid rgba(255,255,255,0.15); selection-background-color: rgba(100,150,255,0.5); outline: none; padding: 4px; }
-        QSlider::groove:horizontal { border: 1px solid rgba(255,255,255,0.15); height: 6px; background: rgba(255,255,255,0.08); border-radius: 3px; }
-        QSlider::sub-page:horizontal { background: rgba(100,150,255,0.8); border-radius: 3px; }
-        QSlider::handle:horizontal { background: white; border: 2px solid rgba(100,150,255,0.8); width: 14px; height: 14px; margin: -5px 0; border-radius: 7px; }
-        QSlider::handle:horizontal:hover { background: white; border: 2px solid rgba(100,150,255,1); }
-        QScrollBar:vertical { border: none; background: rgba(255,255,255,0.03); width: 8px; border-radius: 4px; }
-        QScrollBar::handle:vertical { background: rgba(255,255,255,0.18); min-height: 20px; border-radius: 4px; }
-        QScrollBar::handle:vertical:hover { background: rgba(255,255,255,0.3); }
+        QComboBox QAbstractItemView { background: __SETTINGS_CARD__; color: __PRIMARY_TEXT__; border: 1px solid __CARD_BORDER__; selection-background-color: __ACCENT_DROPDOWN__; outline: none; padding: 4px; }
+        QSlider::groove:horizontal { border: 1px solid __INPUT_BORDER__; height: 6px; background: __TAB_SHELL_BG__; border-radius: 3px; }
+        QSlider::sub-page:horizontal { background: __ACCENT_SLIDER__; border-radius: 3px; }
+        QSlider::handle:horizontal { background: __SETTINGS_CARD__; border: 2px solid __ACCENT_SLIDER__; width: 14px; height: 14px; margin: -5px 0; border-radius: 7px; }
+        QSlider::handle:horizontal:hover { border: 2px solid __ACCENT_SLIDER_HOVER__; }
+        QScrollArea { border: none; background: transparent; }
+        QScrollBar:vertical { width: 10px; background: transparent; margin: 8px 0; }
+        QScrollBar::handle:vertical { background: __MUTED_TEXT_SOFT__; min-height: 20px; border-radius: 5px; }
+        QScrollBar::handle:vertical:hover { background: __MUTED_TEXT_STRONG__; }
         QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { border: none; background: none; }
         """
+        style = (
+            style.replace("__ACCENT__", accent)
+            .replace("__ACCENT_HOVER__", accent_hover)
+            .replace("__ACCENT_TEXT__", self._theme_text_color(accent))
+            .replace("__ACCENT_TITLE__", accent_title)
+            .replace("__ACCENT_SOFT__", accent_soft)
+            .replace("__ACCENT_SOFT_STRONG__", accent_soft_strong)
+            .replace("__ACCENT_BORDER__", accent_border)
+            .replace("__ACCENT_FOCUS__", accent_focus)
+            .replace("__ACCENT_SLIDER__", accent_slider)
+            .replace("__ACCENT_SLIDER_HOVER__", accent_slider_hover)
+            .replace("__ACCENT_DROPDOWN__", accent_dropdown)
+            .replace("__SETTINGS_WINDOW__", settings_window)
+            .replace("__SETTINGS_CARD__", settings_card)
+            .replace("__SETTINGS_INPUT__", settings_input)
+            .replace("__PRIMARY_TEXT__", primary_text)
+            .replace("__MUTED_TEXT__", muted_text)
+            .replace("__TITLE_MUTED__", title_muted)
+            .replace("__INPUT_TEXT__", input_text)
+            .replace("__CARD_BORDER__", card_border)
+            .replace("__WINDOW_BORDER__", window_border)
+            .replace("__INPUT_BORDER__", input_border)
+            .replace("__TAB_SHELL_BG__", tab_shell_bg)
+            .replace("__PRIMARY_TEXT_SOFT__", self._theme_rgba(primary_text, 0.08))
+            .replace("__DISABLED_TEXT__", self._theme_rgba(primary_text, 0.42))
+            .replace("__MUTED_TEXT_SOFT__", self._theme_rgba(muted_text, 0.35))
+            .replace("__MUTED_TEXT_STRONG__", self._theme_rgba(muted_text, 0.55))
+        )
         self.setStyleSheet(style)
 
     def _setup_ui(self):
         self._apply_stylesheet()
-        
+
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        
-        self.main_frame = QWidget()
+        main_layout.setContentsMargins(18, 18, 18, 18)
+
+        self.main_frame = QFrame()
         self.main_frame.setObjectName("MainFrame")
+        apply_soft_shadow(self.main_frame)
         layout = QVBoxLayout(self.main_frame)
-        layout.setContentsMargins(15, 0, 15, 15)
-        
-        # 커스텀 타이틀바
-        self.title_bar = QWidget()
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(16)
+
+        self.title_bar = QFrame()
         self.title_bar.setObjectName("TitleBar")
-        self.title_bar.setFixedHeight(40)
+        self.title_bar.setFixedHeight(72)
         title_layout = QHBoxLayout(self.title_bar)
-        title_layout.setContentsMargins(5, 0, 0, 0)
-        
-        icon_label = QLabel("⚙️")
-        icon_label.setStyleSheet("font-size: 16px; background: transparent;")
-        title_layout.addWidget(icon_label)
-        
-        title_label = QLabel("  ENE 설정")
+        title_layout.setContentsMargins(18, 12, 18, 12)
+        title_layout.setSpacing(12)
+
+        title_col = QVBoxLayout()
+        title_col.setSpacing(2)
+
+        title_label = QLabel("ENE 설정")
         title_label.setObjectName("TitleLabel")
-        title_layout.addWidget(title_label)
-        
+        title_col.addWidget(title_label)
+
+        sub_label = QLabel("창, 모델, LLM, 동작 설정을 한곳에서 관리합니다.")
+        sub_label.setObjectName("TitleSubLabel")
+        title_col.addWidget(sub_label)
+        title_layout.addLayout(title_col)
+
         title_layout.addStretch()
-        
-        close_btn = QPushButton("✕")
-        close_btn.setObjectName("CloseButton")
-        close_btn.setFixedSize(40, 40)
-        close_btn.clicked.connect(self._cancel_settings)
-        title_layout.addWidget(close_btn)
-        
-        main_layout.addWidget(self.main_frame)
-        layout.addWidget(self.title_bar)
-
-        tabs = QTabWidget()
-        tabs.addTab(self._create_window_tab(), "창 설정")
-        tabs.addTab(self._create_model_tab(), "모델 설정")
-        tabs.addTab(self._create_llm_tab(), "LLM 설정")
-        tabs.addTab(self._create_behavior_tab(), "동작 설정")
-        layout.addWidget(tabs)
-
-        button_layout = QHBoxLayout()
-        save_btn = QPushButton("저장")
-        save_btn.clicked.connect(self._save_settings)
-        button_layout.addWidget(save_btn)
 
         cancel_btn = QPushButton("취소")
         cancel_btn.clicked.connect(self._cancel_settings)
-        button_layout.addWidget(cancel_btn)
-        layout.addLayout(button_layout)
+        title_layout.addWidget(cancel_btn)
+
+        save_btn = QPushButton("변경사항 저장")
+        save_btn.setProperty("accent", True)
+        save_btn.style().unpolish(save_btn)
+        save_btn.style().polish(save_btn)
+        save_btn.clicked.connect(self._save_settings)
+        title_layout.addWidget(save_btn)
+
+        close_btn = QPushButton("×")
+        close_btn.setObjectName("CloseButton")
+        close_btn.clicked.connect(self._cancel_settings)
+        title_layout.addWidget(close_btn)
+
+        main_layout.addWidget(self.main_frame)
+        layout.addWidget(self.title_bar)
+
+        tab_shell = QFrame()
+        tab_shell.setObjectName("TabShell")
+        tab_layout = QVBoxLayout(tab_shell)
+        tab_layout.setContentsMargins(14, 14, 14, 14)
+        tab_layout.setSpacing(0)
+
+        self.tabs = QTabWidget()
+        self.tabs.setObjectName("MainTabs")
+        self.tabs.tabBar().setObjectName("MainTabBar")
+        self.tabs.addTab(self._create_window_tab(), "창 설정")
+        self.tabs.addTab(self._create_theme_tab(), "테마 설정")
+        self.tabs.addTab(self._create_model_tab(), "모델 설정")
+        self.tabs.addTab(self._create_llm_tab(), "LLM 설정")
+        self.tabs.addTab(self._create_behavior_tab(), "동작 설정")
+        self._add_lazy_tab("memory", "기억 관리", "기억 목록과 검색 설정은 열 때 불러옵니다.", self._create_memory_tab)
+        self._add_lazy_tab("profile", "사용자 기억 관리", "user_profile.json 편집기는 탭을 열 때 불러옵니다.", self._create_user_profile_tab)
+        self._add_lazy_tab("prompt", "프롬프트 설정", "프롬프트 파일과 감정 설정은 탭을 열 때 불러옵니다.", self._create_prompt_tab)
+        self.tabs.currentChanged.connect(self._on_tab_changed)
+        self.tabs.tabBar().currentChanged.connect(self._on_tab_changed)
+        tab_layout.addWidget(self.tabs)
+        layout.addWidget(tab_shell, 1)
+
+        layout.addWidget(self._build_footer_note())
+
+    def _build_footer_note(self):
+        card = QFrame()
+        card.setObjectName("FooterCard")
+        footer_layout = QVBoxLayout(card)
+        footer_layout.setContentsMargins(18, 16, 18, 16)
+        footer_layout.setSpacing(6)
+
+        title = QLabel("설정 적용 안내")
+        title.setObjectName("FooterTitle")
+        footer_layout.addWidget(title)
+
+        body = QLabel("변경사항은 저장 전까지 미리보기로만 반영됩니다. 취소하면 이전 설정으로 돌아가며, 일부 LLM 설정은 저장 후 다시 시작해야 완전히 반영됩니다.")
+        body.setObjectName("FooterBody")
+        body.setWordWrap(True)
+        footer_layout.addWidget(body)
+        return card
+
+    def _build_hint_label(self, text: str):
+        label = QLabel(text)
+        label.setObjectName("InlineHint")
+        label.setWordWrap(True)
+        return label
+
+    def _add_lazy_tab(self, tab_id: str, title: str, description: str, builder) -> None:
+        host = QWidget()
+        host_layout = QVBoxLayout(host)
+        host_layout.setContentsMargins(10, 10, 10, 10)
+        host_layout.setSpacing(12)
+
+        card = QFrame()
+        card.setObjectName("FooterCard")
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(20, 18, 20, 18)
+        card_layout.setSpacing(6)
+
+        title_label = QLabel(title)
+        title_label.setObjectName("FooterTitle")
+        card_layout.addWidget(title_label)
+
+        body_label = QLabel(description)
+        body_label.setObjectName("FooterBody")
+        body_label.setWordWrap(True)
+        card_layout.addWidget(body_label)
+
+        host_layout.addWidget(card)
+        host_layout.addStretch()
+
+        index = self.tabs.addTab(host, title)
+        self._lazy_tab_hosts[tab_id] = host
+        self._lazy_tab_builders[tab_id] = builder
+        self._lazy_tab_index_to_id[index] = tab_id
+
+    def _on_tab_changed(self, index: int) -> None:
+        tab_id = self._lazy_tab_index_to_id.get(index)
+        if tab_id:
+            self._ensure_lazy_tab_loaded(tab_id)
+
+    def _ensure_lazy_tab_loaded(self, tab_id: str) -> None:
+        if tab_id in self._lazy_tab_loaded:
+            return
+
+        host = self._lazy_tab_hosts.get(tab_id)
+        builder = self._lazy_tab_builders.get(tab_id)
+        if host is None or builder is None:
+            return
+
+        built_widget = builder()
+        layout = host.layout()
+        if layout is None:
+            return
+
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+        layout.addWidget(built_widget)
+        self._lazy_tab_loaded.add(tab_id)
+
+    def _build_secret_row(self, line_edit: QLineEdit, toggle_handler, button_attr_name: str):
+        line_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        layout.addWidget(line_edit, 1)
+
+        toggle_btn = QPushButton("표시")
+        toggle_btn.setMinimumWidth(72)
+        toggle_btn.clicked.connect(toggle_handler)
+        setattr(self, button_attr_name, toggle_btn)
+        layout.addWidget(toggle_btn)
+        return row
+
+    def _toggle_secret_field(self, line_edit: QLineEdit, button: QPushButton):
+        is_password = line_edit.echoMode() == QLineEdit.EchoMode.Password
+        line_edit.setEchoMode(
+            QLineEdit.EchoMode.Normal if is_password else QLineEdit.EchoMode.Password
+        )
+        button.setText("숨김" if is_password else "표시")
+
+    def _normalize_path_for_storage(self, path_text: str) -> str:
+        raw_path = str(path_text or "").strip()
+        if not raw_path:
+            return ""
+
+        try:
+            path_obj = Path(raw_path)
+            if not path_obj.is_absolute():
+                return raw_path.replace("\\", "/")
+            relative = path_obj.resolve().relative_to(self._project_root.resolve())
+            return str(relative).replace("\\", "/")
+        except Exception:
+            return raw_path.replace("\\", "/")
+
+    def _browse_live2d_model_path(self):
+        start_dir = self._project_root / "assets" / "live2d_models"
+        selected, _ = QFileDialog.getOpenFileName(
+            self,
+            "Live2D 모델 파일 선택",
+            str(start_dir),
+            "Live2D 모델 (*.model3.json);;JSON 파일 (*.json);;모든 파일 (*.*)",
+        )
+        if not selected:
+            return
+        self.model_json_path_edit.setText(self._normalize_path_for_storage(selected))
 
     def _create_window_tab(self):
         widget = QWidget()
         layout = QVBoxLayout(widget)
+        layout.setSpacing(12)
 
-        position_group = QGroupBox("창 위치")
+        quick_group = QGroupBox("빠른 배치")
+        quick_layout = QVBoxLayout(quick_group)
+        quick_layout.setSpacing(10)
+        quick_layout.addWidget(self._build_hint_label("자주 쓰는 위치를 먼저 고른 뒤, 아래에서 좌표와 크기를 미세 조정할 수 있습니다."))
+
+        preset_layout = QHBoxLayout()
+        preset_layout.setSpacing(10)
+        center_btn = QPushButton("화면 중앙")
+        center_btn.clicked.connect(self._preset_center)
+        preset_layout.addWidget(center_btn)
+
+        br_btn = QPushButton("우측 하단")
+        br_btn.clicked.connect(self._preset_bottom_right)
+        preset_layout.addWidget(br_btn)
+
+        bl_btn = QPushButton("좌측 하단")
+        bl_btn.clicked.connect(self._preset_bottom_left)
+        preset_layout.addWidget(bl_btn)
+        quick_layout.addLayout(preset_layout)
+        layout.addWidget(quick_group)
+
+        position_group = QGroupBox("정밀 위치")
         position_layout = QFormLayout()
+        position_layout.setSpacing(8)
 
         self.window_x_spin = QSpinBox()
         self.window_x_spin.setRange(-9999, 9999)
@@ -175,6 +1480,7 @@ class SettingsDialog(QDialog):
 
         size_group = QGroupBox("창 크기")
         size_layout = QFormLayout()
+        size_layout.setSpacing(8)
 
         self.window_width_spin = QSpinBox()
         self.window_width_spin.setRange(200, 3840)
@@ -187,25 +1493,100 @@ class SettingsDialog(QDialog):
         self.window_height_spin.setSuffix(" px")
         self.window_height_spin.valueChanged.connect(self._on_setting_changed)
         size_layout.addRow("높이:", self.window_height_spin)
+        size_layout.addRow(self._build_hint_label("스크롤이 있는 창이므로 기본 높이를 과하게 키울 필요는 없습니다."))
         size_group.setLayout(size_layout)
         layout.addWidget(size_group)
 
-        preset_layout = QHBoxLayout()
-        center_btn = QPushButton("화면 중앙")
-        center_btn.clicked.connect(self._preset_center)
-        preset_layout.addWidget(center_btn)
-
-        br_btn = QPushButton("우측 하단")
-        br_btn.clicked.connect(self._preset_bottom_right)
-        preset_layout.addWidget(br_btn)
-
-        bl_btn = QPushButton("좌측 하단")
-        bl_btn.clicked.connect(self._preset_bottom_left)
-        preset_layout.addWidget(bl_btn)
-        layout.addLayout(preset_layout)
-
         layout.addStretch()
         return widget
+
+    def _create_theme_tab(self):
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setSpacing(12)
+        layout.setContentsMargins(10, 10, 10, 10)
+
+        overview_group = QGroupBox("테마 개요")
+        overview_layout = QVBoxLayout(overview_group)
+        overview_layout.setSpacing(12)
+        overview_layout.addWidget(self._build_hint_label("설정창과 채팅창은 같은 테마 모드로 움직입니다. 위에서 라이트 또는 다크를 고르고, 필요하면 아래에서 세부 색만 조정할 수 있습니다."))
+
+        preview_row = QHBoxLayout()
+        preview_row.setSpacing(12)
+        preview_row.addWidget(
+            self._build_theme_mode_preview("light", "라이트 테마", "설정창과 채팅창을 밝은 표면 중심 팔레트로 맞춥니다."),
+            1,
+        )
+        preview_row.addWidget(
+            self._build_theme_mode_preview("dark", "다크 테마", "설정창과 채팅창을 어두운 표면 중심 팔레트로 맞춥니다."),
+            1,
+        )
+
+        overview_layout.addLayout(preview_row)
+
+        variant_row = QHBoxLayout()
+        variant_row.setSpacing(12)
+
+        light_variant_group = QGroupBox("라이트 프리셋")
+        light_variant_layout = QVBoxLayout(light_variant_group)
+        light_variant_layout.setSpacing(10)
+        for variant_id, bundle in THEME_VARIANT_PRESETS["light"].items():
+            light_variant_layout.addWidget(
+                self._build_theme_variant_preview("light", variant_id, bundle["title"], bundle["description"])
+            )
+        variant_row.addWidget(light_variant_group, 1)
+
+        dark_variant_group = QGroupBox("다크 프리셋")
+        dark_variant_layout = QVBoxLayout(dark_variant_group)
+        dark_variant_layout.setSpacing(10)
+        for variant_id, bundle in THEME_VARIANT_PRESETS["dark"].items():
+            dark_variant_layout.addWidget(
+                self._build_theme_variant_preview("dark", variant_id, bundle["title"], bundle["description"])
+            )
+        variant_row.addWidget(dark_variant_group, 1)
+
+        overview_layout.addLayout(variant_row)
+
+        self.follow_system_theme_check = QCheckBox("현재 윈도우 앱 테마(라이트/다크)를 따라가기")
+        self.follow_system_theme_check.toggled.connect(self._on_follow_system_theme_toggled)
+        overview_layout.addWidget(self.follow_system_theme_check)
+        layout.addWidget(overview_group)
+
+        settings_group = QGroupBox("설정창 팔레트")
+        settings_group_layout = QVBoxLayout(settings_group)
+        settings_group_layout.setSpacing(12)
+        settings_group_layout.addWidget(self._build_theme_color_editor("settings_window_bg_color", "설정창 바깥 배경", "설정창 전체의 기본 바탕색입니다."))
+        settings_group_layout.addWidget(self._build_theme_color_editor("settings_card_bg_color", "설정 카드 배경", "타이틀 바, 카드, 탭 영역의 기본 표면색입니다."))
+        settings_group_layout.addWidget(self._build_theme_color_editor("settings_input_bg_color", "입력 필드 배경", "입력창, 드롭다운, 리스트의 기본 배경색입니다."))
+        layout.addWidget(settings_group)
+
+        chat_group = QGroupBox("채팅창 팔레트")
+        chat_group_layout = QVBoxLayout(chat_group)
+        chat_group_layout.setSpacing(12)
+        chat_group_layout.addWidget(self._build_theme_color_editor("chat_panel_bg_color", "채팅 메인 배경", "채팅창 하단 패널과 보조 위젯의 기본 배경색입니다."))
+        chat_group_layout.addWidget(self._build_theme_color_editor("chat_input_bg_color", "채팅 입력 배경", "입력창과 입력 래퍼의 기본 배경색입니다."))
+        chat_group_layout.addWidget(self._build_theme_color_editor("chat_assistant_bubble_color", "응답 버블 배경", "AI 응답 말풍선의 기본 배경색입니다."))
+        chat_group_layout.addWidget(self._build_theme_color_editor("chat_user_bubble_color", "사용자 버블 배경", "사용자 말풍선의 기본 배경색입니다."))
+        layout.addWidget(chat_group)
+
+        accent_group = QGroupBox("포인트 색상")
+        accent_group_layout = QVBoxLayout(accent_group)
+        accent_group_layout.setSpacing(12)
+        accent_group_layout.addWidget(self._build_theme_color_editor("theme_accent_color", "포인트 색상", "저장 버튼, 포커스 링, 선택 상태와 강조 요소에 사용됩니다."))
+        layout.addWidget(accent_group)
+
+        self.theme_status_label = QLabel()
+        self.theme_status_label.setWordWrap(True)
+        layout.addWidget(self.theme_status_label)
+        layout.addStretch()
+
+        scroll.setWidget(widget)
+        return scroll
 
     def _create_model_tab(self):
         scroll = QScrollArea()
@@ -215,74 +1596,13 @@ class SettingsDialog(QDialog):
         
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        layout.setSpacing(10)
+        layout.setSpacing(12)
         layout.setContentsMargins(10, 10, 10, 10)
 
-        scale_group = QGroupBox("모델 크기")
-        scale_layout = QVBoxLayout()
-        scale_layout.setSpacing(5)
-        scale_layout.setContentsMargins(10, 15, 10, 10)
-        scale_form = QFormLayout()
-        self.model_scale_spin = QDoubleSpinBox()
-        self.model_scale_spin.setRange(0.1, 2.0)
-        self.model_scale_spin.setSingleStep(0.05)
-        self.model_scale_spin.setDecimals(2)
-        self.model_scale_spin.setSuffix("x")
-        self.model_scale_spin.valueChanged.connect(self._on_setting_changed)
-        scale_form.addRow("스케일:", self.model_scale_spin)
-        scale_layout.addLayout(scale_form)
-
-        self.scale_slider = QSlider(Qt.Orientation.Horizontal)
-        self.scale_slider.setRange(10, 200)
-        self.scale_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
-        self.scale_slider.setTickInterval(10)
-        scale_layout.addWidget(self.scale_slider)
-        self.model_scale_spin.valueChanged.connect(lambda v: self.scale_slider.setValue(int(v * 100)))
-        self.scale_slider.valueChanged.connect(lambda v: self.model_scale_spin.setValue(v / 100.0))
-        scale_group.setLayout(scale_layout)
-        layout.addWidget(scale_group)
-
-        x_group = QGroupBox("모델 X 위치 (좌우)")
-        x_layout = QVBoxLayout()
-        x_layout.setSpacing(5)
-        x_layout.setContentsMargins(10, 15, 10, 10)
-        x_info = QHBoxLayout()
-        x_info.addWidget(QLabel("좌측 ↓ ↓"))
-        x_info.addStretch()
-        self.model_x_value_label = QLabel("50%")
-        self.model_x_value_label.setStyleSheet("font-weight: bold;")
-        x_info.addWidget(self.model_x_value_label)
-        x_info.addStretch()
-        x_info.addWidget(QLabel("우측 ↓ ↓"))
-        x_layout.addLayout(x_info)
-        self.model_x_slider = QSlider(Qt.Orientation.Horizontal)
-        self.model_x_slider.setRange(-100, 200)
-        self.model_x_slider.valueChanged.connect(lambda v: self.model_x_value_label.setText(f"{v}%"))
-        self.model_x_slider.valueChanged.connect(self._on_setting_changed)
-        x_layout.addWidget(self.model_x_slider)
-        x_group.setLayout(x_layout)
-        layout.addWidget(x_group)
-
-        y_group = QGroupBox("모델 Y 위치 (상하)")
-        y_layout = QVBoxLayout()
-        y_layout.setSpacing(5)
-        y_layout.setContentsMargins(10, 15, 10, 10)
-        y_info = QHBoxLayout()
-        y_info.addWidget(QLabel("상단 ↓ ↓"))
-        y_info.addStretch()
-        self.model_y_value_label = QLabel("50%")
-        self.model_y_value_label.setStyleSheet("font-weight: bold;")
-        y_info.addWidget(self.model_y_value_label)
-        y_info.addStretch()
-        y_info.addWidget(QLabel("하단 ↓ ↓"))
-        y_layout.addLayout(y_info)
-        self.model_y_slider = QSlider(Qt.Orientation.Horizontal)
-        self.model_y_slider.setRange(-100, 200)
-        self.model_y_slider.valueChanged.connect(lambda v: self.model_y_value_label.setText(f"{v}%"))
-        self.model_y_slider.valueChanged.connect(self._on_setting_changed)
-        y_layout.addWidget(self.model_y_slider)
-        y_group.setLayout(y_layout)
-        layout.addWidget(y_group)
+        preset_group = QGroupBox("빠른 배치")
+        preset_group_layout = QVBoxLayout(preset_group)
+        preset_group_layout.setSpacing(10)
+        preset_group_layout.addWidget(self._build_hint_label("자주 쓰는 위치를 먼저 고른 뒤, 아래 슬라이더로 세밀하게 맞추면 더 편합니다."))
 
         preset_layout = QHBoxLayout()
         center_btn = QPushButton("중앙")
@@ -294,7 +1614,95 @@ class SettingsDialog(QDialog):
         right_btn = QPushButton("우측")
         right_btn.clicked.connect(lambda: self._set_model_position(75, 50))
         preset_layout.addWidget(right_btn)
-        layout.addLayout(preset_layout)
+        preset_group_layout.addLayout(preset_layout)
+        layout.addWidget(preset_group)
+
+        scale_group = QGroupBox("모델 크기")
+        scale_layout = QVBoxLayout()
+        scale_layout.setSpacing(8)
+        scale_layout.setContentsMargins(10, 15, 10, 10)
+        scale_form = QFormLayout()
+        self.model_scale_spin = QDoubleSpinBox()
+        self.model_scale_spin.setRange(0.1, 2.0)
+        self.model_scale_spin.setSingleStep(0.05)
+        self.model_scale_spin.setDecimals(2)
+        self.model_scale_spin.setSuffix("x")
+        self.model_scale_spin.valueChanged.connect(self._on_setting_changed)
+        scale_form.addRow("스케일:", self.model_scale_spin)
+        scale_layout.addLayout(scale_form)
+        scale_layout.addWidget(self._build_hint_label("1.00x를 기준으로 모델 전체 크기를 조정합니다."))
+
+        self.scale_slider = QSlider(Qt.Orientation.Horizontal)
+        self.scale_slider.setRange(10, 200)
+        self.scale_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.scale_slider.setTickInterval(10)
+        scale_layout.addWidget(self.scale_slider)
+        self.model_scale_spin.valueChanged.connect(lambda v: self.scale_slider.setValue(int(v * 100)))
+        self.scale_slider.valueChanged.connect(lambda v: self.model_scale_spin.setValue(v / 100.0))
+        scale_group.setLayout(scale_layout)
+        layout.addWidget(scale_group)
+
+        x_group = QGroupBox("모델 X 위치")
+        x_layout = QVBoxLayout()
+        x_layout.setSpacing(8)
+        x_layout.setContentsMargins(10, 15, 10, 10)
+        x_layout.addWidget(self._build_hint_label("모델을 화면의 왼쪽과 오른쪽 사이에서 조정합니다."))
+        x_info = QHBoxLayout()
+        x_info.addWidget(QLabel("왼쪽"))
+        x_info.addStretch()
+        self.model_x_value_label = QLabel("50%")
+        self.model_x_value_label.setObjectName("ValueBadge")
+        x_info.addWidget(self.model_x_value_label)
+        x_info.addStretch()
+        x_info.addWidget(QLabel("오른쪽"))
+        x_layout.addLayout(x_info)
+        self.model_x_slider = QSlider(Qt.Orientation.Horizontal)
+        self.model_x_slider.setRange(-100, 200)
+        self.model_x_slider.valueChanged.connect(lambda v: self.model_x_value_label.setText(f"{v}%"))
+        self.model_x_slider.valueChanged.connect(self._on_setting_changed)
+        x_layout.addWidget(self.model_x_slider)
+        x_group.setLayout(x_layout)
+        layout.addWidget(x_group)
+
+        y_group = QGroupBox("모델 Y 위치")
+        y_layout = QVBoxLayout()
+        y_layout.setSpacing(8)
+        y_layout.setContentsMargins(10, 15, 10, 10)
+        y_layout.addWidget(self._build_hint_label("모델을 화면의 위쪽과 아래쪽 사이에서 조정합니다."))
+        y_info = QHBoxLayout()
+        y_info.addWidget(QLabel("위쪽"))
+        y_info.addStretch()
+        self.model_y_value_label = QLabel("50%")
+        self.model_y_value_label.setObjectName("ValueBadge")
+        y_info.addWidget(self.model_y_value_label)
+        y_info.addStretch()
+        y_info.addWidget(QLabel("아래쪽"))
+        y_layout.addLayout(y_info)
+        self.model_y_slider = QSlider(Qt.Orientation.Horizontal)
+        self.model_y_slider.setRange(-100, 200)
+        self.model_y_slider.valueChanged.connect(lambda v: self.model_y_value_label.setText(f"{v}%"))
+        self.model_y_slider.valueChanged.connect(self._on_setting_changed)
+        y_layout.addWidget(self.model_y_slider)
+        y_group.setLayout(y_layout)
+        layout.addWidget(y_group)
+
+        model_path_group = QGroupBox("Live2D 모델 파일")
+        model_path_layout = QVBoxLayout(model_path_group)
+        model_path_layout.setSpacing(10)
+        model_path_layout.addWidget(self._build_hint_label("`.model3.json` 파일 경로를 직접 지정합니다. 저장 전에도 미리보기에서 모델이 다시 로드됩니다."))
+
+        model_path_row = QHBoxLayout()
+        model_path_row.setSpacing(8)
+        self.model_json_path_edit = QLineEdit()
+        self.model_json_path_edit.setPlaceholderText("예: assets/live2d_models/jksalt/jksalt.model3.json")
+        self.model_json_path_edit.textChanged.connect(self._on_setting_changed)
+        model_path_row.addWidget(self.model_json_path_edit, 1)
+
+        browse_model_btn = QPushButton("찾아보기")
+        browse_model_btn.clicked.connect(self._browse_live2d_model_path)
+        model_path_row.addWidget(browse_model_btn)
+        model_path_layout.addLayout(model_path_row)
+        layout.addWidget(model_path_group)
 
         layout.addStretch()
         scroll.setWidget(widget)
@@ -308,13 +1716,13 @@ class SettingsDialog(QDialog):
 
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        layout.setSpacing(10)
+        layout.setSpacing(12)
         layout.setContentsMargins(10, 10, 10, 10)
 
-        llm_group = QGroupBox("LLM 설정")
-        llm_form = QFormLayout(llm_group)
-        llm_form.setSpacing(8)
-        llm_form.setContentsMargins(10, 15, 10, 10)
+        provider_group = QGroupBox("공급자와 인증")
+        provider_form = QFormLayout(provider_group)
+        provider_form.setSpacing(8)
+        provider_form.setContentsMargins(10, 15, 10, 10)
 
         self.llm_provider_combo = QComboBox()
         self._provider_values = []
@@ -328,40 +1736,58 @@ class SettingsDialog(QDialog):
         self._llm_model_params = {}
         self._active_model_key_by_provider = {}
         self.llm_provider_combo.currentIndexChanged.connect(self._on_llm_provider_changed)
-        llm_form.addRow("공급자:", self.llm_provider_combo)
+        provider_form.addRow("공급자:", self.llm_provider_combo)
 
         self.llm_api_key_edit = QLineEdit()
         self.llm_api_key_edit.setPlaceholderText("선택한 공급자의 API 키")
         self.llm_api_key_edit.textChanged.connect(self._on_llm_api_key_changed)
-        llm_form.addRow("API 키:", self.llm_api_key_edit)
+        provider_form.addRow(
+            "API 키:",
+            self._build_secret_row(
+                self.llm_api_key_edit,
+                lambda: self._toggle_secret_field(self.llm_api_key_edit, self.llm_api_key_toggle_button),
+                "llm_api_key_toggle_button",
+            ),
+        )
+        provider_form.addRow(self._build_hint_label("민감한 값은 기본적으로 숨겨집니다. 현재 선택한 공급자 기준으로 저장됩니다."))
+        layout.addWidget(provider_group)
+
+        model_group = QGroupBox("모델과 응답 스타일")
+        model_form = QFormLayout(model_group)
+        model_form.setSpacing(8)
+        model_form.setContentsMargins(10, 15, 10, 10)
 
         self.llm_model_edit = QLineEdit()
         self.llm_model_edit.setPlaceholderText("예: gemini-3-flash-preview, gpt-4o-mini")
         self.llm_model_edit.textChanged.connect(self._on_llm_model_changed)
-        llm_form.addRow("모델:", self.llm_model_edit)
+        model_form.addRow("모델:", self.llm_model_edit)
 
         self.llm_temperature_spin = QDoubleSpinBox()
         self.llm_temperature_spin.setRange(0.0, 2.0)
         self.llm_temperature_spin.setSingleStep(0.1)
         self.llm_temperature_spin.setDecimals(2)
         self.llm_temperature_spin.valueChanged.connect(self._on_llm_param_changed)
-        llm_form.addRow("Temperature:", self.llm_temperature_spin)
+        model_form.addRow("Temperature:", self.llm_temperature_spin)
 
         self.llm_top_p_spin = QDoubleSpinBox()
         self.llm_top_p_spin.setRange(0.0, 1.0)
         self.llm_top_p_spin.setSingleStep(0.05)
         self.llm_top_p_spin.setDecimals(2)
         self.llm_top_p_spin.valueChanged.connect(self._on_llm_param_changed)
-        llm_form.addRow("Top P:", self.llm_top_p_spin)
+        model_form.addRow("Top P:", self.llm_top_p_spin)
 
         self.llm_max_tokens_spin = QSpinBox()
         self.llm_max_tokens_spin.setRange(0, 65536)
         self.llm_max_tokens_spin.setSpecialValueText("자동")
         self.llm_max_tokens_spin.valueChanged.connect(self._on_llm_param_changed)
-        llm_form.addRow("Max Tokens:", self.llm_max_tokens_spin)
+        model_form.addRow("Max Tokens:", self.llm_max_tokens_spin)
+        model_form.addRow(self._build_hint_label("Temperature와 Top P는 창의성 조절용이고, Max Tokens는 응답 길이 제한입니다."))
+        layout.addWidget(model_group)
 
         self.custom_api_group = QGroupBox("Custom API")
         custom_form = QFormLayout(self.custom_api_group)
+        custom_form.setSpacing(8)
+        custom_form.setContentsMargins(10, 15, 10, 10)
 
         self.custom_api_url_edit = QLineEdit()
         self.custom_api_url_edit.setPlaceholderText("예: https://api.example.com/v1/chat/completions")
@@ -371,7 +1797,14 @@ class SettingsDialog(QDialog):
         self.custom_api_key_or_password_edit = QLineEdit()
         self.custom_api_key_or_password_edit.setPlaceholderText("키 또는 패스워드")
         self.custom_api_key_or_password_edit.textChanged.connect(self._on_setting_changed)
-        custom_form.addRow("키/패스워드:", self.custom_api_key_or_password_edit)
+        custom_form.addRow(
+            "키/패스워드:",
+            self._build_secret_row(
+                self.custom_api_key_or_password_edit,
+                lambda: self._toggle_secret_field(self.custom_api_key_or_password_edit, self.custom_api_secret_toggle_button),
+                "custom_api_secret_toggle_button",
+            ),
+        )
 
         self.custom_api_request_model_edit = QLineEdit()
         self.custom_api_request_model_edit.setPlaceholderText("요청 모델명")
@@ -391,15 +1824,21 @@ class SettingsDialog(QDialog):
             self.custom_api_format_combo.addItem(label, value)
         self.custom_api_format_combo.currentIndexChanged.connect(self._on_setting_changed)
         custom_form.addRow("포맷:", self.custom_api_format_combo)
+        custom_form.addRow(self._build_hint_label("Custom API 공급자를 선택한 경우에만 이 섹션이 사용됩니다."))
 
         self.custom_api_group.setVisible(False)
-        llm_form.addRow(self.custom_api_group)
+        layout.addWidget(self.custom_api_group)
 
-        self.llm_restart_info = QLabel("주의: LLM 설정 변경은 앱 재시작 후 완전히 반영됩니다.")
+        restart_group = QGroupBox("적용 안내")
+        restart_layout = QVBoxLayout(restart_group)
+        restart_layout.setSpacing(8)
+        restart_layout.setContentsMargins(10, 15, 10, 10)
+
+        self.llm_restart_info = QLabel("공급자, 키, 모델 변경은 일부 세션에 즉시 보이지 않을 수 있습니다. 저장 후 앱을 다시 시작하면 가장 확실하게 반영됩니다.")
         self.llm_restart_info.setWordWrap(True)
-        llm_form.addRow(self.llm_restart_info)
-
-        layout.addWidget(llm_group)
+        self.llm_restart_info.setObjectName("FooterBody")
+        restart_layout.addWidget(self.llm_restart_info)
+        layout.addWidget(restart_group)
         layout.addStretch()
         scroll.setWidget(widget)
         return scroll
@@ -412,45 +1851,47 @@ class SettingsDialog(QDialog):
 
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        layout.setSpacing(10)
+        layout.setSpacing(12)
         layout.setContentsMargins(10, 10, 10, 10)
+
+        display_group = QGroupBox("표시 요소")
+        display_layout = QVBoxLayout(display_group)
+        display_layout.setSpacing(8)
 
         self.show_drag_bar_check = QCheckBox("드래그 바 표시")
         self.show_drag_bar_check.toggled.connect(self._on_setting_changed)
-        drag_row = QHBoxLayout()
-        drag_row.addWidget(self.show_drag_bar_check)
+        display_layout.addWidget(self.show_drag_bar_check)
 
         self.show_recent_reroll_button_check = QCheckBox("최근 메시지 리롤 버튼 표시")
         self.show_recent_reroll_button_check.toggled.connect(self._on_setting_changed)
-        drag_row.addWidget(self.show_recent_reroll_button_check)
+        display_layout.addWidget(self.show_recent_reroll_button_check)
 
         self.show_recent_edit_button_check = QCheckBox("최근 메시지 수정 버튼 표시")
         self.show_recent_edit_button_check.toggled.connect(self._on_setting_changed)
-        drag_row.addWidget(self.show_recent_edit_button_check)
-        drag_row.addStretch()
-        layout.addLayout(drag_row)
+        display_layout.addWidget(self.show_recent_edit_button_check)
 
-        tracking_row = QHBoxLayout()
         self.mouse_tracking_check = QCheckBox("마우스 트래킹 활성화")
         self.mouse_tracking_check.toggled.connect(self._on_setting_changed)
-        tracking_row.addWidget(self.mouse_tracking_check)
+        display_layout.addWidget(self.mouse_tracking_check)
+        display_layout.addWidget(self._build_hint_label("기본 노출 요소와 마우스 상호작용을 한 묶음으로 관리합니다."))
+        layout.addWidget(display_group)
 
+        action_group = QGroupBox("대화와 보조 버튼")
+        action_layout = QVBoxLayout(action_group)
+        action_layout.setSpacing(8)
         self.show_manual_summary_button_check = QCheckBox("수동 요약 버튼 표시")
         self.show_manual_summary_button_check.toggled.connect(self._on_setting_changed)
-        tracking_row.addWidget(self.show_manual_summary_button_check)
-        tracking_row.addStretch()
-        layout.addLayout(tracking_row)
+        action_layout.addWidget(self.show_manual_summary_button_check)
 
-        floating_row = QHBoxLayout()
         self.show_obsidian_note_button_check = QCheckBox("노트 버튼 표시")
         self.show_obsidian_note_button_check.toggled.connect(self._on_setting_changed)
-        floating_row.addWidget(self.show_obsidian_note_button_check)
+        action_layout.addWidget(self.show_obsidian_note_button_check)
 
         self.show_mood_toggle_button_check = QCheckBox("기분 버튼 표시")
         self.show_mood_toggle_button_check.toggled.connect(self._on_setting_changed)
-        floating_row.addWidget(self.show_mood_toggle_button_check)
-        floating_row.addStretch()
-        layout.addLayout(floating_row)
+        action_layout.addWidget(self.show_mood_toggle_button_check)
+        action_layout.addWidget(self._build_hint_label("자주 누르는 버튼만 켜두면 화면이 덜 복잡해집니다."))
+        layout.addWidget(action_group)
 
         ptt_group = QGroupBox("음성 입력 (전역 PTT)")
         ptt_layout = QFormLayout(ptt_group)
@@ -468,9 +1909,7 @@ class SettingsDialog(QDialog):
         ptt_hotkey_row = QHBoxLayout()
         self.global_ptt_hotkey_value_label = QLabel("")
         self.global_ptt_hotkey_value_label.setMinimumWidth(140)
-        self.global_ptt_hotkey_value_label.setStyleSheet(
-            "padding: 6px 10px; border-radius: 8px; background: rgba(255,255,255,0.08);"
-        )
+        self.global_ptt_hotkey_value_label.setObjectName("ValueBadge")
         ptt_hotkey_row.addWidget(self.global_ptt_hotkey_value_label)
 
         self.global_ptt_hotkey_set_button = QPushButton("단축키 설정")
@@ -484,7 +1923,7 @@ class SettingsDialog(QDialog):
 
         self.global_ptt_hotkey_hint_label = QLabel("")
         self.global_ptt_hotkey_hint_label.setWordWrap(True)
-        self.global_ptt_hotkey_hint_label.setStyleSheet("color: rgba(255,255,255,0.65); font-size: 12px;")
+        self.global_ptt_hotkey_hint_label.setObjectName("InlineHint")
         ptt_layout.addRow(self.global_ptt_hotkey_hint_label)
 
         layout.addWidget(ptt_group)
@@ -628,6 +2067,871 @@ class SettingsDialog(QDialog):
         scroll.setWidget(widget)
         return scroll
 
+    def _create_memory_tab(self):
+        if self._memory_manager:
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QFrame.Shape.NoFrame)
+            scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+
+            panel = MemoryDialog(self._memory_manager, self._bridge, self, embedded=True)
+            panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+            panel.setMinimumSize(0, 0)
+            scroll.setWidget(panel)
+            return scroll
+
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(12)
+
+        card = QFrame()
+        card.setObjectName("FooterCard")
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(22, 20, 22, 20)
+        card_layout.setSpacing(8)
+
+        title = QLabel("기억 관리")
+        title.setObjectName("FooterTitle")
+        card_layout.addWidget(title)
+
+        body = QLabel("메모리 매니저가 초기화되지 않아 기억 관리 탭을 표시할 수 없습니다.")
+        body.setObjectName("FooterBody")
+        body.setWordWrap(True)
+        card_layout.addWidget(body)
+
+        layout.addWidget(card)
+        layout.addStretch()
+        return widget
+
+    def _create_user_profile_tab(self):
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setSpacing(12)
+        layout.setContentsMargins(10, 10, 10, 10)
+
+        header = QFrame()
+        header.setObjectName("FooterCard")
+        header_layout = QVBoxLayout(header)
+        header_layout.setContentsMargins(20, 18, 20, 18)
+        header_layout.setSpacing(6)
+
+        title = QLabel("사용자 기억 관리")
+        title.setObjectName("FooterTitle")
+        header_layout.addWidget(title)
+
+        body = QLabel("user_profile.json의 기본 정보, likes, dislikes, facts만 구조적으로 관리합니다. 원본 JSON 전체를 직접 열지 않고 필요한 항목만 수정합니다.")
+        body.setObjectName("FooterBody")
+        body.setWordWrap(True)
+        header_layout.addWidget(body)
+        layout.addWidget(header)
+
+        top_row = QHBoxLayout()
+        top_row.setSpacing(12)
+
+        basic_group = QGroupBox("기본 정보")
+        basic_layout = QVBoxLayout(basic_group)
+        basic_layout.setSpacing(10)
+
+        self.basic_info_list = QListWidget()
+        self.basic_info_list.setMinimumHeight(190)
+        self.basic_info_list.currentRowChanged.connect(self._on_basic_info_selected)
+        basic_layout.addWidget(self.basic_info_list)
+
+        self.basic_info_key_input = QLineEdit()
+        self.basic_info_key_input.setPlaceholderText("항목 이름")
+        basic_layout.addWidget(self.basic_info_key_input)
+
+        self.basic_info_value_input = QLineEdit()
+        self.basic_info_value_input.setPlaceholderText("값")
+        basic_layout.addWidget(self.basic_info_value_input)
+
+        basic_actions = QHBoxLayout()
+        basic_actions.setSpacing(8)
+
+        basic_new_btn = QPushButton("새 항목")
+        basic_new_btn.clicked.connect(self._new_basic_info_item)
+        basic_actions.addWidget(basic_new_btn)
+
+        basic_apply_btn = QPushButton("목록에 반영")
+        basic_apply_btn.setProperty("accent", True)
+        basic_apply_btn.style().unpolish(basic_apply_btn)
+        basic_apply_btn.style().polish(basic_apply_btn)
+        basic_apply_btn.clicked.connect(self._apply_basic_info_item)
+        basic_actions.addWidget(basic_apply_btn)
+
+        basic_delete_btn = QPushButton("삭제")
+        basic_delete_btn.clicked.connect(self._delete_basic_info_item)
+        basic_actions.addWidget(basic_delete_btn)
+        basic_layout.addLayout(basic_actions)
+
+        top_row.addWidget(basic_group, 1)
+
+        preference_group = QGroupBox("선호와 비선호")
+        preference_layout = QVBoxLayout(preference_group)
+        preference_layout.setSpacing(12)
+
+        likes_row = QVBoxLayout()
+        likes_row.setSpacing(10)
+        likes_label = QLabel("likes")
+        likes_label.setObjectName("FooterTitle")
+        likes_row.addWidget(likes_label)
+
+        likes_col = QVBoxLayout()
+        likes_col.setSpacing(10)
+        self.likes_list = QListWidget()
+        self.likes_list.setMinimumHeight(92)
+        self.likes_list.setMaximumHeight(120)
+        self._configure_preference_list(self.likes_list)
+        likes_col.addWidget(self.likes_list)
+        self.likes_input = QLineEdit()
+        self.likes_input.setPlaceholderText("좋아하는 항목 추가")
+        likes_col.addWidget(self.likes_input)
+        likes_actions = QHBoxLayout()
+        likes_actions.setSpacing(8)
+        likes_actions.addStretch()
+        likes_add_btn = QPushButton("추가")
+        likes_add_btn.clicked.connect(lambda: self._add_preference_item("likes"))
+        likes_actions.addWidget(likes_add_btn)
+        likes_delete_btn = QPushButton("삭제")
+        likes_delete_btn.clicked.connect(lambda: self._delete_preference_item("likes"))
+        likes_actions.addWidget(likes_delete_btn)
+        likes_col.addLayout(likes_actions)
+        likes_row.addLayout(likes_col)
+        preference_layout.addLayout(likes_row)
+
+        dislikes_row = QVBoxLayout()
+        dislikes_row.setSpacing(10)
+        dislikes_label = QLabel("dislikes")
+        dislikes_label.setObjectName("FooterTitle")
+        dislikes_row.addWidget(dislikes_label)
+
+        dislikes_col = QVBoxLayout()
+        dislikes_col.setSpacing(10)
+        self.dislikes_list = QListWidget()
+        self.dislikes_list.setMinimumHeight(92)
+        self.dislikes_list.setMaximumHeight(120)
+        self._configure_preference_list(self.dislikes_list)
+        dislikes_col.addWidget(self.dislikes_list)
+        self.dislikes_input = QLineEdit()
+        self.dislikes_input.setPlaceholderText("싫어하는 항목 추가")
+        dislikes_col.addWidget(self.dislikes_input)
+        dislikes_actions = QHBoxLayout()
+        dislikes_actions.setSpacing(8)
+        dislikes_actions.addStretch()
+        dislikes_add_btn = QPushButton("추가")
+        dislikes_add_btn.clicked.connect(lambda: self._add_preference_item("dislikes"))
+        dislikes_actions.addWidget(dislikes_add_btn)
+        dislikes_delete_btn = QPushButton("삭제")
+        dislikes_delete_btn.clicked.connect(lambda: self._delete_preference_item("dislikes"))
+        dislikes_actions.addWidget(dislikes_delete_btn)
+        dislikes_col.addLayout(dislikes_actions)
+        dislikes_row.addLayout(dislikes_col)
+        preference_layout.addLayout(dislikes_row)
+
+        top_row.addWidget(preference_group, 1)
+        layout.addLayout(top_row)
+
+        facts_group = QGroupBox("facts")
+        facts_layout = QHBoxLayout(facts_group)
+        facts_layout.setSpacing(12)
+
+        self.fact_list = QListWidget()
+        self.fact_list.setMinimumHeight(320)
+        self.fact_list.currentRowChanged.connect(self._on_fact_selected)
+        facts_layout.addWidget(self.fact_list, 1)
+
+        fact_editor_col = QVBoxLayout()
+        fact_editor_col.setSpacing(10)
+
+        self.fact_content_edit = QPlainTextEdit()
+        self.fact_content_edit.setPlaceholderText("기억 내용")
+        self.fact_content_edit.setMinimumHeight(150)
+        fact_editor_col.addWidget(self.fact_content_edit)
+
+        fact_meta_row = QHBoxLayout()
+        fact_meta_row.setSpacing(10)
+
+        self.fact_category_combo = QComboBox()
+        self.fact_category_combo.addItems(["basic", "preference", "goal", "habit"])
+        fact_meta_row.addWidget(self.fact_category_combo)
+
+        self.fact_source_input = QLineEdit()
+        self.fact_source_input.setPlaceholderText("출처")
+        fact_meta_row.addWidget(self.fact_source_input, 1)
+        fact_editor_col.addLayout(fact_meta_row)
+
+        self.fact_timestamp_label = QLabel("신규 항목")
+        self.fact_timestamp_label.setObjectName("FooterBody")
+        fact_editor_col.addWidget(self.fact_timestamp_label)
+
+        fact_actions = QHBoxLayout()
+        fact_actions.setSpacing(8)
+
+        fact_new_btn = QPushButton("새 항목")
+        fact_new_btn.clicked.connect(self._new_fact_item)
+        fact_actions.addWidget(fact_new_btn)
+
+        fact_apply_btn = QPushButton("목록에 반영")
+        fact_apply_btn.setProperty("accent", True)
+        fact_apply_btn.style().unpolish(fact_apply_btn)
+        fact_apply_btn.style().polish(fact_apply_btn)
+        fact_apply_btn.clicked.connect(self._apply_fact_item)
+        fact_actions.addWidget(fact_apply_btn)
+
+        fact_delete_btn = QPushButton("삭제")
+        fact_delete_btn.clicked.connect(self._delete_fact_item)
+        fact_actions.addWidget(fact_delete_btn)
+        fact_editor_col.addLayout(fact_actions)
+
+        facts_layout.addLayout(fact_editor_col, 1)
+        layout.addWidget(facts_group)
+
+        footer_row = QHBoxLayout()
+        footer_row.setSpacing(10)
+
+        self._profile_status_label = QLabel("로드 대기")
+        self._profile_status_label.setObjectName("FooterBody")
+        footer_row.addWidget(self._profile_status_label)
+
+        footer_row.addStretch()
+
+        profile_reload_btn = QPushButton("다시 불러오기")
+        profile_reload_btn.clicked.connect(self._load_user_profile_data)
+        footer_row.addWidget(profile_reload_btn)
+
+        profile_save_btn = QPushButton("저장")
+        profile_save_btn.setProperty("accent", True)
+        profile_save_btn.style().unpolish(profile_save_btn)
+        profile_save_btn.style().polish(profile_save_btn)
+        profile_save_btn.clicked.connect(self._save_user_profile_data)
+        footer_row.addWidget(profile_save_btn)
+
+        layout.addLayout(footer_row)
+        layout.addStretch()
+
+        scroll.setWidget(widget)
+        self._load_user_profile_data()
+        return scroll
+
+    def _create_prompt_tab(self):
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setSpacing(12)
+        layout.setContentsMargins(10, 10, 10, 10)
+
+        header = QFrame()
+        header.setObjectName("FooterCard")
+        header_layout = QVBoxLayout(header)
+        header_layout.setContentsMargins(20, 18, 20, 18)
+        header_layout.setSpacing(6)
+
+        title = QLabel("프롬프트 설정")
+        title.setObjectName("FooterTitle")
+        header_layout.addWidget(title)
+
+        body = QLabel("파이썬 파일 전체를 직접 수정하지 않고 BASE_SYSTEM_PROMPT, SUB_PROMPT, EMOTIONS와 감정 사용 가이드만 안전하게 관리합니다.")
+        body.setObjectName("FooterBody")
+        body.setWordWrap(True)
+        header_layout.addWidget(body)
+        layout.addWidget(header)
+
+        prompt_row = QHBoxLayout()
+        prompt_row.setSpacing(12)
+
+        base_group = QGroupBox("BASE_SYSTEM_PROMPT")
+        base_layout = QVBoxLayout(base_group)
+        base_layout.setSpacing(10)
+        base_path = QLabel(str(self._prompt_path))
+        base_path.setObjectName("FooterBody")
+        base_path.setWordWrap(True)
+        base_layout.addWidget(base_path)
+        self.base_prompt_editor = QPlainTextEdit()
+        self.base_prompt_editor.setMinimumHeight(320)
+        base_layout.addWidget(self.base_prompt_editor, 1)
+        prompt_row.addWidget(base_group, 1)
+
+        sub_group = QGroupBox("SUB_PROMPT 본문")
+        sub_layout = QVBoxLayout(sub_group)
+        sub_layout.setSpacing(10)
+        sub_path = QLabel(str(self._sub_prompt_path))
+        sub_path.setObjectName("FooterBody")
+        sub_path.setWordWrap(True)
+        sub_layout.addWidget(sub_path)
+        sub_note = QLabel("감정 규칙과 감정 사용 가이드는 아래 감정 편집 카드에서 별도로 관리됩니다.")
+        sub_note.setObjectName("FooterBody")
+        sub_note.setWordWrap(True)
+        sub_layout.addWidget(sub_note)
+        self.sub_prompt_editor = QPlainTextEdit()
+        self.sub_prompt_editor.setMinimumHeight(320)
+        sub_layout.addWidget(self.sub_prompt_editor, 1)
+        prompt_row.addWidget(sub_group, 1)
+        layout.addLayout(prompt_row)
+
+        emotion_group = QGroupBox("감정 목록과 사용 가이드")
+        emotion_layout = QHBoxLayout(emotion_group)
+        emotion_layout.setSpacing(12)
+
+        self.emotion_list = QListWidget()
+        self.emotion_list.setMinimumHeight(260)
+        self.emotion_list.currentRowChanged.connect(self._on_emotion_selected)
+        emotion_layout.addWidget(self.emotion_list, 1)
+
+        emotion_editor_col = QVBoxLayout()
+        emotion_editor_col.setSpacing(10)
+
+        self.emotion_name_input = QLineEdit()
+        self.emotion_name_input.setPlaceholderText("감정 키 (예: shy)")
+        emotion_editor_col.addWidget(self.emotion_name_input)
+
+        self.emotion_guide_editor = QPlainTextEdit()
+        self.emotion_guide_editor.setPlaceholderText("감정 사용 가이드")
+        self.emotion_guide_editor.setMinimumHeight(180)
+        emotion_editor_col.addWidget(self.emotion_guide_editor, 1)
+
+        emotion_actions = QHBoxLayout()
+        emotion_actions.setSpacing(8)
+
+        emotion_new_btn = QPushButton("새 감정")
+        emotion_new_btn.clicked.connect(self._new_emotion_item)
+        emotion_actions.addWidget(emotion_new_btn)
+
+        emotion_apply_btn = QPushButton("목록에 반영")
+        emotion_apply_btn.setProperty("accent", True)
+        emotion_apply_btn.style().unpolish(emotion_apply_btn)
+        emotion_apply_btn.style().polish(emotion_apply_btn)
+        emotion_apply_btn.clicked.connect(self._apply_emotion_item)
+        emotion_actions.addWidget(emotion_apply_btn)
+
+        emotion_delete_btn = QPushButton("삭제")
+        emotion_delete_btn.clicked.connect(self._delete_emotion_item)
+        emotion_actions.addWidget(emotion_delete_btn)
+
+        emotion_editor_col.addLayout(emotion_actions)
+        emotion_layout.addLayout(emotion_editor_col, 1)
+        layout.addWidget(emotion_group)
+
+        footer_row = QHBoxLayout()
+        footer_row.setSpacing(10)
+
+        self._prompt_status_label = QLabel("로드 대기")
+        self._prompt_status_label.setObjectName("FooterBody")
+        footer_row.addWidget(self._prompt_status_label)
+
+        footer_row.addStretch()
+
+        reload_btn = QPushButton("다시 불러오기")
+        reload_btn.clicked.connect(self._load_prompt_configuration)
+        footer_row.addWidget(reload_btn)
+
+        save_btn = QPushButton("저장")
+        save_btn.setProperty("accent", True)
+        save_btn.style().unpolish(save_btn)
+        save_btn.style().polish(save_btn)
+        save_btn.clicked.connect(self._save_prompt_configuration)
+        footer_row.addWidget(save_btn)
+        layout.addLayout(footer_row)
+
+        layout.addStretch()
+        scroll.setWidget(widget)
+        self._load_prompt_configuration()
+        return scroll
+
+    def _read_text_file(self, path: Path) -> str:
+        return path.read_text(encoding="utf-8-sig")
+
+    def _write_text_file(self, path: Path, text: str) -> None:
+        normalized = text.replace("\r\n", "\n")
+        path.write_text(normalized, encoding="utf-8-sig")
+
+    def _find_assignment_value_node(self, source: str, var_name: str):
+        tree = ast.parse(source)
+        for node in tree.body:
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name) and target.id == var_name:
+                        return node.value
+        raise ValueError(f"{var_name} 값을 찾지 못했습니다.")
+
+    def _extract_assignment_literal(self, source: str, var_name: str):
+        value_node = self._find_assignment_value_node(source, var_name)
+        return ast.literal_eval(value_node)
+
+    def _replace_assignment_value(self, source: str, var_name: str, replacement: str) -> str:
+        value_node = self._find_assignment_value_node(source, var_name)
+        lines = source.splitlines(keepends=True)
+
+        def to_offset(lineno: int, col: int) -> int:
+            return sum(len(line) for line in lines[:lineno - 1]) + col
+
+        start = to_offset(value_node.lineno, value_node.col_offset)
+        end = to_offset(value_node.end_lineno, value_node.end_col_offset)
+        return source[:start] + replacement + source[end:]
+
+    def _format_triple_quoted_string(self, text: str) -> str:
+        escaped = (text or "").strip("\n").replace('"""', '\\"\\"\\"')
+        return f'"""\n{escaped}\n"""'
+
+    def _format_emotions_list(self, emotions: list[str]) -> str:
+        lines = ["["]
+        lines.extend(f"    {emotion!r}," for emotion in emotions)
+        lines.append("]")
+        return "\n".join(lines)
+
+    def _split_sub_prompt_content(self, text: str) -> tuple[str, dict[str, str]]:
+        content = (text or "").strip()
+        if not content:
+            return "", {}
+
+        pattern = re.compile(r"^### \[(.+?)\]\s*$", re.MULTILINE)
+        matches = list(pattern.finditer(content))
+        if not matches:
+            return content, {}
+
+        sections: list[tuple[str, str]] = []
+        for index, match in enumerate(matches):
+            title = match.group(1).strip()
+            start = match.start()
+            end = matches[index + 1].start() if index + 1 < len(matches) else len(content)
+            section_text = content[start:end].strip()
+            sections.append((title, section_text))
+
+        guides: dict[str, str] = {}
+        remaining_sections: list[str] = []
+
+        for title, section_text in sections:
+            if title == "감정 표현 규칙":
+                continue
+            if title == "감정 사용 가이드":
+                for line in section_text.splitlines()[1:]:
+                    stripped = line.strip()
+                    if not stripped.startswith("- "):
+                        continue
+                    name, separator, guide = stripped[2:].partition(":")
+                    if separator:
+                        guides[name.strip()] = guide.strip()
+                continue
+            remaining_sections.append(section_text)
+
+        return "\n\n".join(remaining_sections).strip(), guides
+
+    def _build_sub_prompt_text(self, body_text: str, emotions: list[dict[str, str]]) -> str:
+        emotion_names = ", ".join(item["name"] for item in emotions)
+        rules_section = "\n".join(
+            [
+                "### [감정 표현 규칙]",
+                "- 답변 말 마지막에 반드시 감정 태그를 추가하세요.",
+                "- 형식: `[emotion]`",
+                f"- 사용 가능한 감정: `{emotion_names}`",
+            ]
+        )
+
+        guide_lines = ["### [감정 사용 가이드]"]
+        for item in emotions:
+            guide = item["guide"].strip() or "이 감정을 어떤 상황에서 쓰는지 설명하세요."
+            guide_lines.append(f"- {item['name']}: {guide}")
+
+        parts = [rules_section]
+        cleaned_body = (body_text or "").strip()
+        if cleaned_body:
+            parts.append(cleaned_body)
+        parts.append("\n".join(guide_lines))
+        return "\n\n".join(parts).strip()
+
+    def _normalize_emotion_name(self, text: str) -> str:
+        normalized = re.sub(r"[^a-z0-9_]", "_", str(text or "").strip().lower())
+        return re.sub(r"_+", "_", normalized).strip("_")
+
+    def _refresh_emotion_list(self):
+        self.emotion_list.clear()
+        for item in self._emotion_items:
+            label = item["name"]
+            if item["guide"].strip():
+                label = f"{label}  |  {item['guide'].strip()[:28]}"
+            self.emotion_list.addItem(label)
+
+    def _sync_emotion_combo_options(self):
+        if not hasattr(self, "head_pat_active_emotion_combo"):
+            return
+
+        current_text = self.head_pat_active_emotion_combo.currentText()
+        options = [item["name"] for item in self._emotion_items if item["name"].strip()]
+        if "eyeclose" not in options:
+            options.append("eyeclose")
+
+        self.head_pat_active_emotion_combo.blockSignals(True)
+        self.head_pat_active_emotion_combo.clear()
+        self.head_pat_active_emotion_combo.addItems(options)
+        if current_text in options:
+            self.head_pat_active_emotion_combo.setCurrentText(current_text)
+        self.head_pat_active_emotion_combo.blockSignals(False)
+
+    def _new_emotion_item(self):
+        self._emotion_current_index = -1
+        self.emotion_list.clearSelection()
+        self.emotion_name_input.clear()
+        self.emotion_guide_editor.clear()
+        self.emotion_name_input.setFocus()
+
+    def _on_emotion_selected(self, row: int):
+        self._emotion_current_index = row
+        if 0 <= row < len(self._emotion_items):
+            item = self._emotion_items[row]
+            self.emotion_name_input.setText(item["name"])
+            self.emotion_guide_editor.setPlainText(item["guide"])
+            return
+        self.emotion_name_input.clear()
+        self.emotion_guide_editor.clear()
+
+    def _apply_emotion_item(self):
+        name = self._normalize_emotion_name(self.emotion_name_input.text())
+        guide = self.emotion_guide_editor.toPlainText().strip()
+        if not name:
+            QMessageBox.warning(self, "감정 저장 실패", "감정 키를 입력하세요.")
+            return
+
+        duplicate_index = next((idx for idx, item in enumerate(self._emotion_items) if item["name"] == name), -1)
+        if duplicate_index != -1 and duplicate_index != self._emotion_current_index:
+            QMessageBox.warning(self, "감정 저장 실패", f"'{name}' 감정은 이미 존재합니다.")
+            return
+
+        payload = {"name": name, "guide": guide}
+        if 0 <= self._emotion_current_index < len(self._emotion_items):
+            self._emotion_items[self._emotion_current_index] = payload
+            target_index = self._emotion_current_index
+        else:
+            self._emotion_items.append(payload)
+            target_index = len(self._emotion_items) - 1
+
+        self._refresh_emotion_list()
+        self._sync_emotion_combo_options()
+        self.emotion_list.setCurrentRow(target_index)
+
+    def _delete_emotion_item(self):
+        row = self.emotion_list.currentRow()
+        if row < 0:
+            return
+        del self._emotion_items[row]
+        self._refresh_emotion_list()
+        self._sync_emotion_combo_options()
+        self._new_emotion_item()
+
+    def _load_prompt_configuration(self):
+        try:
+            prompt_source = self._read_text_file(self._prompt_path)
+            sub_prompt_source = self._read_text_file(self._sub_prompt_path)
+
+            base_prompt = self._extract_assignment_literal(prompt_source, "BASE_SYSTEM_PROMPT")
+            emotions = list(self._extract_assignment_literal(prompt_source, "EMOTIONS"))
+            sub_prompt_text = self._extract_assignment_literal(sub_prompt_source, "SUB_PROMPT")
+            sub_prompt_body, guides = self._split_sub_prompt_content(sub_prompt_text)
+
+            merged_items = [{"name": name, "guide": guides.get(name, "")} for name in emotions]
+            known_names = {item["name"] for item in merged_items}
+            for name, guide in guides.items():
+                if name not in known_names:
+                    merged_items.append({"name": name, "guide": guide})
+
+            self.base_prompt_editor.setPlainText(str(base_prompt).strip("\n"))
+            self.sub_prompt_editor.setPlainText(sub_prompt_body)
+            self._emotion_items = merged_items
+            self._refresh_emotion_list()
+            self._sync_emotion_combo_options()
+            self._new_emotion_item()
+
+            if self._prompt_status_label:
+                self._prompt_status_label.setText("prompt.py / sub_prompt.py 로드 완료")
+        except Exception as e:
+            if self._prompt_status_label:
+                self._prompt_status_label.setText(f"로드 실패: {e}")
+            QMessageBox.warning(self, "불러오기 실패", f"프롬프트 설정을 불러오지 못했습니다.\n{e}")
+
+    def _save_prompt_configuration(self):
+        try:
+            emotion_names = [item["name"] for item in self._emotion_items if item["name"].strip()]
+            if not emotion_names:
+                raise ValueError("감정은 하나 이상 있어야 합니다.")
+
+            prompt_source = self._read_text_file(self._prompt_path)
+            sub_prompt_source = self._read_text_file(self._sub_prompt_path)
+
+            prompt_source = self._replace_assignment_value(
+                prompt_source,
+                "EMOTIONS",
+                self._format_emotions_list(emotion_names),
+            )
+            prompt_source = self._replace_assignment_value(
+                prompt_source,
+                "BASE_SYSTEM_PROMPT",
+                self._format_triple_quoted_string(self.base_prompt_editor.toPlainText()),
+            )
+
+            rebuilt_sub_prompt = self._build_sub_prompt_text(
+                self.sub_prompt_editor.toPlainText(),
+                self._emotion_items,
+            )
+            sub_prompt_source = self._replace_assignment_value(
+                sub_prompt_source,
+                "SUB_PROMPT",
+                self._format_triple_quoted_string(rebuilt_sub_prompt),
+            )
+
+            compile(prompt_source, str(self._prompt_path), "exec")
+            compile(sub_prompt_source, str(self._sub_prompt_path), "exec")
+
+            self._write_text_file(self._prompt_path, prompt_source)
+            self._write_text_file(self._sub_prompt_path, sub_prompt_source)
+            importlib.reload(importlib.import_module("src.ai.sub_prompt"))
+            importlib.reload(importlib.import_module("src.ai.prompt"))
+            self._sync_emotion_combo_options()
+
+            if self._prompt_status_label:
+                self._prompt_status_label.setText("prompt.py / sub_prompt.py 저장 완료")
+            QMessageBox.information(self, "저장 완료", "프롬프트 설정을 저장했습니다.")
+        except Exception as e:
+            if self._prompt_status_label:
+                self._prompt_status_label.setText(f"저장 실패: {e}")
+            QMessageBox.warning(self, "저장 실패", f"프롬프트 설정을 저장하지 못했습니다.\n{e}")
+
+    def _refresh_basic_info_list(self):
+        self.basic_info_list.clear()
+        for key, value in self._basic_info_items:
+            self.basic_info_list.addItem(f"{key}: {value}")
+
+    def _configure_preference_list(self, list_widget: QListWidget):
+        list_widget.setViewMode(QListView.ViewMode.IconMode)
+        list_widget.setFlow(QListView.Flow.LeftToRight)
+        list_widget.setWrapping(True)
+        list_widget.setResizeMode(QListView.ResizeMode.Adjust)
+        list_widget.setMovement(QListView.Movement.Static)
+        list_widget.setWordWrap(False)
+        list_widget.setSpacing(8)
+        list_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+    def _new_basic_info_item(self):
+        self._basic_info_current_index = -1
+        self.basic_info_list.clearSelection()
+        self.basic_info_key_input.clear()
+        self.basic_info_value_input.clear()
+        self.basic_info_key_input.setFocus()
+
+    def _on_basic_info_selected(self, row: int):
+        self._basic_info_current_index = row
+        if 0 <= row < len(self._basic_info_items):
+            key, value = self._basic_info_items[row]
+            self.basic_info_key_input.setText(key)
+            self.basic_info_value_input.setText(value)
+            return
+        self.basic_info_key_input.clear()
+        self.basic_info_value_input.clear()
+
+    def _apply_basic_info_item(self):
+        key = self.basic_info_key_input.text().strip()
+        value = self.basic_info_value_input.text().strip()
+        if not key:
+            QMessageBox.warning(self, "기본 정보 저장 실패", "항목 이름을 입력하세요.")
+            return
+
+        duplicate_index = next((idx for idx, item in enumerate(self._basic_info_items) if item[0] == key), -1)
+        if duplicate_index != -1 and duplicate_index != self._basic_info_current_index:
+            QMessageBox.warning(self, "기본 정보 저장 실패", f"'{key}' 항목은 이미 존재합니다.")
+            return
+
+        payload = (key, value)
+        if 0 <= self._basic_info_current_index < len(self._basic_info_items):
+            self._basic_info_items[self._basic_info_current_index] = payload
+            target_index = self._basic_info_current_index
+        else:
+            self._basic_info_items.append(payload)
+            target_index = len(self._basic_info_items) - 1
+
+        self._refresh_basic_info_list()
+        self.basic_info_list.setCurrentRow(target_index)
+
+    def _delete_basic_info_item(self):
+        row = self.basic_info_list.currentRow()
+        if row < 0:
+            return
+        del self._basic_info_items[row]
+        self._refresh_basic_info_list()
+        self._new_basic_info_item()
+
+    def _refresh_preference_lists(self, preferences: dict):
+        self.likes_list.clear()
+        self.likes_list.addItems(preferences.get("likes", []))
+        self.dislikes_list.clear()
+        self.dislikes_list.addItems(preferences.get("dislikes", []))
+
+    def _add_preference_item(self, kind: str):
+        input_widget = self.likes_input if kind == "likes" else self.dislikes_input
+        list_widget = self.likes_list if kind == "likes" else self.dislikes_list
+        text = input_widget.text().strip()
+        if not text:
+            return
+
+        values = [list_widget.item(index).text() for index in range(list_widget.count())]
+        if text in values:
+            QMessageBox.warning(self, "항목 추가 실패", "이미 같은 항목이 있습니다.")
+            return
+
+        list_widget.addItem(text)
+        input_widget.clear()
+        list_widget.setCurrentRow(list_widget.count() - 1)
+
+    def _delete_preference_item(self, kind: str):
+        list_widget = self.likes_list if kind == "likes" else self.dislikes_list
+        row = list_widget.currentRow()
+        if row >= 0:
+            list_widget.takeItem(row)
+
+    def _refresh_fact_list(self):
+        self.fact_list.clear()
+        for fact in self._fact_items:
+            preview = fact["content"].strip().replace("\n", " ")
+            if len(preview) > 36:
+                preview = preview[:36] + "..."
+            self.fact_list.addItem(f"[{fact['category']}] {preview}")
+
+    def _new_fact_item(self):
+        self._fact_current_index = -1
+        self.fact_list.clearSelection()
+        self.fact_content_edit.clear()
+        self.fact_category_combo.setCurrentText("basic")
+        self.fact_source_input.clear()
+        self.fact_timestamp_label.setText("신규 항목")
+        self.fact_content_edit.setFocus()
+
+    def _on_fact_selected(self, row: int):
+        self._fact_current_index = row
+        if 0 <= row < len(self._fact_items):
+            fact = self._fact_items[row]
+            self.fact_content_edit.setPlainText(fact["content"])
+            self.fact_category_combo.setCurrentText(fact["category"])
+            self.fact_source_input.setText(fact["source"])
+            self.fact_timestamp_label.setText(f"기록 시각: {fact['timestamp']}")
+            return
+        self.fact_content_edit.clear()
+        self.fact_source_input.clear()
+        self.fact_timestamp_label.setText("신규 항목")
+
+    def _apply_fact_item(self):
+        content = self.fact_content_edit.toPlainText().strip()
+        category = self.fact_category_combo.currentText().strip()
+        source = self.fact_source_input.text().strip()
+        if not content:
+            QMessageBox.warning(self, "facts 저장 실패", "기억 내용을 입력하세요.")
+            return
+
+        payload = {
+            "content": content,
+            "category": category,
+            "source": source,
+            "timestamp": datetime.now().isoformat(),
+        }
+
+        if 0 <= self._fact_current_index < len(self._fact_items):
+            payload["timestamp"] = self._fact_items[self._fact_current_index].get("timestamp") or payload["timestamp"]
+            self._fact_items[self._fact_current_index] = payload
+            target_index = self._fact_current_index
+        else:
+            self._fact_items.append(payload)
+            target_index = len(self._fact_items) - 1
+
+        self._refresh_fact_list()
+        self.fact_list.setCurrentRow(target_index)
+
+    def _delete_fact_item(self):
+        row = self.fact_list.currentRow()
+        if row < 0:
+            return
+        del self._fact_items[row]
+        self._refresh_fact_list()
+        self._new_fact_item()
+
+    def _load_user_profile_data(self):
+        try:
+            if self._user_profile_path.exists():
+                raw = json.loads(self._read_text_file(self._user_profile_path))
+            else:
+                raw = {}
+
+            self._basic_info_items = list((raw.get("basic_info") or {}).items())
+            preferences = raw.get("preferences") or {}
+            self._fact_items = [
+                {
+                    "content": str(item.get("content", "")).strip(),
+                    "category": str(item.get("category", "basic")).strip() or "basic",
+                    "timestamp": str(item.get("timestamp", "")).strip(),
+                    "source": str(item.get("source", "")).strip(),
+                }
+                for item in raw.get("facts", [])
+            ]
+
+            self._refresh_basic_info_list()
+            self._refresh_preference_lists(
+                {
+                    "likes": list(preferences.get("likes", [])),
+                    "dislikes": list(preferences.get("dislikes", [])),
+                }
+            )
+            self._refresh_fact_list()
+            self._new_basic_info_item()
+            self._new_fact_item()
+
+            if self._profile_status_label:
+                self._profile_status_label.setText("user_profile.json 로드 완료")
+        except Exception as e:
+            if self._profile_status_label:
+                self._profile_status_label.setText(f"로드 실패: {e}")
+            QMessageBox.warning(self, "불러오기 실패", f"user_profile.json을 불러오지 못했습니다.\n{e}")
+
+    def _save_user_profile_data(self):
+        try:
+            likes = [
+                self.likes_list.item(index).text().strip()
+                for index in range(self.likes_list.count())
+                if self.likes_list.item(index).text().strip()
+            ]
+            dislikes = [
+                self.dislikes_list.item(index).text().strip()
+                for index in range(self.dislikes_list.count())
+                if self.dislikes_list.item(index).text().strip()
+            ]
+
+            profile_data = {
+                "facts": self._fact_items,
+                "basic_info": {key: value for key, value in self._basic_info_items if key},
+                "preferences": {
+                    "likes": likes,
+                    "dislikes": dislikes,
+                },
+                "last_updated": datetime.now().isoformat(),
+            }
+
+            serialized = json.dumps(profile_data, ensure_ascii=False, indent=2) + "\n"
+            self._write_text_file(self._user_profile_path, serialized)
+
+            user_profile = getattr(self._bridge, "user_profile", None) if self._bridge else None
+            if user_profile:
+                user_profile.load()
+
+            if self._profile_status_label:
+                self._profile_status_label.setText("user_profile.json 저장 완료")
+            QMessageBox.information(self, "저장 완료", "사용자 기억 정보를 저장했습니다.")
+        except Exception as e:
+            if self._profile_status_label:
+                self._profile_status_label.setText(f"저장 실패: {e}")
+            QMessageBox.warning(self, "저장 실패", f"user_profile.json을 저장하지 못했습니다.\n{e}")
     def _qt_key_to_hotkey_token(self, event) -> str:
         key = event.key()
         special_map = {
@@ -866,6 +3170,24 @@ class SettingsDialog(QDialog):
             self.window_y_spin.setValue(self._original_settings.get("window_y", 100))
             self.window_width_spin.setValue(self._original_settings.get("window_width", 400))
             self.window_height_spin.setValue(self._original_settings.get("window_height", 600))
+            for key, default_value in self._theme_defaults.items():
+                if key in self._theme_color_edits:
+                    self._theme_values[key] = self._normalize_theme_color(
+                        str(self._original_settings.get(key, default_value)),
+                        fallback=default_value,
+                    )
+                    self._theme_color_edits[key].setText(self._theme_values[key])
+            self._theme_mode = str(self._original_settings.get("theme_mode", self._theme_mode)).strip().lower()
+            if self._theme_mode not in THEME_PRESETS:
+                self._theme_mode = "light"
+            self._follow_system_theme = bool(self._original_settings.get("follow_system_theme", False))
+            if self._follow_system_theme:
+                self._theme_mode = get_windows_theme_mode()
+                self._apply_theme_mode(self._theme_mode, emit_preview=False)
+            if hasattr(self, "follow_system_theme_check"):
+                self.follow_system_theme_check.setChecked(self._follow_system_theme)
+            self._set_theme_editors_enabled(not self._follow_system_theme)
+            self._refresh_theme_editor_state()
 
             self.show_drag_bar_check.setChecked(self._original_settings.get("show_drag_bar", True))
             self.show_recent_reroll_button_check.setChecked(
@@ -945,6 +3267,11 @@ class SettingsDialog(QDialog):
             self.model_scale_spin.setValue(self._original_settings.get("model_scale", 1.0))
             self.model_x_slider.setValue(int(self._original_settings.get("model_x_percent", 50)))
             self.model_y_slider.setValue(int(self._original_settings.get("model_y_percent", 50)))
+            self.model_json_path_edit.setText(
+                self._normalize_path_for_storage(
+                    str(self._original_settings.get("model_json_path", "assets/live2d_models/jksalt/jksalt.model3.json"))
+                )
+            )
 
             llm_provider = str(self._original_settings.get("llm_provider", "gemini")).strip().lower()
             loaded_keys = self._original_settings.get("llm_api_keys", {})
@@ -1059,6 +3386,9 @@ class SettingsDialog(QDialog):
             "window_y": self.window_y_spin.value(),
             "window_width": self.window_width_spin.value(),
             "window_height": self.window_height_spin.value(),
+            **dict(self._theme_values),
+            "theme_mode": self._theme_mode,
+            "follow_system_theme": self._follow_system_theme,
             "show_drag_bar": self.show_drag_bar_check.isChecked(),
             "show_recent_reroll_button": self.show_recent_reroll_button_check.isChecked(),
             "show_recent_edit_button": self.show_recent_edit_button_check.isChecked(),
@@ -1093,6 +3423,7 @@ class SettingsDialog(QDialog):
             "model_scale": self.model_scale_spin.value(),
             "model_x_percent": self.model_x_slider.value(),
             "model_y_percent": self.model_y_slider.value(),
+            "model_json_path": self._normalize_path_for_storage(self.model_json_path_edit.text()),
             "llm_provider": str(self.llm_provider_combo.currentData() or "gemini"),
             "llm_model": self.llm_model_edit.text().strip() or "gemini-3-flash-preview",
             "llm_models": dict(self._llm_models),
@@ -1108,6 +3439,18 @@ class SettingsDialog(QDialog):
         self.settings_preview.emit(self._get_current_values())
 
     def _save_settings(self):
+        invalid_key = next(
+            (key for key, edit in self._theme_color_edits.items() if edit.text().strip() and not self._is_valid_theme_color(edit.text().strip())),
+            None,
+        )
+        if invalid_key is not None:
+            QMessageBox.warning(
+                self,
+                "테마 색상 확인",
+                "모든 테마 값은 `#RRGGBB` 형식의 6자리 HEX 코드만 사용할 수 있습니다.",
+            )
+            self._theme_color_edits[invalid_key].setFocus()
+            return
         self._saved = True
         self.settings_changed.emit(self._get_current_values())
         self.close()
@@ -1118,29 +3461,117 @@ class SettingsDialog(QDialog):
         self.close()
 
     def closeEvent(self, event):
+        if sys.platform == "win32" and self._window_icon_handles:
+            try:
+                user32 = ctypes.windll.user32
+                for handle in self._window_icon_handles:
+                    user32.DestroyIcon(handle)
+            except Exception:
+                pass
+            self._window_icon_handles.clear()
         self._stop_ptt_hotkey_capture()
         if not hasattr(self, "_saved"):
             self.settings_cancelled.emit()
         event.accept()
+
+    def _hit_test_resize_edge(self, pos: QPoint) -> str:
+        margin = self._resize_margin
+        left = pos.x() <= margin
+        right = pos.x() >= self.width() - margin
+        top = pos.y() <= margin
+        bottom = pos.y() >= self.height() - margin
+
+        if top and left:
+            return "top_left"
+        if top and right:
+            return "top_right"
+        if bottom and left:
+            return "bottom_left"
+        if bottom and right:
+            return "bottom_right"
+        if left:
+            return "left"
+        if right:
+            return "right"
+        if top:
+            return "top"
+        if bottom:
+            return "bottom"
+        return ""
+
+    def _update_resize_cursor(self, pos: QPoint) -> None:
+        edge = self._hit_test_resize_edge(pos)
+        cursor_map = {
+            "left": Qt.CursorShape.SizeHorCursor,
+            "right": Qt.CursorShape.SizeHorCursor,
+            "top": Qt.CursorShape.SizeVerCursor,
+            "bottom": Qt.CursorShape.SizeVerCursor,
+            "top_left": Qt.CursorShape.SizeFDiagCursor,
+            "bottom_right": Qt.CursorShape.SizeFDiagCursor,
+            "top_right": Qt.CursorShape.SizeBDiagCursor,
+            "bottom_left": Qt.CursorShape.SizeBDiagCursor,
+        }
+        self.setCursor(cursor_map.get(edge, Qt.CursorShape.ArrowCursor))
+
+    def _apply_resize(self, global_pos: QPoint) -> None:
+        delta = global_pos - self._resize_start_global
+        geometry = self._resize_start_geometry
+        x = geometry.x()
+        y = geometry.y()
+        width = geometry.width()
+        height = geometry.height()
+
+        minimum_width = self.minimumWidth()
+        minimum_height = self.minimumHeight()
+
+        if "right" in self._resize_edge:
+            width = max(minimum_width, width + delta.x())
+        if "bottom" in self._resize_edge:
+            height = max(minimum_height, height + delta.y())
+        if "left" in self._resize_edge:
+            new_width = max(minimum_width, width - delta.x())
+            x += width - new_width
+            width = new_width
+        if "top" in self._resize_edge:
+            new_height = max(minimum_height, height - delta.y())
+            y += height - new_height
+            height = new_height
+
+        self.setGeometry(x, y, width, height)
 
     def mousePressEvent(self, event):
         if self._capturing_ptt_hotkey:
             event.accept()
             return
         if event.button() == Qt.MouseButton.LeftButton:
-            # 타이틀바(높이 40) 영역 내에서만 드래그 허용
-            if event.pos().y() < 40:
-                self._is_dragging = True
-                self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            edge = self._hit_test_resize_edge(event.position().toPoint())
+            if edge:
+                self._resize_active = True
+                self._resize_edge = edge
+                self._resize_start_global = event.globalPosition().toPoint()
+                self._resize_start_geometry = self.geometry()
+                event.accept()
+                return
+
+            if event.pos().y() < 80:
+                self._drag_active = True
+                self._drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
                 event.accept()
 
     def mouseMoveEvent(self, event):
         if self._capturing_ptt_hotkey:
             event.accept()
             return
-        if hasattr(self, '_is_dragging') and self._is_dragging:
-            self.move(event.globalPosition().toPoint() - self._drag_pos)
+        if self._resize_active:
+            self._apply_resize(event.globalPosition().toPoint())
             event.accept()
+            return
+        if self._drag_active:
+            self.move(event.globalPosition().toPoint() - self._drag_offset)
+            event.accept()
+            return
+
+        self._update_resize_cursor(event.position().toPoint())
 
     def keyPressEvent(self, event):
         if self._capturing_ptt_hotkey:
@@ -1162,8 +3593,11 @@ class SettingsDialog(QDialog):
         if self._capturing_ptt_hotkey:
             event.accept()
             return
-        if hasattr(self, '_is_dragging') and self._is_dragging:
-            self._is_dragging = False
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_active = False
+            self._resize_active = False
+            self._resize_edge = ""
+            self._update_resize_cursor(event.position().toPoint())
             event.accept()
 
     def keyReleaseEvent(self, event):

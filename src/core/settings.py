@@ -32,6 +32,17 @@ class Settings:
         "model_scale": 1.0,
         "model_x_percent": 50,  # 0-100%
         "model_y_percent": 50,  # 0-100%
+        "model_json_path": "assets/live2d_models/jksalt/jksalt.model3.json",
+        "theme_accent_color": "#0071E3",
+        "settings_window_bg_color": "#EEF1F5",
+        "settings_card_bg_color": "#FFFFFF",
+        "settings_input_bg_color": "#F8FAFC",
+        "chat_panel_bg_color": "#111214",
+        "chat_input_bg_color": "#1B1D22",
+        "chat_assistant_bubble_color": "#FFFFFF",
+        "chat_user_bubble_color": "#0071E3",
+        "theme_mode": "light",
+        "follow_system_theme": False,
         "mouse_tracking_enabled": True,
         "enable_idle_motion": True,
         "idle_motion_strength": 1.0,  # 0.2 ~ 2.0
