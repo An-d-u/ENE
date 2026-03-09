@@ -3,6 +3,7 @@ Transparent overlay window for Live2D.
 """
 import json
 from pathlib import Path
+import re
 import sys
 
 from PyQt6.QtCore import Qt, QUrl
@@ -21,6 +22,7 @@ class OverlayWindow(QWidget):
         super().__init__()
         self.settings = settings_manager
         self._page_loaded = False
+        self._shutting_down = False
         self._last_sent_mouse_pos = None
         self._mouse_send_min_delta = 2
 
@@ -74,6 +76,8 @@ class OverlayWindow(QWidget):
         self.drag_bar.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
 
     def _on_page_loaded(self, ok):
+        if self._shutting_down:
+            return
         if not ok:
             print("WARNING: Web page load failed")
             return
@@ -86,6 +90,7 @@ class OverlayWindow(QWidget):
             """
         )
         self._apply_model_settings()
+        self._sync_theme_to_js()
         self._sync_mouse_tracking_state_to_js()
         self._sync_idle_motion_settings_to_js()
         self._sync_reroll_button_visibility_to_js()
@@ -95,17 +100,116 @@ class OverlayWindow(QWidget):
         self._sync_mood_toggle_button_visibility_to_js()
         print("Web page loaded")
 
+    def _get_base_path(self) -> Path:
+        if getattr(sys, "frozen", False):
+            return Path(sys._MEIPASS)
+        return Path(__file__).parent.parent.parent
+
+    def _resolve_model_path_payload(self, settings_source=None) -> dict:
+        source = settings_source if isinstance(settings_source, dict) else self.settings.config
+        raw_model_path = str(
+            source.get("model_json_path", "assets/live2d_models/jksalt/jksalt.model3.json")
+        ).strip() or "assets/live2d_models/jksalt/jksalt.model3.json"
+
+        model_path = Path(raw_model_path)
+        if not model_path.is_absolute():
+            model_path = self._get_base_path() / model_path
+        model_path = model_path.resolve()
+
+        return {
+            "modelPath": model_path.as_uri(),
+            "emotionsBasePath": model_path.parent.joinpath("emotions").resolve().as_uri().rstrip("/") + "/",
+        }
+
+    def _normalize_theme_hex(self, raw_value: str, fallback: str) -> str:
+        match = re.fullmatch(r"#?([0-9A-Fa-f]{6})", str(raw_value or "").strip())
+        if not match:
+            return fallback
+        return f"#{match.group(1).upper()}"
+
+    def _hex_to_rgb(self, hex_color: str) -> tuple[int, int, int]:
+        normalized = self._normalize_theme_hex(hex_color, "#000000")
+        return (
+            int(normalized[1:3], 16),
+            int(normalized[3:5], 16),
+            int(normalized[5:7], 16),
+        )
+
+    def _hex_to_rgba_css(self, hex_color: str, alpha: float) -> str:
+        r, g, b = self._hex_to_rgb(hex_color)
+        safe_alpha = max(0.0, min(1.0, alpha))
+        return f"rgba({r}, {g}, {b}, {safe_alpha:.2f})"
+
+    def _theme_text_color(self, hex_color: str) -> str:
+        r, g, b = self._hex_to_rgb(hex_color)
+        luminance = (0.299 * r) + (0.587 * g) + (0.114 * b)
+        return "#111214" if luminance >= 160 else "#F7F9FC"
+
+    def _resolve_theme_payload(self, settings_source=None) -> dict:
+        source = settings_source if isinstance(settings_source, dict) else self.settings.config
+        defaults = {
+            "accentColor": "#0071E3",
+            "settingsWindowBgColor": "#EEF1F5",
+            "settingsCardBgColor": "#FFFFFF",
+            "settingsInputBgColor": "#F8FAFC",
+            "chatPanelBgColor": "#111214",
+            "chatInputBgColor": "#1B1D22",
+            "chatAssistantBubbleColor": "#FFFFFF",
+            "chatUserBubbleColor": "#0071E3",
+        }
+        key_map = {
+            "accentColor": "theme_accent_color",
+            "settingsWindowBgColor": "settings_window_bg_color",
+            "settingsCardBgColor": "settings_card_bg_color",
+            "settingsInputBgColor": "settings_input_bg_color",
+            "chatPanelBgColor": "chat_panel_bg_color",
+            "chatInputBgColor": "chat_input_bg_color",
+            "chatAssistantBubbleColor": "chat_assistant_bubble_color",
+            "chatUserBubbleColor": "chat_user_bubble_color",
+        }
+        return {
+            payload_key: self._normalize_theme_hex(source.get(settings_key, fallback), fallback)
+            for payload_key, settings_key in key_map.items()
+            for fallback in [defaults[payload_key]]
+        }
+
+    def _sync_theme_to_js(self, settings_override: dict | None = None) -> None:
+        if not self._page_loaded:
+            return
+
+        theme_payload = self._resolve_theme_payload(settings_override)
+        js_code = f"""
+        (function() {{
+            window.eneThemeConfig = {json.dumps(theme_payload)};
+            if (typeof window.applyENETheme === 'function') {{
+                window.applyENETheme(window.eneThemeConfig);
+            }}
+        }})();
+        """
+        self.web_view.page().runJavaScript(js_code)
+
+    def _apply_drag_bar_theme(self, settings_override: dict | None = None) -> None:
+        theme_payload = self._resolve_theme_payload(settings_override)
+        base_color = theme_payload["chatPanelBgColor"]
+        text_color = self._theme_text_color(base_color)
+        border_color = self._hex_to_rgba_css(text_color, 0.12)
+        background = self._hex_to_rgba_css(base_color, 0.64)
+        self.drag_bar.apply_theme(background, text_color, border_color)
+
     def _apply_model_settings(self):
         scale = self.settings.get("model_scale", 1.0)
         x_percent = self.settings.get("model_x_percent", 50)
         y_percent = self.settings.get("model_y_percent", 50)
+        path_payload = self._resolve_model_path_payload()
 
         js_code = f"""
         (function() {{
             window.eneModelConfig = {{
                 scale: {scale},
                 xPercent: {x_percent},
-                yPercent: {y_percent}
+                yPercent: {y_percent},
+                modelPath: {json.dumps(path_payload["modelPath"])},
+                emotionsBasePath: {json.dumps(path_payload["emotionsBasePath"])}
             }};
 
             function applyModelSettings() {{
@@ -130,10 +234,7 @@ class OverlayWindow(QWidget):
         self.web_view.page().runJavaScript(js_code)
 
     def _get_html_path(self) -> Path:
-        if getattr(sys, "frozen", False):
-            base_path = Path(sys._MEIPASS)
-        else:
-            base_path = Path(__file__).parent.parent.parent
+        base_path = self._get_base_path()
         return base_path / "assets" / "web" / "index.html"
 
     def _apply_settings(self):
@@ -141,6 +242,7 @@ class OverlayWindow(QWidget):
         self.resize(self.settings.get("window_width", 400), self.settings.get("window_height", 600))
         self.web_view.setZoomFactor(self.settings.get("zoom_level", 1.0))
         self.drag_bar.setVisible(self.settings.get("show_drag_bar", True))
+        self._apply_drag_bar_theme()
 
     def apply_new_settings(self, new_settings: dict):
         old_tracking = self.settings.get("mouse_tracking_enabled", True)
@@ -149,6 +251,8 @@ class OverlayWindow(QWidget):
         self.settings.update(new_settings)
         self._apply_settings()
         self._apply_model_settings()
+        self._sync_theme_to_js()
+        self._apply_drag_bar_theme()
 
         if old_tracking != new_tracking:
             self._set_mouse_tracking_enabled(new_tracking)
@@ -171,16 +275,20 @@ class OverlayWindow(QWidget):
             new_settings.get("window_height", self.settings.get("window_height", 600)),
         )
         self.drag_bar.setVisible(new_settings.get("show_drag_bar", self.settings.get("show_drag_bar", True)))
+        self._apply_drag_bar_theme(new_settings)
 
         scale = new_settings.get("model_scale", self.settings.get("model_scale", 1.0))
         x_percent = new_settings.get("model_x_percent", self.settings.get("model_x_percent", 50))
         y_percent = new_settings.get("model_y_percent", self.settings.get("model_y_percent", 50))
+        path_payload = self._resolve_model_path_payload(new_settings)
         js_code = f"""
         (function() {{
             window.eneModelConfig = {{
                 scale: {scale},
                 xPercent: {x_percent},
-                yPercent: {y_percent}
+                yPercent: {y_percent},
+                modelPath: {json.dumps(path_payload["modelPath"])},
+                emotionsBasePath: {json.dumps(path_payload["emotionsBasePath"])}
             }};
             if (typeof window.applyENEModelSettings === 'function') {{
                 window.applyENEModelSettings(window.eneModelConfig);
@@ -190,6 +298,7 @@ class OverlayWindow(QWidget):
         self.web_view.page().runJavaScript(js_code)
 
         if self._page_loaded:
+            self._sync_theme_to_js(new_settings)
             self._sync_idle_motion_settings_to_js(new_settings)
             self._sync_reroll_button_visibility_to_js(new_settings)
             self._sync_edit_button_visibility_to_js(new_settings)
@@ -200,6 +309,8 @@ class OverlayWindow(QWidget):
     def restore_settings(self):
         self._apply_settings()
         self._apply_model_settings()
+        self._sync_theme_to_js()
+        self._apply_drag_bar_theme()
         self._sync_idle_motion_settings_to_js()
         self._sync_reroll_button_visibility_to_js()
         self._sync_edit_button_visibility_to_js()
@@ -219,12 +330,46 @@ class OverlayWindow(QWidget):
         self.drag_bar.resize(self.width(), 30)
 
     def closeEvent(self, event):
+        self.shutdown()
         self.settings.set("window_x", self.x())
         self.settings.set("window_y", self.y())
         self.settings.set("window_width", self.width())
         self.settings.set("window_height", self.height())
         self.settings.save()
         event.accept()
+
+    def shutdown(self):
+        """QWebEngine 관련 자원을 종료 전에 먼저 정리한다."""
+        if self._shutting_down:
+            return
+
+        self._shutting_down = True
+        self._page_loaded = False
+        self._last_sent_mouse_pos = None
+
+        if hasattr(self, "mouse_tracking_timer") and self.mouse_tracking_timer.isActive():
+            self.mouse_tracking_timer.stop()
+
+        try:
+            self.web_view.loadFinished.disconnect(self._on_page_loaded)
+        except Exception:
+            pass
+
+        try:
+            page = self.web_view.page()
+            page.setWebChannel(None)
+        except Exception:
+            pass
+
+        try:
+            self.web_view.stop()
+        except Exception:
+            pass
+
+        try:
+            self.web_view.setHtml("", QUrl("about:blank"))
+        except Exception:
+            pass
 
     def _setup_mouse_tracking(self):
         from PyQt6.QtCore import QTimer
