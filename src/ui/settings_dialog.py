@@ -3,15 +3,17 @@ Settings dialog for ENE.
 Provides live preview without immediate persistence.
 """
 import ast
-import ctypes
 import importlib
 import json
 import re
-import sys
 from datetime import datetime
 from pathlib import Path
 
-from PyQt6.QtCore import QPoint, QRect, Qt, QTimer, pyqtSignal
+try:
+    import tiktoken
+except ImportError:
+    tiktoken = None
+from PyQt6.QtCore import QPoint, QRect, QSize, Qt, QEasingCurve, QTimer, QVariantAnimation, pyqtSignal
 from PyQt6.QtGui import QColor, QIcon, QImage, QLinearGradient, QPainter, QPen
 from PyQt6.QtWidgets import (
     QApplication,
@@ -66,6 +68,141 @@ class ClickableFrame(QFrame):
             event.accept()
             return
         super().mousePressEvent(event)
+
+
+class ToggleSwitch(QCheckBox):
+    def __init__(self, text: str = "", parent=None):
+        super().__init__(text, parent)
+        self._accent_color = QColor("#0071E3")
+        self._track_off_color = QColor("#E5E7EB")
+        self._track_on_color = QColor("#0071E3")
+        self._thumb_color = QColor("#FFFFFF")
+        self._text_color = QColor("#111827")
+        self._muted_border_color = QColor(17, 24, 39, 36)
+        self._thumb_progress = 1.0 if self.isChecked() else 0.0
+        self._thumb_animation = QVariantAnimation(self)
+        self._thumb_animation.setDuration(130)
+        self._thumb_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._thumb_animation.valueChanged.connect(self._on_thumb_progress_changed)
+        self.toggled.connect(self._animate_thumb)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setMinimumHeight(30)
+
+    def set_theme_colors(
+        self,
+        *,
+        accent: str,
+        track_off: str,
+        text_color: str,
+        muted_border: str,
+    ) -> None:
+        self._accent_color = QColor(accent)
+        self._track_on_color = QColor(accent)
+        self._track_off_color = QColor(track_off)
+        self._thumb_color = QColor("#FFFFFF")
+        self._text_color = QColor(text_color)
+        self._muted_border_color = QColor(muted_border)
+        self.update()
+
+    def sizeHint(self) -> QSize:
+        metrics = self.fontMetrics()
+        text_width = metrics.horizontalAdvance(self.text())
+        return QSize(text_width + 76, max(30, metrics.height() + 10))
+
+    def minimumSizeHint(self) -> QSize:
+        return self.sizeHint()
+
+    def hitButton(self, pos: QPoint) -> bool:
+        return self.rect().contains(pos)
+
+    def _on_thumb_progress_changed(self, value) -> None:
+        self._thumb_progress = float(value)
+        self.update()
+
+    def _animate_thumb(self, checked: bool) -> None:
+        target = 1.0 if checked else 0.0
+        if not self.isVisible() or self.window() is None or not self.window().isVisible():
+            self._thumb_animation.stop()
+            self._thumb_progress = target
+            self.update()
+            return
+
+        self._thumb_animation.stop()
+        self._thumb_animation.setStartValue(self._thumb_progress)
+        self._thumb_animation.setEndValue(target)
+        self._thumb_animation.start()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        rect = self.rect()
+        switch_width = 38
+        switch_height = 22
+        margin_right = 1
+        switch_rect = QRect(
+            rect.right() - switch_width - margin_right,
+            rect.center().y() - (switch_height // 2),
+            switch_width,
+            switch_height,
+        )
+        text_rect = QRect(rect.left(), rect.top(), max(0, switch_rect.left() - 10), rect.height())
+
+        text_color = QColor(self._text_color)
+        if not self.isEnabled():
+            text_color.setAlpha(120)
+        painter.setPen(text_color)
+        painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, self.text())
+
+        if self.isChecked():
+            track_color = QColor(self._track_on_color)
+            track_border = QColor(self._track_on_color)
+            track_border.setAlpha(40)
+        else:
+            track_color = QColor(self._track_off_color)
+            track_border = QColor(self._muted_border_color)
+            track_border.setAlpha(26)
+        if not self.isEnabled():
+            track_color.setAlpha(110)
+            track_border.setAlpha(18)
+
+        painter.setPen(QPen(track_border, 1))
+        painter.setBrush(track_color)
+        painter.drawRoundedRect(switch_rect.adjusted(0, 0, -1, -1), switch_height / 2, switch_height / 2)
+
+        gloss_rect = switch_rect.adjusted(1, 1, -2, -(switch_height // 2))
+        gloss_color = QColor("#FFFFFF")
+        gloss_color.setAlpha(22 if self.isChecked() else 10)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(gloss_color)
+        painter.drawRoundedRect(gloss_rect, gloss_rect.height() / 2, gloss_rect.height() / 2)
+
+        thumb_size = 18
+        thumb_margin = 3
+        start_x = switch_rect.left() + thumb_margin
+        end_x = switch_rect.right() - thumb_size - thumb_margin
+        thumb_x = round(start_x + ((end_x - start_x) * self._thumb_progress))
+        thumb_rect = QRect(
+            thumb_x,
+            switch_rect.center().y() - (thumb_size // 2),
+            thumb_size,
+            thumb_size,
+        )
+        thumb_color = QColor(self._thumb_color)
+        if not self.isEnabled():
+            thumb_color.setAlpha(180)
+
+        shadow_rect = thumb_rect.adjusted(0, 1, 0, 1)
+        shadow_color = QColor(15, 23, 42, 28 if self.isChecked() else 18)
+        if not self.isEnabled():
+            shadow_color.setAlpha(10)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(shadow_color)
+        painter.drawEllipse(shadow_rect)
+
+        painter.setPen(QPen(QColor(15, 23, 42, 16), 1))
+        painter.setBrush(thumb_color)
+        painter.drawEllipse(thumb_rect)
 
 
 class ColorPlaneWidget(QWidget):
@@ -398,6 +535,8 @@ class SettingsDialog(QDialog):
         self._user_profile_path = self._project_root / "user_profile.json"
         self._prompt_status_label: QLabel | None = None
         self._profile_status_label: QLabel | None = None
+        self._base_prompt_token_label: QLabel | None = None
+        self._sub_prompt_token_label: QLabel | None = None
         self._emotion_items: list[dict[str, str]] = []
         self._emotion_current_index = -1
         self._basic_info_items: list[tuple[str, str]] = []
@@ -441,10 +580,17 @@ class SettingsDialog(QDialog):
         self._theme_live_update_timer.setSingleShot(True)
         self._theme_live_update_timer.setInterval(24)
         self._theme_live_update_timer.timeout.connect(self._flush_theme_live_update)
+        self._prompt_token_update_timer = QTimer(self)
+        self._prompt_token_update_timer.setSingleShot(True)
+        self._prompt_token_update_timer.setInterval(40)
+        self._prompt_token_update_timer.timeout.connect(self._refresh_prompt_token_counts)
+        self._toggle_checks: list[ToggleSwitch] = []
+        self._embedded_memory_panel = None
         self._lazy_tab_hosts: dict[str, QWidget] = {}
         self._lazy_tab_builders: dict[str, callable] = {}
         self._lazy_tab_loaded: set[str] = set()
         self._lazy_tab_index_to_id: dict[int, str] = {}
+        self._prompt_tokenizer = tiktoken.get_encoding("cl100k_base") if tiktoken is not None else None
         self._theme_values = {
             key: self._normalize_theme_color(
                 str(self._original_settings.get(key, default_value)),
@@ -465,15 +611,11 @@ class SettingsDialog(QDialog):
         )
 
         self.setWindowTitle("ENE 설정")
-        self._window_icon_handles: list[int] = []
         icon_path = self._project_root / "assets" / "icons" / "ene_app.ico"
         if not icon_path.exists():
             icon_path = self._project_root / "assets" / "icons" / "tray_icon.png"
         if icon_path.exists():
-            self._window_icon_path = icon_path
             self.setWindowIcon(QIcon(str(icon_path)))
-        else:
-            self._window_icon_path = None
         self.setMinimumSize(1020, 700)
         self.resize(1180, 780)
         self.setWindowFlags(
@@ -494,44 +636,6 @@ class SettingsDialog(QDialog):
 
         self._setup_ui()
         self._load_values()
-
-    def _apply_native_window_icon(self) -> None:
-        if not self._window_icon_path or self.windowHandle() is None:
-            return
-        if ctypes is None:
-            return
-        if str(self._window_icon_path).lower().endswith(".ico") is False:
-            return
-        if sys.platform != "win32":
-            return
-
-        try:
-            hwnd = int(self.winId())
-            user32 = ctypes.windll.user32
-            WM_SETICON = 0x0080
-            ICON_SMALL = 0
-            ICON_BIG = 1
-            IMAGE_ICON = 1
-            LR_LOADFROMFILE = 0x0010
-
-            for size, icon_kind in ((32, ICON_SMALL), (256, ICON_BIG)):
-                hicon = user32.LoadImageW(
-                    None,
-                    str(self._window_icon_path),
-                    IMAGE_ICON,
-                    size,
-                    size,
-                    LR_LOADFROMFILE,
-                )
-                if hicon:
-                    self._window_icon_handles.append(hicon)
-                    user32.SendMessageW(hwnd, WM_SETICON, icon_kind, hicon)
-        except Exception:
-            pass
-
-    def showEvent(self, event):
-        super().showEvent(event)
-        self._apply_native_window_icon()
 
     def _normalize_theme_color(self, value: str, fallback: str | None = None) -> str:
         match = re.fullmatch(r"#?([0-9A-Fa-f]{6})", str(value or "").strip())
@@ -1128,6 +1232,46 @@ class SettingsDialog(QDialog):
         if not self._loading:
             self._preview_settings()
 
+    def _count_prompt_tokens(self, text: str) -> int:
+        normalized = str(text or "")
+        if self._prompt_tokenizer is None:
+            # 선택 의존성이 없을 때도 앱 실행은 유지하고, 완만한 근사치만 제공한다.
+            return max(0, round(len(normalized.strip()) / 2.2))
+        try:
+            return len(self._prompt_tokenizer.encode(normalized, disallowed_special=()))
+        except Exception:
+            # 토크나이저 실패 시에는 완만한 문자 기반 근사치로 폴백한다.
+            return max(0, round(len(normalized.strip()) / 2.2))
+
+    def _format_token_count_text(self, title: str, text: str) -> str:
+        token_count = self._count_prompt_tokens(text)
+        char_count = len(str(text or ""))
+        return f"{title} 현재 토큰: {token_count:,}개 · 문자 수: {char_count:,}자"
+
+    def _schedule_prompt_token_refresh(self) -> None:
+        self._prompt_token_update_timer.start()
+
+    def _refresh_prompt_token_counts(self) -> None:
+        if self._base_prompt_token_label is not None and hasattr(self, "base_prompt_editor"):
+            self._base_prompt_token_label.setText(
+                self._format_token_count_text("BASE_SYSTEM_PROMPT", self.base_prompt_editor.toPlainText())
+            )
+        if self._sub_prompt_token_label is not None and hasattr(self, "sub_prompt_editor"):
+            self._sub_prompt_token_label.setText(
+                self._format_token_count_text("SUB_PROMPT", self.sub_prompt_editor.toPlainText())
+            )
+
+    def _create_toggle(self, text: str) -> ToggleSwitch:
+        toggle = ToggleSwitch(text)
+        self._toggle_checks.append(toggle)
+        toggle.set_theme_colors(
+            accent=self._theme_values["theme_accent_color"],
+            track_off=self._theme_values["settings_input_bg_color"],
+            text_color=self._theme_text_color(self._theme_values["settings_card_bg_color"]),
+            muted_border=self._theme_rgba(self._theme_text_color(self._theme_values["settings_card_bg_color"]), 0.12),
+        )
+        return toggle
+
     def _apply_stylesheet(self):
         accent = self._theme_values["theme_accent_color"]
         settings_window = self._theme_values["settings_window_bg_color"]
@@ -1165,6 +1309,7 @@ class SettingsDialog(QDialog):
         #ValueBadge { color: __PRIMARY_TEXT__; font-size: 13px; font-weight: 700; background: __SETTINGS_INPUT__; border: 1px solid __INPUT_BORDER__; border-radius: 12px; padding: 8px 12px; }
 
         QLabel, QCheckBox { color: __PRIMARY_TEXT__; font-size: 13px; }
+        QCheckBox { spacing: 0px; background: transparent; }
         QGroupBox { background: __SETTINGS_CARD__; border: 1px solid __CARD_BORDER__; border-radius: 22px; margin-top: 16px; padding-top: 22px; padding-left: 18px; padding-right: 18px; padding-bottom: 18px; font-weight: 700; color: __PRIMARY_TEXT__; }
         QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 16px; padding: 0 6px; color: __ACCENT_TITLE__; background: __SETTINGS_CARD__; }
         QTabWidget#MainTabs { background: transparent; }
@@ -1228,6 +1373,16 @@ class SettingsDialog(QDialog):
             .replace("__MUTED_TEXT_STRONG__", self._theme_rgba(muted_text, 0.55))
         )
         self.setStyleSheet(style)
+
+        for toggle in self._toggle_checks:
+            toggle.set_theme_colors(
+                accent=accent,
+                track_off=settings_input,
+                text_color=primary_text,
+                muted_border=self._theme_rgba(primary_text, 0.12),
+            )
+        if self._embedded_memory_panel is not None:
+            self._embedded_memory_panel.apply_theme(dict(self._theme_values))
 
     def _setup_ui(self):
         self._apply_stylesheet()
@@ -1493,7 +1648,6 @@ class SettingsDialog(QDialog):
         self.window_height_spin.setSuffix(" px")
         self.window_height_spin.valueChanged.connect(self._on_setting_changed)
         size_layout.addRow("높이:", self.window_height_spin)
-        size_layout.addRow(self._build_hint_label("스크롤이 있는 창이므로 기본 높이를 과하게 키울 필요는 없습니다."))
         size_group.setLayout(size_layout)
         layout.addWidget(size_group)
 
@@ -1552,7 +1706,7 @@ class SettingsDialog(QDialog):
 
         overview_layout.addLayout(variant_row)
 
-        self.follow_system_theme_check = QCheckBox("현재 윈도우 앱 테마(라이트/다크)를 따라가기")
+        self.follow_system_theme_check = self._create_toggle("현재 윈도우 앱 테마(라이트/다크)를 따라가기")
         self.follow_system_theme_check.toggled.connect(self._on_follow_system_theme_toggled)
         overview_layout.addWidget(self.follow_system_theme_check)
         layout.addWidget(overview_group)
@@ -1858,19 +2012,19 @@ class SettingsDialog(QDialog):
         display_layout = QVBoxLayout(display_group)
         display_layout.setSpacing(8)
 
-        self.show_drag_bar_check = QCheckBox("드래그 바 표시")
+        self.show_drag_bar_check = self._create_toggle("드래그 바 표시")
         self.show_drag_bar_check.toggled.connect(self._on_setting_changed)
         display_layout.addWidget(self.show_drag_bar_check)
 
-        self.show_recent_reroll_button_check = QCheckBox("최근 메시지 리롤 버튼 표시")
+        self.show_recent_reroll_button_check = self._create_toggle("최근 메시지 리롤 버튼 표시")
         self.show_recent_reroll_button_check.toggled.connect(self._on_setting_changed)
         display_layout.addWidget(self.show_recent_reroll_button_check)
 
-        self.show_recent_edit_button_check = QCheckBox("최근 메시지 수정 버튼 표시")
+        self.show_recent_edit_button_check = self._create_toggle("최근 메시지 수정 버튼 표시")
         self.show_recent_edit_button_check.toggled.connect(self._on_setting_changed)
         display_layout.addWidget(self.show_recent_edit_button_check)
 
-        self.mouse_tracking_check = QCheckBox("마우스 트래킹 활성화")
+        self.mouse_tracking_check = self._create_toggle("마우스 트래킹 활성화")
         self.mouse_tracking_check.toggled.connect(self._on_setting_changed)
         display_layout.addWidget(self.mouse_tracking_check)
         display_layout.addWidget(self._build_hint_label("기본 노출 요소와 마우스 상호작용을 한 묶음으로 관리합니다."))
@@ -1879,15 +2033,15 @@ class SettingsDialog(QDialog):
         action_group = QGroupBox("대화와 보조 버튼")
         action_layout = QVBoxLayout(action_group)
         action_layout.setSpacing(8)
-        self.show_manual_summary_button_check = QCheckBox("수동 요약 버튼 표시")
+        self.show_manual_summary_button_check = self._create_toggle("수동 요약 버튼 표시")
         self.show_manual_summary_button_check.toggled.connect(self._on_setting_changed)
         action_layout.addWidget(self.show_manual_summary_button_check)
 
-        self.show_obsidian_note_button_check = QCheckBox("노트 버튼 표시")
+        self.show_obsidian_note_button_check = self._create_toggle("노트 버튼 표시")
         self.show_obsidian_note_button_check.toggled.connect(self._on_setting_changed)
         action_layout.addWidget(self.show_obsidian_note_button_check)
 
-        self.show_mood_toggle_button_check = QCheckBox("기분 버튼 표시")
+        self.show_mood_toggle_button_check = self._create_toggle("기분 버튼 표시")
         self.show_mood_toggle_button_check.toggled.connect(self._on_setting_changed)
         action_layout.addWidget(self.show_mood_toggle_button_check)
         action_layout.addWidget(self._build_hint_label("자주 누르는 버튼만 켜두면 화면이 덜 복잡해집니다."))
@@ -1898,11 +2052,11 @@ class SettingsDialog(QDialog):
         ptt_layout.setSpacing(8)
         ptt_layout.setContentsMargins(10, 15, 10, 10)
 
-        self.enable_global_ptt_check = QCheckBox("전역 Push-to-Talk 활성화")
+        self.enable_global_ptt_check = self._create_toggle("전역 Push-to-Talk 활성화")
         self.enable_global_ptt_check.toggled.connect(self._on_setting_changed)
         ptt_layout.addRow(self.enable_global_ptt_check)
 
-        self.interrupt_tts_on_ptt_check = QCheckBox("PTT 시작 시 ENE 음성 출력 끊기")
+        self.interrupt_tts_on_ptt_check = self._create_toggle("PTT 시작 시 ENE 음성 출력 끊기")
         self.interrupt_tts_on_ptt_check.toggled.connect(self._on_setting_changed)
         ptt_layout.addRow(self.interrupt_tts_on_ptt_check)
 
@@ -1933,7 +2087,7 @@ class SettingsDialog(QDialog):
         note_layout.setSpacing(8)
         note_layout.setContentsMargins(10, 15, 10, 10)
 
-        self.note_include_recent_context_check = QCheckBox("/note에 최근 대화 맥락 자동 주입")
+        self.note_include_recent_context_check = self._create_toggle("/note에 최근 대화 맥락 자동 주입")
         self.note_include_recent_context_check.toggled.connect(self._on_note_context_toggle)
         note_layout.addRow(self.note_include_recent_context_check)
 
@@ -1949,11 +2103,11 @@ class SettingsDialog(QDialog):
         idle_layout = QFormLayout(idle_group)
         idle_layout.setSpacing(8)
         idle_layout.setContentsMargins(10, 15, 10, 10)
-        self.idle_motion_check = QCheckBox("유휴 모션 활성화 (말하지 않을 때 자동 움직임)")
+        self.idle_motion_check = self._create_toggle("유휴 모션 활성화 (말하지 않을 때 자동 움직임)")
         self.idle_motion_check.toggled.connect(self._on_setting_changed)
         idle_layout.addRow(self.idle_motion_check)
 
-        self.idle_motion_dynamic_check = QCheckBox("유휴 모션 다이나믹 모드")
+        self.idle_motion_dynamic_check = self._create_toggle("유휴 모션 다이나믹 모드")
         self.idle_motion_dynamic_check.toggled.connect(self._on_setting_changed)
         idle_layout.addRow(self.idle_motion_dynamic_check)
 
@@ -1978,7 +2132,7 @@ class SettingsDialog(QDialog):
         pat_layout = QFormLayout(pat_group)
         pat_layout.setSpacing(8)
         pat_layout.setContentsMargins(10, 15, 10, 10)
-        self.head_pat_check = QCheckBox("머리 쓰다듬기 활성화")
+        self.head_pat_check = self._create_toggle("머리 쓰다듬기 활성화")
         self.head_pat_check.toggled.connect(self._on_setting_changed)
         pat_layout.addRow(self.head_pat_check)
 
@@ -2037,7 +2191,7 @@ class SettingsDialog(QDialog):
         away_layout.setSpacing(8)
         away_layout.setContentsMargins(10, 15, 10, 10)
 
-        self.enable_away_nudge_check = QCheckBox("유휴 감지 자동 말걸기 활성화")
+        self.enable_away_nudge_check = self._create_toggle("유휴 감지 자동 말걸기 활성화")
         self.enable_away_nudge_check.toggled.connect(self._on_setting_changed)
         away_layout.addRow(self.enable_away_nudge_check)
 
@@ -2075,6 +2229,8 @@ class SettingsDialog(QDialog):
             scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
 
             panel = MemoryDialog(self._memory_manager, self._bridge, self, embedded=True)
+            panel.apply_theme(dict(self._theme_values))
+            self._embedded_memory_panel = panel
             panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
             panel.setMinimumSize(0, 0)
             scroll.setWidget(panel)
@@ -2358,7 +2514,11 @@ class SettingsDialog(QDialog):
         base_layout.addWidget(base_path)
         self.base_prompt_editor = QPlainTextEdit()
         self.base_prompt_editor.setMinimumHeight(320)
+        self.base_prompt_editor.textChanged.connect(self._schedule_prompt_token_refresh)
         base_layout.addWidget(self.base_prompt_editor, 1)
+        self._base_prompt_token_label = QLabel("BASE_SYSTEM_PROMPT 현재 토큰: 0개 · 문자 수: 0자")
+        self._base_prompt_token_label.setObjectName("FooterBody")
+        base_layout.addWidget(self._base_prompt_token_label)
         prompt_row.addWidget(base_group, 1)
 
         sub_group = QGroupBox("SUB_PROMPT 본문")
@@ -2374,7 +2534,11 @@ class SettingsDialog(QDialog):
         sub_layout.addWidget(sub_note)
         self.sub_prompt_editor = QPlainTextEdit()
         self.sub_prompt_editor.setMinimumHeight(320)
+        self.sub_prompt_editor.textChanged.connect(self._schedule_prompt_token_refresh)
         sub_layout.addWidget(self.sub_prompt_editor, 1)
+        self._sub_prompt_token_label = QLabel("SUB_PROMPT 현재 토큰: 0개 · 문자 수: 0자")
+        self._sub_prompt_token_label.setObjectName("FooterBody")
+        sub_layout.addWidget(self._sub_prompt_token_label)
         prompt_row.addWidget(sub_group, 1)
         layout.addLayout(prompt_row)
 
@@ -2445,6 +2609,7 @@ class SettingsDialog(QDialog):
         layout.addStretch()
         scroll.setWidget(widget)
         self._load_prompt_configuration()
+        self._refresh_prompt_token_counts()
         return scroll
 
     def _read_text_file(self, path: Path) -> str:
@@ -3461,14 +3626,6 @@ class SettingsDialog(QDialog):
         self.close()
 
     def closeEvent(self, event):
-        if sys.platform == "win32" and self._window_icon_handles:
-            try:
-                user32 = ctypes.windll.user32
-                for handle in self._window_icon_handles:
-                    user32.DestroyIcon(handle)
-            except Exception:
-                pass
-            self._window_icon_handles.clear()
         self._stop_ptt_hotkey_capture()
         if not hasattr(self, "_saved"):
             self.settings_cancelled.emit()
