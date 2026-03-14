@@ -43,7 +43,7 @@ def test_update_merges_multiple_values(tmp_path):
     settings.update({"window_x": 10, "window_y": 20})
     settings.save()
 
-    loaded_data = json.loads(config_path.read_text(encoding="utf-8"))
+    loaded_data = json.loads(config_path.read_text(encoding="utf-8-sig"))
     assert loaded_data["window_x"] == 10
     assert loaded_data["window_y"] == 20
 
@@ -57,8 +57,8 @@ def test_secret_values_are_saved_to_api_keys_file(tmp_path):
     settings.set("custom_api_key_or_password", "custom-secret")
     settings.save()
 
-    config_data = json.loads(config_path.read_text(encoding="utf-8"))
-    secret_data = json.loads(secret_path.read_text(encoding="utf-8"))
+    config_data = json.loads(config_path.read_text(encoding="utf-8-sig"))
+    secret_data = json.loads(secret_path.read_text(encoding="utf-8-sig"))
     assert "llm_api_keys" not in config_data
     assert "custom_api_key_or_password" not in config_data
     assert secret_data["llm_api_keys"]["gemini"] == "gem-key"
@@ -85,8 +85,8 @@ def test_migrates_legacy_secret_values_from_config(tmp_path):
     assert settings.get("llm_api_keys")["openai"] == "old-openai-key"
     assert settings.get("custom_api_key_or_password") == "old-custom-secret"
 
-    saved_config = json.loads(config_path.read_text(encoding="utf-8"))
-    saved_secret = json.loads(secret_path.read_text(encoding="utf-8"))
+    saved_config = json.loads(config_path.read_text(encoding="utf-8-sig"))
+    saved_secret = json.loads(secret_path.read_text(encoding="utf-8-sig"))
     assert "llm_api_keys" not in saved_config
     assert "custom_api_key_or_password" not in saved_config
     assert saved_secret["llm_api_keys"]["openai"] == "old-openai-key"

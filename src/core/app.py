@@ -211,30 +211,31 @@ class ENEApplication(QObject):
     
     def _init_memory_manager(self):
         """메모리 매니저 초기화"""
-        from pathlib import Path
         from src.ai.memory import MemoryManager
         from src.ai.embedding import EmbeddingGenerator
         
         try:
-            # Voyage AI API 키 읽기
-            voyage_key_file = Path('voyage_api_key.txt')
-            
-            if not voyage_key_file.exists():
-                print("WARNING: voyage_api_key.txt 파일이 없습니다.")
+            embedding_provider = str(self.settings.get("embedding_provider", "voyage")).strip().lower()
+            embedding_model = str(self.settings.get("embedding_model", "voyage-3")).strip() or "voyage-3"
+            embedding_api_keys = self.settings.get("embedding_api_keys", {})
+            if not isinstance(embedding_api_keys, dict):
+                embedding_api_keys = {}
+            embedding_api_key = str(embedding_api_keys.get(embedding_provider, "")).strip()
+
+            if embedding_provider != "voyage":
+                print(f"WARNING: 지원하지 않는 임베딩 공급자입니다: {embedding_provider}")
+                embedding_gen = None
+            elif not embedding_api_key:
+                print("WARNING: 임베딩 API 키가 없습니다.")
                 print("장기기억 기능이 제한적으로 작동합니다 (임베딩 없음).")
                 embedding_gen = None
             else:
-                voyage_key = voyage_key_file.read_text(encoding='utf-8').strip()
-                
-                if voyage_key == "your-voyage-api-key-here" or not voyage_key:
+                if embedding_api_key == "your-voyage-api-key-here" or not embedding_api_key:
                     print("WARNING: Voyage AI API 키를 설정해주세요.")
                     embedding_gen = None
                 else:
-                    embedding_gen = EmbeddingGenerator(api_key=voyage_key)
-                    print("OK: Voyage AI 임베딩 생성기 초기화 성공")
-            
-            # 메모리 파일 경로
-            memory_file = Path('memory.json')
+                    embedding_gen = EmbeddingGenerator(api_key=embedding_api_key, model=embedding_model)
+                    print(f"OK: Voyage AI 임베딩 생성기 초기화 성공 ({embedding_model})")
             
             # 메모리 매니저 생성
             self.memory_manager = MemoryManager(
@@ -248,15 +249,40 @@ class ENEApplication(QObject):
             import traceback
             traceback.print_exc()
             self.memory_manager = None
+
+    def _refresh_memory_runtime_bindings(self):
+        """메모리 매니저 재초기화 후 LLM/Bridge에 다시 연결한다."""
+        self._init_memory_manager()
+        if hasattr(self, "llm_client") and self.llm_client:
+            self.llm_client.memory_manager = self.memory_manager
+        if hasattr(self, "overlay_window") and self.overlay_window and hasattr(self.overlay_window, "bridge"):
+            user_profile = self.user_profile if hasattr(self, "user_profile") else None
+            self.overlay_window.bridge.set_memory_manager(
+                self.memory_manager,
+                self.llm_client if hasattr(self, "llm_client") else None,
+                user_profile,
+            )
     
     def _init_tts(self):
         """TTS 및 오디오 플레이어 초기화"""
         try:
             from src.ai.tts_client import TTSClient
             from src.core.audio_player import AudioPlayer
+
+            if not bool(self.settings.get("enable_tts", True)):
+                self.tts_client = None
+                self.audio_player = None
+                print("INFO: TTS 비활성화 상태로 초기화를 건너뜁니다.")
+                return
             
             # TTS 클라이언트 초기화
-            self.tts_client = TTSClient()
+            self.tts_client = TTSClient(
+                api_url=str(self.settings.get("tts_api_url", "http://127.0.0.1:9880")).strip() or "http://127.0.0.1:9880",
+                ref_audio_path=str(self.settings.get("tts_ref_audio_path", "assets/ref_audio/refvoice.wav")).strip() or "assets/ref_audio/refvoice.wav",
+                ref_text=str(self.settings.get("tts_ref_text", "人間さんはどんな色が一番好き？ ん？ なんで聞いたかって？ ふふん～ 内緒")).strip() or "人間さんはどんな色が一番好き？ ん？ なんで聞いたかって？ ふふん～ 内緒",
+                ref_language=str(self.settings.get("tts_ref_language", "ja")).strip() or "ja",
+                target_language=str(self.settings.get("tts_target_language", "ja")).strip() or "ja",
+            )
             
             # 오디오 플레이어 초기화
             self.audio_player = AudioPlayer()
@@ -276,6 +302,16 @@ class ENEApplication(QObject):
             traceback.print_exc()
             self.tts_client = None
             self.audio_player = None
+
+    def _refresh_tts_runtime_bindings(self):
+        """TTS 설정 변경 후 클라이언트/브리지 상태를 다시 연결한다."""
+        self._init_tts()
+        if hasattr(self, "overlay_window") and self.overlay_window and hasattr(self.overlay_window, "bridge"):
+            self.overlay_window.bridge.enable_tts = bool(self.settings.get("enable_tts", False))
+            self.overlay_window.bridge.set_tts(
+                self.tts_client if hasattr(self, "tts_client") else None,
+                self.audio_player if hasattr(self, "audio_player") else None,
+            )
     
     def _connect_signals(self):
         """시그널 연결"""
@@ -456,10 +492,37 @@ class ENEApplication(QObject):
     
     def _on_settings_changed(self, new_settings: dict):
         """설정 변경 시 (저장)"""
+        old_embedding_provider = str(self.settings.get("embedding_provider", "voyage")).strip().lower()
+        old_embedding_model = str(self.settings.get("embedding_model", "voyage-3")).strip() or "voyage-3"
+        old_tts_config = (
+            bool(self.settings.get("enable_tts", False)),
+            str(self.settings.get("tts_api_url", "http://127.0.0.1:9880")).strip(),
+            str(self.settings.get("tts_ref_audio_path", "assets/ref_audio/refvoice.wav")).strip(),
+            str(self.settings.get("tts_ref_text", "")).strip(),
+            str(self.settings.get("tts_ref_language", "ja")).strip(),
+            str(self.settings.get("tts_target_language", "ja")).strip(),
+        )
+
         self.overlay_window.apply_new_settings(new_settings)
         self.interrupt_tts_on_ptt = bool(new_settings.get("interrupt_tts_on_ptt", True))
         if hasattr(self, "global_ptt") and self.global_ptt:
             self.global_ptt.apply_settings(new_settings)
+
+        new_embedding_provider = str(new_settings.get("embedding_provider", old_embedding_provider)).strip().lower()
+        new_embedding_model = str(new_settings.get("embedding_model", old_embedding_model)).strip() or "voyage-3"
+        if (old_embedding_provider, old_embedding_model) != (new_embedding_provider, new_embedding_model):
+            self._refresh_memory_runtime_bindings()
+
+        new_tts_config = (
+            bool(new_settings.get("enable_tts", old_tts_config[0])),
+            str(new_settings.get("tts_api_url", old_tts_config[1])).strip(),
+            str(new_settings.get("tts_ref_audio_path", old_tts_config[2])).strip(),
+            str(new_settings.get("tts_ref_text", old_tts_config[3])).strip(),
+            str(new_settings.get("tts_ref_language", old_tts_config[4])).strip(),
+            str(new_settings.get("tts_target_language", old_tts_config[5])).strip(),
+        )
+        if old_tts_config != new_tts_config:
+            self._refresh_tts_runtime_bindings()
 
     def _on_settings_preview(self, new_settings: dict):
         """설정 미리보기 (settings 객체 수정 없이 화면에만 적용)"""
@@ -467,6 +530,8 @@ class ENEApplication(QObject):
         self.interrupt_tts_on_ptt = bool(new_settings.get("interrupt_tts_on_ptt", True))
         if hasattr(self, "global_ptt") and self.global_ptt:
             self.global_ptt.apply_settings(new_settings)
+        if hasattr(self, "overlay_window") and self.overlay_window and hasattr(self.overlay_window, "bridge"):
+            self.overlay_window.bridge.enable_tts = bool(new_settings.get("enable_tts", self.settings.get("enable_tts", False)))
 
     def _on_settings_cancelled(self):
         """설정 취소 - 저장된 값으로 복원"""
@@ -474,6 +539,8 @@ class ENEApplication(QObject):
         self.interrupt_tts_on_ptt = bool(self.settings.get("interrupt_tts_on_ptt", True))
         if hasattr(self, "global_ptt") and self.global_ptt:
             self.global_ptt.apply_settings(self.settings.config)
+        if hasattr(self, "overlay_window") and self.overlay_window and hasattr(self.overlay_window, "bridge"):
+            self.overlay_window.bridge.enable_tts = bool(self.settings.get("enable_tts", False))
     
     def _toggle_drag_bar(self):
         """드래그 바 토글"""

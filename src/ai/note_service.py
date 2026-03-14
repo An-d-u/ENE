@@ -35,6 +35,7 @@ class NoteCommandResult:
 
 class NoteService:
     """LLM 계획 기반 /note 실행을 담당한다."""
+    _WINDOWS_FORBIDDEN_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*]+')
 
     # https://aiandgamedev.com/ai/obsidian-cli-guide/ 기반으로 정리한 허용 명령 집합
     ALLOWED_COMMANDS = {
@@ -131,7 +132,15 @@ class NoteService:
         "update",
         "write",
     }
-    CONTENT_WRITE_COMMANDS = {"create", "write", "update", "append", "prepend"}
+    CONTENT_WRITE_COMMANDS = {
+        "create",
+        "write",
+        "update",
+        "append",
+        "prepend",
+        "daily:append",
+        "daily:prepend",
+    }
 
     def __init__(self, logs_dir: str | Path = "note_runs"):
         self.logs_dir = Path(logs_dir)
@@ -384,6 +393,8 @@ class NoteService:
         head = str(args[0]).lower() if args else ""
         if head in {"write", "update", "append", "prepend"} and len(args) >= 3:
             return str(args[2])
+        if head in {"daily:append", "daily:prepend"} and len(args) >= 2:
+            return str(args[1])
         return ""
 
     @staticmethod
@@ -484,7 +495,7 @@ class NoteService:
                 if norm.startswith("/") or norm.startswith("\\") or ".." in norm:
                     raise ValueError(f"허용되지 않은 경로: {rel}")
 
-            if head in {"write", "update", "append", "prepend"}:
+            if head in {"write", "update", "append", "prepend", "daily:append", "daily:prepend"}:
                 if not self._extract_content_value(cmd.args).strip():
                     raise ValueError(f"{head} 명령의 본문이 비어 있습니다.")
 
@@ -560,6 +571,47 @@ class NoteService:
         safe_title = re.sub(r"[_-]+", " ", title).strip() or "노트"
         body = (user_instruction or "").strip() or "요청 내용을 바탕으로 작성한 문서입니다."
         return f"# {safe_title}\n\n{body}\n"
+
+    @staticmethod
+    def build_generated_markdown_path(user_instruction: str) -> str:
+        """
+        명시적 .md 경로가 없는 문서 작성 요청용 기본 파일명을 생성한다.
+        가능한 경우 요청 주제에 맞는 사람이 읽기 좋은 파일명을 만든다.
+        """
+        raw = (user_instruction or "").strip()
+        now = datetime.now()
+        yy = now.strftime("%y")
+        month = str(now.month)
+        day = str(now.day)
+        if "일기" in raw:
+            return f"{yy}년 {month}월 {day}일 에네의 일기.md"
+
+        title = raw
+        title = re.sub(r"^[\"']+|[\"']+$", "", title).strip()
+        title = re.sub(r"\.md$", "", title, flags=re.IGNORECASE).strip()
+        title = re.sub(r"^(오늘의\s+)", "", title).strip()
+        title = re.sub(
+            r"(?:을|를|이|가|은|는|에|의)?\s*(?:마크다운\s*형식으로\s*)?(?:작성|생성|정리|수정|작성해|생성해|정리해|만들어|써)(?:\s*줄래|\s*줘|\s*주세요)?[.!?]*$",
+            "",
+            title,
+        ).strip()
+        title = re.sub(
+            r"(?:파일|문서|노트)(?:로)?\s*(?:작성|생성|정리|수정|작성해|생성해|정리해|만들어|써)(?:\s*줄래|\s*줘|\s*주세요)?[.!?]*$",
+            "",
+            title,
+        ).strip()
+        title = re.sub(r"(?:을|를|이|가|은|는)$", "", title).strip()
+        title = re.sub(r"\s+", " ", title).strip(" .-_")
+        title = title or raw or "노트"
+        title = title.replace("\n", " ").replace("\r", " ")
+        title = NoteService._WINDOWS_FORBIDDEN_FILENAME_CHARS.sub(" ", title)
+        title = re.sub(r"\s+", " ", title).strip(" .-_")
+
+        if not title:
+            title = f"{yy}년 {month}월 {day}일 노트"
+        if len(title) > 60:
+            title = title[:60].rstrip(" .-_")
+        return f"{title}.md"
 
     def execute_plan(self, obsidian_manager, plan: NotePlan) -> list[NoteCommandResult]:
         results: list[NoteCommandResult] = []

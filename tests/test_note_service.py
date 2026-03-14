@@ -190,3 +190,17 @@ def test_build_plan_prompt_includes_recent_context_block():
     )
     assert "[최근 대화 맥락]" in prompt
     assert "가쿠치카 보강해줘" in prompt
+
+
+def test_build_generated_markdown_path_returns_md_file():
+    service = NoteService()
+    path = service.build_generated_markdown_path("오늘의 일기를 작성해줘")
+    assert path.endswith(".md")
+    assert "에네의 일기" in path
+
+
+def test_build_generated_markdown_path_uses_human_readable_title():
+    service = NoteService()
+    path = service.build_generated_markdown_path("자소서에 필요한 양식이랑 내용을 생성해줘")
+    assert path.endswith(".md")
+    assert "자소서에 필요한 양식이랑 내용" in path
