@@ -48,7 +48,7 @@ def test_build_tree_uses_cli_files(monkeypatch):
         stdout = "notes/a.md\nnotes/sub/b.md\n"
         stderr = ""
 
-    monkeypatch.setattr(manager, "_run_cli", lambda args: DummyCompleted())
+    monkeypatch.setattr(manager, "_run_cli", lambda args, allow_retry=True: DummyCompleted())
 
     tree = manager.build_tree()
     assert tree["ok"] is True
