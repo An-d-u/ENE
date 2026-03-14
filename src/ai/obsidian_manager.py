@@ -30,6 +30,7 @@ class ObsidianManager:
         self.settings = settings
         self.obs_settings = obs_settings
         self._cli_lock = threading.RLock()
+        self._tree_connection_ok = False
 
     def _cli_bin(self) -> str:
         if self.settings is None:
@@ -196,14 +197,14 @@ class ObsidianManager:
             raise RuntimeError(f"Obsidian CLI 실행 파일을 찾지 못했습니다. ({details}) 원인: {last_error}") from last_error
         raise RuntimeError(f"Obsidian CLI 실행에 실패했습니다. ({details})")
 
-    def _run_cli(self, args: list[str]) -> subprocess.CompletedProcess:
+    def _run_cli(self, args: list[str], allow_retry: bool = True) -> subprocess.CompletedProcess:
         """
         Obsidian CLI 실행 진입점.
         - 동시 실행 충돌을 줄이기 위해 전역 락 적용
         - 비파괴 명령에 한해 재시도(backoff) 적용
         - 상세 로그 출력
         """
-        max_attempts = 1 + self._retry_count()
+        max_attempts = 1 + self._retry_count() if allow_retry else 1
         retryable = not self._is_mutating_command(args)
         delay = self._retry_delay_sec()
         last_exception: Exception | None = None
@@ -248,9 +249,13 @@ class ObsidianManager:
             return last_completed
         raise RuntimeError("Obsidian CLI 실행 결과를 얻지 못했습니다.")
 
-    def execute_cli_args(self, args: list[str]) -> subprocess.CompletedProcess:
+    def execute_cli_args(self, args: list[str], allow_retry: bool = True) -> subprocess.CompletedProcess:
         """외부 오케스트레이터에서 사용할 CLI 실행 진입점."""
-        return self._run_cli(list(args or []))
+        return self._run_cli(list(args or []), allow_retry=allow_retry)
+
+    def is_connected(self) -> bool:
+        """최근 트리 조회 기준으로 Obsidian CLI 연결 여부를 반환한다."""
+        return bool(self._tree_connection_ok)
 
     @staticmethod
     def _looks_like_not_found(stderr_text: str) -> bool:
@@ -364,18 +369,21 @@ class ObsidianManager:
 
         return walk(root)
 
-    def build_tree(self, max_depth: int = 5, max_nodes: int = 1500) -> dict:
+    def build_tree(self, max_depth: int = 5, max_nodes: int = 1500, allow_retry: bool = True) -> dict:
         try:
-            completed = self._run_cli(["files"])
+            completed = self._run_cli(["files"], allow_retry=allow_retry)
         except Exception as e:
+            self._tree_connection_ok = False
             return {"ok": False, "error": f"Obsidian CLI 실행 실패: {e}", "nodes": []}
 
         if completed.returncode != 0:
+            self._tree_connection_ok = False
             err = (completed.stderr or "").strip() or f"Obsidian CLI 종료 코드: {completed.returncode}"
             return {"ok": False, "error": err, "nodes": []}
 
         paths = self._parse_files_output(completed.stdout)
         nodes = self._build_tree_from_paths(paths, max_depth=max_depth, max_nodes=max_nodes)
+        self._tree_connection_ok = True
         return {
             "ok": True,
             "cli": self._cli_bin(),
@@ -383,8 +391,8 @@ class ObsidianManager:
             "checked_files": self.obs_settings.get_checked_files(),
         }
 
-    def get_tree_json(self) -> str:
-        return json.dumps(self.build_tree(), ensure_ascii=False)
+    def get_tree_json(self, allow_retry: bool = True) -> str:
+        return json.dumps(self.build_tree(allow_retry=allow_retry), ensure_ascii=False)
 
     def get_tree_lines(self, max_lines: int = 120) -> list[str]:
         tree = self.build_tree()
