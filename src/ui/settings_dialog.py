@@ -39,7 +39,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QSlider,
     QSpinBox,
-    QTabWidget,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -590,6 +590,10 @@ class SettingsDialog(QDialog):
         self._lazy_tab_builders: dict[str, callable] = {}
         self._lazy_tab_loaded: set[str] = set()
         self._lazy_tab_index_to_id: dict[int, str] = {}
+        self._section_header_map: dict[int, tuple[str, str]] = {}
+        self._section_nav_cards: dict[int, ClickableFrame] = {}
+        self._section_nav_titles: dict[int, QLabel] = {}
+        self._section_nav_meta: dict[int, QLabel] = {}
         self._prompt_tokenizer = tiktoken.get_encoding("cl100k_base") if tiktoken is not None else None
         self._theme_values = {
             key: self._normalize_theme_color(
@@ -1298,7 +1302,7 @@ class SettingsDialog(QDialog):
         QDialog { background: __SETTINGS_WINDOW__; color: __PRIMARY_TEXT__; font-family: 'Malgun Gothic', 'Segoe UI Variable', 'Segoe UI', sans-serif; }
         QWidget { background: transparent; }
         #MainFrame { background: __SETTINGS_CARD__; border: 1px solid __WINDOW_BORDER__; border-radius: 30px; }
-        #TitleBar, #FooterCard, #TabShell { background: __SETTINGS_CARD__; border: 1px solid __CARD_BORDER__; border-radius: 24px; }
+        #TitleBar, #FooterCard, #SidebarShell, #ContentShell { background: __SETTINGS_CARD__; border: 1px solid __CARD_BORDER__; border-radius: 24px; }
         #TitleLabel { color: __PRIMARY_TEXT__; font-size: 18px; font-weight: 700; }
         #TitleSubLabel { color: __TITLE_MUTED__; font-size: 12px; font-weight: 600; }
         #CloseButton { background: transparent; border: none; color: __MUTED_TEXT__; min-width: 34px; min-height: 34px; border-radius: 17px; font-size: 18px; }
@@ -1307,18 +1311,21 @@ class SettingsDialog(QDialog):
         #FooterBody { color: __MUTED_TEXT__; font-size: 13px; }
         #InlineHint { color: __MUTED_TEXT__; font-size: 12px; font-weight: 600; }
         #ValueBadge { color: __PRIMARY_TEXT__; font-size: 13px; font-weight: 700; background: __SETTINGS_INPUT__; border: 1px solid __INPUT_BORDER__; border-radius: 12px; padding: 8px 12px; }
+        #SidebarTitle { color: __PRIMARY_TEXT__; font-size: 15px; font-weight: 700; }
+        #SidebarMeta { color: __MUTED_TEXT__; font-size: 12px; font-weight: 600; }
+        #ContentHeaderTitle { color: __PRIMARY_TEXT__; font-size: 18px; font-weight: 700; }
+        #ContentHeaderMeta { color: __MUTED_TEXT__; font-size: 12px; font-weight: 600; }
+        QFrame#NavItemCard { background: __TAB_SHELL_BG__; border: 1px solid __CARD_BORDER__; border-radius: 20px; }
+        QFrame#NavItemCard:hover { border: 1px solid __ACCENT_BORDER__; background: __PRIMARY_TEXT_SOFT__; }
+        QFrame#NavItemCard[selected='true'] { background: __SETTINGS_CARD__; border: 1px solid __ACCENT_BORDER__; }
+        QLabel#NavItemTitle { color: __PRIMARY_TEXT__; font-size: 14px; font-weight: 700; }
+        QLabel#NavItemMeta { color: __MUTED_TEXT__; font-size: 12px; font-weight: 600; }
+        QFrame#NavItemCard[selected='true'] QLabel#NavItemMeta { color: __PRIMARY_TEXT__; }
 
         QLabel, QCheckBox { color: __PRIMARY_TEXT__; font-size: 13px; }
         QCheckBox { spacing: 0px; background: transparent; }
-        QGroupBox { background: __SETTINGS_CARD__; border: 1px solid __CARD_BORDER__; border-radius: 22px; margin-top: 16px; padding-top: 22px; padding-left: 18px; padding-right: 18px; padding-bottom: 18px; font-weight: 700; color: __PRIMARY_TEXT__; }
-        QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 16px; padding: 0 6px; color: __ACCENT_TITLE__; background: __SETTINGS_CARD__; }
-        QTabWidget#MainTabs { background: transparent; }
-        QTabWidget#MainTabs::pane { border: none; background: transparent; top: 12px; }
-        QTabBar#MainTabBar { background: __TAB_SHELL_BG__; border: 1px solid __CARD_BORDER__; border-radius: 22px; padding: 4px; }
-        QTabBar#MainTabBar::tab { background: transparent; color: __MUTED_TEXT__; border: 1px solid transparent; padding: 11px 18px; margin: 0 6px 0 0; border-radius: 18px; min-width: 96px; font-size: 13px; font-weight: 600; }
-        QTabBar#MainTabBar::tab:last { margin-right: 0px; }
-        QTabBar#MainTabBar::tab:selected { background: __SETTINGS_CARD__; color: __PRIMARY_TEXT__; border: 1px solid __CARD_BORDER__; }
-        QTabBar#MainTabBar::tab:hover:!selected { background: __PRIMARY_TEXT_SOFT__; color: __PRIMARY_TEXT__; }
+        QGroupBox { background: __SETTINGS_CARD__; border: 1px solid __CARD_BORDER__; border-radius: 22px; margin-top: 12px; padding-top: 20px; padding-left: 18px; padding-right: 18px; padding-bottom: 18px; font-weight: 700; color: __PRIMARY_TEXT__; }
+        QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 9px; top: -2px; padding: 0 4px; color: __ACCENT_TITLE__; background: __SETTINGS_CARD__; }
         QPushButton { min-height: 44px; padding: 0 18px; border-radius: 18px; border: 1px solid __CARD_BORDER__; background: __SETTINGS_CARD__; color: __PRIMARY_TEXT__; font-size: 13px; font-weight: 600; }
         QPushButton:hover { background: __SETTINGS_INPUT__; }
         QPushButton:disabled { background: __SETTINGS_CARD__; color: __DISABLED_TEXT__; }
@@ -1395,87 +1402,126 @@ class SettingsDialog(QDialog):
         apply_soft_shadow(self.main_frame)
         layout = QVBoxLayout(self.main_frame)
         layout.setContentsMargins(18, 18, 18, 18)
-        layout.setSpacing(16)
+        layout.setSpacing(14)
 
-        self.title_bar = QFrame()
-        self.title_bar.setObjectName("TitleBar")
-        self.title_bar.setFixedHeight(72)
-        title_layout = QHBoxLayout(self.title_bar)
-        title_layout.setContentsMargins(18, 12, 18, 12)
-        title_layout.setSpacing(12)
+        main_layout.addWidget(self.main_frame)
 
-        title_col = QVBoxLayout()
-        title_col.setSpacing(2)
+        workspace_row = QHBoxLayout()
+        workspace_row.setSpacing(14)
 
-        title_label = QLabel("ENE 설정")
-        title_label.setObjectName("TitleLabel")
-        title_col.addWidget(title_label)
+        sidebar_shell = QFrame()
+        sidebar_shell.setObjectName("SidebarShell")
+        sidebar_shell.setFixedWidth(240)
+        sidebar_layout = QVBoxLayout(sidebar_shell)
+        sidebar_layout.setContentsMargins(14, 14, 14, 14)
+        sidebar_layout.setSpacing(12)
 
-        sub_label = QLabel("창, 모델, LLM, 동작 설정을 한곳에서 관리합니다.")
-        sub_label.setObjectName("TitleSubLabel")
-        title_col.addWidget(sub_label)
-        title_layout.addLayout(title_col)
+        sidebar_title = QLabel("ENE 설정")
+        sidebar_title.setObjectName("SidebarTitle")
+        sidebar_layout.addWidget(sidebar_title)
 
-        title_layout.addStretch()
+        sidebar_meta = QLabel("섹션을 옆 메뉴에서 고르고 오른쪽에서 세부 설정을 조정합니다.")
+        sidebar_meta.setObjectName("SidebarMeta")
+        sidebar_meta.setWordWrap(True)
+        sidebar_layout.addWidget(sidebar_meta)
 
-        cancel_btn = QPushButton("취소")
-        cancel_btn.clicked.connect(self._cancel_settings)
-        title_layout.addWidget(cancel_btn)
+        self.section_nav_container = QWidget()
+        section_nav_layout = QVBoxLayout(self.section_nav_container)
+        section_nav_layout.setContentsMargins(0, 4, 0, 0)
+        section_nav_layout.setSpacing(10)
+        sidebar_layout.addWidget(self.section_nav_container)
+        sidebar_layout.addStretch()
 
-        save_btn = QPushButton("변경사항 저장")
-        save_btn.setProperty("accent", True)
-        save_btn.style().unpolish(save_btn)
-        save_btn.style().polish(save_btn)
-        save_btn.clicked.connect(self._save_settings)
-        title_layout.addWidget(save_btn)
+        content_shell = QFrame()
+        content_shell.setObjectName("ContentShell")
+        content_layout = QVBoxLayout(content_shell)
+        content_layout.setContentsMargins(14, 14, 14, 14)
+        content_layout.setSpacing(8)
+
+        content_header = QWidget()
+        content_header_layout = QHBoxLayout(content_header)
+        content_header_layout.setContentsMargins(4, 0, 0, 0)
+        content_header_layout.setSpacing(10)
+
+        content_header_text = QVBoxLayout()
+        content_header_text.setContentsMargins(0, 0, 0, 0)
+        content_header_text.setSpacing(2)
+
+        self.content_header_title = QLabel("창 설정")
+        self.content_header_title.setObjectName("ContentHeaderTitle")
+        content_header_text.addWidget(self.content_header_title)
+
+        self.content_header_meta = QLabel("창 위치와 크기를 조정합니다.")
+        self.content_header_meta.setObjectName("ContentHeaderMeta")
+        self.content_header_meta.setWordWrap(True)
+        content_header_text.addWidget(self.content_header_meta)
+
+        content_header_layout.addLayout(content_header_text, 1)
+        content_header_layout.addStretch()
 
         close_btn = QPushButton("×")
         close_btn.setObjectName("CloseButton")
         close_btn.clicked.connect(self._cancel_settings)
-        title_layout.addWidget(close_btn)
+        content_header_layout.addWidget(close_btn, 0, Qt.AlignmentFlag.AlignTop)
 
-        main_layout.addWidget(self.main_frame)
-        layout.addWidget(self.title_bar)
+        content_layout.addWidget(content_header)
 
-        tab_shell = QFrame()
-        tab_shell.setObjectName("TabShell")
-        tab_layout = QVBoxLayout(tab_shell)
-        tab_layout.setContentsMargins(14, 14, 14, 14)
-        tab_layout.setSpacing(0)
+        self.content_stack = QStackedWidget()
+        self.content_stack.currentChanged.connect(self._on_tab_changed)
+        content_layout.addWidget(self.content_stack)
 
-        self.tabs = QTabWidget()
-        self.tabs.setObjectName("MainTabs")
-        self.tabs.tabBar().setObjectName("MainTabBar")
-        self.tabs.addTab(self._create_window_tab(), "창 설정")
-        self.tabs.addTab(self._create_theme_tab(), "테마 설정")
-        self.tabs.addTab(self._create_model_tab(), "모델 설정")
-        self.tabs.addTab(self._create_llm_tab(), "LLM 설정")
-        self.tabs.addTab(self._create_behavior_tab(), "동작 설정")
-        self._add_lazy_tab("memory", "기억 관리", "기억 목록과 검색 설정은 열 때 불러옵니다.", self._create_memory_tab)
-        self._add_lazy_tab("profile", "사용자 기억 관리", "user_profile.json 편집기는 탭을 열 때 불러옵니다.", self._create_user_profile_tab)
-        self._add_lazy_tab("prompt", "프롬프트 설정", "프롬프트 파일과 감정 설정은 탭을 열 때 불러옵니다.", self._create_prompt_tab)
-        self.tabs.currentChanged.connect(self._on_tab_changed)
-        self.tabs.tabBar().currentChanged.connect(self._on_tab_changed)
-        tab_layout.addWidget(self.tabs)
-        layout.addWidget(tab_shell, 1)
+        self._add_section("창 설정", "창 위치와 크기", self._create_window_tab())
+        self._add_section("테마 설정", "라이트/다크와 팔레트", self._create_theme_tab())
+        self._add_section("모델 설정", "배치와 Live2D 경로", self._create_model_tab())
+        self._add_section("LLM 설정", "공급자와 응답 스타일", self._create_llm_tab())
+        self._add_section("동작 설정", "버튼, PTT, 감지 옵션", self._create_behavior_tab())
+        self._add_lazy_tab("memory", "기억 관리", "기억 목록과 검색 설정", self._create_memory_tab)
+        self._add_lazy_tab("profile", "사용자 기억 관리", "user_profile.json 구조 편집", self._create_user_profile_tab)
+        self._add_lazy_tab("prompt", "프롬프트 설정", "프롬프트와 감정 규칙", self._create_prompt_tab)
+        self._set_section_index(0)
+
+        workspace_row.addWidget(sidebar_shell)
+        workspace_row.addWidget(content_shell, 1)
+        layout.addLayout(workspace_row, 1)
 
         layout.addWidget(self._build_footer_note())
 
     def _build_footer_note(self):
         card = QFrame()
         card.setObjectName("FooterCard")
-        footer_layout = QVBoxLayout(card)
+        footer_layout = QHBoxLayout(card)
         footer_layout.setContentsMargins(18, 16, 18, 16)
-        footer_layout.setSpacing(6)
+        footer_layout.setSpacing(16)
+
+        text_col = QVBoxLayout()
+        text_col.setSpacing(6)
 
         title = QLabel("설정 적용 안내")
         title.setObjectName("FooterTitle")
-        footer_layout.addWidget(title)
+        text_col.addWidget(title)
 
         body = QLabel("변경사항은 저장 전까지 미리보기로만 반영됩니다. 취소하면 이전 설정으로 돌아가며, 일부 LLM 설정은 저장 후 다시 시작해야 완전히 반영됩니다.")
         body.setObjectName("FooterBody")
         body.setWordWrap(True)
-        footer_layout.addWidget(body)
+        text_col.addWidget(body)
+        footer_layout.addLayout(text_col, 1)
+
+        action_row = QHBoxLayout()
+        action_row.setSpacing(10)
+        action_row.setContentsMargins(0, 0, 0, 0)
+
+        cancel_btn = QPushButton("취소")
+        cancel_btn.clicked.connect(self._cancel_settings)
+        action_row.addWidget(cancel_btn)
+
+        save_btn = QPushButton("변경사항 저장")
+        save_btn.setProperty("accent", True)
+        save_btn.style().unpolish(save_btn)
+        save_btn.style().polish(save_btn)
+        save_btn.clicked.connect(self._save_settings)
+        action_row.addWidget(save_btn)
+
+        footer_layout.addLayout(action_row, 0)
         return card
 
     def _build_hint_label(self, text: str):
@@ -1483,6 +1529,59 @@ class SettingsDialog(QDialog):
         label.setObjectName("InlineHint")
         label.setWordWrap(True)
         return label
+
+    def _build_section_nav_card(self, title: str, description: str, index: int) -> ClickableFrame:
+        card = ClickableFrame()
+        card.setObjectName("NavItemCard")
+        card.setProperty("selected", "false")
+        card.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(4)
+
+        title_label = QLabel(title)
+        title_label.setObjectName("NavItemTitle")
+        layout.addWidget(title_label)
+
+        meta_label = QLabel(description)
+        meta_label.setObjectName("NavItemMeta")
+        meta_label.setWordWrap(True)
+        layout.addWidget(meta_label)
+
+        card.clicked.connect(lambda idx=index: self._set_section_index(idx))
+        self._section_nav_cards[index] = card
+        self._section_nav_titles[index] = title_label
+        self._section_nav_meta[index] = meta_label
+        return card
+
+    def _add_section(self, title: str, description: str, widget: QWidget) -> int:
+        index = self.content_stack.addWidget(widget)
+        self._section_header_map[index] = (title, description)
+        nav_layout = self.section_nav_container.layout()
+        if nav_layout is not None:
+            nav_layout.addWidget(self._build_section_nav_card(title, description, index))
+        return index
+
+    def _set_section_index(self, index: int) -> None:
+        if not hasattr(self, "content_stack"):
+            return
+        if index < 0 or index >= self.content_stack.count():
+            return
+        self.content_stack.setCurrentIndex(index)
+        self._update_section_nav_selection(index)
+
+    def _update_section_nav_selection(self, current_index: int) -> None:
+        for index, card in self._section_nav_cards.items():
+            card.setProperty("selected", "true" if index == current_index else "false")
+            card.style().unpolish(card)
+            card.style().polish(card)
+
+        title, description = self._section_header_map.get(current_index, ("ENE 설정", "섹션을 선택해 세부 설정을 조정합니다."))
+        if hasattr(self, "content_header_title"):
+            self.content_header_title.setText(title)
+        if hasattr(self, "content_header_meta"):
+            self.content_header_meta.setText(description)
 
     def _add_lazy_tab(self, tab_id: str, title: str, description: str, builder) -> None:
         host = QWidget()
@@ -1508,12 +1607,13 @@ class SettingsDialog(QDialog):
         host_layout.addWidget(card)
         host_layout.addStretch()
 
-        index = self.tabs.addTab(host, title)
+        index = self._add_section(title, description, host)
         self._lazy_tab_hosts[tab_id] = host
         self._lazy_tab_builders[tab_id] = builder
         self._lazy_tab_index_to_id[index] = tab_id
 
     def _on_tab_changed(self, index: int) -> None:
+        self._update_section_nav_selection(index)
         tab_id = self._lazy_tab_index_to_id.get(index)
         if tab_id:
             self._ensure_lazy_tab_loaded(tab_id)
@@ -1983,6 +2083,35 @@ class SettingsDialog(QDialog):
         self.custom_api_group.setVisible(False)
         layout.addWidget(self.custom_api_group)
 
+        embedding_group = QGroupBox("임베딩 설정")
+        embedding_form = QFormLayout(embedding_group)
+        embedding_form.setSpacing(8)
+        embedding_form.setContentsMargins(10, 15, 10, 10)
+
+        self.embedding_provider_combo = QComboBox()
+        self.embedding_provider_combo.addItem("Voyage AI", "voyage")
+        self.embedding_provider_combo.currentIndexChanged.connect(self._on_setting_changed)
+        embedding_form.addRow("임베딩 공급자:", self.embedding_provider_combo)
+
+        self.embedding_api_key_edit = QLineEdit()
+        self.embedding_api_key_edit.setPlaceholderText("Voyage AI API 키")
+        self.embedding_api_key_edit.textChanged.connect(self._on_setting_changed)
+        embedding_form.addRow(
+            "임베딩 API 키:",
+            self._build_secret_row(
+                self.embedding_api_key_edit,
+                lambda: self._toggle_secret_field(self.embedding_api_key_edit, self.embedding_api_key_toggle_button),
+                "embedding_api_key_toggle_button",
+            ),
+        )
+
+        self.embedding_model_combo = QComboBox()
+        self.embedding_model_combo.addItem("voyage-3", "voyage-3")
+        self.embedding_model_combo.currentIndexChanged.connect(self._on_setting_changed)
+        embedding_form.addRow("임베딩 모델:", self.embedding_model_combo)
+        embedding_form.addRow(self._build_hint_label("현재는 Voyage AI만 지원합니다. 저장 후 새 기억 생성과 유사 기억 검색에 같은 모델이 사용됩니다. API 키는 api_keys.json의 embedding_api_keys에 저장됩니다."))
+        layout.addWidget(embedding_group)
+
         restart_group = QGroupBox("적용 안내")
         restart_layout = QVBoxLayout(restart_group)
         restart_layout.setSpacing(8)
@@ -2081,6 +2210,43 @@ class SettingsDialog(QDialog):
         ptt_layout.addRow(self.global_ptt_hotkey_hint_label)
 
         layout.addWidget(ptt_group)
+
+        tts_group = QGroupBox("TTS 설정")
+        tts_layout = QFormLayout(tts_group)
+        tts_layout.setSpacing(8)
+        tts_layout.setContentsMargins(10, 15, 10, 10)
+
+        self.enable_tts_check = self._create_toggle("일본어 응답 TTS 활성화")
+        self.enable_tts_check.toggled.connect(self._on_setting_changed)
+        tts_layout.addRow(self.enable_tts_check)
+
+        self.tts_api_url_edit = QLineEdit()
+        self.tts_api_url_edit.setPlaceholderText("예: http://127.0.0.1:9880")
+        self.tts_api_url_edit.textChanged.connect(self._on_setting_changed)
+        tts_layout.addRow("TTS API URL:", self.tts_api_url_edit)
+
+        self.tts_ref_audio_path_edit = QLineEdit()
+        self.tts_ref_audio_path_edit.setPlaceholderText("예: assets/ref_audio/refvoice.wav")
+        self.tts_ref_audio_path_edit.textChanged.connect(self._on_setting_changed)
+        tts_layout.addRow("참조 오디오:", self.tts_ref_audio_path_edit)
+
+        self.tts_ref_text_edit = QPlainTextEdit()
+        self.tts_ref_text_edit.setPlaceholderText("참조 오디오의 원문 텍스트")
+        self.tts_ref_text_edit.setFixedHeight(84)
+        self.tts_ref_text_edit.textChanged.connect(self._on_setting_changed)
+        tts_layout.addRow("참조 텍스트:", self.tts_ref_text_edit)
+
+        self.tts_ref_language_edit = QLineEdit()
+        self.tts_ref_language_edit.setPlaceholderText("예: ja")
+        self.tts_ref_language_edit.textChanged.connect(self._on_setting_changed)
+        tts_layout.addRow("참조 언어:", self.tts_ref_language_edit)
+
+        self.tts_target_language_edit = QLineEdit()
+        self.tts_target_language_edit.setPlaceholderText("예: ja")
+        self.tts_target_language_edit.textChanged.connect(self._on_setting_changed)
+        tts_layout.addRow("출력 언어:", self.tts_target_language_edit)
+        tts_layout.addRow(self._build_hint_label("현재는 GPT-SoVITS HTTP 서버 기준 설정입니다. 나중에 화자 프리셋이나 서버 프로파일을 추가해도 구조를 유지할 수 있게 구성했습니다."))
+        layout.addWidget(tts_group)
 
         note_group = QGroupBox("노트 설정")
         note_layout = QFormLayout(note_group)
@@ -3376,6 +3542,14 @@ class SettingsDialog(QDialog):
             self.interrupt_tts_on_ptt_check.setChecked(
                 self._original_settings.get("interrupt_tts_on_ptt", True)
             )
+            self.enable_tts_check.setChecked(
+                self._original_settings.get("enable_tts", True)
+            )
+            self.tts_api_url_edit.setText(str(self._original_settings.get("tts_api_url", "http://127.0.0.1:9880")))
+            self.tts_ref_audio_path_edit.setText(str(self._original_settings.get("tts_ref_audio_path", "assets/ref_audio/refvoice.wav")))
+            self.tts_ref_text_edit.setPlainText(str(self._original_settings.get("tts_ref_text", "人間さんはどんな色が一番好き？ ん？ なんで聞いたかって？ ふふん～ 内緒")))
+            self.tts_ref_language_edit.setText(str(self._original_settings.get("tts_ref_language", "ja")))
+            self.tts_target_language_edit.setText(str(self._original_settings.get("tts_target_language", "ja")))
             self._ptt_hotkey_value = normalize_hotkey_text(
                 str(self._original_settings.get("global_ptt_hotkey", "alt")),
                 default="alt",
@@ -3490,6 +3664,24 @@ class SettingsDialog(QDialog):
             if format_index >= 0:
                 self.custom_api_format_combo.setCurrentIndex(format_index)
 
+            embedding_provider = str(self._original_settings.get("embedding_provider", "voyage")).strip().lower()
+            provider_index = self.embedding_provider_combo.findData(embedding_provider)
+            if provider_index < 0:
+                provider_index = 0
+            self.embedding_provider_combo.setCurrentIndex(provider_index)
+
+            embedding_api_keys = self._original_settings.get("embedding_api_keys", {})
+            if isinstance(embedding_api_keys, dict):
+                self.embedding_api_key_edit.setText(str(embedding_api_keys.get(embedding_provider, "")))
+            else:
+                self.embedding_api_key_edit.setText("")
+
+            embedding_model = str(self._original_settings.get("embedding_model", "voyage-3")).strip() or "voyage-3"
+            model_index = self.embedding_model_combo.findData(embedding_model)
+            if model_index < 0:
+                model_index = 0
+            self.embedding_model_combo.setCurrentIndex(model_index)
+
             self.llm_api_key_edit.setText(str(self._llm_api_keys.get(selected_provider, "")))
             self.custom_api_group.setVisible(selected_provider == "custom_api")
         finally:
@@ -3546,7 +3738,25 @@ class SettingsDialog(QDialog):
         if not resolved_emotion:
             resolved_emotion = "shy"
 
+        preserved_hidden_settings = {
+            key: self._original_settings[key]
+            for key in (
+                "stt_model_size",
+                "stt_language",
+                "stt_device",
+                "stt_compute_type",
+                "stt_min_record_sec",
+                "stt_max_record_sec",
+            )
+            if key in self._original_settings
+        }
+        embedding_provider = str(self.embedding_provider_combo.currentData() or "voyage")
+        embedding_api_keys = self._original_settings.get("embedding_api_keys", {})
+        embedding_api_keys = dict(embedding_api_keys) if isinstance(embedding_api_keys, dict) else {}
+        embedding_api_keys[embedding_provider] = self.embedding_api_key_edit.text().strip()
+
         return {
+            **preserved_hidden_settings,
             "window_x": self.window_x_spin.value(),
             "window_y": self.window_y_spin.value(),
             "window_width": self.window_width_spin.value(),
@@ -3562,6 +3772,12 @@ class SettingsDialog(QDialog):
             "show_mood_toggle_button": self.show_mood_toggle_button_check.isChecked(),
             "enable_global_ptt": self.enable_global_ptt_check.isChecked(),
             "interrupt_tts_on_ptt": self.interrupt_tts_on_ptt_check.isChecked(),
+            "enable_tts": self.enable_tts_check.isChecked(),
+            "tts_api_url": self.tts_api_url_edit.text().strip(),
+            "tts_ref_audio_path": self.tts_ref_audio_path_edit.text().strip(),
+            "tts_ref_text": self.tts_ref_text_edit.toPlainText().strip(),
+            "tts_ref_language": self.tts_ref_language_edit.text().strip() or "ja",
+            "tts_target_language": self.tts_target_language_edit.text().strip() or "ja",
             "global_ptt_hotkey": normalize_hotkey_text(self._ptt_hotkey_value, default="alt"),
             "note_include_recent_context": self.note_include_recent_context_check.isChecked(),
             "note_recent_context_turns": self.note_recent_context_turns_spin.value(),
@@ -3598,6 +3814,9 @@ class SettingsDialog(QDialog):
             "custom_api_key_or_password": self.custom_api_key_or_password_edit.text().strip(),
             "custom_api_request_model": self.custom_api_request_model_edit.text().strip(),
             "custom_api_format": str(self.custom_api_format_combo.currentData() or LLMFormat.OPENAI_COMPATIBLE.value),
+            "embedding_api_keys": embedding_api_keys,
+            "embedding_provider": str(self.embedding_provider_combo.currentData() or "voyage"),
+            "embedding_model": str(self.embedding_model_combo.currentData() or "voyage-3"),
         }
 
     def _preview_settings(self):

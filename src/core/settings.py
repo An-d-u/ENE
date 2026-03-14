@@ -24,6 +24,8 @@ class Settings:
         "enable_global_ptt": True,
         "global_ptt_hotkey": "alt",
         "interrupt_tts_on_ptt": True,
+        "embedding_provider": "voyage",
+        "embedding_model": "voyage-3",
         "stt_model_size": "small",
         "stt_language": "ko",
         "stt_device": "auto",
@@ -102,6 +104,12 @@ class Settings:
         "custom_api_format": "openai_compatible",
         "gemini_api_key": "",
         "summarize_threshold": 10,
+        "enable_tts": True,
+        "tts_api_url": "http://127.0.0.1:9880",
+        "tts_ref_audio_path": "assets/ref_audio/refvoice.wav",
+        "tts_ref_text": "人間さんはどんな色が一番好き？ ん？ なんで聞いたかって？ ふふん～ 内緒",
+        "tts_ref_language": "ja",
+        "tts_target_language": "ja",
         "enable_away_nudge": True,
         "away_idle_minutes": 60,
         "away_compare_delay_seconds": 30,
@@ -134,6 +142,9 @@ class Settings:
             "ollama": "",
             "custom_api": "",
         },
+        "embedding_api_keys": {
+            "voyage": "",
+        },
         "custom_api_key_or_password": "",
     }
 
@@ -145,12 +156,13 @@ class Settings:
         self.config = self.load()
         self.secret_config = self.load_secret()
         self._migrate_secrets_from_legacy_config()
+        self._migrate_legacy_embedding_key_file()
 
     def load(self) -> dict:
         """Load settings. Return defaults on failure."""
         if self.config_path.exists():
             try:
-                with open(self.config_path, "r", encoding="utf-8") as f:
+                with open(self.config_path, "r", encoding="utf-8-sig") as f:
                     loaded_config = json.load(f)
                 if not isinstance(loaded_config, dict):
                     loaded_config = {}
@@ -189,7 +201,7 @@ class Settings:
         """Load secret settings. Return defaults on failure."""
         if self.secret_path.exists():
             try:
-                with open(self.secret_path, "r", encoding="utf-8") as f:
+                with open(self.secret_path, "r", encoding="utf-8-sig") as f:
                     loaded_secret = json.load(f)
                 if not isinstance(loaded_secret, dict):
                     loaded_secret = {}
@@ -200,6 +212,12 @@ class Settings:
                 if isinstance(loaded_api_keys, dict):
                     base_api_keys.update(loaded_api_keys)
                 merged["llm_api_keys"] = base_api_keys
+
+                base_embedding_keys = dict(self.DEFAULT_SECRET_CONFIG["embedding_api_keys"])
+                loaded_embedding_keys = merged.get("embedding_api_keys", {})
+                if isinstance(loaded_embedding_keys, dict):
+                    base_embedding_keys.update(loaded_embedding_keys)
+                merged["embedding_api_keys"] = base_embedding_keys
                 return merged
             except Exception as e:
                 print(f"Secret settings load failed: {e}")
@@ -214,7 +232,7 @@ class Settings:
             return
 
         try:
-            with open(self.config_path, "r", encoding="utf-8") as f:
+            with open(self.config_path, "r", encoding="utf-8-sig") as f:
                 raw_config = json.load(f)
             if not isinstance(raw_config, dict):
                 return
@@ -240,15 +258,49 @@ class Settings:
         if moved:
             self.save()
 
+    def _migrate_legacy_embedding_key_file(self):
+        """
+        과거 voyage_api_key.txt를 api_keys.json의 embedding_api_keys.voyage로 1회 이전한다.
+        이전 후 레거시 파일은 제거한다.
+        """
+        legacy_path = Path("voyage_api_key.txt")
+        if not legacy_path.exists():
+            return
+
+        try:
+            raw_value = legacy_path.read_text(encoding="utf-8-sig").strip()
+        except Exception as e:
+            print(f"Legacy embedding key load failed: {e}")
+            return
+
+        existing_keys = self.secret_config.get("embedding_api_keys", {})
+        if not isinstance(existing_keys, dict):
+            existing_keys = {}
+
+        current_value = str(existing_keys.get("voyage", "")).strip()
+        migrated = False
+        if raw_value and raw_value != "your-voyage-api-key-here" and not current_value:
+            existing_keys["voyage"] = raw_value
+            self.secret_config["embedding_api_keys"] = existing_keys
+            migrated = True
+
+        if migrated:
+            self.save()
+
+        try:
+            legacy_path.unlink()
+        except Exception as e:
+            print(f"Legacy embedding key cleanup failed: {e}")
+
     def save(self):
         """Persist current settings and secret settings."""
         try:
-            with open(self.config_path, "w", encoding="utf-8") as f:
+            with open(self.config_path, "w", encoding="utf-8-sig") as f:
                 json.dump(self.config, f, indent=2, ensure_ascii=False)
         except Exception as e:
             print(f"Settings save failed: {e}")
         try:
-            with open(self.secret_path, "w", encoding="utf-8") as f:
+            with open(self.secret_path, "w", encoding="utf-8-sig") as f:
                 json.dump(self.secret_config, f, indent=2, ensure_ascii=False)
         except Exception as e:
             print(f"Secret settings save failed: {e}")

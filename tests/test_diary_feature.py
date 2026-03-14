@@ -396,6 +396,9 @@ def test_bridge_general_chat_includes_checked_obsidian_context(monkeypatch):
     bridge.llm_client = object()
 
     class DummyObsManager:
+        def is_connected(self):
+            return True
+
         def get_checked_file_contents(self, **kwargs):
             return [("notes/test.md", "# 테스트\n본문")]
 
@@ -426,6 +429,66 @@ def test_bridge_general_chat_includes_checked_obsidian_context(monkeypatch):
     assert "[파일:notes/test.md]" in captured["message_with_time"]
     assert "# 테스트" in captured["message_with_time"]
     assert "[사용자 메시지]\n안녕" in captured["message_with_time"]
+
+
+def test_bridge_general_chat_skips_obsidian_context_when_disconnected(monkeypatch):
+    _ensure_qt_app()
+
+    bridge = WebBridge()
+    bridge.llm_client = object()
+
+    class DummyObsManager:
+        def is_connected(self):
+            return False
+
+        def get_checked_file_contents(self, **kwargs):
+            raise AssertionError("연결이 없을 때는 체크 파일을 읽지 않아야 합니다.")
+
+    bridge.obsidian_manager = DummyObsManager()
+    captured = {}
+
+    def fake_note(message: str) -> bool:
+        return False
+
+    def fake_obs(message: str) -> bool:
+        return False
+
+    def fake_diary(message: str) -> bool:
+        return False
+
+    def fake_start(message_with_time: str, images_data=None):
+        captured["message_with_time"] = message_with_time
+
+    monkeypatch.setattr(bridge, "_handle_note_command", fake_note)
+    monkeypatch.setattr(bridge, "_handle_obs_command", fake_obs)
+    monkeypatch.setattr(bridge, "_handle_diary_command", fake_diary)
+    monkeypatch.setattr(bridge, "_start_ai_worker", fake_start)
+
+    bridge.send_to_ai("안녕")
+
+    assert "[Obsidian 체크된 파일 본문]" not in captured["message_with_time"]
+    assert captured["message_with_time"].endswith("\n안녕")
+
+
+def test_bridge_obs_tree_failed_payload_schedules_retry(monkeypatch):
+    _ensure_qt_app()
+
+    bridge = WebBridge()
+
+    class DummyPanel:
+        def isVisible(self):
+            return True
+
+    bridge.obs_panel_window = DummyPanel()
+    bridge._obs_tree_retry_remaining = 2
+    captured = {}
+
+    monkeypatch.setattr(bridge.obs_tree_retry_timer, "start", lambda ms: captured.setdefault("ms", ms))
+
+    bridge._on_obs_tree_ready('{"ok": false, "error": "mock fail", "nodes": []}')
+
+    assert captured["ms"] == 30000
+    assert bridge._obs_tree_retry_remaining == 1
 
 
 def test_bridge_obs_append_command_emits_success():
@@ -644,6 +707,76 @@ def test_aiworker_note_flow_uses_plan_path_when_request_has_no_md_path():
     assert manager.calls[1][0] == "create"
     assert manager.calls[1][1] == "path=notes/ene_auto.md"
     assert manager.calls[1][2].startswith("content=# 자동 생성")
+    assert "overwrite" in manager.calls[1]
+
+
+def test_aiworker_note_flow_generates_path_when_request_has_no_md_and_plan_has_no_path():
+    _ensure_qt_app()
+
+    class DummyLLM:
+        async def generate_note_command_plan(self, context_message: str) -> str:
+            return """
+# NOTE PLAN
+- summary: 데일리 기록 시도
+- stop_on_error: true
+## COMMANDS
+1. obsidian daily:append content="오늘 있었던 일을 기록"
+"""
+
+        async def generate_markdown_document(self, message: str) -> str:
+            return "# 오늘의 일기\n\n본문"
+
+        async def generate_note_execution_report(self, context_message: str):
+            assert "content-write-fallback" in context_message
+            return "완료 보고", "normal", "", []
+
+    class FailedCompleted:
+        def __init__(self):
+            self.returncode = -1
+            self.stdout = ""
+            self.stderr = ""
+
+    class OkCompleted:
+        def __init__(self):
+            self.returncode = 0
+            self.stdout = "ok"
+            self.stderr = ""
+
+    class DummyObsManager:
+        def __init__(self):
+            self.calls = []
+
+        def get_tree_lines(self, max_lines=120):
+            return []
+
+        def get_checked_file_contents(self, **kwargs):
+            return []
+
+        def execute_cli_args(self, args):
+            self.calls.append(list(args))
+            if len(self.calls) == 1:
+                return FailedCompleted()
+            return OkCompleted()
+
+    from src.ai.note_service import NoteService
+    from src.core.bridge import AIWorker
+
+    manager = DummyObsManager()
+    worker = AIWorker(
+        llm_client=DummyLLM(),
+        message="[현재 시각: 2026-03-11 02:10]\n오늘의 일기를 작성해줘",
+        note_request="오늘의 일기를 작성해줘",
+        note_service=NoteService(),
+        obsidian_manager=manager,
+    )
+
+    result = asyncio.run(worker._run_note_flow())
+    assert result[0] == "완료 보고"
+    assert len(manager.calls) == 2
+    assert manager.calls[0][0] == "daily:append"
+    assert manager.calls[1][0] == "create"
+    assert manager.calls[1][1].endswith(".md")
+    assert manager.calls[1][2].startswith("content=# 오늘의 일기")
     assert "overwrite" in manager.calls[1]
 
 def test_bridge_tts_error_restores_pending_response():

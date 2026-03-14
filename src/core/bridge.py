@@ -193,6 +193,7 @@ class AIWorker(QThread):
             target = (
                 self.note_service.extract_target_markdown_path(self.note_request)
                 or self.note_service.extract_target_markdown_path_from_plan(plan)
+                or self.note_service.build_generated_markdown_path(self.note_request)
             )
             if target:
                 generated_markdown = await self.llm_client.generate_markdown_document(self.note_request)
@@ -223,7 +224,10 @@ class AIWorker(QThread):
                 )
                 results = [*results, fallback_result]
             elif not planner_error:
-                planner_error = "문서 작성 요청으로 감지됐지만 대상 .md 경로를 찾지 못했습니다."
+                if self.note_service.has_content_writing_command(plan):
+                    planner_error = "본문 작성 명령이 실행됐지만 저장에 실패했고, 대체 저장 경로도 결정하지 못했습니다."
+                else:
+                    planner_error = "문서 작성 요청으로 감지됐지만 대상 .md 경로를 찾지 못했습니다."
 
         self.note_service.save_run_log(
             user_instruction=self.note_request,
@@ -315,13 +319,14 @@ class ObsidianTreeWorker(QThread):
     tree_ready = pyqtSignal(str)
     error_occurred = pyqtSignal(str)
 
-    def __init__(self, obsidian_manager):
+    def __init__(self, obsidian_manager, allow_retry: bool = False):
         super().__init__()
         self.obsidian_manager = obsidian_manager
+        self.allow_retry = bool(allow_retry)
 
     def run(self):
         try:
-            payload = self.obsidian_manager.get_tree_json()
+            payload = self.obsidian_manager.get_tree_json(allow_retry=self.allow_retry)
             self.tree_ready.emit(payload)
         except Exception as e:
             self.error_occurred.emit(str(e))
@@ -352,6 +357,10 @@ class WebBridge(QObject):
         self.obsidian_manager = ObsidianManager(settings=self.settings, obs_settings=self.obs_settings)
         self.obs_panel_window = None
         self.obs_tree_worker = None
+        self.obs_tree_retry_timer = QTimer(self)
+        self.obs_tree_retry_timer.setSingleShot(True)
+        self.obs_tree_retry_timer.timeout.connect(self._retry_obs_tree_refresh)
+        self._obs_tree_retry_remaining = 0
         self._cached_obs_tree_json = json.dumps(
             {"ok": True, "nodes": [], "checked_files": self.obs_settings.get_checked_files()},
             ensure_ascii=False
@@ -902,6 +911,8 @@ class WebBridge(QObject):
         일반 채팅 프롬프트를 구성한다.
         체크된 파일 본문은 항상 기본 컨텍스트에 포함한다.
         """
+        if not self.obsidian_manager.is_connected():
+            return message
         obs_context = self._build_obsidian_context_block(include_tree=False, include_checked_files=True).strip()
         if not obs_context:
             return message
@@ -1040,7 +1051,7 @@ class WebBridge(QObject):
     @pyqtSlot()
     def refresh_obs_tree(self):
         """JS에서 호출: 트리를 새로고침한다."""
-        self._start_obs_tree_refresh()
+        self._start_obs_tree_refresh(allow_retry=False, retry_sequence=False)
 
     @pyqtSlot()
     def toggle_obs_panel(self):
@@ -1053,6 +1064,8 @@ class WebBridge(QObject):
         try:
             if panel.isVisible():
                 panel.hide()
+                self.obs_tree_retry_timer.stop()
+                self._obs_tree_retry_remaining = 0
                 self.obs_settings.set("panel_visible", False)
                 self.obs_settings.save()
             else:
@@ -1064,28 +1077,58 @@ class WebBridge(QObject):
                 self.obs_settings.set("panel_visible", True)
                 self.obs_settings.save()
                 # 표시를 먼저 완료하고 트리는 백그라운드에서 갱신한다.
-                QTimer.singleShot(0, self.refresh_obs_tree)
+                QTimer.singleShot(0, lambda: self._start_obs_tree_refresh(allow_retry=False, retry_sequence=True))
         except Exception as e:
             print(f"[Bridge] toggle_obs_panel failed: {e}")
 
-    def _start_obs_tree_refresh(self):
+    def _start_obs_tree_refresh(self, allow_retry: bool = False, retry_sequence: bool = False):
         """Obsidian 트리 갱신을 백그라운드 워커로 실행한다."""
         if self.obs_tree_worker and self.obs_tree_worker.isRunning():
             return
+        if retry_sequence:
+            self._obs_tree_retry_remaining = 3
+        elif not self.obs_tree_retry_timer.isActive():
+            self._obs_tree_retry_remaining = 0
 
-        self.obs_tree_worker = ObsidianTreeWorker(self.obsidian_manager)
+        self.obs_tree_worker = ObsidianTreeWorker(self.obsidian_manager, allow_retry=allow_retry)
         self.obs_tree_worker.tree_ready.connect(self._on_obs_tree_ready)
         self.obs_tree_worker.error_occurred.connect(self._on_obs_tree_error)
         self.obs_tree_worker.start()
 
+    def _retry_obs_tree_refresh(self):
+        if self._obs_tree_retry_remaining <= 0:
+            return
+        panel = self.obs_panel_window
+        if panel is None or not panel.isVisible():
+            self._obs_tree_retry_remaining = 0
+            return
+        self._start_obs_tree_refresh(allow_retry=False, retry_sequence=False)
+
+    def _schedule_obs_tree_retry_if_needed(self):
+        panel = self.obs_panel_window
+        if self._obs_tree_retry_remaining > 0 and panel is not None and panel.isVisible():
+            self._obs_tree_retry_remaining -= 1
+            self.obs_tree_retry_timer.start(30_000)
+
     def _on_obs_tree_ready(self, tree_json: str):
+        try:
+            parsed = json.loads(tree_json or "{}")
+        except Exception:
+            parsed = {}
+        ok = isinstance(parsed, dict) and bool(parsed.get("ok"))
+        if ok:
+            self.obs_tree_retry_timer.stop()
+            self._obs_tree_retry_remaining = 0
         self._cached_obs_tree_json = tree_json
         self.obs_tree_updated.emit(tree_json)
+        if not ok:
+            self._schedule_obs_tree_retry_if_needed()
 
     def _on_obs_tree_error(self, error_msg: str):
         payload = json.dumps({"ok": False, "error": f"Obsidian 트리 갱신 실패: {error_msg}", "nodes": []}, ensure_ascii=False)
         self._cached_obs_tree_json = payload
         self.obs_tree_updated.emit(payload)
+        self._schedule_obs_tree_retry_if_needed()
 
     def _emit_obs_tree_with_updated_checked_files(self):
         checked = self.obs_settings.get_checked_files()
