@@ -315,6 +315,47 @@ def test_bridge_send_to_ai_routes_note(monkeypatch):
     assert called["diary"] == 0
 
 
+def test_edit_last_user_message_reroutes_to_note_command(monkeypatch):
+    _ensure_qt_app()
+
+    bridge = WebBridge()
+    bridge.llm_client = object()
+    bridge.conversation_buffer = [
+        ("user", "원래 질문", "2026-03-18 10:00"),
+        ("assistant", "원래 답변", "2026-03-18 10:00"),
+    ]
+    bridge._last_request_payload = {
+        "type": "text",
+        "message": "원래 질문",
+        "message_with_time": "[현재 시각: 2026-03-18 10:00]\n원래 질문",
+        "images": [],
+    }
+
+    called = {"rollback": 0, "note": 0, "normal": 0}
+
+    monkeypatch.setattr(bridge, "_rollback_last_turn_pair_for_retry", lambda: called.__setitem__("rollback", called["rollback"] + 1) or True)
+
+    def fake_note(message: str) -> bool:
+        called["note"] += 1
+        assert message == "/note 테스트 문서를 만들어줘"
+        return True
+
+    def fake_start(*args, **kwargs):
+        called["normal"] += 1
+
+    monkeypatch.setattr(bridge, "_handle_note_command", fake_note)
+    monkeypatch.setattr(bridge, "_handle_obs_command", lambda message: False)
+    monkeypatch.setattr(bridge, "_handle_diary_command", lambda message: False)
+    monkeypatch.setattr(bridge, "_start_ai_worker", fake_start)
+
+    bridge.edit_last_user_message("/note 테스트 문서를 만들어줘")
+
+    assert called["rollback"] == 1
+    assert called["note"] == 1
+    assert called["normal"] == 0
+    assert bridge.conversation_buffer == []
+
+
 def test_bridge_note_recent_context_includes_last_n_turns(monkeypatch):
     _ensure_qt_app()
 
