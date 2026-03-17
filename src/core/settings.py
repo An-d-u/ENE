@@ -105,6 +105,7 @@ class Settings:
         "gemini_api_key": "",
         "summarize_threshold": 10,
         "enable_tts": True,
+        "tts_provider": "gpt_sovits_http",
         "tts_api_url": "http://127.0.0.1:9880",
         "tts_ref_audio_path": "assets/ref_audio/refvoice.wav",
         "tts_ref_text": "人間さんはどんな色が一番好き？ ん？ なんで聞いたかって？ ふふん～ 内緒",
