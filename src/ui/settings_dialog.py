@@ -1474,6 +1474,7 @@ class SettingsDialog(QDialog):
         self._add_section("테마 설정", "라이트/다크와 팔레트", self._create_theme_tab())
         self._add_section("모델 설정", "배치와 Live2D 경로", self._create_model_tab())
         self._add_section("LLM 설정", "공급자와 응답 스타일", self._create_llm_tab())
+        self._add_section("TTS 설정", "공급자와 음성 합성 구성", self._create_tts_tab())
         self._add_section("동작 설정", "버튼, PTT, 감지 옵션", self._create_behavior_tab())
         self._add_lazy_tab("memory", "기억 관리", "기억 목록과 검색 설정", self._create_memory_tab)
         self._add_lazy_tab("profile", "사용자 기억 관리", "user_profile.json 구조 편집", self._create_user_profile_tab)
@@ -1688,6 +1689,18 @@ class SettingsDialog(QDialog):
         if not selected:
             return
         self.model_json_path_edit.setText(self._normalize_path_for_storage(selected))
+
+    def _browse_tts_ref_audio_path(self):
+        start_dir = self._project_root / "assets" / "ref_audio"
+        selected, _ = QFileDialog.getOpenFileName(
+            self,
+            "참조 오디오 선택",
+            str(start_dir),
+            "Audio Files (*.wav *.mp3 *.flac *.ogg);;모든 파일 (*.*)",
+        )
+        if not selected:
+            return
+        self.tts_ref_audio_path_edit.setText(self._normalize_path_for_storage(selected))
 
     def _create_window_tab(self):
         widget = QWidget()
@@ -2126,6 +2139,83 @@ class SettingsDialog(QDialog):
         scroll.setWidget(widget)
         return scroll
 
+    def _create_tts_tab(self):
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setSpacing(12)
+        layout.setContentsMargins(10, 10, 10, 10)
+
+        provider_group = QGroupBox("TTS 공급자")
+        provider_form = QFormLayout(provider_group)
+        provider_form.setSpacing(8)
+        provider_form.setContentsMargins(10, 15, 10, 10)
+
+        self.tts_provider_combo = QComboBox()
+        self.tts_provider_combo.addItem("GPT-SoVITS HTTP", "gpt_sovits_http")
+        self.tts_provider_combo.currentIndexChanged.connect(self._on_setting_changed)
+        provider_form.addRow("공급자:", self.tts_provider_combo)
+        provider_form.addRow(self._build_hint_label("Airi처럼 공급자 기반으로 확장할 수 있게 구조를 분리했습니다. 현재 ENE는 GPT-SoVITS HTTP만 지원합니다."))
+        layout.addWidget(provider_group)
+
+        connection_group = QGroupBox("연결과 활성화")
+        connection_form = QFormLayout(connection_group)
+        connection_form.setSpacing(8)
+        connection_form.setContentsMargins(10, 15, 10, 10)
+
+        self.enable_tts_check = self._create_toggle("일본어 응답 TTS 활성화")
+        self.enable_tts_check.toggled.connect(self._on_setting_changed)
+        connection_form.addRow(self.enable_tts_check)
+
+        self.tts_api_url_edit = QLineEdit()
+        self.tts_api_url_edit.setPlaceholderText("예: http://127.0.0.1:9880")
+        self.tts_api_url_edit.textChanged.connect(self._on_setting_changed)
+        connection_form.addRow("TTS API URL:", self.tts_api_url_edit)
+        layout.addWidget(connection_group)
+
+        reference_group = QGroupBox("참조 음성")
+        reference_form = QFormLayout(reference_group)
+        reference_form.setSpacing(8)
+        reference_form.setContentsMargins(10, 15, 10, 10)
+
+        audio_row = QHBoxLayout()
+        audio_row.setSpacing(8)
+        self.tts_ref_audio_path_edit = QLineEdit()
+        self.tts_ref_audio_path_edit.setPlaceholderText("예: assets/ref_audio/refvoice.wav")
+        self.tts_ref_audio_path_edit.textChanged.connect(self._on_setting_changed)
+        audio_row.addWidget(self.tts_ref_audio_path_edit, 1)
+
+        browse_audio_btn = QPushButton("찾아보기")
+        browse_audio_btn.clicked.connect(self._browse_tts_ref_audio_path)
+        audio_row.addWidget(browse_audio_btn)
+        reference_form.addRow("참조 오디오:", audio_row)
+
+        self.tts_ref_text_edit = QPlainTextEdit()
+        self.tts_ref_text_edit.setPlaceholderText("참조 오디오의 원문 텍스트")
+        self.tts_ref_text_edit.setFixedHeight(96)
+        self.tts_ref_text_edit.textChanged.connect(self._on_setting_changed)
+        reference_form.addRow("참조 텍스트:", self.tts_ref_text_edit)
+
+        self.tts_ref_language_edit = QLineEdit()
+        self.tts_ref_language_edit.setPlaceholderText("예: ja")
+        self.tts_ref_language_edit.textChanged.connect(self._on_setting_changed)
+        reference_form.addRow("참조 언어:", self.tts_ref_language_edit)
+
+        self.tts_target_language_edit = QLineEdit()
+        self.tts_target_language_edit.setPlaceholderText("예: ja")
+        self.tts_target_language_edit.textChanged.connect(self._on_setting_changed)
+        reference_form.addRow("출력 언어:", self.tts_target_language_edit)
+        reference_form.addRow(self._build_hint_label("공급자별 세부 옵션은 앞으로 이 탭 안에서 확장할 수 있게 구성했습니다. 지금은 GPT-SoVITS 기준의 참조 음성 설정만 노출합니다."))
+        layout.addWidget(reference_group)
+
+        layout.addStretch()
+        scroll.setWidget(widget)
+        return scroll
+
     def _create_behavior_tab(self):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -2210,43 +2300,6 @@ class SettingsDialog(QDialog):
         ptt_layout.addRow(self.global_ptt_hotkey_hint_label)
 
         layout.addWidget(ptt_group)
-
-        tts_group = QGroupBox("TTS 설정")
-        tts_layout = QFormLayout(tts_group)
-        tts_layout.setSpacing(8)
-        tts_layout.setContentsMargins(10, 15, 10, 10)
-
-        self.enable_tts_check = self._create_toggle("일본어 응답 TTS 활성화")
-        self.enable_tts_check.toggled.connect(self._on_setting_changed)
-        tts_layout.addRow(self.enable_tts_check)
-
-        self.tts_api_url_edit = QLineEdit()
-        self.tts_api_url_edit.setPlaceholderText("예: http://127.0.0.1:9880")
-        self.tts_api_url_edit.textChanged.connect(self._on_setting_changed)
-        tts_layout.addRow("TTS API URL:", self.tts_api_url_edit)
-
-        self.tts_ref_audio_path_edit = QLineEdit()
-        self.tts_ref_audio_path_edit.setPlaceholderText("예: assets/ref_audio/refvoice.wav")
-        self.tts_ref_audio_path_edit.textChanged.connect(self._on_setting_changed)
-        tts_layout.addRow("참조 오디오:", self.tts_ref_audio_path_edit)
-
-        self.tts_ref_text_edit = QPlainTextEdit()
-        self.tts_ref_text_edit.setPlaceholderText("참조 오디오의 원문 텍스트")
-        self.tts_ref_text_edit.setFixedHeight(84)
-        self.tts_ref_text_edit.textChanged.connect(self._on_setting_changed)
-        tts_layout.addRow("참조 텍스트:", self.tts_ref_text_edit)
-
-        self.tts_ref_language_edit = QLineEdit()
-        self.tts_ref_language_edit.setPlaceholderText("예: ja")
-        self.tts_ref_language_edit.textChanged.connect(self._on_setting_changed)
-        tts_layout.addRow("참조 언어:", self.tts_ref_language_edit)
-
-        self.tts_target_language_edit = QLineEdit()
-        self.tts_target_language_edit.setPlaceholderText("예: ja")
-        self.tts_target_language_edit.textChanged.connect(self._on_setting_changed)
-        tts_layout.addRow("출력 언어:", self.tts_target_language_edit)
-        tts_layout.addRow(self._build_hint_label("현재는 GPT-SoVITS HTTP 서버 기준 설정입니다. 나중에 화자 프리셋이나 서버 프로파일을 추가해도 구조를 유지할 수 있게 구성했습니다."))
-        layout.addWidget(tts_group)
 
         note_group = QGroupBox("노트 설정")
         note_layout = QFormLayout(note_group)
@@ -3545,6 +3598,11 @@ class SettingsDialog(QDialog):
             self.enable_tts_check.setChecked(
                 self._original_settings.get("enable_tts", True)
             )
+            tts_provider = str(self._original_settings.get("tts_provider", "gpt_sovits_http")).strip().lower()
+            tts_provider_index = self.tts_provider_combo.findData(tts_provider)
+            if tts_provider_index < 0:
+                tts_provider_index = 0
+            self.tts_provider_combo.setCurrentIndex(tts_provider_index)
             self.tts_api_url_edit.setText(str(self._original_settings.get("tts_api_url", "http://127.0.0.1:9880")))
             self.tts_ref_audio_path_edit.setText(str(self._original_settings.get("tts_ref_audio_path", "assets/ref_audio/refvoice.wav")))
             self.tts_ref_text_edit.setPlainText(str(self._original_settings.get("tts_ref_text", "人間さんはどんな色が一番好き？ ん？ なんで聞いたかって？ ふふん～ 内緒")))
@@ -3773,6 +3831,7 @@ class SettingsDialog(QDialog):
             "enable_global_ptt": self.enable_global_ptt_check.isChecked(),
             "interrupt_tts_on_ptt": self.interrupt_tts_on_ptt_check.isChecked(),
             "enable_tts": self.enable_tts_check.isChecked(),
+            "tts_provider": str(self.tts_provider_combo.currentData() or "gpt_sovits_http"),
             "tts_api_url": self.tts_api_url_edit.text().strip(),
             "tts_ref_audio_path": self.tts_ref_audio_path_edit.text().strip(),
             "tts_ref_text": self.tts_ref_text_edit.toPlainText().strip(),

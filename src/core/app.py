@@ -274,6 +274,13 @@ class ENEApplication(QObject):
                 self.audio_player = None
                 print("INFO: TTS 비활성화 상태로 초기화를 건너뜁니다.")
                 return
+
+            tts_provider = str(self.settings.get("tts_provider", "gpt_sovits_http")).strip().lower()
+            if tts_provider != "gpt_sovits_http":
+                self.tts_client = None
+                self.audio_player = None
+                print(f"WARNING: 아직 지원하지 않는 TTS 공급자입니다: {tts_provider}")
+                return
             
             # TTS 클라이언트 초기화
             self.tts_client = TTSClient(
@@ -496,6 +503,7 @@ class ENEApplication(QObject):
         old_embedding_model = str(self.settings.get("embedding_model", "voyage-3")).strip() or "voyage-3"
         old_tts_config = (
             bool(self.settings.get("enable_tts", False)),
+            str(self.settings.get("tts_provider", "gpt_sovits_http")).strip(),
             str(self.settings.get("tts_api_url", "http://127.0.0.1:9880")).strip(),
             str(self.settings.get("tts_ref_audio_path", "assets/ref_audio/refvoice.wav")).strip(),
             str(self.settings.get("tts_ref_text", "")).strip(),
@@ -515,11 +523,12 @@ class ENEApplication(QObject):
 
         new_tts_config = (
             bool(new_settings.get("enable_tts", old_tts_config[0])),
-            str(new_settings.get("tts_api_url", old_tts_config[1])).strip(),
-            str(new_settings.get("tts_ref_audio_path", old_tts_config[2])).strip(),
-            str(new_settings.get("tts_ref_text", old_tts_config[3])).strip(),
-            str(new_settings.get("tts_ref_language", old_tts_config[4])).strip(),
-            str(new_settings.get("tts_target_language", old_tts_config[5])).strip(),
+            str(new_settings.get("tts_provider", old_tts_config[1])).strip(),
+            str(new_settings.get("tts_api_url", old_tts_config[2])).strip(),
+            str(new_settings.get("tts_ref_audio_path", old_tts_config[3])).strip(),
+            str(new_settings.get("tts_ref_text", old_tts_config[4])).strip(),
+            str(new_settings.get("tts_ref_language", old_tts_config[5])).strip(),
+            str(new_settings.get("tts_target_language", old_tts_config[6])).strip(),
         )
         if old_tts_config != new_tts_config:
             self._refresh_tts_runtime_bindings()

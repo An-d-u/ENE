@@ -1,4 +1,4 @@
-"""
+﻿"""
 캘린더 관리 시스템
 일정 추가/조회 및 대화 횟수 추적
 """
@@ -236,6 +236,39 @@ class CalendarManager:
         
         # 날짜 내림차순 정렬
         return dict(sorted(recent_counts.items(), reverse=True))
+
+    def get_recent_or_latest_conversation_counts(self, days: int = 7, exclude_today: bool = True) -> Dict[str, int]:
+        """
+        최근 N일 대화 기록이 있으면 그것을 반환하고,
+        없으면 전체 기록 중 가장 최근 대화 1건만 반환한다.
+
+        Args:
+            days: 우선 조회할 최근 일수
+            exclude_today: 오늘 제외 여부
+
+        Returns:
+            {날짜: 횟수} 딕셔너리
+        """
+        recent_counts = self.get_recent_conversation_counts(days=days, exclude_today=exclude_today)
+        if recent_counts:
+            return recent_counts
+
+        valid_items = []
+        for date_str, count in self.conversation_counts.items():
+            if count <= 0:
+                continue
+            try:
+                date_obj = datetime.fromisoformat(date_str).date()
+            except ValueError:
+                continue
+            valid_items.append((date_obj, date_str, count))
+
+        if not valid_items:
+            return {}
+
+        valid_items.sort(reverse=True)
+        _, latest_date_str, latest_count = valid_items[0]
+        return {latest_date_str: latest_count}
     
     def get_all_events(self) -> List[CalendarEvent]:
         """모든 일정 반환"""

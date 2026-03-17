@@ -1330,6 +1330,17 @@ class WebBridge(QObject):
         if self.conversation_buffer and self.conversation_buffer[-1][0] == "user":
             self.conversation_buffer.pop()
 
+        # 수정 결과가 슬래시 명령이면 일반 채팅이 아니라 원래 명령 경로로 다시 보낸다.
+        if self._handle_note_command(edited_message):
+            print("[Bridge] Edit rerouted to /note command flow")
+            return
+        if self._handle_obs_command(edited_message):
+            print("[Bridge] Edit rerouted to /obs command flow")
+            return
+        if self._handle_diary_command(edited_message):
+            print("[Bridge] Edit rerouted to /diary command flow")
+            return
+
         timestamp = self._now_timestamp()
         payload_type = self._last_request_payload.get("type", "text")
         images = self._last_request_payload.get("images") or []
