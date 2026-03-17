@@ -380,9 +380,9 @@ class GeminiClient:
                     except:
                         pass
         
-        # 5. 최근 일주일 대화 횟수 추가 (오늘 제외)
+        # 5. 최근 일주일 대화 횟수 추가 (없으면 전체 기록 중 가장 최근 1건 사용)
         if self.calendar_manager:
-            recent_counts = self.calendar_manager.get_recent_conversation_counts(days=7, exclude_today=True)
+            recent_counts = self.calendar_manager.get_recent_or_latest_conversation_counts(days=7, exclude_today=True)
             if recent_counts:
                 context_parts.append("\n[최근 대화 활동]")
                 for date_str, count in recent_counts.items():
