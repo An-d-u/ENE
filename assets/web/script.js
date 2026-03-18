@@ -166,6 +166,109 @@ window.applyENETheme = function applyENETheme(config) {
 
 window.applyENETheme(window.eneThemeConfig);
 
+function resolveBrowserSpeechVoice(preferredVoice, preferredLang) {
+    if (!('speechSynthesis' in window)) {
+        return null;
+    }
+    const voices = window.speechSynthesis.getVoices() || [];
+    const requestedVoice = (preferredVoice || '').trim().toLowerCase();
+    const requestedLang = (preferredLang || '').trim().toLowerCase();
+
+    if (requestedVoice) {
+        const exact = voices.find((voice) => String(voice.name || '').trim().toLowerCase() === requestedVoice);
+        if (exact) {
+            return exact;
+        }
+    }
+
+    if (requestedLang) {
+        const byLang = voices.find((voice) => String(voice.lang || '').trim().toLowerCase().startsWith(requestedLang));
+        if (byLang) {
+            return byLang;
+        }
+    }
+
+    return voices[0] || null;
+}
+
+window.getBrowserTTSVoices = function getBrowserTTSVoices() {
+    if (!('speechSynthesis' in window)) {
+        return [];
+    }
+    try {
+        const voices = window.speechSynthesis.getVoices() || [];
+        return voices.map((voice) => ({
+            name: String(voice.name || ''),
+            lang: String(voice.lang || ''),
+            default: Boolean(voice.default),
+            localService: Boolean(voice.localService)
+        }));
+    } catch (error) {
+        console.warn('Failed to enumerate browser TTS voices:', error);
+        return [];
+    }
+};
+
+if ('speechSynthesis' in window) {
+    try {
+        window.speechSynthesis.getVoices();
+    } catch (error) {
+        console.warn('Initial browser TTS voice warmup failed:', error);
+    }
+}
+
+window.stopBrowserTTS = function stopBrowserTTS() {
+    if (!('speechSynthesis' in window)) {
+        return false;
+    }
+    try {
+        window.speechSynthesis.cancel();
+        return true;
+    } catch (error) {
+        console.warn('Failed to stop browser TTS:', error);
+        return false;
+    }
+};
+
+window.playBrowserTTS = function playBrowserTTS(payload) {
+    if (!('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') {
+        showToast('브라우저 기본 TTS를 사용할 수 없는 환경입니다.', 'error');
+        return false;
+    }
+
+    const options = payload || {};
+    const text = String(options.text || '').trim();
+    if (!text) {
+        return false;
+    }
+
+    try {
+        window.stopBrowserTTS();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = String(options.lang || 'ja-JP');
+        utterance.rate = Math.max(0.1, Math.min(Number(options.rate || 1.0), 3.0));
+        utterance.pitch = Math.max(0.0, Math.min(Number(options.pitch || 1.0), 2.0));
+        utterance.volume = Math.max(0.0, Math.min(Number(options.volume || 1.0), 1.0));
+
+        const voice = resolveBrowserSpeechVoice(options.voice, utterance.lang);
+        if (voice) {
+            utterance.voice = voice;
+            utterance.lang = voice.lang || utterance.lang;
+        }
+
+        utterance.onerror = (event) => {
+            console.warn('Browser TTS error:', event.error || event);
+            showToast('브라우저 기본 TTS 재생에 실패했습니다.', 'error');
+        };
+        window.speechSynthesis.speak(utterance);
+        return true;
+    } catch (error) {
+        console.warn('Failed to play browser TTS:', error);
+        showToast('브라우저 기본 TTS 재생에 실패했습니다.', 'error');
+        return false;
+    }
+};
+
 function removeCurrentModelArtifacts() {
     if (window.live2dModel) {
         app.stage.removeChild(window.live2dModel);
@@ -1694,6 +1797,27 @@ function addMessage(text, role, images = []) {
     return messageDiv;
 }
 
+// UI가 먼저 그려진 뒤 Python 브리지 호출이 실행되도록 한 프레임 뒤로 넘긴다.
+function dispatchBridgeCall(task, onError) {
+    const scheduleFrame = window.requestAnimationFrame
+        ? window.requestAnimationFrame.bind(window)
+        : (callback) => window.setTimeout(callback, 16);
+
+    scheduleFrame(() => {
+        window.setTimeout(() => {
+            try {
+                task();
+            } catch (error) {
+                if (typeof onError === 'function') {
+                    onError(error);
+                    return;
+                }
+                throw error;
+            }
+        }, 0);
+    });
+}
+
 /**
  * 이미지 선택 창 열기.
  */
@@ -1783,7 +1907,12 @@ function sendMessage() {
     const message = chatInput.value.trim();
 
     if (!message && attachedImages.length === 0) return;
-    const imageUrls = attachedImages.map(img => img.dataUrl);
+    const pendingImages = attachedImages.map(img => ({
+        dataUrl: img.dataUrl,
+        name: img.name,
+        type: img.type
+    }));
+    const imageUrls = pendingImages.map(img => img.dataUrl);
     addMessage(message || '(이미지)', 'user', imageUrls);
     chatInput.value = '';
     autoResizeTextarea();
@@ -1793,16 +1922,20 @@ function sendMessage() {
         updateRerollButtonState();
         showLoadingIndicator(true);
 
-        if (attachedImages.length > 0) {
-            const imageDataList = JSON.stringify(attachedImages.map(img => ({
-                dataUrl: img.dataUrl,
-                name: img.name,
-                type: img.type
-            })));
-            window.pyBridge.send_to_ai_with_images(message, imageDataList);
-        } else {
-            window.pyBridge.send_to_ai(message);
-        }
+        dispatchBridgeCall(() => {
+            if (pendingImages.length > 0) {
+                window.pyBridge.send_to_ai_with_images(message, JSON.stringify(pendingImages));
+            } else {
+                window.pyBridge.send_to_ai(message);
+            }
+        }, (error) => {
+            console.error("Python bridge dispatch failed", error);
+            addMessage("연결 오류가 발생했어요.", 'assistant');
+            isRequestPending = false;
+            shouldReplaceNextAssistant = false;
+            updateRerollButtonState();
+            showLoadingIndicator(false);
+        });
     } else {
         console.error("Python bridge not connected");
         addMessage("연결 오류가 발생했어요.", 'assistant');
@@ -1825,7 +1958,16 @@ function submitVoiceText(text) {
         shouldReplaceNextAssistant = false;
         updateRerollButtonState();
         showLoadingIndicator(true);
-        window.pyBridge.send_to_ai(message);
+        dispatchBridgeCall(() => {
+            window.pyBridge.send_to_ai(message);
+        }, (error) => {
+            console.error("Python bridge dispatch failed", error);
+            addMessage("연결 오류가 발생했어요.", 'assistant');
+            isRequestPending = false;
+            shouldReplaceNextAssistant = false;
+            updateRerollButtonState();
+            showLoadingIndicator(false);
+        });
         return;
     }
 

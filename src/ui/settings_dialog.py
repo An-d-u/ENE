@@ -45,6 +45,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ..ai.prompt import get_available_emotions
+from ..ai.tts_client import get_tts_provider_catalog, get_tts_provider_defaults
 from ..ai.llm_provider import LLMFormat, get_llm_provider_catalog
 from ..core.system_theme import THEME_PRESETS, THEME_VARIANT_PRESETS, get_theme_preset, get_windows_theme_mode
 from ..core.hotkey_utils import hotkey_to_display, normalize_hotkey_text
@@ -529,6 +530,12 @@ class SettingsDialog(QDialog):
         self._original_settings = current_settings.copy()
         self._memory_manager = memory_manager
         self._bridge = bridge
+        self._browser_tts_voices: list[dict[str, object]] = []
+        self._browser_voice_request_inflight = False
+        self._browser_voice_refresh_attempts = 0
+        self._browser_voice_refresh_timer = QTimer(self)
+        self._browser_voice_refresh_timer.setSingleShot(True)
+        self._browser_voice_refresh_timer.timeout.connect(self._request_browser_tts_voices)
         self._project_root = Path(__file__).resolve().parents[2]
         self._prompt_path = self._project_root / "src" / "ai" / "prompt.py"
         self._sub_prompt_path = self._project_root / "src" / "ai" / "sub_prompt.py"
@@ -613,6 +620,22 @@ class SettingsDialog(QDialog):
             str(self._original_settings.get("global_ptt_hotkey", "alt")),
             default="alt",
         )
+        self._tts_catalog = get_tts_provider_catalog()
+        raw_tts_configs = self._original_settings.get("tts_provider_configs", {})
+        if not isinstance(raw_tts_configs, dict):
+            raw_tts_configs = {}
+        self._tts_provider_configs = {
+            provider: {
+                **get_tts_provider_defaults(provider),
+                **(provider_config if isinstance(provider_config, dict) else {}),
+            }
+            for provider, provider_config in raw_tts_configs.items()
+        }
+        for provider in self._tts_catalog.keys():
+            self._tts_provider_configs.setdefault(provider, get_tts_provider_defaults(provider))
+
+        raw_tts_api_keys = self._original_settings.get("tts_api_keys", {})
+        self._tts_api_keys = dict(raw_tts_api_keys) if isinstance(raw_tts_api_keys, dict) else {}
 
         self.setWindowTitle("ENE 설정")
         icon_path = self._project_root / "assets" / "icons" / "ene_app.ico"
@@ -1702,6 +1725,286 @@ class SettingsDialog(QDialog):
             return
         self.tts_ref_audio_path_edit.setText(self._normalize_path_for_storage(selected))
 
+    def _get_overlay_web_page(self):
+        if not self._bridge:
+            return None
+        parent = self._bridge.parent()
+        if not parent or not hasattr(parent, "web_view"):
+            return None
+        try:
+            return parent.web_view.page()
+        except Exception:
+            return None
+
+    def _request_browser_tts_voices(self):
+        if self._browser_voice_request_inflight:
+            return
+        page = self._get_overlay_web_page()
+        if page is None:
+            if hasattr(self, "tts_browser_voice_status_label"):
+                self.tts_browser_voice_status_label.setText("현재 웹뷰를 찾을 수 없어 음성 목록을 읽지 못했습니다.")
+            return
+
+        self._browser_voice_request_inflight = True
+        if hasattr(self, "tts_browser_voice_status_label"):
+            self.tts_browser_voice_status_label.setText("현재 환경의 브라우저 음성 목록을 불러오는 중입니다...")
+        page.runJavaScript(
+            "(function(){"
+            "if (typeof window.getBrowserTTSVoices === 'function') {"
+            "return window.getBrowserTTSVoices();"
+            "}"
+            "return [];"
+            "})();",
+            self._handle_browser_tts_voices_result,
+        )
+
+    def _handle_browser_tts_voices_result(self, result):
+        self._browser_voice_request_inflight = False
+        voices = result if isinstance(result, list) else []
+        normalized_voices = []
+        for item in voices:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name", "")).strip()
+            lang = str(item.get("lang", "")).strip()
+            if not name:
+                continue
+            normalized_voices.append(
+                {
+                    "name": name,
+                    "lang": lang,
+                    "default": bool(item.get("default", False)),
+                }
+            )
+
+        if normalized_voices:
+            self._browser_voice_refresh_attempts = 0
+            self._browser_tts_voices = normalized_voices
+            self._populate_browser_tts_language_filter(normalized_voices)
+            self._populate_browser_tts_voice_combo()
+            if hasattr(self, "tts_browser_voice_status_label"):
+                self.tts_browser_voice_status_label.setText(
+                    f"현재 환경에서 사용 가능한 음성 {len(normalized_voices)}개를 불러왔습니다."
+                )
+            return
+
+        self._browser_voice_refresh_attempts += 1
+        if hasattr(self, "tts_browser_voice_status_label"):
+            self.tts_browser_voice_status_label.setText(
+                "아직 음성 목록을 받지 못했습니다. 시스템 음성 초기화 뒤 다시 시도합니다."
+            )
+        if self._browser_voice_refresh_attempts < 4:
+            self._browser_voice_refresh_timer.start(450)
+
+    def _populate_browser_tts_language_filter(self, voices: list[dict]) -> None:
+        if not hasattr(self, "tts_browser_voice_lang_filter_combo"):
+            return
+        current_data = self.tts_browser_voice_lang_filter_combo.currentData()
+        current_lang = self.tts_browser_lang_edit.text().strip()
+        languages = sorted({str(voice.get("lang", "")).strip() for voice in voices if str(voice.get("lang", "")).strip()})
+
+        self.tts_browser_voice_lang_filter_combo.blockSignals(True)
+        self.tts_browser_voice_lang_filter_combo.clear()
+        self.tts_browser_voice_lang_filter_combo.addItem("전체 언어", "")
+        for lang in languages:
+            self.tts_browser_voice_lang_filter_combo.addItem(lang, lang)
+
+        matched_index = -1
+        if current_data:
+            matched_index = self.tts_browser_voice_lang_filter_combo.findData(current_data)
+        if matched_index < 0 and current_lang:
+            matched_index = self.tts_browser_voice_lang_filter_combo.findData(current_lang)
+        self.tts_browser_voice_lang_filter_combo.setCurrentIndex(matched_index if matched_index >= 0 else 0)
+        self.tts_browser_voice_lang_filter_combo.blockSignals(False)
+
+    def _populate_browser_tts_voice_combo(self) -> None:
+        if not hasattr(self, "tts_browser_voice_combo"):
+            return
+        voices = list(self._browser_tts_voices)
+        current_text = self.tts_browser_voice_combo.currentText().strip()
+        selected_lang = ""
+        if hasattr(self, "tts_browser_voice_lang_filter_combo"):
+            selected_lang = str(self.tts_browser_voice_lang_filter_combo.currentData() or "").strip().lower()
+        if selected_lang:
+            voices = [
+                voice for voice in voices
+                if str(voice.get("lang", "")).strip().lower().startswith(selected_lang)
+            ]
+        self.tts_browser_voice_combo.blockSignals(True)
+        self.tts_browser_voice_combo.clear()
+        for voice in sorted(
+            voices,
+            key=lambda item: (
+                0 if item.get("default") else 1,
+                str(item.get("lang", "")),
+                str(item.get("name", "")).lower(),
+            ),
+        ):
+            label = str(voice["name"])
+            lang = str(voice.get("lang", "")).strip()
+            if lang:
+                label = f"{label} ({lang})"
+            if voice.get("default"):
+                label = f"{label} · 기본"
+            self.tts_browser_voice_combo.addItem(label, str(voice["name"]))
+
+        if current_text:
+            matched_index = self.tts_browser_voice_combo.findData(current_text)
+            if matched_index >= 0:
+                self.tts_browser_voice_combo.setCurrentIndex(matched_index)
+            else:
+                self.tts_browser_voice_combo.setEditText(current_text)
+        self.tts_browser_voice_combo.blockSignals(False)
+
+        if hasattr(self, "tts_browser_voice_status_label") and self._browser_tts_voices:
+            filter_suffix = ""
+            if selected_lang:
+                filter_suffix = f" · {selected_lang} 기준 {len(voices)}개 표시"
+            self.tts_browser_voice_status_label.setText(
+                f"현재 환경에서 사용 가능한 음성 {len(self._browser_tts_voices)}개를 불러왔습니다{filter_suffix}."
+            )
+
+    def _on_browser_tts_language_filter_changed(self, *_):
+        self._populate_browser_tts_voice_combo()
+
+    def _on_browser_tts_lang_changed(self, *_):
+        self._on_setting_changed()
+        if not hasattr(self, "tts_browser_voice_lang_filter_combo"):
+            return
+        current_lang = self.tts_browser_lang_edit.text().strip()
+        if not current_lang:
+            return
+        matched_index = self.tts_browser_voice_lang_filter_combo.findData(current_lang)
+        if matched_index >= 0 and self.tts_browser_voice_lang_filter_combo.currentIndex() != matched_index:
+            self.tts_browser_voice_lang_filter_combo.setCurrentIndex(matched_index)
+
+    def _on_tts_provider_changed(self, *_):
+        self._sync_tts_provider_ui()
+        self._on_setting_changed()
+
+    def _sync_tts_provider_ui(self):
+        provider = str(self.tts_provider_combo.currentData() or "gpt_sovits_http")
+        if hasattr(self, "tts_provider_stack"):
+            page = self._tts_provider_pages.get(provider)
+            if page is not None:
+                self.tts_provider_stack.setCurrentWidget(page)
+        if hasattr(self, "tts_provider_hint_label"):
+            meta = self._tts_catalog.get(provider)
+            self.tts_provider_hint_label.setText(meta.description if meta else "")
+        if provider == "browser_speech":
+            self._browser_voice_refresh_attempts = 0
+            self._request_browser_tts_voices()
+
+    def _collect_tts_provider_configs(self) -> dict:
+        return {
+            "gpt_sovits_http": {
+                "api_url": self.tts_api_url_edit.text().strip() or "http://127.0.0.1:9880",
+                "ref_audio_path": self.tts_ref_audio_path_edit.text().strip() or "assets/ref_audio/refvoice.wav",
+                "ref_text": self.tts_ref_text_edit.toPlainText().strip(),
+                "ref_language": self.tts_ref_language_edit.text().strip() or "ja",
+                "target_language": self.tts_target_language_edit.text().strip() or "ja",
+            },
+            "openai_audio_speech": {
+                "api_url": self.tts_openai_api_url_edit.text().strip() or "https://api.openai.com/v1",
+                "model": str(self.tts_openai_model_combo.currentData() or "gpt-4o-mini-tts"),
+                "voice": str(self.tts_openai_voice_combo.currentData() or "alloy"),
+                "speed": round(self.tts_openai_speed_spin.value(), 2),
+                "response_format": "wav",
+            },
+            "openai_compatible_audio_speech": {
+                "api_url": self.tts_compatible_api_url_edit.text().strip() or "http://127.0.0.1:8000/v1",
+                "model": self.tts_compatible_model_edit.text().strip() or "tts-1",
+                "voice": self.tts_compatible_voice_edit.text().strip() or "alloy",
+                "speed": round(self.tts_compatible_speed_spin.value(), 2),
+                "response_format": "wav",
+            },
+            "elevenlabs": {
+                "api_url": self.tts_elevenlabs_api_url_edit.text().strip() or "https://api.elevenlabs.io/v1",
+                "model": str(self.tts_elevenlabs_model_combo.currentData() or "eleven_multilingual_v2"),
+                "voice": self.tts_elevenlabs_voice_edit.text().strip() or "EXAVITQu4vr4xnSDxMaL",
+                "speed": round(self.tts_elevenlabs_speed_spin.value(), 2),
+                "stability": round(self.tts_elevenlabs_stability_spin.value(), 2),
+                "similarity_boost": round(self.tts_elevenlabs_similarity_spin.value(), 2),
+                "style": round(self.tts_elevenlabs_style_spin.value(), 2),
+                "use_speaker_boost": self.tts_elevenlabs_speaker_boost_check.isChecked(),
+                "output_format": "pcm_44100",
+            },
+            "browser_speech": {
+                "lang": self.tts_browser_lang_edit.text().strip() or "ja-JP",
+                "voice": self.tts_browser_voice_combo.currentData() or self.tts_browser_voice_combo.currentText().strip(),
+                "rate": round(self.tts_browser_rate_spin.value(), 2),
+                "pitch": round(self.tts_browser_pitch_spin.value(), 2),
+                "volume": round(self.tts_browser_volume_spin.value(), 2),
+            },
+        }
+
+    def _collect_tts_api_keys(self) -> dict:
+        return {
+            "openai_audio_speech": self.tts_openai_api_key_edit.text().strip(),
+            "openai_compatible_audio_speech": self.tts_compatible_api_key_edit.text().strip(),
+            "elevenlabs": self.tts_elevenlabs_api_key_edit.text().strip(),
+        }
+
+    def _load_tts_values(self):
+        configs = self._tts_provider_configs
+        gpt_sovits = {**get_tts_provider_defaults("gpt_sovits_http"), **configs.get("gpt_sovits_http", {})}
+        openai = {**get_tts_provider_defaults("openai_audio_speech"), **configs.get("openai_audio_speech", {})}
+        compatible = {**get_tts_provider_defaults("openai_compatible_audio_speech"), **configs.get("openai_compatible_audio_speech", {})}
+        elevenlabs = {**get_tts_provider_defaults("elevenlabs"), **configs.get("elevenlabs", {})}
+        browser = {**get_tts_provider_defaults("browser_speech"), **configs.get("browser_speech", {})}
+
+        self.enable_tts_check.setChecked(self._original_settings.get("enable_tts", True))
+
+        tts_provider = str(self._original_settings.get("tts_provider", "gpt_sovits_http")).strip().lower()
+        tts_provider_index = self.tts_provider_combo.findData(tts_provider)
+        if tts_provider_index < 0:
+            tts_provider_index = 0
+        self.tts_provider_combo.setCurrentIndex(tts_provider_index)
+
+        self.tts_api_url_edit.setText(str(gpt_sovits.get("api_url", "http://127.0.0.1:9880")))
+        self.tts_ref_audio_path_edit.setText(str(gpt_sovits.get("ref_audio_path", "assets/ref_audio/refvoice.wav")))
+        self.tts_ref_text_edit.setPlainText(str(gpt_sovits.get("ref_text", "")))
+        self.tts_ref_language_edit.setText(str(gpt_sovits.get("ref_language", "ja")))
+        self.tts_target_language_edit.setText(str(gpt_sovits.get("target_language", "ja")))
+
+        self.tts_openai_api_key_edit.setText(str(self._tts_api_keys.get("openai_audio_speech", "")))
+        self.tts_openai_api_url_edit.setText(str(openai.get("api_url", "https://api.openai.com/v1")))
+        openai_model_index = self.tts_openai_model_combo.findData(str(openai.get("model", "gpt-4o-mini-tts")))
+        if openai_model_index < 0:
+            openai_model_index = 0
+        self.tts_openai_model_combo.setCurrentIndex(openai_model_index)
+        openai_voice_index = self.tts_openai_voice_combo.findData(str(openai.get("voice", "alloy")))
+        if openai_voice_index < 0:
+            openai_voice_index = 0
+        self.tts_openai_voice_combo.setCurrentIndex(openai_voice_index)
+        self.tts_openai_speed_spin.setValue(float(openai.get("speed", 1.0) or 1.0))
+
+        self.tts_compatible_api_key_edit.setText(str(self._tts_api_keys.get("openai_compatible_audio_speech", "")))
+        self.tts_compatible_api_url_edit.setText(str(compatible.get("api_url", "http://127.0.0.1:8000/v1")))
+        self.tts_compatible_model_edit.setText(str(compatible.get("model", "tts-1")))
+        self.tts_compatible_voice_edit.setText(str(compatible.get("voice", "alloy")))
+        self.tts_compatible_speed_spin.setValue(float(compatible.get("speed", 1.0) or 1.0))
+
+        self.tts_elevenlabs_api_key_edit.setText(str(self._tts_api_keys.get("elevenlabs", "")))
+        self.tts_elevenlabs_api_url_edit.setText(str(elevenlabs.get("api_url", "https://api.elevenlabs.io/v1")))
+        elevenlabs_model_index = self.tts_elevenlabs_model_combo.findData(str(elevenlabs.get("model", "eleven_multilingual_v2")))
+        if elevenlabs_model_index < 0:
+            elevenlabs_model_index = 0
+        self.tts_elevenlabs_model_combo.setCurrentIndex(elevenlabs_model_index)
+        self.tts_elevenlabs_voice_edit.setText(str(elevenlabs.get("voice", "EXAVITQu4vr4xnSDxMaL")))
+        self.tts_elevenlabs_speed_spin.setValue(float(elevenlabs.get("speed", 1.0) or 1.0))
+        self.tts_elevenlabs_stability_spin.setValue(float(elevenlabs.get("stability", 0.5) or 0.5))
+        self.tts_elevenlabs_similarity_spin.setValue(float(elevenlabs.get("similarity_boost", 0.75) or 0.75))
+        self.tts_elevenlabs_style_spin.setValue(float(elevenlabs.get("style", 0.0) or 0.0))
+        self.tts_elevenlabs_speaker_boost_check.setChecked(bool(elevenlabs.get("use_speaker_boost", True)))
+
+        self.tts_browser_lang_edit.setText(str(browser.get("lang", "ja-JP")))
+        self.tts_browser_voice_combo.setEditText(str(browser.get("voice", "")))
+        self.tts_browser_rate_spin.setValue(float(browser.get("rate", 1.0) or 1.0))
+        self.tts_browser_pitch_spin.setValue(float(browser.get("pitch", 1.0) or 1.0))
+        self.tts_browser_volume_spin.setValue(float(browser.get("volume", 1.0) or 1.0))
+        self._sync_tts_provider_ui()
+
     def _create_window_tab(self):
         widget = QWidget()
         layout = QVBoxLayout(widget)
@@ -2150,37 +2453,49 @@ class SettingsDialog(QDialog):
         layout.setSpacing(12)
         layout.setContentsMargins(10, 10, 10, 10)
 
-        provider_group = QGroupBox("TTS 공급자")
-        provider_form = QFormLayout(provider_group)
-        provider_form.setSpacing(8)
-        provider_form.setContentsMargins(10, 15, 10, 10)
-
-        self.tts_provider_combo = QComboBox()
-        self.tts_provider_combo.addItem("GPT-SoVITS HTTP", "gpt_sovits_http")
-        self.tts_provider_combo.currentIndexChanged.connect(self._on_setting_changed)
-        provider_form.addRow("공급자:", self.tts_provider_combo)
-        provider_form.addRow(self._build_hint_label("Airi처럼 공급자 기반으로 확장할 수 있게 구조를 분리했습니다. 현재 ENE는 GPT-SoVITS HTTP만 지원합니다."))
-        layout.addWidget(provider_group)
-
-        connection_group = QGroupBox("연결과 활성화")
-        connection_form = QFormLayout(connection_group)
-        connection_form.setSpacing(8)
-        connection_form.setContentsMargins(10, 15, 10, 10)
+        overview_group = QGroupBox("공급자 선택")
+        overview_form = QFormLayout(overview_group)
+        overview_form.setSpacing(8)
+        overview_form.setContentsMargins(10, 15, 10, 10)
 
         self.enable_tts_check = self._create_toggle("일본어 응답 TTS 활성화")
         self.enable_tts_check.toggled.connect(self._on_setting_changed)
-        connection_form.addRow(self.enable_tts_check)
+        overview_form.addRow(self.enable_tts_check)
 
+        self.tts_provider_combo = QComboBox()
+        for provider_id, meta in self._tts_catalog.items():
+            self.tts_provider_combo.addItem(meta.display_name, provider_id)
+        self.tts_provider_combo.currentIndexChanged.connect(self._on_tts_provider_changed)
+        overview_form.addRow("공급자:", self.tts_provider_combo)
+
+        self.tts_provider_hint_label = QLabel("")
+        self.tts_provider_hint_label.setWordWrap(True)
+        self.tts_provider_hint_label.setObjectName("InlineHint")
+        overview_form.addRow(self.tts_provider_hint_label)
+        layout.addWidget(overview_group)
+
+        self._tts_provider_pages = {}
+        self.tts_provider_stack = QStackedWidget()
+
+        gpt_page = QWidget()
+        gpt_layout = QVBoxLayout(gpt_page)
+        gpt_layout.setSpacing(12)
+        gpt_layout.setContentsMargins(0, 0, 0, 0)
+
+        gpt_connection_group = QGroupBox("연결")
+        gpt_connection_form = QFormLayout(gpt_connection_group)
+        gpt_connection_form.setSpacing(8)
+        gpt_connection_form.setContentsMargins(10, 15, 10, 10)
         self.tts_api_url_edit = QLineEdit()
         self.tts_api_url_edit.setPlaceholderText("예: http://127.0.0.1:9880")
         self.tts_api_url_edit.textChanged.connect(self._on_setting_changed)
-        connection_form.addRow("TTS API URL:", self.tts_api_url_edit)
-        layout.addWidget(connection_group)
+        gpt_connection_form.addRow("TTS API URL:", self.tts_api_url_edit)
+        gpt_layout.addWidget(gpt_connection_group)
 
-        reference_group = QGroupBox("참조 음성")
-        reference_form = QFormLayout(reference_group)
-        reference_form.setSpacing(8)
-        reference_form.setContentsMargins(10, 15, 10, 10)
+        gpt_reference_group = QGroupBox("참조 음성")
+        gpt_reference_form = QFormLayout(gpt_reference_group)
+        gpt_reference_form.setSpacing(8)
+        gpt_reference_form.setContentsMargins(10, 15, 10, 10)
 
         audio_row = QHBoxLayout()
         audio_row.setSpacing(8)
@@ -2192,25 +2507,272 @@ class SettingsDialog(QDialog):
         browse_audio_btn = QPushButton("찾아보기")
         browse_audio_btn.clicked.connect(self._browse_tts_ref_audio_path)
         audio_row.addWidget(browse_audio_btn)
-        reference_form.addRow("참조 오디오:", audio_row)
+        gpt_reference_form.addRow("참조 오디오:", audio_row)
 
         self.tts_ref_text_edit = QPlainTextEdit()
         self.tts_ref_text_edit.setPlaceholderText("참조 오디오의 원문 텍스트")
         self.tts_ref_text_edit.setFixedHeight(96)
         self.tts_ref_text_edit.textChanged.connect(self._on_setting_changed)
-        reference_form.addRow("참조 텍스트:", self.tts_ref_text_edit)
+        gpt_reference_form.addRow("참조 텍스트:", self.tts_ref_text_edit)
 
         self.tts_ref_language_edit = QLineEdit()
         self.tts_ref_language_edit.setPlaceholderText("예: ja")
         self.tts_ref_language_edit.textChanged.connect(self._on_setting_changed)
-        reference_form.addRow("참조 언어:", self.tts_ref_language_edit)
+        gpt_reference_form.addRow("참조 언어:", self.tts_ref_language_edit)
 
         self.tts_target_language_edit = QLineEdit()
         self.tts_target_language_edit.setPlaceholderText("예: ja")
         self.tts_target_language_edit.textChanged.connect(self._on_setting_changed)
-        reference_form.addRow("출력 언어:", self.tts_target_language_edit)
-        reference_form.addRow(self._build_hint_label("공급자별 세부 옵션은 앞으로 이 탭 안에서 확장할 수 있게 구성했습니다. 지금은 GPT-SoVITS 기준의 참조 음성 설정만 노출합니다."))
-        layout.addWidget(reference_group)
+        gpt_reference_form.addRow("출력 언어:", self.tts_target_language_edit)
+        gpt_reference_form.addRow(self._build_hint_label("참조 음성 기반 합성입니다. 로컬 서버나 별도 머신의 GPT-SoVITS 엔드포인트를 그대로 지정할 수 있습니다."))
+        gpt_layout.addWidget(gpt_reference_group)
+        gpt_layout.addStretch()
+        self.tts_provider_stack.addWidget(gpt_page)
+        self._tts_provider_pages["gpt_sovits_http"] = gpt_page
+
+        openai_page = QWidget()
+        openai_layout = QVBoxLayout(openai_page)
+        openai_layout.setSpacing(12)
+        openai_layout.setContentsMargins(0, 0, 0, 0)
+
+        openai_connection_group = QGroupBox("OpenAI 연결")
+        openai_connection_form = QFormLayout(openai_connection_group)
+        openai_connection_form.setSpacing(8)
+        openai_connection_form.setContentsMargins(10, 15, 10, 10)
+        self.tts_openai_api_key_edit = QLineEdit()
+        self.tts_openai_api_key_edit.setPlaceholderText("OpenAI API 키")
+        self.tts_openai_api_key_edit.textChanged.connect(self._on_setting_changed)
+        openai_connection_form.addRow(
+            "API 키:",
+            self._build_secret_row(
+                self.tts_openai_api_key_edit,
+                lambda: self._toggle_secret_field(self.tts_openai_api_key_edit, self.tts_openai_api_key_toggle_button),
+                "tts_openai_api_key_toggle_button",
+            ),
+        )
+        self.tts_openai_api_url_edit = QLineEdit()
+        self.tts_openai_api_url_edit.setPlaceholderText("예: https://api.openai.com/v1")
+        self.tts_openai_api_url_edit.textChanged.connect(self._on_setting_changed)
+        openai_connection_form.addRow("API URL:", self.tts_openai_api_url_edit)
+        openai_layout.addWidget(openai_connection_group)
+
+        openai_voice_group = QGroupBox("모델과 음성")
+        openai_voice_form = QFormLayout(openai_voice_group)
+        openai_voice_form.setSpacing(8)
+        openai_voice_form.setContentsMargins(10, 15, 10, 10)
+        self.tts_openai_model_combo = QComboBox()
+        for model_name in ("gpt-4o-mini-tts", "tts-1", "tts-1-hd"):
+            self.tts_openai_model_combo.addItem(model_name, model_name)
+        self.tts_openai_model_combo.currentIndexChanged.connect(self._on_setting_changed)
+        openai_voice_form.addRow("모델:", self.tts_openai_model_combo)
+        self.tts_openai_voice_combo = QComboBox()
+        for voice_name in ("alloy", "ash", "ballad", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer", "verse", "marin", "cedar"):
+            self.tts_openai_voice_combo.addItem(voice_name, voice_name)
+        self.tts_openai_voice_combo.currentIndexChanged.connect(self._on_setting_changed)
+        openai_voice_form.addRow("음성:", self.tts_openai_voice_combo)
+        self.tts_openai_speed_spin = QDoubleSpinBox()
+        self.tts_openai_speed_spin.setRange(0.25, 4.0)
+        self.tts_openai_speed_spin.setSingleStep(0.05)
+        self.tts_openai_speed_spin.setDecimals(2)
+        self.tts_openai_speed_spin.setValue(1.0)
+        self.tts_openai_speed_spin.valueChanged.connect(self._on_setting_changed)
+        openai_voice_form.addRow("속도:", self.tts_openai_speed_spin)
+        openai_voice_form.addRow(self._build_hint_label("AIRI의 OpenAI Speech 설정처럼 API URL, 모델, 음성, 속도를 분리했습니다. 응답 포맷은 립싱크 분석을 위해 WAV로 고정합니다."))
+        openai_layout.addWidget(openai_voice_group)
+        openai_layout.addStretch()
+        self.tts_provider_stack.addWidget(openai_page)
+        self._tts_provider_pages["openai_audio_speech"] = openai_page
+
+        compatible_page = QWidget()
+        compatible_layout = QVBoxLayout(compatible_page)
+        compatible_layout.setSpacing(12)
+        compatible_layout.setContentsMargins(0, 0, 0, 0)
+
+        compatible_connection_group = QGroupBox("호환 API 연결")
+        compatible_connection_form = QFormLayout(compatible_connection_group)
+        compatible_connection_form.setSpacing(8)
+        compatible_connection_form.setContentsMargins(10, 15, 10, 10)
+        self.tts_compatible_api_key_edit = QLineEdit()
+        self.tts_compatible_api_key_edit.setPlaceholderText("필요한 경우에만 API 키 입력")
+        self.tts_compatible_api_key_edit.textChanged.connect(self._on_setting_changed)
+        compatible_connection_form.addRow(
+            "API 키:",
+            self._build_secret_row(
+                self.tts_compatible_api_key_edit,
+                lambda: self._toggle_secret_field(self.tts_compatible_api_key_edit, self.tts_compatible_api_key_toggle_button),
+                "tts_compatible_api_key_toggle_button",
+            ),
+        )
+        self.tts_compatible_api_url_edit = QLineEdit()
+        self.tts_compatible_api_url_edit.setPlaceholderText("예: http://127.0.0.1:8000/v1")
+        self.tts_compatible_api_url_edit.textChanged.connect(self._on_setting_changed)
+        compatible_connection_form.addRow("API URL:", self.tts_compatible_api_url_edit)
+        compatible_layout.addWidget(compatible_connection_group)
+
+        compatible_voice_group = QGroupBox("모델과 음성")
+        compatible_voice_form = QFormLayout(compatible_voice_group)
+        compatible_voice_form.setSpacing(8)
+        compatible_voice_form.setContentsMargins(10, 15, 10, 10)
+        self.tts_compatible_model_edit = QLineEdit()
+        self.tts_compatible_model_edit.setPlaceholderText("예: tts-1")
+        self.tts_compatible_model_edit.textChanged.connect(self._on_setting_changed)
+        compatible_voice_form.addRow("모델:", self.tts_compatible_model_edit)
+        self.tts_compatible_voice_edit = QLineEdit()
+        self.tts_compatible_voice_edit.setPlaceholderText("예: alloy")
+        self.tts_compatible_voice_edit.textChanged.connect(self._on_setting_changed)
+        compatible_voice_form.addRow("음성:", self.tts_compatible_voice_edit)
+        self.tts_compatible_speed_spin = QDoubleSpinBox()
+        self.tts_compatible_speed_spin.setRange(0.25, 4.0)
+        self.tts_compatible_speed_spin.setSingleStep(0.05)
+        self.tts_compatible_speed_spin.setDecimals(2)
+        self.tts_compatible_speed_spin.setValue(1.0)
+        self.tts_compatible_speed_spin.valueChanged.connect(self._on_setting_changed)
+        compatible_voice_form.addRow("속도:", self.tts_compatible_speed_spin)
+        compatible_voice_form.addRow(self._build_hint_label("로컬 TTS 서버나 프록시 API처럼 OpenAI 음성 합성 스펙을 흉내내는 엔드포인트에 맞춘 범용 설정입니다."))
+        compatible_layout.addWidget(compatible_voice_group)
+        compatible_layout.addStretch()
+        self.tts_provider_stack.addWidget(compatible_page)
+        self._tts_provider_pages["openai_compatible_audio_speech"] = compatible_page
+
+        elevenlabs_page = QWidget()
+        elevenlabs_layout = QVBoxLayout(elevenlabs_page)
+        elevenlabs_layout.setSpacing(12)
+        elevenlabs_layout.setContentsMargins(0, 0, 0, 0)
+
+        elevenlabs_connection_group = QGroupBox("ElevenLabs 연결")
+        elevenlabs_connection_form = QFormLayout(elevenlabs_connection_group)
+        elevenlabs_connection_form.setSpacing(8)
+        elevenlabs_connection_form.setContentsMargins(10, 15, 10, 10)
+        self.tts_elevenlabs_api_key_edit = QLineEdit()
+        self.tts_elevenlabs_api_key_edit.setPlaceholderText("ElevenLabs API 키")
+        self.tts_elevenlabs_api_key_edit.textChanged.connect(self._on_setting_changed)
+        elevenlabs_connection_form.addRow(
+            "API 키:",
+            self._build_secret_row(
+                self.tts_elevenlabs_api_key_edit,
+                lambda: self._toggle_secret_field(self.tts_elevenlabs_api_key_edit, self.tts_elevenlabs_api_key_toggle_button),
+                "tts_elevenlabs_api_key_toggle_button",
+            ),
+        )
+        self.tts_elevenlabs_api_url_edit = QLineEdit()
+        self.tts_elevenlabs_api_url_edit.setPlaceholderText("예: https://api.elevenlabs.io/v1")
+        self.tts_elevenlabs_api_url_edit.textChanged.connect(self._on_setting_changed)
+        elevenlabs_connection_form.addRow("API URL:", self.tts_elevenlabs_api_url_edit)
+        elevenlabs_layout.addWidget(elevenlabs_connection_group)
+
+        elevenlabs_voice_group = QGroupBox("모델과 음성 스타일")
+        elevenlabs_voice_form = QFormLayout(elevenlabs_voice_group)
+        elevenlabs_voice_form.setSpacing(8)
+        elevenlabs_voice_form.setContentsMargins(10, 15, 10, 10)
+        self.tts_elevenlabs_model_combo = QComboBox()
+        for model_name in ("eleven_multilingual_v2", "eleven_multilingual_v1", "eleven_monolingual_v1"):
+            self.tts_elevenlabs_model_combo.addItem(model_name, model_name)
+        self.tts_elevenlabs_model_combo.currentIndexChanged.connect(self._on_setting_changed)
+        elevenlabs_voice_form.addRow("모델:", self.tts_elevenlabs_model_combo)
+        self.tts_elevenlabs_voice_edit = QLineEdit()
+        self.tts_elevenlabs_voice_edit.setPlaceholderText("예: EXAVITQu4vr4xnSDxMaL")
+        self.tts_elevenlabs_voice_edit.textChanged.connect(self._on_setting_changed)
+        elevenlabs_voice_form.addRow("Voice ID:", self.tts_elevenlabs_voice_edit)
+        self.tts_elevenlabs_speed_spin = QDoubleSpinBox()
+        self.tts_elevenlabs_speed_spin.setRange(0.5, 2.0)
+        self.tts_elevenlabs_speed_spin.setSingleStep(0.05)
+        self.tts_elevenlabs_speed_spin.setDecimals(2)
+        self.tts_elevenlabs_speed_spin.setValue(1.0)
+        self.tts_elevenlabs_speed_spin.valueChanged.connect(self._on_setting_changed)
+        elevenlabs_voice_form.addRow("속도:", self.tts_elevenlabs_speed_spin)
+        self.tts_elevenlabs_stability_spin = QDoubleSpinBox()
+        self.tts_elevenlabs_stability_spin.setRange(0.0, 1.0)
+        self.tts_elevenlabs_stability_spin.setSingleStep(0.05)
+        self.tts_elevenlabs_stability_spin.setDecimals(2)
+        self.tts_elevenlabs_stability_spin.valueChanged.connect(self._on_setting_changed)
+        elevenlabs_voice_form.addRow("Stability:", self.tts_elevenlabs_stability_spin)
+        self.tts_elevenlabs_similarity_spin = QDoubleSpinBox()
+        self.tts_elevenlabs_similarity_spin.setRange(0.0, 1.0)
+        self.tts_elevenlabs_similarity_spin.setSingleStep(0.05)
+        self.tts_elevenlabs_similarity_spin.setDecimals(2)
+        self.tts_elevenlabs_similarity_spin.valueChanged.connect(self._on_setting_changed)
+        elevenlabs_voice_form.addRow("Similarity Boost:", self.tts_elevenlabs_similarity_spin)
+        self.tts_elevenlabs_style_spin = QDoubleSpinBox()
+        self.tts_elevenlabs_style_spin.setRange(0.0, 1.0)
+        self.tts_elevenlabs_style_spin.setSingleStep(0.05)
+        self.tts_elevenlabs_style_spin.setDecimals(2)
+        self.tts_elevenlabs_style_spin.valueChanged.connect(self._on_setting_changed)
+        elevenlabs_voice_form.addRow("Style:", self.tts_elevenlabs_style_spin)
+        self.tts_elevenlabs_speaker_boost_check = self._create_toggle("Speaker Boost 사용")
+        self.tts_elevenlabs_speaker_boost_check.toggled.connect(self._on_setting_changed)
+        elevenlabs_voice_form.addRow(self.tts_elevenlabs_speaker_boost_check)
+        elevenlabs_voice_form.addRow(self._build_hint_label("AIRI 코드의 ElevenLabs 설정에서 핵심인 모델, Voice ID, stability, similarity boost, style, speaker boost를 그대로 가져왔습니다."))
+        elevenlabs_layout.addWidget(elevenlabs_voice_group)
+        elevenlabs_layout.addStretch()
+        self.tts_provider_stack.addWidget(elevenlabs_page)
+        self._tts_provider_pages["elevenlabs"] = elevenlabs_page
+
+        browser_page = QWidget()
+        browser_layout = QVBoxLayout(browser_page)
+        browser_layout.setSpacing(12)
+        browser_layout.setContentsMargins(0, 0, 0, 0)
+
+        browser_group = QGroupBox("브라우저 기본 TTS")
+        browser_form = QFormLayout(browser_group)
+        browser_form.setSpacing(8)
+        browser_form.setContentsMargins(10, 15, 10, 10)
+        self.tts_browser_lang_edit = QLineEdit()
+        self.tts_browser_lang_edit.setPlaceholderText("예: ja-JP")
+        self.tts_browser_lang_edit.textChanged.connect(self._on_browser_tts_lang_changed)
+        browser_form.addRow("언어:", self.tts_browser_lang_edit)
+
+        self.tts_browser_voice_lang_filter_combo = QComboBox()
+        self.tts_browser_voice_lang_filter_combo.addItem("전체 언어", "")
+        self.tts_browser_voice_lang_filter_combo.currentIndexChanged.connect(self._on_browser_tts_language_filter_changed)
+        browser_form.addRow("목록 필터:", self.tts_browser_voice_lang_filter_combo)
+
+        browser_voice_row = QHBoxLayout()
+        browser_voice_row.setSpacing(8)
+        self.tts_browser_voice_combo = QComboBox()
+        self.tts_browser_voice_combo.setEditable(True)
+        self.tts_browser_voice_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.tts_browser_voice_combo.setPlaceholderText("사용 가능한 음성을 자동으로 불러옵니다")
+        self.tts_browser_voice_combo.currentIndexChanged.connect(self._on_setting_changed)
+        self.tts_browser_voice_combo.currentTextChanged.connect(self._on_setting_changed)
+        browser_voice_row.addWidget(self.tts_browser_voice_combo, 1)
+        self.tts_browser_voice_refresh_button = QPushButton("새로고침")
+        self.tts_browser_voice_refresh_button.clicked.connect(self._request_browser_tts_voices)
+        browser_voice_row.addWidget(self.tts_browser_voice_refresh_button)
+        browser_form.addRow("음성:", browser_voice_row)
+
+        self.tts_browser_voice_status_label = self._build_hint_label(
+            "설정창이 열려 있는 현재 ENE 웹뷰 환경에서 음성 목록을 읽습니다. 다른 PC에서는 그 환경 기준 목록이 다시 표시됩니다."
+        )
+        browser_form.addRow(self.tts_browser_voice_status_label)
+
+        self.tts_browser_rate_spin = QDoubleSpinBox()
+        self.tts_browser_rate_spin.setRange(0.1, 3.0)
+        self.tts_browser_rate_spin.setSingleStep(0.05)
+        self.tts_browser_rate_spin.setDecimals(2)
+        self.tts_browser_rate_spin.setValue(1.0)
+        self.tts_browser_rate_spin.valueChanged.connect(self._on_setting_changed)
+        browser_form.addRow("속도:", self.tts_browser_rate_spin)
+        self.tts_browser_pitch_spin = QDoubleSpinBox()
+        self.tts_browser_pitch_spin.setRange(0.0, 2.0)
+        self.tts_browser_pitch_spin.setSingleStep(0.05)
+        self.tts_browser_pitch_spin.setDecimals(2)
+        self.tts_browser_pitch_spin.setValue(1.0)
+        self.tts_browser_pitch_spin.valueChanged.connect(self._on_setting_changed)
+        browser_form.addRow("Pitch:", self.tts_browser_pitch_spin)
+        self.tts_browser_volume_spin = QDoubleSpinBox()
+        self.tts_browser_volume_spin.setRange(0.0, 1.0)
+        self.tts_browser_volume_spin.setSingleStep(0.05)
+        self.tts_browser_volume_spin.setDecimals(2)
+        self.tts_browser_volume_spin.setValue(1.0)
+        self.tts_browser_volume_spin.valueChanged.connect(self._on_setting_changed)
+        browser_form.addRow("볼륨:", self.tts_browser_volume_spin)
+        browser_form.addRow(self._build_hint_label("테스트용/폴백용 공급자입니다. API 키 없이 바로 말하게 할 수 있지만, 음질과 사용 가능한 음성은 배포 환경의 브라우저/OS에 따라 달라집니다. 저장된 음성이 현재 환경에 없으면 같은 언어 음성이나 시스템 기본 음성으로 자연스럽게 대체됩니다. 립싱크는 적용되지 않습니다."))
+        browser_layout.addWidget(browser_group)
+        browser_layout.addStretch()
+        self.tts_provider_stack.addWidget(browser_page)
+        self._tts_provider_pages["browser_speech"] = browser_page
+
+        layout.addWidget(self.tts_provider_stack)
 
         layout.addStretch()
         scroll.setWidget(widget)
@@ -3595,19 +4157,7 @@ class SettingsDialog(QDialog):
             self.interrupt_tts_on_ptt_check.setChecked(
                 self._original_settings.get("interrupt_tts_on_ptt", True)
             )
-            self.enable_tts_check.setChecked(
-                self._original_settings.get("enable_tts", True)
-            )
-            tts_provider = str(self._original_settings.get("tts_provider", "gpt_sovits_http")).strip().lower()
-            tts_provider_index = self.tts_provider_combo.findData(tts_provider)
-            if tts_provider_index < 0:
-                tts_provider_index = 0
-            self.tts_provider_combo.setCurrentIndex(tts_provider_index)
-            self.tts_api_url_edit.setText(str(self._original_settings.get("tts_api_url", "http://127.0.0.1:9880")))
-            self.tts_ref_audio_path_edit.setText(str(self._original_settings.get("tts_ref_audio_path", "assets/ref_audio/refvoice.wav")))
-            self.tts_ref_text_edit.setPlainText(str(self._original_settings.get("tts_ref_text", "人間さんはどんな色が一番好き？ ん？ なんで聞いたかって？ ふふん～ 内緒")))
-            self.tts_ref_language_edit.setText(str(self._original_settings.get("tts_ref_language", "ja")))
-            self.tts_target_language_edit.setText(str(self._original_settings.get("tts_target_language", "ja")))
+            self._load_tts_values()
             self._ptt_hotkey_value = normalize_hotkey_text(
                 str(self._original_settings.get("global_ptt_hotkey", "alt")),
                 default="alt",
@@ -3837,6 +4387,8 @@ class SettingsDialog(QDialog):
             "tts_ref_text": self.tts_ref_text_edit.toPlainText().strip(),
             "tts_ref_language": self.tts_ref_language_edit.text().strip() or "ja",
             "tts_target_language": self.tts_target_language_edit.text().strip() or "ja",
+            "tts_provider_configs": self._collect_tts_provider_configs(),
+            "tts_api_keys": self._collect_tts_api_keys(),
             "global_ptt_hotkey": normalize_hotkey_text(self._ptt_hotkey_value, default="alt"),
             "note_include_recent_context": self.note_include_recent_context_check.isChecked(),
             "note_recent_context_turns": self.note_recent_context_turns_spin.value(),

@@ -435,15 +435,9 @@ def test_bridge_general_chat_includes_checked_obsidian_context(monkeypatch):
 
     bridge = WebBridge()
     bridge.llm_client = object()
-
-    class DummyObsManager:
-        def is_connected(self):
-            return True
-
-        def get_checked_file_contents(self, **kwargs):
-            return [("notes/test.md", "# 테스트\n본문")]
-
-    bridge.obsidian_manager = DummyObsManager()
+    bridge._cached_checked_files_signature = ("notes/test.md",)
+    bridge._cached_checked_files_context = "[Obsidian 체크된 파일 본문]\n[파일:notes/test.md]\n# 테스트\n본문"
+    monkeypatch.setattr(bridge.obs_settings, "get_checked_files", lambda: ["notes/test.md"])
 
     captured = {}
 
@@ -477,15 +471,7 @@ def test_bridge_general_chat_skips_obsidian_context_when_disconnected(monkeypatc
 
     bridge = WebBridge()
     bridge.llm_client = object()
-
-    class DummyObsManager:
-        def is_connected(self):
-            return False
-
-        def get_checked_file_contents(self, **kwargs):
-            raise AssertionError("연결이 없을 때는 체크 파일을 읽지 않아야 합니다.")
-
-    bridge.obsidian_manager = DummyObsManager()
+    monkeypatch.setattr(bridge.obs_settings, "get_checked_files", lambda: [])
     captured = {}
 
     def fake_note(message: str) -> bool:
@@ -509,6 +495,33 @@ def test_bridge_general_chat_skips_obsidian_context_when_disconnected(monkeypatc
 
     assert "[Obsidian 체크된 파일 본문]" not in captured["message_with_time"]
     assert captured["message_with_time"].endswith("\n안녕")
+
+
+def test_bridge_general_chat_cache_miss_schedules_background_refresh(monkeypatch):
+    _ensure_qt_app()
+
+    bridge = WebBridge()
+    bridge.llm_client = object()
+    monkeypatch.setattr(bridge.obs_settings, "get_checked_files", lambda: ["notes/test.md"])
+
+    captured = {"refresh_called": 0}
+
+    def fake_refresh(force: bool = False):
+        captured["refresh_called"] += 1
+
+    def fake_start(message_with_time: str, images_data=None):
+        captured["message_with_time"] = message_with_time
+
+    monkeypatch.setattr(bridge, "_schedule_checked_files_context_refresh", fake_refresh)
+    monkeypatch.setattr(bridge, "_handle_note_command", lambda message: False)
+    monkeypatch.setattr(bridge, "_handle_obs_command", lambda message: False)
+    monkeypatch.setattr(bridge, "_handle_diary_command", lambda message: False)
+    monkeypatch.setattr(bridge, "_start_ai_worker", fake_start)
+
+    bridge.send_to_ai("안녕")
+
+    assert captured["refresh_called"] == 1
+    assert "[Obsidian 체크된 파일 본문]" not in captured["message_with_time"]
 
 
 def test_bridge_obs_tree_failed_payload_schedules_retry(monkeypatch):
@@ -657,7 +670,7 @@ def test_aiworker_note_flow_fallbacks_when_plan_write_content_is_empty():
         def __init__(self):
             self.calls = []
 
-        def get_tree_lines(self, max_lines=120):
+        def get_tree_lines(self, max_lines=120, allow_retry=True):
             return ["[FILE] ene_01.md"]
 
         def get_checked_file_contents(self, **kwargs):
@@ -718,7 +731,7 @@ def test_aiworker_note_flow_uses_plan_path_when_request_has_no_md_path():
         def __init__(self):
             self.calls = []
 
-        def get_tree_lines(self, max_lines=120):
+        def get_tree_lines(self, max_lines=120, allow_retry=True):
             return []
 
         def get_checked_file_contents(self, **kwargs):
@@ -787,7 +800,7 @@ def test_aiworker_note_flow_generates_path_when_request_has_no_md_and_plan_has_n
         def __init__(self):
             self.calls = []
 
-        def get_tree_lines(self, max_lines=120):
+        def get_tree_lines(self, max_lines=120, allow_retry=True):
             return []
 
         def get_checked_file_contents(self, **kwargs):

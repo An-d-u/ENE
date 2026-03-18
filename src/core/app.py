@@ -2,6 +2,8 @@
 ENE 메인 애플리케이션
 오버레이 윈도우와 트레이 아이콘을 관리
 """
+import json
+
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QObject, QTimer
 
@@ -266,7 +268,7 @@ class ENEApplication(QObject):
     def _init_tts(self):
         """TTS 및 오디오 플레이어 초기화"""
         try:
-            from src.ai.tts_client import TTSClient
+            from src.ai.tts_client import create_tts_client, get_tts_provider_defaults
             from src.core.audio_player import AudioPlayer
 
             if not bool(self.settings.get("enable_tts", True)):
@@ -276,30 +278,39 @@ class ENEApplication(QObject):
                 return
 
             tts_provider = str(self.settings.get("tts_provider", "gpt_sovits_http")).strip().lower()
-            if tts_provider != "gpt_sovits_http":
+            tts_provider_configs = self.settings.get("tts_provider_configs", {})
+            if not isinstance(tts_provider_configs, dict):
+                tts_provider_configs = {}
+
+            provider_config = get_tts_provider_defaults(tts_provider)
+            raw_provider_config = tts_provider_configs.get(tts_provider, {})
+            if isinstance(raw_provider_config, dict):
+                provider_config.update(raw_provider_config)
+
+            tts_api_keys = self.settings.get("tts_api_keys", {})
+            if not isinstance(tts_api_keys, dict):
+                tts_api_keys = {}
+
+            try:
+                self.tts_client = create_tts_client(
+                    tts_provider,
+                    provider_config,
+                    api_key=str(tts_api_keys.get(tts_provider, "")).strip(),
+                )
+            except ValueError:
                 self.tts_client = None
                 self.audio_player = None
                 print(f"WARNING: 아직 지원하지 않는 TTS 공급자입니다: {tts_provider}")
                 return
-            
-            # TTS 클라이언트 초기화
-            self.tts_client = TTSClient(
-                api_url=str(self.settings.get("tts_api_url", "http://127.0.0.1:9880")).strip() or "http://127.0.0.1:9880",
-                ref_audio_path=str(self.settings.get("tts_ref_audio_path", "assets/ref_audio/refvoice.wav")).strip() or "assets/ref_audio/refvoice.wav",
-                ref_text=str(self.settings.get("tts_ref_text", "人間さんはどんな色が一番好き？ ん？ なんで聞いたかって？ ふふん～ 内緒")).strip() or "人間さんはどんな色が一番好き？ ん？ なんで聞いたかって？ ふふん～ 内緒",
-                ref_language=str(self.settings.get("tts_ref_language", "ja")).strip() or "ja",
-                target_language=str(self.settings.get("tts_target_language", "ja")).strip() or "ja",
-            )
             
             # 오디오 플레이어 초기화
             self.audio_player = AudioPlayer()
             
             # TTS 사용 가능 여부 확인
             if self.tts_client.is_available():
-                print("OK: TTS 클라이언트 초기화 성공")
+                print(f"OK: TTS 클라이언트 초기화 성공 ({tts_provider})")
             else:
-                print("WARNING: 참조 오디오 파일이 없습니다.")
-                print(f"경로: {self.tts_client.ref_audio_path}")
+                print(f"WARNING: TTS 공급자 설정이 충분하지 않습니다. provider={tts_provider}")
                 self.tts_client = None
                 self.audio_player = None
             
@@ -340,6 +351,7 @@ class ENEApplication(QObject):
 
         # 유휴 감지 모니터 시작
         self.overlay_window.bridge.start_away_monitor()
+        QTimer.singleShot(0, self.overlay_window.bridge._schedule_checked_files_context_refresh)
         
         # 트레이 아이콘 시그널
         self.tray_icon.settings_requested.connect(self._show_settings_dialog)
@@ -501,14 +513,15 @@ class ENEApplication(QObject):
         """설정 변경 시 (저장)"""
         old_embedding_provider = str(self.settings.get("embedding_provider", "voyage")).strip().lower()
         old_embedding_model = str(self.settings.get("embedding_model", "voyage-3")).strip() or "voyage-3"
-        old_tts_config = (
-            bool(self.settings.get("enable_tts", False)),
-            str(self.settings.get("tts_provider", "gpt_sovits_http")).strip(),
-            str(self.settings.get("tts_api_url", "http://127.0.0.1:9880")).strip(),
-            str(self.settings.get("tts_ref_audio_path", "assets/ref_audio/refvoice.wav")).strip(),
-            str(self.settings.get("tts_ref_text", "")).strip(),
-            str(self.settings.get("tts_ref_language", "ja")).strip(),
-            str(self.settings.get("tts_target_language", "ja")).strip(),
+        old_tts_config = json.dumps(
+            {
+                "enable_tts": bool(self.settings.get("enable_tts", False)),
+                "tts_provider": str(self.settings.get("tts_provider", "gpt_sovits_http")).strip(),
+                "tts_provider_configs": self.settings.get("tts_provider_configs", {}),
+                "tts_api_keys": self.settings.get("tts_api_keys", {}),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
         )
 
         self.overlay_window.apply_new_settings(new_settings)
@@ -521,14 +534,15 @@ class ENEApplication(QObject):
         if (old_embedding_provider, old_embedding_model) != (new_embedding_provider, new_embedding_model):
             self._refresh_memory_runtime_bindings()
 
-        new_tts_config = (
-            bool(new_settings.get("enable_tts", old_tts_config[0])),
-            str(new_settings.get("tts_provider", old_tts_config[1])).strip(),
-            str(new_settings.get("tts_api_url", old_tts_config[2])).strip(),
-            str(new_settings.get("tts_ref_audio_path", old_tts_config[3])).strip(),
-            str(new_settings.get("tts_ref_text", old_tts_config[4])).strip(),
-            str(new_settings.get("tts_ref_language", old_tts_config[5])).strip(),
-            str(new_settings.get("tts_target_language", old_tts_config[6])).strip(),
+        new_tts_config = json.dumps(
+            {
+                "enable_tts": bool(new_settings.get("enable_tts", self.settings.get("enable_tts", False))),
+                "tts_provider": str(new_settings.get("tts_provider", self.settings.get("tts_provider", "gpt_sovits_http"))).strip(),
+                "tts_provider_configs": new_settings.get("tts_provider_configs", self.settings.get("tts_provider_configs", {})),
+                "tts_api_keys": new_settings.get("tts_api_keys", self.settings.get("tts_api_keys", {})),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
         )
         if old_tts_config != new_tts_config:
             self._refresh_tts_runtime_bindings()

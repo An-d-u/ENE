@@ -111,6 +111,47 @@ class Settings:
         "tts_ref_text": "人間さんはどんな色が一番好き？ ん？ なんで聞いたかって？ ふふん～ 内緒",
         "tts_ref_language": "ja",
         "tts_target_language": "ja",
+        "tts_provider_configs": {
+            "gpt_sovits_http": {
+                "api_url": "http://127.0.0.1:9880",
+                "ref_audio_path": "assets/ref_audio/refvoice.wav",
+                "ref_text": "人間さんはどんな色が一番好き？ ん？ なんで聞いたかって？ ふふん～ 内緒",
+                "ref_language": "ja",
+                "target_language": "ja",
+            },
+            "openai_audio_speech": {
+                "api_url": "https://api.openai.com/v1",
+                "model": "gpt-4o-mini-tts",
+                "voice": "alloy",
+                "speed": 1.0,
+                "response_format": "wav",
+            },
+            "openai_compatible_audio_speech": {
+                "api_url": "http://127.0.0.1:8000/v1",
+                "model": "tts-1",
+                "voice": "alloy",
+                "speed": 1.0,
+                "response_format": "wav",
+            },
+            "elevenlabs": {
+                "api_url": "https://api.elevenlabs.io/v1",
+                "model": "eleven_multilingual_v2",
+                "voice": "EXAVITQu4vr4xnSDxMaL",
+                "speed": 1.0,
+                "stability": 0.5,
+                "similarity_boost": 0.75,
+                "style": 0.0,
+                "use_speaker_boost": True,
+                "output_format": "pcm_44100",
+            },
+            "browser_speech": {
+                "lang": "ja-JP",
+                "voice": "",
+                "rate": 1.0,
+                "pitch": 1.0,
+                "volume": 1.0,
+            },
+        },
         "enable_away_nudge": True,
         "away_idle_minutes": 60,
         "away_compare_delay_seconds": 30,
@@ -146,6 +187,11 @@ class Settings:
         "embedding_api_keys": {
             "voyage": "",
         },
+        "tts_api_keys": {
+            "openai_audio_speech": "",
+            "openai_compatible_audio_speech": "",
+            "elevenlabs": "",
+        },
         "custom_api_key_or_password": "",
     }
 
@@ -158,6 +204,7 @@ class Settings:
         self.secret_config = self.load_secret()
         self._migrate_secrets_from_legacy_config()
         self._migrate_legacy_embedding_key_file()
+        self._migrate_legacy_tts_config()
 
     def load(self) -> dict:
         """Load settings. Return defaults on failure."""
@@ -192,6 +239,16 @@ class Settings:
                                 store[model_name] = params
                 merged["llm_model_params"] = base_params
 
+                base_tts_configs = json.loads(json.dumps(self.DEFAULT_CONFIG["tts_provider_configs"]))
+                loaded_tts_configs = loaded_config.get("tts_provider_configs", {})
+                if isinstance(loaded_tts_configs, dict):
+                    for provider, provider_config in loaded_tts_configs.items():
+                        if not isinstance(provider_config, dict):
+                            continue
+                        store = base_tts_configs.setdefault(provider, {})
+                        store.update(provider_config)
+                merged["tts_provider_configs"] = base_tts_configs
+
                 return merged
             except Exception as e:
                 print(f"Settings load failed: {e}")
@@ -219,6 +276,12 @@ class Settings:
                 if isinstance(loaded_embedding_keys, dict):
                     base_embedding_keys.update(loaded_embedding_keys)
                 merged["embedding_api_keys"] = base_embedding_keys
+
+                base_tts_keys = dict(self.DEFAULT_SECRET_CONFIG["tts_api_keys"])
+                loaded_tts_keys = merged.get("tts_api_keys", {})
+                if isinstance(loaded_tts_keys, dict):
+                    base_tts_keys.update(loaded_tts_keys)
+                merged["tts_api_keys"] = base_tts_keys
                 return merged
             except Exception as e:
                 print(f"Secret settings load failed: {e}")
@@ -292,6 +355,37 @@ class Settings:
             legacy_path.unlink()
         except Exception as e:
             print(f"Legacy embedding key cleanup failed: {e}")
+
+    def _migrate_legacy_tts_config(self):
+        """
+        과거 평면 TTS 설정을 공급자별 구조(tts_provider_configs / tts_api_keys)로 1회 이전한다.
+        기존 키는 하위 호환을 위해 유지한다.
+        """
+        defaults = json.loads(json.dumps(self.DEFAULT_CONFIG["tts_provider_configs"]))
+        existing = self.config.get("tts_provider_configs", {})
+        if not isinstance(existing, dict):
+            existing = {}
+
+        merged = defaults
+        for provider, provider_config in existing.items():
+            if isinstance(provider_config, dict):
+                merged.setdefault(provider, {}).update(provider_config)
+
+        gpt_sovits_config = merged.setdefault("gpt_sovits_http", {})
+        gpt_sovits_config["api_url"] = str(self.config.get("tts_api_url", defaults["gpt_sovits_http"]["api_url"]))
+        gpt_sovits_config["ref_audio_path"] = str(self.config.get("tts_ref_audio_path", defaults["gpt_sovits_http"]["ref_audio_path"]))
+        gpt_sovits_config["ref_text"] = str(self.config.get("tts_ref_text", defaults["gpt_sovits_http"]["ref_text"]))
+        gpt_sovits_config["ref_language"] = str(self.config.get("tts_ref_language", defaults["gpt_sovits_http"]["ref_language"]))
+        gpt_sovits_config["target_language"] = str(self.config.get("tts_target_language", defaults["gpt_sovits_http"]["target_language"]))
+
+        self.config["tts_provider_configs"] = merged
+
+        secret_defaults = dict(self.DEFAULT_SECRET_CONFIG["tts_api_keys"])
+        existing_keys = self.secret_config.get("tts_api_keys", {})
+        if not isinstance(existing_keys, dict):
+            existing_keys = {}
+        secret_defaults.update(existing_keys)
+        self.secret_config["tts_api_keys"] = secret_defaults
 
     def save(self):
         """Persist current settings and secret settings."""
