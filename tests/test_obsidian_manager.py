@@ -66,8 +66,9 @@ def test_read_file_calls_cli(monkeypatch):
 
     captured = {}
 
-    def fake_run(args):
+    def fake_run(args, allow_retry=True):
         captured["args"] = args
+        captured["allow_retry"] = allow_retry
         return DummyCompleted()
 
     monkeypatch.setattr(manager, "_run_cli", fake_run)
@@ -75,32 +76,40 @@ def test_read_file_calls_cli(monkeypatch):
     text = manager.read_file("notes/a.md")
     assert text == "hello"
     assert captured["args"] == ["read", "notes/a.md"]
+    assert captured["allow_retry"] is True
 
 
-def test_run_cli_windows_shell_fallback(monkeypatch):
+def test_run_cli_windows_uses_powershell_fallback_without_shell_true(monkeypatch):
     manager = ObsidianManager(settings=DummySettings(), obs_settings=DummyObsSettings())
 
     monkeypatch.setattr("src.ai.obsidian_manager.os.name", "nt")
     monkeypatch.setattr("src.ai.obsidian_manager.shutil.which", lambda _: None)
 
-    calls = {"n": 0}
+    calls = {"n": 0, "shell_true": 0, "powershell": 0}
 
     class DummyCompleted:
         returncode = 0
         stdout = "ok"
         stderr = ""
 
-    def fake_run(_cmd, **kwargs):
+    def fake_run(cmd, **kwargs):
         calls["n"] += 1
+        if kwargs.get("shell") is True:
+            calls["shell_true"] += 1
         if kwargs.get("shell") is False:
+            if isinstance(cmd, list) and len(cmd) >= 3 and cmd[0] == "powershell" and cmd[1] == "-Command":
+                calls["powershell"] += 1
+                return DummyCompleted()
             raise FileNotFoundError("not found")
-        return DummyCompleted()
+        raise AssertionError("shell=True는 호출되면 안 됩니다.")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
 
     completed = manager._run_cli(["files"])
     assert completed.stdout == "ok"
     assert calls["n"] >= 2
+    assert calls["shell_true"] == 0
+    assert calls["powershell"] == 1
 
 
 def test_run_cli_windows_powershell_fallback_when_not_recognized(monkeypatch):
@@ -134,6 +143,25 @@ def test_run_cli_windows_powershell_fallback_when_not_recognized(monkeypatch):
     completed = manager._run_cli(["files"])
     assert completed.stdout == "ok"
     assert captured["ps_called"] is True
+
+
+def test_read_file_failure_marks_manager_disconnected(monkeypatch):
+    manager = ObsidianManager(settings=DummySettings(), obs_settings=DummyObsSettings())
+    manager._tree_connection_ok = True
+
+    class DummyCompleted:
+        returncode = 1
+        stdout = ""
+        stderr = "mock fail"
+
+    monkeypatch.setattr(manager, "_run_cli", lambda args, allow_retry=True: DummyCompleted())
+
+    try:
+        manager.read_file("notes/a.md", allow_retry=False)
+    except RuntimeError:
+        pass
+
+    assert manager.is_connected() is False
 
 
 def test_run_cli_supports_multi_token_cli_bin(monkeypatch):
