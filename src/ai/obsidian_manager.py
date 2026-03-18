@@ -165,30 +165,18 @@ class ObsidianManager:
                     last_error = e
                     continue
 
-        # 2차: Windows 환경에서 shell=True 폴백
+        # 2차: Windows 환경에서 PowerShell alias/function 환경 폴백
+        # shell=True는 GUI 앱 실행으로 튈 수 있어 사용하지 않는다.
         if os.name == "nt":
-            command_line = subprocess.list2cmdline([*base_parts, *list(args)])
             try:
-                completed = subprocess.run(
-                    command_line,
+                ps_cmd = self._build_powershell_command(args)
+                return subprocess.run(
+                    ["powershell", "-Command", ps_cmd],
                     text=True,
                     capture_output=True,
                     timeout=timeout,
-                    shell=True,
+                    shell=False,
                 )
-                if completed.returncode == 0:
-                    return completed
-                # 3차: PowerShell 프로필 기반 alias/function 환경 폴백
-                if self._looks_like_not_found(completed.stderr):
-                    ps_cmd = self._build_powershell_command(args)
-                    return subprocess.run(
-                        ["powershell", "-Command", ps_cmd],
-                        text=True,
-                        capture_output=True,
-                        timeout=timeout,
-                        shell=False,
-                    )
-                return completed
             except Exception as e:
                 last_error = e
 
@@ -394,8 +382,8 @@ class ObsidianManager:
     def get_tree_json(self, allow_retry: bool = True) -> str:
         return json.dumps(self.build_tree(allow_retry=allow_retry), ensure_ascii=False)
 
-    def get_tree_lines(self, max_lines: int = 120) -> list[str]:
-        tree = self.build_tree()
+    def get_tree_lines(self, max_lines: int = 120, allow_retry: bool = True) -> list[str]:
+        tree = self.build_tree(allow_retry=allow_retry)
         if not tree.get("ok"):
             return [f"- 트리 조회 실패: {tree.get('error', 'unknown')}"]
 
@@ -414,13 +402,14 @@ class ObsidianManager:
         emit(tree.get("nodes", []))
         return lines
 
-    def read_file(self, rel_path: str) -> str:
+    def read_file(self, rel_path: str, allow_retry: bool = True) -> str:
         rel = self._normalize_rel(rel_path)
         if not rel:
             raise ValueError("파일 경로가 비어 있습니다.")
 
-        completed = self._run_cli(["read", rel])
+        completed = self._run_cli(["read", rel], allow_retry=allow_retry)
         if completed.returncode != 0:
+            self._tree_connection_ok = False
             err = (completed.stderr or "").strip() or "파일 읽기에 실패했습니다."
             raise RuntimeError(err)
         return completed.stdout or ""
@@ -469,13 +458,19 @@ class ObsidianManager:
 
         return ObsidianOpResult(False, "파일 쓰기 명령(update/write) 실행에 실패했습니다.", path=rel)
 
-    def get_checked_file_contents(self, max_files: int = 8, max_chars_per_file: int = 3000, total_max_chars: int = 12000) -> list[tuple[str, str]]:
+    def get_checked_file_contents(
+        self,
+        max_files: int = 8,
+        max_chars_per_file: int = 3000,
+        total_max_chars: int = 12000,
+        allow_retry: bool = True,
+    ) -> list[tuple[str, str]]:
         checked = self.obs_settings.get_checked_files()
         result: list[tuple[str, str]] = []
         total = 0
         for rel in checked[:max_files]:
             try:
-                text = self.read_file(rel)
+                text = self.read_file(rel, allow_retry=allow_retry)
             except Exception:
                 continue
             sliced = text[:max_chars_per_file]

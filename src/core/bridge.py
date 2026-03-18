@@ -162,11 +162,12 @@ class AIWorker(QThread):
         if not hasattr(self.llm_client, "generate_note_execution_report"):
             raise RuntimeError("현재 LLM 클라이언트는 /note 결과 보고 생성을 지원하지 않습니다.")
 
-        obs_tree_lines = self.obsidian_manager.get_tree_lines(max_lines=120)
+        obs_tree_lines = self.obsidian_manager.get_tree_lines(max_lines=120, allow_retry=False)
         checked_files = self.obsidian_manager.get_checked_file_contents(
             max_files=8,
             max_chars_per_file=3000,
             total_max_chars=12000,
+            allow_retry=False,
         )
         plan_prompt = self.note_service.build_plan_prompt(
             user_instruction=self.note_request,
@@ -332,6 +333,45 @@ class ObsidianTreeWorker(QThread):
             self.error_occurred.emit(str(e))
 
 
+class ObsidianCheckedFilesWorker(QThread):
+    """체크된 Obsidian 파일 본문 컨텍스트를 백그라운드에서 준비하는 워커."""
+
+    context_ready = pyqtSignal(str, str)
+    error_occurred = pyqtSignal(str, str)
+
+    def __init__(self, obsidian_manager, checked_files: list[str]):
+        super().__init__()
+        self.obsidian_manager = obsidian_manager
+        self.checked_files = [str(path) for path in (checked_files or []) if str(path).strip()]
+
+    def _build_signature_payload(self) -> str:
+        """현재 워커가 읽는 체크 파일 목록을 직렬화한다."""
+        return json.dumps(self.checked_files, ensure_ascii=False)
+
+    def run(self):
+        signature_payload = self._build_signature_payload()
+        if not self.checked_files:
+            self.context_ready.emit("", signature_payload)
+            return
+
+        try:
+            checked_contents = self.obsidian_manager.get_checked_file_contents(
+                max_files=8,
+                max_chars_per_file=3000,
+                total_max_chars=12000,
+                allow_retry=False,
+            )
+            parts: list[str] = []
+            if checked_contents:
+                parts.append("[Obsidian 체크된 파일 본문]")
+                for rel, content in checked_contents:
+                    parts.append(f"[파일:{rel}]")
+                    parts.append(content)
+            self.context_ready.emit("\n".join(parts), signature_payload)
+        except Exception as e:
+            self.error_occurred.emit(str(e), signature_payload)
+
+
 class WebBridge(QObject):
     """Python과 JavaScript 간 통신 브릿지"""
     
@@ -365,6 +405,9 @@ class WebBridge(QObject):
             {"ok": True, "nodes": [], "checked_files": self.obs_settings.get_checked_files()},
             ensure_ascii=False
         )
+        self._cached_checked_files_context = ""
+        self._cached_checked_files_signature: tuple[str, ...] = tuple()
+        self.obs_checked_files_worker = None
         
         # TTS 및 오디오 재생
         self.tts_client = None
@@ -898,6 +941,7 @@ class WebBridge(QObject):
                 max_files=8,
                 max_chars_per_file=3000,
                 total_max_chars=12000,
+                allow_retry=False,
             )
             if checked_contents:
                 parts.append("[Obsidian 체크된 파일 본문]")
@@ -906,14 +950,84 @@ class WebBridge(QObject):
                     parts.append(content)
         return "\n".join(parts)
 
+    def _get_checked_files_signature(self) -> tuple[str, ...]:
+        """현재 체크된 Obsidian 파일 목록 시그니처를 반환한다."""
+        return tuple(self.obs_settings.get_checked_files())
+
+    def _decode_checked_files_signature(self, signature_payload: str) -> tuple[str, ...]:
+        """직렬화된 체크 파일 시그니처를 튜플로 복원한다."""
+        try:
+            parsed = json.loads(signature_payload or "[]")
+        except Exception:
+            return tuple()
+        if not isinstance(parsed, list):
+            return tuple()
+        return tuple(str(path) for path in parsed if str(path).strip())
+
+    def _schedule_checked_files_context_refresh(self, force: bool = False):
+        """일반 채팅용 체크 파일 컨텍스트를 백그라운드에서 갱신한다."""
+        signature = self._get_checked_files_signature()
+        if not signature:
+            self._cached_checked_files_context = ""
+            self._cached_checked_files_signature = tuple()
+            return
+
+        if self.obs_checked_files_worker and self.obs_checked_files_worker.isRunning():
+            return
+
+        if not force and signature == self._cached_checked_files_signature and self._cached_checked_files_context:
+            return
+
+        self.obs_checked_files_worker = ObsidianCheckedFilesWorker(
+            self.obsidian_manager,
+            list(signature),
+        )
+        self.obs_checked_files_worker.context_ready.connect(self._on_checked_files_context_ready)
+        self.obs_checked_files_worker.error_occurred.connect(self._on_checked_files_context_error)
+        self.obs_checked_files_worker.start()
+
+    def _get_cached_checked_files_context(self) -> str:
+        """전송 경로에서 사용할 체크 파일 컨텍스트 스냅샷을 반환한다."""
+        signature = self._get_checked_files_signature()
+        if not signature:
+            self._cached_checked_files_context = ""
+            self._cached_checked_files_signature = tuple()
+            return ""
+
+        if signature != self._cached_checked_files_signature:
+            self._schedule_checked_files_context_refresh(force=True)
+            return ""
+
+        return self._cached_checked_files_context
+
+    def _invalidate_checked_files_context_cache(self):
+        """체크 파일 내용이 바뀐 뒤 기존 스냅샷을 무효화한다."""
+        self._cached_checked_files_context = ""
+        self._cached_checked_files_signature = tuple()
+
+    def _on_checked_files_context_ready(self, context: str, signature_payload: str):
+        """백그라운드에서 준비된 체크 파일 컨텍스트를 캐시에 반영한다."""
+        signature = self._decode_checked_files_signature(signature_payload)
+        current_signature = self._get_checked_files_signature()
+        if signature != current_signature:
+            self._schedule_checked_files_context_refresh(force=True)
+            return
+        self._cached_checked_files_context = context
+        self._cached_checked_files_signature = signature
+
+    def _on_checked_files_context_error(self, error_msg: str, signature_payload: str):
+        """체크 파일 캐시 갱신 실패를 기록하고, 필요하면 다시 시도한다."""
+        print(f"[Bridge] 체크 파일 컨텍스트 갱신 실패: {error_msg}")
+        signature = self._decode_checked_files_signature(signature_payload)
+        if signature != self._get_checked_files_signature():
+            self._schedule_checked_files_context_refresh(force=True)
+
     def _build_general_chat_prompt(self, message: str) -> str:
         """
         일반 채팅 프롬프트를 구성한다.
         체크된 파일 본문은 항상 기본 컨텍스트에 포함한다.
         """
-        if not self.obsidian_manager.is_connected():
-            return message
-        obs_context = self._build_obsidian_context_block(include_tree=False, include_checked_files=True).strip()
+        obs_context = self._get_cached_checked_files_context().strip()
         if not obs_context:
             return message
         return f"{obs_context}\n\n[사용자 메시지]\n{message}"
@@ -987,6 +1101,7 @@ class WebBridge(QObject):
         if command == "append":
             result = self.obsidian_manager.append_file(payload["path"], payload["content"], create_if_missing=True)
             if result.ok:
+                self._invalidate_checked_files_context_cache()
                 self.message_received.emit(f"추가 완료: {result.path}", "smile")
             else:
                 self.message_received.emit(f"추가 실패: {result.message}", "confused")
@@ -995,6 +1110,7 @@ class WebBridge(QObject):
         if command == "replace":
             result = self.obsidian_manager.replace_in_file(payload["path"], payload["before"], payload["after"])
             if result.ok:
+                self._invalidate_checked_files_context_cache()
                 self.message_received.emit(f"교체 완료: {result.path}", "smile")
             else:
                 self.message_received.emit(f"교체 실패: {result.message}", "confused")
@@ -1045,6 +1161,7 @@ class WebBridge(QObject):
             self.obs_settings.set_file_checked(rel_path, bool(checked))
             # 체크 상태 변경은 CLI 재호출 없이 캐시에 즉시 반영해 UI 지연을 줄인다.
             self._emit_obs_tree_with_updated_checked_files()
+            self._schedule_checked_files_context_refresh(force=True)
         except Exception as e:
             print(f"[Bridge] set_obs_file_checked failed: {e}")
 
@@ -1121,6 +1238,8 @@ class WebBridge(QObject):
             self._obs_tree_retry_remaining = 0
         self._cached_obs_tree_json = tree_json
         self.obs_tree_updated.emit(tree_json)
+        if ok:
+            self._schedule_checked_files_context_refresh()
         if not ok:
             self._schedule_obs_tree_retry_if_needed()
 
@@ -1445,6 +1564,11 @@ class WebBridge(QObject):
     def _play_tts(self, text: str):
         """립싱크를 포함한 TTS 재생 (비동기 스레드)"""
         self._tts_interrupted_for_ptt = False
+        if getattr(self.tts_client, "uses_browser_playback", False):
+            self._flush_pending_response_if_any()
+            self._play_browser_tts(text)
+            return
+
         # 기존 TTS 워커 종료
         if self.tts_worker and self.tts_worker.isRunning():
             self.tts_worker.quit()
@@ -1457,6 +1581,38 @@ class WebBridge(QObject):
         self.tts_worker.start()
         
         print(f"[Bridge] TTS 워커 시작 (백그라운드)")
+
+    def _run_parent_javascript(self, script: str):
+        """부모 오버레이의 웹뷰에 자바스크립트를 실행한다."""
+        parent = self.parent()
+        if not parent or not hasattr(parent, "web_view"):
+            return
+        try:
+            parent.web_view.page().runJavaScript(script)
+        except Exception as e:
+            print(f"[Bridge] JS 실행 실패: {e}")
+
+    def _play_browser_tts(self, text: str):
+        """브라우저 기본 speechSynthesis로 음성을 재생한다."""
+        if not self.tts_client:
+            return
+        try:
+            payload = self.tts_client.build_request(text)
+        except Exception as e:
+            self._on_tts_error(str(e))
+            return
+
+        self.lip_sync_data = None
+        self.lip_sync_start_time = None
+        self.lip_sync_update.emit(0.0)
+        self._run_parent_javascript(
+            "(function(){"
+            "if (typeof window.playBrowserTTS === 'function') {"
+            f"window.playBrowserTTS({json.dumps(payload, ensure_ascii=False)});"
+            "}"
+            "})();"
+        )
+        print("[Bridge] 브라우저 TTS 재생 요청 완료")
 
     def _flush_pending_response_if_any(self):
         """TTS 대기 중 응답이 있으면 즉시 채팅으로 복구 전송한다."""
@@ -1494,6 +1650,13 @@ class WebBridge(QObject):
         self.lip_sync_data = None
         self.lip_sync_start_time = None
         self.lip_sync_update.emit(0.0)
+        self._run_parent_javascript(
+            "(function(){"
+            "if (typeof window.stopBrowserTTS === 'function') {"
+            "window.stopBrowserTTS();"
+            "}"
+            "})();"
+        )
 
         # 보류 중 텍스트가 있으면 즉시 표시
         self._flush_pending_response_if_any()
