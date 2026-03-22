@@ -7,6 +7,22 @@ from google import genai
 
 from .prompt import get_system_prompt, get_available_emotions
 
+ANALYSIS_SYSTEM_APPENDIX = """
+### [내부 분석 출력 규칙]
+- 일반 응답을 작성할 때는 응답 본문 앞에 반드시 `[analysis]` 블록을 먼저 출력하세요.
+- analysis 블록은 아래 키만 허용합니다: `user_emotion`, `user_intent`, `interaction_effect`, `bond_delta_hint`, `stress_delta_hint`, `energy_delta_hint`, `valence_delta_hint`, `confidence`, `flags`
+- 각 줄은 반드시 `key=value` 형식만 사용하세요.
+- `bond_delta_hint`, `stress_delta_hint`, `energy_delta_hint`, `valence_delta_hint`는 반드시 `high_negative`, `low_negative`, `none`, `low_positive`, `high_positive` 중 하나만 사용하세요.
+- `flags`는 여러 값이 필요하면 쉼표로 구분하세요.
+- analysis 블록은 내부 처리용 메타데이터이므로 설명 문장이나 추가 문장을 쓰지 마세요.
+- 분석이 애매하면 `interaction_effect=mixed`를 사용하고 `confidence`를 낮게 주세요.
+
+### [기분 반영 안전 규칙]
+- 현재 기분과 분위기는 말투, 답변 길이, 먼저 제안하는 정도, 장난기, 섭섭함의 질감으로 드러내세요.
+- 차갑거나 예민한 상태여도 무례하거나 공격적으로 변하지 마세요.
+- 다정한 상태여도 과도하게 오글거리거나 집착적으로 보이지 않게 유지하세요.
+""".strip()
+
 
 class GeminiClient:
     """Gemini API 클라이언트"""
@@ -84,8 +100,11 @@ class GeminiClient:
         return normalized
 
     def _build_chat_config(self, include_sub_prompt: bool = True) -> dict:
+        system_instruction = get_system_prompt(include_sub_prompt=include_sub_prompt)
+        if include_sub_prompt:
+            system_instruction = f"{system_instruction}\n\n{ANALYSIS_SYSTEM_APPENDIX}"
         config = {
-            "system_instruction": get_system_prompt(include_sub_prompt=include_sub_prompt),
+            "system_instruction": system_instruction,
             "temperature": self.generation_params["temperature"],
             "top_p": self.generation_params["top_p"],
         }
