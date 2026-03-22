@@ -59,7 +59,10 @@ class _CommonMixin:
         response_text = self._request_one_shot_raw(diary_prompt, include_sub_prompt=False)
         return (response_text or "").strip()
 
-    async def generate_diary_completion_reply(self, context_message: str) -> Tuple[str, str, str, List[Dict]]:
+    async def generate_diary_completion_reply(
+        self,
+        context_message: str,
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
         response_text = self._request_one_shot_raw(context_message, include_sub_prompt=True)
         return self._parse_response(response_text)
 
@@ -69,11 +72,14 @@ class _CommonMixin:
         response_text = self._request_one_shot_raw(enhanced, include_sub_prompt=False)
         return (response_text or "").strip()
 
-    async def generate_note_execution_report(self, context_message: str) -> Tuple[str, str, str, List[Dict]]:
+    async def generate_note_execution_report(
+        self,
+        context_message: str,
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
         response_text = self._request_one_shot_raw(context_message, include_sub_prompt=True)
         return self._parse_response(response_text)
 
-    def _parse_response(self, response_text: str) -> Tuple[str, str, str, List[Dict]]:
+    def _parse_response(self, response_text: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
         try:
             from .llm_client import GeminiClient
             return GeminiClient._parse_response(self, response_text)
@@ -101,7 +107,7 @@ class _CommonMixin:
                 if low in {"normal", "happy", "sad", "angry", "confused", "shy", "surprised"}:
                     emotion = low
                     break
-            return clean_text, emotion, None, events
+            return clean_text, emotion, None, events, {}
 
     def _parse_summary_response(self, response_text: str) -> tuple[str, list[str]]:
         try:
@@ -276,12 +282,12 @@ class OpenAICompatibleClient(_CommonMixin):
             return "\n".join([c.get("text", "") for c in content if isinstance(c, dict)]).strip()
         return str(content).strip()
 
-    async def send_message_with_memory(self, message: str) -> Tuple[str, str, str, List[Dict]]:
+    async def send_message_with_memory(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
         memory_context = await self._build_memory_context(message)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         return self.send_message(enhanced)
 
-    async def send_message_with_images(self, message: str, images_data: list) -> Tuple[str, str, str, List[Dict]]:
+    async def send_message_with_images(self, message: str, images_data: list) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
         memory_context = await self._build_memory_context(message)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         parts = [{"type": "text", "text": enhanced}]
@@ -291,17 +297,17 @@ class OpenAICompatibleClient(_CommonMixin):
                 parts.append({"type": "image_url", "image_url": {"url": data_url}})
 
         response_text = self._request_openai(parts)
-        clean_text, emotion, japanese_text, events = self._parse_response(response_text)
+        clean_text, emotion, japanese_text, events, analysis = self._parse_response(response_text)
         self._history.append({"role": "user", "content": enhanced})
         self._history.append({"role": "assistant", "content": clean_text})
-        return clean_text, emotion, japanese_text, events
+        return clean_text, emotion, japanese_text, events, analysis
 
-    def send_message(self, message: str) -> Tuple[str, str, str, List[Dict]]:
+    def send_message(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
         response_text = self._request_openai(message)
-        clean_text, emotion, japanese_text, events = self._parse_response(response_text)
+        clean_text, emotion, japanese_text, events, analysis = self._parse_response(response_text)
         self._history.append({"role": "user", "content": message})
         self._history.append({"role": "assistant", "content": clean_text})
-        return clean_text, emotion, japanese_text, events
+        return clean_text, emotion, japanese_text, events, analysis
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str]]:
         conversation_text = "\n".join(
@@ -460,12 +466,12 @@ class OpenAIResponseAPIClient(_CommonMixin):
         data = response.json()
         return self._extract_text(data)
 
-    async def send_message_with_memory(self, message: str) -> Tuple[str, str, str, List[Dict]]:
+    async def send_message_with_memory(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
         memory_context = await self._build_memory_context(message)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         return self.send_message(enhanced)
 
-    async def send_message_with_images(self, message: str, images_data: list) -> Tuple[str, str, str, List[Dict]]:
+    async def send_message_with_images(self, message: str, images_data: list) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
         memory_context = await self._build_memory_context(message)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         parts = [{"type": "text", "text": enhanced}]
@@ -475,17 +481,17 @@ class OpenAIResponseAPIClient(_CommonMixin):
                 parts.append({"type": "image_url", "image_url": {"url": data_url}})
 
         response_text = self._request_responses(parts)
-        clean_text, emotion, japanese_text, events = self._parse_response(response_text)
+        clean_text, emotion, japanese_text, events, analysis = self._parse_response(response_text)
         self._history.append({"role": "user", "content": enhanced})
         self._history.append({"role": "assistant", "content": clean_text})
-        return clean_text, emotion, japanese_text, events
+        return clean_text, emotion, japanese_text, events, analysis
 
-    def send_message(self, message: str) -> Tuple[str, str, str, List[Dict]]:
+    def send_message(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
         response_text = self._request_responses(message)
-        clean_text, emotion, japanese_text, events = self._parse_response(response_text)
+        clean_text, emotion, japanese_text, events, analysis = self._parse_response(response_text)
         self._history.append({"role": "user", "content": message})
         self._history.append({"role": "assistant", "content": clean_text})
-        return clean_text, emotion, japanese_text, events
+        return clean_text, emotion, japanese_text, events, analysis
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str]]:
         conversation_text = "\n".join(
@@ -689,26 +695,26 @@ class GoogleCloudClient(_CommonMixin):
                     return text.strip()
         return ""
 
-    async def send_message_with_memory(self, message: str) -> Tuple[str, str, str, List[Dict]]:
+    async def send_message_with_memory(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
         memory_context = await self._build_memory_context(message)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         return self.send_message(enhanced)
 
-    async def send_message_with_images(self, message: str, images_data: list) -> Tuple[str, str, str, List[Dict]]:
+    async def send_message_with_images(self, message: str, images_data: list) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
         memory_context = await self._build_memory_context(message)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         response_text = self._request_google(enhanced, images_data=images_data)
-        clean_text, emotion, japanese_text, events = self._parse_response(response_text)
+        clean_text, emotion, japanese_text, events, analysis = self._parse_response(response_text)
         self._history.append({"role": "user", "content": enhanced})
         self._history.append({"role": "assistant", "content": clean_text})
-        return clean_text, emotion, japanese_text, events
+        return clean_text, emotion, japanese_text, events, analysis
 
-    def send_message(self, message: str) -> Tuple[str, str, str, List[Dict]]:
+    def send_message(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
         response_text = self._request_google(message)
-        clean_text, emotion, japanese_text, events = self._parse_response(response_text)
+        clean_text, emotion, japanese_text, events, analysis = self._parse_response(response_text)
         self._history.append({"role": "user", "content": message})
         self._history.append({"role": "assistant", "content": clean_text})
-        return clean_text, emotion, japanese_text, events
+        return clean_text, emotion, japanese_text, events, analysis
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str]]:
         conversation_text = "\n".join(
@@ -816,22 +822,22 @@ class CohereClient(_CommonMixin):
             return text.strip()
         return ""
 
-    async def send_message_with_memory(self, message: str) -> Tuple[str, str, str, List[Dict]]:
+    async def send_message_with_memory(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
         memory_context = await self._build_memory_context(message)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         return self.send_message(enhanced)
 
-    async def send_message_with_images(self, message: str, images_data: list) -> Tuple[str, str, str, List[Dict]]:
+    async def send_message_with_images(self, message: str, images_data: list) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
         memory_context = await self._build_memory_context(message)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         return self.send_message(enhanced)
 
-    def send_message(self, message: str) -> Tuple[str, str, str, List[Dict]]:
+    def send_message(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
         response_text = self._request_cohere(message)
-        clean_text, emotion, japanese_text, events = self._parse_response(response_text)
+        clean_text, emotion, japanese_text, events, analysis = self._parse_response(response_text)
         self._history.append({"role": "user", "content": message})
         self._history.append({"role": "assistant", "content": clean_text})
-        return clean_text, emotion, japanese_text, events
+        return clean_text, emotion, japanese_text, events, analysis
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str]]:
         conversation_text = "\n".join(
@@ -925,12 +931,12 @@ class AnthropicClient(_CommonMixin):
         text_parts = [p.get("text", "") for p in data.get("content", []) if p.get("type") == "text"]
         return "\n".join(text_parts).strip()
 
-    async def send_message_with_memory(self, message: str) -> Tuple[str, str, str, List[Dict]]:
+    async def send_message_with_memory(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
         memory_context = await self._build_memory_context(message)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         return self.send_message(enhanced)
 
-    async def send_message_with_images(self, message: str, images_data: list) -> Tuple[str, str, str, List[Dict]]:
+    async def send_message_with_images(self, message: str, images_data: list) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
         memory_context = await self._build_memory_context(message)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         blocks = [{"type": "text", "text": enhanced}]
@@ -949,17 +955,17 @@ class AnthropicClient(_CommonMixin):
                 }
             )
         response_text = self._request_anthropic(blocks)
-        clean_text, emotion, japanese_text, events = self._parse_response(response_text)
+        clean_text, emotion, japanese_text, events, analysis = self._parse_response(response_text)
         self._history.append({"role": "user", "content": enhanced})
         self._history.append({"role": "assistant", "content": clean_text})
-        return clean_text, emotion, japanese_text, events
+        return clean_text, emotion, japanese_text, events, analysis
 
-    def send_message(self, message: str) -> Tuple[str, str, str, List[Dict]]:
+    def send_message(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
         response_text = self._request_anthropic([{"type": "text", "text": message}])
-        clean_text, emotion, japanese_text, events = self._parse_response(response_text)
+        clean_text, emotion, japanese_text, events, analysis = self._parse_response(response_text)
         self._history.append({"role": "user", "content": message})
         self._history.append({"role": "assistant", "content": clean_text})
-        return clean_text, emotion, japanese_text, events
+        return clean_text, emotion, japanese_text, events, analysis
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str]]:
         conversation_text = "\n".join(
@@ -1065,26 +1071,26 @@ class OllamaClient(_CommonMixin):
         data = response.json()
         return str(data.get("message", {}).get("content", "")).strip()
 
-    async def send_message_with_memory(self, message: str) -> Tuple[str, str, str, List[Dict]]:
+    async def send_message_with_memory(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
         memory_context = await self._build_memory_context(message)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         return self.send_message(enhanced)
 
-    async def send_message_with_images(self, message: str, images_data: list) -> Tuple[str, str, str, List[Dict]]:
+    async def send_message_with_images(self, message: str, images_data: list) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
         memory_context = await self._build_memory_context(message)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         response_text = self._request_ollama(enhanced, images_data=images_data)
-        clean_text, emotion, japanese_text, events = self._parse_response(response_text)
+        clean_text, emotion, japanese_text, events, analysis = self._parse_response(response_text)
         self._history.append({"role": "user", "content": enhanced})
         self._history.append({"role": "assistant", "content": clean_text})
-        return clean_text, emotion, japanese_text, events
+        return clean_text, emotion, japanese_text, events, analysis
 
-    def send_message(self, message: str) -> Tuple[str, str, str, List[Dict]]:
+    def send_message(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
         response_text = self._request_ollama(message)
-        clean_text, emotion, japanese_text, events = self._parse_response(response_text)
+        clean_text, emotion, japanese_text, events, analysis = self._parse_response(response_text)
         self._history.append({"role": "user", "content": message})
         self._history.append({"role": "assistant", "content": clean_text})
-        return clean_text, emotion, japanese_text, events
+        return clean_text, emotion, japanese_text, events, analysis
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str]]:
         conversation_text = "\n".join(
