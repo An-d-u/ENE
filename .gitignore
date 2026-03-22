@@ -27,6 +27,7 @@ pip-wheel-metadata/
 
 # Local runtime files
 backups/
+.worktrees/
 **/prompt.py
 src/ai/sub_prompt.py
 diary/
