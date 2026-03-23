@@ -1281,12 +1281,16 @@ const moodMeterStress = document.getElementById('mood-meter-stress');
 const obsPanel = document.getElementById('obs-panel');
 const obsTree = document.getElementById('obs-tree');
 const obsRefreshBtn = document.getElementById('obs-refresh-btn');
-let attachedImages = [];
+const tokenUsageBubble = document.getElementById('token-usage-bubble');
+const MAX_ATTACHMENT_COUNT = 5;
+const SUPPORTED_DOCUMENT_EXTENSIONS = new Set(['txt', 'md', 'pdf', 'docx']);
+let attachedAttachments = [];
 let rerollButtonVisibleBySetting = true;
 let recentEditButtonVisibleBySetting = true;
 let manualSummaryButtonVisibleBySetting = true;
 let moodToggleButtonVisibleBySetting = true;
 let obsidianNoteButtonVisibleBySetting = true;
+let tokenUsageBubbleVisibleBySetting = false;
 let hasAssistantMessage = false;
 let hasUserMessage = false;
 let isRequestPending = false;
@@ -1297,6 +1301,115 @@ let moodPanelOpen = false;
 let activeInlineEditBubble = null;
 let obsCheckedPaths = new Set();
 let moodWidgetDragState = null;
+let tokenUsageBubbleTimer = null;
+
+function createAttachmentId() {
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+        return window.crypto.randomUUID();
+    }
+    return `attachment-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function getFileExtension(name) {
+    const normalized = String(name || '').trim();
+    const index = normalized.lastIndexOf('.');
+    if (index < 0) return '';
+    return normalized.slice(index + 1).toLowerCase();
+}
+
+function inferMimeTypeFromName(name) {
+    const extension = getFileExtension(name);
+    if (extension === 'txt') return 'text/plain';
+    if (extension === 'md') return 'text/markdown';
+    if (extension === 'pdf') return 'application/pdf';
+    if (extension === 'docx') return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    return 'application/octet-stream';
+}
+
+function classifyAttachment(fileLike) {
+    const mimeType = String(fileLike?.type || '').toLowerCase();
+    const extension = getFileExtension(fileLike?.name || '');
+    if (mimeType.startsWith('image/')) return 'image';
+    if (mimeType.startsWith('text/')) return 'document';
+    if (extension && SUPPORTED_DOCUMENT_EXTENSIONS.has(extension)) return 'document';
+    if (mimeType === 'application/pdf') return 'document';
+    if (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') return 'document';
+    return '';
+}
+
+function formatAttachmentSubtitle(attachment) {
+    if (attachment.category === 'image') {
+        if (attachment.width > 0 && attachment.height > 0) {
+            return `이미지 ${attachment.width}×${attachment.height}`;
+        }
+        return '이미지';
+    }
+
+    const extension = getFileExtension(attachment.name);
+    if (extension === 'pdf') return 'PDF 문서';
+    if (extension === 'docx') return 'DOCX 문서';
+    if (extension === 'md') return '마크다운 문서';
+    if (extension === 'txt') return '텍스트 문서';
+    return '문서';
+}
+
+function formatAttachmentTokenText(attachment) {
+    if (attachment.status === 'error') {
+        return attachment.error || '분석에 실패했어요.';
+    }
+    if (typeof attachment.tokenEstimate === 'number' && attachment.tokenEstimate >= 0) {
+        return `추정 ${attachment.tokenEstimate.toLocaleString('ko-KR')} 토큰`;
+    }
+    return '토큰 계산 중...';
+}
+
+function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (event) => resolve(String(event?.target?.result || ''));
+        reader.onerror = () => reject(reader.error || new Error('파일을 읽지 못했어요.'));
+        reader.readAsDataURL(file);
+    });
+}
+
+function requestAttachmentPreviewMetadata() {
+    if (!window.pyBridge || !window.pyBridge.preview_attachments || attachedAttachments.length === 0) {
+        return;
+    }
+    const payload = attachedAttachments.map((attachment) => ({
+        id: attachment.id,
+        name: attachment.name,
+        type: attachment.type,
+        dataUrl: attachment.dataUrl
+    }));
+    window.pyBridge.preview_attachments(JSON.stringify(payload));
+}
+
+function applyAttachmentPreviewMetadata(value) {
+    let parsed = [];
+    try {
+        parsed = typeof value === 'string' ? JSON.parse(value) : value;
+    } catch (error) {
+        console.error('Failed to parse attachment preview payload', error);
+        return;
+    }
+
+    if (!Array.isArray(parsed)) return;
+
+    parsed.forEach((meta) => {
+        const current = attachedAttachments.find((attachment) => attachment.id === meta.id);
+        if (!current) return;
+        current.category = meta.category || current.category;
+        current.tokenEstimate = Number.isFinite(Number(meta.tokenEstimate)) ? Number(meta.tokenEstimate) : current.tokenEstimate;
+        current.width = Number.isFinite(Number(meta.width)) ? Number(meta.width) : current.width;
+        current.height = Number.isFinite(Number(meta.height)) ? Number(meta.height) : current.height;
+        current.status = meta.status || current.status;
+        current.error = meta.error || '';
+        current.type = meta.type || current.type;
+    });
+
+    updateAttachmentPreview();
+}
 
 // -1~1 축값을 게이지 표시용 0~1 값으로 정규화한다.
 function normalizeMoodAxis(value) {
@@ -1600,6 +1713,54 @@ window.setObsidianNoteButtonEnabled = function (enabled) {
     }
 };
 
+function hideTokenUsageBubble() {
+    if (!tokenUsageBubble) return;
+    tokenUsageBubble.classList.add('hidden');
+}
+
+function formatTokenUsageValue(value) {
+    return Number.isInteger(value) ? String(value) : 'N/A';
+}
+
+function showTokenUsageBubble(payload) {
+    if (!tokenUsageBubble || !tokenUsageBubbleVisibleBySetting) {
+        return;
+    }
+
+    let usage = payload;
+    if (typeof payload === 'string') {
+        try {
+            usage = JSON.parse(payload);
+        } catch (error) {
+            usage = null;
+        }
+    }
+
+    const inputTokens = formatTokenUsageValue(usage && usage.input_tokens);
+    const outputTokens = formatTokenUsageValue(usage && usage.output_tokens);
+    tokenUsageBubble.textContent = `입력 토큰: ${inputTokens} / 출력 토큰: ${outputTokens}`;
+    tokenUsageBubble.classList.remove('hidden');
+
+    if (tokenUsageBubbleTimer) {
+        clearTimeout(tokenUsageBubbleTimer);
+    }
+    tokenUsageBubbleTimer = setTimeout(() => {
+        hideTokenUsageBubble();
+        tokenUsageBubbleTimer = null;
+    }, 3000);
+}
+
+window.setTokenUsageBubbleEnabled = function (enabled) {
+    tokenUsageBubbleVisibleBySetting = Boolean(enabled);
+    if (!tokenUsageBubbleVisibleBySetting) {
+        if (tokenUsageBubbleTimer) {
+            clearTimeout(tokenUsageBubbleTimer);
+            tokenUsageBubbleTimer = null;
+        }
+        hideTokenUsageBubble();
+    }
+};
+
 // 수동 요약 확인 모달을 연다.
 function showSummaryConfirm() {
     if (!summaryConfirmOverlay) return;
@@ -1753,31 +1914,41 @@ function replaceLastAssistantMessage(text) {
 /**
  * 채팅 영역에 메시지 버블을 추가한다.
  */
-// 채팅 메시지(텍스트/이미지)를 DOM에 append하고 상태를 갱신한다.
-function addMessage(text, role, images = []) {
+// 채팅 메시지(텍스트/첨부)를 DOM에 append하고 상태를 갱신한다.
+function addMessage(text, role, attachments = []) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${role}`;
 
     const bubble = document.createElement('div');
     bubble.className = 'message-bubble';
-    if (images && images.length > 0) {
-        const imagesDiv = document.createElement('div');
-        imagesDiv.style.display = 'flex';
-        imagesDiv.style.gap = '4px';
-        imagesDiv.style.marginBottom = '8px';
-        imagesDiv.style.flexWrap = 'wrap';
+    if (attachments && attachments.length > 0) {
+        const attachmentList = document.createElement('div');
+        attachmentList.className = 'message-attachment-list';
 
-        images.forEach(imgSrc => {
-            const img = document.createElement('img');
-            img.src = imgSrc;
-            img.style.maxWidth = '100px';
-            img.style.maxHeight = '100px';
-            img.style.borderRadius = '8px';
-            img.style.objectFit = 'cover';
-            imagesDiv.appendChild(img);
+        attachments.forEach((attachment) => {
+            const normalized = typeof attachment === 'string'
+                ? { category: 'image', name: '이미지', dataUrl: attachment }
+                : attachment;
+            const chip = document.createElement('div');
+            chip.className = 'message-attachment-chip';
+
+            if (normalized.category === 'image' && normalized.dataUrl) {
+                const img = document.createElement('img');
+                img.src = normalized.dataUrl;
+                chip.appendChild(img);
+            } else {
+                const extensionBadge = document.createElement('span');
+                extensionBadge.textContent = getFileExtension(normalized.name || 'file').toUpperCase() || 'FILE';
+                chip.appendChild(extensionBadge);
+            }
+
+            const label = document.createElement('span');
+            label.textContent = normalized.name || (normalized.category === 'image' ? '이미지' : '첨부 파일');
+            chip.appendChild(label);
+            attachmentList.appendChild(chip);
         });
 
-        bubble.appendChild(imagesDiv);
+        bubble.appendChild(attachmentList);
     }
     const textSpan = document.createElement('span');
     textSpan.textContent = text;
@@ -1819,47 +1990,61 @@ function dispatchBridgeCall(task, onError) {
 }
 
 /**
- * 이미지 선택 창 열기.
+ * 첨부 선택 창 열기.
  */
 attachButton.addEventListener('click', () => {
     imageInput.click();
 });
 
 /**
- * 이미지 파일 선택 시 미리보기 목록에 추가한다.
+ * 선택한 첨부 파일을 읽어 미리보기 목록에 추가한다.
  */
-imageInput.addEventListener('change', (e) => {
+imageInput.addEventListener('change', async (e) => {
     const files = Array.from(e.target.files);
 
-    files.forEach(file => {
-        if (!file.type.startsWith('image/')) return;
-        if (attachedImages.length >= 5) {
-            alert('이미지는 최대 5개까지 첨부할 수 있어요.');
-            return;
+    for (const file of files) {
+        const category = classifyAttachment(file);
+        if (!category) {
+            alert('현재는 이미지, TXT, MD, PDF, DOCX 파일만 첨부할 수 있어요.');
+            continue;
+        }
+        if (attachedAttachments.length >= MAX_ATTACHMENT_COUNT) {
+            alert('첨부 파일은 최대 5개까지 첨부할 수 있어요.');
+            break;
         }
 
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            const imageData = {
-                dataUrl: event.target.result,
+        try {
+            const dataUrl = await readFileAsDataUrl(file);
+            const attachment = {
+                id: createAttachmentId(),
+                dataUrl,
                 name: file.name,
-                type: file.type
+                type: file.type || inferMimeTypeFromName(file.name),
+                category,
+                tokenEstimate: null,
+                width: 0,
+                height: 0,
+                status: 'pending',
+                error: ''
             };
 
-            attachedImages.push(imageData);
-            updateImagePreview();
-        };
-        reader.readAsDataURL(file);
-    });
+            attachedAttachments.push(attachment);
+            updateAttachmentPreview();
+            requestAttachmentPreviewMetadata();
+        } catch (error) {
+            console.error('Failed to read attachment', error);
+            alert(`첨부 파일을 읽는 중 문제가 생겼어요: ${file.name}`);
+        }
+    }
     imageInput.value = '';
 });
 
 /**
- * 첨부 이미지 미리보기 영역을 다시 렌더링한다.
+ * 첨부 미리보기 영역을 다시 렌더링한다.
  */
-// 첨부한 이미지 프리뷰 썸네일 목록을 다시 그린다.
-function updateImagePreview() {
-    console.log("[Preview] Updating preview, images:", attachedImages.length);
+// 첨부한 이미지/문서 프리뷰 목록을 다시 그린다.
+function updateAttachmentPreview() {
+    console.log("[Preview] Updating preview, attachments:", attachedAttachments.length);
 
     if (!imagePreviewContainer) {
         console.error("[Preview] imagePreviewContainer is null!");
@@ -1868,28 +2053,59 @@ function updateImagePreview() {
 
     imagePreviewContainer.innerHTML = '';
 
-    attachedImages.forEach((img, index) => {
-        console.log("[Preview] Adding image:", img.name);
+    attachedAttachments.forEach((attachment, index) => {
+        console.log("[Preview] Adding attachment:", attachment.name);
 
         const item = document.createElement('div');
-        item.className = 'image-preview-item';
+        item.className = 'attachment-preview-item';
 
-        const imgEl = document.createElement('img');
-        imgEl.src = img.dataUrl;
+        if (attachment.category === 'image') {
+            const imgEl = document.createElement('img');
+            imgEl.className = 'attachment-preview-thumb';
+            imgEl.src = attachment.dataUrl;
+            item.appendChild(imgEl);
+        } else {
+            const docEl = document.createElement('div');
+            docEl.className = 'attachment-preview-doc';
+            docEl.textContent = getFileExtension(attachment.name).toUpperCase() || 'FILE';
+            item.appendChild(docEl);
+        }
+
+        const meta = document.createElement('div');
+        meta.className = 'attachment-preview-meta';
+
+        const nameEl = document.createElement('div');
+        nameEl.className = 'attachment-preview-name';
+        nameEl.textContent = attachment.name;
+
+        const subtitleEl = document.createElement('div');
+        subtitleEl.className = 'attachment-preview-subtitle';
+        subtitleEl.textContent = formatAttachmentSubtitle(attachment);
+
+        const tokenEl = document.createElement('div');
+        tokenEl.className = 'attachment-preview-token';
+        if (attachment.status === 'error') {
+            tokenEl.classList.add('is-error');
+        }
+        tokenEl.textContent = formatAttachmentTokenText(attachment);
+
+        meta.appendChild(nameEl);
+        meta.appendChild(subtitleEl);
+        meta.appendChild(tokenEl);
 
         const removeBtn = document.createElement('button');
         removeBtn.className = 'remove-btn';
         removeBtn.textContent = '✕';
         removeBtn.onclick = () => {
-            attachedImages.splice(index, 1);
-            updateImagePreview();
+            attachedAttachments.splice(index, 1);
+            updateAttachmentPreview();
         };
 
-        item.appendChild(imgEl);
+        item.appendChild(meta);
         item.appendChild(removeBtn);
         imagePreviewContainer.appendChild(item);
     });
-    if (attachedImages.length > 0) {
+    if (attachedAttachments.length > 0) {
         imagePreviewContainer.style.display = 'flex';
     } else {
         imagePreviewContainer.style.display = 'none';
@@ -1900,20 +2116,21 @@ function updateImagePreview() {
 
 
 /**
- * 입력창/첨부 이미지를 Python 브리지로 전송한다.
+ * 입력창/첨부 파일을 Python 브리지로 전송한다.
  */
-// 입력창 텍스트/이미지를 브리지로 보내고 전송 상태를 초기화한다.
+// 입력창 텍스트/첨부를 브리지로 보내고 전송 상태를 초기화한다.
 function sendMessage() {
     const message = chatInput.value.trim();
 
-    if (!message && attachedImages.length === 0) return;
-    const pendingImages = attachedImages.map(img => ({
-        dataUrl: img.dataUrl,
-        name: img.name,
-        type: img.type
+    if (!message && attachedAttachments.length === 0) return;
+    const pendingAttachments = attachedAttachments.map((attachment) => ({
+        id: attachment.id,
+        dataUrl: attachment.dataUrl,
+        name: attachment.name,
+        type: attachment.type,
+        category: attachment.category
     }));
-    const imageUrls = pendingImages.map(img => img.dataUrl);
-    addMessage(message || '(이미지)', 'user', imageUrls);
+    addMessage(message || '(첨부)', 'user', pendingAttachments);
     chatInput.value = '';
     autoResizeTextarea();
     if (window.pyBridge) {
@@ -1923,8 +2140,8 @@ function sendMessage() {
         showLoadingIndicator(true);
 
         dispatchBridgeCall(() => {
-            if (pendingImages.length > 0) {
-                window.pyBridge.send_to_ai_with_images(message, JSON.stringify(pendingImages));
+            if (pendingAttachments.length > 0) {
+                window.pyBridge.send_to_ai_with_attachments(message, JSON.stringify(pendingAttachments));
             } else {
                 window.pyBridge.send_to_ai(message);
             }
@@ -1943,8 +2160,8 @@ function sendMessage() {
         shouldReplaceNextAssistant = false;
         updateRerollButtonState();
     }
-    attachedImages = [];
-    updateImagePreview();
+    attachedAttachments = [];
+    updateAttachmentPreview();
 }
 
 // Python 전역 PTT가 호출하는 텍스트 전송 진입점.
@@ -2064,21 +2281,29 @@ chatInput.addEventListener('paste', (e) => {
         if (item.type.indexOf('image') === 0) {
             hasImage = true;
             const blob = item.getAsFile();
-            if (attachedImages.length >= 5) {
-                alert('이미지는 최대 5개까지 첨부할 수 있어요.');
+            if (attachedAttachments.length >= MAX_ATTACHMENT_COUNT) {
+                alert('첨부 파일은 최대 5개까지 첨부할 수 있어요.');
                 return;
             }
 
             const reader = new FileReader();
             reader.onload = (event) => {
                 const imageData = {
+                    id: createAttachmentId(),
                     dataUrl: event.target.result,
                     name: "pasted_image.png",
-                    type: item.type
+                    type: item.type,
+                    category: 'image',
+                    tokenEstimate: null,
+                    width: 0,
+                    height: 0,
+                    status: 'pending',
+                    error: ''
                 };
 
-                attachedImages.push(imageData);
-                updateImagePreview();
+                attachedAttachments.push(imageData);
+                updateAttachmentPreview();
+                requestAttachmentPreviewMetadata();
             };
             reader.readAsDataURL(blob);
         }
@@ -2097,6 +2322,16 @@ if (typeof QWebChannel !== 'undefined') {
         window.pyBridge = channel.objects.bridge;
         console.log("QWebChannel bridge connected");
         updateRerollButtonState();
+        if (window.pyBridge.attachment_preview_ready) {
+            window.pyBridge.attachment_preview_ready.connect(function (value) {
+                applyAttachmentPreviewMetadata(value);
+            });
+        }
+        if (window.pyBridge.token_usage_ready) {
+            window.pyBridge.token_usage_ready.connect(function (value) {
+                showTokenUsageBubble(value);
+            });
+        }
         window.pyBridge.message_received.connect(function (text, emotion) {
             console.log(`Received from Python: "${text}" [${emotion}]`);
             showLoadingIndicator(false);
