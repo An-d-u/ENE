@@ -22,13 +22,31 @@ import re
 from ..ai.diary_service import DiaryService
 from ..ai.note_service import NoteService, NoteCommand, NoteCommandResult, NotePlan
 from ..ai.obsidian_manager import ObsidianManager
+from .chat_attachments import (
+    build_attachment_context_block,
+    build_attachment_note,
+    build_general_chat_prompt as compose_general_chat_prompt,
+    prepare_attachments,
+)
 from .obs_settings import ObsSettings
+
+VISIBLE_RESPONSE_ANALYSIS_KEYS = (
+    "user_emotion",
+    "user_intent",
+    "interaction_effect",
+    "bond_delta_hint",
+    "stress_delta_hint",
+    "energy_delta_hint",
+    "valence_delta_hint",
+    "confidence",
+    "flags",
+)
 
 
 class AIWorker(QThread):
     """AI 응답을 비동기로 처리하는 워커 스레드"""
     
-    response_ready = pyqtSignal(str, str, str, list, str)  # (텍스트, 감정, 일본어, 이벤트, analysis JSON)
+    response_ready = pyqtSignal(str, str, str, list, str, str)  # (텍스트, 감정, 일본어, 이벤트, analysis JSON, 토큰 JSON)
     error_occurred = pyqtSignal(str)  # 오류 메시지
     
     def __init__(
@@ -37,6 +55,7 @@ class AIWorker(QThread):
         message,
         use_memory=True,
         images=None,
+        memory_search_text: str = "",
         diary_request: str = "",
         note_request: str = "",
         note_recent_context: str = "",
@@ -50,6 +69,7 @@ class AIWorker(QThread):
         self.message = message
         self.use_memory = use_memory
         self.images = images or []  # 이미지 데이터 리스트
+        self.memory_search_text = (memory_search_text or "").strip()
         self.diary_request = (diary_request or "").strip()
         self.note_request = (note_request or "").strip()
         self.note_recent_context = (note_recent_context or "").strip()
@@ -98,12 +118,23 @@ class AIWorker(QThread):
             elif self.images:
                 print(f"[AI Worker] 이미지 {len(self.images)}개 포함 - 멀티모달 모드")
                 response_text, emotion, japanese_text, events, analysis = self._normalize_response_payload(
-                    loop.run_until_complete(self.llm_client.send_message_with_images(self.message, self.images))
+                    loop.run_until_complete(
+                        self.llm_client.send_message_with_images(
+                            self.message,
+                            self.images,
+                            self.memory_search_text,
+                        )
+                    )
                 )
             elif self.use_memory and hasattr(self.llm_client, 'send_message_with_memory'):
                 print(f"[AI Worker] 메모리 활용 모드")
                 response_text, emotion, japanese_text, events, analysis = self._normalize_response_payload(
-                    loop.run_until_complete(self.llm_client.send_message_with_memory(self.message))
+                    loop.run_until_complete(
+                        self.llm_client.send_message_with_memory(
+                            self.message,
+                            self.memory_search_text,
+                        )
+                    )
                 )
             else:
                 print(f"[AI Worker] 일반 모드 (메모리 없음)")
@@ -117,6 +148,7 @@ class AIWorker(QThread):
                 print(f"[AI Worker] Japanese: {japanese_text[:30]}...")
             if events:
                 print(f"[AI Worker] {len(events)}개 일정 추출")
+            token_usage_payload = self._build_token_usage_payload()
             
             # events도 함께 emit (signal에는 리스트로 전달 가능)
             self.response_ready.emit(
@@ -125,6 +157,7 @@ class AIWorker(QThread):
                 japanese_text or "",
                 events,
                 json.dumps(analysis, ensure_ascii=False),
+                token_usage_payload,
             )
         except Exception as e:
             print(f"[AI Worker] Error: {e}")
@@ -134,6 +167,27 @@ class AIWorker(QThread):
         finally:
             if loop is not None:
                 loop.close()
+
+    def _build_token_usage_payload(self) -> str:
+        """최근 토큰 사용량을 JSON 문자열로 직렬화한다."""
+        usage = {
+            "input_tokens": None,
+            "output_tokens": None,
+            "total_tokens": None,
+        }
+        getter = getattr(self.llm_client, "get_last_token_usage", None)
+        if callable(getter):
+            try:
+                raw = getter()
+            except Exception:
+                raw = None
+            if isinstance(raw, dict):
+                usage = {
+                    "input_tokens": raw.get("input_tokens") if isinstance(raw.get("input_tokens"), int) else None,
+                    "output_tokens": raw.get("output_tokens") if isinstance(raw.get("output_tokens"), int) else None,
+                    "total_tokens": raw.get("total_tokens") if isinstance(raw.get("total_tokens"), int) else None,
+                }
+        return json.dumps(usage, ensure_ascii=False)
 
     async def _run_diary_flow(self):
         """일기/문서 생성 전용 플로우."""
@@ -403,6 +457,8 @@ class WebBridge(QObject):
     summary_notice = pyqtSignal(str, str)    # (메시지, 레벨)
     mood_changed = pyqtSignal(str, float, float, float, float)  # (라벨, valence, energy, bond, stress)
     obs_tree_updated = pyqtSignal(str)       # Obsidian 트리 JSON
+    attachment_preview_ready = pyqtSignal(str)  # 첨부 프리뷰 메타데이터 JSON
+    token_usage_ready = pyqtSignal(str)  # 토큰 사용량 JSON
     
     def __init__(self, settings=None, parent=None):
         super().__init__(parent)
@@ -428,6 +484,8 @@ class WebBridge(QObject):
         self._cached_checked_files_context = ""
         self._cached_checked_files_signature: tuple[str, ...] = tuple()
         self.obs_checked_files_worker = None
+        self._pending_attachment_cache: dict[str, dict] = {}
+        self._session_attachment_documents: list[dict] = []
         
         # TTS 및 오디오 재생
         self.tts_client = None
@@ -442,6 +500,7 @@ class WebBridge(QObject):
         
         # 보류 중인 응답 (TTS 대기)
         self.pending_response = None  # (text, emotion)
+        self.pending_token_usage_payload = ""
         self._tts_interrupted_for_ptt = False
         
         # 대화 추적
@@ -806,7 +865,12 @@ class WebBridge(QObject):
         """Append a conversation tuple to the in-memory buffer."""
         self.conversation_buffer.append((role, message, timestamp or self._now_timestamp()))
 
-    def _start_ai_worker(self, message_with_time: str, images_data: list | None = None):
+    def _start_ai_worker(
+        self,
+        message_with_time: str,
+        images_data: list | None = None,
+        memory_search_text: str = "",
+    ):
         """Start AI worker with current payload."""
         if self.worker and self.worker.isRunning():
             print("[Bridge] Worker still running, waiting...")
@@ -815,7 +879,8 @@ class WebBridge(QObject):
         self.worker = AIWorker(
             self.llm_client,
             message_with_time,
-            images=images_data or []
+            images=images_data or [],
+            memory_search_text=memory_search_text,
         )
         self.worker.response_ready.connect(self._on_response_ready)
         self.worker.error_occurred.connect(self._on_error)
@@ -1042,15 +1107,155 @@ class WebBridge(QObject):
         if signature != self._get_checked_files_signature():
             self._schedule_checked_files_context_refresh(force=True)
 
-    def _build_general_chat_prompt(self, message: str) -> str:
+    def _build_general_chat_prompt(self, message: str, attachment_context: str = "") -> str:
         """
         일반 채팅 프롬프트를 구성한다.
-        체크된 파일 본문은 항상 기본 컨텍스트에 포함한다.
+        체크된 파일 본문과 이번 턴 첨부 자료만 현재 요청에 포함한다.
         """
         obs_context = self._get_cached_checked_files_context().strip()
-        if not obs_context:
-            return message
-        return f"{obs_context}\n\n[사용자 메시지]\n{message}"
+        return compose_general_chat_prompt(
+            message,
+            obsidian_context=obs_context,
+            attachment_context=str(attachment_context or "").strip(),
+        )
+
+    def _resolve_memory_search_turns(self) -> int:
+        """장기기억 검색에 참고할 최근 보이는 대화 턴 수를 반환한다."""
+        if not self.settings:
+            return 2
+        try:
+            turns = int(self.settings.get("memory_search_recent_turns", 2) or 0)
+        except Exception:
+            turns = 2
+        return max(0, min(turns, 50))
+
+    def _build_memory_search_text(self, current_message: str) -> str:
+        """최신 메시지와 최근 보이는 대화 N턴으로 검색용 문자열을 만든다."""
+        current = str(current_message or "").strip()
+        turns = self._resolve_memory_search_turns()
+        entries = list(self.conversation_buffer or [])
+        if turns > 0:
+            entries = entries[-(turns * 2):]
+
+        lines: list[str] = []
+        for item in entries:
+            if not item or len(item) < 2:
+                continue
+            role = str(item[0]).strip().lower()
+            text = str(item[1] or "").strip()
+            if not text:
+                continue
+            role_label = "마스터" if role == "user" else "에네" if role == "assistant" else role
+            lines.append(f"[{role_label}] {text}")
+
+        if current:
+            lines.append(f"[현재 사용자 메시지] {current}")
+
+        return "\n".join(lines).strip()
+
+    def _attachment_model_name(self) -> str:
+        """첨부 토큰 추정에 사용할 현재 모델명을 가져온다."""
+        if not self.llm_client:
+            return ""
+        return str(getattr(self.llm_client, "model_name", "") or "")
+
+    def _prepare_attachment_payload(self, attachments_data: list[dict]) -> list[dict]:
+        """첨부 원본 페이로드를 분석 가능한 메타데이터로 변환한다."""
+        return prepare_attachments(attachments_data, model_name=self._attachment_model_name())
+
+    def _cache_prepared_attachments(self, prepared_attachments: list[dict]):
+        """프리뷰 단계에서 준비한 첨부 메타데이터를 임시 캐시에 저장한다."""
+        for item in prepared_attachments or []:
+            attachment_id = str((item or {}).get("id", "")).strip()
+            if attachment_id:
+                self._pending_attachment_cache[attachment_id] = item
+
+    def _resolve_prepared_attachments(self, attachments_data: list[dict]) -> list[dict]:
+        """캐시가 있으면 재사용하고, 없으면 즉시 분석한다."""
+        items = list(attachments_data or [])
+        if not items:
+            return []
+
+        if any(not str((item or {}).get("id", "")).strip() for item in items):
+            prepared = self._prepare_attachment_payload(items)
+            self._cache_prepared_attachments(prepared)
+            return prepared
+
+        missing: list[dict] = []
+        prepared_by_id: dict[str, dict] = {}
+
+        for raw in items:
+            attachment_id = str((raw or {}).get("id", "")).strip()
+            cached = self._pending_attachment_cache.get(attachment_id)
+            if cached and cached.get("dataUrl") == raw.get("dataUrl"):
+                prepared_by_id[attachment_id] = cached
+            else:
+                missing.append(raw)
+
+        if missing:
+            fresh = self._prepare_attachment_payload(missing)
+            self._cache_prepared_attachments(fresh)
+            for item in fresh:
+                attachment_id = str((item or {}).get("id", "")).strip()
+                if attachment_id:
+                    prepared_by_id[attachment_id] = item
+
+        resolved: list[dict] = []
+        for raw in items:
+            attachment_id = str((raw or {}).get("id", "")).strip()
+            item = prepared_by_id.get(attachment_id)
+            if item:
+                resolved.append(item)
+        return resolved
+
+    def _build_attachment_preview_payload(self, prepared_attachments: list[dict]) -> str:
+        """프런트 프리뷰 갱신용 최소 메타데이터만 JSON으로 직렬화한다."""
+        payload = []
+        for item in prepared_attachments or []:
+            payload.append(
+                {
+                    "id": item.get("id", ""),
+                    "name": item.get("name", ""),
+                    "type": item.get("type", ""),
+                    "category": item.get("category", ""),
+                    "tokenEstimate": int(item.get("tokenEstimate", 0) or 0),
+                    "width": int(item.get("width", 0) or 0),
+                    "height": int(item.get("height", 0) or 0),
+                    "status": item.get("status", "ready"),
+                    "error": item.get("error", ""),
+                }
+            )
+        return json.dumps(payload, ensure_ascii=False)
+
+    def _upsert_session_documents(self, prepared_attachments: list[dict]):
+        """전송이 완료된 문서 첨부를 현재 세션 참고 자료로 유지한다."""
+        for item in prepared_attachments or []:
+            if str(item.get("category", "")) != "document":
+                continue
+            if str(item.get("status", "ready")) != "ready":
+                continue
+
+            normalized_name = str(item.get("name", "")).strip().casefold()
+            if not normalized_name:
+                continue
+
+            document_entry = {
+                "name": item.get("name", ""),
+                "type": item.get("type", ""),
+                "category": "document",
+                "tokenEstimate": int(item.get("tokenEstimate", 0) or 0),
+                "extractedText": item.get("extractedText", ""),
+                "_name_key": normalized_name,
+            }
+
+            replaced = False
+            for index, existing in enumerate(self._session_attachment_documents):
+                if str(existing.get("_name_key", "")) == normalized_name:
+                    self._session_attachment_documents[index] = document_entry
+                    replaced = True
+                    break
+            if not replaced:
+                self._session_attachment_documents.append(document_entry)
 
     def _parse_obs_subcommand(self, body: str) -> tuple[str, dict]:
         """
@@ -1313,6 +1518,7 @@ class WebBridge(QObject):
         timestamp = self._now_timestamp()
         prompt = self._build_general_chat_prompt(message)
         message_with_time = f"[현재 시각: {timestamp}]\n{prompt}"
+        memory_search_text = self._build_memory_search_text(message)
         print(f"[Bridge] Message with timestamp: {message_with_time}")
 
         self._mark_user_activity()
@@ -1326,18 +1532,52 @@ class WebBridge(QObject):
             "message": message,
             "message_with_time": message_with_time,
             "images": [],
+            "attachment_context": "",
+            "memory_search_text": memory_search_text,
         }
         self._is_rerolling = False
 
-        self._start_ai_worker(message_with_time)
+        self._start_ai_worker(message_with_time, memory_search_text=memory_search_text)
         print("[Bridge] Worker thread started")
 
     @pyqtSlot(str, str)
     def send_to_ai_with_images(self, message: str, images_json: str):
-        """JavaScript에서 호출: 이미지 포함 메시지를 AI로 전송."""
-        import json
+        """기존 이미지 전송 진입점을 일반 첨부 전송 경로로 연결한다."""
+        try:
+            images_data = json.loads(images_json)
+        except Exception:
+            images_data = []
 
-        print("[Bridge] Received message with images from JS")
+        attachments = []
+        for index, image in enumerate(images_data):
+            attachments.append(
+                {
+                    "id": str((image or {}).get("id", "")).strip() or f"legacy-image-{index}",
+                    "name": str((image or {}).get("name", "")).strip() or f"image-{index + 1}.png",
+                    "type": str((image or {}).get("type", "")).strip() or "image/png",
+                    "dataUrl": str((image or {}).get("dataUrl", "")).strip(),
+                }
+            )
+        self.send_to_ai_with_attachments(message, json.dumps(attachments, ensure_ascii=False))
+
+    @pyqtSlot(str)
+    def preview_attachments(self, attachments_json: str):
+        """프런트가 첨부 미리보기 옆에 표시할 메타데이터를 계산한다."""
+        try:
+            attachments_data = json.loads(attachments_json) if attachments_json else []
+        except Exception as e:
+            print(f"[Bridge] Failed to parse preview attachments: {e}")
+            self.attachment_preview_ready.emit("[]")
+            return
+
+        prepared = self._prepare_attachment_payload(attachments_data)
+        self._cache_prepared_attachments(prepared)
+        self.attachment_preview_ready.emit(self._build_attachment_preview_payload(prepared))
+
+    @pyqtSlot(str, str)
+    def send_to_ai_with_attachments(self, message: str, attachments_json: str):
+        """JavaScript에서 호출: 이미지/문서 첨부를 포함한 메시지를 AI로 전송."""
+        print("[Bridge] Received message with attachments from JS")
 
         if not self.llm_client:
             print("[Bridge] LLM client not initialized")
@@ -1345,33 +1585,63 @@ class WebBridge(QObject):
             return
 
         try:
-            images_data = json.loads(images_json)
-            print(f"[Bridge] Parsed {len(images_data)} images")
+            attachments_data = json.loads(attachments_json) if attachments_json else []
+            print(f"[Bridge] Parsed {len(attachments_data)} attachments")
         except Exception as e:
-            print(f"[Bridge] Failed to parse images: {e}")
-            images_data = []
+            print(f"[Bridge] Failed to parse attachments: {e}")
+            attachments_data = []
 
+        prepared_attachments = self._resolve_prepared_attachments(attachments_data)
+        ready_attachments = [
+            item for item in prepared_attachments
+            if str(item.get("status", "ready")) == "ready"
+        ]
+        image_attachments = [
+            {
+                "id": item.get("id", ""),
+                "dataUrl": item.get("dataUrl", ""),
+                "name": item.get("name", ""),
+                "type": item.get("type", "image/png"),
+            }
+            for item in ready_attachments
+            if str(item.get("category", "")) == "image"
+        ]
+        effective_message = (message or "").strip() or "첨부한 자료를 확인해 줘."
         timestamp = self._now_timestamp()
-        prompt = self._build_general_chat_prompt(message)
+        attachment_context = build_attachment_context_block(ready_attachments)
+        prompt = self._build_general_chat_prompt(effective_message, attachment_context=attachment_context)
         message_with_time = f"[현재 시각: {timestamp}]\n{prompt}"
+        memory_search_text = self._build_memory_search_text(effective_message)
 
         self._mark_user_activity()
-        img_note = f" [이미지 {len(images_data)}장]" if images_data else ""
-        self._append_conversation("user", message + img_note, timestamp)
+        attachment_note = build_attachment_note(ready_attachments)
+        history_message = ((message or "").strip() or "(첨부)") + attachment_note
+        self._append_conversation("user", history_message, timestamp)
         if self.mood_manager:
-            snapshot = self.mood_manager.on_user_message(message, image_count=len(images_data))
+            snapshot = self.mood_manager.on_user_message(effective_message, image_count=len(image_attachments))
             self._emit_mood_changed(snapshot)
 
         self._last_request_payload = {
-            "type": "images",
-            "message": message,
+            "type": "attachments" if ready_attachments else "text",
+            "message": effective_message,
             "message_with_time": message_with_time,
-            "images": images_data,
+            "images": image_attachments,
+            "attachment_note": attachment_note,
+            "attachment_context": attachment_context,
+            "memory_search_text": memory_search_text,
         }
         self._is_rerolling = False
 
-        self._start_ai_worker(message_with_time, images_data)
-        print(f"[Bridge] Worker thread started with {len(images_data)} images")
+        self._start_ai_worker(
+            message_with_time,
+            image_attachments,
+            memory_search_text=memory_search_text,
+        )
+        print(
+            f"[Bridge] Worker thread started with "
+            f"{len(image_attachments)} images and "
+            f"{len([item for item in ready_attachments if item.get('category') == 'document'])} documents"
+        )
 
     @pyqtSlot()
     def reroll_last_response(self):
@@ -1403,7 +1673,11 @@ class WebBridge(QObject):
         payload = self._last_request_payload
         self._is_rerolling = True
         self.reroll_state_changed.emit(True)
-        self._start_ai_worker(payload["message_with_time"], payload.get("images") or [])
+        self._start_ai_worker(
+            payload["message_with_time"],
+            payload.get("images") or [],
+            memory_search_text=str(payload.get("memory_search_text", "") or ""),
+        )
         print("[Bridge] Reroll started")
 
     def _rollback_last_turn_pair_for_retry(self) -> bool:
@@ -1483,23 +1757,29 @@ class WebBridge(QObject):
         timestamp = self._now_timestamp()
         payload_type = self._last_request_payload.get("type", "text")
         images = self._last_request_payload.get("images") or []
-        if payload_type == "images":
-            img_note = f" [이미지 {len(images)}장]" if images else ""
-            self._append_conversation("user", edited_message + img_note, timestamp)
+        attachment_note = str(self._last_request_payload.get("attachment_note", "") or "")
+        attachment_context = str(self._last_request_payload.get("attachment_context", "") or "")
+        if payload_type in {"images", "attachments"}:
+            self._append_conversation("user", edited_message + attachment_note, timestamp)
         else:
             self._append_conversation("user", edited_message, timestamp)
 
-        message_with_time = f"[현재 시각: {timestamp}]\n{edited_message}"
+        prompt = self._build_general_chat_prompt(edited_message, attachment_context=attachment_context)
+        message_with_time = f"[현재 시각: {timestamp}]\n{prompt}"
+        memory_search_text = self._build_memory_search_text(edited_message)
         self._last_request_payload = {
             "type": payload_type,
             "message": edited_message,
             "message_with_time": message_with_time,
             "images": images,
+            "attachment_note": attachment_note,
+            "attachment_context": attachment_context,
+            "memory_search_text": memory_search_text,
         }
 
         self._is_rerolling = True
         self.reroll_state_changed.emit(True)
-        self._start_ai_worker(message_with_time, images)
+        self._start_ai_worker(message_with_time, images, memory_search_text=memory_search_text)
         print("[Bridge] Edit last user message started")
 
     @pyqtSlot()
@@ -1544,8 +1824,10 @@ class WebBridge(QObject):
         japanese_text: str,
         events: list = None,
         analysis_payload: str = "",
+        token_usage_payload: str = "",
     ):
         """AI 응답 준비 완료"""
+        text = self._sanitize_visible_response_text(text)
         print(f"[Bridge] Response ready: {text[:50]}... [{emotion}]")
         self._last_assistant_response = {"text": text, "emotion": emotion}
         analysis = {}
@@ -1560,12 +1842,14 @@ class WebBridge(QObject):
         if self.mood_manager and analysis:
             snapshot = self.mood_manager.on_user_analysis(analysis)
             self._emit_mood_changed(snapshot)
+        resolved_token_usage_payload = self._resolve_token_usage_payload(token_usage_payload)
         if self.mood_manager:
             snapshot = self.mood_manager.on_assistant_emotion(emotion)
             self._emit_mood_changed(snapshot)
         
         # 대화 버퍼에 응답 추가 (+ 타임스탬프)
         self._append_conversation("assistant", text)
+        self._refresh_llm_history_from_visible_conversation()
         
         # 일정 저장 (CalendarManager가 있으면)
         if events and hasattr(self, 'calendar_manager') and self.calendar_manager:
@@ -1586,11 +1870,13 @@ class WebBridge(QObject):
             print(f"[Bridge] TTS 활성화 - 텍스트 보류 중, TTS 생성 시작")
             # 텍스트를 보류하고 TTS 완료 대기
             self.pending_response = (text, emotion)
+            self.pending_token_usage_payload = resolved_token_usage_payload
             self._play_tts(japanese_text)
         else:
             # TTS 비활성화 또는 일본어 없음 - 즉시 텍스트 전송
             print(f"[Bridge] TTS 비활성화 - 텍스트 즉시 전송")
             self.message_received.emit(text, emotion)
+            self.token_usage_ready.emit(resolved_token_usage_payload)
             if self._is_rerolling:
                 self._is_rerolling = False
                 self.reroll_state_changed.emit(False)
@@ -1599,6 +1885,33 @@ class WebBridge(QObject):
         
         # 자동 요약 확인
         self._check_auto_summarize()
+
+    def _sanitize_visible_response_text(self, text: str) -> str:
+        """표시 직전 응답에서 내부 메타데이터와 잔여 감정 태그를 제거한다."""
+        sanitized = str(text or "")
+        sanitized = re.sub(r"\[analysis\]\s*.*?\s*\[/analysis\]\s*", "", sanitized, flags=re.IGNORECASE | re.DOTALL)
+
+        key_pattern = "|".join(re.escape(key) for key in VISIBLE_RESPONSE_ANALYSIS_KEYS)
+        leading_meta_pattern = rf"^\s*(?:(?:{key_pattern})\s*=\s*.*(?:\r?\n|$))+"
+        sanitized = re.sub(leading_meta_pattern, "", sanitized, flags=re.IGNORECASE)
+        sanitized = re.sub(r"^\s*\n+", "", sanitized)
+
+        sanitized = re.sub(r"\[(\w+)\]", "", sanitized)
+        return sanitized.strip()
+
+    def _refresh_llm_history_from_visible_conversation(self):
+        """현재 보이는 대화 버퍼만 남도록 LLM 히스토리를 재구성한다."""
+        if not self.llm_client:
+            return
+        rebuild = getattr(self.llm_client, "rebuild_context_from_conversation", None)
+        if not callable(rebuild):
+            return
+        try:
+            ok = bool(rebuild(self.conversation_buffer))
+            if not ok:
+                print("[Bridge] LLM 히스토리 재구성 실패")
+        except Exception as e:
+            print(f"[Bridge] LLM 히스토리 재구성 중 오류: {e}")
     
     def _play_tts(self, text: str):
         """립싱크를 포함한 TTS 재생 (비동기 스레드)"""
@@ -1660,10 +1973,48 @@ class WebBridge(QObject):
         text, emotion = self.pending_response
         print(f"[Bridge] 보류된 응답 즉시 전송: {text[:50]}... [{emotion}]")
         self.message_received.emit(text, emotion)
+        self.token_usage_ready.emit(self._resolve_token_usage_payload(self.pending_token_usage_payload))
         if self._is_rerolling:
             self._is_rerolling = False
             self.reroll_state_changed.emit(False)
         self.pending_response = None
+        self.pending_token_usage_payload = ""
+
+    def _resolve_token_usage_payload(self, token_usage_payload: str = "") -> str:
+        """브리지에서 사용할 토큰 사용량 JSON을 정규화한다."""
+        usage = {
+            "input_tokens": None,
+            "output_tokens": None,
+            "total_tokens": None,
+        }
+
+        if token_usage_payload:
+            try:
+                parsed = json.loads(token_usage_payload)
+            except Exception:
+                parsed = None
+            if isinstance(parsed, dict):
+                usage = {
+                    "input_tokens": parsed.get("input_tokens") if isinstance(parsed.get("input_tokens"), int) else None,
+                    "output_tokens": parsed.get("output_tokens") if isinstance(parsed.get("output_tokens"), int) else None,
+                    "total_tokens": parsed.get("total_tokens") if isinstance(parsed.get("total_tokens"), int) else None,
+                }
+                return json.dumps(usage, ensure_ascii=False)
+
+        getter = getattr(self.llm_client, "get_last_token_usage", None)
+        if callable(getter):
+            try:
+                latest_usage = getter()
+            except Exception:
+                latest_usage = None
+            if isinstance(latest_usage, dict):
+                usage = {
+                    "input_tokens": latest_usage.get("input_tokens") if isinstance(latest_usage.get("input_tokens"), int) else None,
+                    "output_tokens": latest_usage.get("output_tokens") if isinstance(latest_usage.get("output_tokens"), int) else None,
+                    "total_tokens": latest_usage.get("total_tokens") if isinstance(latest_usage.get("total_tokens"), int) else None,
+                }
+
+        return json.dumps(usage, ensure_ascii=False)
 
     def interrupt_tts_for_ptt(self):
         """PTT 시작 시 현재 음성 출력/립싱크를 즉시 중단한다."""
@@ -1851,6 +2202,11 @@ class WebBridge(QObject):
                         category="fact",
                         source=f"대화 요약 ({datetime.now().strftime('%Y-%m-%d %H:%M')})"
                     )
+
+            clear_context = getattr(self.llm_client, "clear_context", None)
+            if callable(clear_context):
+                clear_context()
+                print("[Bridge] 대화 요약 후 LLM 세션 컨텍스트 초기화")
             
             # 버퍼 클리어
             self.conversation_buffer = []
@@ -1894,6 +2250,8 @@ class WebBridge(QObject):
         self._last_request_payload = None
         self._last_assistant_response = None
         self._is_rerolling = False
+        self._pending_attachment_cache = {}
+        self._session_attachment_documents = []
         self.away_already_triggered_since_last_user_msg = False
         self.away_trigger_count_since_last_user_msg = 0
         self.last_away_trigger_at = None

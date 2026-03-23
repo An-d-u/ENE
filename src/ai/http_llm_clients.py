@@ -508,13 +508,24 @@ class OpenAICompatibleClient(_CommonMixin):
             return "\n".join([c.get("text", "") for c in content if isinstance(c, dict)]).strip()
         return str(content).strip()
 
-    async def send_message_with_memory(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
-        memory_context = await self._build_memory_context(message)
+    async def send_message_with_memory(
+        self,
+        message: str,
+        memory_search_text: str | None = None,
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+        search_query = str(memory_search_text or "").strip() or message
+        memory_context = await self._build_memory_context(search_query)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         return self.send_message(enhanced)
 
-    async def send_message_with_images(self, message: str, images_data: list) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
-        memory_context = await self._build_memory_context(message)
+    async def send_message_with_images(
+        self,
+        message: str,
+        images_data: list,
+        memory_search_text: str | None = None,
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+        search_query = str(memory_search_text or "").strip() or message
+        memory_context = await self._build_memory_context(search_query)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         parts = [{"type": "text", "text": enhanced}]
         for img in images_data or []:
@@ -685,13 +696,24 @@ class OpenAIResponseAPIClient(_CommonMixin):
         data = response.json()
         return self._extract_text(data)
 
-    async def send_message_with_memory(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
-        memory_context = await self._build_memory_context(message)
+    async def send_message_with_memory(
+        self,
+        message: str,
+        memory_search_text: str | None = None,
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+        search_query = str(memory_search_text or "").strip() or message
+        memory_context = await self._build_memory_context(search_query)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         return self.send_message(enhanced)
 
-    async def send_message_with_images(self, message: str, images_data: list) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
-        memory_context = await self._build_memory_context(message)
+    async def send_message_with_images(
+        self,
+        message: str,
+        images_data: list,
+        memory_search_text: str | None = None,
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+        search_query = str(memory_search_text or "").strip() or message
+        memory_context = await self._build_memory_context(search_query)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         parts = [{"type": "text", "text": enhanced}]
         for img in images_data or []:
@@ -927,13 +949,24 @@ class GoogleCloudClient(_CommonMixin):
                     return text.strip()
         return ""
 
-    async def send_message_with_memory(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
-        memory_context = await self._build_memory_context(message)
+    async def send_message_with_memory(
+        self,
+        message: str,
+        memory_search_text: str | None = None,
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+        search_query = str(memory_search_text or "").strip() or message
+        memory_context = await self._build_memory_context(search_query)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         return self.send_message(enhanced)
 
-    async def send_message_with_images(self, message: str, images_data: list) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
-        memory_context = await self._build_memory_context(message)
+    async def send_message_with_images(
+        self,
+        message: str,
+        images_data: list,
+        memory_search_text: str | None = None,
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+        search_query = str(memory_search_text or "").strip() or message
+        memory_context = await self._build_memory_context(search_query)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         user_parts = self._to_parts(enhanced, images_data)
         raw_response_text = self._request_google(enhanced, images_data=images_data)
@@ -1059,13 +1092,24 @@ class CohereClient(_CommonMixin):
             return text.strip()
         return ""
 
-    async def send_message_with_memory(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
-        memory_context = await self._build_memory_context(message)
+    async def send_message_with_memory(
+        self,
+        message: str,
+        memory_search_text: str | None = None,
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+        search_query = str(memory_search_text or "").strip() or message
+        memory_context = await self._build_memory_context(search_query)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         return self.send_message(enhanced)
 
-    async def send_message_with_images(self, message: str, images_data: list) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
-        memory_context = await self._build_memory_context(message)
+    async def send_message_with_images(
+        self,
+        message: str,
+        images_data: list,
+        memory_search_text: str | None = None,
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+        search_query = str(memory_search_text or "").strip() or message
+        memory_context = await self._build_memory_context(search_query)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         return self.send_message(enhanced)
 
@@ -1173,13 +1217,24 @@ class AnthropicClient(_CommonMixin):
         text_parts = [p.get("text", "") for p in data.get("content", []) if p.get("type") == "text"]
         return "\n".join(text_parts).strip()
 
-    async def send_message_with_memory(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
-        memory_context = await self._build_memory_context(message)
+    async def send_message_with_memory(
+        self,
+        message: str,
+        memory_search_text: str | None = None,
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+        search_query = str(memory_search_text or "").strip() or message
+        memory_context = await self._build_memory_context(search_query)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         return self.send_message(enhanced)
 
-    async def send_message_with_images(self, message: str, images_data: list) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
-        memory_context = await self._build_memory_context(message)
+    async def send_message_with_images(
+        self,
+        message: str,
+        images_data: list,
+        memory_search_text: str | None = None,
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+        search_query = str(memory_search_text or "").strip() or message
+        memory_context = await self._build_memory_context(search_query)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         blocks = [{"type": "text", "text": enhanced}]
         for img in images_data or []:
@@ -1324,13 +1379,24 @@ class OllamaClient(_CommonMixin):
         data = response.json()
         return str(data.get("message", {}).get("content", "")).strip()
 
-    async def send_message_with_memory(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
-        memory_context = await self._build_memory_context(message)
+    async def send_message_with_memory(
+        self,
+        message: str,
+        memory_search_text: str | None = None,
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+        search_query = str(memory_search_text or "").strip() or message
+        memory_context = await self._build_memory_context(search_query)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         return self.send_message(enhanced)
 
-    async def send_message_with_images(self, message: str, images_data: list) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
-        memory_context = await self._build_memory_context(message)
+    async def send_message_with_images(
+        self,
+        message: str,
+        images_data: list,
+        memory_search_text: str | None = None,
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+        search_query = str(memory_search_text or "").strip() or message
+        memory_context = await self._build_memory_context(search_query)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         raw_response_text = self._request_ollama(enhanced, images_data=images_data)
         clean_text, emotion, japanese_text, events, analysis = self._parse_response(raw_response_text)

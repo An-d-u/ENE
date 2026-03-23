@@ -60,14 +60,16 @@ body {
     background: var(--ene-chat-panel-bg);
     backdrop-filter: blur(10px);
     border-top: 1px solid var(--ene-chat-panel-border);
-    max-height: 250px;
+    max-height: min(360px, 42vh);
     display: flex;
     flex-direction: column;
+    overflow: hidden;
 }
 
 /* 메시지 리스트 */
 #chat-messages {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
     padding: 15px;
     display: flex;
@@ -149,6 +151,7 @@ body {
     align-items: center;
     gap: 8px;
     opacity: 0.7;
+    flex-shrink: 0;
 }
 
 .typing-dot {
@@ -196,10 +199,13 @@ body {
     gap: 8px;
     background: var(--ene-chat-input-wrap-bg);
     border-top: 1px solid var(--ene-chat-panel-divider);
+    align-items: flex-end;
+    flex-shrink: 0;
 }
 
 #chat-input {
     flex: 1;
+    min-width: 0;
     padding: 10px 14px;
     border: 1px solid var(--ene-chat-input-border);
     border-radius: 20px;
@@ -255,6 +261,7 @@ body {
     font-size: 14px;
     cursor: pointer;
     transition: all 0.2s;
+    flex-shrink: 0;
 }
 
 #send-button:hover {
@@ -274,6 +281,35 @@ body {
     display: flex;
     flex-direction: column;
     gap: 8px;
+}
+
+#token-usage-bubble {
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    z-index: 1250;
+    max-width: min(320px, calc(100vw - 24px));
+    padding: 9px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--ene-floating-panel-border);
+    background: var(--ene-floating-panel-bg);
+    color: var(--ene-floating-panel-text);
+    backdrop-filter: blur(6px);
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+    font-size: 12px;
+    line-height: 1.35;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    opacity: 1;
+    transform: translateY(0);
+    transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+#token-usage-bubble.hidden {
+    opacity: 0;
+    transform: translateY(-6px);
+    pointer-events: none;
 }
 
 #manual-summarize-floating-btn,
@@ -726,7 +762,7 @@ body {
     background: rgba(var(--ene-accent-rgb), 0.78);
 }
 
-/* 이미지 첨부 버튼 */
+/* 첨부 버튼 */
 #attach-button {
     padding: 8px 12px;
     border: none;
@@ -742,37 +778,93 @@ body {
     background: rgba(255, 255, 255, 0.2);
 }
 
-/* 이미지 미리보기 컨테이너 */
+/* 첨부 미리보기 컨테이너 */
 #image-preview-container {
     display: flex;
     gap: 8px;
-    padding: 8px 12px;
+    padding: 10px 12px 8px;
     overflow-x: auto;
+    overflow-y: hidden;
     background: rgba(0, 0, 0, 0.3);
+    flex-shrink: 0;
+    align-items: flex-start;
 }
 
 #image-preview-container:empty {
     display: none;
 }
 
-/* 이미지 미리보기 아이템 */
-.image-preview-item {
+/* 첨부 미리보기 카드 */
+.attachment-preview-item {
     position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 210px;
+    max-width: 280px;
+    padding: 10px 28px 10px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.06);
+    backdrop-filter: blur(4px);
     flex-shrink: 0;
 }
 
-.image-preview-item img {
+.attachment-preview-thumb,
+.attachment-preview-doc {
     width: 60px;
     height: 60px;
-    object-fit: cover;
     border-radius: 8px;
-    border: 2px solid rgba(255, 255, 255, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    flex-shrink: 0;
 }
 
-.image-preview-item .remove-btn {
+.attachment-preview-thumb {
+    object-fit: cover;
+}
+
+.attachment-preview-doc {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(var(--ene-accent-rgb), 0.16);
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+}
+
+.attachment-preview-meta {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.attachment-preview-name {
+    color: var(--ene-chat-panel-text);
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.attachment-preview-subtitle,
+.attachment-preview-token {
+    color: var(--ene-chat-panel-muted-text);
+    font-size: 12px;
+    line-height: 1.35;
+}
+
+.attachment-preview-token.is-error {
+    color: #FCA5A5;
+}
+
+.attachment-preview-item .remove-btn {
     position: absolute;
-    top: -6px;
-    right: -6px;
+    top: 4px;
+    right: 4px;
     width: 20px;
     height: 20px;
     border-radius: 50%;
@@ -786,6 +878,35 @@ body {
     justify-content: center;
 }
 
-.image-preview-item .remove-btn:hover {
+.attachment-preview-item .remove-btn:hover {
     background: rgba(255, 50, 50, 1);
+}
+
+.message-attachment-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.message-attachment-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.12);
+    font-size: 12px;
+    line-height: 1.2;
+}
+
+.message.user .message-attachment-chip {
+    background: rgba(255, 255, 255, 0.18);
+}
+
+.message-attachment-chip img {
+    width: 20px;
+    height: 20px;
+    object-fit: cover;
+    border-radius: 50%;
 }
