@@ -1,5 +1,6 @@
 import pytest
 
+from src.ai.http_llm_clients import OpenAIResponseAPIClient
 from src.ai.llm_provider import (
     LLMProviderConfig,
     PROVIDER_BUILDERS,
@@ -71,6 +72,13 @@ def test_provider_catalog_contains_major_providers():
 
 def test_provider_meta_returns_none_for_unknown():
     assert get_llm_provider_meta("not-exists") is None
+
+
+def test_create_openai_client_uses_responses_api():
+    config = LLMProviderConfig(provider="openai", api_key="k", model_name="gpt-5.4-mini")
+    client = create_llm_client(config)
+    assert isinstance(client, OpenAIResponseAPIClient)
+    assert client.endpoint == "https://api.openai.com/v1/responses"
 
 
 def test_create_llm_client_for_supported_providers():
