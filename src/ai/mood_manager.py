@@ -326,10 +326,10 @@ class MoodManager:
 
             if "direct_rejection" in flags:
                 return "guarded"
-            if interaction_effect in {"negative", "mixed"} and bond >= 0.2:
-                return "pout"
             if intent == "tease" or user_emotion == "playful":
                 return "playful"
+            if interaction_effect in {"negative", "mixed"} and bond >= 0.2:
+                return "pout"
             if intent in {"ask_help", "seek_comfort"}:
                 return "focused"
             if "late_night" in flags or user_emotion == "tired":
