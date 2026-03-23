@@ -7,6 +7,22 @@ from google import genai
 
 from .prompt import get_system_prompt, get_available_emotions
 
+ANALYSIS_SYSTEM_APPENDIX = """
+### [내부 분석 출력 규칙]
+- 일반 응답을 작성할 때는 응답 본문 앞에 반드시 `[analysis]` 블록을 먼저 출력하세요.
+- analysis 블록은 아래 키만 허용합니다: `user_emotion`, `user_intent`, `interaction_effect`, `bond_delta_hint`, `stress_delta_hint`, `energy_delta_hint`, `valence_delta_hint`, `confidence`, `flags`
+- 각 줄은 반드시 `key=value` 형식만 사용하세요.
+- `bond_delta_hint`, `stress_delta_hint`, `energy_delta_hint`, `valence_delta_hint`는 반드시 `high_negative`, `low_negative`, `none`, `low_positive`, `high_positive` 중 하나만 사용하세요.
+- `flags`는 여러 값이 필요하면 쉼표로 구분하세요.
+- analysis 블록은 내부 처리용 메타데이터이므로 설명 문장이나 추가 문장을 쓰지 마세요.
+- 분석이 애매하면 `interaction_effect=mixed`를 사용하고 `confidence`를 낮게 주세요.
+
+### [기분 반영 안전 규칙]
+- 현재 기분과 분위기는 말투, 답변 길이, 먼저 제안하는 정도, 장난기, 섭섭함의 질감으로 드러내세요.
+- 차갑거나 예민한 상태여도 무례하거나 공격적으로 변하지 마세요.
+- 다정한 상태여도 과도하게 오글거리거나 집착적으로 보이지 않게 유지하세요.
+""".strip()
+
 
 class GeminiClient:
     """Gemini API 클라이언트"""
@@ -84,8 +100,11 @@ class GeminiClient:
         return normalized
 
     def _build_chat_config(self, include_sub_prompt: bool = True) -> dict:
+        system_instruction = get_system_prompt(include_sub_prompt=include_sub_prompt)
+        if include_sub_prompt:
+            system_instruction = f"{system_instruction}\n\n{ANALYSIS_SYSTEM_APPENDIX}"
         config = {
-            "system_instruction": get_system_prompt(include_sub_prompt=include_sub_prompt),
+            "system_instruction": system_instruction,
             "temperature": self.generation_params["temperature"],
             "top_p": self.generation_params["top_p"],
         }
@@ -115,7 +134,10 @@ class GeminiClient:
         )
         return self._generate_one_shot_text(diary_prompt, include_sub_prompt=False)
 
-    async def generate_diary_completion_reply(self, context_message: str) -> Tuple[str, str, str, List[Dict]]:
+    async def generate_diary_completion_reply(
+        self,
+        context_message: str,
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
         """파일 작성 완료 안내 응답을 생성한다."""
         response_text = self._generate_one_shot_text(context_message, include_sub_prompt=True)
         return self._parse_response(response_text)
@@ -126,12 +148,18 @@ class GeminiClient:
         enhanced = f"{memory_context}\n\n{context_message}" if memory_context else context_message
         return self._generate_one_shot_text(enhanced, include_sub_prompt=False)
 
-    async def generate_note_execution_report(self, context_message: str) -> Tuple[str, str, str, List[Dict]]:
+    async def generate_note_execution_report(
+        self,
+        context_message: str,
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
         """sub prompt 적용 상태로 /note 실행 결과 보고 응답을 생성한다."""
         response_text = self._generate_one_shot_text(context_message, include_sub_prompt=True)
         return self._parse_response(response_text)
 
-    async def send_message_with_memory(self, message: str) -> Tuple[str, str, str, List[Dict]]:
+    async def send_message_with_memory(
+        self,
+        message: str,
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
         """
         메모리를 활용한 메시지 전송
         
@@ -154,7 +182,11 @@ class GeminiClient:
         # 일반 메시지 전송
         return self.send_message(enhanced_message)
     
-    async def send_message_with_images(self, message: str, images_data: list) -> Tuple[str, str, str, List[Dict]]:
+    async def send_message_with_images(
+        self,
+        message: str,
+        images_data: list,
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
         """
         이미지와 함께 메시지 전송 (멀티모달)
         
@@ -217,7 +249,7 @@ class GeminiClient:
             print(f"[LLM] 멀티모달 응답: {response_text[:100]}...")
             
             # 응답에서 텍스트, 감정, 일정 분리 (기존 메서드 활용)
-            clean_text, emotion, japanese_text, events = self._parse_response(response_text)
+            clean_text, emotion, japanese_text, events, analysis = self._parse_response(response_text)
             
             # 일본어가 있으면 로깅
             if japanese_text:
@@ -227,14 +259,14 @@ class GeminiClient:
             if events:
                 print(f"[LLM] {len(events)}개 일정 추출됨")
             
-            return clean_text, emotion, japanese_text, events
+            return clean_text, emotion, japanese_text, events, analysis
 
             
         except Exception as e:
             print(f"[LLM] 멀티모달 처리 실패: {e}")
             import traceback
             traceback.print_exc()
-            return f"이미지를 처리하는 중에 문제가 생겼어요... ({str(e)[:50]})", "confused", None, []
+            return f"이미지를 처리하는 중에 문제가 생겼어요... ({str(e)[:50]})", "confused", None, [], {}
 
     
     async def _build_memory_context(self, query: str) -> str:
@@ -457,7 +489,10 @@ class GeminiClient:
         total_str = str(total_tokens) if isinstance(total_tokens, int) else "N/A"
         print(f"[LLM] 🎫 Token Usage ({label}) | input={in_str}, output={out_str}, total={total_str}")
 
-    def send_message(self, message: str) -> Tuple[str, str, str, List[Dict]]:
+    def send_message(
+        self,
+        message: str,
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
         """
         메시지 전송 및 응답 받기
         
@@ -483,7 +518,7 @@ class GeminiClient:
             print(f"[LLM] Received response: {response_text[:50]}...")
             
             # 응답에서 텍스트와 감정 분리
-            text, emotion, japanese_text, events = self._parse_response(response_text)
+            text, emotion, japanese_text, events, analysis = self._parse_response(response_text)
             
             # 일본어가 있으면 로깅
             if japanese_text:
@@ -493,7 +528,7 @@ class GeminiClient:
             if events:
                 print(f"[LLM] {len(events)}개 일정 추출됨")
             
-            return text, emotion, japanese_text, events
+            return text, emotion, japanese_text, events, analysis
             
         except Exception as e:
             print(f"[LLM] Error: {e}")
@@ -772,7 +807,29 @@ class GeminiClient:
 
         return summary, user_facts
 
-    def _parse_response(self, response_text: str) -> Tuple[str, str, str, List[Dict]]:
+    def _extract_analysis_block(self, response_text: str) -> tuple[str, Dict[str, str]]:
+        """응답의 analysis 블록을 분리해 구조화된 딕셔너리로 반환한다."""
+        analysis: Dict[str, str] = {}
+        pattern = r"\[analysis\]\s*(.*?)\s*\[/analysis\]"
+        match = re.search(pattern, response_text, re.IGNORECASE | re.DOTALL)
+        if not match:
+            return response_text, analysis
+
+        raw_block = match.group(1)
+        for raw_line in raw_block.splitlines():
+            line = raw_line.strip()
+            if not line or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip()
+            if key and value:
+                analysis[key] = value
+
+        cleaned = re.sub(pattern, "", response_text, flags=re.IGNORECASE | re.DOTALL).strip()
+        return cleaned, analysis
+
+    def _parse_response(self, response_text: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
         """
         응답 텍스트에서 감정 태그, 일본어, 일정 추출
         
@@ -780,8 +837,10 @@ class GeminiClient:
             response_text: AI 응답 텍스트
             
         Returns:
-            (텍스트, 감정, 일본어, 이벤트 리스트) 튜플
+            (텍스트, 감정, 일본어, 이벤트 리스트, analysis 메타) 튜플
         """
+        response_text, analysis = self._extract_analysis_block(response_text)
+
         # [이벤트] 태그 추출 및 제거
         events = []
         event_pattern = r'\[이벤트:([^\]]+)\]'
@@ -846,7 +905,7 @@ class GeminiClient:
             # 한국어 텍스트 재구성
             clean_text = '\n'.join(korean_lines).strip()
         
-        return clean_text, emotion, japanese_text, events
+        return clean_text, emotion, japanese_text, events, analysis
     
     def _is_japanese(self, text: str) -> bool:
         """일본어 텍스트인지 확인"""
