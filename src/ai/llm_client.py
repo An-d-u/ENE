@@ -5,23 +5,19 @@ import re
 from typing import Tuple, List, Dict
 from google import genai
 
-from .prompt import get_system_prompt, get_available_emotions
+from .prompt import build_runtime_system_prompt, get_available_emotions
 
-ANALYSIS_SYSTEM_APPENDIX = """
-### [내부 분석 출력 규칙]
-- 일반 응답을 작성할 때는 응답 본문 앞에 반드시 `[analysis]` 블록을 먼저 출력하세요.
-- analysis 블록은 아래 키만 허용합니다: `user_emotion`, `user_intent`, `interaction_effect`, `bond_delta_hint`, `stress_delta_hint`, `energy_delta_hint`, `valence_delta_hint`, `confidence`, `flags`
-- 각 줄은 반드시 `key=value` 형식만 사용하세요.
-- `bond_delta_hint`, `stress_delta_hint`, `energy_delta_hint`, `valence_delta_hint`는 반드시 `high_negative`, `low_negative`, `none`, `low_positive`, `high_positive` 중 하나만 사용하세요.
-- `flags`는 여러 값이 필요하면 쉼표로 구분하세요.
-- analysis 블록은 내부 처리용 메타데이터이므로 설명 문장이나 추가 문장을 쓰지 마세요.
-- 분석이 애매하면 `interaction_effect=mixed`를 사용하고 `confidence`를 낮게 주세요.
-
-### [기분 반영 안전 규칙]
-- 현재 기분과 분위기는 말투, 답변 길이, 먼저 제안하는 정도, 장난기, 섭섭함의 질감으로 드러내세요.
-- 차갑거나 예민한 상태여도 무례하거나 공격적으로 변하지 마세요.
-- 다정한 상태여도 과도하게 오글거리거나 집착적으로 보이지 않게 유지하세요.
-""".strip()
+ANALYSIS_KEYS = {
+    "user_emotion",
+    "user_intent",
+    "interaction_effect",
+    "bond_delta_hint",
+    "stress_delta_hint",
+    "energy_delta_hint",
+    "valence_delta_hint",
+    "confidence",
+    "flags",
+}
 
 
 class GeminiClient:
@@ -57,6 +53,11 @@ class GeminiClient:
         self.settings = settings
         self.calendar_manager = calendar_manager
         self.mood_manager = mood_manager
+        self._last_token_usage = {
+            "input_tokens": None,
+            "output_tokens": None,
+            "total_tokens": None,
+        }
         
         # Chat 세션 생성
         self.chat = self._create_chat_session()
@@ -100,9 +101,10 @@ class GeminiClient:
         return normalized
 
     def _build_chat_config(self, include_sub_prompt: bool = True) -> dict:
-        system_instruction = get_system_prompt(include_sub_prompt=include_sub_prompt)
-        if include_sub_prompt:
-            system_instruction = f"{system_instruction}\n\n{ANALYSIS_SYSTEM_APPENDIX}"
+        system_instruction = build_runtime_system_prompt(
+            include_sub_prompt=include_sub_prompt,
+            include_analysis_appendix=True,
+        )
         config = {
             "system_instruction": system_instruction,
             "temperature": self.generation_params["temperature"],
@@ -483,11 +485,31 @@ class GeminiClient:
             "completion_tokens",
         )
         total_tokens = _read_field(usage, "total_token_count", "total_tokens")
+        self._last_token_usage = {
+            "input_tokens": input_tokens if isinstance(input_tokens, int) else None,
+            "output_tokens": output_tokens if isinstance(output_tokens, int) else None,
+            "total_tokens": total_tokens if isinstance(total_tokens, int) else None,
+        }
 
         in_str = str(input_tokens) if isinstance(input_tokens, int) else "N/A"
         out_str = str(output_tokens) if isinstance(output_tokens, int) else "N/A"
         total_str = str(total_tokens) if isinstance(total_tokens, int) else "N/A"
         print(f"[LLM] 🎫 Token Usage ({label}) | input={in_str}, output={out_str}, total={total_str}")
+
+    def get_last_token_usage(self) -> dict:
+        """가장 최근 응답의 토큰 사용량 스냅샷을 반환한다."""
+        usage = getattr(self, "_last_token_usage", None)
+        if not isinstance(usage, dict):
+            return {
+                "input_tokens": None,
+                "output_tokens": None,
+                "total_tokens": None,
+            }
+        return {
+            "input_tokens": usage.get("input_tokens"),
+            "output_tokens": usage.get("output_tokens"),
+            "total_tokens": usage.get("total_tokens"),
+        }
 
     def send_message(
         self,
@@ -807,15 +829,9 @@ class GeminiClient:
 
         return summary, user_facts
 
-    def _extract_analysis_block(self, response_text: str) -> tuple[str, Dict[str, str]]:
-        """응답의 analysis 블록을 분리해 구조화된 딕셔너리로 반환한다."""
+    def _parse_analysis_lines(self, raw_block: str) -> Dict[str, str]:
+        """analysis 메타 블록의 key=value 줄을 안전하게 파싱한다."""
         analysis: Dict[str, str] = {}
-        pattern = r"\[analysis\]\s*(.*?)\s*\[/analysis\]"
-        match = re.search(pattern, response_text, re.IGNORECASE | re.DOTALL)
-        if not match:
-            return response_text, analysis
-
-        raw_block = match.group(1)
         for raw_line in raw_block.splitlines():
             line = raw_line.strip()
             if not line or "=" not in line:
@@ -823,11 +839,80 @@ class GeminiClient:
             key, value = line.split("=", 1)
             key = key.strip()
             value = value.strip()
-            if key and value:
+            if key in ANALYSIS_KEYS and value:
                 analysis[key] = value
+        return analysis
 
-        cleaned = re.sub(pattern, "", response_text, flags=re.IGNORECASE | re.DOTALL).strip()
+    def _extract_analysis_block(self, response_text: str) -> tuple[str, Dict[str, str]]:
+        """응답의 analysis 블록 또는 상단 메타 줄을 분리해 구조화된 딕셔너리로 반환한다."""
+        pattern = r"\[analysis\]\s*(.*?)\s*\[/analysis\]"
+        match = re.search(pattern, response_text, re.IGNORECASE | re.DOTALL)
+        if match:
+            analysis = self._parse_analysis_lines(match.group(1))
+            cleaned = re.sub(pattern, "", response_text, flags=re.IGNORECASE | re.DOTALL).strip()
+            return cleaned, analysis
+
+        lines = response_text.splitlines()
+        prefix_lines = []
+        consumed = 0
+        seen_analysis_key = False
+        started = False
+
+        for index, raw_line in enumerate(lines):
+            stripped = raw_line.strip()
+
+            if not started and not stripped:
+                consumed = index + 1
+                continue
+
+            if not stripped:
+                if started and prefix_lines:
+                    consumed = index + 1
+                    break
+                consumed = index + 1
+                continue
+
+            if "=" not in stripped:
+                break
+
+            key, value = stripped.split("=", 1)
+            key = key.strip()
+            value = value.strip()
+            if key not in ANALYSIS_KEYS or not value:
+                break
+
+            started = True
+            seen_analysis_key = True
+            prefix_lines.append(f"{key}={value}")
+            consumed = index + 1
+
+        if not seen_analysis_key:
+            return response_text, {}
+
+        analysis = self._parse_analysis_lines("\n".join(prefix_lines))
+        cleaned = "\n".join(lines[consumed:]).strip()
         return cleaned, analysis
+
+    def _extract_japanese_lines(self, text: str) -> tuple[str, str | None]:
+        """본문 어디에 있든 일본어 전용 줄을 분리해 표시용 텍스트에서 제거한다."""
+        visible_lines = []
+        japanese_lines = []
+
+        for raw_line in text.split("\n"):
+            stripped = raw_line.strip()
+            if not stripped:
+                visible_lines.append("")
+                continue
+
+            if self._is_japanese(stripped):
+                japanese_lines.append(stripped)
+                continue
+
+            visible_lines.append(raw_line.rstrip())
+
+        clean_text = "\n".join(visible_lines).strip()
+        japanese_text = "\n".join(japanese_lines).strip() if japanese_lines else None
+        return clean_text, japanese_text
 
     def _parse_response(self, response_text: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
         """
@@ -877,34 +962,8 @@ class GeminiClient:
                 break
         
         # 일본어 추출 및 제거
-        japanese_text = None
-        lines = clean_text.split('\n')
-        
-        # 역순으로 검사하여 일본어 줄 모두 찾기
-        japanese_lines = []
-        korean_lines = []
-        
-        for line in reversed(lines):
-            line_stripped = line.strip()
-            if not line_stripped:
-                continue
-            
-            # 일본어인지 확인
-            if self._is_japanese(line_stripped):
-                japanese_lines.insert(0, line_stripped)
-            else:
-                # 일본어가 아닌 줄을 만나면 중단 (일본어는 끝에만 있다고 가정)
-                break
-        
-        # 일본어 줄 제거하고 한국어만 남기기
-        if japanese_lines:
-            # 일본어 줄 수만큼 뒤에서 제거
-            korean_lines = lines[:-len(japanese_lines)]
-            # 일본어 줄 전체를 TTS용으로 사용 (여러 줄 허용)
-            japanese_text = '\n'.join(japanese_lines).strip()
-            # 한국어 텍스트 재구성
-            clean_text = '\n'.join(korean_lines).strip()
-        
+        clean_text, japanese_text = self._extract_japanese_lines(clean_text)
+
         return clean_text, emotion, japanese_text, events, analysis
     
     def _is_japanese(self, text: str) -> bool:
