@@ -21,6 +21,7 @@ class Settings:
         "show_manual_summary_button": True,
         "show_obsidian_note_button": True,
         "show_mood_toggle_button": True,
+        "show_token_usage_bubble": False,
         "enable_global_ptt": True,
         "global_ptt_hotkey": "alt",
         "interrupt_tts_on_ptt": True,
@@ -172,6 +173,8 @@ class Settings:
         "diary_keep_local_copy_on_cli_success": False,
         "note_include_recent_context": False,
         "note_recent_context_turns": 4,
+        "memory_search_recent_turns": 2,
+        "max_profile_facts_in_context": 10,
     }
 
     DEFAULT_SECRET_CONFIG = {
