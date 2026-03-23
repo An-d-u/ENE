@@ -28,7 +28,7 @@ from .obs_settings import ObsSettings
 class AIWorker(QThread):
     """AI 응답을 비동기로 처리하는 워커 스레드"""
     
-    response_ready = pyqtSignal(str, str, str, list)  # (텍스트, 감정, 일본어, 이벤트)
+    response_ready = pyqtSignal(str, str, str, list, str)  # (텍스트, 감정, 일본어, 이벤트, analysis JSON)
     error_occurred = pyqtSignal(str)  # 오류 메시지
     
     def __init__(
@@ -57,6 +57,16 @@ class AIWorker(QThread):
         self.note_service = note_service
         self.obsidian_manager = obsidian_manager
         self.use_obsidian_priority = bool(use_obsidian_priority)
+
+    def _normalize_response_payload(self, payload):
+        """신구 응답 형식을 모두 5개 값으로 정규화한다."""
+        if isinstance(payload, tuple):
+            if len(payload) == 5:
+                return payload
+            if len(payload) == 4:
+                text, emotion, japanese_text, events = payload
+                return text, emotion, japanese_text, events, {}
+        raise ValueError("지원하지 않는 응답 형식입니다.")
     
     def run(self):
         loop = None
@@ -72,32 +82,34 @@ class AIWorker(QThread):
             asyncio.set_event_loop(loop)
             
             events = []
+            analysis = {}
 
             if self.note_request and self.note_service and self.obsidian_manager:
                 print("[AI Worker] /note 모드")
-                response_text, emotion, japanese_text, events = loop.run_until_complete(
-                    self._run_note_flow()
+                response_text, emotion, japanese_text, events, analysis = self._normalize_response_payload(
+                    loop.run_until_complete(self._run_note_flow())
                 )
             elif self.diary_request and self.diary_service:
                 print("[AI Worker] /diary 모드")
-                response_text, emotion, japanese_text, events = loop.run_until_complete(
-                    self._run_diary_flow()
+                response_text, emotion, japanese_text, events, analysis = self._normalize_response_payload(
+                    loop.run_until_complete(self._run_diary_flow())
                 )
             # 이미지가 있으면 멀티모달로 처리
             elif self.images:
                 print(f"[AI Worker] 이미지 {len(self.images)}개 포함 - 멀티모달 모드")
-                response_text, emotion, japanese_text, events = loop.run_until_complete(
-                    self.llm_client.send_message_with_images(self.message, self.images)
+                response_text, emotion, japanese_text, events, analysis = self._normalize_response_payload(
+                    loop.run_until_complete(self.llm_client.send_message_with_images(self.message, self.images))
                 )
             elif self.use_memory and hasattr(self.llm_client, 'send_message_with_memory'):
                 print(f"[AI Worker] 메모리 활용 모드")
-                response_text, emotion, japanese_text, events = loop.run_until_complete(
-                    self.llm_client.send_message_with_memory(self.message)
+                response_text, emotion, japanese_text, events, analysis = self._normalize_response_payload(
+                    loop.run_until_complete(self.llm_client.send_message_with_memory(self.message))
                 )
             else:
                 print(f"[AI Worker] 일반 모드 (메모리 없음)")
-                # send_message는 4개 값 반환 (text, emotion, japanese, events)
-                response_text, emotion, japanese_text, events = self.llm_client.send_message(self.message)
+                response_text, emotion, japanese_text, events, analysis = self._normalize_response_payload(
+                    self.llm_client.send_message(self.message)
+                )
             
             
             print(f"[AI Worker] Response: {response_text[:50]}... [{emotion}]")
@@ -107,7 +119,13 @@ class AIWorker(QThread):
                 print(f"[AI Worker] {len(events)}개 일정 추출")
             
             # events도 함께 emit (signal에는 리스트로 전달 가능)
-            self.response_ready.emit(response_text, emotion, japanese_text or "", events)
+            self.response_ready.emit(
+                response_text,
+                emotion,
+                japanese_text or "",
+                events,
+                json.dumps(analysis, ensure_ascii=False),
+            )
         except Exception as e:
             print(f"[AI Worker] Error: {e}")
             import traceback
@@ -146,14 +164,16 @@ class AIWorker(QThread):
             completion_context += f"\n- 비고: {result.obsidian_cli_error}"
 
         if hasattr(self.llm_client, "generate_diary_completion_reply"):
-            text, emotion, japanese_text, events = await self.llm_client.generate_diary_completion_reply(completion_context)
+            text, emotion, japanese_text, events, analysis = self._normalize_response_payload(
+                await self.llm_client.generate_diary_completion_reply(completion_context)
+            )
             required = "성공적으로 파일 작성에 완료되었습니다."
             if required not in text:
                 text = f"{required}\n{text}".strip()
-            return text, emotion, japanese_text, events
+            return text, emotion, japanese_text, events, analysis
 
         # 하위 호환 폴백 (기존 클라이언트 경로)
-        return self.llm_client.send_message(completion_context)
+        return self._normalize_response_payload(self.llm_client.send_message(completion_context))
 
     async def _run_note_flow(self):
         """Obsidian 계획 실행 전용 플로우."""
@@ -1517,10 +1537,29 @@ class WebBridge(QObject):
                 loop.close()
 
     
-    def _on_response_ready(self, text: str, emotion: str, japanese_text: str, events: list = None):
+    def _on_response_ready(
+        self,
+        text: str,
+        emotion: str,
+        japanese_text: str,
+        events: list = None,
+        analysis_payload: str = "",
+    ):
         """AI 응답 준비 완료"""
         print(f"[Bridge] Response ready: {text[:50]}... [{emotion}]")
         self._last_assistant_response = {"text": text, "emotion": emotion}
+        analysis = {}
+        if analysis_payload:
+            try:
+                parsed = json.loads(analysis_payload)
+            except Exception:
+                parsed = None
+            if isinstance(parsed, dict):
+                analysis = {str(key): str(value) for key, value in parsed.items()}
+
+        if self.mood_manager and analysis:
+            snapshot = self.mood_manager.on_user_analysis(analysis)
+            self._emit_mood_changed(snapshot)
         if self.mood_manager:
             snapshot = self.mood_manager.on_assistant_emotion(emotion)
             self._emit_mood_changed(snapshot)
