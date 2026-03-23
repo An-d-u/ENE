@@ -9,7 +9,7 @@ from typing import Dict, List, Tuple
 
 import requests
 
-from .prompt import get_system_prompt
+from .prompt import build_runtime_system_prompt, get_available_emotions
 
 
 DEFAULT_GENERATION_PARAMS = {
@@ -17,6 +17,50 @@ DEFAULT_GENERATION_PARAMS = {
     "top_p": 1.0,
     "max_tokens": 2048,
 }
+
+ANALYSIS_KEYS = {
+    "user_emotion",
+    "user_intent",
+    "interaction_effect",
+    "bond_delta_hint",
+    "stress_delta_hint",
+    "energy_delta_hint",
+    "valence_delta_hint",
+    "confidence",
+    "flags",
+}
+
+
+def _extract_error_detail(response) -> str:
+    try:
+        data = response.json()
+    except Exception:
+        data = None
+
+    if isinstance(data, dict):
+        error = data.get("error")
+        if isinstance(error, dict):
+            message = error.get("message")
+            if isinstance(message, str) and message.strip():
+                return message.strip()
+        message = data.get("message")
+        if isinstance(message, str) and message.strip():
+            return message.strip()
+
+    text = getattr(response, "text", "")
+    if isinstance(text, str) and text.strip():
+        return text.strip()
+    return ""
+
+
+def _raise_for_status_with_detail(response, provider_name: str) -> None:
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as exc:
+        detail = _extract_error_detail(response)
+        if detail:
+            raise requests.HTTPError(f"{exc} | {provider_name}: {detail}", response=response) from exc
+        raise
 
 
 def _normalize_generation_params(params: dict | None) -> dict:
@@ -43,6 +87,173 @@ def _normalize_generation_params(params: dict | None) -> dict:
 
 
 class _CommonMixin:
+    def _remember_turn(self, user_content, assistant_content) -> None:
+        self._history.append({"role": "user", "content": user_content})
+        self._history.append({"role": "assistant", "content": assistant_content})
+
+    def _to_openai_input_content(self, content) -> list[dict]:
+        items = []
+        if isinstance(content, list):
+            for part in content:
+                if not isinstance(part, dict):
+                    continue
+                if part.get("type") == "text":
+                    items.append({"type": "input_text", "text": str(part.get("text", ""))})
+                elif part.get("type") == "image_url":
+                    image_url = part.get("image_url", {}) or {}
+                    url = image_url.get("url")
+                    if url:
+                        items.append({"type": "input_image", "detail": "auto", "image_url": str(url)})
+        if items:
+            return items
+        return [{"type": "input_text", "text": str(content)}]
+
+    def _to_google_parts_from_history(self, content) -> list[dict]:
+        if isinstance(content, list):
+            parts = []
+            for part in content:
+                if not isinstance(part, dict):
+                    continue
+                text = part.get("text")
+                if text is not None:
+                    parts.append({"text": str(text)})
+                    continue
+                inline_data = part.get("inlineData")
+                if isinstance(inline_data, dict) and inline_data.get("data"):
+                    parts.append(
+                        {
+                            "inlineData": {
+                                "mimeType": str(inline_data.get("mimeType", "image/png")),
+                                "data": str(inline_data.get("data", "")),
+                            }
+                        }
+                    )
+            if parts:
+                return parts
+        return [{"text": str(content)}]
+
+    def _to_anthropic_blocks_from_history(self, content) -> list[dict]:
+        if isinstance(content, list):
+            blocks = []
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                if block.get("type") == "text":
+                    blocks.append({"type": "text", "text": str(block.get("text", ""))})
+                    continue
+                if block.get("type") == "image":
+                    source = block.get("source", {}) or {}
+                    if source.get("data"):
+                        blocks.append(
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": str(source.get("type", "base64")),
+                                    "media_type": str(source.get("media_type", "image/png")),
+                                    "data": str(source.get("data", "")),
+                                },
+                            }
+                        )
+            if blocks:
+                return blocks
+        return [{"type": "text", "text": str(content)}]
+
+    def _to_ollama_message_from_history(self, item: dict) -> dict:
+        role = str(item.get("role", "user"))
+        content = item.get("content", "")
+        if role == "user" and isinstance(content, dict):
+            message = {"role": role, "content": str(content.get("content", ""))}
+            images = [str(image) for image in (content.get("images") or []) if image]
+            if images:
+                message["images"] = images
+            return message
+        return {"role": role, "content": str(content)}
+
+    def _parse_analysis_lines(self, raw_block: str) -> Dict[str, str]:
+        """analysis 메타 블록의 key=value 줄을 파싱한다."""
+        analysis: Dict[str, str] = {}
+        for raw_line in raw_block.splitlines():
+            line = raw_line.strip()
+            if not line or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip()
+            if key in ANALYSIS_KEYS and value:
+                analysis[key] = value
+        return analysis
+
+    def _extract_analysis_block(self, response_text: str) -> Tuple[str, Dict[str, str]]:
+        """응답의 analysis 블록 또는 상단 메타 줄을 분리한다."""
+        pattern = r"\[analysis\]\s*(.*?)\s*\[/analysis\]"
+        match = re.search(pattern, response_text, re.IGNORECASE | re.DOTALL)
+        if match:
+            analysis = self._parse_analysis_lines(match.group(1))
+            cleaned = re.sub(pattern, "", response_text, flags=re.IGNORECASE | re.DOTALL).strip()
+            return cleaned, analysis
+
+        lines = response_text.splitlines()
+        prefix_lines = []
+        consumed = 0
+        seen_analysis_key = False
+        started = False
+
+        for index, raw_line in enumerate(lines):
+            stripped = raw_line.strip()
+
+            if not started and not stripped:
+                consumed = index + 1
+                continue
+
+            if not stripped:
+                if started and prefix_lines:
+                    consumed = index + 1
+                    break
+                consumed = index + 1
+                continue
+
+            if "=" not in stripped:
+                break
+
+            key, value = stripped.split("=", 1)
+            key = key.strip()
+            value = value.strip()
+            if key not in ANALYSIS_KEYS or not value:
+                break
+
+            started = True
+            seen_analysis_key = True
+            prefix_lines.append(f"{key}={value}")
+            consumed = index + 1
+
+        if not seen_analysis_key:
+            return response_text, {}
+
+        analysis = self._parse_analysis_lines("\n".join(prefix_lines))
+        cleaned = "\n".join(lines[consumed:]).strip()
+        return cleaned, analysis
+
+    def _extract_japanese_lines(self, text: str) -> Tuple[str, str | None]:
+        """본문 어디에 있든 일본어 전용 줄을 분리한다."""
+        visible_lines = []
+        japanese_lines = []
+
+        for raw_line in text.split("\n"):
+            stripped = raw_line.strip()
+            if not stripped:
+                visible_lines.append("")
+                continue
+
+            if self._is_japanese(stripped):
+                japanese_lines.append(stripped)
+                continue
+
+            visible_lines.append(raw_line.rstrip())
+
+        clean_text = "\n".join(visible_lines).strip()
+        japanese_text = "\n".join(japanese_lines).strip() if japanese_lines else None
+        return clean_text, japanese_text
+
     def _build_diary_markdown_prompt(self, message: str, memory_context: str) -> str:
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         return (
@@ -80,34 +291,37 @@ class _CommonMixin:
         return self._parse_response(response_text)
 
     def _parse_response(self, response_text: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
-        try:
-            from .llm_client import GeminiClient
-            return GeminiClient._parse_response(self, response_text)
-        except Exception:
-            events = []
-            event_pattern = r"\[이벤트([^\]]+)\]"
-            event_matches = re.findall(event_pattern, response_text)
-            for match in event_matches:
-                parts = [p.strip() for p in match.split("|")]
-                if len(parts) >= 2:
-                    events.append(
-                        {
-                            "date": parts[0],
-                            "title": parts[1],
-                            "description": parts[2] if len(parts) > 2 else "",
-                        }
-                    )
-            response_text = re.sub(event_pattern, "", response_text)
-            emotion_pattern = r"\[(\w+)\]"
-            matches = re.findall(emotion_pattern, response_text)
-            clean_text = re.sub(emotion_pattern, "", response_text).strip()
-            emotion = "normal"
-            for match in matches:
-                low = match.lower()
-                if low in {"normal", "happy", "sad", "angry", "confused", "shy", "surprised"}:
-                    emotion = low
-                    break
-            return clean_text, emotion, None, events, {}
+        response_text, analysis = self._extract_analysis_block(response_text)
+
+        events = []
+        event_pattern = r"\[이벤트:([^\]]+)\]"
+        event_matches = re.findall(event_pattern, response_text)
+        for match in event_matches:
+            parts = [p.strip() for p in match.split("|")]
+            if len(parts) >= 2:
+                events.append(
+                    {
+                        "date": parts[0],
+                        "title": parts[1],
+                        "description": parts[2] if len(parts) > 2 else "",
+                    }
+                )
+        response_text = re.sub(event_pattern, "", response_text)
+
+        emotion_pattern = r"\[(\w+)\]"
+        matches = re.findall(emotion_pattern, response_text)
+        clean_text = re.sub(emotion_pattern, "", response_text).strip()
+
+        emotion = "normal"
+        available_emotions = get_available_emotions()
+        for match in matches:
+            low = match.lower()
+            if low in available_emotions:
+                emotion = low
+                break
+
+        clean_text, japanese_text = self._extract_japanese_lines(clean_text)
+        return clean_text, emotion, japanese_text, events, analysis
 
     def _parse_summary_response(self, response_text: str) -> tuple[str, list[str]]:
         try:
@@ -162,7 +376,13 @@ class _CommonMixin:
             return ""
 
     def _messages_for_openai(self, user_content, include_sub_prompt: bool = True):
-        messages = [{"role": "system", "content": get_system_prompt(include_sub_prompt=include_sub_prompt)}]
+        messages = [{
+            "role": "system",
+            "content": build_runtime_system_prompt(
+                include_sub_prompt=include_sub_prompt,
+                include_analysis_appendix=True,
+            ),
+        }]
         messages.extend(self._history)
         messages.append({"role": "user", "content": user_content})
         return messages
@@ -254,7 +474,7 @@ class OpenAICompatibleClient(_CommonMixin):
         if self.generation_params["max_tokens"] > 0:
             payload["max_tokens"] = self.generation_params["max_tokens"]
         response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=60)
-        response.raise_for_status()
+        _raise_for_status_with_detail(response, self.provider_name)
         data = response.json()
         content = data["choices"][0]["message"]["content"]
         if isinstance(content, list):
@@ -265,7 +485,13 @@ class OpenAICompatibleClient(_CommonMixin):
         payload = {
             "model": self.model_name,
             "messages": [
-                {"role": "system", "content": get_system_prompt(include_sub_prompt=include_sub_prompt)},
+                {
+                    "role": "system",
+                    "content": build_runtime_system_prompt(
+                        include_sub_prompt=include_sub_prompt,
+                        include_analysis_appendix=True,
+                    ),
+                },
                 {"role": "user", "content": user_content},
             ],
             "temperature": self.generation_params["temperature"],
@@ -275,7 +501,7 @@ class OpenAICompatibleClient(_CommonMixin):
         if self.generation_params["max_tokens"] > 0:
             payload["max_tokens"] = self.generation_params["max_tokens"]
         response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=60)
-        response.raise_for_status()
+        _raise_for_status_with_detail(response, self.provider_name)
         data = response.json()
         content = data["choices"][0]["message"]["content"]
         if isinstance(content, list):
@@ -296,17 +522,15 @@ class OpenAICompatibleClient(_CommonMixin):
             if data_url:
                 parts.append({"type": "image_url", "image_url": {"url": data_url}})
 
-        response_text = self._request_openai(parts)
-        clean_text, emotion, japanese_text, events, analysis = self._parse_response(response_text)
-        self._history.append({"role": "user", "content": enhanced})
-        self._history.append({"role": "assistant", "content": clean_text})
+        raw_response_text = self._request_openai(parts)
+        clean_text, emotion, japanese_text, events, analysis = self._parse_response(raw_response_text)
+        self._remember_turn(parts, raw_response_text)
         return clean_text, emotion, japanese_text, events, analysis
 
     def send_message(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
-        response_text = self._request_openai(message)
-        clean_text, emotion, japanese_text, events, analysis = self._parse_response(response_text)
-        self._history.append({"role": "user", "content": message})
-        self._history.append({"role": "assistant", "content": clean_text})
+        raw_response_text = self._request_openai(message)
+        clean_text, emotion, japanese_text, events, analysis = self._parse_response(raw_response_text)
+        self._remember_turn(message, raw_response_text)
         return clean_text, emotion, japanese_text, events, analysis
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str]]:
@@ -357,6 +581,7 @@ class OpenAIResponseAPIClient(_CommonMixin):
         self.mood_manager = mood_manager
         self.generation_params = _normalize_generation_params(generation_params)
         self._history = []
+        self.provider_name = "openai"
 
     def _headers(self):
         return {
@@ -368,7 +593,7 @@ class OpenAIResponseAPIClient(_CommonMixin):
         items = []
         for h in self._history:
             role = str(h.get("role", "user"))
-            text = str(h.get("content", ""))
+            content = h.get("content", "")
             if role not in {"user", "assistant"}:
                 continue
             if role == "assistant":
@@ -377,31 +602,18 @@ class OpenAIResponseAPIClient(_CommonMixin):
                         "type": "message",
                         "status": "complete",
                         "role": "assistant",
-                        "content": [{"type": "output_text", "text": text, "annotations": []}],
+                        "content": [{"type": "output_text", "text": str(content), "annotations": []}],
                     }
                 )
             else:
                 items.append(
                     {
                         "role": "user",
-                        "content": [{"type": "input_text", "text": text}],
+                        "content": self._to_openai_input_content(content),
                     }
                 )
 
-        user_item = {"role": "user", "content": []}
-        if isinstance(user_content, list):
-            for part in user_content:
-                if not isinstance(part, dict):
-                    continue
-                if part.get("type") == "text":
-                    user_item["content"].append({"type": "input_text", "text": str(part.get("text", ""))})
-                elif part.get("type") == "image_url":
-                    image_url = part.get("image_url", {}) or {}
-                    url = image_url.get("url")
-                    if url:
-                        user_item["content"].append({"type": "input_image", "detail": "auto", "image_url": url})
-        else:
-            user_item["content"].append({"type": "input_text", "text": str(user_content)})
+        user_item = {"role": "user", "content": self._to_openai_input_content(user_content)}
         items.append(user_item)
         return items
 
@@ -423,6 +635,10 @@ class OpenAIResponseAPIClient(_CommonMixin):
     def _request_responses(self, user_content) -> str:
         payload = {
             "model": self.model_name,
+            "instructions": build_runtime_system_prompt(
+                include_sub_prompt=True,
+                include_analysis_appendix=True,
+            ),
             "input": self._input_items(user_content),
             "store": False,
             "temperature": self.generation_params["temperature"],
@@ -431,7 +647,7 @@ class OpenAIResponseAPIClient(_CommonMixin):
         if self.generation_params["max_tokens"] > 0:
             payload["max_output_tokens"] = self.generation_params["max_tokens"]
         response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=60)
-        response.raise_for_status()
+        _raise_for_status_with_detail(response, self.provider_name)
         data = response.json()
         return self._extract_text(data)
 
@@ -453,7 +669,10 @@ class OpenAIResponseAPIClient(_CommonMixin):
 
         payload = {
             "model": self.model_name,
-            "instructions": get_system_prompt(include_sub_prompt=include_sub_prompt),
+            "instructions": build_runtime_system_prompt(
+                include_sub_prompt=include_sub_prompt,
+                include_analysis_appendix=True,
+            ),
             "input": [user_item],
             "store": False,
             "temperature": self.generation_params["temperature"],
@@ -462,7 +681,7 @@ class OpenAIResponseAPIClient(_CommonMixin):
         if self.generation_params["max_tokens"] > 0:
             payload["max_output_tokens"] = self.generation_params["max_tokens"]
         response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=60)
-        response.raise_for_status()
+        _raise_for_status_with_detail(response, self.provider_name)
         data = response.json()
         return self._extract_text(data)
 
@@ -480,17 +699,16 @@ class OpenAIResponseAPIClient(_CommonMixin):
             if data_url:
                 parts.append({"type": "image_url", "image_url": {"url": data_url}})
 
-        response_text = self._request_responses(parts)
-        clean_text, emotion, japanese_text, events, analysis = self._parse_response(response_text)
-        self._history.append({"role": "user", "content": enhanced})
-        self._history.append({"role": "assistant", "content": clean_text})
+        raw_response_text = self._request_responses(parts)
+        clean_text, emotion, japanese_text, events, analysis = self._parse_response(raw_response_text)
+        self._remember_turn(parts, raw_response_text)
         return clean_text, emotion, japanese_text, events, analysis
 
     def send_message(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
-        response_text = self._request_responses(message)
-        clean_text, emotion, japanese_text, events, analysis = self._parse_response(response_text)
+        raw_response_text = self._request_responses(message)
+        clean_text, emotion, japanese_text, events, analysis = self._parse_response(raw_response_text)
         self._history.append({"role": "user", "content": message})
-        self._history.append({"role": "assistant", "content": clean_text})
+        self._history.append({"role": "assistant", "content": raw_response_text})
         return clean_text, emotion, japanese_text, events, analysis
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str]]:
@@ -648,7 +866,7 @@ class GoogleCloudClient(_CommonMixin):
         contents = []
         for h in self._history:
             role = "model" if h.get("role") == "assistant" else "user"
-            contents.append({"role": role, "parts": [{"text": str(h.get("content", ""))}]})
+            contents.append({"role": role, "parts": self._to_google_parts_from_history(h.get("content", ""))})
         contents.append({"role": "user", "parts": self._to_parts(message, images_data)})
         payload = {
             "contents": contents,
@@ -656,7 +874,14 @@ class GoogleCloudClient(_CommonMixin):
                 "temperature": self.generation_params["temperature"],
                 "topP": self.generation_params["top_p"],
             },
-            "systemInstruction": {"parts": [{"text": get_system_prompt(include_sub_prompt=include_sub_prompt)}]},
+            "systemInstruction": {
+                "parts": [{
+                    "text": build_runtime_system_prompt(
+                        include_sub_prompt=include_sub_prompt,
+                        include_analysis_appendix=True,
+                    )
+                }]
+            },
         }
         if self.generation_params["max_tokens"] > 0:
             payload["generation_config"]["maxOutputTokens"] = self.generation_params["max_tokens"]
@@ -679,7 +904,14 @@ class GoogleCloudClient(_CommonMixin):
                 "temperature": self.generation_params["temperature"],
                 "topP": self.generation_params["top_p"],
             },
-            "systemInstruction": {"parts": [{"text": get_system_prompt(include_sub_prompt=include_sub_prompt)}]},
+            "systemInstruction": {
+                "parts": [{
+                    "text": build_runtime_system_prompt(
+                        include_sub_prompt=include_sub_prompt,
+                        include_analysis_appendix=True,
+                    )
+                }]
+            },
         }
         if self.generation_params["max_tokens"] > 0:
             payload["generation_config"]["maxOutputTokens"] = self.generation_params["max_tokens"]
@@ -703,17 +935,16 @@ class GoogleCloudClient(_CommonMixin):
     async def send_message_with_images(self, message: str, images_data: list) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
         memory_context = await self._build_memory_context(message)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
-        response_text = self._request_google(enhanced, images_data=images_data)
-        clean_text, emotion, japanese_text, events, analysis = self._parse_response(response_text)
-        self._history.append({"role": "user", "content": enhanced})
-        self._history.append({"role": "assistant", "content": clean_text})
+        user_parts = self._to_parts(enhanced, images_data)
+        raw_response_text = self._request_google(enhanced, images_data=images_data)
+        clean_text, emotion, japanese_text, events, analysis = self._parse_response(raw_response_text)
+        self._remember_turn(user_parts, raw_response_text)
         return clean_text, emotion, japanese_text, events, analysis
 
     def send_message(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
-        response_text = self._request_google(message)
-        clean_text, emotion, japanese_text, events, analysis = self._parse_response(response_text)
-        self._history.append({"role": "user", "content": message})
-        self._history.append({"role": "assistant", "content": clean_text})
+        raw_response_text = self._request_google(message)
+        clean_text, emotion, japanese_text, events, analysis = self._parse_response(raw_response_text)
+        self._remember_turn(message, raw_response_text)
         return clean_text, emotion, japanese_text, events, analysis
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str]]:
@@ -773,7 +1004,10 @@ class CohereClient(_CommonMixin):
 
     def _request_cohere(self, message: str, include_sub_prompt: bool = True) -> str:
         chat_history = []
-        preamble = get_system_prompt(include_sub_prompt=include_sub_prompt)
+        preamble = build_runtime_system_prompt(
+            include_sub_prompt=include_sub_prompt,
+            include_analysis_appendix=True,
+        )
         for h in self._history:
             role = str(h.get("role", "user"))
             content = str(h.get("content", ""))
@@ -808,7 +1042,10 @@ class CohereClient(_CommonMixin):
             "model": self.model_name,
             "message": message,
             "chat_history": [],
-            "preamble": get_system_prompt(include_sub_prompt=include_sub_prompt),
+            "preamble": build_runtime_system_prompt(
+                include_sub_prompt=include_sub_prompt,
+                include_analysis_appendix=True,
+            ),
             "temperature": self.generation_params["temperature"],
             "p": self.generation_params["top_p"],
         }
@@ -833,10 +1070,9 @@ class CohereClient(_CommonMixin):
         return self.send_message(enhanced)
 
     def send_message(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
-        response_text = self._request_cohere(message)
-        clean_text, emotion, japanese_text, events, analysis = self._parse_response(response_text)
-        self._history.append({"role": "user", "content": message})
-        self._history.append({"role": "assistant", "content": clean_text})
+        raw_response_text = self._request_cohere(message)
+        clean_text, emotion, japanese_text, events, analysis = self._parse_response(raw_response_text)
+        self._remember_turn(message, raw_response_text)
         return clean_text, emotion, japanese_text, events, analysis
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str]]:
@@ -900,14 +1136,17 @@ class AnthropicClient(_CommonMixin):
         for h in self._history:
             role = h.get("role", "user")
             content = h.get("content", "")
-            messages.append({"role": role, "content": [{"type": "text", "text": str(content)}]})
+            messages.append({"role": role, "content": self._to_anthropic_blocks_from_history(content)})
         messages.append({"role": "user", "content": user_content_blocks})
         payload = {
             "model": self.model_name,
             "max_tokens": max(1, self.generation_params["max_tokens"] or DEFAULT_GENERATION_PARAMS["max_tokens"]),
             "temperature": self.generation_params["temperature"],
             "top_p": self.generation_params["top_p"],
-            "system": get_system_prompt(include_sub_prompt=include_sub_prompt),
+            "system": build_runtime_system_prompt(
+                include_sub_prompt=include_sub_prompt,
+                include_analysis_appendix=True,
+            ),
             "messages": messages,
         }
         response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=60)
@@ -922,7 +1161,10 @@ class AnthropicClient(_CommonMixin):
             "max_tokens": max(1, self.generation_params["max_tokens"] or DEFAULT_GENERATION_PARAMS["max_tokens"]),
             "temperature": self.generation_params["temperature"],
             "top_p": self.generation_params["top_p"],
-            "system": get_system_prompt(include_sub_prompt=include_sub_prompt),
+            "system": build_runtime_system_prompt(
+                include_sub_prompt=include_sub_prompt,
+                include_analysis_appendix=True,
+            ),
             "messages": [{"role": "user", "content": [{"type": "text", "text": str(message)}]}],
         }
         response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=60)
@@ -954,17 +1196,15 @@ class AnthropicClient(_CommonMixin):
                     "source": {"type": "base64", "media_type": media_type, "data": b64_data},
                 }
             )
-        response_text = self._request_anthropic(blocks)
-        clean_text, emotion, japanese_text, events, analysis = self._parse_response(response_text)
-        self._history.append({"role": "user", "content": enhanced})
-        self._history.append({"role": "assistant", "content": clean_text})
+        raw_response_text = self._request_anthropic(blocks)
+        clean_text, emotion, japanese_text, events, analysis = self._parse_response(raw_response_text)
+        self._remember_turn(blocks, raw_response_text)
         return clean_text, emotion, japanese_text, events, analysis
 
     def send_message(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
-        response_text = self._request_anthropic([{"type": "text", "text": message}])
-        clean_text, emotion, japanese_text, events, analysis = self._parse_response(response_text)
-        self._history.append({"role": "user", "content": message})
-        self._history.append({"role": "assistant", "content": clean_text})
+        raw_response_text = self._request_anthropic([{"type": "text", "text": message}])
+        clean_text, emotion, japanese_text, events, analysis = self._parse_response(raw_response_text)
+        self._remember_turn(message, raw_response_text)
         return clean_text, emotion, japanese_text, events, analysis
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str]]:
@@ -1022,8 +1262,15 @@ class OllamaClient(_CommonMixin):
         images_data: list | None = None,
         include_sub_prompt: bool = True,
     ) -> str:
-        messages = [{"role": "system", "content": get_system_prompt(include_sub_prompt=include_sub_prompt)}]
-        messages.extend(self._history)
+        messages = [{
+            "role": "system",
+            "content": build_runtime_system_prompt(
+                include_sub_prompt=include_sub_prompt,
+                include_analysis_appendix=True,
+            ),
+        }]
+        for item in self._history:
+            messages.append(self._to_ollama_message_from_history(item))
         user_msg = {"role": "user", "content": message}
         if images_data:
             images = []
@@ -1055,7 +1302,13 @@ class OllamaClient(_CommonMixin):
         payload = {
             "model": self.model_name,
             "messages": [
-                {"role": "system", "content": get_system_prompt(include_sub_prompt=include_sub_prompt)},
+                {
+                    "role": "system",
+                    "content": build_runtime_system_prompt(
+                        include_sub_prompt=include_sub_prompt,
+                        include_analysis_appendix=True,
+                    ),
+                },
                 {"role": "user", "content": str(message)},
             ],
             "stream": False,
@@ -1079,17 +1332,24 @@ class OllamaClient(_CommonMixin):
     async def send_message_with_images(self, message: str, images_data: list) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
         memory_context = await self._build_memory_context(message)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
-        response_text = self._request_ollama(enhanced, images_data=images_data)
-        clean_text, emotion, japanese_text, events, analysis = self._parse_response(response_text)
-        self._history.append({"role": "user", "content": enhanced})
-        self._history.append({"role": "assistant", "content": clean_text})
+        raw_response_text = self._request_ollama(enhanced, images_data=images_data)
+        clean_text, emotion, japanese_text, events, analysis = self._parse_response(raw_response_text)
+        user_content = {"content": enhanced}
+        images = []
+        for img in images_data or []:
+            data_url = img.get("dataUrl", "")
+            if data_url and "," in data_url:
+                _, b64 = data_url.split(",", 1)
+                images.append(b64)
+        if images:
+            user_content["images"] = images
+        self._remember_turn(user_content, raw_response_text)
         return clean_text, emotion, japanese_text, events, analysis
 
     def send_message(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
-        response_text = self._request_ollama(message)
-        clean_text, emotion, japanese_text, events, analysis = self._parse_response(response_text)
-        self._history.append({"role": "user", "content": message})
-        self._history.append({"role": "assistant", "content": clean_text})
+        raw_response_text = self._request_ollama(message)
+        clean_text, emotion, japanese_text, events, analysis = self._parse_response(raw_response_text)
+        self._remember_turn(message, raw_response_text)
         return clean_text, emotion, japanese_text, events, analysis
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str]]:

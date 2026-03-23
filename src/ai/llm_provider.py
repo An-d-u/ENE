@@ -126,13 +126,12 @@ def _build_openai_client(
     calendar_manager=None,
     mood_manager=None,
 ) -> LLMClientProtocol:
-    from .http_llm_clients import OpenAICompatibleClient
+    from .http_llm_clients import OpenAIResponseAPIClient
 
-    return OpenAICompatibleClient(
+    return OpenAIResponseAPIClient(
         api_key=api_key,
         model_name=model_name or "gpt-4o-mini",
-        endpoint="https://api.openai.com/v1/chat/completions",
-        provider_name="openai",
+        endpoint="https://api.openai.com/v1/responses",
         generation_params=generation_params,
         memory_manager=memory_manager,
         user_profile=user_profile,
@@ -407,7 +406,7 @@ PROVIDER_CATALOG: Dict[str, LLMProviderMeta] = {
     "openai": LLMProviderMeta(
         provider="openai",
         display_name="OpenAI",
-        format=LLMFormat.OPENAI_COMPATIBLE,
+        format=LLMFormat.OPENAI_RESPONSE_API,
         default_model="gpt-4o-mini",
         key_identifier="openai",
         capabilities=[LLMCapability.IMAGE_INPUT, LLMCapability.STREAMING],
