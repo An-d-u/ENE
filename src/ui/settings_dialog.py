@@ -593,6 +593,7 @@ class SettingsDialog(QDialog):
         self._prompt_token_update_timer.timeout.connect(self._refresh_prompt_token_counts)
         self._toggle_checks: list[ToggleSwitch] = []
         self._embedded_memory_panel = None
+        self.memory_search_recent_turns_spin: QSpinBox | None = None
         self._lazy_tab_hosts: dict[str, QWidget] = {}
         self._lazy_tab_builders: dict[str, callable] = {}
         self._lazy_tab_loaded: set[str] = set()
@@ -2805,6 +2806,10 @@ class SettingsDialog(QDialog):
         self.show_recent_edit_button_check.toggled.connect(self._on_setting_changed)
         display_layout.addWidget(self.show_recent_edit_button_check)
 
+        self.show_token_usage_bubble_check = self._create_toggle("대화 토큰 확인")
+        self.show_token_usage_bubble_check.toggled.connect(self._on_setting_changed)
+        display_layout.addWidget(self.show_token_usage_bubble_check)
+
         self.mouse_tracking_check = self._create_toggle("마우스 트래킹 활성화")
         self.mouse_tracking_check.toggled.connect(self._on_setting_changed)
         display_layout.addWidget(self.mouse_tracking_check)
@@ -3003,43 +3008,80 @@ class SettingsDialog(QDialog):
         return scroll
 
     def _create_memory_tab(self):
-        if self._memory_manager:
-            scroll = QScrollArea()
-            scroll.setWidgetResizable(True)
-            scroll.setFrameShape(QFrame.Shape.NoFrame)
-            scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
 
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(12)
+
+        search_card = QFrame()
+        search_card.setObjectName("FooterCard")
+        search_layout = QVBoxLayout(search_card)
+        search_layout.setContentsMargins(20, 18, 20, 18)
+        search_layout.setSpacing(10)
+
+        title = QLabel("기억 검색 범위")
+        title.setObjectName("FooterTitle")
+        search_layout.addWidget(title)
+
+        body = QLabel("장기기억 검색 시 최신 사용자 메시지와 함께 참고할 최근 보이는 대화 턴 수를 조절합니다. 현재 턴에만 임시 주입되고, 히스토리에는 순수 대화만 남도록 동작합니다.")
+        body.setObjectName("FooterBody")
+        body.setWordWrap(True)
+        search_layout.addWidget(body)
+
+        form = QFormLayout()
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+        form.setFormAlignment(Qt.AlignmentFlag.AlignTop)
+        form.setHorizontalSpacing(14)
+        form.setVerticalSpacing(10)
+
+        self.memory_search_recent_turns_spin = QSpinBox()
+        self.memory_search_recent_turns_spin.setRange(0, 50)
+        self.memory_search_recent_turns_spin.setSuffix(" 턴")
+        self.memory_search_recent_turns_spin.setSpecialValueText("현재 메시지만")
+        self.memory_search_recent_turns_spin.valueChanged.connect(self._on_setting_changed)
+        try:
+            memory_turns = int(self._original_settings.get("memory_search_recent_turns", 2) or 0)
+        except Exception:
+            memory_turns = 2
+        self.memory_search_recent_turns_spin.setValue(max(0, min(memory_turns, 50)))
+        form.addRow("검색에 포함할 최근 대화:", self.memory_search_recent_turns_spin)
+        form.addRow(self._build_hint_label("예: 2턴이면 직전 사용자/에네 2쌍을 보고 현재 메시지와 함께 장기기억을 검색합니다."))
+
+        search_layout.addLayout(form)
+        layout.addWidget(search_card)
+
+        if self._memory_manager:
             panel = MemoryDialog(self._memory_manager, self._bridge, self, embedded=True)
             panel.apply_theme(dict(self._theme_values))
             self._embedded_memory_panel = panel
             panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
             panel.setMinimumSize(0, 0)
-            scroll.setWidget(panel)
-            return scroll
+            layout.addWidget(panel)
+        else:
+            card = QFrame()
+            card.setObjectName("FooterCard")
+            card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(22, 20, 22, 20)
+            card_layout.setSpacing(8)
 
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(12)
+            title = QLabel("기억 관리")
+            title.setObjectName("FooterTitle")
+            card_layout.addWidget(title)
 
-        card = QFrame()
-        card.setObjectName("FooterCard")
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(22, 20, 22, 20)
-        card_layout.setSpacing(8)
+            body = QLabel("메모리 매니저가 초기화되지 않아 기억 목록 패널을 표시할 수 없습니다.")
+            body.setObjectName("FooterBody")
+            body.setWordWrap(True)
+            card_layout.addWidget(body)
+            layout.addWidget(card)
 
-        title = QLabel("기억 관리")
-        title.setObjectName("FooterTitle")
-        card_layout.addWidget(title)
-
-        body = QLabel("메모리 매니저가 초기화되지 않아 기억 관리 탭을 표시할 수 없습니다.")
-        body.setObjectName("FooterBody")
-        body.setWordWrap(True)
-        card_layout.addWidget(body)
-
-        layout.addWidget(card)
         layout.addStretch()
-        return widget
+        scroll.setWidget(widget)
+        return scroll
 
     def _create_user_profile_tab(self):
         scroll = QScrollArea()
@@ -4142,6 +4184,9 @@ class SettingsDialog(QDialog):
             self.show_recent_edit_button_check.setChecked(
                 self._original_settings.get("show_recent_edit_button", True)
             )
+            self.show_token_usage_bubble_check.setChecked(
+                self._original_settings.get("show_token_usage_bubble", False)
+            )
             self.show_manual_summary_button_check.setChecked(
                 self._original_settings.get("show_manual_summary_button", True)
             )
@@ -4174,6 +4219,12 @@ class SettingsDialog(QDialog):
             self.note_recent_context_turns_spin.setEnabled(
                 bool(self.note_include_recent_context_check.isChecked())
             )
+            if self.memory_search_recent_turns_spin is not None:
+                try:
+                    memory_turns = int(self._original_settings.get("memory_search_recent_turns", 2) or 0)
+                except Exception:
+                    memory_turns = 2
+                self.memory_search_recent_turns_spin.setValue(max(0, min(memory_turns, 50)))
             self.mouse_tracking_check.setChecked(self._original_settings.get("mouse_tracking_enabled", True))
 
             self.idle_motion_check.setChecked(self._original_settings.get("enable_idle_motion", True))
@@ -4362,6 +4413,11 @@ class SettingsDialog(QDialog):
         embedding_api_keys = self._original_settings.get("embedding_api_keys", {})
         embedding_api_keys = dict(embedding_api_keys) if isinstance(embedding_api_keys, dict) else {}
         embedding_api_keys[embedding_provider] = self.embedding_api_key_edit.text().strip()
+        memory_search_recent_turns = (
+            self.memory_search_recent_turns_spin.value()
+            if self.memory_search_recent_turns_spin is not None
+            else int(self._original_settings.get("memory_search_recent_turns", 2) or 0)
+        )
 
         return {
             **preserved_hidden_settings,
@@ -4375,6 +4431,7 @@ class SettingsDialog(QDialog):
             "show_drag_bar": self.show_drag_bar_check.isChecked(),
             "show_recent_reroll_button": self.show_recent_reroll_button_check.isChecked(),
             "show_recent_edit_button": self.show_recent_edit_button_check.isChecked(),
+            "show_token_usage_bubble": self.show_token_usage_bubble_check.isChecked(),
             "show_manual_summary_button": self.show_manual_summary_button_check.isChecked(),
             "show_obsidian_note_button": self.show_obsidian_note_button_check.isChecked(),
             "show_mood_toggle_button": self.show_mood_toggle_button_check.isChecked(),
@@ -4392,6 +4449,7 @@ class SettingsDialog(QDialog):
             "global_ptt_hotkey": normalize_hotkey_text(self._ptt_hotkey_value, default="alt"),
             "note_include_recent_context": self.note_include_recent_context_check.isChecked(),
             "note_recent_context_turns": self.note_recent_context_turns_spin.value(),
+            "memory_search_recent_turns": max(0, min(memory_search_recent_turns, 50)),
             "mouse_tracking_enabled": self.mouse_tracking_check.isChecked(),
             "enable_idle_motion": self.idle_motion_check.isChecked(),
             "idle_motion_dynamic_mode": self.idle_motion_dynamic_check.isChecked(),

@@ -161,6 +161,7 @@ class GeminiClient:
     async def send_message_with_memory(
         self,
         message: str,
+        memory_search_text: str | None = None,
     ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
         """
         메모리를 활용한 메시지 전송
@@ -172,7 +173,8 @@ class GeminiClient:
             (응답 텍스트, 감정 태그, 일본어 번역, 이벤트 리스트) 튜플
         """
         # 메모리 컨텍스트 구성
-        memory_context = await self._build_memory_context(message)
+        search_query = str(memory_search_text or "").strip() or message
+        memory_context = await self._build_memory_context(search_query)
         
         # 메모리가 있으면 메시지 앞에 추가
         if memory_context:
@@ -188,6 +190,7 @@ class GeminiClient:
         self,
         message: str,
         images_data: list,
+        memory_search_text: str | None = None,
     ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
         """
         이미지와 함께 메시지 전송 (멀티모달)
@@ -230,10 +233,11 @@ class GeminiClient:
             
             if not pil_images:
                 print("[LLM] 유효한 이미지가 없음, 텍스트만 전송")
-                return await self.send_message_with_memory(message)
+                return await self.send_message_with_memory(message, memory_search_text)
             
             # 메모리 컨텍스트 추가
-            memory_context = await self._build_memory_context(message)
+            search_query = str(memory_search_text or "").strip() or message
+            memory_context = await self._build_memory_context(search_query)
             if memory_context:
                 enhanced_message = f"{memory_context}\n\n{message}"
             else:
@@ -287,6 +291,13 @@ class GeminiClient:
         
         context_parts = []
         
+        settings_config = self.settings.config if self.settings else {}
+        max_profile_facts = settings_config.get("max_profile_facts_in_context", 10)
+        try:
+            max_profile_facts = max(0, int(max_profile_facts))
+        except (TypeError, ValueError):
+            max_profile_facts = 10
+
         # 0. 사용자 프로필 정보 (최우선)
         if self.user_profile:
             profile_lines = ["[마스터 기본 정보]"]
@@ -316,6 +327,16 @@ class GeminiClient:
             if hasattr(self.user_profile, "get_all_facts"):
                 facts = self.user_profile.get_all_facts()
                 if facts:
+                    try:
+                        facts = sorted(
+                            facts,
+                            key=lambda fact: getattr(fact, "timestamp", "") or "",
+                            reverse=True,
+                        )
+                    except Exception:
+                        facts = list(facts)
+                    if max_profile_facts > 0:
+                        facts = facts[:max_profile_facts]
                     fact_lines = ["[마스터에 대한 정보]"]
                     for fact in facts:
                         fact_lines.append(f"- [{fact.category}] : {fact.content}")
@@ -332,7 +353,6 @@ class GeminiClient:
             except Exception as e:
                 print(f"[LLM] Mood context append failed: {e}")
 
-        settings_config = self.settings.config if self.settings else {}
         max_important = settings_config.get('max_important_memories', 3)
         max_similar = settings_config.get('max_similar_memories', 3)
         min_sim = settings_config.get('min_similarity', 0.35)
