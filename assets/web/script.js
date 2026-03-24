@@ -43,8 +43,56 @@ const DEFAULT_THEME = {
     chatAssistantBubbleColor: '#FFFFFF',
     chatUserBubbleColor: '#0071E3'
 };
+const DEFAULT_UI_STRINGS = {
+    loading: 'Thinking...',
+    input: {
+        placeholder: 'Type a message...'
+    },
+    send: 'Send',
+    actions: {
+        summary: {
+            label: 'Summary',
+            title: 'Conversation summary'
+        },
+        note: {
+            label: 'Note',
+            title: 'Open or close the Obsidian note panel'
+        },
+        mood: {
+            label: 'Mood',
+            title: 'Mood status'
+        }
+    },
+    mood: {
+        label: 'Mood: {label}',
+        loading: 'Loading',
+        collapse: 'Collapse',
+        axis: {
+            valence: 'Positive',
+            bond: 'Bond',
+            energy: 'Energy',
+            stress: 'Stress'
+        },
+        states: {
+            calm: 'Calm',
+            cheerful: 'Cheerful',
+            affectionate: 'Affectionate',
+            tired: 'Tired',
+            tense: 'Tense',
+            lonely: 'Lonely',
+            unknown: 'Unknown'
+        }
+    },
+    summaryConfirm: {
+        title: 'Manual summary',
+        body: 'Would you like to start a manual summary?',
+        no: 'No',
+        yes: 'Yes'
+    }
+};
 window.eneModelConfig = window.eneModelConfig || {};
 window.eneThemeConfig = window.eneThemeConfig || {};
+window.eneUiStrings = window.eneUiStrings || {};
 let currentModelPath = '';
 let currentEmotionsBasePath = '';
 let currentAvailableEmotions = new Set(['normal']);
@@ -1287,7 +1335,10 @@ const attachButton = document.getElementById('attach-button');
 const imageInput = document.getElementById('image-input');
 const imagePreviewContainer = document.getElementById('image-preview-container');
 const loadingIndicator = document.getElementById('loading-indicator');
+const loadingText = document.querySelector('#loading-indicator .typing-text');
 const summaryConfirmOverlay = document.getElementById('summary-confirm-overlay');
+const summaryConfirmTitle = document.getElementById('summary-confirm-title');
+const summaryConfirmBody = document.getElementById('summary-confirm-body');
 const summaryConfirmYesButton = document.getElementById('summary-confirm-yes');
 const summaryConfirmNoButton = document.getElementById('summary-confirm-no');
 const toastContainer = document.getElementById('toast-container');
@@ -1297,6 +1348,10 @@ const moodWidget = document.getElementById('mood-status-widget');
 const moodStatusHeader = document.getElementById('mood-status-header');
 const moodCollapseButton = document.getElementById('mood-status-collapse-btn');
 const moodStatusLabel = document.getElementById('mood-status-label');
+const moodMeterNameValence = document.getElementById('mood-meter-name-valence');
+const moodMeterNameBond = document.getElementById('mood-meter-name-bond');
+const moodMeterNameEnergy = document.getElementById('mood-meter-name-energy');
+const moodMeterNameStress = document.getElementById('mood-meter-name-stress');
 const moodMeterValence = document.getElementById('mood-meter-valence');
 const moodMeterBond = document.getElementById('mood-meter-bond');
 const moodMeterEnergy = document.getElementById('mood-meter-energy');
@@ -1325,6 +1380,115 @@ let activeInlineEditBubble = null;
 let obsCheckedPaths = new Set();
 let moodWidgetDragState = null;
 let tokenUsageBubbleTimer = null;
+let currentMoodSnapshot = { label: 'calm', valence: 0, energy: 0, bond: 0, stress: 0 };
+let currentUiStrings = null;
+
+function mergeUiStrings(config) {
+    const source = config || {};
+    const input = source.input || {};
+    const actions = source.actions || {};
+    const mood = source.mood || {};
+    const moodAxis = mood.axis || {};
+    const moodStates = mood.states || {};
+    const summaryConfirm = source.summaryConfirm || {};
+
+    return {
+        loading: source.loading || DEFAULT_UI_STRINGS.loading,
+        input: {
+            placeholder: input.placeholder || DEFAULT_UI_STRINGS.input.placeholder
+        },
+        send: source.send || DEFAULT_UI_STRINGS.send,
+        actions: {
+            summary: {
+                label: (actions.summary && actions.summary.label) || DEFAULT_UI_STRINGS.actions.summary.label,
+                title: (actions.summary && actions.summary.title) || DEFAULT_UI_STRINGS.actions.summary.title
+            },
+            note: {
+                label: (actions.note && actions.note.label) || DEFAULT_UI_STRINGS.actions.note.label,
+                title: (actions.note && actions.note.title) || DEFAULT_UI_STRINGS.actions.note.title
+            },
+            mood: {
+                label: (actions.mood && actions.mood.label) || DEFAULT_UI_STRINGS.actions.mood.label,
+                title: (actions.mood && actions.mood.title) || DEFAULT_UI_STRINGS.actions.mood.title
+            }
+        },
+        mood: {
+            label: mood.label || DEFAULT_UI_STRINGS.mood.label,
+            loading: mood.loading || DEFAULT_UI_STRINGS.mood.loading,
+            collapse: mood.collapse || DEFAULT_UI_STRINGS.mood.collapse,
+            axis: {
+                valence: moodAxis.valence || DEFAULT_UI_STRINGS.mood.axis.valence,
+                bond: moodAxis.bond || DEFAULT_UI_STRINGS.mood.axis.bond,
+                energy: moodAxis.energy || DEFAULT_UI_STRINGS.mood.axis.energy,
+                stress: moodAxis.stress || DEFAULT_UI_STRINGS.mood.axis.stress
+            },
+            states: {
+                calm: moodStates.calm || DEFAULT_UI_STRINGS.mood.states.calm,
+                cheerful: moodStates.cheerful || DEFAULT_UI_STRINGS.mood.states.cheerful,
+                affectionate: moodStates.affectionate || DEFAULT_UI_STRINGS.mood.states.affectionate,
+                tired: moodStates.tired || DEFAULT_UI_STRINGS.mood.states.tired,
+                tense: moodStates.tense || DEFAULT_UI_STRINGS.mood.states.tense,
+                lonely: moodStates.lonely || DEFAULT_UI_STRINGS.mood.states.lonely,
+                unknown: moodStates.unknown || DEFAULT_UI_STRINGS.mood.states.unknown
+            }
+        },
+        summaryConfirm: {
+            title: summaryConfirm.title || DEFAULT_UI_STRINGS.summaryConfirm.title,
+            body: summaryConfirm.body || DEFAULT_UI_STRINGS.summaryConfirm.body,
+            no: summaryConfirm.no || DEFAULT_UI_STRINGS.summaryConfirm.no,
+            yes: summaryConfirm.yes || DEFAULT_UI_STRINGS.summaryConfirm.yes
+        }
+    };
+}
+
+function formatMoodStatusText(label) {
+    const localizedLabel = formatMoodLabel(label);
+    const template = currentUiStrings.mood.label || DEFAULT_UI_STRINGS.mood.label;
+    if (template.indexOf('{label}') >= 0) {
+        return template.replace('{label}', localizedLabel);
+    }
+    return `${template} ${localizedLabel}`.trim();
+}
+
+function applyUiStringsToStaticNodes() {
+    if (loadingText) loadingText.textContent = currentUiStrings.loading;
+    if (chatInput) chatInput.placeholder = currentUiStrings.input.placeholder;
+    if (sendButton) sendButton.textContent = currentUiStrings.send;
+    if (manualSummarizeButton) {
+        manualSummarizeButton.textContent = currentUiStrings.actions.summary.label;
+        manualSummarizeButton.title = currentUiStrings.actions.summary.title;
+    }
+    if (obsNoteButton) {
+        obsNoteButton.textContent = currentUiStrings.actions.note.label;
+        obsNoteButton.title = currentUiStrings.actions.note.title;
+    }
+    if (moodToggleButton) {
+        moodToggleButton.textContent = currentUiStrings.actions.mood.label;
+        moodToggleButton.title = currentUiStrings.actions.mood.title;
+    }
+    if (moodMeterNameValence) moodMeterNameValence.textContent = currentUiStrings.mood.axis.valence;
+    if (moodMeterNameBond) moodMeterNameBond.textContent = currentUiStrings.mood.axis.bond;
+    if (moodMeterNameEnergy) moodMeterNameEnergy.textContent = currentUiStrings.mood.axis.energy;
+    if (moodMeterNameStress) moodMeterNameStress.textContent = currentUiStrings.mood.axis.stress;
+    if (moodCollapseButton) moodCollapseButton.title = currentUiStrings.mood.collapse;
+    if (summaryConfirmTitle) summaryConfirmTitle.textContent = currentUiStrings.summaryConfirm.title;
+    if (summaryConfirmBody) summaryConfirmBody.textContent = currentUiStrings.summaryConfirm.body;
+    if (summaryConfirmNoButton) summaryConfirmNoButton.textContent = currentUiStrings.summaryConfirm.no;
+    if (summaryConfirmYesButton) summaryConfirmYesButton.textContent = currentUiStrings.summaryConfirm.yes;
+}
+
+window.applyENEUiStrings = function applyENEUiStrings(config) {
+    currentUiStrings = mergeUiStrings(config);
+    window.eneUiStrings = currentUiStrings;
+    applyUiStringsToStaticNodes();
+    updateMoodWidget(
+        currentMoodSnapshot.label,
+        currentMoodSnapshot.valence,
+        currentMoodSnapshot.energy,
+        currentMoodSnapshot.bond,
+        currentMoodSnapshot.stress
+    );
+};
 
 function createAttachmentId() {
     if (window.crypto && typeof window.crypto.randomUUID === 'function') {
@@ -1443,15 +1607,10 @@ function normalizeMoodAxis(value) {
 
 // 내부 mood 키를 사용자 표시용 라벨로 변환한다.
 function formatMoodLabel(label) {
-    const map = {
-        calm: '차분함',
-        cheerful: '상쾌함',
-        affectionate: '애정 충만',
-        tired: '피곤함',
-        tense: '긴장됨',
-        lonely: '쓸쓸함',
-    };
-    return map[label] || label || '알 수 없음';
+    const map = (currentUiStrings && currentUiStrings.mood && currentUiStrings.mood.states)
+        ? currentUiStrings.mood.states
+        : DEFAULT_UI_STRINGS.mood.states;
+    return map[label] || label || map.unknown || DEFAULT_UI_STRINGS.mood.states.unknown;
 }
 
 // mood 바의 width(%)를 갱신한다.
@@ -1503,8 +1662,16 @@ function initMoodWidgetDrag() {
 
 // mood 텍스트/게이지/툴팁을 한 번에 갱신한다.
 function updateMoodWidget(label, valence, energy, bond, stress) {
+    currentMoodSnapshot = {
+        label: label,
+        valence: valence,
+        energy: energy,
+        bond: bond,
+        stress: stress
+    };
+
     if (moodStatusLabel) {
-        moodStatusLabel.textContent = `기분: ${formatMoodLabel(label)}`;
+        moodStatusLabel.textContent = formatMoodStatusText(label);
     }
 
     setMoodMeterWidth(moodMeterValence, normalizeMoodAxis(valence));
@@ -1512,15 +1679,19 @@ function updateMoodWidget(label, valence, energy, bond, stress) {
     setMoodMeterWidth(moodMeterEnergy, normalizeMoodAxis(energy));
     setMoodMeterWidth(moodMeterStress, normalizeMoodAxis(stress));
 
-    if (moodMeterValence) moodMeterValence.title = `긍정 ${Number(valence).toFixed(2)}`;
-    if (moodMeterBond) moodMeterBond.title = `친밀 ${Number(bond).toFixed(2)}`;
-    if (moodMeterEnergy) moodMeterEnergy.title = `활력 ${Number(energy).toFixed(2)}`;
-    if (moodMeterStress) moodMeterStress.title = `긴장 ${Number(stress).toFixed(2)}`;
+    const axis = (currentUiStrings && currentUiStrings.mood && currentUiStrings.mood.axis)
+        ? currentUiStrings.mood.axis
+        : DEFAULT_UI_STRINGS.mood.axis;
+    if (moodMeterValence) moodMeterValence.title = `${axis.valence} ${Number(valence).toFixed(2)}`;
+    if (moodMeterBond) moodMeterBond.title = `${axis.bond} ${Number(bond).toFixed(2)}`;
+    if (moodMeterEnergy) moodMeterEnergy.title = `${axis.energy} ${Number(energy).toFixed(2)}`;
+    if (moodMeterStress) moodMeterStress.title = `${axis.stress} ${Number(stress).toFixed(2)}`;
     if (moodStatusLabel) {
-        moodStatusLabel.title = `긍정 ${Number(valence).toFixed(2)} / 친밀 ${Number(bond).toFixed(2)} / 활력 ${Number(energy).toFixed(2)} / 긴장 ${Number(stress).toFixed(2)}`;
+        moodStatusLabel.title = `${axis.valence} ${Number(valence).toFixed(2)} / ${axis.bond} ${Number(bond).toFixed(2)} / ${axis.energy} ${Number(energy).toFixed(2)} / ${axis.stress} ${Number(stress).toFixed(2)}`;
     }
 }
 
+window.applyENEUiStrings(window.eneUiStrings);
 updateMoodWidget('calm', 0, 0, 0, 0);
 setMoodPanelOpen(false);
 initMoodWidgetDrag();
