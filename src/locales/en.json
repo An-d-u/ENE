@@ -1,0 +1,8 @@
+﻿{
+  "fallback.only": "English fallback",
+  "count.items": "{count} items",
+  "ui.language.auto": "Auto",
+  "ui.language.ko": "Korean",
+  "ui.language.en": "English",
+  "ui.language.ja": "Japanese"
+}

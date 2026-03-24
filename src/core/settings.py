@@ -45,6 +45,7 @@ class Settings:
         "chat_assistant_bubble_color": "#FFFFFF",
         "chat_user_bubble_color": "#0071E3",
         "theme_mode": "light",
+        "ui_language": "auto",
         "follow_system_theme": False,
         "mouse_tracking_enabled": True,
         "enable_idle_motion": True,
