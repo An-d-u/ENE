@@ -35,8 +35,11 @@ jobs:
         env:
           # GitHub Ubuntu 러너는 headless 환경이라 Qt 위젯 테스트에 offscreen 플랫폼이 필요하다.
           QT_QPA_PLATFORM: offscreen
-        run: pytest -q --cov=src --cov-report=term-missing --cov-fail-under=4
+        run: python -m pytest -q --cov=src --cov-report=term-missing --cov-fail-under=4
 
       - name: Run tests with coverage (Windows)
         if: runner.os == 'Windows'
-        run: pytest -q --cov=src --cov-report=term-missing --cov-fail-under=4
+        env:
+          # GitHub Windows 러너도 대화형 데스크톱이 없어 Qt UI 테스트가 즉시 실패할 수 있다.
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -q --cov=src --cov-report=term-missing --cov-fail-under=4
