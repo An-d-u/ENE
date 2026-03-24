@@ -34,7 +34,10 @@ GENERATED_SUB_PROMPT_SECTION_TITLES = {
 
 
 def _normalize_emotion_name(text: str) -> str:
-    return str(text or "").strip()
+    normalized = str(text or "").strip()
+    if normalized.startswith("`") and normalized.endswith("`") and len(normalized) >= 2:
+        normalized = normalized[1:-1].strip()
+    return normalized.lower()
 
 
 def _read_text_file(path: Path) -> str:
