@@ -43,8 +43,11 @@ def resolve_language(ui_language: str | None, system_locale: str | None = None) 
 def load_locale_file(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
-    with open(path, "r", encoding="utf-8-sig") as f:
-        loaded = json.load(f)
+    try:
+        with open(path, "r", encoding="utf-8-sig") as f:
+            loaded = json.load(f)
+    except Exception:
+        return {}
     return loaded if isinstance(loaded, dict) else {}
 
 
@@ -115,6 +118,9 @@ class I18n:
         if value is None:
             return key
 
-        if kwargs and isinstance(value, str):
-            return value.format(**kwargs)
+        if isinstance(value, str) and kwargs:
+            try:
+                return value.format(**kwargs)
+            except Exception:
+                return value
         return str(value)
