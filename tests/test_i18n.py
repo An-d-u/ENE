@@ -5,9 +5,11 @@ import sys
 
 from src.core.i18n import (
     I18n,
+    configure_i18n,
     get_default_locales_dir,
     load_locale_file,
     resolve_language,
+    tr,
 )
 
 
@@ -143,3 +145,48 @@ def test_default_locales_dir_prefers_meipass(monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "_MEIPASS", str(frozen_root), raising=False)
 
     assert get_default_locales_dir() == frozen_root / "src" / "locales"
+
+
+def test_runtime_language_switch_reloads_catalog_and_uses_fallback(tmp_path):
+    locales_dir = tmp_path / "locales"
+    locales_dir.mkdir()
+    (locales_dir / "en.json").write_text(
+        json.dumps(
+            {
+                "tray.settings": "Settings",
+                "obsidian.error.connection_failed": "Connection failed: {error}",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8-sig",
+    )
+    (locales_dir / "ko.json").write_text(
+        json.dumps(
+            {
+                "tray.settings": "설정",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8-sig",
+    )
+    (locales_dir / "ja.json").write_text("{}", encoding="utf-8-sig")
+
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="en_US")
+
+    assert tr("tray.settings") == "설정"
+    assert tr("obsidian.error.connection_failed", error="boom") == "Connection failed: boom"
+
+    (locales_dir / "ko.json").write_text(
+        json.dumps(
+            {
+                "tray.settings": "환경설정",
+                "obsidian.error.connection_failed": "연결 실패: {error}",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8-sig",
+    )
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="en_US")
+
+    assert tr("tray.settings") == "환경설정"
+    assert tr("obsidian.error.connection_failed", error="boom") == "연결 실패: boom"

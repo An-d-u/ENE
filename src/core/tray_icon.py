@@ -7,6 +7,8 @@ from PyQt6.QtCore import QObject, pyqtSignal
 from pathlib import Path
 import sys
 
+from .i18n import tr
+
 
 class TrayIcon(QObject):
     """시스템 트레이 아이콘 관리 클래스"""
@@ -18,8 +20,10 @@ class TrayIcon(QObject):
     toggle_mouse_tracking_requested = pyqtSignal()
     quit_requested = pyqtSignal()
     
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, show_on_create: bool = True):
         super().__init__(parent)
+        self._drag_bar_visible = True
+        self._mouse_tracking_enabled = True
         
         # 아이콘 경로 설정
         if getattr(sys, 'frozen', False):
@@ -41,59 +45,75 @@ class TrayIcon(QObject):
         else:
             print(f"경고: 트레이 아이콘을 찾을 수 없음: {icon_path}")
         
-        self.tray_icon.setToolTip("ENE - AI Desktop Partner")
-        
         # 컨텍스트 메뉴 생성
         self._create_menu()
-        
+
+        self.retranslate_ui()
+
         # 트레이 아이콘 표시
-        self.tray_icon.show()
+        if show_on_create:
+            self.tray_icon.show()
     
     def _create_menu(self):
         """우클릭 메뉴 생성"""
         menu = QMenu()
         
         # 설정 액션
-        settings_action = QAction("설정", self)
-        settings_action.triggered.connect(self.settings_requested.emit)
-        menu.addAction(settings_action)
+        self.settings_action = QAction("", self)
+        self.settings_action.triggered.connect(self.settings_requested.emit)
+        menu.addAction(self.settings_action)
         
         # 캘린더 액션
-        calendar_action = QAction("📅 캘린더", self)
-        calendar_action.triggered.connect(self.calendar_requested.emit)
-        menu.addAction(calendar_action)
+        self.calendar_action = QAction("", self)
+        self.calendar_action.triggered.connect(self.calendar_requested.emit)
+        menu.addAction(self.calendar_action)
         
         menu.addSeparator()
         
         # 드래그 바 표시/숨김 액션
-        self.toggle_bar_action = QAction("드래그 바 보임/숨김", self)
+        self.toggle_bar_action = QAction("", self)
         self.toggle_bar_action.triggered.connect(self.toggle_drag_bar_requested.emit)
         menu.addAction(self.toggle_bar_action)
         
         # 마우스 트래킹 ON/OFF 액션
-        self.toggle_mouse_tracking_action = QAction("마우스 트래킹 비활성화", self)
+        self.toggle_mouse_tracking_action = QAction("", self)
         self.toggle_mouse_tracking_action.triggered.connect(self.toggle_mouse_tracking_requested.emit)
         menu.addAction(self.toggle_mouse_tracking_action)
         
         menu.addSeparator()
         
         # 종료 액션
-        quit_action = QAction("종료", self)
-        quit_action.triggered.connect(self.quit_requested.emit)
-        menu.addAction(quit_action)
+        self.quit_action = QAction("", self)
+        self.quit_action.triggered.connect(self.quit_requested.emit)
+        menu.addAction(self.quit_action)
         
         self.tray_icon.setContextMenu(menu)
+
+    def _drag_bar_label(self) -> str:
+        if self._drag_bar_visible:
+            return tr("tray.drag_bar.hide")
+        return tr("tray.drag_bar.show")
+
+    def _mouse_tracking_label(self) -> str:
+        if self._mouse_tracking_enabled:
+            return tr("tray.mouse_tracking.disable")
+        return tr("tray.mouse_tracking.enable")
+
+    def retranslate_ui(self):
+        """현재 언어 카탈로그로 트레이 UI를 다시 번역한다."""
+        self.tray_icon.setToolTip(tr("tray.tooltip"))
+        self.settings_action.setText(tr("tray.settings"))
+        self.calendar_action.setText(tr("tray.calendar"))
+        self.toggle_bar_action.setText(self._drag_bar_label())
+        self.toggle_mouse_tracking_action.setText(self._mouse_tracking_label())
+        self.quit_action.setText(tr("tray.quit"))
     
     def update_drag_bar_menu_text(self, is_visible: bool):
         """드래그 바 메뉴 텍스트 업데이트"""
-        if is_visible:
-            self.toggle_bar_action.setText("드래그 바 숨김")
-        else:
-            self.toggle_bar_action.setText("드래그 바 표시")
+        self._drag_bar_visible = bool(is_visible)
+        self.toggle_bar_action.setText(self._drag_bar_label())
     
     def update_mouse_tracking_menu_text(self, is_enabled: bool):
         """마우스 트래킹 메뉴 텍스트 업데이트"""
-        if is_enabled:
-            self.toggle_mouse_tracking_action.setText("마우스 트래킹 비활성화")
-        else:
-            self.toggle_mouse_tracking_action.setText("마우스 트래킹 활성화")
+        self._mouse_tracking_enabled = bool(is_enabled)
+        self.toggle_mouse_tracking_action.setText(self._mouse_tracking_label())

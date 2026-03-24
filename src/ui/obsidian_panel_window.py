@@ -18,6 +18,8 @@ from PyQt6.QtWidgets import (
     QFrame,
 )
 
+from ..core.i18n import tr
+
 
 class ObsidianPanelWindow(QWidget):
     """ENE 외부에서 동작하는 Obsidian 전용 패널."""
@@ -29,8 +31,9 @@ class ObsidianPanelWindow(QWidget):
         self._dragging = False
         self._drag_offset = QPoint()
         self._updating_tree = False
+        self._last_payload = None
 
-        self.setWindowTitle("Obsidian")
+        self.setWindowTitle(tr("obsidian.window.title"))
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
@@ -104,9 +107,9 @@ class ObsidianPanelWindow(QWidget):
         header_layout.setContentsMargins(10, 7, 10, 7)
         header_layout.setSpacing(8)
 
-        self.title_label = QLabel("Obsidian", self.header)
+        self.title_label = QLabel("", self.header)
         self.title_label.setObjectName("obsTitle")
-        self.subtitle_label = QLabel("드래그로 이동 / 체크 파일은 컨텍스트에 포함", self.header)
+        self.subtitle_label = QLabel("", self.header)
         self.subtitle_label.setObjectName("obsSubTitle")
         subtitle_wrap = QVBoxLayout()
         subtitle_wrap.setContentsMargins(0, 0, 0, 0)
@@ -114,7 +117,7 @@ class ObsidianPanelWindow(QWidget):
         subtitle_wrap.addWidget(self.title_label)
         subtitle_wrap.addWidget(self.subtitle_label)
 
-        self.refresh_button = QPushButton("새로고침", self.header)
+        self.refresh_button = QPushButton("", self.header)
         self.refresh_button.clicked.connect(self.refresh_tree)
 
         header_layout.addLayout(subtitle_wrap, 1)
@@ -125,6 +128,8 @@ class ObsidianPanelWindow(QWidget):
         self.tree.setHeaderHidden(True)
         self.tree.itemChanged.connect(self._on_item_changed)
         root_layout.addWidget(self.tree, 1)
+
+        self.retranslate_ui()
 
     def _connect_bridge_signals(self):
         if hasattr(self.bridge, "obs_tree_updated"):
@@ -201,27 +206,49 @@ class ObsidianPanelWindow(QWidget):
         if hasattr(self.bridge, "refresh_obs_tree"):
             self.bridge.refresh_obs_tree()
 
+    def retranslate_ui(self):
+        """현재 언어 카탈로그로 패널 문구를 다시 적용한다."""
+        self.setWindowTitle(tr("obsidian.window.title"))
+        self.title_label.setText(tr("obsidian.window.title"))
+        self.subtitle_label.setText(tr("obsidian.window.subtitle"))
+        self.refresh_button.setText(tr("obsidian.window.refresh"))
+        if self._last_payload is not None:
+            self._render_tree(self._last_payload)
+
     def _on_obs_tree_updated(self, payload: str):
         try:
             data = json.loads(payload) if isinstance(payload, str) else payload
         except Exception as e:
-            data = {"ok": False, "error": f"트리 파싱 실패: {e}", "nodes": []}
+            data = {
+                "ok": False,
+                "error": tr("obsidian.error.parse_failed", error=e),
+                "nodes": [],
+            }
         self._render_tree(data)
 
     def _render_tree(self, payload: dict):
+        self._last_payload = payload
         self._updating_tree = True
         self.tree.clear()
 
         if not payload or not payload.get("ok"):
-            err = str((payload or {}).get("error", "트리 조회 실패"))
-            item = QTreeWidgetItem([f"연결 실패: {err}"])
+            err = str((payload or {}).get("error", tr("obsidian.error.fetch_failed")))
+            item = QTreeWidgetItem([tr("obsidian.error.connection_failed", error=err)])
+            item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+            self.tree.addTopLevelItem(item)
+            self._updating_tree = False
+            return
+
+        nodes = payload.get("nodes", [])
+        if not nodes:
+            item = QTreeWidgetItem([tr("obsidian.empty")])
             item.setFlags(Qt.ItemFlag.ItemIsEnabled)
             self.tree.addTopLevelItem(item)
             self._updating_tree = False
             return
 
         checked = set(payload.get("checked_files", []))
-        for node in payload.get("nodes", []):
+        for node in nodes:
             self.tree.addTopLevelItem(self._create_node_item(node, checked))
         self.tree.expandToDepth(1)
         self._updating_tree = False
@@ -231,9 +258,9 @@ class ObsidianPanelWindow(QWidget):
         path = str(node.get("path", "") or node.get("name", ""))
         label = path
         if node_type == "dir":
-            label = f"[DIR] {path}"
+            label = f"{tr('obsidian.prefix.dir')} {path}"
         else:
-            label = f"[FILE] {path}"
+            label = f"{tr('obsidian.prefix.file')} {path}"
 
         item = QTreeWidgetItem([label])
         item.setData(0, Qt.ItemDataRole.UserRole, path)
