@@ -47,6 +47,7 @@ window.eneModelConfig = window.eneModelConfig || {};
 window.eneThemeConfig = window.eneThemeConfig || {};
 let currentModelPath = '';
 let currentEmotionsBasePath = '';
+let currentAvailableEmotions = new Set(['normal']);
 let currentModelLoadToken = 0;
 let currentModelErrorText = null;
 let currentThemeAccent = DEFAULT_THEME.accentColor;
@@ -61,6 +62,33 @@ function resolveEmotionsBasePathFromConfig() {
     }
     const absoluteModelUrl = new URL(resolveModelPathFromConfig(), window.location.href);
     return new URL('./emotions/', absoluteModelUrl).href;
+}
+
+function resolveAvailableEmotionsFromConfig() {
+    const raw = window.eneModelConfig.availableEmotions;
+    if (!Array.isArray(raw)) {
+        return ['normal'];
+    }
+
+    const unique = [];
+    const seen = new Set();
+    for (const item of raw) {
+        const emotion = String(item || '').trim().toLowerCase();
+        if (!emotion || seen.has(emotion)) {
+            continue;
+        }
+        seen.add(emotion);
+        unique.push(emotion);
+    }
+
+    if (unique.length === 0) {
+        unique.push('normal');
+    }
+    return unique;
+}
+
+function syncAvailableEmotionsFromConfig() {
+    currentAvailableEmotions = new Set(resolveAvailableEmotionsFromConfig());
 }
 
 function normalizeThemeHex(value) {
@@ -165,6 +193,7 @@ window.applyENETheme = function applyENETheme(config) {
 };
 
 window.applyENETheme(window.eneThemeConfig);
+syncAvailableEmotionsFromConfig();
 
 function resolveBrowserSpeechVoice(preferredVoice, preferredLang) {
     if (!('speechSynthesis' in window)) {
@@ -314,6 +343,7 @@ window.applyENEModelSettings = async function applyENEModelSettings(config) {
 
     const nextModelPath = resolveModelPathFromConfig();
     const nextEmotionsBasePath = resolveEmotionsBasePathFromConfig();
+    syncAvailableEmotionsFromConfig();
 
     if (nextModelPath !== currentModelPath) {
         currentModelPath = nextModelPath;
@@ -1094,29 +1124,25 @@ console.log("Mouse tracking initialized");
 // ==========================================
 // 감정 표정 제어
 // ==========================================
-const EMOTIONS = {
-    'normal': 'normal',
-    'angry': 'angry',
-    'confused': 'confused',
-    'dizzy': 'dizzy',
-    'excited': 'excited',
-    'joy': 'joy',
-    'love': 'love',
-    'pathetic': 'pathetic',
-    'pervert': 'pervert',
-    'sad': 'sad',
-    'shy': 'shy',
-    'smile': 'smile',
-    'smug': 'smug',
-    'sulk': 'sulk',
-    'teary': 'teary'
-};
-
 /**
  * 현재 표정 전환 애니메이션 상태.
  */
 let currentExpressionAnimation = null;
 let previousExpressionParams = [];
+
+function resolveExpressionEmotion(emotion) {
+    const normalized = String(emotion || '').trim().toLowerCase();
+    if (normalized && currentAvailableEmotions.has(normalized)) {
+        return normalized;
+    }
+    if (normalized) {
+        console.warn(`Unknown emotion for current model: ${normalized}`);
+    }
+    if (currentAvailableEmotions.has('normal')) {
+        return 'normal';
+    }
+    return '';
+}
 
 // 감정 태그에 맞는 exp3 표정 파일을 로드/보간 적용한다.
 async function changeExpression(emotion) {
@@ -1126,13 +1152,14 @@ async function changeExpression(emotion) {
         return;
     }
 
-    if (!EMOTIONS[emotion]) {
-        console.warn(`Unknown emotion: ${emotion}`);
+    const resolvedEmotion = resolveExpressionEmotion(emotion);
+    if (!resolvedEmotion) {
         return;
     }
 
     try {
-        if (emotion === 'normal') {
+        currentEmotionTag = resolvedEmotion;
+        if (resolvedEmotion === 'normal') {
             console.log('Resetting to normal expression');
             if (currentExpressionAnimation) {
                 cancelAnimationFrame(currentExpressionAnimation);
@@ -1182,12 +1209,8 @@ async function changeExpression(emotion) {
             }
             return;
         }
-        if (!EMOTIONS[emotion]) {
-            console.warn(`Unknown emotion: ${emotion}`);
-            return;
-        }
-        const expressionPath = new URL(`${EMOTIONS[emotion]}.exp3.json`, currentEmotionsBasePath).href;
-        console.log(`Changing expression to: ${emotion} (${expressionPath})`);
+        const expressionPath = new URL(`${resolvedEmotion}.exp3.json`, currentEmotionsBasePath).href;
+        console.log(`Changing expression to: ${resolvedEmotion} (${expressionPath})`);
         if (model.internalModel && model.internalModel.coreModel) {
             const response = await fetch(expressionPath);
             const expressionData = await response.json();
@@ -1240,15 +1263,15 @@ async function changeExpression(emotion) {
                     currentExpressionAnimation = requestAnimationFrame(animate);
                 } else {
                     currentExpressionAnimation = null;
-                    console.log(`Expression animation complete: ${emotion}`);
+                    console.log(`Expression animation complete: ${resolvedEmotion}`);
                 }
             }
             animate();
 
-            console.log(`Expression changing to: ${emotion}`);
+            console.log(`Expression changing to: ${resolvedEmotion}`);
         }
     } catch (error) {
-        console.error(`Failed to load expression ${emotion}:`, error);
+        console.error(`Failed to load expression ${resolvedEmotion}:`, error);
     }
 }
 
