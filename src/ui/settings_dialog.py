@@ -47,6 +47,7 @@ from PyQt6.QtWidgets import (
 from ..ai.prompt import get_available_emotions
 from ..ai.tts_client import get_tts_provider_catalog, get_tts_provider_defaults
 from ..ai.llm_provider import LLMFormat, get_llm_provider_catalog
+from ..core.i18n import tr
 from ..core.system_theme import THEME_PRESETS, THEME_VARIANT_PRESETS, get_theme_preset, get_windows_theme_mode
 from ..core.hotkey_utils import hotkey_to_display, normalize_hotkey_text
 from .memory_dialog import MemoryDialog
@@ -638,7 +639,7 @@ class SettingsDialog(QDialog):
         raw_tts_api_keys = self._original_settings.get("tts_api_keys", {})
         self._tts_api_keys = dict(raw_tts_api_keys) if isinstance(raw_tts_api_keys, dict) else {}
 
-        self.setWindowTitle("ENE 설정")
+        self.setWindowTitle(self._translated_text("settings.window.title", "ENE 설정"))
         icon_path = self._project_root / "assets" / "icons" / "ene_app.ico"
         if not icon_path.exists():
             icon_path = self._project_root / "assets" / "icons" / "tray_icon.png"
@@ -670,6 +671,29 @@ class SettingsDialog(QDialog):
         if not match:
             return fallback or self._theme_defaults["theme_accent_color"]
         return f"#{match.group(1).upper()}"
+
+    def _translated_text(self, key: str, fallback: str) -> str:
+        translated = tr(key)
+        return fallback if translated == key else translated
+
+    def _resolve_theme_bundle_text(self, bundle: dict, field: str) -> str:
+        fallback = str(bundle.get(field, "")).strip()
+        key = str(bundle.get(f"{field}_key", "")).strip()
+        if not key:
+            return fallback
+        return self._translated_text(key, fallback)
+
+    def _llm_provider_label(self, provider_id: str, meta) -> str:
+        fallback = meta.display_name if meta is not None else provider_id
+        return self._translated_text(f"settings.llm.provider.{provider_id}.label", fallback)
+
+    def _tts_provider_label(self, provider_id: str, meta) -> str:
+        fallback = meta.display_name if meta is not None else provider_id
+        return self._translated_text(f"settings.tts.provider.{provider_id}.label", fallback)
+
+    def _tts_provider_hint(self, provider_id: str, meta) -> str:
+        fallback = meta.description if meta is not None else ""
+        return self._translated_text(f"settings.tts.provider.{provider_id}.hint", fallback)
 
     def _is_valid_theme_color(self, value: str) -> bool:
         return bool(re.fullmatch(r"#?([0-9A-Fa-f]{6})", str(value or "").strip()))
@@ -1148,11 +1172,12 @@ class SettingsDialog(QDialog):
             )
             self._theme_picker_popup.set_color(self._theme_values.get(active_key, self._theme_defaults[active_key]), emit_signal=False)
 
-        for mode, preset in THEME_PRESETS.items():
+        for mode, preset_bundle in THEME_PRESETS.items():
             frame = self._theme_preset_frames.get(mode)
             if frame is None:
                 continue
 
+            preset = preset_bundle.get("colors", preset_bundle)
             accent = preset["theme_accent_color"]
             settings_window = preset["settings_window_bg_color"]
             settings_card = preset["settings_card_bg_color"]
@@ -1168,12 +1193,14 @@ class SettingsDialog(QDialog):
                 f"border: 1px solid {self._theme_border_color(settings_window, 0.12)}; "
                 "border-radius: 22px;"
             )
+            self._theme_preset_titles[mode].setText(self._resolve_theme_bundle_text(preset_bundle, "title"))
             self._theme_preset_titles[mode].setStyleSheet(
                 f"color: {self._theme_text_color(settings_window)}; font-size: 15px; font-weight: 800;"
             )
+            base_description = self._resolve_theme_bundle_text(preset_bundle, "description")
             meta_suffix = "윈도우와 동기화 중" if self._follow_system_theme and self._theme_mode == mode else ("현재 선택됨" if is_active else "클릭해서 적용")
             self._theme_preset_meta[mode].setText(
-                f"{'밝고 가벼운 표면 중심 구성' if mode == 'light' else '차분하고 대비가 강한 다크 구성'} · {meta_suffix}"
+                f"{base_description} · {meta_suffix}"
             )
             self._theme_preset_meta[mode].setStyleSheet(
                 f"color: {self._theme_muted_text_color(settings_window)}; font-size: 12px; font-weight: 600;"
@@ -1210,11 +1237,14 @@ class SettingsDialog(QDialog):
                     f"border: 1px solid {border_color}; "
                     "border-radius: 18px;"
                 )
+                self._theme_variant_titles[variant_id].setText(self._resolve_theme_bundle_text(bundle, "title"))
                 self._theme_variant_titles[variant_id].setStyleSheet(
                     f"color: {self._theme_text_color(card_color)}; font-size: 13px; font-weight: 800;"
                 )
                 suffix = "현재 팔레트" if is_active else "클릭해서 적용"
-                self._theme_variant_meta[variant_id].setText(f"{bundle['description']} · {suffix}")
+                self._theme_variant_meta[variant_id].setText(
+                    f"{self._resolve_theme_bundle_text(bundle, 'description')} · {suffix}"
+                )
                 self._theme_variant_meta[variant_id].setStyleSheet(
                     f"color: {self._theme_muted_text_color(card_color)}; font-size: 11px; font-weight: 600;"
                 )
@@ -1891,7 +1921,7 @@ class SettingsDialog(QDialog):
                 self.tts_provider_stack.setCurrentWidget(page)
         if hasattr(self, "tts_provider_hint_label"):
             meta = self._tts_catalog.get(provider)
-            self.tts_provider_hint_label.setText(meta.description if meta else "")
+            self.tts_provider_hint_label.setText(self._tts_provider_hint(provider, meta))
         if provider == "browser_speech":
             self._browser_voice_refresh_attempts = 0
             self._request_browser_tts_voices()
@@ -2090,11 +2120,19 @@ class SettingsDialog(QDialog):
         preview_row = QHBoxLayout()
         preview_row.setSpacing(12)
         preview_row.addWidget(
-            self._build_theme_mode_preview("light", "라이트 테마", "설정창과 채팅창을 밝은 표면 중심 팔레트로 맞춥니다."),
+            self._build_theme_mode_preview(
+                "light",
+                self._resolve_theme_bundle_text(THEME_PRESETS["light"], "title"),
+                self._resolve_theme_bundle_text(THEME_PRESETS["light"], "description"),
+            ),
             1,
         )
         preview_row.addWidget(
-            self._build_theme_mode_preview("dark", "다크 테마", "설정창과 채팅창을 어두운 표면 중심 팔레트로 맞춥니다."),
+            self._build_theme_mode_preview(
+                "dark",
+                self._resolve_theme_bundle_text(THEME_PRESETS["dark"], "title"),
+                self._resolve_theme_bundle_text(THEME_PRESETS["dark"], "description"),
+            ),
             1,
         )
 
@@ -2108,7 +2146,12 @@ class SettingsDialog(QDialog):
         light_variant_layout.setSpacing(10)
         for variant_id, bundle in THEME_VARIANT_PRESETS["light"].items():
             light_variant_layout.addWidget(
-                self._build_theme_variant_preview("light", variant_id, bundle["title"], bundle["description"])
+                self._build_theme_variant_preview(
+                    "light",
+                    variant_id,
+                    self._resolve_theme_bundle_text(bundle, "title"),
+                    self._resolve_theme_bundle_text(bundle, "description"),
+                )
             )
         variant_row.addWidget(light_variant_group, 1)
 
@@ -2117,7 +2160,12 @@ class SettingsDialog(QDialog):
         dark_variant_layout.setSpacing(10)
         for variant_id, bundle in THEME_VARIANT_PRESETS["dark"].items():
             dark_variant_layout.addWidget(
-                self._build_theme_variant_preview("dark", variant_id, bundle["title"], bundle["description"])
+                self._build_theme_variant_preview(
+                    "dark",
+                    variant_id,
+                    self._resolve_theme_bundle_text(bundle, "title"),
+                    self._resolve_theme_bundle_text(bundle, "description"),
+                )
             )
         variant_row.addWidget(dark_variant_group, 1)
 
@@ -2300,7 +2348,7 @@ class SettingsDialog(QDialog):
         catalog = get_llm_provider_catalog()
         for provider in sorted(catalog.keys()):
             meta = catalog[provider]
-            self.llm_provider_combo.addItem(f"{meta.display_name} ({provider})", provider)
+            self.llm_provider_combo.addItem(self._llm_provider_label(provider, meta), provider)
             self._provider_values.append(provider)
         self._llm_api_keys = {}
         self._llm_models = {}
@@ -2465,7 +2513,7 @@ class SettingsDialog(QDialog):
 
         self.tts_provider_combo = QComboBox()
         for provider_id, meta in self._tts_catalog.items():
-            self.tts_provider_combo.addItem(meta.display_name, provider_id)
+            self.tts_provider_combo.addItem(self._tts_provider_label(provider_id, meta), provider_id)
         self.tts_provider_combo.currentIndexChanged.connect(self._on_tts_provider_changed)
         overview_form.addRow("공급자:", self.tts_provider_combo)
 
