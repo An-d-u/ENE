@@ -133,7 +133,7 @@ def test_provider_requests_include_analysis_appendix(
     client = factory()
     getattr(client, request_name)(*request_args)
 
-    assert "[내부 분석 출력 규칙]" in extract_prompt(captured["json"])
+    assert "[Internal Analysis Output Rules]" in extract_prompt(captured["json"])
 
 
 @pytest.mark.parametrize(
