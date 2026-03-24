@@ -12,6 +12,12 @@ from typing import Any
 
 SUPPORTED_UI_LANGUAGES = ("ko", "en", "ja")
 
+WINDOWS_LANGUAGE_ALIASES = {
+    "korean": "ko",
+    "japanese": "ja",
+    "english": "en",
+}
+
 
 def normalize_locale_code(value: str | None) -> str:
     if not value:
@@ -19,7 +25,8 @@ def normalize_locale_code(value: str | None) -> str:
     normalized = str(value).strip().replace("_", "-")
     if not normalized:
         return ""
-    return normalized.split("-", 1)[0].lower()
+    primary = normalized.split("-", 1)[0].lower()
+    return WINDOWS_LANGUAGE_ALIASES.get(primary, primary)
 
 
 def resolve_language(ui_language: str | None, system_locale: str | None = None) -> str:
