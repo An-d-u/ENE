@@ -66,6 +66,14 @@ class _DummyCalendarManager:
                 description="Review milestones",
                 completed=False,
                 source="ai_extracted",
+            ),
+            SimpleNamespace(
+                id="event-2",
+                date="2026-03-24",
+                title="Handwritten note",
+                description="",
+                completed=False,
+                source="user",
             )
         ]
         self.deleted_event_ids = []
@@ -101,6 +109,11 @@ class _DummyUserProfile:
 
     def delete_fact(self, index):
         self.facts.pop(index)
+
+
+class _TruthyEmptyUserProfile(_DummyUserProfile):
+    def __bool__(self):
+        return True
 
 
 class _DummyMemoryManager:
@@ -174,6 +187,7 @@ def test_calendar_dialog_translates_visible_strings_and_confirmations(tmp_path, 
             "calendar.delete.body": "Delete this event?",
             "calendar.source.label": "Source: {source}",
             "calendar.source.ai_extracted": "AI extracted",
+            "calendar.source.user": "User created",
             "calendar.source.manual": "Manual",
         },
         ja_data={
@@ -188,6 +202,7 @@ def test_calendar_dialog_translates_visible_strings_and_confirmations(tmp_path, 
             "calendar.delete.body": "この予定を削除しますか？",
             "calendar.source.label": "出典: {source}",
             "calendar.source.ai_extracted": "AI抽出",
+            "calendar.source.user": "ユーザー作成",
             "calendar.source.manual": "手動入力",
         },
     )
@@ -205,9 +220,12 @@ def test_calendar_dialog_translates_visible_strings_and_confirmations(tmp_path, 
     assert dialog.date_label.text() == "2026/03/24"
     assert dialog.activity_label.text() == "💬 3回 | 🖐 1回"
 
-    row = dialog.event_list.itemWidget(dialog.event_list.item(0))
-    row_texts = [label.text().strip() for label in row.findChildren(QLabel)]
-    assert "出典: AI抽出" in row_texts
+    all_row_texts = []
+    for index in range(dialog.event_list.count()):
+        row = dialog.event_list.itemWidget(dialog.event_list.item(index))
+        all_row_texts.extend(label.text().strip() for label in row.findChildren(QLabel))
+    assert "出典: AI抽出" in all_row_texts
+    assert "出典: ユーザー作成" in all_row_texts
 
     dialog._on_date_selected(QDate(2026, 3, 25))
     assert dialog.event_list.item(0).text() == "予定はありません"
@@ -247,7 +265,13 @@ def test_profile_dialog_translates_sections_fields_and_empty_state(tmp_path, mon
             "profile.field.occupation": "Occupation",
             "profile.field.major": "Major",
             "profile.field.location": "Location",
+            "profile.category.basic": "Basic",
+            "profile.category.preference": "Preference",
+            "profile.category.goal": "Goal",
+            "profile.category.habit": "Habit",
             "profile.source.label": "Source: {source}",
+            "profile.source.conversation": "Conversation",
+            "profile.source.conversation_summary": "Conversation summary",
             "profile.delete.title": "Delete confirmation",
             "profile.delete.body": "Delete the selected profile entry?",
         },
@@ -267,7 +291,13 @@ def test_profile_dialog_translates_sections_fields_and_empty_state(tmp_path, mon
             "profile.field.occupation": "職業",
             "profile.field.major": "専攻",
             "profile.field.location": "居住地",
+            "profile.category.basic": "基本情報",
+            "profile.category.preference": "好み",
+            "profile.category.goal": "目標",
+            "profile.category.habit": "習慣",
             "profile.source.label": "出典: {source}",
+            "profile.source.conversation": "会話",
+            "profile.source.conversation_summary": "会話の要約",
             "profile.delete.title": "削除の確認",
             "profile.delete.body": "選択したプロフィール情報を削除しますか？",
         },
@@ -287,16 +317,22 @@ def test_profile_dialog_translates_sections_fields_and_empty_state(tmp_path, mon
         facts=[
             SimpleNamespace(
                 timestamp="2026-03-24T09:30:00",
-                category="memory",
+                category="preference",
                 content="Enjoys calm workspaces",
                 source="conversation",
+            ),
+            SimpleNamespace(
+                timestamp="2026-03-23T08:15:00",
+                category="goal",
+                content="Plans to practice English daily",
+                source="conversation summary (2026-03-23 08:15)",
             )
         ],
     )
     dialog = ProfileDialog(profile)
 
     assert dialog.windowTitle() == "プロフィール管理"
-    assert dialog.stats_label.text() == "基本情報 6件 | 抽出情報 1件 | 趣味・好み 1件"
+    assert dialog.stats_label.text() == "基本情報 6件 | 抽出情報 2件 | 趣味・好み 1件"
     assert {button.text() for button in dialog.findChildren(QPushButton)} >= {"🗑️ 削除", "🔄 更新", "閉じる"}
 
     item_texts = [dialog.profile_list.item(index).text() for index in range(dialog.profile_list.count()) if dialog.profile_list.item(index).text()]
@@ -309,8 +345,14 @@ def test_profile_dialog_translates_sections_fields_and_empty_state(tmp_path, mon
     assert "  • 居住地: Seoul" in item_texts
 
     fact_widget = dialog.profile_list.itemWidget(dialog.profile_list.item(dialog.profile_list.count() - 1))
+    recent_fact_widget = dialog.profile_list.itemWidget(dialog.profile_list.item(dialog.profile_list.count() - 2))
+    recent_fact_texts = [label.text() for label in recent_fact_widget.findChildren(QLabel)]
+    assert "[好み]" in recent_fact_texts
+    assert "出典: 会話" in recent_fact_texts
+
     fact_texts = [label.text() for label in fact_widget.findChildren(QLabel)]
-    assert "出典: conversation" in fact_texts
+    assert "[目標]" in fact_texts
+    assert "出典: 会話の要約 (2026-03-23 08:15)" in fact_texts
 
     dialog.profile_list.setCurrentRow(dialog.profile_list.count() - 1)
     questions = []
@@ -541,6 +583,7 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
     questions = []
     warnings = []
     infos = []
+    opened_profile_dialogs = []
 
     def fake_question(parent, title, text, buttons, default_button):
         questions.append((title, text))
@@ -555,6 +598,7 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
     monkeypatch.setattr("PyQt6.QtWidgets.QMessageBox.question", fake_question)
     monkeypatch.setattr("PyQt6.QtWidgets.QMessageBox.warning", fake_warning)
     monkeypatch.setattr("PyQt6.QtWidgets.QMessageBox.information", fake_information)
+    monkeypatch.setattr("src.ui.profile_dialog.ProfileDialog.exec", lambda self: opened_profile_dialogs.append(self))
 
     dialog._delete_memory()
     delattr(dialog.bridge, "user_profile")
@@ -563,7 +607,7 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
     assert questions == [("削除の確認", "`Keeps launch checklists ready` を削除しますか？")]
     assert warnings == [("プロフィールなし", "ユーザープロフィールが初期化されていません。")]
 
-    bridge.user_profile = _DummyUserProfile()
+    bridge.user_profile = _TruthyEmptyUserProfile()
     dialog._show_profile_dialog()
     assert infos == [
         (
@@ -571,6 +615,7 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
             "まだ保存されたプロフィール情報はありません。\n会話すると自動で情報が抽出されます。",
         )
     ]
+    assert opened_profile_dialogs == []
     dialog.close()
 
     empty_dialog = MemoryDialog(_DummyMemoryManager([]), bridge=bridge)
