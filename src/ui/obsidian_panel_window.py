@@ -221,10 +221,21 @@ class ObsidianPanelWindow(QWidget):
         except Exception as e:
             data = {
                 "ok": False,
-                "error": tr("obsidian.error.parse_failed", error=e),
+                "error_key": "obsidian.error.parse_failed",
+                "error_kwargs": {"error": str(e)},
                 "nodes": [],
             }
         self._render_tree(data)
+
+    def _resolve_error_text(self, payload: dict | None) -> str:
+        payload = payload or {}
+        error_key = str(payload.get("error_key", "") or "").strip()
+        error_kwargs = payload.get("error_kwargs", {})
+        if error_key:
+            if not isinstance(error_kwargs, dict):
+                error_kwargs = {}
+            return tr(error_key, **error_kwargs)
+        return str(payload.get("error", tr("obsidian.error.fetch_failed")))
 
     def _render_tree(self, payload: dict):
         self._last_payload = payload
@@ -232,7 +243,7 @@ class ObsidianPanelWindow(QWidget):
         self.tree.clear()
 
         if not payload or not payload.get("ok"):
-            err = str((payload or {}).get("error", tr("obsidian.error.fetch_failed")))
+            err = self._resolve_error_text(payload)
             item = QTreeWidgetItem([tr("obsidian.error.connection_failed", error=err)])
             item.setFlags(Qt.ItemFlag.ItemIsEnabled)
             self.tree.addTopLevelItem(item)
