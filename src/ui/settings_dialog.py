@@ -47,7 +47,7 @@ from PyQt6.QtWidgets import (
 from ..ai.prompt import get_available_emotions
 from ..ai.tts_client import get_tts_provider_catalog, get_tts_provider_defaults
 from ..ai.llm_provider import LLMFormat, get_llm_provider_catalog
-from ..core.i18n import tr
+from ..core.i18n import I18n, SUPPORTED_UI_LANGUAGES, get_i18n
 from ..core.system_theme import THEME_PRESETS, THEME_VARIANT_PRESETS, get_theme_preset, get_windows_theme_mode
 from ..core.hotkey_utils import hotkey_to_display, normalize_hotkey_text
 from .memory_dialog import MemoryDialog
@@ -359,12 +359,13 @@ class ThemeColorPickerPopup(QDialog):
     colorChanged = pyqtSignal(str)
     closed = pyqtSignal()
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, fallback_title: str = "색상 선택"):
         super().__init__(parent)
         self.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
         self.setModal(False)
         self._updating = False
         self._current_title = ""
+        self._fallback_title = str(fallback_title or "").strip() or "색상 선택"
         self._current_hue = 0
         self._current_saturation = 255
         self._current_value = 255
@@ -385,7 +386,7 @@ class ThemeColorPickerPopup(QDialog):
         header_row.setSpacing(10)
         header_text = QVBoxLayout()
         header_text.setSpacing(2)
-        self.title_label = QLabel("색상 선택")
+        self.title_label = QLabel(self._fallback_title)
         header_text.addWidget(self.title_label)
         self.value_label = QLabel("#FFFFFF")
         header_text.addWidget(self.value_label)
@@ -454,7 +455,11 @@ class ThemeColorPickerPopup(QDialog):
 
     def set_title(self, title: str) -> None:
         self._current_title = str(title or "").strip()
-        self.title_label.setText(self._current_title or "색상 선택")
+        self.title_label.setText(self._current_title or self._fallback_title)
+
+    def set_fallback_title(self, title: str) -> None:
+        self._fallback_title = str(title or "").strip() or "색상 선택"
+        self.title_label.setText(self._current_title or self._fallback_title)
 
     def set_recommended_colors(self, colors: list[str], border_fn) -> None:
         while self.swatch_row.count():
@@ -545,6 +550,9 @@ class SettingsDialog(QDialog):
         self._profile_status_label: QLabel | None = None
         self._base_prompt_token_label: QLabel | None = None
         self._sub_prompt_token_label: QLabel | None = None
+        self._prompt_status_state = ("settings.prompt.status.idle", "로드 대기", {})
+        self._profile_status_state = ("settings.profile.status.idle", "로드 대기", {})
+        self._fact_timestamp_state = ("settings.profile.facts.timestamp.new", "신규 항목", {})
         self._emotion_items: list[dict[str, str]] = []
         self._emotion_current_index = -1
         self._basic_info_items: list[tuple[str, str]] = []
@@ -553,6 +561,7 @@ class SettingsDialog(QDialog):
         self._fact_current_index = -1
         self._loading = False
         self._capturing_ptt_hotkey = False
+        self._dialog_i18n = self._build_dialog_i18n(self._original_settings.get("ui_language", "auto"))
         self._theme_defaults = {
             "theme_accent_color": "#0071E3",
             "settings_window_bg_color": "#EEF1F5",
@@ -600,9 +609,17 @@ class SettingsDialog(QDialog):
         self._lazy_tab_loaded: set[str] = set()
         self._lazy_tab_index_to_id: dict[int, str] = {}
         self._section_header_map: dict[int, tuple[str, str]] = {}
+        self._section_text_meta: dict[int, tuple[str, str, str, str]] = {}
         self._section_nav_cards: dict[int, ClickableFrame] = {}
         self._section_nav_titles: dict[int, QLabel] = {}
         self._section_nav_meta: dict[int, QLabel] = {}
+        self._lazy_tab_header_labels: dict[str, tuple[QLabel, QLabel]] = {}
+        self._ui_text_bindings: list[tuple[object, str, str]] = []
+        self._combo_item_bindings: dict[QComboBox, list[tuple[int, str, str]]] = {}
+        self._secret_toggle_pairs: list[tuple[QLineEdit, QPushButton]] = []
+        self._theme_color_title_labels: dict[str, QLabel] = {}
+        self._theme_color_desc_labels: dict[str, QLabel] = {}
+        self._theme_color_text_meta: dict[str, tuple[str, str, str, str]] = {}
         self._prompt_tokenizer = tiktoken.get_encoding("cl100k_base") if tiktoken is not None else None
         self._theme_values = {
             key: self._normalize_theme_color(
@@ -665,6 +682,32 @@ class SettingsDialog(QDialog):
 
         self._setup_ui()
         self._load_values()
+        if hasattr(self, "ui_language_combo"):
+            self._set_dialog_preview_language(self.ui_language_combo.currentData() or "auto")
+        self._retranslate_ui()
+
+    def _normalize_ui_language(self, value: str | None) -> str:
+        normalized = str(value or "").strip().lower() or "auto"
+        if normalized == "auto":
+            return normalized
+        return normalized if normalized in SUPPORTED_UI_LANGUAGES else "auto"
+
+    def _resolve_dialog_preview_language(self, ui_language: str | None) -> str:
+        normalized = self._normalize_ui_language(ui_language)
+        if normalized == "auto":
+            runtime_language = str(get_i18n().language or "en").strip().lower()
+            return runtime_language if runtime_language in SUPPORTED_UI_LANGUAGES else "en"
+        return normalized
+
+    def _build_dialog_i18n(self, ui_language: str | None) -> I18n:
+        runtime_i18n = get_i18n()
+        return I18n(
+            language=self._resolve_dialog_preview_language(ui_language),
+            locales_dir=runtime_i18n.locales_dir,
+        )
+
+    def _set_dialog_preview_language(self, ui_language: str | None) -> None:
+        self._dialog_i18n = self._build_dialog_i18n(ui_language)
 
     def _normalize_theme_color(self, value: str, fallback: str | None = None) -> str:
         match = re.fullmatch(r"#?([0-9A-Fa-f]{6})", str(value or "").strip())
@@ -673,8 +716,213 @@ class SettingsDialog(QDialog):
         return f"#{match.group(1).upper()}"
 
     def _translated_text(self, key: str, fallback: str) -> str:
-        translated = tr(key)
+        translated = self._dialog_i18n.t(key)
         return fallback if translated == key else translated
+
+    def _translated_text_format(self, key: str, fallback: str, **kwargs) -> str:
+        translated = self._dialog_i18n.t(key, **kwargs)
+        if translated == key:
+            try:
+                return fallback.format(**kwargs) if kwargs else fallback
+            except Exception:
+                return fallback
+        return translated
+
+    def _register_text_binding(self, setter, key: str, fallback: str) -> None:
+        self._ui_text_bindings.append((setter, key, fallback))
+        setter(self._translated_text(key, fallback))
+
+    def _bind_widget_text(self, widget, key: str, fallback: str):
+        self._register_text_binding(widget.setText, key, fallback)
+        return widget
+
+    def _bind_group_title(self, group: QGroupBox, key: str, fallback: str) -> QGroupBox:
+        self._register_text_binding(group.setTitle, key, fallback)
+        return group
+
+    def _bind_placeholder(self, widget, key: str, fallback: str):
+        self._register_text_binding(widget.setPlaceholderText, key, fallback)
+        return widget
+
+    def _bind_tooltip(self, widget, key: str, fallback: str):
+        self._register_text_binding(widget.setToolTip, key, fallback)
+        return widget
+
+    def _bind_suffix(self, widget, key: str, fallback: str):
+        self._register_text_binding(widget.setSuffix, key, fallback)
+        return widget
+
+    def _bind_special_value_text(self, widget, key: str, fallback: str):
+        self._register_text_binding(widget.setSpecialValueText, key, fallback)
+        return widget
+
+    def _bind_combo_item(self, combo: QComboBox, index: int, key: str, fallback: str) -> None:
+        self._combo_item_bindings.setdefault(combo, []).append((index, key, fallback))
+        combo.setItemText(index, self._translated_text(key, fallback))
+
+    def _create_form_label(self, key: str, fallback: str) -> QLabel:
+        label = QLabel()
+        self._register_text_binding(label.setText, key, fallback)
+        return label
+
+    def _add_form_row(self, form: QFormLayout, key: str, fallback: str, field) -> QLabel:
+        label = self._create_form_label(key, fallback)
+        form.addRow(label, field)
+        return label
+
+    def _localized_secret_toggle_text(self, is_password: bool) -> str:
+        if is_password:
+            return self._translated_text("settings.secret.show", "표시")
+        return self._translated_text("settings.secret.hide", "숨김")
+
+    def _refresh_secret_toggle_buttons(self) -> None:
+        for line_edit, button in self._secret_toggle_pairs:
+            button.setText(self._localized_secret_toggle_text(line_edit.echoMode() == QLineEdit.EchoMode.Password))
+
+    def _refresh_combo_item_bindings(self) -> None:
+        for combo, items in self._combo_item_bindings.items():
+            for index, key, fallback in items:
+                combo.setItemText(index, self._translated_text(key, fallback))
+
+    def _refresh_section_labels(self) -> None:
+        for index, meta in self._section_text_meta.items():
+            title_key, title_fallback, description_key, description_fallback = meta
+            title = self._translated_text(title_key, title_fallback)
+            description = self._translated_text(description_key, description_fallback)
+            self._section_header_map[index] = (title, description)
+            if index in self._section_nav_titles:
+                self._section_nav_titles[index].setText(title)
+            if index in self._section_nav_meta:
+                self._section_nav_meta[index].setText(description)
+        if hasattr(self, "content_stack"):
+            self._update_section_nav_selection(self.content_stack.currentIndex())
+
+    def _refresh_theme_color_texts(self) -> None:
+        for key, meta in self._theme_color_text_meta.items():
+            title_key, title_fallback, description_key, description_fallback = meta
+            title = self._translated_text(title_key, title_fallback)
+            description = self._translated_text(description_key, description_fallback)
+            self._theme_color_titles[key] = title
+            if key in self._theme_color_title_labels:
+                self._theme_color_title_labels[key].setText(title)
+            if key in self._theme_color_desc_labels:
+                self._theme_color_desc_labels[key].setText(description)
+
+    def _refresh_lazy_tab_headers(self) -> None:
+        for tab_id, labels in self._lazy_tab_header_labels.items():
+            title_label, body_label = labels
+            index = next((idx for idx, current_tab_id in self._lazy_tab_index_to_id.items() if current_tab_id == tab_id), -1)
+            if index < 0:
+                continue
+            title, description = self._section_header_map.get(index, ("", ""))
+            title_label.setText(title)
+            body_label.setText(description)
+
+    def _refresh_ui_language_combo_labels(self) -> None:
+        if not hasattr(self, "ui_language_combo"):
+            return
+        option_specs = [
+            ("auto", "settings.window.general.ui_language.auto", "시스템 기본값"),
+            ("ko", "settings.window.general.ui_language.ko", "한국어"),
+            ("en", "settings.window.general.ui_language.en", "영어"),
+            ("ja", "settings.window.general.ui_language.ja", "일본어"),
+        ]
+        for index, (_value, key, fallback) in enumerate(option_specs):
+            self.ui_language_combo.setItemText(index, self._translated_text(key, fallback))
+
+    def _fact_category_label(self, category: str) -> str:
+        normalized = str(category or "basic").strip() or "basic"
+        fallback_map = {
+            "basic": "basic",
+            "preference": "preference",
+            "goal": "goal",
+            "habit": "habit",
+        }
+        fallback = fallback_map.get(normalized, normalized)
+        return self._translated_text(f"settings.profile.facts.category.{normalized}", fallback)
+
+    def _refresh_fact_category_combo_labels(self) -> None:
+        if not hasattr(self, "fact_category_combo"):
+            return
+        for index in range(self.fact_category_combo.count()):
+            category = str(self.fact_category_combo.itemData(index) or "")
+            if not category:
+                continue
+            self.fact_category_combo.setItemText(index, self._fact_category_label(category))
+
+    def _set_prompt_status(self, key: str, fallback: str, **kwargs) -> None:
+        self._prompt_status_state = (key, fallback, dict(kwargs))
+        if self._prompt_status_label is not None:
+            self._prompt_status_label.setText(self._translated_text_format(key, fallback, **kwargs))
+
+    def _set_profile_status(self, key: str, fallback: str, **kwargs) -> None:
+        self._profile_status_state = (key, fallback, dict(kwargs))
+        if self._profile_status_label is not None:
+            self._profile_status_label.setText(self._translated_text_format(key, fallback, **kwargs))
+
+    def _set_fact_timestamp(self, key: str, fallback: str, **kwargs) -> None:
+        self._fact_timestamp_state = (key, fallback, dict(kwargs))
+        if hasattr(self, "fact_timestamp_label") and self.fact_timestamp_label is not None:
+            self.fact_timestamp_label.setText(self._translated_text_format(key, fallback, **kwargs))
+
+    def _refresh_provider_combo_labels(self) -> None:
+        if hasattr(self, "llm_provider_combo"):
+            catalog = get_llm_provider_catalog()
+            for index in range(self.llm_provider_combo.count()):
+                provider_id = str(self.llm_provider_combo.itemData(index) or "")
+                self.llm_provider_combo.setItemText(
+                    index,
+                    self._llm_provider_label(provider_id, catalog.get(provider_id)),
+                )
+        if hasattr(self, "tts_provider_combo"):
+            for index in range(self.tts_provider_combo.count()):
+                provider_id = str(self.tts_provider_combo.itemData(index) or "")
+                self.tts_provider_combo.setItemText(
+                    index,
+                    self._tts_provider_label(provider_id, self._tts_catalog.get(provider_id)),
+                )
+
+    def _restore_original_ui_language(self) -> None:
+        original_ui_language = str(self._original_settings.get("ui_language", "auto")).strip() or "auto"
+        self._set_dialog_preview_language(original_ui_language)
+
+    def _retranslate_ui(self) -> None:
+        self.setWindowTitle(self._translated_text("settings.window.title", "ENE 설정"))
+        self._refresh_combo_item_bindings()
+        for setter, key, fallback in self._ui_text_bindings:
+            setter(self._translated_text(key, fallback))
+        self._refresh_ui_language_combo_labels()
+        self._refresh_provider_combo_labels()
+        self._refresh_fact_category_combo_labels()
+        self._refresh_section_labels()
+        self._refresh_lazy_tab_headers()
+        self._refresh_theme_color_texts()
+        self._refresh_secret_toggle_buttons()
+        self._refresh_theme_editor_state()
+        if self._theme_picker_popup is not None:
+            self._theme_picker_popup.set_fallback_title(
+                self._translated_text("settings.theme.picker.popup.title", "색상 선택")
+            )
+            active_title = self._theme_color_titles.get(self._theme_picker_active_key or "", "")
+            self._theme_picker_popup.set_title(active_title)
+        self._refresh_prompt_token_counts()
+        self._update_ptt_hotkey_ui()
+        self._sync_tts_provider_ui()
+        if self._browser_tts_voices:
+            self._populate_browser_tts_language_filter(self._browser_tts_voices)
+            self._populate_browser_tts_voice_combo()
+        elif hasattr(self, "tts_browser_voice_lang_filter_combo") and self.tts_browser_voice_lang_filter_combo.count():
+            self.tts_browser_voice_lang_filter_combo.setItemText(
+                0,
+                self._translated_text("settings.tts.browser.filter.all", "전체 언어"),
+            )
+        prompt_key, prompt_fallback, prompt_kwargs = self._prompt_status_state
+        self._set_prompt_status(prompt_key, prompt_fallback, **prompt_kwargs)
+        profile_key, profile_fallback, profile_kwargs = self._profile_status_state
+        self._set_profile_status(profile_key, profile_fallback, **profile_kwargs)
+        timestamp_key, timestamp_fallback, timestamp_kwargs = self._fact_timestamp_state
+        self._set_fact_timestamp(timestamp_key, timestamp_fallback, **timestamp_kwargs)
+        self._refresh_browser_voice_status_label()
 
     def _resolve_theme_bundle_text(self, bundle: dict, field: str) -> str:
         fallback = str(bundle.get(field, "")).strip()
@@ -797,7 +1045,12 @@ class SettingsDialog(QDialog):
             return
 
         self._theme_picker_active_key = key
-        popup.set_title(self._theme_color_titles.get(key, "색상 선택"))
+        popup.set_title(
+            self._theme_color_titles.get(
+                key,
+                self._translated_text("settings.theme.picker.popup.title", "색상 선택"),
+            )
+        )
         popup.apply_theme(
             self._theme_values["settings_window_bg_color"],
             self._theme_values["settings_card_bg_color"],
@@ -835,7 +1088,10 @@ class SettingsDialog(QDialog):
 
     def _ensure_theme_picker_popup(self) -> ThemeColorPickerPopup:
         if self._theme_picker_popup is None:
-            self._theme_picker_popup = ThemeColorPickerPopup(self)
+            self._theme_picker_popup = ThemeColorPickerPopup(
+                self,
+                fallback_title=self._translated_text("settings.theme.picker.popup.title", "색상 선택"),
+            )
             self._theme_picker_popup.colorChanged.connect(self._on_theme_popup_color_changed)
             self._theme_picker_popup.closed.connect(self._on_theme_popup_closed)
         return self._theme_picker_popup
@@ -926,6 +1182,7 @@ class SettingsDialog(QDialog):
         header_text = QVBoxLayout()
         header_text.setSpacing(2)
         title = QLabel("색상 미세 조정")
+        self._bind_widget_text(title, "settings.theme.picker.panel.title", "색상 미세 조정")
         title.setStyleSheet("font-size: 12px; font-weight: 800;")
         header_text.addWidget(title)
         value_label = QLabel(self._theme_defaults[key])
@@ -935,6 +1192,7 @@ class SettingsDialog(QDialog):
         header_row.addStretch()
 
         close_button = QPushButton("닫기")
+        self._bind_widget_text(close_button, "settings.theme.picker.panel.close", "닫기")
         close_button.setMinimumWidth(72)
         close_button.clicked.connect(lambda _checked=False, field_key=key: self._theme_picker_panels[field_key].setVisible(False))
         header_row.addWidget(close_button)
@@ -956,14 +1214,15 @@ class SettingsDialog(QDialog):
         layout.addLayout(palette_row)
 
         slider_specs = [
-            ("색조", 0, 359, self._theme_picker_hue_sliders),
-            ("채도", 0, 255, self._theme_picker_saturation_sliders),
-            ("밝기", 0, 255, self._theme_picker_lightness_sliders),
+            ("settings.theme.picker.slider.hue", "색조", 0, 359, self._theme_picker_hue_sliders),
+            ("settings.theme.picker.slider.saturation", "채도", 0, 255, self._theme_picker_saturation_sliders),
+            ("settings.theme.picker.slider.lightness", "밝기", 0, 255, self._theme_picker_lightness_sliders),
         ]
-        for label_text, minimum, maximum, slider_store in slider_specs:
+        for label_key, label_text, minimum, maximum, slider_store in slider_specs:
             row = QHBoxLayout()
             row.setSpacing(10)
             label = QLabel(label_text)
+            self._bind_widget_text(label, label_key, label_text)
             label.setFixedWidth(34)
             row.addWidget(label)
             slider = QSlider(Qt.Orientation.Horizontal)
@@ -1021,12 +1280,20 @@ class SettingsDialog(QDialog):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
         self._theme_color_titles[key] = title
+        self._theme_color_text_meta[key] = (
+            f"settings.theme.color.{key}.title",
+            title,
+            f"settings.theme.color.{key}.description",
+            description,
+        )
 
         title_label = QLabel(title)
+        self._theme_color_title_labels[key] = title_label
         title_label.setStyleSheet("font-size: 13px; font-weight: 700; color: #111827;")
         layout.addWidget(title_label)
 
         desc_label = QLabel(description)
+        self._theme_color_desc_labels[key] = desc_label
         desc_label.setWordWrap(True)
         desc_label.setStyleSheet("font-size: 12px; font-weight: 600; color: #6B7280;")
         layout.addWidget(desc_label)
@@ -1044,13 +1311,14 @@ class SettingsDialog(QDialog):
         swatch = ClickableFrame()
         swatch.setFixedSize(38, 38)
         swatch.setCursor(Qt.CursorShape.PointingHandCursor)
-        swatch.setToolTip("클릭해서 색상 선택")
+        self._bind_tooltip(swatch, "settings.theme.color.swatch.tooltip", "클릭해서 색상 선택")
         swatch.clicked.connect(lambda field_key=key: self._pick_theme_color(field_key))
         self._theme_color_swatches[key] = swatch
         setattr(self, f"{key}_swatch", swatch)
         row.addWidget(swatch)
 
         reset_button = QPushButton("기본값")
+        self._bind_widget_text(reset_button, "settings.theme.color.reset", "기본값")
         reset_button.setMinimumWidth(84)
         reset_button.clicked.connect(
             lambda _checked=False, field_key=key: self._theme_color_edits[field_key].setText(self._theme_defaults[field_key])
@@ -1082,10 +1350,12 @@ class SettingsDialog(QDialog):
         sample_row = QHBoxLayout()
         sample_row.setSpacing(10)
         assistant = QLabel("응답")
+        self._bind_widget_text(assistant, "settings.theme.preview.assistant", "응답")
         assistant.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         assistant.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sample_row.addWidget(assistant, 1)
         user = QLabel("사용자")
+        self._bind_widget_text(user, "settings.theme.preview.user", "사용자")
         user.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         user.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sample_row.addWidget(user, 1)
@@ -1094,6 +1364,7 @@ class SettingsDialog(QDialog):
         self._theme_preset_user[mode] = user
 
         input_preview = QLabel("입력 필드 예시")
+        self._bind_widget_text(input_preview, "settings.theme.preview.input", "입력 필드 예시")
         input_preview.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         layout.addWidget(input_preview)
         self._theme_preset_input[mode] = input_preview
@@ -1277,14 +1548,34 @@ class SettingsDialog(QDialog):
         if hasattr(self, "theme_status_label"):
             if invalid_keys:
                 self.theme_status_label.setStyleSheet("color: #B42318; font-size: 12px; font-weight: 600;")
-                self.theme_status_label.setText("모든 테마 값은 `#RRGGBB` 형식의 6자리 HEX 코드여야 합니다.")
+                self.theme_status_label.setText(
+                    self._translated_text(
+                        "settings.theme.status.invalid_hex",
+                        "모든 테마 값은 `#RRGGBB` 형식의 6자리 HEX 코드여야 합니다.",
+                    )
+                )
             else:
                 self.theme_status_label.setStyleSheet("color: #6B7280; font-size: 12px; font-weight: 600;")
                 if self._follow_system_theme:
-                    current_mode_text = "라이트" if self._theme_mode == "light" else "다크"
-                    self.theme_status_label.setText(f"현재 윈도우 앱 테마({current_mode_text})를 따라가고 있습니다.")
+                    current_mode_text = (
+                        self._translated_text("settings.theme.mode.light.short", "라이트")
+                        if self._theme_mode == "light"
+                        else self._translated_text("settings.theme.mode.dark.short", "다크")
+                    )
+                    self.theme_status_label.setText(
+                        self._translated_text_format(
+                            "settings.theme.status.follow_system_detail",
+                            "현재 윈도우 앱 테마({mode})를 따라가고 있습니다.",
+                            mode=current_mode_text,
+                        )
+                    )
                 else:
-                    self.theme_status_label.setText("설정창과 채팅창이 같은 테마 모드로 함께 움직이도록 구성되어 있습니다.")
+                    self.theme_status_label.setText(
+                        self._translated_text(
+                            "settings.theme.status.shared_mode",
+                            "설정창과 채팅창이 같은 테마 모드로 함께 움직이도록 구성되어 있습니다.",
+                        )
+                    )
 
     def _on_theme_color_field_changed(self, key: str, text: str) -> None:
         if self._is_valid_theme_color(text):
@@ -1319,7 +1610,13 @@ class SettingsDialog(QDialog):
     def _format_token_count_text(self, title: str, text: str) -> str:
         token_count = self._count_prompt_tokens(text)
         char_count = len(str(text or ""))
-        return f"{title} 현재 토큰: {token_count:,}개 · 문자 수: {char_count:,}자"
+        return self._translated_text_format(
+            "settings.prompt.token_count",
+            "{title} 현재 토큰: {token_count:,}개 · 문자 수: {char_count:,}자",
+            title=title,
+            token_count=token_count,
+            char_count=char_count,
+        )
 
     def _schedule_prompt_token_refresh(self) -> None:
         self._prompt_token_update_timer.start()
@@ -1334,9 +1631,11 @@ class SettingsDialog(QDialog):
                 self._format_token_count_text("SUB_PROMPT", self.sub_prompt_editor.toPlainText())
             )
 
-    def _create_toggle(self, text: str) -> ToggleSwitch:
-        toggle = ToggleSwitch(text)
+    def _create_toggle(self, text: str, *, key: str | None = None) -> ToggleSwitch:
+        toggle = ToggleSwitch(self._translated_text(key, text) if key else text)
         self._toggle_checks.append(toggle)
+        if key:
+            self._register_text_binding(toggle.setText, key, text)
         toggle.set_theme_colors(
             accent=self._theme_values["theme_accent_color"],
             track_off=self._theme_values["settings_input_bg_color"],
@@ -1486,10 +1785,16 @@ class SettingsDialog(QDialog):
         sidebar_layout.setSpacing(12)
 
         sidebar_title = QLabel("ENE 설정")
+        self._bind_widget_text(sidebar_title, "settings.sidebar.title", "ENE 설정")
         sidebar_title.setObjectName("SidebarTitle")
         sidebar_layout.addWidget(sidebar_title)
 
         sidebar_meta = QLabel("섹션을 옆 메뉴에서 고르고 오른쪽에서 세부 설정을 조정합니다.")
+        self._bind_widget_text(
+            sidebar_meta,
+            "settings.sidebar.meta",
+            "섹션을 옆 메뉴에서 고르고 오른쪽에서 세부 설정을 조정합니다.",
+        )
         sidebar_meta.setObjectName("SidebarMeta")
         sidebar_meta.setWordWrap(True)
         sidebar_layout.addWidget(sidebar_meta)
@@ -1539,15 +1844,72 @@ class SettingsDialog(QDialog):
         self.content_stack.currentChanged.connect(self._on_tab_changed)
         content_layout.addWidget(self.content_stack)
 
-        self._add_section("창 설정", "창 위치와 크기", self._create_window_tab())
-        self._add_section("테마 설정", "라이트/다크와 팔레트", self._create_theme_tab())
-        self._add_section("모델 설정", "배치와 Live2D 경로", self._create_model_tab())
-        self._add_section("LLM 설정", "공급자와 응답 스타일", self._create_llm_tab())
-        self._add_section("TTS 설정", "공급자와 음성 합성 구성", self._create_tts_tab())
-        self._add_section("동작 설정", "버튼, PTT, 감지 옵션", self._create_behavior_tab())
-        self._add_lazy_tab("memory", "기억 관리", "기억 목록과 검색 설정", self._create_memory_tab)
-        self._add_lazy_tab("profile", "사용자 기억 관리", "user_profile.json 구조 편집", self._create_user_profile_tab)
-        self._add_lazy_tab("prompt", "프롬프트 설정", "프롬프트와 감정 규칙", self._create_prompt_tab)
+        self._add_section(
+            "창 설정",
+            "창 위치와 크기, 언어",
+            self._create_window_tab(),
+            title_key="settings.section.window.title",
+            description_key="settings.section.window.description",
+        )
+        self._add_section(
+            "테마 설정",
+            "라이트/다크와 팔레트",
+            self._create_theme_tab(),
+            title_key="settings.section.theme.title",
+            description_key="settings.section.theme.description",
+        )
+        self._add_section(
+            "모델 설정",
+            "배치와 Live2D 경로",
+            self._create_model_tab(),
+            title_key="settings.section.model.title",
+            description_key="settings.section.model.description",
+        )
+        self._add_section(
+            "LLM 설정",
+            "공급자와 응답 스타일",
+            self._create_llm_tab(),
+            title_key="settings.section.llm.title",
+            description_key="settings.section.llm.description",
+        )
+        self._add_section(
+            "TTS 설정",
+            "공급자와 음성 합성 구성",
+            self._create_tts_tab(),
+            title_key="settings.section.tts.title",
+            description_key="settings.section.tts.description",
+        )
+        self._add_section(
+            "동작 설정",
+            "버튼, PTT, 감지 옵션",
+            self._create_behavior_tab(),
+            title_key="settings.section.behavior.title",
+            description_key="settings.section.behavior.description",
+        )
+        self._add_lazy_tab(
+            "memory",
+            "기억 관리",
+            "기억 목록과 검색 설정",
+            self._create_memory_tab,
+            title_key="settings.section.memory.title",
+            description_key="settings.section.memory.description",
+        )
+        self._add_lazy_tab(
+            "profile",
+            "사용자 기억 관리",
+            "user_profile.json 구조 편집",
+            self._create_user_profile_tab,
+            title_key="settings.section.profile.title",
+            description_key="settings.section.profile.description",
+        )
+        self._add_lazy_tab(
+            "prompt",
+            "프롬프트 설정",
+            "프롬프트와 감정 규칙",
+            self._create_prompt_tab,
+            title_key="settings.section.prompt.title",
+            description_key="settings.section.prompt.description",
+        )
         self._set_section_index(0)
 
         workspace_row.addWidget(sidebar_shell)
@@ -1567,10 +1929,16 @@ class SettingsDialog(QDialog):
         text_col.setSpacing(6)
 
         title = QLabel("설정 적용 안내")
+        self._bind_widget_text(title, "settings.footer.title", "설정 적용 안내")
         title.setObjectName("FooterTitle")
         text_col.addWidget(title)
 
         body = QLabel("변경사항은 저장 전까지 미리보기로만 반영됩니다. 취소하면 이전 설정으로 돌아가며, 일부 LLM 설정은 저장 후 다시 시작해야 완전히 반영됩니다.")
+        self._bind_widget_text(
+            body,
+            "settings.footer.body",
+            "변경사항은 저장 전까지 미리보기로만 반영됩니다. 취소하면 이전 설정으로 돌아가며, 일부 LLM 설정은 저장 후 다시 시작해야 완전히 반영됩니다.",
+        )
         body.setObjectName("FooterBody")
         body.setWordWrap(True)
         text_col.addWidget(body)
@@ -1581,10 +1949,12 @@ class SettingsDialog(QDialog):
         action_row.setContentsMargins(0, 0, 0, 0)
 
         cancel_btn = QPushButton("취소")
+        self._bind_widget_text(cancel_btn, "settings.footer.cancel", "취소")
         cancel_btn.clicked.connect(self._cancel_settings)
         action_row.addWidget(cancel_btn)
 
         save_btn = QPushButton("변경사항 저장")
+        self._bind_widget_text(save_btn, "settings.footer.save", "변경사항 저장")
         save_btn.setProperty("accent", True)
         save_btn.style().unpolish(save_btn)
         save_btn.style().polish(save_btn)
@@ -1594,10 +1964,12 @@ class SettingsDialog(QDialog):
         footer_layout.addLayout(action_row, 0)
         return card
 
-    def _build_hint_label(self, text: str):
+    def _build_hint_label(self, text: str, *, key: str | None = None):
         label = QLabel(text)
         label.setObjectName("InlineHint")
         label.setWordWrap(True)
+        if key:
+            self._register_text_binding(label.setText, key, text)
         return label
 
     def _build_section_nav_card(self, title: str, description: str, index: int) -> ClickableFrame:
@@ -1625,9 +1997,23 @@ class SettingsDialog(QDialog):
         self._section_nav_meta[index] = meta_label
         return card
 
-    def _add_section(self, title: str, description: str, widget: QWidget) -> int:
+    def _add_section(
+        self,
+        title: str,
+        description: str,
+        widget: QWidget,
+        *,
+        title_key: str | None = None,
+        description_key: str | None = None,
+    ) -> int:
         index = self.content_stack.addWidget(widget)
         self._section_header_map[index] = (title, description)
+        self._section_text_meta[index] = (
+            title_key or "",
+            title,
+            description_key or "",
+            description,
+        )
         nav_layout = self.section_nav_container.layout()
         if nav_layout is not None:
             nav_layout.addWidget(self._build_section_nav_card(title, description, index))
@@ -1647,13 +2033,28 @@ class SettingsDialog(QDialog):
             card.style().unpolish(card)
             card.style().polish(card)
 
-        title, description = self._section_header_map.get(current_index, ("ENE 설정", "섹션을 선택해 세부 설정을 조정합니다."))
+        title, description = self._section_header_map.get(
+            current_index,
+            (
+                self._translated_text("settings.sidebar.title", "ENE 설정"),
+                self._translated_text("settings.content.placeholder", "섹션을 선택해 세부 설정을 조정합니다."),
+            ),
+        )
         if hasattr(self, "content_header_title"):
             self.content_header_title.setText(title)
         if hasattr(self, "content_header_meta"):
             self.content_header_meta.setText(description)
 
-    def _add_lazy_tab(self, tab_id: str, title: str, description: str, builder) -> None:
+    def _add_lazy_tab(
+        self,
+        tab_id: str,
+        title: str,
+        description: str,
+        builder,
+        *,
+        title_key: str | None = None,
+        description_key: str | None = None,
+    ) -> None:
         host = QWidget()
         host_layout = QVBoxLayout(host)
         host_layout.setContentsMargins(10, 10, 10, 10)
@@ -1673,11 +2074,18 @@ class SettingsDialog(QDialog):
         body_label.setObjectName("FooterBody")
         body_label.setWordWrap(True)
         card_layout.addWidget(body_label)
+        self._lazy_tab_header_labels[tab_id] = (title_label, body_label)
 
         host_layout.addWidget(card)
         host_layout.addStretch()
 
-        index = self._add_section(title, description, host)
+        index = self._add_section(
+            title,
+            description,
+            host,
+            title_key=title_key,
+            description_key=description_key,
+        )
         self._lazy_tab_hosts[tab_id] = host
         self._lazy_tab_builders[tab_id] = builder
         self._lazy_tab_index_to_id[index] = tab_id
@@ -1719,10 +2127,11 @@ class SettingsDialog(QDialog):
         layout.setSpacing(8)
         layout.addWidget(line_edit, 1)
 
-        toggle_btn = QPushButton("표시")
+        toggle_btn = QPushButton(self._localized_secret_toggle_text(True))
         toggle_btn.setMinimumWidth(72)
         toggle_btn.clicked.connect(toggle_handler)
         setattr(self, button_attr_name, toggle_btn)
+        self._secret_toggle_pairs.append((line_edit, toggle_btn))
         layout.addWidget(toggle_btn)
         return row
 
@@ -1731,7 +2140,7 @@ class SettingsDialog(QDialog):
         line_edit.setEchoMode(
             QLineEdit.EchoMode.Normal if is_password else QLineEdit.EchoMode.Password
         )
-        button.setText("숨김" if is_password else "표시")
+        button.setText(self._localized_secret_toggle_text(not is_password))
 
     def _normalize_path_for_storage(self, path_text: str) -> str:
         raw_path = str(path_text or "").strip()
@@ -1751,9 +2160,12 @@ class SettingsDialog(QDialog):
         start_dir = self._project_root / "assets" / "live2d_models"
         selected, _ = QFileDialog.getOpenFileName(
             self,
-            "Live2D 모델 파일 선택",
+            self._translated_text("settings.model.path.dialog.title", "Live2D 모델 파일 선택"),
             str(start_dir),
-            "Live2D 모델 (*.model3.json);;JSON 파일 (*.json);;모든 파일 (*.*)",
+            self._translated_text(
+                "settings.model.path.dialog.filter",
+                "Live2D 모델 (*.model3.json);;JSON 파일 (*.json);;모든 파일 (*.*)",
+            ),
         )
         if not selected:
             return
@@ -1763,9 +2175,12 @@ class SettingsDialog(QDialog):
         start_dir = self._project_root / "assets" / "ref_audio"
         selected, _ = QFileDialog.getOpenFileName(
             self,
-            "참조 오디오 선택",
+            self._translated_text("settings.tts.gpt.reference.audio.dialog.title", "참조 오디오 선택"),
             str(start_dir),
-            "Audio Files (*.wav *.mp3 *.flac *.ogg);;모든 파일 (*.*)",
+            self._translated_text(
+                "settings.tts.gpt.reference.audio.dialog.filter",
+                "Audio Files (*.wav *.mp3 *.flac *.ogg);;모든 파일 (*.*)",
+            ),
         )
         if not selected:
             return
@@ -1782,18 +2197,72 @@ class SettingsDialog(QDialog):
         except Exception:
             return None
 
+    def _set_browser_voice_status(self, key: str, fallback: str, **kwargs) -> None:
+        if hasattr(self, "tts_browser_voice_status_label"):
+            self.tts_browser_voice_status_label.setText(
+                self._translated_text_format(key, fallback, **kwargs)
+            )
+
+    def _refresh_browser_voice_status_label(self) -> None:
+        if not hasattr(self, "tts_browser_voice_status_label"):
+            return
+        if self._browser_voice_request_inflight:
+            self._set_browser_voice_status(
+                "settings.tts.browser.status.loading",
+                "현재 환경의 브라우저 음성 목록을 불러오는 중입니다...",
+            )
+            return
+        if self._browser_tts_voices:
+            selected_lang = ""
+            if hasattr(self, "tts_browser_voice_lang_filter_combo"):
+                selected_lang = str(self.tts_browser_voice_lang_filter_combo.currentData() or "").strip().lower()
+            voices = list(self._browser_tts_voices)
+            if selected_lang:
+                voices = [
+                    voice for voice in voices
+                    if str(voice.get("lang", "")).strip().lower().startswith(selected_lang)
+                ]
+                self._set_browser_voice_status(
+                    "settings.tts.browser.status.loaded_filtered",
+                    "현재 환경에서 사용 가능한 음성 {total}개를 불러왔고, {language} 기준 {visible}개를 표시 중입니다.",
+                    total=len(self._browser_tts_voices),
+                    language=selected_lang,
+                    visible=len(voices),
+                )
+                return
+            self._set_browser_voice_status(
+                "settings.tts.browser.status.loaded",
+                "현재 환경에서 사용 가능한 음성 {total}개를 불러왔습니다.",
+                total=len(self._browser_tts_voices),
+            )
+            return
+        if self._get_overlay_web_page() is None:
+            self._set_browser_voice_status(
+                "settings.tts.browser.status.no_webview",
+                "현재 웹뷰를 찾을 수 없어 음성 목록을 읽지 못했습니다.",
+            )
+            return
+        if self._browser_voice_refresh_attempts > 0:
+            self._set_browser_voice_status(
+                "settings.tts.browser.status.waiting",
+                "아직 음성 목록을 받지 못했습니다. 시스템 음성 초기화 뒤 다시 시도합니다.",
+            )
+            return
+        self._set_browser_voice_status(
+            "settings.tts.browser.status.idle",
+            "설정창이 열려 있는 현재 ENE 웹뷰 환경에서 음성 목록을 읽습니다. 다른 PC에서는 그 환경 기준 목록이 다시 표시됩니다.",
+        )
+
     def _request_browser_tts_voices(self):
         if self._browser_voice_request_inflight:
             return
         page = self._get_overlay_web_page()
         if page is None:
-            if hasattr(self, "tts_browser_voice_status_label"):
-                self.tts_browser_voice_status_label.setText("현재 웹뷰를 찾을 수 없어 음성 목록을 읽지 못했습니다.")
+            self._refresh_browser_voice_status_label()
             return
 
         self._browser_voice_request_inflight = True
-        if hasattr(self, "tts_browser_voice_status_label"):
-            self.tts_browser_voice_status_label.setText("현재 환경의 브라우저 음성 목록을 불러오는 중입니다...")
+        self._refresh_browser_voice_status_label()
         page.runJavaScript(
             "(function(){"
             "if (typeof window.getBrowserTTSVoices === 'function') {"
@@ -1828,17 +2297,10 @@ class SettingsDialog(QDialog):
             self._browser_tts_voices = normalized_voices
             self._populate_browser_tts_language_filter(normalized_voices)
             self._populate_browser_tts_voice_combo()
-            if hasattr(self, "tts_browser_voice_status_label"):
-                self.tts_browser_voice_status_label.setText(
-                    f"현재 환경에서 사용 가능한 음성 {len(normalized_voices)}개를 불러왔습니다."
-                )
             return
 
         self._browser_voice_refresh_attempts += 1
-        if hasattr(self, "tts_browser_voice_status_label"):
-            self.tts_browser_voice_status_label.setText(
-                "아직 음성 목록을 받지 못했습니다. 시스템 음성 초기화 뒤 다시 시도합니다."
-            )
+        self._refresh_browser_voice_status_label()
         if self._browser_voice_refresh_attempts < 4:
             self._browser_voice_refresh_timer.start(450)
 
@@ -1851,7 +2313,10 @@ class SettingsDialog(QDialog):
 
         self.tts_browser_voice_lang_filter_combo.blockSignals(True)
         self.tts_browser_voice_lang_filter_combo.clear()
-        self.tts_browser_voice_lang_filter_combo.addItem("전체 언어", "")
+        self.tts_browser_voice_lang_filter_combo.addItem(
+            self._translated_text("settings.tts.browser.filter.all", "전체 언어"),
+            "",
+        )
         for lang in languages:
             self.tts_browser_voice_lang_filter_combo.addItem(lang, lang)
 
@@ -1891,7 +2356,7 @@ class SettingsDialog(QDialog):
             if lang:
                 label = f"{label} ({lang})"
             if voice.get("default"):
-                label = f"{label} · 기본"
+                label = f"{label} · {self._translated_text('settings.tts.browser.voice.default_suffix', '기본')}"
             self.tts_browser_voice_combo.addItem(label, str(voice["name"]))
 
         if current_text:
@@ -1902,13 +2367,7 @@ class SettingsDialog(QDialog):
                 self.tts_browser_voice_combo.setEditText(current_text)
         self.tts_browser_voice_combo.blockSignals(False)
 
-        if hasattr(self, "tts_browser_voice_status_label") and self._browser_tts_voices:
-            filter_suffix = ""
-            if selected_lang:
-                filter_suffix = f" · {selected_lang} 기준 {len(voices)}개 표시"
-            self.tts_browser_voice_status_label.setText(
-                f"현재 환경에서 사용 가능한 음성 {len(self._browser_tts_voices)}개를 불러왔습니다{filter_suffix}."
-            )
+        self._refresh_browser_voice_status_label()
 
     def _on_browser_tts_language_filter_changed(self, *_):
         self._populate_browser_tts_voice_combo()
@@ -2056,28 +2515,62 @@ class SettingsDialog(QDialog):
         layout = QVBoxLayout(widget)
         layout.setSpacing(12)
 
+        general_group = QGroupBox("일반")
+        self._bind_group_title(general_group, "settings.window.general.title", "일반")
+        general_layout = QFormLayout(general_group)
+        general_layout.setSpacing(8)
+        general_layout.setContentsMargins(10, 15, 10, 10)
+
+        self.ui_language_combo = QComboBox()
+        for value, key, fallback in (
+            ("auto", "settings.window.general.ui_language.auto", "시스템 기본값"),
+            ("ko", "settings.window.general.ui_language.ko", "한국어"),
+            ("en", "settings.window.general.ui_language.en", "영어"),
+            ("ja", "settings.window.general.ui_language.ja", "일본어"),
+        ):
+            self.ui_language_combo.addItem(self._translated_text(key, fallback), value)
+        self.ui_language_combo.currentIndexChanged.connect(self._on_ui_language_changed)
+        self._add_form_row(general_layout, "settings.window.general.ui_language.label", "UI 언어:", self.ui_language_combo)
+        general_layout.addRow(
+            self._build_hint_label(
+                "현재 설정창 문구를 미리보기로 바꾸고, 저장 후에는 다음 실행부터 같은 언어를 기본값으로 사용합니다.",
+                key="settings.window.general.ui_language.hint",
+            )
+        )
+        layout.addWidget(general_group)
+
         quick_group = QGroupBox("빠른 배치")
+        self._bind_group_title(quick_group, "settings.window.quick.title", "빠른 배치")
         quick_layout = QVBoxLayout(quick_group)
         quick_layout.setSpacing(10)
-        quick_layout.addWidget(self._build_hint_label("자주 쓰는 위치를 먼저 고른 뒤, 아래에서 좌표와 크기를 미세 조정할 수 있습니다."))
+        quick_layout.addWidget(
+            self._build_hint_label(
+                "자주 쓰는 위치를 먼저 고른 뒤, 아래에서 좌표와 크기를 미세 조정할 수 있습니다.",
+                key="settings.window.quick.hint",
+            )
+        )
 
         preset_layout = QHBoxLayout()
         preset_layout.setSpacing(10)
         center_btn = QPushButton("화면 중앙")
+        self._bind_widget_text(center_btn, "settings.window.quick.center", "화면 중앙")
         center_btn.clicked.connect(self._preset_center)
         preset_layout.addWidget(center_btn)
 
         br_btn = QPushButton("우측 하단")
+        self._bind_widget_text(br_btn, "settings.window.quick.bottom_right", "우측 하단")
         br_btn.clicked.connect(self._preset_bottom_right)
         preset_layout.addWidget(br_btn)
 
         bl_btn = QPushButton("좌측 하단")
+        self._bind_widget_text(bl_btn, "settings.window.quick.bottom_left", "좌측 하단")
         bl_btn.clicked.connect(self._preset_bottom_left)
         preset_layout.addWidget(bl_btn)
         quick_layout.addLayout(preset_layout)
         layout.addWidget(quick_group)
 
         position_group = QGroupBox("정밀 위치")
+        self._bind_group_title(position_group, "settings.window.position.title", "정밀 위치")
         position_layout = QFormLayout()
         position_layout.setSpacing(8)
 
@@ -2085,17 +2578,18 @@ class SettingsDialog(QDialog):
         self.window_x_spin.setRange(-9999, 9999)
         self.window_x_spin.setSuffix(" px")
         self.window_x_spin.valueChanged.connect(self._on_setting_changed)
-        position_layout.addRow("X 좌표:", self.window_x_spin)
+        self._add_form_row(position_layout, "settings.window.position.x", "X 좌표:", self.window_x_spin)
 
         self.window_y_spin = QSpinBox()
         self.window_y_spin.setRange(-9999, 9999)
         self.window_y_spin.setSuffix(" px")
         self.window_y_spin.valueChanged.connect(self._on_setting_changed)
-        position_layout.addRow("Y 좌표:", self.window_y_spin)
+        self._add_form_row(position_layout, "settings.window.position.y", "Y 좌표:", self.window_y_spin)
         position_group.setLayout(position_layout)
         layout.addWidget(position_group)
 
         size_group = QGroupBox("창 크기")
+        self._bind_group_title(size_group, "settings.window.size.title", "창 크기")
         size_layout = QFormLayout()
         size_layout.setSpacing(8)
 
@@ -2103,13 +2597,13 @@ class SettingsDialog(QDialog):
         self.window_width_spin.setRange(200, 3840)
         self.window_width_spin.setSuffix(" px")
         self.window_width_spin.valueChanged.connect(self._on_setting_changed)
-        size_layout.addRow("너비:", self.window_width_spin)
+        self._add_form_row(size_layout, "settings.window.size.width", "너비:", self.window_width_spin)
 
         self.window_height_spin = QSpinBox()
         self.window_height_spin.setRange(200, 2160)
         self.window_height_spin.setSuffix(" px")
         self.window_height_spin.valueChanged.connect(self._on_setting_changed)
-        size_layout.addRow("높이:", self.window_height_spin)
+        self._add_form_row(size_layout, "settings.window.size.height", "높이:", self.window_height_spin)
         size_group.setLayout(size_layout)
         layout.addWidget(size_group)
 
@@ -2128,9 +2622,15 @@ class SettingsDialog(QDialog):
         layout.setContentsMargins(10, 10, 10, 10)
 
         overview_group = QGroupBox("테마 개요")
+        self._bind_group_title(overview_group, "settings.theme.overview.title", "테마 개요")
         overview_layout = QVBoxLayout(overview_group)
         overview_layout.setSpacing(12)
-        overview_layout.addWidget(self._build_hint_label("설정창과 채팅창은 같은 테마 모드로 움직입니다. 위에서 라이트 또는 다크를 고르고, 필요하면 아래에서 세부 색만 조정할 수 있습니다."))
+        overview_layout.addWidget(
+            self._build_hint_label(
+                "설정창과 채팅창은 같은 테마 모드로 움직입니다. 위에서 라이트 또는 다크를 고르고, 필요하면 아래에서 세부 색만 조정할 수 있습니다.",
+                key="settings.theme.overview.hint",
+            )
+        )
 
         preview_row = QHBoxLayout()
         preview_row.setSpacing(12)
@@ -2157,6 +2657,7 @@ class SettingsDialog(QDialog):
         variant_row.setSpacing(12)
 
         light_variant_group = QGroupBox("라이트 프리셋")
+        self._bind_group_title(light_variant_group, "settings.theme.variant_group.light", "라이트 프리셋")
         light_variant_layout = QVBoxLayout(light_variant_group)
         light_variant_layout.setSpacing(10)
         for variant_id, bundle in THEME_VARIANT_PRESETS["light"].items():
@@ -2171,6 +2672,7 @@ class SettingsDialog(QDialog):
         variant_row.addWidget(light_variant_group, 1)
 
         dark_variant_group = QGroupBox("다크 프리셋")
+        self._bind_group_title(dark_variant_group, "settings.theme.variant_group.dark", "다크 프리셋")
         dark_variant_layout = QVBoxLayout(dark_variant_group)
         dark_variant_layout.setSpacing(10)
         for variant_id, bundle in THEME_VARIANT_PRESETS["dark"].items():
@@ -2186,12 +2688,16 @@ class SettingsDialog(QDialog):
 
         overview_layout.addLayout(variant_row)
 
-        self.follow_system_theme_check = self._create_toggle("현재 윈도우 앱 테마(라이트/다크)를 따라가기")
+        self.follow_system_theme_check = self._create_toggle(
+            "현재 윈도우 앱 테마(라이트/다크)를 따라가기",
+            key="settings.theme.follow_system",
+        )
         self.follow_system_theme_check.toggled.connect(self._on_follow_system_theme_toggled)
         overview_layout.addWidget(self.follow_system_theme_check)
         layout.addWidget(overview_group)
 
         settings_group = QGroupBox("설정창 팔레트")
+        self._bind_group_title(settings_group, "settings.theme.settings_palette.title", "설정창 팔레트")
         settings_group_layout = QVBoxLayout(settings_group)
         settings_group_layout.setSpacing(12)
         settings_group_layout.addWidget(self._build_theme_color_editor("settings_window_bg_color", "설정창 바깥 배경", "설정창 전체의 기본 바탕색입니다."))
@@ -2200,6 +2706,7 @@ class SettingsDialog(QDialog):
         layout.addWidget(settings_group)
 
         chat_group = QGroupBox("채팅창 팔레트")
+        self._bind_group_title(chat_group, "settings.theme.chat_palette.title", "채팅창 팔레트")
         chat_group_layout = QVBoxLayout(chat_group)
         chat_group_layout.setSpacing(12)
         chat_group_layout.addWidget(self._build_theme_color_editor("chat_panel_bg_color", "채팅 메인 배경", "채팅창 하단 패널과 보조 위젯의 기본 배경색입니다."))
@@ -2209,6 +2716,7 @@ class SettingsDialog(QDialog):
         layout.addWidget(chat_group)
 
         accent_group = QGroupBox("포인트 색상")
+        self._bind_group_title(accent_group, "settings.theme.accent_palette.title", "포인트 색상")
         accent_group_layout = QVBoxLayout(accent_group)
         accent_group_layout.setSpacing(12)
         accent_group_layout.addWidget(self._build_theme_color_editor("theme_accent_color", "포인트 색상", "저장 버튼, 포커스 링, 선택 상태와 강조 요소에 사용됩니다."))
@@ -2234,24 +2742,34 @@ class SettingsDialog(QDialog):
         layout.setContentsMargins(10, 10, 10, 10)
 
         preset_group = QGroupBox("빠른 배치")
+        self._bind_group_title(preset_group, "settings.model.quick.title", "빠른 배치")
         preset_group_layout = QVBoxLayout(preset_group)
         preset_group_layout.setSpacing(10)
-        preset_group_layout.addWidget(self._build_hint_label("자주 쓰는 위치를 먼저 고른 뒤, 아래 슬라이더로 세밀하게 맞추면 더 편합니다."))
+        preset_group_layout.addWidget(
+            self._build_hint_label(
+                "자주 쓰는 위치를 먼저 고른 뒤, 아래 슬라이더로 세밀하게 맞추면 더 편합니다.",
+                key="settings.model.quick.hint",
+            )
+        )
 
         preset_layout = QHBoxLayout()
         center_btn = QPushButton("중앙")
+        self._bind_widget_text(center_btn, "settings.model.quick.center", "중앙")
         center_btn.clicked.connect(lambda: self._set_model_position(50, 50))
         preset_layout.addWidget(center_btn)
         left_btn = QPushButton("좌측")
+        self._bind_widget_text(left_btn, "settings.model.quick.left", "좌측")
         left_btn.clicked.connect(lambda: self._set_model_position(25, 50))
         preset_layout.addWidget(left_btn)
         right_btn = QPushButton("우측")
+        self._bind_widget_text(right_btn, "settings.model.quick.right", "우측")
         right_btn.clicked.connect(lambda: self._set_model_position(75, 50))
         preset_layout.addWidget(right_btn)
         preset_group_layout.addLayout(preset_layout)
         layout.addWidget(preset_group)
 
         scale_group = QGroupBox("모델 크기")
+        self._bind_group_title(scale_group, "settings.model.scale.title", "모델 크기")
         scale_layout = QVBoxLayout()
         scale_layout.setSpacing(8)
         scale_layout.setContentsMargins(10, 15, 10, 10)
@@ -2262,9 +2780,14 @@ class SettingsDialog(QDialog):
         self.model_scale_spin.setDecimals(2)
         self.model_scale_spin.setSuffix("x")
         self.model_scale_spin.valueChanged.connect(self._on_setting_changed)
-        scale_form.addRow("스케일:", self.model_scale_spin)
+        self._add_form_row(scale_form, "settings.model.scale.label", "스케일:", self.model_scale_spin)
         scale_layout.addLayout(scale_form)
-        scale_layout.addWidget(self._build_hint_label("1.00x를 기준으로 모델 전체 크기를 조정합니다."))
+        scale_layout.addWidget(
+            self._build_hint_label(
+                "1.00x를 기준으로 모델 전체 크기를 조정합니다.",
+                key="settings.model.scale.hint",
+            )
+        )
 
         self.scale_slider = QSlider(Qt.Orientation.Horizontal)
         self.scale_slider.setRange(10, 200)
@@ -2277,18 +2800,28 @@ class SettingsDialog(QDialog):
         layout.addWidget(scale_group)
 
         x_group = QGroupBox("모델 X 위치")
+        self._bind_group_title(x_group, "settings.model.position_x.title", "모델 X 위치")
         x_layout = QVBoxLayout()
         x_layout.setSpacing(8)
         x_layout.setContentsMargins(10, 15, 10, 10)
-        x_layout.addWidget(self._build_hint_label("모델을 화면의 왼쪽과 오른쪽 사이에서 조정합니다."))
+        x_layout.addWidget(
+            self._build_hint_label(
+                "모델을 화면의 왼쪽과 오른쪽 사이에서 조정합니다.",
+                key="settings.model.position_x.hint",
+            )
+        )
         x_info = QHBoxLayout()
-        x_info.addWidget(QLabel("왼쪽"))
+        left_label = QLabel("왼쪽")
+        self._bind_widget_text(left_label, "settings.model.position_x.left", "왼쪽")
+        x_info.addWidget(left_label)
         x_info.addStretch()
         self.model_x_value_label = QLabel("50%")
         self.model_x_value_label.setObjectName("ValueBadge")
         x_info.addWidget(self.model_x_value_label)
         x_info.addStretch()
-        x_info.addWidget(QLabel("오른쪽"))
+        right_label = QLabel("오른쪽")
+        self._bind_widget_text(right_label, "settings.model.position_x.right", "오른쪽")
+        x_info.addWidget(right_label)
         x_layout.addLayout(x_info)
         self.model_x_slider = QSlider(Qt.Orientation.Horizontal)
         self.model_x_slider.setRange(-100, 200)
@@ -2299,18 +2832,28 @@ class SettingsDialog(QDialog):
         layout.addWidget(x_group)
 
         y_group = QGroupBox("모델 Y 위치")
+        self._bind_group_title(y_group, "settings.model.position_y.title", "모델 Y 위치")
         y_layout = QVBoxLayout()
         y_layout.setSpacing(8)
         y_layout.setContentsMargins(10, 15, 10, 10)
-        y_layout.addWidget(self._build_hint_label("모델을 화면의 위쪽과 아래쪽 사이에서 조정합니다."))
+        y_layout.addWidget(
+            self._build_hint_label(
+                "모델을 화면의 위쪽과 아래쪽 사이에서 조정합니다.",
+                key="settings.model.position_y.hint",
+            )
+        )
         y_info = QHBoxLayout()
-        y_info.addWidget(QLabel("위쪽"))
+        top_label = QLabel("위쪽")
+        self._bind_widget_text(top_label, "settings.model.position_y.top", "위쪽")
+        y_info.addWidget(top_label)
         y_info.addStretch()
         self.model_y_value_label = QLabel("50%")
         self.model_y_value_label.setObjectName("ValueBadge")
         y_info.addWidget(self.model_y_value_label)
         y_info.addStretch()
-        y_info.addWidget(QLabel("아래쪽"))
+        bottom_label = QLabel("아래쪽")
+        self._bind_widget_text(bottom_label, "settings.model.position_y.bottom", "아래쪽")
+        y_info.addWidget(bottom_label)
         y_layout.addLayout(y_info)
         self.model_y_slider = QSlider(Qt.Orientation.Horizontal)
         self.model_y_slider.setRange(-100, 200)
@@ -2321,18 +2864,29 @@ class SettingsDialog(QDialog):
         layout.addWidget(y_group)
 
         model_path_group = QGroupBox("Live2D 모델 파일")
+        self._bind_group_title(model_path_group, "settings.model.path.title", "Live2D 모델 파일")
         model_path_layout = QVBoxLayout(model_path_group)
         model_path_layout.setSpacing(10)
-        model_path_layout.addWidget(self._build_hint_label("`.model3.json` 파일 경로를 직접 지정합니다. 저장 전에도 미리보기에서 모델이 다시 로드됩니다."))
+        model_path_layout.addWidget(
+            self._build_hint_label(
+                "`.model3.json` 파일 경로를 직접 지정합니다. 저장 전에도 미리보기에서 모델이 다시 로드됩니다.",
+                key="settings.model.path.hint",
+            )
+        )
 
         model_path_row = QHBoxLayout()
         model_path_row.setSpacing(8)
         self.model_json_path_edit = QLineEdit()
-        self.model_json_path_edit.setPlaceholderText("예: assets/live2d_models/jksalt/jksalt.model3.json")
+        self._bind_placeholder(
+            self.model_json_path_edit,
+            "settings.model.path.placeholder",
+            "예: assets/live2d_models/jksalt/jksalt.model3.json",
+        )
         self.model_json_path_edit.textChanged.connect(self._on_setting_changed)
         model_path_row.addWidget(self.model_json_path_edit, 1)
 
         browse_model_btn = QPushButton("찾아보기")
+        self._bind_widget_text(browse_model_btn, "settings.common.browse", "찾아보기")
         browse_model_btn.clicked.connect(self._browse_live2d_model_path)
         model_path_row.addWidget(browse_model_btn)
         model_path_layout.addLayout(model_path_row)
@@ -2354,6 +2908,7 @@ class SettingsDialog(QDialog):
         layout.setContentsMargins(10, 10, 10, 10)
 
         provider_group = QGroupBox("공급자와 인증")
+        self._bind_group_title(provider_group, "settings.llm.provider_group.title", "공급자와 인증")
         provider_form = QFormLayout(provider_group)
         provider_form.setSpacing(8)
         provider_form.setContentsMargins(10, 15, 10, 10)
@@ -2370,12 +2925,18 @@ class SettingsDialog(QDialog):
         self._llm_model_params = {}
         self._active_model_key_by_provider = {}
         self.llm_provider_combo.currentIndexChanged.connect(self._on_llm_provider_changed)
-        provider_form.addRow("공급자:", self.llm_provider_combo)
+        self._add_form_row(provider_form, "settings.llm.provider_group.provider", "공급자:", self.llm_provider_combo)
 
         self.llm_api_key_edit = QLineEdit()
-        self.llm_api_key_edit.setPlaceholderText("선택한 공급자의 API 키")
+        self._bind_placeholder(
+            self.llm_api_key_edit,
+            "settings.llm.provider_group.api_key.placeholder",
+            "선택한 공급자의 API 키",
+        )
         self.llm_api_key_edit.textChanged.connect(self._on_llm_api_key_changed)
-        provider_form.addRow(
+        self._add_form_row(
+            provider_form,
+            "settings.llm.provider_group.api_key.label",
             "API 키:",
             self._build_secret_row(
                 self.llm_api_key_edit,
@@ -2383,55 +2944,81 @@ class SettingsDialog(QDialog):
                 "llm_api_key_toggle_button",
             ),
         )
-        provider_form.addRow(self._build_hint_label("민감한 값은 기본적으로 숨겨집니다. 현재 선택한 공급자 기준으로 저장됩니다."))
+        provider_form.addRow(
+            self._build_hint_label(
+                "민감한 값은 기본적으로 숨겨집니다. 현재 선택한 공급자 기준으로 저장됩니다.",
+                key="settings.llm.provider_group.api_key.hint",
+            )
+        )
         layout.addWidget(provider_group)
 
         model_group = QGroupBox("모델과 응답 스타일")
+        self._bind_group_title(model_group, "settings.llm.model_group.title", "모델과 응답 스타일")
         model_form = QFormLayout(model_group)
         model_form.setSpacing(8)
         model_form.setContentsMargins(10, 15, 10, 10)
 
         self.llm_model_edit = QLineEdit()
-        self.llm_model_edit.setPlaceholderText("예: gemini-3-flash-preview, gpt-4o-mini")
+        self._bind_placeholder(
+            self.llm_model_edit,
+            "settings.llm.model_group.model.placeholder",
+            "예: gemini-3-flash-preview, gpt-4o-mini",
+        )
         self.llm_model_edit.textChanged.connect(self._on_llm_model_changed)
-        model_form.addRow("모델:", self.llm_model_edit)
+        self._add_form_row(model_form, "settings.llm.model_group.model.label", "모델:", self.llm_model_edit)
 
         self.llm_temperature_spin = QDoubleSpinBox()
         self.llm_temperature_spin.setRange(0.0, 2.0)
         self.llm_temperature_spin.setSingleStep(0.1)
         self.llm_temperature_spin.setDecimals(2)
         self.llm_temperature_spin.valueChanged.connect(self._on_llm_param_changed)
-        model_form.addRow("Temperature:", self.llm_temperature_spin)
+        self._add_form_row(model_form, "settings.llm.model_group.temperature", "Temperature:", self.llm_temperature_spin)
 
         self.llm_top_p_spin = QDoubleSpinBox()
         self.llm_top_p_spin.setRange(0.0, 1.0)
         self.llm_top_p_spin.setSingleStep(0.05)
         self.llm_top_p_spin.setDecimals(2)
         self.llm_top_p_spin.valueChanged.connect(self._on_llm_param_changed)
-        model_form.addRow("Top P:", self.llm_top_p_spin)
+        self._add_form_row(model_form, "settings.llm.model_group.top_p", "Top P:", self.llm_top_p_spin)
 
         self.llm_max_tokens_spin = QSpinBox()
         self.llm_max_tokens_spin.setRange(0, 65536)
-        self.llm_max_tokens_spin.setSpecialValueText("자동")
+        self._bind_special_value_text(self.llm_max_tokens_spin, "settings.common.auto", "자동")
         self.llm_max_tokens_spin.valueChanged.connect(self._on_llm_param_changed)
-        model_form.addRow("Max Tokens:", self.llm_max_tokens_spin)
-        model_form.addRow(self._build_hint_label("Temperature와 Top P는 창의성 조절용이고, Max Tokens는 응답 길이 제한입니다."))
+        self._add_form_row(model_form, "settings.llm.model_group.max_tokens", "Max Tokens:", self.llm_max_tokens_spin)
+        model_form.addRow(
+            self._build_hint_label(
+                "Temperature와 Top P는 창의성 조절용이고, Max Tokens는 응답 길이 제한입니다.",
+                key="settings.llm.model_group.hint",
+            )
+        )
         layout.addWidget(model_group)
 
         self.custom_api_group = QGroupBox("Custom API")
+        self._bind_group_title(self.custom_api_group, "settings.llm.custom_api_group.title", "Custom API")
         custom_form = QFormLayout(self.custom_api_group)
         custom_form.setSpacing(8)
         custom_form.setContentsMargins(10, 15, 10, 10)
 
         self.custom_api_url_edit = QLineEdit()
-        self.custom_api_url_edit.setPlaceholderText("예: https://api.example.com/v1/chat/completions")
+        self._bind_placeholder(
+            self.custom_api_url_edit,
+            "settings.llm.custom_api_group.url.placeholder",
+            "예: https://api.example.com/v1/chat/completions",
+        )
         self.custom_api_url_edit.textChanged.connect(self._on_setting_changed)
-        custom_form.addRow("URL:", self.custom_api_url_edit)
+        self._add_form_row(custom_form, "settings.llm.custom_api_group.url.label", "URL:", self.custom_api_url_edit)
 
         self.custom_api_key_or_password_edit = QLineEdit()
-        self.custom_api_key_or_password_edit.setPlaceholderText("키 또는 패스워드")
+        self._bind_placeholder(
+            self.custom_api_key_or_password_edit,
+            "settings.llm.custom_api_group.secret.placeholder",
+            "키 또는 패스워드",
+        )
         self.custom_api_key_or_password_edit.textChanged.connect(self._on_setting_changed)
-        custom_form.addRow(
+        self._add_form_row(
+            custom_form,
+            "settings.llm.custom_api_group.secret.label",
             "키/패스워드:",
             self._build_secret_row(
                 self.custom_api_key_or_password_edit,
@@ -2441,9 +3028,18 @@ class SettingsDialog(QDialog):
         )
 
         self.custom_api_request_model_edit = QLineEdit()
-        self.custom_api_request_model_edit.setPlaceholderText("요청 모델명")
+        self._bind_placeholder(
+            self.custom_api_request_model_edit,
+            "settings.llm.custom_api_group.request_model.placeholder",
+            "요청 모델명",
+        )
         self.custom_api_request_model_edit.textChanged.connect(self._on_setting_changed)
-        custom_form.addRow("요청 모델:", self.custom_api_request_model_edit)
+        self._add_form_row(
+            custom_form,
+            "settings.llm.custom_api_group.request_model.label",
+            "요청 모델:",
+            self.custom_api_request_model_edit,
+        )
 
         self.custom_api_format_combo = QComboBox()
         custom_format_options = [
@@ -2454,16 +3050,28 @@ class SettingsDialog(QDialog):
             ("Google Cloud", LLMFormat.GOOGLE_CLOUD.value),
             ("Cohere", LLMFormat.COHERE.value),
         ]
-        for label, value in custom_format_options:
+        for index, (label, value) in enumerate(custom_format_options):
             self.custom_api_format_combo.addItem(label, value)
+            self._bind_combo_item(
+                self.custom_api_format_combo,
+                index,
+                f"settings.llm.custom_api_group.format.{value}",
+                label,
+            )
         self.custom_api_format_combo.currentIndexChanged.connect(self._on_setting_changed)
-        custom_form.addRow("포맷:", self.custom_api_format_combo)
-        custom_form.addRow(self._build_hint_label("Custom API 공급자를 선택한 경우에만 이 섹션이 사용됩니다."))
+        self._add_form_row(custom_form, "settings.llm.custom_api_group.format.label", "포맷:", self.custom_api_format_combo)
+        custom_form.addRow(
+            self._build_hint_label(
+                "Custom API 공급자를 선택한 경우에만 이 섹션이 사용됩니다.",
+                key="settings.llm.custom_api_group.hint",
+            )
+        )
 
         self.custom_api_group.setVisible(False)
         layout.addWidget(self.custom_api_group)
 
         embedding_group = QGroupBox("임베딩 설정")
+        self._bind_group_title(embedding_group, "settings.llm.embedding_group.title", "임베딩 설정")
         embedding_form = QFormLayout(embedding_group)
         embedding_form.setSpacing(8)
         embedding_form.setContentsMargins(10, 15, 10, 10)
@@ -2471,12 +3079,23 @@ class SettingsDialog(QDialog):
         self.embedding_provider_combo = QComboBox()
         self.embedding_provider_combo.addItem("Voyage AI", "voyage")
         self.embedding_provider_combo.currentIndexChanged.connect(self._on_setting_changed)
-        embedding_form.addRow("임베딩 공급자:", self.embedding_provider_combo)
+        self._add_form_row(
+            embedding_form,
+            "settings.llm.embedding_group.provider",
+            "임베딩 공급자:",
+            self.embedding_provider_combo,
+        )
 
         self.embedding_api_key_edit = QLineEdit()
-        self.embedding_api_key_edit.setPlaceholderText("Voyage AI API 키")
+        self._bind_placeholder(
+            self.embedding_api_key_edit,
+            "settings.llm.embedding_group.api_key.placeholder",
+            "Voyage AI API 키",
+        )
         self.embedding_api_key_edit.textChanged.connect(self._on_setting_changed)
-        embedding_form.addRow(
+        self._add_form_row(
+            embedding_form,
+            "settings.llm.embedding_group.api_key.label",
             "임베딩 API 키:",
             self._build_secret_row(
                 self.embedding_api_key_edit,
@@ -2488,16 +3107,32 @@ class SettingsDialog(QDialog):
         self.embedding_model_combo = QComboBox()
         self.embedding_model_combo.addItem("voyage-3", "voyage-3")
         self.embedding_model_combo.currentIndexChanged.connect(self._on_setting_changed)
-        embedding_form.addRow("임베딩 모델:", self.embedding_model_combo)
-        embedding_form.addRow(self._build_hint_label("현재는 Voyage AI만 지원합니다. 저장 후 새 기억 생성과 유사 기억 검색에 같은 모델이 사용됩니다. API 키는 api_keys.json의 embedding_api_keys에 저장됩니다."))
+        self._add_form_row(
+            embedding_form,
+            "settings.llm.embedding_group.model",
+            "임베딩 모델:",
+            self.embedding_model_combo,
+        )
+        embedding_form.addRow(
+            self._build_hint_label(
+                "현재는 Voyage AI만 지원합니다. 저장 후 새 기억 생성과 유사 기억 검색에 같은 모델이 사용됩니다. API 키는 api_keys.json의 embedding_api_keys에 저장됩니다.",
+                key="settings.llm.embedding_group.hint",
+            )
+        )
         layout.addWidget(embedding_group)
 
         restart_group = QGroupBox("적용 안내")
+        self._bind_group_title(restart_group, "settings.llm.restart_group.title", "적용 안내")
         restart_layout = QVBoxLayout(restart_group)
         restart_layout.setSpacing(8)
         restart_layout.setContentsMargins(10, 15, 10, 10)
 
         self.llm_restart_info = QLabel("공급자, 키, 모델 변경은 일부 세션에 즉시 보이지 않을 수 있습니다. 저장 후 앱을 다시 시작하면 가장 확실하게 반영됩니다.")
+        self._bind_widget_text(
+            self.llm_restart_info,
+            "settings.llm.restart_group.body",
+            "공급자, 키, 모델 변경은 일부 세션에 즉시 보이지 않을 수 있습니다. 저장 후 앱을 다시 시작하면 가장 확실하게 반영됩니다.",
+        )
         self.llm_restart_info.setWordWrap(True)
         self.llm_restart_info.setObjectName("FooterBody")
         restart_layout.addWidget(self.llm_restart_info)
@@ -2518,11 +3153,15 @@ class SettingsDialog(QDialog):
         layout.setContentsMargins(10, 10, 10, 10)
 
         overview_group = QGroupBox("공급자 선택")
+        self._bind_group_title(overview_group, "settings.tts.overview.title", "공급자 선택")
         overview_form = QFormLayout(overview_group)
         overview_form.setSpacing(8)
         overview_form.setContentsMargins(10, 15, 10, 10)
 
-        self.enable_tts_check = self._create_toggle("일본어 응답 TTS 활성화")
+        self.enable_tts_check = self._create_toggle(
+            "일본어 응답 TTS 활성화",
+            key="settings.tts.overview.enable",
+        )
         self.enable_tts_check.toggled.connect(self._on_setting_changed)
         overview_form.addRow(self.enable_tts_check)
 
@@ -2530,7 +3169,7 @@ class SettingsDialog(QDialog):
         for provider_id, meta in self._tts_catalog.items():
             self.tts_provider_combo.addItem(self._tts_provider_label(provider_id, meta), provider_id)
         self.tts_provider_combo.currentIndexChanged.connect(self._on_tts_provider_changed)
-        overview_form.addRow("공급자:", self.tts_provider_combo)
+        self._add_form_row(overview_form, "settings.tts.overview.provider", "공급자:", self.tts_provider_combo)
 
         self.tts_provider_hint_label = QLabel("")
         self.tts_provider_hint_label.setWordWrap(True)
@@ -2547,16 +3186,18 @@ class SettingsDialog(QDialog):
         gpt_layout.setContentsMargins(0, 0, 0, 0)
 
         gpt_connection_group = QGroupBox("연결")
+        self._bind_group_title(gpt_connection_group, "settings.tts.gpt.connection.title", "연결")
         gpt_connection_form = QFormLayout(gpt_connection_group)
         gpt_connection_form.setSpacing(8)
         gpt_connection_form.setContentsMargins(10, 15, 10, 10)
         self.tts_api_url_edit = QLineEdit()
-        self.tts_api_url_edit.setPlaceholderText("예: http://127.0.0.1:9880")
+        self._bind_placeholder(self.tts_api_url_edit, "settings.tts.gpt.connection.api_url.placeholder", "예: http://127.0.0.1:9880")
         self.tts_api_url_edit.textChanged.connect(self._on_setting_changed)
-        gpt_connection_form.addRow("TTS API URL:", self.tts_api_url_edit)
+        self._add_form_row(gpt_connection_form, "settings.tts.gpt.connection.api_url.label", "TTS API URL:", self.tts_api_url_edit)
         gpt_layout.addWidget(gpt_connection_group)
 
         gpt_reference_group = QGroupBox("참조 음성")
+        self._bind_group_title(gpt_reference_group, "settings.tts.gpt.reference.title", "참조 음성")
         gpt_reference_form = QFormLayout(gpt_reference_group)
         gpt_reference_form.setSpacing(8)
         gpt_reference_form.setContentsMargins(10, 15, 10, 10)
@@ -2564,31 +3205,45 @@ class SettingsDialog(QDialog):
         audio_row = QHBoxLayout()
         audio_row.setSpacing(8)
         self.tts_ref_audio_path_edit = QLineEdit()
-        self.tts_ref_audio_path_edit.setPlaceholderText("예: assets/ref_audio/refvoice.wav")
+        self._bind_placeholder(
+            self.tts_ref_audio_path_edit,
+            "settings.tts.gpt.reference.audio.placeholder",
+            "예: assets/ref_audio/refvoice.wav",
+        )
         self.tts_ref_audio_path_edit.textChanged.connect(self._on_setting_changed)
         audio_row.addWidget(self.tts_ref_audio_path_edit, 1)
 
         browse_audio_btn = QPushButton("찾아보기")
+        self._bind_widget_text(browse_audio_btn, "settings.common.browse", "찾아보기")
         browse_audio_btn.clicked.connect(self._browse_tts_ref_audio_path)
         audio_row.addWidget(browse_audio_btn)
-        gpt_reference_form.addRow("참조 오디오:", audio_row)
+        self._add_form_row(gpt_reference_form, "settings.tts.gpt.reference.audio.label", "참조 오디오:", audio_row)
 
         self.tts_ref_text_edit = QPlainTextEdit()
-        self.tts_ref_text_edit.setPlaceholderText("참조 오디오의 원문 텍스트")
+        self._bind_placeholder(
+            self.tts_ref_text_edit,
+            "settings.tts.gpt.reference.text.placeholder",
+            "참조 오디오의 원문 텍스트",
+        )
         self.tts_ref_text_edit.setFixedHeight(96)
         self.tts_ref_text_edit.textChanged.connect(self._on_setting_changed)
-        gpt_reference_form.addRow("참조 텍스트:", self.tts_ref_text_edit)
+        self._add_form_row(gpt_reference_form, "settings.tts.gpt.reference.text.label", "참조 텍스트:", self.tts_ref_text_edit)
 
         self.tts_ref_language_edit = QLineEdit()
-        self.tts_ref_language_edit.setPlaceholderText("예: ja")
+        self._bind_placeholder(self.tts_ref_language_edit, "settings.tts.gpt.reference.ref_language.placeholder", "예: ja")
         self.tts_ref_language_edit.textChanged.connect(self._on_setting_changed)
-        gpt_reference_form.addRow("참조 언어:", self.tts_ref_language_edit)
+        self._add_form_row(gpt_reference_form, "settings.tts.gpt.reference.ref_language.label", "참조 언어:", self.tts_ref_language_edit)
 
         self.tts_target_language_edit = QLineEdit()
-        self.tts_target_language_edit.setPlaceholderText("예: ja")
+        self._bind_placeholder(self.tts_target_language_edit, "settings.tts.gpt.reference.target_language.placeholder", "예: ja")
         self.tts_target_language_edit.textChanged.connect(self._on_setting_changed)
-        gpt_reference_form.addRow("출력 언어:", self.tts_target_language_edit)
-        gpt_reference_form.addRow(self._build_hint_label("참조 음성 기반 합성입니다. 로컬 서버나 별도 머신의 GPT-SoVITS 엔드포인트를 그대로 지정할 수 있습니다."))
+        self._add_form_row(gpt_reference_form, "settings.tts.gpt.reference.target_language.label", "출력 언어:", self.tts_target_language_edit)
+        gpt_reference_form.addRow(
+            self._build_hint_label(
+                "참조 음성 기반 합성입니다. 로컬 서버나 별도 머신의 GPT-SoVITS 엔드포인트를 그대로 지정할 수 있습니다.",
+                key="settings.tts.gpt.reference.hint",
+            )
+        )
         gpt_layout.addWidget(gpt_reference_group)
         gpt_layout.addStretch()
         self.tts_provider_stack.addWidget(gpt_page)
@@ -2600,13 +3255,16 @@ class SettingsDialog(QDialog):
         openai_layout.setContentsMargins(0, 0, 0, 0)
 
         openai_connection_group = QGroupBox("OpenAI 연결")
+        self._bind_group_title(openai_connection_group, "settings.tts.openai.connection.title", "OpenAI 연결")
         openai_connection_form = QFormLayout(openai_connection_group)
         openai_connection_form.setSpacing(8)
         openai_connection_form.setContentsMargins(10, 15, 10, 10)
         self.tts_openai_api_key_edit = QLineEdit()
-        self.tts_openai_api_key_edit.setPlaceholderText("OpenAI API 키")
+        self._bind_placeholder(self.tts_openai_api_key_edit, "settings.tts.openai.connection.api_key.placeholder", "OpenAI API 키")
         self.tts_openai_api_key_edit.textChanged.connect(self._on_setting_changed)
-        openai_connection_form.addRow(
+        self._add_form_row(
+            openai_connection_form,
+            "settings.tts.openai.connection.api_key.label",
             "API 키:",
             self._build_secret_row(
                 self.tts_openai_api_key_edit,
@@ -2615,12 +3273,13 @@ class SettingsDialog(QDialog):
             ),
         )
         self.tts_openai_api_url_edit = QLineEdit()
-        self.tts_openai_api_url_edit.setPlaceholderText("예: https://api.openai.com/v1")
+        self._bind_placeholder(self.tts_openai_api_url_edit, "settings.tts.openai.connection.api_url.placeholder", "예: https://api.openai.com/v1")
         self.tts_openai_api_url_edit.textChanged.connect(self._on_setting_changed)
-        openai_connection_form.addRow("API URL:", self.tts_openai_api_url_edit)
+        self._add_form_row(openai_connection_form, "settings.tts.openai.connection.api_url.label", "API URL:", self.tts_openai_api_url_edit)
         openai_layout.addWidget(openai_connection_group)
 
         openai_voice_group = QGroupBox("모델과 음성")
+        self._bind_group_title(openai_voice_group, "settings.tts.openai.voice.title", "모델과 음성")
         openai_voice_form = QFormLayout(openai_voice_group)
         openai_voice_form.setSpacing(8)
         openai_voice_form.setContentsMargins(10, 15, 10, 10)
@@ -2628,20 +3287,25 @@ class SettingsDialog(QDialog):
         for model_name in ("gpt-4o-mini-tts", "tts-1", "tts-1-hd"):
             self.tts_openai_model_combo.addItem(model_name, model_name)
         self.tts_openai_model_combo.currentIndexChanged.connect(self._on_setting_changed)
-        openai_voice_form.addRow("모델:", self.tts_openai_model_combo)
+        self._add_form_row(openai_voice_form, "settings.tts.openai.voice.model", "모델:", self.tts_openai_model_combo)
         self.tts_openai_voice_combo = QComboBox()
         for voice_name in ("alloy", "ash", "ballad", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer", "verse", "marin", "cedar"):
             self.tts_openai_voice_combo.addItem(voice_name, voice_name)
         self.tts_openai_voice_combo.currentIndexChanged.connect(self._on_setting_changed)
-        openai_voice_form.addRow("음성:", self.tts_openai_voice_combo)
+        self._add_form_row(openai_voice_form, "settings.tts.openai.voice.voice", "음성:", self.tts_openai_voice_combo)
         self.tts_openai_speed_spin = QDoubleSpinBox()
         self.tts_openai_speed_spin.setRange(0.25, 4.0)
         self.tts_openai_speed_spin.setSingleStep(0.05)
         self.tts_openai_speed_spin.setDecimals(2)
         self.tts_openai_speed_spin.setValue(1.0)
         self.tts_openai_speed_spin.valueChanged.connect(self._on_setting_changed)
-        openai_voice_form.addRow("속도:", self.tts_openai_speed_spin)
-        openai_voice_form.addRow(self._build_hint_label("AIRI의 OpenAI Speech 설정처럼 API URL, 모델, 음성, 속도를 분리했습니다. 응답 포맷은 립싱크 분석을 위해 WAV로 고정합니다."))
+        self._add_form_row(openai_voice_form, "settings.tts.openai.voice.speed", "속도:", self.tts_openai_speed_spin)
+        openai_voice_form.addRow(
+            self._build_hint_label(
+                "AIRI의 OpenAI Speech 설정처럼 API URL, 모델, 음성, 속도를 분리했습니다. 응답 포맷은 립싱크 분석을 위해 WAV로 고정합니다.",
+                key="settings.tts.openai.voice.hint",
+            )
+        )
         openai_layout.addWidget(openai_voice_group)
         openai_layout.addStretch()
         self.tts_provider_stack.addWidget(openai_page)
@@ -2653,13 +3317,20 @@ class SettingsDialog(QDialog):
         compatible_layout.setContentsMargins(0, 0, 0, 0)
 
         compatible_connection_group = QGroupBox("호환 API 연결")
+        self._bind_group_title(compatible_connection_group, "settings.tts.compatible.connection.title", "호환 API 연결")
         compatible_connection_form = QFormLayout(compatible_connection_group)
         compatible_connection_form.setSpacing(8)
         compatible_connection_form.setContentsMargins(10, 15, 10, 10)
         self.tts_compatible_api_key_edit = QLineEdit()
-        self.tts_compatible_api_key_edit.setPlaceholderText("필요한 경우에만 API 키 입력")
+        self._bind_placeholder(
+            self.tts_compatible_api_key_edit,
+            "settings.tts.compatible.connection.api_key.placeholder",
+            "필요한 경우에만 API 키 입력",
+        )
         self.tts_compatible_api_key_edit.textChanged.connect(self._on_setting_changed)
-        compatible_connection_form.addRow(
+        self._add_form_row(
+            compatible_connection_form,
+            "settings.tts.compatible.connection.api_key.label",
             "API 키:",
             self._build_secret_row(
                 self.tts_compatible_api_key_edit,
@@ -2668,31 +3339,37 @@ class SettingsDialog(QDialog):
             ),
         )
         self.tts_compatible_api_url_edit = QLineEdit()
-        self.tts_compatible_api_url_edit.setPlaceholderText("예: http://127.0.0.1:8000/v1")
+        self._bind_placeholder(self.tts_compatible_api_url_edit, "settings.tts.compatible.connection.api_url.placeholder", "예: http://127.0.0.1:8000/v1")
         self.tts_compatible_api_url_edit.textChanged.connect(self._on_setting_changed)
-        compatible_connection_form.addRow("API URL:", self.tts_compatible_api_url_edit)
+        self._add_form_row(compatible_connection_form, "settings.tts.compatible.connection.api_url.label", "API URL:", self.tts_compatible_api_url_edit)
         compatible_layout.addWidget(compatible_connection_group)
 
         compatible_voice_group = QGroupBox("모델과 음성")
+        self._bind_group_title(compatible_voice_group, "settings.tts.compatible.voice.title", "모델과 음성")
         compatible_voice_form = QFormLayout(compatible_voice_group)
         compatible_voice_form.setSpacing(8)
         compatible_voice_form.setContentsMargins(10, 15, 10, 10)
         self.tts_compatible_model_edit = QLineEdit()
-        self.tts_compatible_model_edit.setPlaceholderText("예: tts-1")
+        self._bind_placeholder(self.tts_compatible_model_edit, "settings.tts.compatible.voice.model.placeholder", "예: tts-1")
         self.tts_compatible_model_edit.textChanged.connect(self._on_setting_changed)
-        compatible_voice_form.addRow("모델:", self.tts_compatible_model_edit)
+        self._add_form_row(compatible_voice_form, "settings.tts.compatible.voice.model.label", "모델:", self.tts_compatible_model_edit)
         self.tts_compatible_voice_edit = QLineEdit()
-        self.tts_compatible_voice_edit.setPlaceholderText("예: alloy")
+        self._bind_placeholder(self.tts_compatible_voice_edit, "settings.tts.compatible.voice.voice.placeholder", "예: alloy")
         self.tts_compatible_voice_edit.textChanged.connect(self._on_setting_changed)
-        compatible_voice_form.addRow("음성:", self.tts_compatible_voice_edit)
+        self._add_form_row(compatible_voice_form, "settings.tts.compatible.voice.voice.label", "음성:", self.tts_compatible_voice_edit)
         self.tts_compatible_speed_spin = QDoubleSpinBox()
         self.tts_compatible_speed_spin.setRange(0.25, 4.0)
         self.tts_compatible_speed_spin.setSingleStep(0.05)
         self.tts_compatible_speed_spin.setDecimals(2)
         self.tts_compatible_speed_spin.setValue(1.0)
         self.tts_compatible_speed_spin.valueChanged.connect(self._on_setting_changed)
-        compatible_voice_form.addRow("속도:", self.tts_compatible_speed_spin)
-        compatible_voice_form.addRow(self._build_hint_label("로컬 TTS 서버나 프록시 API처럼 OpenAI 음성 합성 스펙을 흉내내는 엔드포인트에 맞춘 범용 설정입니다."))
+        self._add_form_row(compatible_voice_form, "settings.tts.compatible.voice.speed", "속도:", self.tts_compatible_speed_spin)
+        compatible_voice_form.addRow(
+            self._build_hint_label(
+                "로컬 TTS 서버나 프록시 API처럼 OpenAI 음성 합성 스펙을 흉내내는 엔드포인트에 맞춘 범용 설정입니다.",
+                key="settings.tts.compatible.voice.hint",
+            )
+        )
         compatible_layout.addWidget(compatible_voice_group)
         compatible_layout.addStretch()
         self.tts_provider_stack.addWidget(compatible_page)
@@ -2704,13 +3381,16 @@ class SettingsDialog(QDialog):
         elevenlabs_layout.setContentsMargins(0, 0, 0, 0)
 
         elevenlabs_connection_group = QGroupBox("ElevenLabs 연결")
+        self._bind_group_title(elevenlabs_connection_group, "settings.tts.elevenlabs.connection.title", "ElevenLabs 연결")
         elevenlabs_connection_form = QFormLayout(elevenlabs_connection_group)
         elevenlabs_connection_form.setSpacing(8)
         elevenlabs_connection_form.setContentsMargins(10, 15, 10, 10)
         self.tts_elevenlabs_api_key_edit = QLineEdit()
-        self.tts_elevenlabs_api_key_edit.setPlaceholderText("ElevenLabs API 키")
+        self._bind_placeholder(self.tts_elevenlabs_api_key_edit, "settings.tts.elevenlabs.connection.api_key.placeholder", "ElevenLabs API 키")
         self.tts_elevenlabs_api_key_edit.textChanged.connect(self._on_setting_changed)
-        elevenlabs_connection_form.addRow(
+        self._add_form_row(
+            elevenlabs_connection_form,
+            "settings.tts.elevenlabs.connection.api_key.label",
             "API 키:",
             self._build_secret_row(
                 self.tts_elevenlabs_api_key_edit,
@@ -2719,12 +3399,13 @@ class SettingsDialog(QDialog):
             ),
         )
         self.tts_elevenlabs_api_url_edit = QLineEdit()
-        self.tts_elevenlabs_api_url_edit.setPlaceholderText("예: https://api.elevenlabs.io/v1")
+        self._bind_placeholder(self.tts_elevenlabs_api_url_edit, "settings.tts.elevenlabs.connection.api_url.placeholder", "예: https://api.elevenlabs.io/v1")
         self.tts_elevenlabs_api_url_edit.textChanged.connect(self._on_setting_changed)
-        elevenlabs_connection_form.addRow("API URL:", self.tts_elevenlabs_api_url_edit)
+        self._add_form_row(elevenlabs_connection_form, "settings.tts.elevenlabs.connection.api_url.label", "API URL:", self.tts_elevenlabs_api_url_edit)
         elevenlabs_layout.addWidget(elevenlabs_connection_group)
 
         elevenlabs_voice_group = QGroupBox("모델과 음성 스타일")
+        self._bind_group_title(elevenlabs_voice_group, "settings.tts.elevenlabs.voice.title", "모델과 음성 스타일")
         elevenlabs_voice_form = QFormLayout(elevenlabs_voice_group)
         elevenlabs_voice_form.setSpacing(8)
         elevenlabs_voice_form.setContentsMargins(10, 15, 10, 10)
@@ -2732,40 +3413,48 @@ class SettingsDialog(QDialog):
         for model_name in ("eleven_multilingual_v2", "eleven_multilingual_v1", "eleven_monolingual_v1"):
             self.tts_elevenlabs_model_combo.addItem(model_name, model_name)
         self.tts_elevenlabs_model_combo.currentIndexChanged.connect(self._on_setting_changed)
-        elevenlabs_voice_form.addRow("모델:", self.tts_elevenlabs_model_combo)
+        self._add_form_row(elevenlabs_voice_form, "settings.tts.elevenlabs.voice.model", "모델:", self.tts_elevenlabs_model_combo)
         self.tts_elevenlabs_voice_edit = QLineEdit()
-        self.tts_elevenlabs_voice_edit.setPlaceholderText("예: EXAVITQu4vr4xnSDxMaL")
+        self._bind_placeholder(self.tts_elevenlabs_voice_edit, "settings.tts.elevenlabs.voice.voice_id.placeholder", "예: EXAVITQu4vr4xnSDxMaL")
         self.tts_elevenlabs_voice_edit.textChanged.connect(self._on_setting_changed)
-        elevenlabs_voice_form.addRow("Voice ID:", self.tts_elevenlabs_voice_edit)
+        self._add_form_row(elevenlabs_voice_form, "settings.tts.elevenlabs.voice.voice_id.label", "Voice ID:", self.tts_elevenlabs_voice_edit)
         self.tts_elevenlabs_speed_spin = QDoubleSpinBox()
         self.tts_elevenlabs_speed_spin.setRange(0.5, 2.0)
         self.tts_elevenlabs_speed_spin.setSingleStep(0.05)
         self.tts_elevenlabs_speed_spin.setDecimals(2)
         self.tts_elevenlabs_speed_spin.setValue(1.0)
         self.tts_elevenlabs_speed_spin.valueChanged.connect(self._on_setting_changed)
-        elevenlabs_voice_form.addRow("속도:", self.tts_elevenlabs_speed_spin)
+        self._add_form_row(elevenlabs_voice_form, "settings.tts.elevenlabs.voice.speed", "속도:", self.tts_elevenlabs_speed_spin)
         self.tts_elevenlabs_stability_spin = QDoubleSpinBox()
         self.tts_elevenlabs_stability_spin.setRange(0.0, 1.0)
         self.tts_elevenlabs_stability_spin.setSingleStep(0.05)
         self.tts_elevenlabs_stability_spin.setDecimals(2)
         self.tts_elevenlabs_stability_spin.valueChanged.connect(self._on_setting_changed)
-        elevenlabs_voice_form.addRow("Stability:", self.tts_elevenlabs_stability_spin)
+        self._add_form_row(elevenlabs_voice_form, "settings.tts.elevenlabs.voice.stability", "Stability:", self.tts_elevenlabs_stability_spin)
         self.tts_elevenlabs_similarity_spin = QDoubleSpinBox()
         self.tts_elevenlabs_similarity_spin.setRange(0.0, 1.0)
         self.tts_elevenlabs_similarity_spin.setSingleStep(0.05)
         self.tts_elevenlabs_similarity_spin.setDecimals(2)
         self.tts_elevenlabs_similarity_spin.valueChanged.connect(self._on_setting_changed)
-        elevenlabs_voice_form.addRow("Similarity Boost:", self.tts_elevenlabs_similarity_spin)
+        self._add_form_row(elevenlabs_voice_form, "settings.tts.elevenlabs.voice.similarity", "Similarity Boost:", self.tts_elevenlabs_similarity_spin)
         self.tts_elevenlabs_style_spin = QDoubleSpinBox()
         self.tts_elevenlabs_style_spin.setRange(0.0, 1.0)
         self.tts_elevenlabs_style_spin.setSingleStep(0.05)
         self.tts_elevenlabs_style_spin.setDecimals(2)
         self.tts_elevenlabs_style_spin.valueChanged.connect(self._on_setting_changed)
-        elevenlabs_voice_form.addRow("Style:", self.tts_elevenlabs_style_spin)
-        self.tts_elevenlabs_speaker_boost_check = self._create_toggle("Speaker Boost 사용")
+        self._add_form_row(elevenlabs_voice_form, "settings.tts.elevenlabs.voice.style", "Style:", self.tts_elevenlabs_style_spin)
+        self.tts_elevenlabs_speaker_boost_check = self._create_toggle(
+            "Speaker Boost 사용",
+            key="settings.tts.elevenlabs.voice.speaker_boost",
+        )
         self.tts_elevenlabs_speaker_boost_check.toggled.connect(self._on_setting_changed)
         elevenlabs_voice_form.addRow(self.tts_elevenlabs_speaker_boost_check)
-        elevenlabs_voice_form.addRow(self._build_hint_label("AIRI 코드의 ElevenLabs 설정에서 핵심인 모델, Voice ID, stability, similarity boost, style, speaker boost를 그대로 가져왔습니다."))
+        elevenlabs_voice_form.addRow(
+            self._build_hint_label(
+                "AIRI 코드의 ElevenLabs 설정에서 핵심인 모델, Voice ID, stability, similarity boost, style, speaker boost를 그대로 가져왔습니다.",
+                key="settings.tts.elevenlabs.voice.hint",
+            )
+        )
         elevenlabs_layout.addWidget(elevenlabs_voice_group)
         elevenlabs_layout.addStretch()
         self.tts_provider_stack.addWidget(elevenlabs_page)
@@ -2777,35 +3466,45 @@ class SettingsDialog(QDialog):
         browser_layout.setContentsMargins(0, 0, 0, 0)
 
         browser_group = QGroupBox("브라우저 기본 TTS")
+        self._bind_group_title(browser_group, "settings.tts.browser.title", "브라우저 기본 TTS")
         browser_form = QFormLayout(browser_group)
         browser_form.setSpacing(8)
         browser_form.setContentsMargins(10, 15, 10, 10)
         self.tts_browser_lang_edit = QLineEdit()
-        self.tts_browser_lang_edit.setPlaceholderText("예: ja-JP")
+        self._bind_placeholder(self.tts_browser_lang_edit, "settings.tts.browser.lang.placeholder", "예: ja-JP")
         self.tts_browser_lang_edit.textChanged.connect(self._on_browser_tts_lang_changed)
-        browser_form.addRow("언어:", self.tts_browser_lang_edit)
+        self._add_form_row(browser_form, "settings.tts.browser.lang.label", "언어:", self.tts_browser_lang_edit)
 
         self.tts_browser_voice_lang_filter_combo = QComboBox()
-        self.tts_browser_voice_lang_filter_combo.addItem("전체 언어", "")
+        self.tts_browser_voice_lang_filter_combo.addItem(
+            self._translated_text("settings.tts.browser.filter.all", "전체 언어"),
+            "",
+        )
         self.tts_browser_voice_lang_filter_combo.currentIndexChanged.connect(self._on_browser_tts_language_filter_changed)
-        browser_form.addRow("목록 필터:", self.tts_browser_voice_lang_filter_combo)
+        self._add_form_row(browser_form, "settings.tts.browser.filter.label", "목록 필터:", self.tts_browser_voice_lang_filter_combo)
 
         browser_voice_row = QHBoxLayout()
         browser_voice_row.setSpacing(8)
         self.tts_browser_voice_combo = QComboBox()
         self.tts_browser_voice_combo.setEditable(True)
         self.tts_browser_voice_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-        self.tts_browser_voice_combo.setPlaceholderText("사용 가능한 음성을 자동으로 불러옵니다")
+        self._bind_placeholder(
+            self.tts_browser_voice_combo,
+            "settings.tts.browser.voice.placeholder",
+            "사용 가능한 음성을 자동으로 불러옵니다",
+        )
         self.tts_browser_voice_combo.currentIndexChanged.connect(self._on_setting_changed)
         self.tts_browser_voice_combo.currentTextChanged.connect(self._on_setting_changed)
         browser_voice_row.addWidget(self.tts_browser_voice_combo, 1)
         self.tts_browser_voice_refresh_button = QPushButton("새로고침")
+        self._bind_widget_text(self.tts_browser_voice_refresh_button, "settings.common.refresh", "새로고침")
         self.tts_browser_voice_refresh_button.clicked.connect(self._request_browser_tts_voices)
         browser_voice_row.addWidget(self.tts_browser_voice_refresh_button)
-        browser_form.addRow("음성:", browser_voice_row)
+        self._add_form_row(browser_form, "settings.tts.browser.voice.label", "음성:", browser_voice_row)
 
         self.tts_browser_voice_status_label = self._build_hint_label(
-            "설정창이 열려 있는 현재 ENE 웹뷰 환경에서 음성 목록을 읽습니다. 다른 PC에서는 그 환경 기준 목록이 다시 표시됩니다."
+            "설정창이 열려 있는 현재 ENE 웹뷰 환경에서 음성 목록을 읽습니다. 다른 PC에서는 그 환경 기준 목록이 다시 표시됩니다.",
+            key="settings.tts.browser.status.idle",
         )
         browser_form.addRow(self.tts_browser_voice_status_label)
 
@@ -2815,22 +3514,27 @@ class SettingsDialog(QDialog):
         self.tts_browser_rate_spin.setDecimals(2)
         self.tts_browser_rate_spin.setValue(1.0)
         self.tts_browser_rate_spin.valueChanged.connect(self._on_setting_changed)
-        browser_form.addRow("속도:", self.tts_browser_rate_spin)
+        self._add_form_row(browser_form, "settings.tts.browser.rate", "속도:", self.tts_browser_rate_spin)
         self.tts_browser_pitch_spin = QDoubleSpinBox()
         self.tts_browser_pitch_spin.setRange(0.0, 2.0)
         self.tts_browser_pitch_spin.setSingleStep(0.05)
         self.tts_browser_pitch_spin.setDecimals(2)
         self.tts_browser_pitch_spin.setValue(1.0)
         self.tts_browser_pitch_spin.valueChanged.connect(self._on_setting_changed)
-        browser_form.addRow("Pitch:", self.tts_browser_pitch_spin)
+        self._add_form_row(browser_form, "settings.tts.browser.pitch", "Pitch:", self.tts_browser_pitch_spin)
         self.tts_browser_volume_spin = QDoubleSpinBox()
         self.tts_browser_volume_spin.setRange(0.0, 1.0)
         self.tts_browser_volume_spin.setSingleStep(0.05)
         self.tts_browser_volume_spin.setDecimals(2)
         self.tts_browser_volume_spin.setValue(1.0)
         self.tts_browser_volume_spin.valueChanged.connect(self._on_setting_changed)
-        browser_form.addRow("볼륨:", self.tts_browser_volume_spin)
-        browser_form.addRow(self._build_hint_label("테스트용/폴백용 공급자입니다. API 키 없이 바로 말하게 할 수 있지만, 음질과 사용 가능한 음성은 배포 환경의 브라우저/OS에 따라 달라집니다. 저장된 음성이 현재 환경에 없으면 같은 언어 음성이나 시스템 기본 음성으로 자연스럽게 대체됩니다. 립싱크는 적용되지 않습니다."))
+        self._add_form_row(browser_form, "settings.tts.browser.volume", "볼륨:", self.tts_browser_volume_spin)
+        browser_form.addRow(
+            self._build_hint_label(
+                "테스트용/폴백용 공급자입니다. API 키 없이 바로 말하게 할 수 있지만, 음질과 사용 가능한 음성은 배포 환경의 브라우저/OS에 따라 달라집니다. 저장된 음성이 현재 환경에 없으면 같은 언어 음성이나 시스템 기본 음성으로 자연스럽게 대체됩니다. 립싱크는 적용되지 않습니다.",
+                key="settings.tts.browser.hint",
+            )
+        )
         browser_layout.addWidget(browser_group)
         browser_layout.addStretch()
         self.tts_provider_stack.addWidget(browser_page)
@@ -2854,58 +3558,98 @@ class SettingsDialog(QDialog):
         layout.setContentsMargins(10, 10, 10, 10)
 
         display_group = QGroupBox("표시 요소")
+        self._bind_group_title(display_group, "settings.behavior.display.title", "표시 요소")
         display_layout = QVBoxLayout(display_group)
         display_layout.setSpacing(8)
 
-        self.show_drag_bar_check = self._create_toggle("드래그 바 표시")
+        self.show_drag_bar_check = self._create_toggle("드래그 바 표시", key="settings.behavior.display.drag_bar")
         self.show_drag_bar_check.toggled.connect(self._on_setting_changed)
         display_layout.addWidget(self.show_drag_bar_check)
 
-        self.show_recent_reroll_button_check = self._create_toggle("최근 메시지 리롤 버튼 표시")
+        self.show_recent_reroll_button_check = self._create_toggle(
+            "최근 메시지 리롤 버튼 표시",
+            key="settings.behavior.display.recent_reroll",
+        )
         self.show_recent_reroll_button_check.toggled.connect(self._on_setting_changed)
         display_layout.addWidget(self.show_recent_reroll_button_check)
 
-        self.show_recent_edit_button_check = self._create_toggle("최근 메시지 수정 버튼 표시")
+        self.show_recent_edit_button_check = self._create_toggle(
+            "최근 메시지 수정 버튼 표시",
+            key="settings.behavior.display.recent_edit",
+        )
         self.show_recent_edit_button_check.toggled.connect(self._on_setting_changed)
         display_layout.addWidget(self.show_recent_edit_button_check)
 
-        self.show_token_usage_bubble_check = self._create_toggle("대화 토큰 확인")
+        self.show_token_usage_bubble_check = self._create_toggle(
+            "대화 토큰 확인",
+            key="settings.behavior.display.token_usage",
+        )
         self.show_token_usage_bubble_check.toggled.connect(self._on_setting_changed)
         display_layout.addWidget(self.show_token_usage_bubble_check)
 
-        self.mouse_tracking_check = self._create_toggle("마우스 트래킹 활성화")
+        self.mouse_tracking_check = self._create_toggle(
+            "마우스 트래킹 활성화",
+            key="settings.behavior.display.mouse_tracking",
+        )
         self.mouse_tracking_check.toggled.connect(self._on_setting_changed)
         display_layout.addWidget(self.mouse_tracking_check)
-        display_layout.addWidget(self._build_hint_label("기본 노출 요소와 마우스 상호작용을 한 묶음으로 관리합니다."))
+        display_layout.addWidget(
+            self._build_hint_label(
+                "기본 노출 요소와 마우스 상호작용을 한 묶음으로 관리합니다.",
+                key="settings.behavior.display.hint",
+            )
+        )
         layout.addWidget(display_group)
 
         action_group = QGroupBox("대화와 보조 버튼")
+        self._bind_group_title(action_group, "settings.behavior.actions.title", "대화와 보조 버튼")
         action_layout = QVBoxLayout(action_group)
         action_layout.setSpacing(8)
-        self.show_manual_summary_button_check = self._create_toggle("수동 요약 버튼 표시")
+        self.show_manual_summary_button_check = self._create_toggle(
+            "수동 요약 버튼 표시",
+            key="settings.behavior.actions.manual_summary",
+        )
         self.show_manual_summary_button_check.toggled.connect(self._on_setting_changed)
         action_layout.addWidget(self.show_manual_summary_button_check)
 
-        self.show_obsidian_note_button_check = self._create_toggle("노트 버튼 표시")
+        self.show_obsidian_note_button_check = self._create_toggle(
+            "노트 버튼 표시",
+            key="settings.behavior.actions.note_button",
+        )
         self.show_obsidian_note_button_check.toggled.connect(self._on_setting_changed)
         action_layout.addWidget(self.show_obsidian_note_button_check)
 
-        self.show_mood_toggle_button_check = self._create_toggle("기분 버튼 표시")
+        self.show_mood_toggle_button_check = self._create_toggle(
+            "기분 버튼 표시",
+            key="settings.behavior.actions.mood_button",
+        )
         self.show_mood_toggle_button_check.toggled.connect(self._on_setting_changed)
         action_layout.addWidget(self.show_mood_toggle_button_check)
-        action_layout.addWidget(self._build_hint_label("자주 누르는 버튼만 켜두면 화면이 덜 복잡해집니다."))
+        action_layout.addWidget(
+            self._build_hint_label(
+                "자주 누르는 버튼만 켜두면 화면이 덜 복잡해집니다.",
+                key="settings.behavior.actions.hint",
+            )
+        )
         layout.addWidget(action_group)
 
         ptt_group = QGroupBox("음성 입력 (전역 PTT)")
+        self._bind_group_title(ptt_group, "settings.behavior.ptt.title", "음성 입력 (전역 PTT)")
         ptt_layout = QFormLayout(ptt_group)
         ptt_layout.setSpacing(8)
         ptt_layout.setContentsMargins(10, 15, 10, 10)
 
-        self.enable_global_ptt_check = self._create_toggle("전역 Push-to-Talk 활성화")
+        self.enable_global_ptt_check = self._create_toggle(
+            "전역 Push-to-Talk 활성화",
+            key="settings.behavior.ptt.enable",
+        )
         self.enable_global_ptt_check.toggled.connect(self._on_setting_changed)
         ptt_layout.addRow(self.enable_global_ptt_check)
 
-        self.interrupt_tts_on_ptt_check = self._create_toggle("PTT 시작 시 ENE 음성 출력 끊기")
+        self.interrupt_tts_on_ptt_check = self._create_toggle(
+            "PTT 시작 시 ENE 음성 출력 끊기",
+            key="settings.behavior.ptt.interrupt_tts",
+        )
         self.interrupt_tts_on_ptt_check.toggled.connect(self._on_setting_changed)
         ptt_layout.addRow(self.interrupt_tts_on_ptt_check)
 
@@ -2920,9 +3664,10 @@ class SettingsDialog(QDialog):
         ptt_hotkey_row.addWidget(self.global_ptt_hotkey_set_button)
 
         self.global_ptt_hotkey_reset_button = QPushButton("기본값")
+        self._bind_widget_text(self.global_ptt_hotkey_reset_button, "settings.behavior.ptt.hotkey.reset", "기본값")
         self.global_ptt_hotkey_reset_button.clicked.connect(self._reset_ptt_hotkey)
         ptt_hotkey_row.addWidget(self.global_ptt_hotkey_reset_button)
-        ptt_layout.addRow("PTT 단축키:", ptt_hotkey_row)
+        self._add_form_row(ptt_layout, "settings.behavior.ptt.hotkey.label", "PTT 단축키:", ptt_hotkey_row)
 
         self.global_ptt_hotkey_hint_label = QLabel("")
         self.global_ptt_hotkey_hint_label.setWordWrap(True)
@@ -2932,31 +3677,47 @@ class SettingsDialog(QDialog):
         layout.addWidget(ptt_group)
 
         note_group = QGroupBox("노트 설정")
+        self._bind_group_title(note_group, "settings.behavior.note.title", "노트 설정")
         note_layout = QFormLayout(note_group)
         note_layout.setSpacing(8)
         note_layout.setContentsMargins(10, 15, 10, 10)
 
-        self.note_include_recent_context_check = self._create_toggle("/note에 최근 대화 맥락 자동 주입")
+        self.note_include_recent_context_check = self._create_toggle(
+            "/note에 최근 대화 맥락 자동 주입",
+            key="settings.behavior.note.include_recent",
+        )
         self.note_include_recent_context_check.toggled.connect(self._on_note_context_toggle)
         note_layout.addRow(self.note_include_recent_context_check)
 
         self.note_recent_context_turns_spin = QSpinBox()
         self.note_recent_context_turns_spin.setRange(0, 200)
-        self.note_recent_context_turns_spin.setSpecialValueText("전체 세션")
-        self.note_recent_context_turns_spin.setSuffix(" 턴")
+        self._bind_special_value_text(self.note_recent_context_turns_spin, "settings.behavior.note.recent_turns.all", "전체 세션")
+        self._bind_suffix(self.note_recent_context_turns_spin, "settings.behavior.note.recent_turns.suffix", " 턴")
         self.note_recent_context_turns_spin.valueChanged.connect(self._on_setting_changed)
-        note_layout.addRow("주입 턴 수 (0=전체):", self.note_recent_context_turns_spin)
+        self._add_form_row(
+            note_layout,
+            "settings.behavior.note.recent_turns.label",
+            "주입 턴 수 (0=전체):",
+            self.note_recent_context_turns_spin,
+        )
         layout.addWidget(note_group)
 
         idle_group = QGroupBox("유휴 모션")
+        self._bind_group_title(idle_group, "settings.behavior.idle.title", "유휴 모션")
         idle_layout = QFormLayout(idle_group)
         idle_layout.setSpacing(8)
         idle_layout.setContentsMargins(10, 15, 10, 10)
-        self.idle_motion_check = self._create_toggle("유휴 모션 활성화 (말하지 않을 때 자동 움직임)")
+        self.idle_motion_check = self._create_toggle(
+            "유휴 모션 활성화 (말하지 않을 때 자동 움직임)",
+            key="settings.behavior.idle.enable",
+        )
         self.idle_motion_check.toggled.connect(self._on_setting_changed)
         idle_layout.addRow(self.idle_motion_check)
 
-        self.idle_motion_dynamic_check = self._create_toggle("유휴 모션 다이나믹 모드")
+        self.idle_motion_dynamic_check = self._create_toggle(
+            "유휴 모션 다이나믹 모드",
+            key="settings.behavior.idle.dynamic",
+        )
         self.idle_motion_dynamic_check.toggled.connect(self._on_setting_changed)
         idle_layout.addRow(self.idle_motion_dynamic_check)
 
@@ -2966,7 +3727,7 @@ class SettingsDialog(QDialog):
         self.idle_motion_strength_spin.setDecimals(2)
         self.idle_motion_strength_spin.setSuffix("x")
         self.idle_motion_strength_spin.valueChanged.connect(self._on_setting_changed)
-        idle_layout.addRow("유휴 모션 강도:", self.idle_motion_strength_spin)
+        self._add_form_row(idle_layout, "settings.behavior.idle.strength", "유휴 모션 강도:", self.idle_motion_strength_spin)
 
         self.idle_motion_speed_spin = QDoubleSpinBox()
         self.idle_motion_speed_spin.setRange(0.5, 2.0)
@@ -2974,14 +3735,18 @@ class SettingsDialog(QDialog):
         self.idle_motion_speed_spin.setDecimals(2)
         self.idle_motion_speed_spin.setSuffix("x")
         self.idle_motion_speed_spin.valueChanged.connect(self._on_setting_changed)
-        idle_layout.addRow("유휴 모션 속도:", self.idle_motion_speed_spin)
+        self._add_form_row(idle_layout, "settings.behavior.idle.speed", "유휴 모션 속도:", self.idle_motion_speed_spin)
         layout.addWidget(idle_group)
 
         pat_group = QGroupBox("머리 쓰다듬기")
+        self._bind_group_title(pat_group, "settings.behavior.head_pat.title", "머리 쓰다듬기")
         pat_layout = QFormLayout(pat_group)
         pat_layout.setSpacing(8)
         pat_layout.setContentsMargins(10, 15, 10, 10)
-        self.head_pat_check = self._create_toggle("머리 쓰다듬기 활성화")
+        self.head_pat_check = self._create_toggle(
+            "머리 쓰다듬기 활성화",
+            key="settings.behavior.head_pat.enable",
+        )
         self.head_pat_check.toggled.connect(self._on_setting_changed)
         pat_layout.addRow(self.head_pat_check)
 
@@ -2991,19 +3756,19 @@ class SettingsDialog(QDialog):
         self.head_pat_strength_spin.setDecimals(2)
         self.head_pat_strength_spin.setSuffix("x")
         self.head_pat_strength_spin.valueChanged.connect(self._on_setting_changed)
-        pat_layout.addRow("쓰다듬기 강도:", self.head_pat_strength_spin)
+        self._add_form_row(pat_layout, "settings.behavior.head_pat.strength", "쓰다듬기 강도:", self.head_pat_strength_spin)
 
         self.head_pat_fade_in_spin = QSpinBox()
         self.head_pat_fade_in_spin.setRange(50, 1000)
         self.head_pat_fade_in_spin.setSuffix(" ms")
         self.head_pat_fade_in_spin.valueChanged.connect(self._on_setting_changed)
-        pat_layout.addRow("시작 페이드:", self.head_pat_fade_in_spin)
+        self._add_form_row(pat_layout, "settings.behavior.head_pat.fade_in", "시작 페이드:", self.head_pat_fade_in_spin)
 
         self.head_pat_fade_out_spin = QSpinBox()
         self.head_pat_fade_out_spin.setRange(50, 1200)
         self.head_pat_fade_out_spin.setSuffix(" ms")
         self.head_pat_fade_out_spin.valueChanged.connect(self._on_setting_changed)
-        pat_layout.addRow("종료 페이드:", self.head_pat_fade_out_spin)
+        self._add_form_row(pat_layout, "settings.behavior.head_pat.fade_out", "종료 페이드:", self.head_pat_fade_out_spin)
 
         self.head_pat_active_emotion_combo = QComboBox()
         self._emotion_options = get_available_emotions()
@@ -3011,44 +3776,71 @@ class SettingsDialog(QDialog):
             self._emotion_options.append("eyeclose")
         self.head_pat_active_emotion_combo.addItems(self._emotion_options)
         self.head_pat_active_emotion_combo.currentTextChanged.connect(self._on_setting_changed)
-        pat_layout.addRow("쓰다듬기 중 감정(기본):", self.head_pat_active_emotion_combo)
+        self._add_form_row(
+            pat_layout,
+            "settings.behavior.head_pat.active_emotion_default",
+            "쓰다듬기 중 감정(기본):",
+            self.head_pat_active_emotion_combo,
+        )
 
         self.head_pat_active_emotion_custom_edit = QLineEdit()
-        self.head_pat_active_emotion_custom_edit.setPlaceholderText("커스텀 감정 (텍스트 우선)")
+        self._bind_placeholder(
+            self.head_pat_active_emotion_custom_edit,
+            "settings.behavior.head_pat.active_emotion_custom.placeholder",
+            "커스텀 감정 (텍스트 우선)",
+        )
         self.head_pat_active_emotion_custom_edit.textChanged.connect(self._on_setting_changed)
-        pat_layout.addRow("쓰다듬기 중 감정(커스텀):", self.head_pat_active_emotion_custom_edit)
+        self._add_form_row(
+            pat_layout,
+            "settings.behavior.head_pat.active_emotion_custom.label",
+            "쓰다듬기 중 감정(커스텀):",
+            self.head_pat_active_emotion_custom_edit,
+        )
 
         self.head_pat_end_emotion_combo = QComboBox()
         self.head_pat_end_emotion_combo.addItems(self._emotion_options)
         self.head_pat_end_emotion_combo.currentTextChanged.connect(self._on_setting_changed)
-        pat_layout.addRow("종료 감정(기본):", self.head_pat_end_emotion_combo)
+        self._add_form_row(pat_layout, "settings.behavior.head_pat.end_emotion_default", "종료 감정(기본):", self.head_pat_end_emotion_combo)
 
         self.head_pat_end_emotion_custom_edit = QLineEdit()
-        self.head_pat_end_emotion_custom_edit.setPlaceholderText("커스텀 감정 (텍스트 우선)")
+        self._bind_placeholder(
+            self.head_pat_end_emotion_custom_edit,
+            "settings.behavior.head_pat.end_emotion_custom.placeholder",
+            "커스텀 감정 (텍스트 우선)",
+        )
         self.head_pat_end_emotion_custom_edit.textChanged.connect(self._on_setting_changed)
-        pat_layout.addRow("종료 감정(커스텀):", self.head_pat_end_emotion_custom_edit)
+        self._add_form_row(
+            pat_layout,
+            "settings.behavior.head_pat.end_emotion_custom.label",
+            "종료 감정(커스텀):",
+            self.head_pat_end_emotion_custom_edit,
+        )
 
         self.head_pat_end_emotion_duration_spin = QSpinBox()
         self.head_pat_end_emotion_duration_spin.setRange(1, 30)
         self.head_pat_end_emotion_duration_spin.setSuffix(" s")
         self.head_pat_end_emotion_duration_spin.valueChanged.connect(self._on_setting_changed)
-        pat_layout.addRow("감정 유지 시간:", self.head_pat_end_emotion_duration_spin)
+        self._add_form_row(pat_layout, "settings.behavior.head_pat.end_duration", "감정 유지 시간:", self.head_pat_end_emotion_duration_spin)
         layout.addWidget(pat_group)
 
         away_group = QGroupBox("자리 비움/유휴 감지")
+        self._bind_group_title(away_group, "settings.behavior.away.title", "자리 비움/유휴 감지")
         away_layout = QFormLayout(away_group)
         away_layout.setSpacing(8)
         away_layout.setContentsMargins(10, 15, 10, 10)
 
-        self.enable_away_nudge_check = self._create_toggle("유휴 감지 자동 말걸기 활성화")
+        self.enable_away_nudge_check = self._create_toggle(
+            "유휴 감지 자동 말걸기 활성화",
+            key="settings.behavior.away.enable",
+        )
         self.enable_away_nudge_check.toggled.connect(self._on_setting_changed)
         away_layout.addRow(self.enable_away_nudge_check)
 
         self.away_idle_minutes_spin = QSpinBox()
         self.away_idle_minutes_spin.setRange(5, 240)
-        self.away_idle_minutes_spin.setSuffix(" 분")
+        self._bind_suffix(self.away_idle_minutes_spin, "settings.behavior.away.idle_minutes.suffix", " 분")
         self.away_idle_minutes_spin.valueChanged.connect(self._on_setting_changed)
-        away_layout.addRow("유휴 시간:", self.away_idle_minutes_spin)
+        self._add_form_row(away_layout, "settings.behavior.away.idle_minutes.label", "유휴 시간:", self.away_idle_minutes_spin)
 
         self.away_diff_threshold_spin = QDoubleSpinBox()
         self.away_diff_threshold_spin.setRange(1.0, 15.0)
@@ -3056,13 +3848,13 @@ class SettingsDialog(QDialog):
         self.away_diff_threshold_spin.setDecimals(1)
         self.away_diff_threshold_spin.setSuffix(" %")
         self.away_diff_threshold_spin.valueChanged.connect(self._on_setting_changed)
-        away_layout.addRow("화면 차이 민감도:", self.away_diff_threshold_spin)
+        self._add_form_row(away_layout, "settings.behavior.away.diff_threshold", "화면 차이 민감도:", self.away_diff_threshold_spin)
 
         self.away_retry_limit_spin = QSpinBox()
         self.away_retry_limit_spin.setRange(0, 20)
-        self.away_retry_limit_spin.setSuffix(" 회")
+        self._bind_suffix(self.away_retry_limit_spin, "settings.behavior.away.retry_limit.suffix", " 회")
         self.away_retry_limit_spin.valueChanged.connect(self._on_setting_changed)
-        away_layout.addRow("추가 재실행 횟수:", self.away_retry_limit_spin)
+        self._add_form_row(away_layout, "settings.behavior.away.retry_limit.label", "추가 재실행 횟수:", self.away_retry_limit_spin)
 
         layout.addWidget(away_group)
 
@@ -3087,11 +3879,17 @@ class SettingsDialog(QDialog):
         search_layout.setContentsMargins(20, 18, 20, 18)
         search_layout.setSpacing(10)
 
-        title = QLabel("기억 검색 범위")
+        title = QLabel()
+        self._bind_widget_text(title, "settings.memory.search_scope.title", "기억 검색 범위")
         title.setObjectName("FooterTitle")
         search_layout.addWidget(title)
 
-        body = QLabel("장기기억 검색 시 최신 사용자 메시지와 함께 참고할 최근 보이는 대화 턴 수를 조절합니다. 현재 턴에만 임시 주입되고, 히스토리에는 순수 대화만 남도록 동작합니다.")
+        body = QLabel()
+        self._bind_widget_text(
+            body,
+            "settings.memory.search_scope.body",
+            "장기기억 검색 시 최신 사용자 메시지와 함께 참고할 최근 보이는 대화 턴 수를 조절합니다. 현재 턴에만 임시 주입되고, 히스토리에는 순수 대화만 남도록 동작합니다.",
+        )
         body.setObjectName("FooterBody")
         body.setWordWrap(True)
         search_layout.addWidget(body)
@@ -3104,16 +3902,30 @@ class SettingsDialog(QDialog):
 
         self.memory_search_recent_turns_spin = QSpinBox()
         self.memory_search_recent_turns_spin.setRange(0, 50)
-        self.memory_search_recent_turns_spin.setSuffix(" 턴")
-        self.memory_search_recent_turns_spin.setSpecialValueText("현재 메시지만")
+        self._bind_suffix(self.memory_search_recent_turns_spin, "settings.memory.search_scope.turns.suffix", " 턴")
+        self._bind_special_value_text(
+            self.memory_search_recent_turns_spin,
+            "settings.memory.search_scope.turns.special",
+            "현재 메시지만",
+        )
         self.memory_search_recent_turns_spin.valueChanged.connect(self._on_setting_changed)
         try:
             memory_turns = int(self._original_settings.get("memory_search_recent_turns", 2) or 0)
         except Exception:
             memory_turns = 2
         self.memory_search_recent_turns_spin.setValue(max(0, min(memory_turns, 50)))
-        form.addRow("검색에 포함할 최근 대화:", self.memory_search_recent_turns_spin)
-        form.addRow(self._build_hint_label("예: 2턴이면 직전 사용자/에네 2쌍을 보고 현재 메시지와 함께 장기기억을 검색합니다."))
+        self._add_form_row(
+            form,
+            "settings.memory.search_scope.turns.label",
+            "검색에 포함할 최근 대화:",
+            self.memory_search_recent_turns_spin,
+        )
+        form.addRow(
+            self._build_hint_label(
+                "예: 2턴이면 직전 사용자/에네 2쌍을 보고 현재 메시지와 함께 장기기억을 검색합니다.",
+                key="settings.memory.search_scope.turns.hint",
+            )
+        )
 
         search_layout.addLayout(form)
         layout.addWidget(search_card)
@@ -3132,11 +3944,17 @@ class SettingsDialog(QDialog):
             card_layout.setContentsMargins(22, 20, 22, 20)
             card_layout.setSpacing(8)
 
-            title = QLabel("기억 관리")
+            title = QLabel()
+            self._bind_widget_text(title, "settings.memory.empty.title", "기억 관리")
             title.setObjectName("FooterTitle")
             card_layout.addWidget(title)
 
-            body = QLabel("메모리 매니저가 초기화되지 않아 기억 목록 패널을 표시할 수 없습니다.")
+            body = QLabel()
+            self._bind_widget_text(
+                body,
+                "settings.memory.empty.body",
+                "메모리 매니저가 초기화되지 않아 기억 목록 패널을 표시할 수 없습니다.",
+            )
             body.setObjectName("FooterBody")
             body.setWordWrap(True)
             card_layout.addWidget(body)
@@ -3163,11 +3981,17 @@ class SettingsDialog(QDialog):
         header_layout.setContentsMargins(20, 18, 20, 18)
         header_layout.setSpacing(6)
 
-        title = QLabel("사용자 기억 관리")
+        title = QLabel()
+        self._bind_widget_text(title, "settings.profile.header.title", "사용자 기억 관리")
         title.setObjectName("FooterTitle")
         header_layout.addWidget(title)
 
-        body = QLabel("user_profile.json의 기본 정보, likes, dislikes, facts만 구조적으로 관리합니다. 원본 JSON 전체를 직접 열지 않고 필요한 항목만 수정합니다.")
+        body = QLabel()
+        self._bind_widget_text(
+            body,
+            "settings.profile.header.body",
+            "user_profile.json의 기본 정보, likes, dislikes, facts만 구조적으로 관리합니다. 원본 JSON 전체를 직접 열지 않고 필요한 항목만 수정합니다.",
+        )
         body.setObjectName("FooterBody")
         body.setWordWrap(True)
         header_layout.addWidget(body)
@@ -3176,7 +4000,8 @@ class SettingsDialog(QDialog):
         top_row = QHBoxLayout()
         top_row.setSpacing(12)
 
-        basic_group = QGroupBox("기본 정보")
+        basic_group = QGroupBox()
+        self._bind_group_title(basic_group, "settings.profile.basic.title", "기본 정보")
         basic_layout = QVBoxLayout(basic_group)
         basic_layout.setSpacing(10)
 
@@ -3186,41 +4011,46 @@ class SettingsDialog(QDialog):
         basic_layout.addWidget(self.basic_info_list)
 
         self.basic_info_key_input = QLineEdit()
-        self.basic_info_key_input.setPlaceholderText("항목 이름")
+        self._bind_placeholder(self.basic_info_key_input, "settings.profile.basic.key.placeholder", "항목 이름")
         basic_layout.addWidget(self.basic_info_key_input)
 
         self.basic_info_value_input = QLineEdit()
-        self.basic_info_value_input.setPlaceholderText("값")
+        self._bind_placeholder(self.basic_info_value_input, "settings.profile.basic.value.placeholder", "값")
         basic_layout.addWidget(self.basic_info_value_input)
 
         basic_actions = QHBoxLayout()
         basic_actions.setSpacing(8)
 
-        basic_new_btn = QPushButton("새 항목")
+        basic_new_btn = QPushButton()
+        self._bind_widget_text(basic_new_btn, "settings.profile.basic.new", "새 항목")
         basic_new_btn.clicked.connect(self._new_basic_info_item)
         basic_actions.addWidget(basic_new_btn)
 
-        basic_apply_btn = QPushButton("목록에 반영")
+        basic_apply_btn = QPushButton()
+        self._bind_widget_text(basic_apply_btn, "settings.profile.basic.apply", "목록에 반영")
         basic_apply_btn.setProperty("accent", True)
         basic_apply_btn.style().unpolish(basic_apply_btn)
         basic_apply_btn.style().polish(basic_apply_btn)
         basic_apply_btn.clicked.connect(self._apply_basic_info_item)
         basic_actions.addWidget(basic_apply_btn)
 
-        basic_delete_btn = QPushButton("삭제")
+        basic_delete_btn = QPushButton()
+        self._bind_widget_text(basic_delete_btn, "settings.profile.basic.delete", "삭제")
         basic_delete_btn.clicked.connect(self._delete_basic_info_item)
         basic_actions.addWidget(basic_delete_btn)
         basic_layout.addLayout(basic_actions)
 
         top_row.addWidget(basic_group, 1)
 
-        preference_group = QGroupBox("선호와 비선호")
+        preference_group = QGroupBox()
+        self._bind_group_title(preference_group, "settings.profile.preference.title", "선호와 비선호")
         preference_layout = QVBoxLayout(preference_group)
         preference_layout.setSpacing(12)
 
         likes_row = QVBoxLayout()
         likes_row.setSpacing(10)
-        likes_label = QLabel("likes")
+        likes_label = QLabel()
+        self._bind_widget_text(likes_label, "settings.profile.preference.likes.title", "likes")
         likes_label.setObjectName("FooterTitle")
         likes_row.addWidget(likes_label)
 
@@ -3232,15 +4062,17 @@ class SettingsDialog(QDialog):
         self._configure_preference_list(self.likes_list)
         likes_col.addWidget(self.likes_list)
         self.likes_input = QLineEdit()
-        self.likes_input.setPlaceholderText("좋아하는 항목 추가")
+        self._bind_placeholder(self.likes_input, "settings.profile.preference.likes.placeholder", "좋아하는 항목 추가")
         likes_col.addWidget(self.likes_input)
         likes_actions = QHBoxLayout()
         likes_actions.setSpacing(8)
         likes_actions.addStretch()
-        likes_add_btn = QPushButton("추가")
+        likes_add_btn = QPushButton()
+        self._bind_widget_text(likes_add_btn, "settings.profile.preference.add", "추가")
         likes_add_btn.clicked.connect(lambda: self._add_preference_item("likes"))
         likes_actions.addWidget(likes_add_btn)
-        likes_delete_btn = QPushButton("삭제")
+        likes_delete_btn = QPushButton()
+        self._bind_widget_text(likes_delete_btn, "settings.profile.preference.delete", "삭제")
         likes_delete_btn.clicked.connect(lambda: self._delete_preference_item("likes"))
         likes_actions.addWidget(likes_delete_btn)
         likes_col.addLayout(likes_actions)
@@ -3249,7 +4081,8 @@ class SettingsDialog(QDialog):
 
         dislikes_row = QVBoxLayout()
         dislikes_row.setSpacing(10)
-        dislikes_label = QLabel("dislikes")
+        dislikes_label = QLabel()
+        self._bind_widget_text(dislikes_label, "settings.profile.preference.dislikes.title", "dislikes")
         dislikes_label.setObjectName("FooterTitle")
         dislikes_row.addWidget(dislikes_label)
 
@@ -3261,15 +4094,21 @@ class SettingsDialog(QDialog):
         self._configure_preference_list(self.dislikes_list)
         dislikes_col.addWidget(self.dislikes_list)
         self.dislikes_input = QLineEdit()
-        self.dislikes_input.setPlaceholderText("싫어하는 항목 추가")
+        self._bind_placeholder(
+            self.dislikes_input,
+            "settings.profile.preference.dislikes.placeholder",
+            "싫어하는 항목 추가",
+        )
         dislikes_col.addWidget(self.dislikes_input)
         dislikes_actions = QHBoxLayout()
         dislikes_actions.setSpacing(8)
         dislikes_actions.addStretch()
-        dislikes_add_btn = QPushButton("추가")
+        dislikes_add_btn = QPushButton()
+        self._bind_widget_text(dislikes_add_btn, "settings.profile.preference.add", "추가")
         dislikes_add_btn.clicked.connect(lambda: self._add_preference_item("dislikes"))
         dislikes_actions.addWidget(dislikes_add_btn)
-        dislikes_delete_btn = QPushButton("삭제")
+        dislikes_delete_btn = QPushButton()
+        self._bind_widget_text(dislikes_delete_btn, "settings.profile.preference.delete", "삭제")
         dislikes_delete_btn.clicked.connect(lambda: self._delete_preference_item("dislikes"))
         dislikes_actions.addWidget(dislikes_delete_btn)
         dislikes_col.addLayout(dislikes_actions)
@@ -3279,7 +4118,8 @@ class SettingsDialog(QDialog):
         top_row.addWidget(preference_group, 1)
         layout.addLayout(top_row)
 
-        facts_group = QGroupBox("facts")
+        facts_group = QGroupBox()
+        self._bind_group_title(facts_group, "settings.profile.facts.title", "facts")
         facts_layout = QHBoxLayout(facts_group)
         facts_layout.setSpacing(12)
 
@@ -3292,7 +4132,7 @@ class SettingsDialog(QDialog):
         fact_editor_col.setSpacing(10)
 
         self.fact_content_edit = QPlainTextEdit()
-        self.fact_content_edit.setPlaceholderText("기억 내용")
+        self._bind_placeholder(self.fact_content_edit, "settings.profile.facts.content.placeholder", "기억 내용")
         self.fact_content_edit.setMinimumHeight(150)
         fact_editor_col.addWidget(self.fact_content_edit)
 
@@ -3300,33 +4140,38 @@ class SettingsDialog(QDialog):
         fact_meta_row.setSpacing(10)
 
         self.fact_category_combo = QComboBox()
-        self.fact_category_combo.addItems(["basic", "preference", "goal", "habit"])
+        for category in ("basic", "preference", "goal", "habit"):
+            self.fact_category_combo.addItem(self._fact_category_label(category), category)
         fact_meta_row.addWidget(self.fact_category_combo)
 
         self.fact_source_input = QLineEdit()
-        self.fact_source_input.setPlaceholderText("출처")
+        self._bind_placeholder(self.fact_source_input, "settings.profile.facts.source.placeholder", "출처")
         fact_meta_row.addWidget(self.fact_source_input, 1)
         fact_editor_col.addLayout(fact_meta_row)
 
-        self.fact_timestamp_label = QLabel("신규 항목")
+        self.fact_timestamp_label = QLabel()
+        self._set_fact_timestamp("settings.profile.facts.timestamp.new", "신규 항목")
         self.fact_timestamp_label.setObjectName("FooterBody")
         fact_editor_col.addWidget(self.fact_timestamp_label)
 
         fact_actions = QHBoxLayout()
         fact_actions.setSpacing(8)
 
-        fact_new_btn = QPushButton("새 항목")
+        fact_new_btn = QPushButton()
+        self._bind_widget_text(fact_new_btn, "settings.profile.facts.new", "새 항목")
         fact_new_btn.clicked.connect(self._new_fact_item)
         fact_actions.addWidget(fact_new_btn)
 
-        fact_apply_btn = QPushButton("목록에 반영")
+        fact_apply_btn = QPushButton()
+        self._bind_widget_text(fact_apply_btn, "settings.profile.facts.apply", "목록에 반영")
         fact_apply_btn.setProperty("accent", True)
         fact_apply_btn.style().unpolish(fact_apply_btn)
         fact_apply_btn.style().polish(fact_apply_btn)
         fact_apply_btn.clicked.connect(self._apply_fact_item)
         fact_actions.addWidget(fact_apply_btn)
 
-        fact_delete_btn = QPushButton("삭제")
+        fact_delete_btn = QPushButton()
+        self._bind_widget_text(fact_delete_btn, "settings.profile.facts.delete", "삭제")
         fact_delete_btn.clicked.connect(self._delete_fact_item)
         fact_actions.addWidget(fact_delete_btn)
         fact_editor_col.addLayout(fact_actions)
@@ -3337,17 +4182,20 @@ class SettingsDialog(QDialog):
         footer_row = QHBoxLayout()
         footer_row.setSpacing(10)
 
-        self._profile_status_label = QLabel("로드 대기")
+        self._profile_status_label = QLabel()
+        self._set_profile_status("settings.profile.status.idle", "로드 대기")
         self._profile_status_label.setObjectName("FooterBody")
         footer_row.addWidget(self._profile_status_label)
 
         footer_row.addStretch()
 
-        profile_reload_btn = QPushButton("다시 불러오기")
+        profile_reload_btn = QPushButton()
+        self._bind_widget_text(profile_reload_btn, "settings.profile.reload", "다시 불러오기")
         profile_reload_btn.clicked.connect(self._load_user_profile_data)
         footer_row.addWidget(profile_reload_btn)
 
-        profile_save_btn = QPushButton("저장")
+        profile_save_btn = QPushButton()
+        self._bind_widget_text(profile_save_btn, "settings.profile.save", "저장")
         profile_save_btn.setProperty("accent", True)
         profile_save_btn.style().unpolish(profile_save_btn)
         profile_save_btn.style().polish(profile_save_btn)
@@ -3378,11 +4226,17 @@ class SettingsDialog(QDialog):
         header_layout.setContentsMargins(20, 18, 20, 18)
         header_layout.setSpacing(6)
 
-        title = QLabel("프롬프트 설정")
+        title = QLabel()
+        self._bind_widget_text(title, "settings.prompt.header.title", "프롬프트 설정")
         title.setObjectName("FooterTitle")
         header_layout.addWidget(title)
 
-        body = QLabel("파이썬 파일 전체를 직접 수정하지 않고 BASE_SYSTEM_PROMPT, SUB_PROMPT, EMOTIONS와 감정 사용 가이드만 안전하게 관리합니다.")
+        body = QLabel()
+        self._bind_widget_text(
+            body,
+            "settings.prompt.header.body",
+            "파이썬 파일 전체를 직접 수정하지 않고 BASE_SYSTEM_PROMPT, SUB_PROMPT, EMOTIONS와 감정 사용 가이드만 안전하게 관리합니다.",
+        )
         body.setObjectName("FooterBody")
         body.setWordWrap(True)
         header_layout.addWidget(body)
@@ -3407,14 +4261,20 @@ class SettingsDialog(QDialog):
         base_layout.addWidget(self._base_prompt_token_label)
         prompt_row.addWidget(base_group, 1)
 
-        sub_group = QGroupBox("SUB_PROMPT 본문")
+        sub_group = QGroupBox()
+        self._bind_group_title(sub_group, "settings.prompt.sub.title", "SUB_PROMPT 본문")
         sub_layout = QVBoxLayout(sub_group)
         sub_layout.setSpacing(10)
         sub_path = QLabel(str(self._sub_prompt_path))
         sub_path.setObjectName("FooterBody")
         sub_path.setWordWrap(True)
         sub_layout.addWidget(sub_path)
-        sub_note = QLabel("감정 규칙과 감정 사용 가이드는 아래 감정 편집 카드에서 별도로 관리됩니다.")
+        sub_note = QLabel()
+        self._bind_widget_text(
+            sub_note,
+            "settings.prompt.sub.note",
+            "감정 규칙과 감정 사용 가이드는 아래 감정 편집 카드에서 별도로 관리됩니다.",
+        )
         sub_note.setObjectName("FooterBody")
         sub_note.setWordWrap(True)
         sub_layout.addWidget(sub_note)
@@ -3428,7 +4288,8 @@ class SettingsDialog(QDialog):
         prompt_row.addWidget(sub_group, 1)
         layout.addLayout(prompt_row)
 
-        emotion_group = QGroupBox("감정 목록과 사용 가이드")
+        emotion_group = QGroupBox()
+        self._bind_group_title(emotion_group, "settings.prompt.emotions.title", "감정 목록과 사용 가이드")
         emotion_layout = QHBoxLayout(emotion_group)
         emotion_layout.setSpacing(12)
 
@@ -3441,29 +4302,36 @@ class SettingsDialog(QDialog):
         emotion_editor_col.setSpacing(10)
 
         self.emotion_name_input = QLineEdit()
-        self.emotion_name_input.setPlaceholderText("감정 키 (예: shy)")
+        self._bind_placeholder(self.emotion_name_input, "settings.prompt.emotions.name.placeholder", "감정 키 (예: shy)")
         emotion_editor_col.addWidget(self.emotion_name_input)
 
         self.emotion_guide_editor = QPlainTextEdit()
-        self.emotion_guide_editor.setPlaceholderText("감정 사용 가이드")
+        self._bind_placeholder(
+            self.emotion_guide_editor,
+            "settings.prompt.emotions.guide.placeholder",
+            "감정 사용 가이드",
+        )
         self.emotion_guide_editor.setMinimumHeight(180)
         emotion_editor_col.addWidget(self.emotion_guide_editor, 1)
 
         emotion_actions = QHBoxLayout()
         emotion_actions.setSpacing(8)
 
-        emotion_new_btn = QPushButton("새 감정")
+        emotion_new_btn = QPushButton()
+        self._bind_widget_text(emotion_new_btn, "settings.prompt.emotions.new", "새 감정")
         emotion_new_btn.clicked.connect(self._new_emotion_item)
         emotion_actions.addWidget(emotion_new_btn)
 
-        emotion_apply_btn = QPushButton("목록에 반영")
+        emotion_apply_btn = QPushButton()
+        self._bind_widget_text(emotion_apply_btn, "settings.prompt.emotions.apply", "목록에 반영")
         emotion_apply_btn.setProperty("accent", True)
         emotion_apply_btn.style().unpolish(emotion_apply_btn)
         emotion_apply_btn.style().polish(emotion_apply_btn)
         emotion_apply_btn.clicked.connect(self._apply_emotion_item)
         emotion_actions.addWidget(emotion_apply_btn)
 
-        emotion_delete_btn = QPushButton("삭제")
+        emotion_delete_btn = QPushButton()
+        self._bind_widget_text(emotion_delete_btn, "settings.prompt.emotions.delete", "삭제")
         emotion_delete_btn.clicked.connect(self._delete_emotion_item)
         emotion_actions.addWidget(emotion_delete_btn)
 
@@ -3474,17 +4342,20 @@ class SettingsDialog(QDialog):
         footer_row = QHBoxLayout()
         footer_row.setSpacing(10)
 
-        self._prompt_status_label = QLabel("로드 대기")
+        self._prompt_status_label = QLabel()
+        self._set_prompt_status("settings.prompt.status.idle", "로드 대기")
         self._prompt_status_label.setObjectName("FooterBody")
         footer_row.addWidget(self._prompt_status_label)
 
         footer_row.addStretch()
 
-        reload_btn = QPushButton("다시 불러오기")
+        reload_btn = QPushButton()
+        self._bind_widget_text(reload_btn, "settings.prompt.reload", "다시 불러오기")
         reload_btn.clicked.connect(self._load_prompt_configuration)
         footer_row.addWidget(reload_btn)
 
-        save_btn = QPushButton("저장")
+        save_btn = QPushButton()
+        self._bind_widget_text(save_btn, "settings.prompt.save", "저장")
         save_btn.setProperty("accent", True)
         save_btn.style().unpolish(save_btn)
         save_btn.style().polish(save_btn)
@@ -3648,12 +4519,24 @@ class SettingsDialog(QDialog):
         name = self._normalize_emotion_name(self.emotion_name_input.text())
         guide = self.emotion_guide_editor.toPlainText().strip()
         if not name:
-            QMessageBox.warning(self, "감정 저장 실패", "감정 키를 입력하세요.")
+            QMessageBox.warning(
+                self,
+                self._translated_text("settings.prompt.message.emotion_missing.title", "감정 저장 실패"),
+                self._translated_text("settings.prompt.message.emotion_missing.body", "감정 키를 입력하세요."),
+            )
             return
 
         duplicate_index = next((idx for idx, item in enumerate(self._emotion_items) if item["name"] == name), -1)
         if duplicate_index != -1 and duplicate_index != self._emotion_current_index:
-            QMessageBox.warning(self, "감정 저장 실패", f"'{name}' 감정은 이미 존재합니다.")
+            QMessageBox.warning(
+                self,
+                self._translated_text("settings.prompt.message.emotion_duplicate.title", "감정 저장 실패"),
+                self._translated_text_format(
+                    "settings.prompt.message.emotion_duplicate.body",
+                    "'{name}' 감정은 이미 존재합니다.",
+                    name=name,
+                ),
+            )
             return
 
         payload = {"name": name, "guide": guide}
@@ -3700,18 +4583,32 @@ class SettingsDialog(QDialog):
             self._sync_emotion_combo_options()
             self._new_emotion_item()
 
-            if self._prompt_status_label:
-                self._prompt_status_label.setText("prompt.py / sub_prompt.py 로드 완료")
+            self._set_prompt_status(
+                "settings.prompt.status.load_done",
+                "prompt.py / sub_prompt.py 로드 완료",
+            )
         except Exception as e:
-            if self._prompt_status_label:
-                self._prompt_status_label.setText(f"로드 실패: {e}")
-            QMessageBox.warning(self, "불러오기 실패", f"프롬프트 설정을 불러오지 못했습니다.\n{e}")
+            self._set_prompt_status("settings.prompt.status.load_failed", "로드 실패: {error}", error=e)
+            QMessageBox.warning(
+                self,
+                self._translated_text("settings.prompt.message.load_failed.title", "불러오기 실패"),
+                self._translated_text_format(
+                    "settings.prompt.message.load_failed.body",
+                    "프롬프트 설정을 불러오지 못했습니다.\n{error}",
+                    error=e,
+                ),
+            )
 
     def _save_prompt_configuration(self):
         try:
             emotion_names = [item["name"] for item in self._emotion_items if item["name"].strip()]
             if not emotion_names:
-                raise ValueError("감정은 하나 이상 있어야 합니다.")
+                raise ValueError(
+                    self._translated_text(
+                        "settings.prompt.message.emotion_required.body",
+                        "감정은 하나 이상 있어야 합니다.",
+                    )
+                )
 
             prompt_source = self._read_text_file(self._prompt_path)
             sub_prompt_source = self._read_text_file(self._sub_prompt_path)
@@ -3746,13 +4643,26 @@ class SettingsDialog(QDialog):
             importlib.reload(importlib.import_module("src.ai.prompt"))
             self._sync_emotion_combo_options()
 
-            if self._prompt_status_label:
-                self._prompt_status_label.setText("prompt.py / sub_prompt.py 저장 완료")
-            QMessageBox.information(self, "저장 완료", "프롬프트 설정을 저장했습니다.")
+            self._set_prompt_status(
+                "settings.prompt.status.save_done",
+                "prompt.py / sub_prompt.py 저장 완료",
+            )
+            QMessageBox.information(
+                self,
+                self._translated_text("settings.prompt.message.save_done.title", "저장 완료"),
+                self._translated_text("settings.prompt.message.save_done.body", "프롬프트 설정을 저장했습니다."),
+            )
         except Exception as e:
-            if self._prompt_status_label:
-                self._prompt_status_label.setText(f"저장 실패: {e}")
-            QMessageBox.warning(self, "저장 실패", f"프롬프트 설정을 저장하지 못했습니다.\n{e}")
+            self._set_prompt_status("settings.prompt.status.save_failed", "저장 실패: {error}", error=e)
+            QMessageBox.warning(
+                self,
+                self._translated_text("settings.prompt.message.save_failed.title", "저장 실패"),
+                self._translated_text_format(
+                    "settings.prompt.message.save_failed.body",
+                    "프롬프트 설정을 저장하지 못했습니다.\n{error}",
+                    error=e,
+                ),
+            )
 
     def _refresh_basic_info_list(self):
         self.basic_info_list.clear()
@@ -3790,12 +4700,24 @@ class SettingsDialog(QDialog):
         key = self.basic_info_key_input.text().strip()
         value = self.basic_info_value_input.text().strip()
         if not key:
-            QMessageBox.warning(self, "기본 정보 저장 실패", "항목 이름을 입력하세요.")
+            QMessageBox.warning(
+                self,
+                self._translated_text("settings.profile.message.basic_info_missing.title", "기본 정보 저장 실패"),
+                self._translated_text("settings.profile.message.basic_info_missing.body", "항목 이름을 입력하세요."),
+            )
             return
 
         duplicate_index = next((idx for idx, item in enumerate(self._basic_info_items) if item[0] == key), -1)
         if duplicate_index != -1 and duplicate_index != self._basic_info_current_index:
-            QMessageBox.warning(self, "기본 정보 저장 실패", f"'{key}' 항목은 이미 존재합니다.")
+            QMessageBox.warning(
+                self,
+                self._translated_text("settings.profile.message.basic_info_duplicate.title", "기본 정보 저장 실패"),
+                self._translated_text_format(
+                    "settings.profile.message.basic_info_duplicate.body",
+                    "'{key}' 항목은 이미 존재합니다.",
+                    key=key,
+                ),
+            )
             return
 
         payload = (key, value)
@@ -3832,7 +4754,11 @@ class SettingsDialog(QDialog):
 
         values = [list_widget.item(index).text() for index in range(list_widget.count())]
         if text in values:
-            QMessageBox.warning(self, "항목 추가 실패", "이미 같은 항목이 있습니다.")
+            QMessageBox.warning(
+                self,
+                self._translated_text("settings.profile.message.preference_duplicate.title", "항목 추가 실패"),
+                self._translated_text("settings.profile.message.preference_duplicate.body", "이미 같은 항목이 있습니다."),
+            )
             return
 
         list_widget.addItem(text)
@@ -3851,15 +4777,16 @@ class SettingsDialog(QDialog):
             preview = fact["content"].strip().replace("\n", " ")
             if len(preview) > 36:
                 preview = preview[:36] + "..."
-            self.fact_list.addItem(f"[{fact['category']}] {preview}")
+            self.fact_list.addItem(f"[{self._fact_category_label(fact['category'])}] {preview}")
 
     def _new_fact_item(self):
         self._fact_current_index = -1
         self.fact_list.clearSelection()
         self.fact_content_edit.clear()
-        self.fact_category_combo.setCurrentText("basic")
+        default_index = self.fact_category_combo.findData("basic")
+        self.fact_category_combo.setCurrentIndex(default_index if default_index >= 0 else 0)
         self.fact_source_input.clear()
-        self.fact_timestamp_label.setText("신규 항목")
+        self._set_fact_timestamp("settings.profile.facts.timestamp.new", "신규 항목")
         self.fact_content_edit.setFocus()
 
     def _on_fact_selected(self, row: int):
@@ -3867,20 +4794,29 @@ class SettingsDialog(QDialog):
         if 0 <= row < len(self._fact_items):
             fact = self._fact_items[row]
             self.fact_content_edit.setPlainText(fact["content"])
-            self.fact_category_combo.setCurrentText(fact["category"])
+            fact_index = self.fact_category_combo.findData(fact["category"])
+            self.fact_category_combo.setCurrentIndex(fact_index if fact_index >= 0 else 0)
             self.fact_source_input.setText(fact["source"])
-            self.fact_timestamp_label.setText(f"기록 시각: {fact['timestamp']}")
+            self._set_fact_timestamp(
+                "settings.profile.facts.timestamp.saved",
+                "기록 시각: {timestamp}",
+                timestamp=fact["timestamp"],
+            )
             return
         self.fact_content_edit.clear()
         self.fact_source_input.clear()
-        self.fact_timestamp_label.setText("신규 항목")
+        self._set_fact_timestamp("settings.profile.facts.timestamp.new", "신규 항목")
 
     def _apply_fact_item(self):
         content = self.fact_content_edit.toPlainText().strip()
-        category = self.fact_category_combo.currentText().strip()
+        category = str(self.fact_category_combo.currentData() or "basic").strip() or "basic"
         source = self.fact_source_input.text().strip()
         if not content:
-            QMessageBox.warning(self, "facts 저장 실패", "기억 내용을 입력하세요.")
+            QMessageBox.warning(
+                self,
+                self._translated_text("settings.profile.message.fact_missing.title", "facts 저장 실패"),
+                self._translated_text("settings.profile.message.fact_missing.body", "기억 내용을 입력하세요."),
+            )
             return
 
         payload = {
@@ -3939,12 +4875,21 @@ class SettingsDialog(QDialog):
             self._new_basic_info_item()
             self._new_fact_item()
 
-            if self._profile_status_label:
-                self._profile_status_label.setText("user_profile.json 로드 완료")
+            self._set_profile_status(
+                "settings.profile.status.load_done",
+                "user_profile.json 로드 완료",
+            )
         except Exception as e:
-            if self._profile_status_label:
-                self._profile_status_label.setText(f"로드 실패: {e}")
-            QMessageBox.warning(self, "불러오기 실패", f"user_profile.json을 불러오지 못했습니다.\n{e}")
+            self._set_profile_status("settings.profile.status.load_failed", "로드 실패: {error}", error=e)
+            QMessageBox.warning(
+                self,
+                self._translated_text("settings.profile.message.load_failed.title", "불러오기 실패"),
+                self._translated_text_format(
+                    "settings.profile.message.load_failed.body",
+                    "user_profile.json을 불러오지 못했습니다.\n{error}",
+                    error=e,
+                ),
+            )
 
     def _save_user_profile_data(self):
         try:
@@ -3976,13 +4921,26 @@ class SettingsDialog(QDialog):
             if user_profile:
                 user_profile.load()
 
-            if self._profile_status_label:
-                self._profile_status_label.setText("user_profile.json 저장 완료")
-            QMessageBox.information(self, "저장 완료", "사용자 기억 정보를 저장했습니다.")
+            self._set_profile_status(
+                "settings.profile.status.save_done",
+                "user_profile.json 저장 완료",
+            )
+            QMessageBox.information(
+                self,
+                self._translated_text("settings.profile.message.save_done.title", "저장 완료"),
+                self._translated_text("settings.profile.message.save_done.body", "사용자 기억 정보를 저장했습니다."),
+            )
         except Exception as e:
-            if self._profile_status_label:
-                self._profile_status_label.setText(f"저장 실패: {e}")
-            QMessageBox.warning(self, "저장 실패", f"user_profile.json을 저장하지 못했습니다.\n{e}")
+            self._set_profile_status("settings.profile.status.save_failed", "저장 실패: {error}", error=e)
+            QMessageBox.warning(
+                self,
+                self._translated_text("settings.profile.message.save_failed.title", "저장 실패"),
+                self._translated_text_format(
+                    "settings.profile.message.save_failed.body",
+                    "user_profile.json을 저장하지 못했습니다.\n{error}",
+                    error=e,
+                ),
+            )
     def _qt_key_to_hotkey_token(self, event) -> str:
         key = event.key()
         special_map = {
@@ -4081,11 +5039,25 @@ class SettingsDialog(QDialog):
     def _update_ptt_hotkey_ui(self):
         self.global_ptt_hotkey_value_label.setText(hotkey_to_display(self._ptt_hotkey_value, default="alt"))
         if self._capturing_ptt_hotkey:
-            self.global_ptt_hotkey_set_button.setText("입력 대기 중...")
-            self.global_ptt_hotkey_hint_label.setText("설정할 키를 누르세요. Esc를 누르면 취소됩니다.")
+            self.global_ptt_hotkey_set_button.setText(
+                self._translated_text("settings.behavior.ptt.hotkey.waiting", "입력 대기 중...")
+            )
+            self.global_ptt_hotkey_hint_label.setText(
+                self._translated_text(
+                    "settings.behavior.ptt.hotkey.waiting_hint",
+                    "설정할 키를 누르세요. Esc를 누르면 취소됩니다.",
+                )
+            )
         else:
-            self.global_ptt_hotkey_set_button.setText("단축키 설정")
-            self.global_ptt_hotkey_hint_label.setText("누르고 있는 동안만 녹음됩니다.")
+            self.global_ptt_hotkey_set_button.setText(
+                self._translated_text("settings.behavior.ptt.hotkey.set", "단축키 설정")
+            )
+            self.global_ptt_hotkey_hint_label.setText(
+                self._translated_text(
+                    "settings.behavior.ptt.hotkey.hint",
+                    "누르고 있는 동안만 녹음됩니다.",
+                )
+            )
 
     def _start_ptt_hotkey_capture(self):
         if self._capturing_ptt_hotkey:
@@ -4104,6 +5076,14 @@ class SettingsDialog(QDialog):
     def _reset_ptt_hotkey(self):
         self._ptt_hotkey_value = normalize_hotkey_text("alt", default="alt")
         self._update_ptt_hotkey_ui()
+        self._on_setting_changed()
+
+    def _on_ui_language_changed(self, *_):
+        if self._loading:
+            return
+        selected_language = str(self.ui_language_combo.currentData() or "auto")
+        self._set_dialog_preview_language(selected_language)
+        self._retranslate_ui()
         self._on_setting_changed()
 
     def _on_llm_provider_changed(self, *_):
@@ -4217,6 +5197,12 @@ class SettingsDialog(QDialog):
     def _load_values(self):
         self._loading = True
         try:
+            ui_language = str(self._original_settings.get("ui_language", "auto")).strip().lower() or "auto"
+            if ui_language not in {"auto", "ko", "en", "ja"}:
+                ui_language = "auto"
+            if hasattr(self, "ui_language_combo"):
+                language_index = self.ui_language_combo.findData(ui_language)
+                self.ui_language_combo.setCurrentIndex(language_index if language_index >= 0 else 0)
             self.window_x_spin.setValue(self._original_settings.get("window_x", 100))
             self.window_y_spin.setValue(self._original_settings.get("window_y", 100))
             self.window_width_spin.setValue(self._original_settings.get("window_width", 400))
@@ -4484,6 +5470,7 @@ class SettingsDialog(QDialog):
 
         return {
             **preserved_hidden_settings,
+            "ui_language": str(self.ui_language_combo.currentData() or "auto"),
             "window_x": self.window_x_spin.value(),
             "window_y": self.window_y_spin.value(),
             "window_width": self.window_width_spin.value(),
@@ -4562,8 +5549,11 @@ class SettingsDialog(QDialog):
         if invalid_key is not None:
             QMessageBox.warning(
                 self,
-                "테마 색상 확인",
-                "모든 테마 값은 `#RRGGBB` 형식의 6자리 HEX 코드만 사용할 수 있습니다.",
+                self._translated_text("settings.theme.warning.invalid_hex.title", "테마 색상 확인"),
+                self._translated_text(
+                    "settings.theme.warning.invalid_hex.body",
+                    "모든 테마 값은 `#RRGGBB` 형식의 6자리 HEX 코드만 사용할 수 있습니다.",
+                ),
             )
             self._theme_color_edits[invalid_key].setFocus()
             return
@@ -4573,11 +5563,14 @@ class SettingsDialog(QDialog):
 
     def _cancel_settings(self):
         self._saved = False
+        self._restore_original_ui_language()
         self.settings_cancelled.emit()
         self.close()
 
     def closeEvent(self, event):
         self._stop_ptt_hotkey_capture()
+        if not getattr(self, "_saved", False):
+            self._restore_original_ui_language()
         if not hasattr(self, "_saved"):
             self.settings_cancelled.emit()
         event.accept()

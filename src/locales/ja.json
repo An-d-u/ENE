@@ -164,5 +164,673 @@
   "settings.tts.provider.elevenlabs.label": "ElevenLabs TTS",
   "settings.tts.provider.elevenlabs.hint": "音声コントロールを備えた ElevenLabs のテキスト音声合成エンドポイントです。",
   "settings.tts.provider.browser_speech.label": "ブラウザ音声合成",
-  "settings.tts.provider.browser_speech.hint": "組み込みブラウザの speechSynthesis 音声を使うフォールバック用音声合成です。"
+  "settings.tts.provider.browser_speech.hint": "組み込みブラウザの speechSynthesis 音声を使うフォールバック用音声合成です。",
+  "settings": {
+    "common": {
+      "auto": "自動",
+      "browse": "参照",
+      "refresh": "更新"
+    },
+    "content": {
+      "placeholder": "セクションを選んで詳細設定を調整します。"
+    },
+    "sidebar": {
+      "title": "ENE 設定",
+      "meta": "左でセクションを選び、右で詳細項目を調整します。"
+    },
+    "footer": {
+      "title": "設定の適用",
+      "body": "変更内容は保存するまでプレビューとしてのみ反映されます。キャンセルすると以前の状態に戻り、一部の LLM 変更は保存後に再起動すると最も安定して反映されます。",
+      "cancel": "キャンセル",
+      "save": "変更を保存"
+    },
+    "secret": {
+      "show": "表示",
+      "hide": "非表示"
+    },
+    "section": {
+      "window": {
+        "title": "ウィンドウ設定",
+        "description": "ウィンドウ位置、サイズ、言語"
+      },
+      "theme": {
+        "title": "テーマ設定",
+        "description": "ライト、ダーク、パレット"
+      },
+      "model": {
+        "title": "モデル設定",
+        "description": "配置と Live2D パス"
+      },
+      "llm": {
+        "title": "LLM 設定",
+        "description": "プロバイダーと応答スタイル"
+      },
+      "tts": {
+        "title": "TTS 設定",
+        "description": "プロバイダーと音声合成"
+      },
+      "behavior": {
+        "title": "動作設定",
+        "description": "ボタン、PTT、モーション"
+      },
+      "memory": {
+        "title": "メモリ管理",
+        "description": "メモリ一覧と検索調整"
+      },
+      "profile": {
+        "title": "ユーザーメモリ管理",
+        "description": "user_profile.json 構造の編集"
+      },
+      "prompt": {
+        "title": "プロンプト設定",
+        "description": "プロンプトと感情ルール"
+      }
+    },
+    "window": {
+      "general": {
+        "title": "一般",
+        "ui_language": {
+          "label": "UI 言語:",
+          "hint": "この設定ダイアログの文言をすぐにプレビューできます。保存後は次回起動から同じ言語が既定値になります。",
+          "auto": "システムの既定値",
+          "ko": "韓国語",
+          "en": "英語",
+          "ja": "日本語"
+        }
+      },
+      "quick": {
+        "title": "クイック配置",
+        "hint": "よく使う位置を先に選び、その後で下の座標とサイズを細かく調整できます。",
+        "center": "中央",
+        "bottom_right": "右下",
+        "bottom_left": "左下"
+      },
+      "position": {
+        "title": "詳細位置",
+        "x": "X 座標:",
+        "y": "Y 座標:"
+      },
+      "size": {
+        "title": "ウィンドウサイズ",
+        "width": "幅:",
+        "height": "高さ:"
+      }
+    },
+    "theme": {
+      "overview": {
+        "title": "Theme overview",
+        "hint": "The settings window and chat window move together in the same theme mode. Pick light or dark above, then fine-tune colors below if needed."
+      },
+      "variant_group": {
+        "light": "Light presets",
+        "dark": "Dark presets"
+      },
+      "follow_system": "Follow the current Windows app theme (light/dark)",
+      "settings_palette": {
+        "title": "Settings palette"
+      },
+      "chat_palette": {
+        "title": "Chat palette"
+      },
+      "accent_palette": {
+        "title": "Accent color"
+      },
+      "color": {
+        "reset": "Default",
+        "swatch": {
+          "tooltip": "Click to choose a color"
+        },
+        "settings_window_bg_color": {
+          "title": "Outer window background",
+          "description": "Base backdrop behind the entire settings surface."
+        },
+        "settings_card_bg_color": {
+          "title": "Settings card background",
+          "description": "Surface color for the title bar, cards, and tab areas."
+        },
+        "settings_input_bg_color": {
+          "title": "Input field background",
+          "description": "Base background for inputs, dropdowns, and lists."
+        },
+        "chat_panel_bg_color": {
+          "title": "Chat panel background",
+          "description": "Base background for the lower chat panel and helper widgets."
+        },
+        "chat_input_bg_color": {
+          "title": "Chat input background",
+          "description": "Base background for the input field and input wrapper."
+        },
+        "chat_assistant_bubble_color": {
+          "title": "Assistant bubble background",
+          "description": "Base background for AI response bubbles."
+        },
+        "chat_user_bubble_color": {
+          "title": "User bubble background",
+          "description": "Base background for user message bubbles."
+        },
+        "theme_accent_color": {
+          "title": "Accent color",
+          "description": "Used for save buttons, focus rings, selection states, and highlights."
+        }
+      },
+      "picker": {
+        "popup": {
+          "title": "Color selection"
+        },
+        "panel": {
+          "title": "Fine color adjustment",
+          "close": "Close"
+        },
+        "slider": {
+          "hue": "Hue",
+          "saturation": "Sat",
+          "lightness": "Light"
+        }
+      },
+      "preview": {
+        "assistant": "Assistant",
+        "user": "User",
+        "input": "Input field example"
+      },
+      "status": {
+        "invalid_hex": "All theme colors must use a 6-digit HEX code in `#RRGGBB` format.",
+        "shared_mode": "The settings and chat surfaces are configured to move together in the same theme mode.",
+        "follow_system_detail": "Following the current Windows app theme ({mode})."
+      },
+      "warning": {
+        "invalid_hex": {
+          "title": "Theme color check",
+          "body": "Every theme color must use a 6-digit HEX code in `#RRGGBB` format."
+        }
+      },
+      "mode": {
+        "light": {
+          "short": "Light"
+        },
+        "dark": {
+          "short": "Dark"
+        }
+      }
+    },
+    "model": {
+      "quick": {
+        "title": "Quick placement",
+        "hint": "Pick a common position first, then fine-tune it with the sliders below.",
+        "center": "Center",
+        "left": "Left",
+        "right": "Right"
+      },
+      "scale": {
+        "title": "Model size",
+        "label": "Scale:",
+        "hint": "Resize the entire model relative to the 1.00x baseline."
+      },
+      "position_x": {
+        "title": "Model X position",
+        "hint": "Move the model between the left and right edges of the screen.",
+        "left": "Left",
+        "right": "Right"
+      },
+      "position_y": {
+        "title": "Model Y position",
+        "hint": "Move the model between the top and bottom edges of the screen.",
+        "top": "Top",
+        "bottom": "Bottom"
+      },
+      "path": {
+        "title": "Live2D model file",
+        "hint": "Point directly to a `.model3.json` file. The preview also reloads the model before saving.",
+        "placeholder": "e.g. assets/live2d_models/jksalt/jksalt.model3.json",
+        "dialog": {
+          "title": "Choose a Live2D model file",
+          "filter": "Live2D model (*.model3.json);;JSON files (*.json);;All files (*.*)"
+        }
+      }
+    },
+    "llm": {
+      "provider_group": {
+        "title": "Provider and authentication",
+        "provider": "Provider:",
+        "api_key": {
+          "label": "API key:",
+          "placeholder": "API key for the selected provider",
+          "hint": "Sensitive values stay hidden by default and are saved for the currently selected provider."
+        }
+      },
+      "model_group": {
+        "title": "Model and response style",
+        "model": {
+          "label": "Model:",
+          "placeholder": "e.g. gemini-3-flash-preview, gpt-4o-mini"
+        },
+        "temperature": "Temperature:",
+        "top_p": "Top P:",
+        "max_tokens": "Max Tokens:",
+        "hint": "Temperature and Top P adjust creativity, while Max Tokens limits response length."
+      },
+      "custom_api_group": {
+        "title": "Custom API",
+        "url": {
+          "label": "URL:",
+          "placeholder": "e.g. https://api.example.com/v1/chat/completions"
+        },
+        "secret": {
+          "label": "Key / password:",
+          "placeholder": "Key or password"
+        },
+        "request_model": {
+          "label": "Request model:",
+          "placeholder": "Requested model name"
+        },
+        "format": {
+          "label": "Format:",
+          "openai_compatible": "OpenAI Compatible",
+          "openai_response_api": "OpenAI Response API",
+          "anthropic": "Anthropic Claude",
+          "mistral": "Mistral",
+          "google_cloud": "Google Cloud",
+          "cohere": "Cohere"
+        },
+        "hint": "This section is only used when the Custom API provider is selected."
+      },
+      "embedding_group": {
+        "title": "Embedding settings",
+        "provider": "Embedding provider:",
+        "api_key": {
+          "label": "Embedding API key:",
+          "placeholder": "Voyage AI API key"
+        },
+        "model": "Embedding model:",
+        "hint": "Voyage AI is the only supported provider right now. After saving, the same model is used for new memories and similar-memory retrieval."
+      },
+      "restart_group": {
+        "title": "Apply note",
+        "body": "Provider, key, and model changes may not appear immediately in every session. Restarting the app after saving is the most reliable way to apply them."
+      }
+    },
+    "tts": {
+      "overview": {
+        "title": "Provider selection",
+        "enable": "Enable TTS for Japanese responses",
+        "provider": "Provider:"
+      },
+      "gpt": {
+        "connection": {
+          "title": "Connection",
+          "api_url": {
+            "label": "TTS API URL:",
+            "placeholder": "e.g. http://127.0.0.1:9880"
+          }
+        },
+        "reference": {
+          "title": "Reference voice",
+          "audio": {
+            "label": "Reference audio:",
+            "placeholder": "e.g. assets/ref_audio/refvoice.wav",
+            "dialog": {
+              "title": "Choose reference audio",
+              "filter": "Audio Files (*.wav *.mp3 *.flac *.ogg);;All files (*.*)"
+            }
+          },
+          "text": {
+            "label": "Reference text:",
+            "placeholder": "Transcript of the reference audio"
+          },
+          "ref_language": {
+            "label": "Reference language:",
+            "placeholder": "e.g. ja"
+          },
+          "target_language": {
+            "label": "Output language:",
+            "placeholder": "e.g. ja"
+          },
+          "hint": "This uses reference-voice synthesis, so you can point directly at a local or remote GPT-SoVITS endpoint."
+        }
+      },
+      "openai": {
+        "connection": {
+          "title": "OpenAI connection",
+          "api_key": {
+            "label": "API key:",
+            "placeholder": "OpenAI API key"
+          },
+          "api_url": {
+            "label": "API URL:",
+            "placeholder": "e.g. https://api.openai.com/v1"
+          }
+        },
+        "voice": {
+          "title": "Model and voice",
+          "model": "Model:",
+          "voice": "Voice:",
+          "speed": "Speed:",
+          "hint": "API URL, model, voice, and speed are separated, similar to AIRI's OpenAI Speech setup. The response format stays fixed to WAV for lip-sync analysis."
+        }
+      },
+      "compatible": {
+        "connection": {
+          "title": "Compatible API connection",
+          "api_key": {
+            "label": "API key:",
+            "placeholder": "Only if your endpoint requires one"
+          },
+          "api_url": {
+            "label": "API URL:",
+            "placeholder": "e.g. http://127.0.0.1:8000/v1"
+          }
+        },
+        "voice": {
+          "title": "Model and voice",
+          "model": {
+            "label": "Model:",
+            "placeholder": "e.g. tts-1"
+          },
+          "voice": {
+            "label": "Voice:",
+            "placeholder": "e.g. alloy"
+          },
+          "speed": "Speed:",
+          "hint": "General-purpose settings for local TTS servers or proxy APIs that mimic the OpenAI speech schema."
+        }
+      },
+      "elevenlabs": {
+        "connection": {
+          "title": "ElevenLabs connection",
+          "api_key": {
+            "label": "API key:",
+            "placeholder": "ElevenLabs API key"
+          },
+          "api_url": {
+            "label": "API URL:",
+            "placeholder": "e.g. https://api.elevenlabs.io/v1"
+          }
+        },
+        "voice": {
+          "title": "Model and voice style",
+          "model": "Model:",
+          "voice_id": {
+            "label": "Voice ID:",
+            "placeholder": "e.g. EXAVITQu4vr4xnSDxMaL"
+          },
+          "speed": "Speed:",
+          "stability": "Stability:",
+          "similarity": "Similarity Boost:",
+          "style": "Style:",
+          "speaker_boost": "Use Speaker Boost",
+          "hint": "These settings mirror the core ElevenLabs controls used in AIRI: model, Voice ID, stability, similarity boost, style, and speaker boost."
+        }
+      },
+      "browser": {
+        "title": "Browser fallback TTS",
+        "lang": {
+          "label": "Language:",
+          "placeholder": "e.g. ja-JP"
+        },
+        "filter": {
+          "label": "List filter:",
+          "all": "All languages"
+        },
+        "voice": {
+          "label": "Voice:",
+          "placeholder": "Available voices load automatically",
+          "default_suffix": "default"
+        },
+        "status": {
+          "idle": "Read voices from the current ENE webview environment while this dialog is open. On another PC, the list refreshes for that environment again.",
+          "loading": "Loading browser voices from the current environment...",
+          "no_webview": "Could not find the current webview, so the voice list is unavailable.",
+          "waiting": "No voices arrived yet. ENE will retry after the system voices finish initializing.",
+          "loaded": "Loaded {total} available voices for this environment.",
+          "loaded_filtered": "Loaded {total} available voices for this environment, and showing {visible} for {language}."
+        },
+        "rate": "Speed:",
+        "pitch": "Pitch:",
+        "volume": "Volume:",
+        "hint": "Useful as a fallback or quick test provider. It speaks without an API key, but voice quality and availability depend on the browser and OS in the deployment environment. If a saved voice is missing, ENE falls back naturally to a voice in the same language or the system default. Lip-sync is not applied."
+      }
+    },
+    "behavior": {
+      "display": {
+        "title": "Display elements",
+        "drag_bar": "Show drag bar",
+        "recent_reroll": "Show recent message reroll button",
+        "recent_edit": "Show recent message edit button",
+        "token_usage": "Show conversation token usage",
+        "mouse_tracking": "Enable mouse tracking",
+        "hint": "Manage core surface visibility and mouse interaction together."
+      },
+      "actions": {
+        "title": "Conversation and helper buttons",
+        "manual_summary": "Show manual summary button",
+        "note_button": "Show note button",
+        "mood_button": "Show mood button",
+        "hint": "Turning on only the buttons you use often keeps the screen simpler."
+      },
+      "ptt": {
+        "title": "Voice input (global PTT)",
+        "enable": "Enable global Push-to-Talk",
+        "interrupt_tts": "Interrupt ENE speech when PTT starts",
+        "hotkey": {
+          "label": "PTT hotkey:",
+          "set": "Set Hotkey",
+          "reset": "Default",
+          "hint": "Recording only continues while the key is held.",
+          "waiting": "Listening for input...",
+          "waiting_hint": "Press the key you want to use. Press Esc to cancel."
+        }
+      },
+      "note": {
+        "title": "Note settings",
+        "include_recent": "Auto-inject recent conversation context into /note",
+        "recent_turns": {
+          "label": "Injected turns (0 = whole session):",
+          "all": "Whole session",
+          "suffix": " turns"
+        }
+      },
+      "idle": {
+        "title": "Idle motion",
+        "enable": "Enable idle motion (automatic movement while ENE is not speaking)",
+        "dynamic": "Enable dynamic idle motion mode",
+        "strength": "Idle motion strength:",
+        "speed": "Idle motion speed:"
+      },
+      "head_pat": {
+        "title": "Head pat",
+        "enable": "Enable head pat",
+        "strength": "Head pat strength:",
+        "fade_in": "Fade in:",
+        "fade_out": "Fade out:",
+        "active_emotion_default": "Active emotion (default):",
+        "active_emotion_custom": {
+          "label": "Active emotion (custom):",
+          "placeholder": "Custom emotion (text wins)"
+        },
+        "end_emotion_default": "Ending emotion (default):",
+        "end_emotion_custom": {
+          "label": "Ending emotion (custom):",
+          "placeholder": "Custom emotion (text wins)"
+        },
+        "end_duration": "Emotion hold time:"
+      },
+      "away": {
+        "title": "Away / idle detection",
+        "enable": "Enable idle-detection nudges",
+        "idle_minutes": {
+          "label": "Idle time:",
+          "suffix": " min"
+        },
+        "diff_threshold": "Screen difference sensitivity:",
+        "retry_limit": {
+          "label": "Additional retry count:",
+          "suffix": " retries"
+        }
+      }
+    },
+    "memory": {
+      "search_scope": {
+        "title": "メモリ検索範囲",
+        "body": "長期記憶を検索するときに、最新のユーザーメッセージと一緒に参照する直近の表示中会話ターン数を調整します。追加ターンは現在のリクエストにだけ一時注入され、保存される履歴には純粋な会話だけが残ります。",
+        "turns": {
+          "label": "検索に含める最近の会話:",
+          "hint": "例: 2ターンなら、直前のユーザー/ENE 2組を現在のメッセージと一緒に見て長期記憶を検索します。",
+          "suffix": " ターン",
+          "special": "現在のメッセージのみ"
+        }
+      },
+      "empty": {
+        "title": "メモリ管理",
+        "body": "メモリマネージャーが初期化されていないため、ここではメモリ一覧パネルを表示できません。"
+      }
+    },
+    "prompt": {
+      "token_count": "{title} トークン: {token_count:,}個 ・ 文字数: {char_count:,}字",
+      "header": {
+        "title": "プロンプト設定",
+        "body": "Python ファイル全体を直接編集せずに、BASE_SYSTEM_PROMPT、SUB_PROMPT、EMOTIONS、感情ガイドだけを安全に管理します。"
+      },
+      "sub": {
+        "title": "SUB_PROMPT 本文",
+        "note": "感情ルールと感情の使用ガイドは、下の感情編集カードで別々に管理します。"
+      },
+      "emotions": {
+        "title": "感情一覧と使用ガイド",
+        "name": {
+          "placeholder": "感情キー (例: shy)"
+        },
+        "guide": {
+          "placeholder": "感情の使用ガイド"
+        },
+        "new": "新しい感情",
+        "apply": "一覧に反映",
+        "delete": "削除"
+      },
+      "reload": "再読み込み",
+      "save": "保存",
+      "status": {
+        "idle": "読み込み待機",
+        "load_done": "prompt.py / sub_prompt.py 読み込み完了",
+        "load_failed": "読み込み失敗: {error}",
+        "save_done": "prompt.py / sub_prompt.py 保存完了",
+        "save_failed": "保存失敗: {error}"
+      },
+      "message": {
+        "emotion_missing": {
+          "title": "感情の保存に失敗しました",
+          "body": "感情キーを入力してください。"
+        },
+        "emotion_duplicate": {
+          "title": "感情の保存に失敗しました",
+          "body": "感情 '{name}' はすでに存在します。"
+        },
+        "emotion_required": {
+          "body": "感情は 1 つ以上必要です。"
+        },
+        "load_failed": {
+          "title": "読み込み失敗",
+          "body": "プロンプト設定を読み込めませんでした。\n{error}"
+        },
+        "save_done": {
+          "title": "保存完了",
+          "body": "プロンプト設定を保存しました。"
+        },
+        "save_failed": {
+          "title": "保存失敗",
+          "body": "プロンプト設定を保存できませんでした。\n{error}"
+        }
+      }
+    },
+    "profile": {
+      "header": {
+        "title": "ユーザーメモリ管理",
+        "body": "user_profile.json の basic_info、likes、dislikes、facts だけを構造化して管理します。元の JSON 全体を開かず、必要な項目だけを編集します。"
+      },
+      "basic": {
+        "title": "基本情報",
+        "key": {
+          "placeholder": "項目名"
+        },
+        "value": {
+          "placeholder": "値"
+        },
+        "new": "新しい項目",
+        "apply": "一覧に反映",
+        "delete": "削除"
+      },
+      "preference": {
+        "title": "好みと苦手",
+        "likes": {
+          "title": "好きなもの",
+          "placeholder": "好きな項目を追加"
+        },
+        "dislikes": {
+          "title": "苦手なもの",
+          "placeholder": "苦手な項目を追加"
+        },
+        "add": "追加",
+        "delete": "削除"
+      },
+      "facts": {
+        "title": "facts",
+        "category": {
+          "basic": "基本情報",
+          "preference": "好み",
+          "goal": "目標",
+          "habit": "習慣"
+        },
+        "content": {
+          "placeholder": "記憶内容"
+        },
+        "source": {
+          "placeholder": "出典"
+        },
+        "timestamp": {
+          "new": "新しい項目",
+          "saved": "記録時刻: {timestamp}"
+        },
+        "new": "新しい項目",
+        "apply": "一覧に反映",
+        "delete": "削除"
+      },
+      "reload": "再読み込み",
+      "save": "保存",
+      "status": {
+        "idle": "読み込み待機",
+        "load_done": "user_profile.json 読み込み完了",
+        "load_failed": "読み込み失敗: {error}",
+        "save_done": "user_profile.json 保存完了",
+        "save_failed": "保存失敗: {error}"
+      },
+      "message": {
+        "basic_info_missing": {
+          "title": "基本情報の保存に失敗しました",
+          "body": "項目名を入力してください。"
+        },
+        "basic_info_duplicate": {
+          "title": "基本情報の保存に失敗しました",
+          "body": "項目 '{key}' はすでに存在します。"
+        },
+        "preference_duplicate": {
+          "title": "項目の追加に失敗しました",
+          "body": "同じ項目がすでに存在します。"
+        },
+        "fact_missing": {
+          "title": "facts の保存に失敗しました",
+          "body": "記憶内容を入力してください。"
+        },
+        "load_failed": {
+          "title": "読み込み失敗",
+          "body": "user_profile.json を読み込めませんでした。\n{error}"
+        },
+        "save_done": {
+          "title": "保存完了",
+          "body": "ユーザーメモリ情報を保存しました。"
+        },
+        "save_failed": {
+          "title": "保存失敗",
+          "body": "user_profile.json を保存できませんでした。\n{error}"
+        }
+      }
+    }
+  }
 }
