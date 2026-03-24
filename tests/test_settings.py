@@ -8,6 +8,7 @@ def test_load_missing_file_uses_default_config(tmp_path):
     secret_path = tmp_path / "api_keys.json"
     settings = Settings(config_path=str(config_path), secret_path=str(secret_path))
     assert settings.get("window_width") == Settings.DEFAULT_CONFIG["window_width"]
+    assert settings.get("ui_language") == "auto"
     assert settings.get("enable_away_nudge") is True
     assert settings.get("show_obsidian_note_button") is True
     assert settings.get("show_token_usage_bubble") is False
@@ -22,11 +23,13 @@ def test_save_and_reload_roundtrip(tmp_path):
     settings = Settings(config_path=str(config_path), secret_path=str(secret_path))
     settings.set("window_width", 777)
     settings.set("zoom_level", 1.25)
+    settings.set("ui_language", "ja")
     settings.save()
 
     reloaded = Settings(config_path=str(config_path), secret_path=str(secret_path))
     assert reloaded.get("window_width") == 777
     assert reloaded.get("zoom_level") == 1.25
+    assert reloaded.get("ui_language") == "ja"
 
 
 def test_load_invalid_json_falls_back_to_default(tmp_path):
