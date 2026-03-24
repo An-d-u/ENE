@@ -164,5 +164,673 @@
   "settings.tts.provider.elevenlabs.label": "ElevenLabs TTS",
   "settings.tts.provider.elevenlabs.hint": "음성 제어 옵션을 지원하는 ElevenLabs 텍스트 음성 합성 엔드포인트입니다.",
   "settings.tts.provider.browser_speech.label": "브라우저 음성 합성",
-  "settings.tts.provider.browser_speech.hint": "내장 브라우저의 speechSynthesis 음성을 사용하는 폴백용 음성 합성입니다."
+  "settings.tts.provider.browser_speech.hint": "내장 브라우저의 speechSynthesis 음성을 사용하는 폴백용 음성 합성입니다.",
+  "settings": {
+    "common": {
+      "auto": "자동",
+      "browse": "찾아보기",
+      "refresh": "새로고침"
+    },
+    "content": {
+      "placeholder": "섹션을 선택해 세부 설정을 조정합니다."
+    },
+    "sidebar": {
+      "title": "ENE 설정",
+      "meta": "섹션을 왼쪽에서 고르고 오른쪽에서 세부 항목을 조정합니다."
+    },
+    "footer": {
+      "title": "설정 적용 안내",
+      "body": "변경사항은 저장 전까지 미리보기로만 반영됩니다. 취소하면 이전 상태로 돌아가며, 일부 LLM 변경은 저장 후 다시 시작할 때 가장 안정적으로 반영됩니다.",
+      "cancel": "취소",
+      "save": "변경사항 저장"
+    },
+    "secret": {
+      "show": "표시",
+      "hide": "숨김"
+    },
+    "section": {
+      "window": {
+        "title": "창 설정",
+        "description": "창 위치와 크기, 언어"
+      },
+      "theme": {
+        "title": "테마 설정",
+        "description": "라이트, 다크, 팔레트"
+      },
+      "model": {
+        "title": "모델 설정",
+        "description": "배치와 Live2D 경로"
+      },
+      "llm": {
+        "title": "LLM 설정",
+        "description": "공급자와 응답 스타일"
+      },
+      "tts": {
+        "title": "TTS 설정",
+        "description": "공급자와 음성 합성"
+      },
+      "behavior": {
+        "title": "동작 설정",
+        "description": "버튼, PTT, 모션"
+      },
+      "memory": {
+        "title": "기억 관리",
+        "description": "기억 목록과 검색 조정"
+      },
+      "profile": {
+        "title": "사용자 기억 관리",
+        "description": "user_profile.json 구조 편집"
+      },
+      "prompt": {
+        "title": "프롬프트 설정",
+        "description": "프롬프트와 감정 규칙"
+      }
+    },
+    "window": {
+      "general": {
+        "title": "일반",
+        "ui_language": {
+          "label": "UI 언어:",
+          "hint": "현재 설정창 문구를 즉시 미리보기로 바꿉니다. 저장 후에는 다음 실행부터 같은 언어를 기본값으로 사용합니다.",
+          "auto": "시스템 기본값",
+          "ko": "한국어",
+          "en": "영어",
+          "ja": "일본어"
+        }
+      },
+      "quick": {
+        "title": "빠른 배치",
+        "hint": "자주 쓰는 위치를 먼저 고른 뒤, 아래에서 좌표와 크기를 미세 조정할 수 있습니다.",
+        "center": "화면 중앙",
+        "bottom_right": "우측 하단",
+        "bottom_left": "좌측 하단"
+      },
+      "position": {
+        "title": "정밀 위치",
+        "x": "X 좌표:",
+        "y": "Y 좌표:"
+      },
+      "size": {
+        "title": "창 크기",
+        "width": "너비:",
+        "height": "높이:"
+      }
+    },
+    "theme": {
+      "overview": {
+        "title": "테마 개요",
+        "hint": "설정창과 채팅창은 같은 테마 모드로 움직입니다. 위에서 라이트 또는 다크를 고르고, 필요하면 아래에서 세부 색만 조정할 수 있습니다."
+      },
+      "variant_group": {
+        "light": "라이트 프리셋",
+        "dark": "다크 프리셋"
+      },
+      "follow_system": "현재 윈도우 앱 테마(라이트/다크)를 따라가기",
+      "settings_palette": {
+        "title": "설정창 팔레트"
+      },
+      "chat_palette": {
+        "title": "채팅창 팔레트"
+      },
+      "accent_palette": {
+        "title": "포인트 색상"
+      },
+      "color": {
+        "reset": "기본값",
+        "swatch": {
+          "tooltip": "클릭해서 색상 선택"
+        },
+        "settings_window_bg_color": {
+          "title": "설정창 바깥 배경",
+          "description": "설정창 전체의 기본 바탕색입니다."
+        },
+        "settings_card_bg_color": {
+          "title": "설정 카드 배경",
+          "description": "타이틀 바, 카드, 탭 영역의 기본 표면색입니다."
+        },
+        "settings_input_bg_color": {
+          "title": "입력 필드 배경",
+          "description": "입력창, 드롭다운, 리스트의 기본 배경색입니다."
+        },
+        "chat_panel_bg_color": {
+          "title": "채팅 메인 배경",
+          "description": "채팅창 하단 패널과 보조 위젯의 기본 배경색입니다."
+        },
+        "chat_input_bg_color": {
+          "title": "채팅 입력 배경",
+          "description": "입력창과 입력 래퍼의 기본 배경색입니다."
+        },
+        "chat_assistant_bubble_color": {
+          "title": "응답 버블 배경",
+          "description": "AI 응답 말풍선의 기본 배경색입니다."
+        },
+        "chat_user_bubble_color": {
+          "title": "사용자 버블 배경",
+          "description": "사용자 말풍선의 기본 배경색입니다."
+        },
+        "theme_accent_color": {
+          "title": "포인트 색상",
+          "description": "저장 버튼, 포커스 링, 선택 상태와 강조 요소에 사용됩니다."
+        }
+      },
+      "picker": {
+        "popup": {
+          "title": "색상 선택"
+        },
+        "panel": {
+          "title": "색상 미세 조정",
+          "close": "닫기"
+        },
+        "slider": {
+          "hue": "색조",
+          "saturation": "채도",
+          "lightness": "밝기"
+        }
+      },
+      "preview": {
+        "assistant": "응답",
+        "user": "사용자",
+        "input": "입력 필드 예시"
+      },
+      "status": {
+        "invalid_hex": "모든 테마 값은 `#RRGGBB` 형식의 6자리 HEX 코드여야 합니다.",
+        "shared_mode": "설정창과 채팅창이 같은 테마 모드로 함께 움직이도록 구성되어 있습니다.",
+        "follow_system_detail": "현재 윈도우 앱 테마({mode})를 따라가고 있습니다."
+      },
+      "warning": {
+        "invalid_hex": {
+          "title": "테마 색상 확인",
+          "body": "모든 테마 값은 `#RRGGBB` 형식의 6자리 HEX 코드만 사용할 수 있습니다."
+        }
+      },
+      "mode": {
+        "light": {
+          "short": "라이트"
+        },
+        "dark": {
+          "short": "다크"
+        }
+      }
+    },
+    "model": {
+      "quick": {
+        "title": "빠른 배치",
+        "hint": "자주 쓰는 위치를 먼저 고른 뒤, 아래 슬라이더로 세밀하게 맞추면 더 편합니다.",
+        "center": "중앙",
+        "left": "좌측",
+        "right": "우측"
+      },
+      "scale": {
+        "title": "모델 크기",
+        "label": "스케일:",
+        "hint": "1.00x를 기준으로 모델 전체 크기를 조정합니다."
+      },
+      "position_x": {
+        "title": "모델 X 위치",
+        "hint": "모델을 화면의 왼쪽과 오른쪽 사이에서 조정합니다.",
+        "left": "왼쪽",
+        "right": "오른쪽"
+      },
+      "position_y": {
+        "title": "모델 Y 위치",
+        "hint": "모델을 화면의 위쪽과 아래쪽 사이에서 조정합니다.",
+        "top": "위쪽",
+        "bottom": "아래쪽"
+      },
+      "path": {
+        "title": "Live2D 모델 파일",
+        "hint": "`.model3.json` 파일 경로를 직접 지정합니다. 저장 전에도 미리보기에서 모델이 다시 로드됩니다.",
+        "placeholder": "예: assets/live2d_models/jksalt/jksalt.model3.json",
+        "dialog": {
+          "title": "Live2D 모델 파일 선택",
+          "filter": "Live2D 모델 (*.model3.json);;JSON 파일 (*.json);;모든 파일 (*.*)"
+        }
+      }
+    },
+    "llm": {
+      "provider_group": {
+        "title": "공급자와 인증",
+        "provider": "공급자:",
+        "api_key": {
+          "label": "API 키:",
+          "placeholder": "선택한 공급자의 API 키",
+          "hint": "민감한 값은 기본적으로 숨겨집니다. 현재 선택한 공급자 기준으로 저장됩니다."
+        }
+      },
+      "model_group": {
+        "title": "모델과 응답 스타일",
+        "model": {
+          "label": "모델:",
+          "placeholder": "예: gemini-3-flash-preview, gpt-4o-mini"
+        },
+        "temperature": "Temperature:",
+        "top_p": "Top P:",
+        "max_tokens": "Max Tokens:",
+        "hint": "Temperature와 Top P는 창의성 조절용이고, Max Tokens는 응답 길이 제한입니다."
+      },
+      "custom_api_group": {
+        "title": "Custom API",
+        "url": {
+          "label": "URL:",
+          "placeholder": "예: https://api.example.com/v1/chat/completions"
+        },
+        "secret": {
+          "label": "키 / 패스워드:",
+          "placeholder": "키 또는 패스워드"
+        },
+        "request_model": {
+          "label": "요청 모델:",
+          "placeholder": "요청 모델명"
+        },
+        "format": {
+          "label": "포맷:",
+          "openai_compatible": "OpenAI Compatible",
+          "openai_response_api": "OpenAI Response API",
+          "anthropic": "Anthropic Claude",
+          "mistral": "Mistral",
+          "google_cloud": "Google Cloud",
+          "cohere": "Cohere"
+        },
+        "hint": "Custom API 공급자를 선택한 경우에만 이 섹션이 사용됩니다."
+      },
+      "embedding_group": {
+        "title": "임베딩 설정",
+        "provider": "임베딩 공급자:",
+        "api_key": {
+          "label": "임베딩 API 키:",
+          "placeholder": "Voyage AI API 키"
+        },
+        "model": "임베딩 모델:",
+        "hint": "현재는 Voyage AI만 지원합니다. 저장 후 새 기억 생성과 유사 기억 검색에 같은 모델이 사용됩니다."
+      },
+      "restart_group": {
+        "title": "적용 안내",
+        "body": "공급자, 키, 모델 변경은 일부 세션에 즉시 보이지 않을 수 있습니다. 저장 후 앱을 다시 시작하면 가장 확실하게 반영됩니다."
+      }
+    },
+    "tts": {
+      "overview": {
+        "title": "공급자 선택",
+        "enable": "일본어 응답 TTS 활성화",
+        "provider": "공급자:"
+      },
+      "gpt": {
+        "connection": {
+          "title": "연결",
+          "api_url": {
+            "label": "TTS API URL:",
+            "placeholder": "예: http://127.0.0.1:9880"
+          }
+        },
+        "reference": {
+          "title": "참조 음성",
+          "audio": {
+            "label": "참조 오디오:",
+            "placeholder": "예: assets/ref_audio/refvoice.wav",
+            "dialog": {
+              "title": "참조 오디오 선택",
+              "filter": "Audio Files (*.wav *.mp3 *.flac *.ogg);;모든 파일 (*.*)"
+            }
+          },
+          "text": {
+            "label": "참조 텍스트:",
+            "placeholder": "참조 오디오의 원문 텍스트"
+          },
+          "ref_language": {
+            "label": "참조 언어:",
+            "placeholder": "예: ja"
+          },
+          "target_language": {
+            "label": "출력 언어:",
+            "placeholder": "예: ja"
+          },
+          "hint": "참조 음성 기반 합성입니다. 로컬 서버나 별도 머신의 GPT-SoVITS 엔드포인트를 그대로 지정할 수 있습니다."
+        }
+      },
+      "openai": {
+        "connection": {
+          "title": "OpenAI 연결",
+          "api_key": {
+            "label": "API 키:",
+            "placeholder": "OpenAI API 키"
+          },
+          "api_url": {
+            "label": "API URL:",
+            "placeholder": "예: https://api.openai.com/v1"
+          }
+        },
+        "voice": {
+          "title": "모델과 음성",
+          "model": "모델:",
+          "voice": "음성:",
+          "speed": "속도:",
+          "hint": "AIRI의 OpenAI Speech 설정처럼 API URL, 모델, 음성, 속도를 분리했습니다. 응답 포맷은 립싱크 분석을 위해 WAV로 고정합니다."
+        }
+      },
+      "compatible": {
+        "connection": {
+          "title": "호환 API 연결",
+          "api_key": {
+            "label": "API 키:",
+            "placeholder": "필요한 경우에만 API 키 입력"
+          },
+          "api_url": {
+            "label": "API URL:",
+            "placeholder": "예: http://127.0.0.1:8000/v1"
+          }
+        },
+        "voice": {
+          "title": "모델과 음성",
+          "model": {
+            "label": "모델:",
+            "placeholder": "예: tts-1"
+          },
+          "voice": {
+            "label": "음성:",
+            "placeholder": "예: alloy"
+          },
+          "speed": "속도:",
+          "hint": "로컬 TTS 서버나 프록시 API처럼 OpenAI 음성 합성 스펙을 흉내내는 엔드포인트에 맞춘 범용 설정입니다."
+        }
+      },
+      "elevenlabs": {
+        "connection": {
+          "title": "ElevenLabs 연결",
+          "api_key": {
+            "label": "API 키:",
+            "placeholder": "ElevenLabs API 키"
+          },
+          "api_url": {
+            "label": "API URL:",
+            "placeholder": "예: https://api.elevenlabs.io/v1"
+          }
+        },
+        "voice": {
+          "title": "모델과 음성 스타일",
+          "model": "모델:",
+          "voice_id": {
+            "label": "Voice ID:",
+            "placeholder": "예: EXAVITQu4vr4xnSDxMaL"
+          },
+          "speed": "속도:",
+          "stability": "Stability:",
+          "similarity": "Similarity Boost:",
+          "style": "Style:",
+          "speaker_boost": "Speaker Boost 사용",
+          "hint": "AIRI 코드의 ElevenLabs 설정에서 핵심인 모델, Voice ID, stability, similarity boost, style, speaker boost를 그대로 가져왔습니다."
+        }
+      },
+      "browser": {
+        "title": "브라우저 기본 TTS",
+        "lang": {
+          "label": "언어:",
+          "placeholder": "예: ja-JP"
+        },
+        "filter": {
+          "label": "목록 필터:",
+          "all": "전체 언어"
+        },
+        "voice": {
+          "label": "음성:",
+          "placeholder": "사용 가능한 음성을 자동으로 불러옵니다",
+          "default_suffix": "기본"
+        },
+        "status": {
+          "idle": "설정창이 열려 있는 현재 ENE 웹뷰 환경에서 음성 목록을 읽습니다. 다른 PC에서는 그 환경 기준 목록이 다시 표시됩니다.",
+          "loading": "현재 환경의 브라우저 음성 목록을 불러오는 중입니다...",
+          "no_webview": "현재 웹뷰를 찾을 수 없어 음성 목록을 읽지 못했습니다.",
+          "waiting": "아직 음성 목록을 받지 못했습니다. 시스템 음성 초기화 뒤 다시 시도합니다.",
+          "loaded": "현재 환경에서 사용 가능한 음성 {total}개를 불러왔습니다.",
+          "loaded_filtered": "현재 환경에서 사용 가능한 음성 {total}개를 불러왔고, {language} 기준 {visible}개를 표시 중입니다."
+        },
+        "rate": "속도:",
+        "pitch": "Pitch:",
+        "volume": "볼륨:",
+        "hint": "테스트용/폴백용 공급자입니다. API 키 없이 바로 말하게 할 수 있지만, 음질과 사용 가능한 음성은 배포 환경의 브라우저와 OS에 따라 달라집니다. 저장된 음성이 현재 환경에 없으면 같은 언어 음성이나 시스템 기본 음성으로 자연스럽게 대체됩니다. 립싱크는 적용되지 않습니다."
+      }
+    },
+    "behavior": {
+      "display": {
+        "title": "표시 요소",
+        "drag_bar": "드래그 바 표시",
+        "recent_reroll": "최근 메시지 리롤 버튼 표시",
+        "recent_edit": "최근 메시지 수정 버튼 표시",
+        "token_usage": "대화 토큰 확인",
+        "mouse_tracking": "마우스 트래킹 활성화",
+        "hint": "기본 노출 요소와 마우스 상호작용을 한 묶음으로 관리합니다."
+      },
+      "actions": {
+        "title": "대화와 보조 버튼",
+        "manual_summary": "수동 요약 버튼 표시",
+        "note_button": "노트 버튼 표시",
+        "mood_button": "기분 버튼 표시",
+        "hint": "자주 누르는 버튼만 켜두면 화면이 덜 복잡해집니다."
+      },
+      "ptt": {
+        "title": "음성 입력 (전역 PTT)",
+        "enable": "전역 Push-to-Talk 활성화",
+        "interrupt_tts": "PTT 시작 시 ENE 음성 출력 끊기",
+        "hotkey": {
+          "label": "PTT 단축키:",
+          "set": "단축키 설정",
+          "reset": "기본값",
+          "hint": "누르고 있는 동안만 녹음됩니다.",
+          "waiting": "입력 대기 중...",
+          "waiting_hint": "설정할 키를 누르세요. Esc를 누르면 취소됩니다."
+        }
+      },
+      "note": {
+        "title": "노트 설정",
+        "include_recent": "/note에 최근 대화 맥락 자동 주입",
+        "recent_turns": {
+          "label": "주입 턴 수 (0=전체):",
+          "all": "전체 세션",
+          "suffix": " 턴"
+        }
+      },
+      "idle": {
+        "title": "유휴 모션",
+        "enable": "유휴 모션 활성화 (말하지 않을 때 자동 움직임)",
+        "dynamic": "유휴 모션 다이나믹 모드",
+        "strength": "유휴 모션 강도:",
+        "speed": "유휴 모션 속도:"
+      },
+      "head_pat": {
+        "title": "머리 쓰다듬기",
+        "enable": "머리 쓰다듬기 활성화",
+        "strength": "쓰다듬기 강도:",
+        "fade_in": "시작 페이드:",
+        "fade_out": "종료 페이드:",
+        "active_emotion_default": "쓰다듬기 중 감정(기본):",
+        "active_emotion_custom": {
+          "label": "쓰다듬기 중 감정(커스텀):",
+          "placeholder": "커스텀 감정 (텍스트 우선)"
+        },
+        "end_emotion_default": "종료 감정(기본):",
+        "end_emotion_custom": {
+          "label": "종료 감정(커스텀):",
+          "placeholder": "커스텀 감정 (텍스트 우선)"
+        },
+        "end_duration": "감정 유지 시간:"
+      },
+      "away": {
+        "title": "자리 비움 / 유휴 감지",
+        "enable": "유휴 감지 자동 말걸기 활성화",
+        "idle_minutes": {
+          "label": "유휴 시간:",
+          "suffix": " 분"
+        },
+        "diff_threshold": "화면 차이 민감도:",
+        "retry_limit": {
+          "label": "추가 재실행 횟수:",
+          "suffix": " 회"
+        }
+      }
+    },
+    "memory": {
+      "search_scope": {
+        "title": "기억 검색 범위",
+        "body": "장기기억 검색 시 최신 사용자 메시지와 함께 참고할 최근 보이는 대화 턴 수를 조절합니다. 현재 요청에만 임시로 주입되고, 저장되는 히스토리에는 순수 대화만 남도록 동작합니다.",
+        "turns": {
+          "label": "검색에 포함할 최근 대화:",
+          "hint": "예: 2턴이면 직전 사용자/에네 2쌍을 보고 현재 메시지와 함께 장기기억을 검색합니다.",
+          "suffix": " 턴",
+          "special": "현재 메시지만"
+        }
+      },
+      "empty": {
+        "title": "기억 관리",
+        "body": "메모리 매니저가 초기화되지 않아 기억 목록 패널을 표시할 수 없습니다."
+      }
+    },
+    "prompt": {
+      "token_count": "{title} 현재 토큰: {token_count:,}개 · 문자 수: {char_count:,}자",
+      "header": {
+        "title": "프롬프트 설정",
+        "body": "파이썬 파일 전체를 직접 수정하지 않고 BASE_SYSTEM_PROMPT, SUB_PROMPT, EMOTIONS와 감정 사용 가이드만 안전하게 관리합니다."
+      },
+      "sub": {
+        "title": "SUB_PROMPT 본문",
+        "note": "감정 규칙과 감정 사용 가이드는 아래 감정 편집 카드에서 별도로 관리됩니다."
+      },
+      "emotions": {
+        "title": "감정 목록과 사용 가이드",
+        "name": {
+          "placeholder": "감정 키 (예: shy)"
+        },
+        "guide": {
+          "placeholder": "감정 사용 가이드"
+        },
+        "new": "새 감정",
+        "apply": "목록에 반영",
+        "delete": "삭제"
+      },
+      "reload": "다시 불러오기",
+      "save": "저장",
+      "status": {
+        "idle": "로드 대기",
+        "load_done": "prompt.py / sub_prompt.py 로드 완료",
+        "load_failed": "로드 실패: {error}",
+        "save_done": "prompt.py / sub_prompt.py 저장 완료",
+        "save_failed": "저장 실패: {error}"
+      },
+      "message": {
+        "emotion_missing": {
+          "title": "감정 저장 실패",
+          "body": "감정 키를 입력하세요."
+        },
+        "emotion_duplicate": {
+          "title": "감정 저장 실패",
+          "body": "'{name}' 감정은 이미 존재합니다."
+        },
+        "emotion_required": {
+          "body": "감정은 하나 이상 있어야 합니다."
+        },
+        "load_failed": {
+          "title": "불러오기 실패",
+          "body": "프롬프트 설정을 불러오지 못했습니다.\n{error}"
+        },
+        "save_done": {
+          "title": "저장 완료",
+          "body": "프롬프트 설정을 저장했습니다."
+        },
+        "save_failed": {
+          "title": "저장 실패",
+          "body": "프롬프트 설정을 저장하지 못했습니다.\n{error}"
+        }
+      }
+    },
+    "profile": {
+      "header": {
+        "title": "사용자 기억 관리",
+        "body": "user_profile.json의 기본 정보, likes, dislikes, facts만 구조적으로 관리합니다. 원본 JSON 전체를 직접 열지 않고 필요한 항목만 수정합니다."
+      },
+      "basic": {
+        "title": "기본 정보",
+        "key": {
+          "placeholder": "항목 이름"
+        },
+        "value": {
+          "placeholder": "값"
+        },
+        "new": "새 항목",
+        "apply": "목록에 반영",
+        "delete": "삭제"
+      },
+      "preference": {
+        "title": "선호와 비선호",
+        "likes": {
+          "title": "좋아하는 것",
+          "placeholder": "좋아하는 항목 추가"
+        },
+        "dislikes": {
+          "title": "싫어하는 것",
+          "placeholder": "싫어하는 항목 추가"
+        },
+        "add": "추가",
+        "delete": "삭제"
+      },
+      "facts": {
+        "title": "facts",
+        "category": {
+          "basic": "기본 정보",
+          "preference": "선호",
+          "goal": "목표",
+          "habit": "습관"
+        },
+        "content": {
+          "placeholder": "기억 내용"
+        },
+        "source": {
+          "placeholder": "출처"
+        },
+        "timestamp": {
+          "new": "신규 항목",
+          "saved": "기록 시각: {timestamp}"
+        },
+        "new": "새 항목",
+        "apply": "목록에 반영",
+        "delete": "삭제"
+      },
+      "reload": "다시 불러오기",
+      "save": "저장",
+      "status": {
+        "idle": "로드 대기",
+        "load_done": "user_profile.json 로드 완료",
+        "load_failed": "로드 실패: {error}",
+        "save_done": "user_profile.json 저장 완료",
+        "save_failed": "저장 실패: {error}"
+      },
+      "message": {
+        "basic_info_missing": {
+          "title": "기본 정보 저장 실패",
+          "body": "항목 이름을 입력하세요."
+        },
+        "basic_info_duplicate": {
+          "title": "기본 정보 저장 실패",
+          "body": "'{key}' 항목은 이미 존재합니다."
+        },
+        "preference_duplicate": {
+          "title": "항목 추가 실패",
+          "body": "이미 같은 항목이 있습니다."
+        },
+        "fact_missing": {
+          "title": "facts 저장 실패",
+          "body": "기억 내용을 입력하세요."
+        },
+        "load_failed": {
+          "title": "불러오기 실패",
+          "body": "user_profile.json을 불러오지 못했습니다.\n{error}"
+        },
+        "save_done": {
+          "title": "저장 완료",
+          "body": "사용자 기억 정보를 저장했습니다."
+        },
+        "save_failed": {
+          "title": "저장 실패",
+          "body": "user_profile.json을 저장하지 못했습니다.\n{error}"
+        }
+      }
+    }
+  }
 }

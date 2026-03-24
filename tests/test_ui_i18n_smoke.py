@@ -1,11 +1,12 @@
 import json
 import sys
 import types
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
 from PyQt6.QtCore import QDate, Qt
-from PyQt6.QtWidgets import QLabel, QMessageBox, QPushButton
+from PyQt6.QtWidgets import QGroupBox, QLabel, QMessageBox, QPushButton
 from PyQt6.QtWidgets import QApplication
 
 from src.core.i18n import configure_i18n
@@ -170,21 +171,32 @@ def _load_app_class():
     return ENEApplication
 
 
+@contextmanager
+def _stub_prompt_module():
+    prompt_stub = types.ModuleType("src.ai.prompt")
+    prompt_stub.get_available_emotions = lambda: ["eyeclose", "shy"]
+    previous_prompt_module = sys.modules.get("src.ai.prompt")
+    sys.modules["src.ai.prompt"] = prompt_stub
+    try:
+        yield
+    finally:
+        if previous_prompt_module is None:
+            sys.modules.pop("src.ai.prompt", None)
+        else:
+            sys.modules["src.ai.prompt"] = previous_prompt_module
+
+
 def test_settings_dialog_translates_metadata_in_english():
     _get_qapp()
     locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
     configure_i18n(language="en", locales_dir=locales_dir, system_locale="ko_KR")
 
-    prompt_stub = types.ModuleType("src.ai.prompt")
-    prompt_stub.get_available_emotions = lambda: ["eyeclose", "shy"]
-    previous_prompt_module = sys.modules.get("src.ai.prompt")
-    sys.modules["src.ai.prompt"] = prompt_stub
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
 
-    from src.ui.settings_dialog import SettingsDialog
-
-    try:
         dialog = SettingsDialog(
             {
+                "ui_language": "en",
                 "llm_provider": "gemini",
                 "tts_provider": "gpt_sovits_http",
                 "enable_tts": True,
@@ -207,11 +219,168 @@ def test_settings_dialog_translates_metadata_in_english():
         assert dialog.tts_provider_hint_label.text() == "Local or remote GPT-SoVITS server that uses reference audio and prompt text."
 
         dialog.close()
-    finally:
-        if previous_prompt_module is None:
-            sys.modules.pop("src.ai.prompt", None)
-        else:
-            sys.modules["src.ai.prompt"] = previous_prompt_module
+
+
+def test_settings_dialog_exposes_language_selector_and_translated_static_strings(monkeypatch):
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="en", locales_dir=locales_dir, system_locale="ko_KR")
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+        monkeypatch.setattr(SettingsDialog, "_load_prompt_configuration", lambda self: None)
+
+        dialog = SettingsDialog(
+            {
+                "ui_language": "en",
+                "llm_provider": "gemini",
+                "tts_provider": "gpt_sovits_http",
+                "enable_tts": True,
+            }
+        )
+
+        dialog._ensure_lazy_tab_loaded("prompt")
+        dialog._ensure_lazy_tab_loaded("memory")
+
+        assert dialog.ui_language_combo.currentData() == "en"
+        assert [dialog.ui_language_combo.itemData(index) for index in range(dialog.ui_language_combo.count())] == [
+            "auto",
+            "ko",
+            "en",
+            "ja",
+        ]
+        assert dialog.ui_language_combo.itemText(0) == "System default"
+        assert dialog._get_current_values()["ui_language"] == "en"
+        assert dialog.content_header_title.text() == "Window Settings"
+        assert dialog.content_header_meta.text() == "Window position, size, and language."
+        assert {"General", "Emotion List and Usage Guide"}.issubset(
+            {group.title() for group in dialog.findChildren(QGroupBox)}
+        )
+        assert {button.text() for button in dialog.findChildren(QPushButton)} >= {
+            "Cancel",
+            "Save Changes",
+            "New Emotion",
+            "Apply to List",
+            "Reload",
+        }
+        assert dialog.llm_api_key_edit.placeholderText() == "API key for the selected provider"
+        assert dialog.model_json_path_edit.placeholderText() == "e.g. assets/live2d_models/jksalt/jksalt.model3.json"
+        assert dialog.emotion_name_input.placeholderText() == "Emotion key (e.g. shy)"
+        assert dialog.memory_search_recent_turns_spin.suffix() == " turns"
+        assert dialog.memory_search_recent_turns_spin.specialValueText() == "Current message only"
+        assert "Emotion List and Usage Guide" in {group.title() for group in dialog.findChildren(QGroupBox)}
+        assert {"Memory Search Range", "Memory"}.issubset(
+            {label.text() for label in dialog.findChildren(QLabel)}
+        )
+        assert dialog._base_prompt_token_label.text().startswith("BASE_SYSTEM_PROMPT tokens:")
+        assert "characters:" in dialog._base_prompt_token_label.text()
+
+        warnings = []
+
+        def fake_warning(parent, title, text):
+            warnings.append((title, text))
+
+        monkeypatch.setattr("PyQt6.QtWidgets.QMessageBox.warning", fake_warning)
+        dialog._theme_color_edits["theme_accent_color"].setText("#12")
+        dialog._save_settings()
+
+        assert warnings == [
+            (
+                "Theme color check",
+                "Every theme color must use a 6-digit HEX code in `#RRGGBB` format.",
+            )
+        ]
+        dialog.close()
+
+
+def test_settings_dialog_language_preview_restores_original_runtime_on_cancel():
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+
+    from src.core.i18n import tr
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        dialog = SettingsDialog(
+            {
+                "ui_language": "ko",
+                "llm_provider": "gemini",
+                "tts_provider": "gpt_sovits_http",
+                "enable_tts": True,
+            }
+        )
+
+        assert dialog.content_header_title.text() == "창 설정"
+        assert tr("settings.window.title") == "ENE 설정"
+        popup = dialog._ensure_theme_picker_popup()
+        assert popup.title_label.text() == "색상 선택"
+
+        dialog.ui_language_combo.setCurrentIndex(dialog.ui_language_combo.findData("en"))
+
+        assert dialog.content_header_title.text() == "Window Settings"
+        assert dialog.global_ptt_hotkey_set_button.text() == "Set Hotkey"
+        assert popup.title_label.text() == "Color selection"
+        assert tr("settings.window.title") == "ENE 설정"
+
+        dialog._cancel_settings()
+
+        assert tr("settings.window.title") == "ENE 설정"
+
+
+def test_settings_dialog_retranslates_prompt_and_profile_lazy_tabs_in_japanese_preview(monkeypatch):
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+
+    from src.core.i18n import tr
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        monkeypatch.setattr(SettingsDialog, "_load_prompt_configuration", lambda self: None)
+
+        dialog = SettingsDialog(
+            {
+                "ui_language": "ko",
+                "llm_provider": "gemini",
+                "tts_provider": "gpt_sovits_http",
+                "enable_tts": True,
+            }
+        )
+
+        dialog._ensure_lazy_tab_loaded("profile")
+        dialog._ensure_lazy_tab_loaded("prompt")
+        dialog._ensure_lazy_tab_loaded("memory")
+
+        assert dialog.basic_info_key_input.placeholderText() == "항목 이름"
+        assert dialog.emotion_name_input.placeholderText() == "감정 키 (예: shy)"
+        assert dialog._prompt_status_label.text() == "로드 대기"
+        assert dialog._profile_status_label.text() == "user_profile.json 로드 완료"
+        assert dialog.fact_timestamp_label.text() == "신규 항목"
+        assert tr("settings.window.title") == "ENE 설정"
+
+        dialog.ui_language_combo.setCurrentIndex(dialog.ui_language_combo.findData("ja"))
+
+        assert dialog.content_header_title.text() == "ウィンドウ設定"
+        assert dialog.ui_language_combo.itemText(0) == "システムの既定値"
+        assert dialog.basic_info_key_input.placeholderText() == "項目名"
+        assert dialog.emotion_name_input.placeholderText() == "感情キー (例: shy)"
+        assert dialog._prompt_status_label.text() == "読み込み待機"
+        assert dialog._profile_status_label.text() == "user_profile.json 読み込み完了"
+        assert dialog.fact_timestamp_label.text() == "新しい項目"
+        assert dialog.fact_category_combo.itemText(0) == "基本情報"
+        assert dialog.memory_search_recent_turns_spin.suffix() == " ターン"
+        assert dialog.memory_search_recent_turns_spin.specialValueText() == "現在のメッセージのみ"
+        assert {"基本情報", "好みと苦手", "感情一覧と使用ガイド"}.issubset(
+            {group.title() for group in dialog.findChildren(QGroupBox)}
+        )
+        assert "メモリ検索範囲" in {label.text() for label in dialog.findChildren(QLabel)}
+        assert {"再読み込み", "保存"}.issubset({button.text() for button in dialog.findChildren(QPushButton)})
+        assert tr("settings.window.title") == "ENE 설정"
+
+        dialog.close()
 
 
 def test_calendar_dialog_translates_visible_strings_and_confirmations(tmp_path, monkeypatch):
