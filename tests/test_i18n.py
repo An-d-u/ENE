@@ -16,6 +16,9 @@ def test_resolve_language_auto_uses_system_locale_code():
     assert resolve_language("auto", "en_US") == "en"
     assert resolve_language("auto", "ja-JP") == "ja"
     assert resolve_language("auto", "de-DE") == "en"
+    assert resolve_language("auto", "Korean_Korea") == "ko"
+    assert resolve_language("auto", "Japanese_Japan") == "ja"
+    assert resolve_language("auto", "English_United States") == "en"
 
 
 def test_load_locale_file_supports_utf8_bom(tmp_path):
