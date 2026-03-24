@@ -18,13 +18,15 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from ..core.i18n import tr as t
+
 
 class CalendarDialog(QDialog):
     def __init__(self, calendar_manager, parent=None):
         super().__init__(parent)
         self.calendar_manager = calendar_manager
 
-        self.setWindowTitle("ENE 캘린더")
+        self.setWindowTitle(t("calendar.window.title"))
         self.setMinimumSize(700, 500)
 
         self._setup_ui()
@@ -38,7 +40,7 @@ class CalendarDialog(QDialog):
         layout.addWidget(self.calendar)
 
         info_layout = QHBoxLayout()
-        self.date_label = QLabel("날짜를 선택하세요")
+        self.date_label = QLabel(t("calendar.date.placeholder"))
         info_layout.addWidget(self.date_label)
 
         self.activity_label = QLabel("")
@@ -46,13 +48,25 @@ class CalendarDialog(QDialog):
         info_layout.addStretch()
         layout.addLayout(info_layout)
 
-        layout.addWidget(QLabel("일정:"))
+        self.events_label = QLabel(t("calendar.events.label"))
+        layout.addWidget(self.events_label)
         self.event_list = QListWidget()
         layout.addWidget(self.event_list)
 
-        close_btn = QPushButton("닫기")
-        close_btn.clicked.connect(self.accept)
-        layout.addWidget(close_btn)
+        self.close_btn = QPushButton(t("calendar.close"))
+        self.close_btn.clicked.connect(self.accept)
+        layout.addWidget(self.close_btn)
+
+    def _format_selected_date(self, date: QDate) -> str:
+        return date.toString(t("calendar.date.format"))
+
+    def _source_label_text(self, source: str) -> str:
+        source_map = {
+            "ai_extracted": t("calendar.source.ai_extracted"),
+            "manual": t("calendar.source.manual"),
+        }
+        resolved_source = source_map.get(source, source or t("calendar.source.manual"))
+        return t("calendar.source.label", source=resolved_source)
 
     def _load_calendar(self):
         self.calendar.setDateTextFormat(QDate(), QTextCharFormat())
@@ -81,20 +95,26 @@ class CalendarDialog(QDialog):
 
     def _on_date_selected(self, date: QDate):
         date_str = date.toString("yyyy-MM-dd")
-        self.date_label.setText(date.toString("yyyy년 MM월 dd일"))
+        self.date_label.setText(self._format_selected_date(date))
 
         conversation_count = self.calendar_manager.get_conversation_count(date_str)
         head_pat_count = self.calendar_manager.get_head_pat_count(date_str)
 
         if conversation_count > 0 or head_pat_count > 0:
-            self.activity_label.setText(f"💬 {conversation_count}회 | 🖐 {head_pat_count}회")
+            self.activity_label.setText(
+                t(
+                    "calendar.activity.summary",
+                    conversation_count=conversation_count,
+                    head_pat_count=head_pat_count,
+                )
+            )
         else:
             self.activity_label.setText("")
 
         self.event_list.clear()
         events = self.calendar_manager.get_events_by_date(date_str)
         if not events:
-            item = QListWidgetItem("일정이 없습니다")
+            item = QListWidgetItem(t("calendar.empty"))
             item.setForeground(QColor(150, 150, 150))
             self.event_list.addItem(item)
             return
@@ -126,8 +146,7 @@ class CalendarDialog(QDialog):
                     desc.setStyleSheet("color: gray;")
                 text_col.addWidget(desc)
 
-            source_text = "AI 자동 추출" if event.source == "ai_extracted" else "수동 입력"
-            source_label = QLabel(f"   출처: {source_text}")
+            source_label = QLabel(f"   {self._source_label_text(event.source)}")
             source_label.setStyleSheet("color: #888; font-size: 10px;")
             text_col.addWidget(source_label)
 
@@ -155,8 +174,8 @@ class CalendarDialog(QDialog):
     def _on_event_deleted(self, event_id: str):
         reply = QMessageBox.question(
             self,
-            "일정 삭제",
-            "이 일정을 삭제하시겠습니까?",
+            t("calendar.delete.title"),
+            t("calendar.delete.body"),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )

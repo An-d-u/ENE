@@ -8,6 +8,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from datetime import datetime
 
+from ..core.i18n import tr as t
+
 
 class ProfileDialog(QDialog):
     """사용자 프로필 관리 다이얼로그"""
@@ -16,7 +18,7 @@ class ProfileDialog(QDialog):
         super().__init__(parent)
         self.user_profile = user_profile
         
-        self.setWindowTitle("마스터 정보 관리")
+        self.setWindowTitle(t("profile.window.title"))
         self.setMinimumSize(600, 500)
         
         self._setup_ui()
@@ -41,20 +43,20 @@ class ProfileDialog(QDialog):
         # 하단: 버튼
         button_layout = QHBoxLayout()
         
-        self.delete_btn = QPushButton("🗑️ 삭제")
+        self.delete_btn = QPushButton(t("profile.button.delete"))
         self.delete_btn.clicked.connect(self._delete_fact)
         self.delete_btn.setEnabled(False)
         button_layout.addWidget(self.delete_btn)
         
         button_layout.addStretch()
         
-        refresh_btn = QPushButton("🔄 새로고침")
-        refresh_btn.clicked.connect(self._load_profile)
-        button_layout.addWidget(refresh_btn)
+        self.refresh_btn = QPushButton(t("profile.button.refresh"))
+        self.refresh_btn.clicked.connect(self._load_profile)
+        button_layout.addWidget(self.refresh_btn)
         
-        close_btn = QPushButton("닫기")
-        close_btn.clicked.connect(self.accept)
-        button_layout.addWidget(close_btn)
+        self.close_btn = QPushButton(t("profile.button.close"))
+        self.close_btn.clicked.connect(self.accept)
+        button_layout.addWidget(self.close_btn)
         
         layout.addLayout(button_layout)
     
@@ -62,7 +64,7 @@ class ProfileDialog(QDialog):
         """프로필 목록 로드"""
         self.profile_list.clear()
         
-        if not self.user_profile:
+        if self.user_profile is None:
             return
         
         # 통계 업데이트
@@ -71,7 +73,12 @@ class ProfileDialog(QDialog):
         likes_count = len(self.user_profile.preferences.get('likes', []))
         
         self.stats_label.setText(
-            f"기본 정보 {basic_count}개 | 추출된 정보 {total_facts}개 | 취미/선호 {likes_count}개"
+            t(
+                "profile.stats.summary",
+                basic_count=basic_count,
+                fact_count=total_facts,
+                likes_count=likes_count,
+            )
         )
         
         # 1. 기본 정보 표시
@@ -88,13 +95,13 @@ class ProfileDialog(QDialog):
         
         # 아무것도 없으면
         if not self.user_profile.basic_info and not self.user_profile.facts:
-            item = QListWidgetItem("등록된 마스터 정보가 없습니다.")
+            item = QListWidgetItem(t("profile.empty"))
             self.profile_list.addItem(item)
     
     def _add_basic_info_section(self):
         """기본 정보 섹션 추가"""
         # 헤더
-        header_item = QListWidgetItem("📋 기본 정보")
+        header_item = QListWidgetItem(t("profile.section.basic"))
         header_item.setBackground(Qt.GlobalColor.lightGray)
         self.profile_list.addItem(header_item)
         
@@ -102,15 +109,17 @@ class ProfileDialog(QDialog):
         info_lines = []
         
         if basic.get('name'):
-            info_lines.append(f"이름: {basic['name']}")
+            info_lines.append(f"{t('profile.field.name')}: {basic['name']}")
         if basic.get('gender'):
-            info_lines.append(f"성별: {basic['gender']}")
+            info_lines.append(f"{t('profile.field.gender')}: {basic['gender']}")
         if basic.get('birthday'):
-            info_lines.append(f"생일: {basic['birthday']}")
+            info_lines.append(f"{t('profile.field.birthday')}: {basic['birthday']}")
         if basic.get('occupation'):
-            info_lines.append(f"직업: {basic['occupation']}")
+            info_lines.append(f"{t('profile.field.occupation')}: {basic['occupation']}")
         if basic.get('major'):
-            info_lines.append(f"전공: {basic['major']}")
+            info_lines.append(f"{t('profile.field.major')}: {basic['major']}")
+        if basic.get('location'):
+            info_lines.append(f"{t('profile.field.location')}: {basic['location']}")
         
         for line in info_lines:
             item = QListWidgetItem(f"  • {line}")
@@ -119,7 +128,7 @@ class ProfileDialog(QDialog):
     def _add_preferences_section(self):
         """취미/선호도 섹션 추가"""
         # 헤더
-        header_item = QListWidgetItem("❤️ 취미 / 좋아하는 것")
+        header_item = QListWidgetItem(t("profile.section.preferences"))
         header_item.setBackground(Qt.GlobalColor.lightGray)
         self.profile_list.addItem(header_item)
         
@@ -131,7 +140,7 @@ class ProfileDialog(QDialog):
     def _add_facts_section(self):
         """자동 추출 정보 섹션 추가"""
         # 헤더
-        header_item = QListWidgetItem("🤖 자동 추출된 정보")
+        header_item = QListWidgetItem(t("profile.section.extracted"))
         header_item.setBackground(Qt.GlobalColor.lightGray)
         self.profile_list.addItem(header_item)
         
@@ -188,7 +197,7 @@ class ProfileDialog(QDialog):
         
         # 셋째 줄: 출처 (있으면)
         if fact.source:
-            source_label = QLabel(f"출처: {fact.source}")
+            source_label = QLabel(t("profile.source.label", source=fact.source))
             source_label.setStyleSheet("color: #666; font-size: 10px; font-style: italic;")
             layout.addWidget(source_label)
         
@@ -207,8 +216,8 @@ class ProfileDialog(QDialog):
         # 확인 대화상자
         reply = QMessageBox.question(
             self,
-            "삭제 확인",
-            "선택한 마스터 정보를 삭제하시겠습니까?",
+            t("profile.delete.title"),
+            t("profile.delete.body"),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
         )
