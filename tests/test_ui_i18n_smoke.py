@@ -207,6 +207,50 @@ def test_tray_icon_retranslates_menu_text_without_showing_system_tray(tmp_path):
     tray.tray_icon.hide()
 
 
+def test_tray_icon_uses_non_default_startup_state_for_initial_labels(tmp_path):
+    _get_qapp()
+    locales_dir = tmp_path / "locales"
+    locales_dir.mkdir()
+    (locales_dir / "en.json").write_text(
+        """
+        {
+          "tray.tooltip": "ENE - AI Desktop Partner",
+          "tray.settings": "Settings",
+          "tray.calendar": "Calendar",
+          "tray.drag_bar.hide": "Hide drag bar",
+          "tray.drag_bar.show": "Show drag bar",
+          "tray.mouse_tracking.disable": "Disable mouse tracking",
+          "tray.mouse_tracking.enable": "Enable mouse tracking",
+          "tray.quit": "Quit"
+        }
+        """.strip(),
+        encoding="utf-8-sig",
+    )
+    (locales_dir / "ja.json").write_text(
+        """
+        {
+          "tray.tooltip": "ENE - AIデスクトップパートナー",
+          "tray.settings": "設定",
+          "tray.calendar": "カレンダー",
+          "tray.drag_bar.hide": "ドラッグバーを隠す",
+          "tray.drag_bar.show": "ドラッグバーを表示",
+          "tray.mouse_tracking.disable": "マウストラッキングを無効化",
+          "tray.mouse_tracking.enable": "マウストラッキングを有効化",
+          "tray.quit": "終了"
+        }
+        """.strip(),
+        encoding="utf-8-sig",
+    )
+    (locales_dir / "ko.json").write_text("{}", encoding="utf-8-sig")
+    configure_i18n(language="ja", locales_dir=locales_dir, system_locale="en_US")
+
+    tray = TrayIcon(show_on_create=False, drag_bar_visible=False, mouse_tracking_enabled=False)
+
+    assert tray.toggle_bar_action.text() == "ドラッグバーを表示"
+    assert tray.toggle_mouse_tracking_action.text() == "マウストラッキングを有効化"
+    tray.tray_icon.hide()
+
+
 def test_app_runtime_language_change_retranslates_open_windows(tmp_path):
     ENEApplication = _load_app_class()
     locales_dir = tmp_path / "locales"
