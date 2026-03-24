@@ -695,6 +695,9 @@ class SettingsDialog(QDialog):
         fallback = meta.description if meta is not None else ""
         return self._translated_text(f"settings.tts.provider.{provider_id}.hint", fallback)
 
+    def _theme_status_suffix(self, status: str, fallback: str) -> str:
+        return self._translated_text(f"settings.theme.status.{status}", fallback)
+
     def _is_valid_theme_color(self, value: str) -> bool:
         return bool(re.fullmatch(r"#?([0-9A-Fa-f]{6})", str(value or "").strip()))
 
@@ -1198,7 +1201,15 @@ class SettingsDialog(QDialog):
                 f"color: {self._theme_text_color(settings_window)}; font-size: 15px; font-weight: 800;"
             )
             base_description = self._resolve_theme_bundle_text(preset_bundle, "description")
-            meta_suffix = "윈도우와 동기화 중" if self._follow_system_theme and self._theme_mode == mode else ("현재 선택됨" if is_active else "클릭해서 적용")
+            meta_suffix = (
+                self._theme_status_suffix("follow_system", "윈도우와 동기화 중")
+                if self._follow_system_theme and self._theme_mode == mode
+                else (
+                    self._theme_status_suffix("selected", "현재 선택됨")
+                    if is_active
+                    else self._theme_status_suffix("apply", "클릭해서 적용")
+                )
+            )
             self._theme_preset_meta[mode].setText(
                 f"{base_description} · {meta_suffix}"
             )
@@ -1241,7 +1252,11 @@ class SettingsDialog(QDialog):
                 self._theme_variant_titles[variant_id].setStyleSheet(
                     f"color: {self._theme_text_color(card_color)}; font-size: 13px; font-weight: 800;"
                 )
-                suffix = "현재 팔레트" if is_active else "클릭해서 적용"
+                suffix = (
+                    self._theme_status_suffix("current_palette", "현재 팔레트")
+                    if is_active
+                    else self._theme_status_suffix("apply", "클릭해서 적용")
+                )
                 self._theme_variant_meta[variant_id].setText(
                     f"{self._resolve_theme_bundle_text(bundle, 'description')} · {suffix}"
                 )
