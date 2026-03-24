@@ -450,7 +450,7 @@ def test_bridge_general_chat_includes_checked_obsidian_context(monkeypatch):
     def fake_diary(message: str) -> bool:
         return False
 
-    def fake_start(message_with_time: str, images_data=None):
+    def fake_start(message_with_time: str, images_data=None, memory_search_text: str = ""):
         captured["message_with_time"] = message_with_time
 
     monkeypatch.setattr(bridge, "_handle_note_command", fake_note)
@@ -483,7 +483,7 @@ def test_bridge_general_chat_skips_obsidian_context_when_disconnected(monkeypatc
     def fake_diary(message: str) -> bool:
         return False
 
-    def fake_start(message_with_time: str, images_data=None):
+    def fake_start(message_with_time: str, images_data=None, memory_search_text: str = ""):
         captured["message_with_time"] = message_with_time
 
     monkeypatch.setattr(bridge, "_handle_note_command", fake_note)
@@ -509,7 +509,7 @@ def test_bridge_general_chat_cache_miss_schedules_background_refresh(monkeypatch
     def fake_refresh(force: bool = False):
         captured["refresh_called"] += 1
 
-    def fake_start(message_with_time: str, images_data=None):
+    def fake_start(message_with_time: str, images_data=None, memory_search_text: str = ""):
         captured["message_with_time"] = message_with_time
 
     monkeypatch.setattr(bridge, "_schedule_checked_files_context_refresh", fake_refresh)

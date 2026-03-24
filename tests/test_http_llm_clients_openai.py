@@ -41,7 +41,7 @@ def test_openai_responses_request_includes_instructions(monkeypatch):
     assert captured["url"] == "https://api.openai.com/v1/responses"
     assert captured["json"]["model"] == "gpt-5.4-mini"
     assert captured["json"]["instructions"]
-    assert "[내부 분석 출력 규칙]" in captured["json"]["instructions"]
+    assert "[Internal Analysis Output Rules]" in captured["json"]["instructions"]
 
 
 def test_openai_responses_error_includes_response_body(monkeypatch):
