@@ -195,8 +195,13 @@ def test_settings_dialog_translates_metadata_in_english():
         browser_tts_index = dialog.tts_provider_combo.findData("browser_speech")
 
         assert dialog.windowTitle() == "ENE Settings"
+        assert dialog._theme_preset_meta["light"].text() == (
+            "Balanced bright neutral palette for both settings and chat surfaces. · Currently selected"
+        )
         assert dialog._theme_variant_titles["light_classic"].text() == "Clean Blue"
-        assert dialog._theme_variant_meta["light_classic"].text().startswith("Balanced bright neutral palette")
+        assert dialog._theme_variant_meta["light_classic"].text() == (
+            "Balanced bright neutral palette for everyday use. · Click to apply"
+        )
         assert dialog.llm_provider_combo.itemText(gemini_index) == "Google Gemini API"
         assert dialog.tts_provider_combo.itemText(browser_tts_index) == "Browser Speech"
         assert dialog.tts_provider_hint_label.text() == "Local or remote GPT-SoVITS server that uses reference audio and prompt text."
