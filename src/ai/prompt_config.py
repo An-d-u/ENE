@@ -32,6 +32,13 @@ GENERATED_SUB_PROMPT_SECTION_TITLES = {
     "Emotion Usage Guide",
 }
 
+SUB_PROMPT_SECTION_TITLE_ALIASES = {
+    "Emotion Expression Rules": "감정 표현 규칙",
+    "Japanese Response Rules": "일본어 응답 규칙",
+    "Response Format Examples": "응답 형식 예시",
+    "Emotion Usage Guide": "감정 사용 가이드",
+}
+
 
 def _normalize_emotion_name(text: str) -> str:
     normalized = str(text or "").strip()
@@ -77,6 +84,16 @@ def _strip_generated_sub_prompt_sections(text: str) -> str:
         remaining_sections.append(section_text)
 
     return "\n\n".join(remaining_sections).strip()
+
+
+def _localize_sub_prompt_section_titles(text: str) -> str:
+    content = str(text or "").strip()
+    if not content:
+        return ""
+
+    for source, target in SUB_PROMPT_SECTION_TITLE_ALIASES.items():
+        content = content.replace(f"### [{source}]", f"### [{target}]")
+    return content
 
 
 def _parse_emotion_guides(text: str) -> tuple[list[str], dict[str, str]]:
@@ -136,7 +153,9 @@ def load_prompt_config() -> dict:
     emotions, emotion_guides = _parse_emotion_guides(_read_text_file(EMOTION_GUIDES_PATH))
     return {
         "base_system_prompt": _read_text_file(BASE_SYSTEM_PROMPT_PATH),
-        "sub_prompt_body": _strip_generated_sub_prompt_sections(_read_text_file(SUB_PROMPT_BODY_PATH)),
+        "sub_prompt_body": _localize_sub_prompt_section_titles(
+            _strip_generated_sub_prompt_sections(_read_text_file(SUB_PROMPT_BODY_PATH))
+        ),
         "emotions": emotions,
         "emotion_guides": emotion_guides,
         "analysis_system_appendix": _read_text_file(ANALYSIS_SYSTEM_APPENDIX_PATH),
@@ -206,7 +225,9 @@ def save_prompt_config(config: dict) -> dict:
 
     normalized = {
         "base_system_prompt": str(merged.get("base_system_prompt", "") or "").strip("\n"),
-        "sub_prompt_body": _strip_generated_sub_prompt_sections(merged.get("sub_prompt_body", "")),
+        "sub_prompt_body": _localize_sub_prompt_section_titles(
+            _strip_generated_sub_prompt_sections(merged.get("sub_prompt_body", ""))
+        ),
         "emotions": emotions,
         "emotion_guides": emotion_guides,
         "analysis_system_appendix": str(merged.get("analysis_system_appendix", "") or "").strip("\n"),
