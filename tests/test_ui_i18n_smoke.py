@@ -108,6 +108,51 @@ def test_obsidian_panel_translates_error_strings(tmp_path):
     panel.close()
 
 
+def test_obsidian_parse_error_fully_retranslates_after_language_switch(tmp_path):
+    _get_qapp()
+    locales_dir = tmp_path / "locales"
+    locales_dir.mkdir()
+    (locales_dir / "en.json").write_text(
+        """
+        {
+          "obsidian.window.title": "Obsidian",
+          "obsidian.window.subtitle": "Drag to move / checked files join context",
+          "obsidian.window.refresh": "Refresh",
+          "obsidian.error.parse_failed": "Tree parse failed: {error}",
+          "obsidian.error.fetch_failed": "Tree fetch failed",
+          "obsidian.error.connection_failed": "Connection failed: {error}"
+        }
+        """.strip(),
+        encoding="utf-8-sig",
+    )
+    (locales_dir / "ja.json").write_text(
+        """
+        {
+          "obsidian.window.title": "Obsidian",
+          "obsidian.window.subtitle": "ドラッグで移動 / チェックしたファイルはコンテキストに含まれます",
+          "obsidian.window.refresh": "更新",
+          "obsidian.error.parse_failed": "ツリーの解析に失敗しました: {error}",
+          "obsidian.error.fetch_failed": "ツリーの取得に失敗しました",
+          "obsidian.error.connection_failed": "接続に失敗しました: {error}"
+        }
+        """.strip(),
+        encoding="utf-8-sig",
+    )
+    (locales_dir / "ko.json").write_text("{}", encoding="utf-8-sig")
+
+    configure_i18n(language="ja", locales_dir=locales_dir, system_locale="en_US")
+    panel = ObsidianPanelWindow(bridge=SimpleNamespace(), obs_settings=_DummyObsSettings())
+
+    panel._on_obs_tree_updated("{bad-json")
+    assert panel.tree.topLevelItem(0).text(0).startswith("接続に失敗しました: ツリーの解析に失敗しました:")
+
+    configure_i18n(language="en", locales_dir=locales_dir, system_locale="en_US")
+    panel.retranslate_ui()
+
+    assert panel.tree.topLevelItem(0).text(0).startswith("Connection failed: Tree parse failed:")
+    panel.close()
+
+
 def test_tray_icon_retranslates_menu_text_without_showing_system_tray(tmp_path):
     _get_qapp()
     locales_dir = tmp_path / "locales"
