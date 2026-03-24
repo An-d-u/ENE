@@ -101,6 +101,8 @@ class ProfileDialog(QDialog):
         total_facts = len(self.user_profile.facts)
         basic_count = len([k for k, v in self.user_profile.basic_info.items() if v])
         likes_count = len(self.user_profile.preferences.get('likes', []))
+        dislikes_count = len(self.user_profile.preferences.get('dislikes', []))
+        preference_count = likes_count + dislikes_count
         
         self.stats_label.setText(
             t(
@@ -108,6 +110,8 @@ class ProfileDialog(QDialog):
                 basic_count=basic_count,
                 fact_count=total_facts,
                 likes_count=likes_count,
+                dislikes_count=dislikes_count,
+                preference_count=preference_count,
             )
         )
         
@@ -116,7 +120,7 @@ class ProfileDialog(QDialog):
             self._add_basic_info_section()
         
         # 2. 취미/선호도 표시
-        if self.user_profile.preferences.get('likes'):
+        if self.user_profile.preferences.get('likes') or self.user_profile.preferences.get('dislikes'):
             self._add_preferences_section()
         
         # 3. 자동 추출된 정보 표시
@@ -124,7 +128,12 @@ class ProfileDialog(QDialog):
             self._add_facts_section()
         
         # 아무것도 없으면
-        if not self.user_profile.basic_info and not self.user_profile.facts:
+        if (
+            not self.user_profile.basic_info
+            and not self.user_profile.facts
+            and not self.user_profile.preferences.get('likes')
+            and not self.user_profile.preferences.get('dislikes')
+        ):
             item = QListWidgetItem(t("profile.empty"))
             self.profile_list.addItem(item)
     
@@ -164,7 +173,12 @@ class ProfileDialog(QDialog):
         
         likes = self.user_profile.preferences.get('likes', [])
         for like in likes:
-            item = QListWidgetItem(f"  • {like}")
+            item = QListWidgetItem(f"  • {t('profile.preference.like', value=like)}")
+            self.profile_list.addItem(item)
+
+        dislikes = self.user_profile.preferences.get('dislikes', [])
+        for dislike in dislikes:
+            item = QListWidgetItem(f"  • {t('profile.preference.dislike', value=dislike)}")
             self.profile_list.addItem(item)
     
     def _add_facts_section(self):

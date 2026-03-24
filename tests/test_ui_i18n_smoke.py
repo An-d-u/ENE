@@ -251,13 +251,13 @@ def test_profile_dialog_translates_sections_fields_and_empty_state(tmp_path, mon
         locales_dir,
         en_data={
             "profile.window.title": "Profile Manager",
-            "profile.stats.summary": "Basic info {basic_count} | Extracted info {fact_count} | Likes {likes_count}",
+            "profile.stats.summary": "Basic info {basic_count} | Extracted info {fact_count} | Preferences {preference_count}",
             "profile.button.delete": "🗑️ Delete",
             "profile.button.refresh": "🔄 Refresh",
             "profile.button.close": "Close",
             "profile.empty": "No profile information saved.",
             "profile.section.basic": "📋 Basic Info",
-            "profile.section.preferences": "❤️ Likes",
+            "profile.section.preferences": "❤️ Preferences",
             "profile.section.extracted": "🤖 Extracted Info",
             "profile.field.name": "Name",
             "profile.field.gender": "Gender",
@@ -265,6 +265,8 @@ def test_profile_dialog_translates_sections_fields_and_empty_state(tmp_path, mon
             "profile.field.occupation": "Occupation",
             "profile.field.major": "Major",
             "profile.field.location": "Location",
+            "profile.preference.like": "Like: {value}",
+            "profile.preference.dislike": "Dislike: {value}",
             "profile.category.basic": "Basic",
             "profile.category.preference": "Preference",
             "profile.category.goal": "Goal",
@@ -277,7 +279,7 @@ def test_profile_dialog_translates_sections_fields_and_empty_state(tmp_path, mon
         },
         ja_data={
             "profile.window.title": "プロフィール管理",
-            "profile.stats.summary": "基本情報 {basic_count}件 | 抽出情報 {fact_count}件 | 趣味・好み {likes_count}件",
+            "profile.stats.summary": "基本情報 {basic_count}件 | 抽出情報 {fact_count}件 | 好み {preference_count}件",
             "profile.button.delete": "🗑️ 削除",
             "profile.button.refresh": "🔄 更新",
             "profile.button.close": "閉じる",
@@ -291,6 +293,8 @@ def test_profile_dialog_translates_sections_fields_and_empty_state(tmp_path, mon
             "profile.field.occupation": "職業",
             "profile.field.major": "専攻",
             "profile.field.location": "居住地",
+            "profile.preference.like": "好き: {value}",
+            "profile.preference.dislike": "苦手: {value}",
             "profile.category.basic": "基本情報",
             "profile.category.preference": "好み",
             "profile.category.goal": "目標",
@@ -313,7 +317,7 @@ def test_profile_dialog_translates_sections_fields_and_empty_state(tmp_path, mon
             "major": "デザイン",
             "location": "Seoul",
         },
-        preferences={"likes": ["Jazz"]},
+        preferences={"likes": ["Jazz"], "dislikes": []},
         facts=[
             SimpleNamespace(
                 timestamp="2026-03-24T09:30:00",
@@ -332,7 +336,7 @@ def test_profile_dialog_translates_sections_fields_and_empty_state(tmp_path, mon
     dialog = ProfileDialog(profile)
 
     assert dialog.windowTitle() == "プロフィール管理"
-    assert dialog.stats_label.text() == "基本情報 6件 | 抽出情報 2件 | 趣味・好み 1件"
+    assert dialog.stats_label.text() == "基本情報 6件 | 抽出情報 2件 | 好み 1件"
     assert {button.text() for button in dialog.findChildren(QPushButton)} >= {"🗑️ 削除", "🔄 更新", "閉じる"}
 
     item_texts = [dialog.profile_list.item(index).text() for index in range(dialog.profile_list.count()) if dialog.profile_list.item(index).text()]
@@ -370,6 +374,22 @@ def test_profile_dialog_translates_sections_fields_and_empty_state(tmp_path, mon
     empty_dialog = ProfileDialog(_DummyUserProfile())
     assert empty_dialog.profile_list.item(0).text() == "登録されたプロフィール情報はありません。"
     empty_dialog.close()
+
+    dislikes_only_dialog = ProfileDialog(
+        _DummyUserProfile(
+            preferences={"likes": [], "dislikes": ["Crowded spaces"]},
+        )
+    )
+    dislikes_item_texts = [
+        dislikes_only_dialog.profile_list.item(index).text()
+        for index in range(dislikes_only_dialog.profile_list.count())
+        if dislikes_only_dialog.profile_list.item(index).text()
+    ]
+    assert dislikes_only_dialog.stats_label.text() == "基本情報 0件 | 抽出情報 0件 | 好み 1件"
+    assert "❤️ 趣味・好み" in dislikes_item_texts
+    assert "  • 苦手: Crowded spaces" in dislikes_item_texts
+    assert "登録されたプロフィール情報はありません。" not in dislikes_item_texts
+    dislikes_only_dialog.close()
 
 
 def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tmp_path, monkeypatch):
