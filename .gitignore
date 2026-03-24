@@ -28,6 +28,7 @@ pip-wheel-metadata/
 # Local runtime files
 backups/
 .worktrees/
+.antigravityrules
 prompts/base_system_prompt.md
 prompts/sub_prompt_body.md
 prompts/analysis_system_appendix.md
