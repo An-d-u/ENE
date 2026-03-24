@@ -7,6 +7,7 @@ import json
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QObject, QTimer
 
+from .i18n import configure_i18n, tr
 from .settings import Settings
 from .system_theme import get_theme_preset, get_windows_theme_mode
 from .overlay_window import OverlayWindow
@@ -26,6 +27,7 @@ class ENEApplication(QObject):
         
         # 설정 관리자
         self.settings = Settings()
+        self.i18n = configure_i18n(language=str(self.settings.get("ui_language", "auto")))
         self._last_system_theme_mode = None
         self._apply_followed_system_theme(save=True)
         self.interrupt_tts_on_ptt = bool(self.settings.get("interrupt_tts_on_ptt", True))
@@ -486,8 +488,8 @@ class ENEApplication(QObject):
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.warning(
                 None,
-                "메모리 없음",
-                "메모리 매니저가 초기화되지 않았습니다."
+                tr("memory.warning.title"),
+                tr("memory.warning.body")
             )
             return
         
@@ -511,6 +513,7 @@ class ENEApplication(QObject):
     
     def _on_settings_changed(self, new_settings: dict):
         """설정 변경 시 (저장)"""
+        old_ui_language = str(self.settings.get("ui_language", "auto")).strip() or "auto"
         old_embedding_provider = str(self.settings.get("embedding_provider", "voyage")).strip().lower()
         old_embedding_model = str(self.settings.get("embedding_model", "voyage-3")).strip() or "voyage-3"
         old_tts_config = json.dumps(
@@ -546,6 +549,21 @@ class ENEApplication(QObject):
         )
         if old_tts_config != new_tts_config:
             self._refresh_tts_runtime_bindings()
+
+        new_ui_language = str(new_settings.get("ui_language", old_ui_language)).strip() or "auto"
+        if old_ui_language != new_ui_language:
+            self.i18n = configure_i18n(language=new_ui_language)
+            if hasattr(self, "tray_icon") and self.tray_icon:
+                self.tray_icon.retranslate_ui()
+            if hasattr(self, "obsidian_panel_window") and self.obsidian_panel_window:
+                self.obsidian_panel_window.retranslate_ui()
+            if (
+                hasattr(self, "_settings_dialog")
+                and self._settings_dialog
+                and self._settings_dialog.isVisible()
+                and hasattr(self._settings_dialog, "_retranslate_ui")
+            ):
+                self._settings_dialog._retranslate_ui()
 
     def _on_settings_preview(self, new_settings: dict):
         """설정 미리보기 (settings 객체 수정 없이 화면에만 적용)"""

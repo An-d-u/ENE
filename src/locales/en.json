@@ -1,8 +1,27 @@
-﻿{
+{
   "fallback.only": "English fallback",
   "count.items": "{count} items",
   "ui.language.auto": "Auto",
   "ui.language.ko": "Korean",
   "ui.language.en": "English",
-  "ui.language.ja": "Japanese"
+  "ui.language.ja": "Japanese",
+  "tray.tooltip": "ENE - AI Desktop Partner",
+  "tray.settings": "Settings",
+  "tray.calendar": "Calendar",
+  "tray.drag_bar.hide": "Hide drag bar",
+  "tray.drag_bar.show": "Show drag bar",
+  "tray.mouse_tracking.disable": "Disable mouse tracking",
+  "tray.mouse_tracking.enable": "Enable mouse tracking",
+  "tray.quit": "Quit",
+  "obsidian.window.title": "Obsidian",
+  "obsidian.window.subtitle": "Drag to move / checked files join context",
+  "obsidian.window.refresh": "Refresh",
+  "obsidian.error.parse_failed": "Tree parse failed: {error}",
+  "obsidian.error.fetch_failed": "Tree fetch failed",
+  "obsidian.error.connection_failed": "Connection failed: {error}",
+  "obsidian.empty": "No files found",
+  "obsidian.prefix.dir": "[DIR]",
+  "obsidian.prefix.file": "[FILE]",
+  "memory.warning.title": "Memory unavailable",
+  "memory.warning.body": "Memory manager is not initialized."
 }

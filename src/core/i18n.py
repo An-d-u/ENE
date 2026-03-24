@@ -124,3 +124,36 @@ class I18n:
             except Exception:
                 return value
         return str(value)
+
+
+_runtime_i18n: I18n | None = None
+
+
+def configure_i18n(
+    language: str = "auto",
+    locales_dir: str | Path | None = None,
+    system_locale: str | None = None,
+) -> I18n:
+    global _runtime_i18n
+
+    resolved_locales_dir = locales_dir
+    if resolved_locales_dir is None and _runtime_i18n is not None:
+        resolved_locales_dir = _runtime_i18n.locales_dir
+
+    _runtime_i18n = I18n(
+        language=language,
+        locales_dir=resolved_locales_dir,
+        system_locale=system_locale,
+    )
+    return _runtime_i18n
+
+
+def get_i18n() -> I18n:
+    global _runtime_i18n
+    if _runtime_i18n is None:
+        _runtime_i18n = I18n()
+    return _runtime_i18n
+
+
+def tr(key: str, **kwargs: Any) -> str:
+    return get_i18n().t(key, **kwargs)
