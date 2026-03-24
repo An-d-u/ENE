@@ -31,19 +31,39 @@ DARK_THEME_PRESET = {
     "chat_user_bubble_color": "#2563EB",
 }
 
+LIGHT_THEME_BUNDLE = {
+    "title_key": "settings.theme.mode.light.title",
+    "description_key": "settings.theme.mode.light.description",
+    "title": "라이트 테마",
+    "description": "설정창과 채팅창을 밝은 표면 중심 팔레트로 맞춥니다.",
+    "colors": dict(LIGHT_THEME_PRESET),
+}
+
+DARK_THEME_BUNDLE = {
+    "title_key": "settings.theme.mode.dark.title",
+    "description_key": "settings.theme.mode.dark.description",
+    "title": "다크 테마",
+    "description": "설정창과 채팅창을 어두운 표면 중심 팔레트로 맞춥니다.",
+    "colors": dict(DARK_THEME_PRESET),
+}
+
 THEME_PRESETS = {
-    "light": LIGHT_THEME_PRESET,
-    "dark": DARK_THEME_PRESET,
+    "light": LIGHT_THEME_BUNDLE,
+    "dark": DARK_THEME_BUNDLE,
 }
 
 THEME_VARIANT_PRESETS = {
     "light": {
         "light_classic": {
+            "title_key": "settings.theme.variant.light_classic.title",
+            "description_key": "settings.theme.variant.light_classic.description",
             "title": "클린 블루",
             "description": "가장 기본이 되는 밝은 뉴트럴 테마입니다.",
             "colors": dict(LIGHT_THEME_PRESET),
         },
         "light_sand": {
+            "title_key": "settings.theme.variant.light_sand.title",
+            "description_key": "settings.theme.variant.light_sand.description",
             "title": "웜 샌드",
             "description": "따뜻한 회백색과 샌드 포인트로 부드럽게 정리합니다.",
             "colors": {
@@ -58,6 +78,8 @@ THEME_VARIANT_PRESETS = {
             },
         },
         "light_mint": {
+            "title_key": "settings.theme.variant.light_mint.title",
+            "description_key": "settings.theme.variant.light_mint.description",
             "title": "민트 스튜디오",
             "description": "조금 더 선명하고 산뜻한 민트 계열 포인트를 씁니다.",
             "colors": {
@@ -74,6 +96,8 @@ THEME_VARIANT_PRESETS = {
     },
     "dark": {
         "dark_midnight": {
+            "title_key": "settings.theme.variant.dark_midnight.title",
+            "description_key": "settings.theme.variant.dark_midnight.description",
             "title": "미드나잇",
             "description": "현재 ENE 다크 분위기에 가장 가까운 기본 다크입니다.",
             "colors": {
@@ -88,6 +112,8 @@ THEME_VARIANT_PRESETS = {
             },
         },
         "dark_graphite": {
+            "title_key": "settings.theme.variant.dark_graphite.title",
+            "description_key": "settings.theme.variant.dark_graphite.description",
             "title": "그래파이트",
             "description": "푸른 기운을 줄이고 더 무채색에 가깝게 정리합니다.",
             "colors": {
@@ -102,6 +128,8 @@ THEME_VARIANT_PRESETS = {
             },
         },
         "dark_forest": {
+            "title_key": "settings.theme.variant.dark_forest.title",
+            "description_key": "settings.theme.variant.dark_forest.description",
             "title": "딥 포레스트",
             "description": "짙은 숲색 포인트를 얹어 차분한 다크 톤으로 바꿉니다.",
             "colors": {
@@ -145,4 +173,6 @@ def get_theme_preset(mode: str) -> dict:
     normalized = str(mode or "").strip().lower()
     if normalized not in THEME_PRESETS:
         normalized = "light"
-    return dict(THEME_PRESETS[normalized])
+    bundle = THEME_PRESETS[normalized]
+    colors = bundle.get("colors") if isinstance(bundle, dict) else None
+    return dict(colors if isinstance(colors, dict) else bundle)

@@ -1,6 +1,7 @@
 import json
 import sys
 import types
+from pathlib import Path
 from types import SimpleNamespace
 
 from PyQt6.QtCore import QDate, Qt
@@ -167,6 +168,45 @@ def _load_app_class():
             else:
                 sys.modules[module_name] = previous
     return ENEApplication
+
+
+def test_settings_dialog_translates_metadata_in_english():
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="en", locales_dir=locales_dir, system_locale="ko_KR")
+
+    prompt_stub = types.ModuleType("src.ai.prompt")
+    prompt_stub.get_available_emotions = lambda: ["eyeclose", "shy"]
+    previous_prompt_module = sys.modules.get("src.ai.prompt")
+    sys.modules["src.ai.prompt"] = prompt_stub
+
+    from src.ui.settings_dialog import SettingsDialog
+
+    try:
+        dialog = SettingsDialog(
+            {
+                "llm_provider": "gemini",
+                "tts_provider": "gpt_sovits_http",
+                "enable_tts": True,
+            }
+        )
+
+        gemini_index = dialog.llm_provider_combo.findData("gemini")
+        browser_tts_index = dialog.tts_provider_combo.findData("browser_speech")
+
+        assert dialog.windowTitle() == "ENE Settings"
+        assert dialog._theme_variant_titles["light_classic"].text() == "Clean Blue"
+        assert dialog._theme_variant_meta["light_classic"].text().startswith("Balanced bright neutral palette")
+        assert dialog.llm_provider_combo.itemText(gemini_index) == "Google Gemini API"
+        assert dialog.tts_provider_combo.itemText(browser_tts_index) == "Browser Speech"
+        assert dialog.tts_provider_hint_label.text() == "Local or remote GPT-SoVITS server that uses reference audio and prompt text."
+
+        dialog.close()
+    finally:
+        if previous_prompt_module is None:
+            sys.modules.pop("src.ai.prompt", None)
+        else:
+            sys.modules["src.ai.prompt"] = previous_prompt_module
 
 
 def test_calendar_dialog_translates_visible_strings_and_confirmations(tmp_path, monkeypatch):
