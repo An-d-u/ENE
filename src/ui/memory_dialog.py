@@ -200,6 +200,21 @@ class MemoryDialog(QDialog):
     def _sort_button_text(self) -> str:
         return t("memory.sort.newest") if self._sort_descending else t("memory.sort.oldest")
 
+    def _profile_has_content(self, profile) -> bool:
+        if profile is None:
+            return False
+
+        basic_info = getattr(profile, "basic_info", {}) or {}
+        if any(value for value in basic_info.values()):
+            return True
+
+        preferences = getattr(profile, "preferences", {}) or {}
+        if any(preferences.get(key) for key in ("likes", "dislikes")):
+            return True
+
+        facts = getattr(profile, "facts", None) or []
+        return bool(facts)
+
     def _setup_ui(self) -> None:
         root = QVBoxLayout(self)
         root.setContentsMargins(0 if self._embedded else 18, 0 if self._embedded else 18, 0 if self._embedded else 18, 0 if self._embedded else 18)
@@ -873,7 +888,7 @@ class MemoryDialog(QDialog):
             )
             return
 
-        if not self.bridge.user_profile:
+        if not self._profile_has_content(self.bridge.user_profile):
             QMessageBox.information(
                 self,
                 t("memory.profile.empty.title"),

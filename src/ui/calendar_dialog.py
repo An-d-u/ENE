@@ -63,9 +63,10 @@ class CalendarDialog(QDialog):
     def _source_label_text(self, source: str) -> str:
         source_map = {
             "ai_extracted": t("calendar.source.ai_extracted"),
-            "manual": t("calendar.source.manual"),
+            "user": t("calendar.source.user"),
+            "manual": t("calendar.source.user"),
         }
-        resolved_source = source_map.get(source, source or t("calendar.source.manual"))
+        resolved_source = source_map.get(source, source or t("calendar.source.user"))
         return t("calendar.source.label", source=resolved_source)
 
     def _load_calendar(self):
