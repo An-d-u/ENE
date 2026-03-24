@@ -1,3 +1,4 @@
+import shutil
 from pathlib import Path
 
 from PyQt6.QtWidgets import QMessageBox
@@ -107,6 +108,65 @@ def test_load_prompt_config_strips_generated_emotion_sections_in_both_languages(
     loaded = prompt_config.load_prompt_config()
 
     assert loaded["sub_prompt_body"] == "### [Japanese Response Rules]\n- Keep this section."
+
+
+def test_parse_emotion_guides_accepts_backtick_wrapped_names():
+    from src.ai import prompt_config
+
+    emotions, guides = prompt_config._parse_emotion_guides(
+        "\n".join(
+            [
+                "### [Emotion Usage Guide]",
+                "- `normal`: default state",
+                "- `smile`: when in a good mood",
+            ]
+        )
+    )
+
+    assert emotions == ["normal", "smile"]
+    assert guides == {
+        "normal": "default state",
+        "smile": "when in a good mood",
+    }
+
+
+def test_default_prompt_templates_produce_korean_japanese_rules(tmp_path, monkeypatch):
+    from src.ai import prompt as prompt_module
+    from src.ai import prompt_config
+
+    default_dir = tmp_path / "prompts" / "defaults"
+    local_dir = tmp_path / "prompts"
+    default_dir.mkdir(parents=True, exist_ok=True)
+
+    shutil.copyfile(prompt_config.DEFAULT_BASE_SYSTEM_PROMPT_PATH, default_dir / "base_system_prompt.md")
+    shutil.copyfile(prompt_config.DEFAULT_SUB_PROMPT_BODY_PATH, default_dir / "sub_prompt_body.md")
+    shutil.copyfile(
+        prompt_config.DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH,
+        default_dir / "analysis_system_appendix.md",
+    )
+    shutil.copyfile(prompt_config.DEFAULT_EMOTION_GUIDES_PATH, default_dir / "emotion_guides.md")
+
+    monkeypatch.setattr(prompt_config, "PROMPT_CONFIG_DIR", local_dir)
+    monkeypatch.setattr(prompt_config, "DEFAULT_PROMPT_CONFIG_DIR", default_dir)
+    monkeypatch.setattr(prompt_config, "BASE_SYSTEM_PROMPT_PATH", local_dir / "base_system_prompt.md")
+    monkeypatch.setattr(prompt_config, "SUB_PROMPT_BODY_PATH", local_dir / "sub_prompt_body.md")
+    monkeypatch.setattr(prompt_config, "ANALYSIS_SYSTEM_APPENDIX_PATH", local_dir / "analysis_system_appendix.md")
+    monkeypatch.setattr(prompt_config, "EMOTION_GUIDES_PATH", local_dir / "emotion_guides.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_BASE_SYSTEM_PROMPT_PATH", default_dir / "base_system_prompt.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_SUB_PROMPT_BODY_PATH", default_dir / "sub_prompt_body.md")
+    monkeypatch.setattr(
+        prompt_config,
+        "DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH",
+        default_dir / "analysis_system_appendix.md",
+    )
+    monkeypatch.setattr(prompt_config, "DEFAULT_EMOTION_GUIDES_PATH", default_dir / "emotion_guides.md")
+    monkeypatch.setattr(prompt_config, "get_runtime_emotions", lambda **kwargs: ["normal", "smile"])
+
+    prompt_with_sub = prompt_module.get_system_prompt()
+
+    assert "[감정 표현 규칙]" in prompt_with_sub
+    assert "[일본어 응답 규칙]" in prompt_with_sub
+    assert "normal, smile" in prompt_with_sub
 
 
 def test_get_system_prompt_reads_from_markdown_files(tmp_path, monkeypatch):
