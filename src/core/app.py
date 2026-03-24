@@ -62,7 +62,10 @@ class ENEApplication(QObject):
             self.obsidian_panel_window.refresh_tree()
         
         # 트레이 아이콘 생성
-        self.tray_icon = TrayIcon()
+        self.tray_icon = TrayIcon(
+            drag_bar_visible=bool(self.settings.get("show_drag_bar", True)),
+            mouse_tracking_enabled=bool(self.settings.get("mouse_tracking_enabled", True)),
+        )
         
         # 시그널 연결
         self._connect_signals()

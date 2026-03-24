@@ -20,10 +20,16 @@ class TrayIcon(QObject):
     toggle_mouse_tracking_requested = pyqtSignal()
     quit_requested = pyqtSignal()
     
-    def __init__(self, parent=None, show_on_create: bool = True):
+    def __init__(
+        self,
+        parent=None,
+        show_on_create: bool = True,
+        drag_bar_visible: bool = True,
+        mouse_tracking_enabled: bool = True,
+    ):
         super().__init__(parent)
-        self._drag_bar_visible = True
-        self._mouse_tracking_enabled = True
+        self._drag_bar_visible = bool(drag_bar_visible)
+        self._mouse_tracking_enabled = bool(mouse_tracking_enabled)
         
         # 아이콘 경로 설정
         if getattr(sys, 'frozen', False):
