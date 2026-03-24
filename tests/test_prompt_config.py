@@ -107,7 +107,7 @@ def test_load_prompt_config_strips_generated_emotion_sections_in_both_languages(
 
     loaded = prompt_config.load_prompt_config()
 
-    assert loaded["sub_prompt_body"] == "### [Japanese Response Rules]\n- Keep this section."
+    assert loaded["sub_prompt_body"] == "### [일본어 응답 규칙]\n- Keep this section."
 
 
 def test_parse_emotion_guides_accepts_backtick_wrapped_names():
