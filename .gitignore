@@ -32,6 +32,10 @@ prompts/base_system_prompt.md
 prompts/sub_prompt_body.md
 prompts/analysis_system_appendix.md
 prompts/emotion_guides.md
+mood_state.json
+obs_config.json
+docs/prototypes/
+docs/superpowers/
 diary/
 note_runs/
 *.log
