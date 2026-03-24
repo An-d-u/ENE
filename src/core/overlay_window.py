@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
 from ..ui.drag_bar import DragBar
 from .bridge import WebBridge
+from .i18n import I18n, get_i18n
 from .model_emotions import get_available_model_emotions, resolve_model_json_path
 
 
@@ -92,6 +93,7 @@ class OverlayWindow(QWidget):
         )
         self._apply_model_settings()
         self._sync_theme_to_js()
+        self._sync_ui_strings_to_js()
         self._sync_mouse_tracking_state_to_js()
         self._sync_idle_motion_settings_to_js()
         self._sync_reroll_button_visibility_to_js()
@@ -189,6 +191,79 @@ class OverlayWindow(QWidget):
         """
         self.web_view.page().runJavaScript(js_code)
 
+    def _build_ui_i18n(self, settings_override: dict | None = None) -> I18n:
+        source = settings_override if isinstance(settings_override, dict) else self.settings.config
+        runtime_i18n = get_i18n()
+        return I18n(
+            language=str(source.get("ui_language", "auto")),
+            locales_dir=runtime_i18n.locales_dir,
+        )
+
+    def _resolve_ui_strings_payload(self, settings_override: dict | None = None) -> dict:
+        i18n = self._build_ui_i18n(settings_override)
+        return {
+            "loading": i18n.t("chat.loading"),
+            "input": {
+                "placeholder": i18n.t("chat.input.placeholder"),
+            },
+            "send": i18n.t("chat.send"),
+            "actions": {
+                "summary": {
+                    "label": i18n.t("chat.actions.summary"),
+                    "title": i18n.t("chat.actions.summary.title"),
+                },
+                "note": {
+                    "label": i18n.t("chat.actions.note"),
+                    "title": i18n.t("chat.actions.note.title"),
+                },
+                "mood": {
+                    "label": i18n.t("chat.actions.mood"),
+                    "title": i18n.t("chat.actions.mood.title"),
+                },
+            },
+            "mood": {
+                "label": i18n.t("chat.mood.label"),
+                "loading": i18n.t("chat.mood.loading"),
+                "collapse": i18n.t("chat.mood.collapse"),
+                "axis": {
+                    "valence": i18n.t("chat.mood.axis.valence"),
+                    "bond": i18n.t("chat.mood.axis.bond"),
+                    "energy": i18n.t("chat.mood.axis.energy"),
+                    "stress": i18n.t("chat.mood.axis.stress"),
+                },
+                "states": {
+                    "calm": i18n.t("chat.mood.state.calm"),
+                    "cheerful": i18n.t("chat.mood.state.cheerful"),
+                    "affectionate": i18n.t("chat.mood.state.affectionate"),
+                    "tired": i18n.t("chat.mood.state.tired"),
+                    "tense": i18n.t("chat.mood.state.tense"),
+                    "lonely": i18n.t("chat.mood.state.lonely"),
+                    "unknown": i18n.t("chat.mood.state.unknown"),
+                },
+            },
+            "summaryConfirm": {
+                "title": i18n.t("chat.summary.confirm.title"),
+                "body": i18n.t("chat.summary.confirm.body"),
+                "no": i18n.t("chat.summary.confirm.no"),
+                "yes": i18n.t("chat.summary.confirm.yes"),
+            },
+        }
+
+    def _sync_ui_strings_to_js(self, settings_override: dict | None = None) -> None:
+        if not self._page_loaded:
+            return
+
+        payload = self._resolve_ui_strings_payload(settings_override)
+        js_code = f"""
+        (function() {{
+            window.eneUiStrings = {json.dumps(payload, ensure_ascii=False)};
+            if (typeof window.applyENEUiStrings === 'function') {{
+                window.applyENEUiStrings(window.eneUiStrings);
+            }}
+        }})();
+        """
+        self.web_view.page().runJavaScript(js_code)
+
     def _apply_drag_bar_theme(self, settings_override: dict | None = None) -> None:
         theme_payload = self._resolve_theme_payload(settings_override)
         base_color = theme_payload["chatPanelBgColor"]
@@ -254,6 +329,7 @@ class OverlayWindow(QWidget):
         self._apply_settings()
         self._apply_model_settings()
         self._sync_theme_to_js()
+        self._sync_ui_strings_to_js(new_settings)
         self._apply_drag_bar_theme()
 
         if old_tracking != new_tracking:
@@ -303,6 +379,7 @@ class OverlayWindow(QWidget):
 
         if self._page_loaded:
             self._sync_theme_to_js(new_settings)
+            self._sync_ui_strings_to_js(new_settings)
             self._sync_idle_motion_settings_to_js(new_settings)
             self._sync_reroll_button_visibility_to_js(new_settings)
             self._sync_edit_button_visibility_to_js(new_settings)
@@ -315,6 +392,7 @@ class OverlayWindow(QWidget):
         self._apply_settings()
         self._apply_model_settings()
         self._sync_theme_to_js()
+        self._sync_ui_strings_to_js()
         self._apply_drag_bar_theme()
         self._sync_idle_motion_settings_to_js()
         self._sync_reroll_button_visibility_to_js()
