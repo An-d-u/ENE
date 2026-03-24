@@ -2,12 +2,12 @@
 ENE AI 시스템 프롬프트 로더
 """
 
-from .prompt_config import load_prompt_config
+from .prompt_config import load_runtime_prompt_config
 
 
 def get_system_prompt(include_sub_prompt: bool = True) -> str:
     """시스템 프롬프트 반환"""
-    config = load_prompt_config()
+    config = load_runtime_prompt_config()
     base_system_prompt = str(config.get("base_system_prompt", "") or "")
 
     if include_sub_prompt:
@@ -29,7 +29,7 @@ def build_runtime_system_prompt(
     include_analysis_appendix: bool = False,
 ) -> str:
     """실제 모델 호출에 사용할 시스템 프롬프트를 조립한다."""
-    config = load_prompt_config()
+    config = load_runtime_prompt_config()
     system_prompt = get_system_prompt(include_sub_prompt=include_sub_prompt)
     analysis_system_appendix = str(config.get("analysis_system_appendix", "") or "").strip()
     if include_analysis_appendix and include_sub_prompt and analysis_system_appendix:
@@ -39,5 +39,5 @@ def build_runtime_system_prompt(
 
 def get_available_emotions() -> list[str]:
     """사용 가능한 감정 목록 반환"""
-    config = load_prompt_config()
+    config = load_runtime_prompt_config()
     return list(config.get("emotions", []))

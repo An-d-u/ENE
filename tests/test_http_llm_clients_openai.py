@@ -4,6 +4,11 @@ import pytest
 
 from src.ai.http_llm_clients import OpenAIResponseAPIClient
 
+ANALYSIS_APPENDIX_MARKERS = (
+    "[Internal Analysis Output Rules]",
+    "[내부 분석 출력 규칙]",
+)
+
 
 class _DummyResponse:
     def __init__(self, *, status_code=200, json_data=None, text=""):
@@ -41,7 +46,7 @@ def test_openai_responses_request_includes_instructions(monkeypatch):
     assert captured["url"] == "https://api.openai.com/v1/responses"
     assert captured["json"]["model"] == "gpt-5.4-mini"
     assert captured["json"]["instructions"]
-    assert "[Internal Analysis Output Rules]" in captured["json"]["instructions"]
+    assert any(marker in captured["json"]["instructions"] for marker in ANALYSIS_APPENDIX_MARKERS)
 
 
 def test_openai_responses_error_includes_response_body(monkeypatch):

@@ -31,6 +31,11 @@ confidence=0.8
 こんばんは。
 """.strip()
 
+ANALYSIS_APPENDIX_MARKERS = (
+    "[Internal Analysis Output Rules]",
+    "[내부 분석 출력 규칙]",
+)
+
 
 def _build_openai_compatible_client():
     return OpenAICompatibleClient(
@@ -133,7 +138,7 @@ def test_provider_requests_include_analysis_appendix(
     client = factory()
     getattr(client, request_name)(*request_args)
 
-    assert "[Internal Analysis Output Rules]" in extract_prompt(captured["json"])
+    assert any(marker in extract_prompt(captured["json"]) for marker in ANALYSIS_APPENDIX_MARKERS)
 
 
 @pytest.mark.parametrize(

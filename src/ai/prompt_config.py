@@ -8,6 +8,8 @@ import re
 import shutil
 from pathlib import Path
 
+from ..core.model_emotions import get_available_model_emotions
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PROMPT_CONFIG_DIR = PROJECT_ROOT / "prompts"
@@ -138,6 +140,43 @@ def load_prompt_config() -> dict:
     }
 
 
+def get_runtime_emotions(
+    settings_source: dict | None = None,
+    base_path: Path | None = None,
+) -> list[str]:
+    """현재 모델 기준 실제 사용 가능한 감정 목록을 반환한다."""
+    config = load_prompt_config()
+    return get_available_model_emotions(
+        settings_source=settings_source,
+        base_path=base_path,
+        fallback_emotions=list(config.get("emotions", [])),
+    )
+
+
+def load_runtime_prompt_config(
+    settings_source: dict | None = None,
+    base_path: Path | None = None,
+) -> dict:
+    """실행 시점에 사용할 프롬프트 설정을 반환한다."""
+    config = load_prompt_config()
+    runtime_emotions = get_runtime_emotions(settings_source=settings_source, base_path=base_path)
+    saved_guides = dict(config.get("emotion_guides", {}))
+    runtime_guides: dict[str, str] = {}
+    for emotion in runtime_emotions:
+        guide = str(saved_guides.get(emotion, "") or "").strip()
+        if not guide and emotion == "normal":
+            guide = "기본 상태"
+        runtime_guides[emotion] = guide
+
+    return {
+        "base_system_prompt": config.get("base_system_prompt", ""),
+        "sub_prompt_body": config.get("sub_prompt_body", ""),
+        "emotions": runtime_emotions,
+        "emotion_guides": runtime_guides,
+        "analysis_system_appendix": config.get("analysis_system_appendix", ""),
+    }
+
+
 def save_prompt_config(config: dict) -> dict:
     existing = load_prompt_config()
     merged = dict(existing)
@@ -206,8 +245,11 @@ def build_sub_prompt_text(body_text: str, emotions: list[str], emotion_guides: d
     return "\n\n".join(parts).strip()
 
 
-def get_sub_prompt_text() -> str:
-    config = load_prompt_config()
+def get_sub_prompt_text(
+    settings_source: dict | None = None,
+    base_path: Path | None = None,
+) -> str:
+    config = load_runtime_prompt_config(settings_source=settings_source, base_path=base_path)
     return build_sub_prompt_text(
         config.get("sub_prompt_body", ""),
         list(config.get("emotions", [])),
