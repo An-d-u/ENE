@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 from datetime import datetime
+import re
 
 from ..core.i18n import tr as t
 
@@ -59,6 +60,35 @@ class ProfileDialog(QDialog):
         button_layout.addWidget(self.close_btn)
         
         layout.addLayout(button_layout)
+
+    def _translate_profile_category(self, category: str) -> str:
+        normalized = str(category or "").strip().lower()
+        key = f"profile.category.{normalized}"
+        translated = t(key)
+        return translated if translated != key else (category or "")
+
+    def _translate_profile_source(self, source: str) -> str:
+        text = str(source or "").strip()
+        if not text:
+            return ""
+
+        normalized = text.lower()
+        direct_map = {
+            "conversation": "profile.source.conversation",
+        }
+        if normalized in direct_map:
+            return t(direct_map[normalized])
+
+        summary_match = re.match(
+            r"^(conversation[ _-]?summary|대화 요약)(.*)$",
+            text,
+            re.IGNORECASE,
+        )
+        if summary_match:
+            suffix = summary_match.group(2) or ""
+            return f"{t('profile.source.conversation_summary')}{suffix}"
+
+        return text
     
     def _load_profile(self):
         """프로필 목록 로드"""
@@ -182,7 +212,7 @@ class ProfileDialog(QDialog):
         first_line.addWidget(time_label)
         
         # 카테고리 표시
-        category_label = QLabel(f"[{fact.category}]")
+        category_label = QLabel(f"[{self._translate_profile_category(fact.category)}]")
         category_label.setStyleSheet("color: #0066cc; font-size: 11px;")
         first_line.addWidget(category_label)
         
@@ -197,7 +227,7 @@ class ProfileDialog(QDialog):
         
         # 셋째 줄: 출처 (있으면)
         if fact.source:
-            source_label = QLabel(t("profile.source.label", source=fact.source))
+            source_label = QLabel(t("profile.source.label", source=self._translate_profile_source(fact.source)))
             source_label.setStyleSheet("color: #666; font-size: 10px; font-style: italic;")
             layout.addWidget(source_label)
         
