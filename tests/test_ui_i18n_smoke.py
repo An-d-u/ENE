@@ -18,6 +18,7 @@ from src.ui.profile_dialog import ProfileDialog
 
 
 _QAPP = None
+QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts, True)
 
 
 def _get_qapp():
@@ -1117,3 +1118,133 @@ def test_show_memory_dialog_warns_with_translated_text(tmp_path, monkeypatch):
     assert warnings == [
         (None, "メモリを利用できません", "メモリマネージャーが初期化されていません。")
     ]
+
+
+def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
+    locales_dir = tmp_path / "locales"
+    locales_dir.mkdir()
+    (locales_dir / "en.json").write_text(
+        """
+        {
+          "chat.loading": "Thinking...",
+          "chat.input.placeholder": "Type a message...",
+          "chat.send": "Send",
+          "chat.actions.summary": "Summary",
+          "chat.actions.summary.title": "Conversation summary",
+          "chat.actions.note": "Note",
+          "chat.actions.note.title": "Open or close the Obsidian note panel",
+          "chat.actions.mood": "Mood",
+          "chat.actions.mood.title": "Mood status",
+          "chat.mood.label": "Mood: {label}",
+          "chat.mood.loading": "Loading",
+          "chat.mood.collapse": "Collapse",
+          "chat.mood.axis.valence": "Positive",
+          "chat.mood.axis.bond": "Bond",
+          "chat.mood.axis.energy": "Energy",
+          "chat.mood.axis.stress": "Stress",
+          "chat.mood.state.calm": "Calm",
+          "chat.mood.state.cheerful": "Cheerful",
+          "chat.mood.state.affectionate": "Affectionate",
+          "chat.mood.state.tired": "Tired",
+          "chat.mood.state.tense": "Tense",
+          "chat.mood.state.lonely": "Lonely",
+          "chat.mood.state.unknown": "Unknown",
+          "chat.summary.confirm.title": "Manual summary",
+          "chat.summary.confirm.body": "Would you like to start a manual summary?",
+          "chat.summary.confirm.no": "No",
+          "chat.summary.confirm.yes": "Yes"
+        }
+        """.strip(),
+        encoding="utf-8-sig",
+    )
+    (locales_dir / "ja.json").write_text(
+        """
+        {
+          "chat.loading": "考え中...",
+          "chat.input.placeholder": "メッセージを入力してください...",
+          "chat.send": "送信",
+          "chat.actions.summary": "要約",
+          "chat.actions.summary.title": "会話を要約",
+          "chat.actions.note": "ノート",
+          "chat.actions.note.title": "Obsidianノートパネルを開く / 閉じる",
+          "chat.actions.mood": "気分",
+          "chat.actions.mood.title": "気分の状態",
+          "chat.mood.label": "気分: {label}",
+          "chat.mood.loading": "読み込み中",
+          "chat.mood.collapse": "折りたたむ",
+          "chat.mood.axis.valence": "ポジティブ",
+          "chat.mood.axis.bond": "親密",
+          "chat.mood.axis.energy": "活力",
+          "chat.mood.axis.stress": "緊張",
+          "chat.mood.state.calm": "落ち着き",
+          "chat.mood.state.cheerful": "晴れやか",
+          "chat.mood.state.affectionate": "愛情たっぷり",
+          "chat.mood.state.tired": "疲れ気味",
+          "chat.mood.state.tense": "緊張気味",
+          "chat.mood.state.lonely": "さみしい",
+          "chat.mood.state.unknown": "不明",
+          "chat.summary.confirm.title": "手動要約",
+          "chat.summary.confirm.body": "手動要約を実行しますか？",
+          "chat.summary.confirm.no": "いいえ",
+          "chat.summary.confirm.yes": "はい"
+        }
+        """.strip(),
+        encoding="utf-8-sig",
+    )
+    (locales_dir / "ko.json").write_text("{}", encoding="utf-8-sig")
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+
+    from src.core.overlay_window import OverlayWindow
+
+    captured = []
+
+    class _FakePage:
+        def runJavaScript(self, code):
+            captured.append(code)
+
+    class _FakeWebView:
+        def __init__(self):
+            self._page = _FakePage()
+
+        def page(self):
+            return self._page
+
+    overlay = OverlayWindow.__new__(OverlayWindow)
+    overlay.settings = _DummySettings({"ui_language": "ko"})
+    overlay.web_view = _FakeWebView()
+    overlay._page_loaded = True
+
+    OverlayWindow._sync_ui_strings_to_js(overlay, {"ui_language": "ja"})
+
+    assert captured
+    assert "メッセージを入力してください..." in captured[-1]
+    assert "送信" in captured[-1]
+    assert "考え中..." in captured[-1]
+
+
+def test_chat_web_script_has_runtime_i18n_hooks():
+    script_path = Path(__file__).resolve().parents[1] / "assets" / "web" / "script.js"
+    content = script_path.read_text(encoding="utf-8")
+
+    assert "window.applyENEUiStrings = function applyENEUiStrings(config)" in content
+    assert "chatInput.placeholder = currentUiStrings.input.placeholder;" in content
+    assert "sendButton.textContent = currentUiStrings.send;" in content
+    assert "moodStatusLabel.textContent = formatMoodStatusText(label);" in content
+
+
+def test_chat_web_assets_translate_mood_axis_labels_and_center_floating_buttons():
+    assets_root = Path(__file__).resolve().parents[1] / "assets" / "web"
+    script_content = (assets_root / "script.js").read_text(encoding="utf-8")
+    html_content = (assets_root / "index.html").read_text(encoding="utf-8")
+    css_content = (assets_root / "style.css").read_text(encoding="utf-8")
+
+    assert 'id="mood-meter-name-valence"' in html_content
+    assert 'id="mood-meter-name-bond"' in html_content
+    assert 'id="mood-meter-name-energy"' in html_content
+    assert 'id="mood-meter-name-stress"' in html_content
+    assert "moodMeterNameValence.textContent = currentUiStrings.mood.axis.valence;" in script_content
+    assert "moodMeterNameBond.textContent = currentUiStrings.mood.axis.bond;" in script_content
+    assert "moodMeterNameEnergy.textContent = currentUiStrings.mood.axis.energy;" in script_content
+    assert "moodMeterNameStress.textContent = currentUiStrings.mood.axis.stress;" in script_content
+    assert "justify-content: center;" in css_content
+    assert "text-align: center;" in css_content

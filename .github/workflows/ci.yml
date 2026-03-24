@@ -30,5 +30,13 @@ jobs:
       - name: Ruff (basic)
         run: ruff check . --select E9,F63,F7,F82
 
-      - name: Run tests with coverage
+      - name: Run tests with coverage (Linux)
+        if: runner.os == 'Linux'
+        env:
+          # GitHub Ubuntu 러너는 headless 환경이라 Qt 위젯 테스트에 offscreen 플랫폼이 필요하다.
+          QT_QPA_PLATFORM: offscreen
+        run: pytest -q --cov=src --cov-report=term-missing --cov-fail-under=4
+
+      - name: Run tests with coverage (Windows)
+        if: runner.os == 'Windows'
         run: pytest -q --cov=src --cov-report=term-missing --cov-fail-under=4
