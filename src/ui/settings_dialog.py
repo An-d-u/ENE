@@ -2,8 +2,6 @@
 Settings dialog for ENE.
 Provides live preview without immediate persistence.
 """
-import ast
-import importlib
 import json
 import re
 from datetime import datetime
@@ -44,6 +42,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from ..ai import prompt_config
 from ..ai.prompt import get_available_emotions
 from ..ai.tts_client import get_tts_provider_catalog, get_tts_provider_defaults
 from ..ai.llm_provider import LLMFormat, get_llm_provider_catalog
@@ -543,8 +542,8 @@ class SettingsDialog(QDialog):
         self._browser_voice_refresh_timer.setSingleShot(True)
         self._browser_voice_refresh_timer.timeout.connect(self._request_browser_tts_voices)
         self._project_root = Path(__file__).resolve().parents[2]
-        self._prompt_path = self._project_root / "src" / "ai" / "prompt.py"
-        self._sub_prompt_path = self._project_root / "src" / "ai" / "sub_prompt.py"
+        self._prompt_path = prompt_config.BASE_SYSTEM_PROMPT_PATH
+        self._sub_prompt_path = prompt_config.SUB_PROMPT_BODY_PATH
         self._user_profile_path = self._project_root / "user_profile.json"
         self._prompt_status_label: QLabel | None = None
         self._profile_status_label: QLabel | None = None
@@ -809,14 +808,21 @@ class SettingsDialog(QDialog):
                 self._theme_color_desc_labels[key].setText(description)
 
     def _refresh_lazy_tab_headers(self) -> None:
+        stale_tab_ids = []
         for tab_id, labels in self._lazy_tab_header_labels.items():
             title_label, body_label = labels
             index = next((idx for idx, current_tab_id in self._lazy_tab_index_to_id.items() if current_tab_id == tab_id), -1)
             if index < 0:
+                stale_tab_ids.append(tab_id)
                 continue
             title, description = self._section_header_map.get(index, ("", ""))
-            title_label.setText(title)
-            body_label.setText(description)
+            try:
+                title_label.setText(title)
+                body_label.setText(description)
+            except RuntimeError:
+                stale_tab_ids.append(tab_id)
+        for tab_id in stale_tab_ids:
+            self._lazy_tab_header_labels.pop(tab_id, None)
 
     def _refresh_ui_language_combo_labels(self) -> None:
         if not hasattr(self, "ui_language_combo"):
@@ -2110,6 +2116,7 @@ class SettingsDialog(QDialog):
         if layout is None:
             return
 
+        self._lazy_tab_header_labels.pop(tab_id, None)
         while layout.count():
             item = layout.takeAt(0)
             widget = item.widget()
@@ -4376,40 +4383,6 @@ class SettingsDialog(QDialog):
         normalized = text.replace("\r\n", "\n")
         path.write_text(normalized, encoding="utf-8-sig")
 
-    def _find_assignment_value_node(self, source: str, var_name: str):
-        tree = ast.parse(source)
-        for node in tree.body:
-            if isinstance(node, ast.Assign):
-                for target in node.targets:
-                    if isinstance(target, ast.Name) and target.id == var_name:
-                        return node.value
-        raise ValueError(f"{var_name} 값을 찾지 못했습니다.")
-
-    def _extract_assignment_literal(self, source: str, var_name: str):
-        value_node = self._find_assignment_value_node(source, var_name)
-        return ast.literal_eval(value_node)
-
-    def _replace_assignment_value(self, source: str, var_name: str, replacement: str) -> str:
-        value_node = self._find_assignment_value_node(source, var_name)
-        lines = source.splitlines(keepends=True)
-
-        def to_offset(lineno: int, col: int) -> int:
-            return sum(len(line) for line in lines[:lineno - 1]) + col
-
-        start = to_offset(value_node.lineno, value_node.col_offset)
-        end = to_offset(value_node.end_lineno, value_node.end_col_offset)
-        return source[:start] + replacement + source[end:]
-
-    def _format_triple_quoted_string(self, text: str) -> str:
-        escaped = (text or "").strip("\n").replace('"""', '\\"\\"\\"')
-        return f'"""\n{escaped}\n"""'
-
-    def _format_emotions_list(self, emotions: list[str]) -> str:
-        lines = ["["]
-        lines.extend(f"    {emotion!r}," for emotion in emotions)
-        lines.append("]")
-        return "\n".join(lines)
-
     def _split_sub_prompt_content(self, text: str) -> tuple[str, dict[str, str]]:
         content = (text or "").strip()
         if not content:
@@ -4562,13 +4535,9 @@ class SettingsDialog(QDialog):
 
     def _load_prompt_configuration(self):
         try:
-            prompt_source = self._read_text_file(self._prompt_path)
-            sub_prompt_source = self._read_text_file(self._sub_prompt_path)
-
-            base_prompt = self._extract_assignment_literal(prompt_source, "BASE_SYSTEM_PROMPT")
-            emotions = list(self._extract_assignment_literal(prompt_source, "EMOTIONS"))
-            sub_prompt_text = self._extract_assignment_literal(sub_prompt_source, "SUB_PROMPT")
-            sub_prompt_body, guides = self._split_sub_prompt_content(sub_prompt_text)
+            config = prompt_config.load_prompt_config()
+            emotions = list(config.get("emotions", []))
+            guides = dict(config.get("emotion_guides", {}))
 
             merged_items = [{"name": name, "guide": guides.get(name, "")} for name in emotions]
             known_names = {item["name"] for item in merged_items}
@@ -4576,93 +4545,47 @@ class SettingsDialog(QDialog):
                 if name not in known_names:
                     merged_items.append({"name": name, "guide": guide})
 
-            self.base_prompt_editor.setPlainText(str(base_prompt).strip("\n"))
-            self.sub_prompt_editor.setPlainText(sub_prompt_body)
+            self.base_prompt_editor.setPlainText(str(config.get("base_system_prompt", "")).strip("\n"))
+            self.sub_prompt_editor.setPlainText(str(config.get("sub_prompt_body", "")).strip("\n"))
             self._emotion_items = merged_items
             self._refresh_emotion_list()
             self._sync_emotion_combo_options()
             self._new_emotion_item()
 
-            self._set_prompt_status(
-                "settings.prompt.status.load_done",
-                "prompt.py / sub_prompt.py 로드 완료",
-            )
+            if self._prompt_status_label:
+                self._prompt_status_label.setText("프롬프트 Markdown 로드 완료")
         except Exception as e:
-            self._set_prompt_status("settings.prompt.status.load_failed", "로드 실패: {error}", error=e)
-            QMessageBox.warning(
-                self,
-                self._translated_text("settings.prompt.message.load_failed.title", "불러오기 실패"),
-                self._translated_text_format(
-                    "settings.prompt.message.load_failed.body",
-                    "프롬프트 설정을 불러오지 못했습니다.\n{error}",
-                    error=e,
-                ),
-            )
+            if self._prompt_status_label:
+                self._prompt_status_label.setText(f"로드 실패: {e}")
+            QMessageBox.warning(self, "불러오기 실패", f"프롬프트 설정을 불러오지 못했습니다.\n{e}")
 
     def _save_prompt_configuration(self):
         try:
             emotion_names = [item["name"] for item in self._emotion_items if item["name"].strip()]
             if not emotion_names:
-                raise ValueError(
-                    self._translated_text(
-                        "settings.prompt.message.emotion_required.body",
-                        "감정은 하나 이상 있어야 합니다.",
-                    )
-                )
+                raise ValueError("감정은 하나 이상 있어야 합니다.")
 
-            prompt_source = self._read_text_file(self._prompt_path)
-            sub_prompt_source = self._read_text_file(self._sub_prompt_path)
-
-            prompt_source = self._replace_assignment_value(
-                prompt_source,
-                "EMOTIONS",
-                self._format_emotions_list(emotion_names),
+            prompt_config.save_prompt_config(
+                {
+                    "base_system_prompt": self.base_prompt_editor.toPlainText(),
+                    "sub_prompt_body": self.sub_prompt_editor.toPlainText(),
+                    "emotions": emotion_names,
+                    "emotion_guides": {
+                        item["name"]: item["guide"]
+                        for item in self._emotion_items
+                        if item["name"].strip()
+                    },
+                }
             )
-            prompt_source = self._replace_assignment_value(
-                prompt_source,
-                "BASE_SYSTEM_PROMPT",
-                self._format_triple_quoted_string(self.base_prompt_editor.toPlainText()),
-            )
-
-            rebuilt_sub_prompt = self._build_sub_prompt_text(
-                self.sub_prompt_editor.toPlainText(),
-                self._emotion_items,
-            )
-            sub_prompt_source = self._replace_assignment_value(
-                sub_prompt_source,
-                "SUB_PROMPT",
-                self._format_triple_quoted_string(rebuilt_sub_prompt),
-            )
-
-            compile(prompt_source, str(self._prompt_path), "exec")
-            compile(sub_prompt_source, str(self._sub_prompt_path), "exec")
-
-            self._write_text_file(self._prompt_path, prompt_source)
-            self._write_text_file(self._sub_prompt_path, sub_prompt_source)
-            importlib.reload(importlib.import_module("src.ai.sub_prompt"))
-            importlib.reload(importlib.import_module("src.ai.prompt"))
             self._sync_emotion_combo_options()
 
-            self._set_prompt_status(
-                "settings.prompt.status.save_done",
-                "prompt.py / sub_prompt.py 저장 완료",
-            )
-            QMessageBox.information(
-                self,
-                self._translated_text("settings.prompt.message.save_done.title", "저장 완료"),
-                self._translated_text("settings.prompt.message.save_done.body", "프롬프트 설정을 저장했습니다."),
-            )
+            if self._prompt_status_label:
+                self._prompt_status_label.setText("프롬프트 Markdown 저장 완료")
+            QMessageBox.information(self, "저장 완료", "프롬프트 설정을 저장했습니다.")
         except Exception as e:
-            self._set_prompt_status("settings.prompt.status.save_failed", "저장 실패: {error}", error=e)
-            QMessageBox.warning(
-                self,
-                self._translated_text("settings.prompt.message.save_failed.title", "저장 실패"),
-                self._translated_text_format(
-                    "settings.prompt.message.save_failed.body",
-                    "프롬프트 설정을 저장하지 못했습니다.\n{error}",
-                    error=e,
-                ),
-            )
+            if self._prompt_status_label:
+                self._prompt_status_label.setText(f"저장 실패: {e}")
+            QMessageBox.warning(self, "저장 실패", f"프롬프트 설정을 저장하지 못했습니다.\n{e}")
 
     def _refresh_basic_info_list(self):
         self.basic_info_list.clear()
