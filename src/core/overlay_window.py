@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
 from ..ui.drag_bar import DragBar
 from .bridge import WebBridge
+from .model_emotions import get_available_model_emotions, resolve_model_json_path
 
 
 class OverlayWindow(QWidget):
@@ -108,18 +109,17 @@ class OverlayWindow(QWidget):
 
     def _resolve_model_path_payload(self, settings_source=None) -> dict:
         source = settings_source if isinstance(settings_source, dict) else self.settings.config
-        raw_model_path = str(
-            source.get("model_json_path", "assets/live2d_models/jksalt/jksalt.model3.json")
-        ).strip() or "assets/live2d_models/jksalt/jksalt.model3.json"
-
-        model_path = Path(raw_model_path)
-        if not model_path.is_absolute():
-            model_path = self._get_base_path() / model_path
-        model_path = model_path.resolve()
+        base_path = self._get_base_path()
+        model_path = resolve_model_json_path(settings_source=source, base_path=base_path)
+        available_emotions = get_available_model_emotions(
+            settings_source=source,
+            base_path=base_path,
+        )
 
         return {
             "modelPath": model_path.as_uri(),
             "emotionsBasePath": model_path.parent.joinpath("emotions").resolve().as_uri().rstrip("/") + "/",
+            "availableEmotions": available_emotions,
         }
 
     def _normalize_theme_hex(self, raw_value: str, fallback: str) -> str:
@@ -210,7 +210,8 @@ class OverlayWindow(QWidget):
                 xPercent: {x_percent},
                 yPercent: {y_percent},
                 modelPath: {json.dumps(path_payload["modelPath"])},
-                emotionsBasePath: {json.dumps(path_payload["emotionsBasePath"])}
+                emotionsBasePath: {json.dumps(path_payload["emotionsBasePath"])},
+                availableEmotions: {json.dumps(path_payload["availableEmotions"])}
             }};
 
             function applyModelSettings() {{
@@ -290,7 +291,8 @@ class OverlayWindow(QWidget):
                 xPercent: {x_percent},
                 yPercent: {y_percent},
                 modelPath: {json.dumps(path_payload["modelPath"])},
-                emotionsBasePath: {json.dumps(path_payload["emotionsBasePath"])}
+                emotionsBasePath: {json.dumps(path_payload["emotionsBasePath"])},
+                availableEmotions: {json.dumps(path_payload["availableEmotions"])}
             }};
             if (typeof window.applyENEModelSettings === 'function') {{
                 window.applyENEModelSettings(window.eneModelConfig);

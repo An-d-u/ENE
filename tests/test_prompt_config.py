@@ -136,6 +136,7 @@ def test_get_system_prompt_reads_from_markdown_files(tmp_path, monkeypatch):
     monkeypatch.setattr(prompt_config, "DEFAULT_SUB_PROMPT_BODY_PATH", default_dir / "sub_prompt_body.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH", default_dir / "analysis_system_appendix.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_EMOTION_GUIDES_PATH", default_dir / "emotion_guides.md")
+    monkeypatch.setattr(prompt_config, "get_runtime_emotions", lambda **kwargs: ["calm", "focus"])
 
     prompt_with_sub = prompt_module.get_system_prompt()
     prompt_without_sub = prompt_module.get_system_prompt(include_sub_prompt=False)
@@ -152,6 +153,40 @@ def test_get_system_prompt_reads_from_markdown_files(tmp_path, monkeypatch):
     assert prompt_without_sub == "JSON이 아니라 MD 베이스"
     assert "### [분석 부록]" in runtime_prompt
     assert prompt_module.get_available_emotions() == ["calm", "focus"]
+
+
+def test_runtime_prompt_uses_model_emotions_instead_of_saved_emotion_list(tmp_path, monkeypatch):
+    from src.ai import prompt as prompt_module
+    from src.ai import prompt_config
+
+    default_dir = tmp_path / "prompts" / "defaults"
+    local_dir = tmp_path / "prompts"
+    payload = _sample_prompt_payload()
+    payload["sub_prompt_body"] = "### [응답 형식]\n- 모델 기준 감정을 사용하세요."
+    payload["emotions"] = ["obsolete", "joy"]
+    payload["emotion_guides"] = {
+        "obsolete": "더 이상 없는 감정",
+        "joy": "기쁠 때",
+    }
+    _write_prompt_markdown_files(default_dir, payload)
+
+    monkeypatch.setattr(prompt_config, "PROMPT_CONFIG_DIR", local_dir)
+    monkeypatch.setattr(prompt_config, "DEFAULT_PROMPT_CONFIG_DIR", default_dir)
+    monkeypatch.setattr(prompt_config, "BASE_SYSTEM_PROMPT_PATH", local_dir / "base_system_prompt.md")
+    monkeypatch.setattr(prompt_config, "SUB_PROMPT_BODY_PATH", local_dir / "sub_prompt_body.md")
+    monkeypatch.setattr(prompt_config, "ANALYSIS_SYSTEM_APPENDIX_PATH", local_dir / "analysis_system_appendix.md")
+    monkeypatch.setattr(prompt_config, "EMOTION_GUIDES_PATH", local_dir / "emotion_guides.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_BASE_SYSTEM_PROMPT_PATH", default_dir / "base_system_prompt.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_SUB_PROMPT_BODY_PATH", default_dir / "sub_prompt_body.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH", default_dir / "analysis_system_appendix.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_EMOTION_GUIDES_PATH", default_dir / "emotion_guides.md")
+    monkeypatch.setattr(prompt_config, "get_runtime_emotions", lambda **kwargs: ["normal", "joy"])
+
+    prompt_with_sub = prompt_module.get_system_prompt()
+
+    assert prompt_module.get_available_emotions() == ["normal", "joy"]
+    assert "normal, joy" in prompt_with_sub
+    assert "obsolete" not in prompt_with_sub
 
 
 def test_settings_dialog_saves_prompt_configuration_to_markdown_files(tmp_path, monkeypatch):
