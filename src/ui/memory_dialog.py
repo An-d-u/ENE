@@ -23,6 +23,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from ..core.i18n import tr as t
+
 
 def apply_soft_shadow(widget: QWidget, blur: int = 36, alpha: int = 28) -> None:
     effect = QGraphicsDropShadowEffect(widget)
@@ -66,7 +68,7 @@ class MemoryDialog(QDialog):
         self._sort_descending = True
         self._item_frames: dict[str, QFrame] = {}
 
-        self.setWindowTitle("ENE 기억 관리")
+        self.setWindowTitle(t("memory.window.title"))
         if self._embedded:
             self.resize(1000, 720)
             self.setMinimumSize(0, 0)
@@ -186,6 +188,18 @@ class MemoryDialog(QDialog):
             .replace("__SCROLLBAR__", self._theme_rgba(muted_text, 0.40))
         )
 
+    def _count_text(self, count: int) -> str:
+        return t("memory.unit.count", count=f"{count:,}")
+
+    def _item_count_text(self, count: int) -> str:
+        return t("memory.unit.items", count=f"{count:,}")
+
+    def _message_count_text(self, count: int) -> str:
+        return t("memory.unit.messages", count=f"{count:,}")
+
+    def _sort_button_text(self) -> str:
+        return t("memory.sort.newest") if self._sort_descending else t("memory.sort.oldest")
+
     def _setup_ui(self) -> None:
         root = QVBoxLayout(self)
         root.setContentsMargins(0 if self._embedded else 18, 0 if self._embedded else 18, 0 if self._embedded else 18, 0 if self._embedded else 18)
@@ -225,11 +239,11 @@ class MemoryDialog(QDialog):
         title_col = QVBoxLayout()
         title_col.setSpacing(2)
 
-        title = QLabel("ENE 기억 관리")
+        title = QLabel(t("memory.window.title"))
         title.setObjectName("WindowTitle")
         title_col.addWidget(title)
 
-        subtitle = QLabel("자동 요약, 검색 파라미터, 저장된 기억 항목을 한 화면에서 관리합니다.")
+        subtitle = QLabel(t("memory.window.subtitle"))
         subtitle.setObjectName("WindowSubtitle")
         title_col.addWidget(subtitle)
         layout.addLayout(title_col)
@@ -249,10 +263,26 @@ class MemoryDialog(QDialog):
         grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(12)
 
-        self.total_metric = self._metric_card("총 기억", "-", "저장된 전체 기억")
-        self.important_metric = self._metric_card("중요 기억", "-", "중요 표시된 항목")
-        self.embedding_metric = self._metric_card("임베딩 커버리지", "-", "임베딩 보유 상태")
-        self.threshold_metric = self._metric_card("자동 요약 기준", "-", "대화 단위")
+        self.total_metric = self._metric_card(
+            t("memory.metric.total.label"),
+            "-",
+            t("memory.metric.total.detail"),
+        )
+        self.important_metric = self._metric_card(
+            t("memory.metric.important.label"),
+            "-",
+            t("memory.metric.important.detail"),
+        )
+        self.embedding_metric = self._metric_card(
+            t("memory.metric.embedding.label"),
+            "-",
+            t("memory.metric.embedding.detail", count="0"),
+        )
+        self.threshold_metric = self._metric_card(
+            t("memory.metric.threshold.label"),
+            "-",
+            t("memory.metric.threshold.detail"),
+        )
 
         grid.addWidget(self.total_metric, 0, 0)
         grid.addWidget(self.important_metric, 0, 1)
@@ -270,31 +300,31 @@ class MemoryDialog(QDialog):
         top.setSpacing(12)
 
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("기억 제목, 요약, 태그 검색")
+        self.search_input.setPlaceholderText(t("memory.search.placeholder"))
         self.search_input.textChanged.connect(self._apply_filters)
         top.addWidget(self.search_input, 1)
 
-        self.important_filter_btn = QPushButton("중요만")
+        self.important_filter_btn = QPushButton(t("memory.filter.important_only"))
         self.important_filter_btn.clicked.connect(self._toggle_important_filter)
         top.addWidget(self.important_filter_btn)
 
-        self.sort_button = QPushButton("최근순")
+        self.sort_button = QPushButton(self._sort_button_text())
         self.sort_button.setProperty("accent", True)
         self.sort_button.style().unpolish(self.sort_button)
         self.sort_button.style().polish(self.sort_button)
         self.sort_button.clicked.connect(self._toggle_sort_order)
         top.addWidget(self.sort_button)
 
-        refresh_btn = QPushButton("새로고침")
-        refresh_btn.clicked.connect(self._load_memories)
-        top.addWidget(refresh_btn)
+        self.refresh_btn = QPushButton(t("memory.button.refresh"))
+        self.refresh_btn.clicked.connect(self._load_memories)
+        top.addWidget(self.refresh_btn)
         layout.addLayout(top)
 
         chip_row = QHBoxLayout()
         chip_row.setSpacing(10)
-        chip_row.addWidget(self._pill("요약 + 태그 검색", "TagPill"))
-        chip_row.addWidget(self._pill("중요/유사/최근 조합 회수", "TagPill"))
-        chip_row.addWidget(self._pill("변경 즉시 저장", "TagPill"))
+        chip_row.addWidget(self._pill(t("memory.chip.summary_tags"), "TagPill"))
+        chip_row.addWidget(self._pill(t("memory.chip.retrieval_mix"), "TagPill"))
+        chip_row.addWidget(self._pill(t("memory.chip.auto_save"), "TagPill"))
         chip_row.addStretch()
         layout.addLayout(chip_row)
         return card
@@ -306,10 +336,10 @@ class MemoryDialog(QDialog):
         layout.setSpacing(12)
 
         top = QHBoxLayout()
-        top.addWidget(self._pill("기억 목록", "MutedPill"))
+        top.addWidget(self._pill(t("memory.list.title"), "MutedPill"))
         top.addStretch()
 
-        self.list_hint_label = QLabel("최신 기억부터 표시됩니다.")
+        self.list_hint_label = QLabel(t("memory.list.latest_hint"))
         self.list_hint_label.setObjectName("Body")
         top.addWidget(self.list_hint_label)
         layout.addLayout(top)
@@ -327,14 +357,14 @@ class MemoryDialog(QDialog):
         layout.setContentsMargins(22, 22, 22, 22)
         layout.setSpacing(14)
 
-        layout.addWidget(self._pill("선택된 기억", "BluePill"), alignment=Qt.AlignmentFlag.AlignLeft)
+        layout.addWidget(self._pill(t("memory.inspector.title"), "BluePill"), alignment=Qt.AlignmentFlag.AlignLeft)
 
-        self.inspector_title = QLabel("선택된 기억이 없습니다")
+        self.inspector_title = QLabel(t("memory.empty.title"))
         self.inspector_title.setObjectName("CardTitle")
         self.inspector_title.setWordWrap(True)
         layout.addWidget(self.inspector_title)
 
-        self.inspector_body = QLabel("왼쪽 목록에서 기억을 선택하면 상세 정보와 관리 액션이 여기에 표시됩니다.")
+        self.inspector_body = QLabel(t("memory.empty.body"))
         self.inspector_body.setObjectName("Body")
         self.inspector_body.setWordWrap(True)
         layout.addWidget(self.inspector_body)
@@ -344,19 +374,19 @@ class MemoryDialog(QDialog):
         self.inspector_tags_row.addStretch()
         layout.addLayout(self.inspector_tags_row)
 
-        time_row, self.inspector_time_value = self._key_value_row("기억 시각")
+        time_row, self.inspector_time_value = self._key_value_row(t("memory.detail.time"))
         layout.addWidget(time_row)
-        source_row, self.inspector_source_value = self._key_value_row("원문 개수")
+        source_row, self.inspector_source_value = self._key_value_row(t("memory.detail.source_count"))
         layout.addWidget(source_row)
-        important_row, self.inspector_important_value = self._key_value_row("중요 여부")
+        important_row, self.inspector_important_value = self._key_value_row(t("memory.detail.important"))
         layout.addWidget(important_row)
-        embedding_row, self.inspector_embedding_value = self._key_value_row("임베딩 상태")
+        embedding_row, self.inspector_embedding_value = self._key_value_row(t("memory.detail.embedding"))
         layout.addWidget(embedding_row)
 
         action_row = QHBoxLayout()
         action_row.setSpacing(10)
 
-        self.important_btn = QPushButton("중요 표시")
+        self.important_btn = QPushButton(t("memory.button.mark_important"))
         self.important_btn.setProperty("accent", True)
         self.important_btn.style().unpolish(self.important_btn)
         self.important_btn.style().polish(self.important_btn)
@@ -364,7 +394,7 @@ class MemoryDialog(QDialog):
         self.important_btn.setEnabled(False)
         action_row.addWidget(self.important_btn)
 
-        self.delete_btn = QPushButton("기억 삭제")
+        self.delete_btn = QPushButton(t("memory.button.delete"))
         self.delete_btn.clicked.connect(self._delete_memory)
         self.delete_btn.setEnabled(False)
         action_row.addWidget(self.delete_btn)
@@ -379,11 +409,11 @@ class MemoryDialog(QDialog):
         layout.setContentsMargins(22, 22, 22, 22)
         layout.setSpacing(14)
 
-        title = QLabel("기억 검색 설정")
+        title = QLabel(t("memory.tuning.title"))
         title.setObjectName("CardTitle")
         layout.addWidget(title)
 
-        body = QLabel("원래 기억 관리 창에 있던 자동 요약 기준과 검색 파라미터를 이 영역에서 즉시 조정합니다.")
+        body = QLabel(t("memory.tuning.body"))
         body.setObjectName("Body")
         body.setWordWrap(True)
         layout.addWidget(body)
@@ -391,39 +421,69 @@ class MemoryDialog(QDialog):
         self.threshold_spinbox = QSpinBox()
         self.threshold_spinbox.setRange(2, 100)
         self.threshold_spinbox.setValue(10)
-        self.threshold_spinbox.setSuffix("개")
+        self.threshold_spinbox.setSuffix(t("memory.unit.count_suffix"))
         self.threshold_spinbox.valueChanged.connect(self._on_threshold_changed)
-        layout.addWidget(self._wrap_setting_row(self.threshold_spinbox, "대화 N개 이상 시 자동 요약", "기억이 누적된 대화 묶음이 이 값을 넘으면 자동 요약을 실행합니다."))
+        layout.addWidget(
+            self._wrap_setting_row(
+                self.threshold_spinbox,
+                t("memory.tuning.threshold.title"),
+                t("memory.tuning.threshold.body"),
+            )
+        )
 
         self.important_spinbox = QSpinBox()
         self.important_spinbox.setRange(0, 20)
         self.important_spinbox.setValue(3)
-        self.important_spinbox.setSuffix("개")
+        self.important_spinbox.setSuffix(t("memory.unit.count_suffix"))
         self.important_spinbox.valueChanged.connect(self._on_memory_setting_changed)
-        layout.addWidget(self._wrap_setting_row(self.important_spinbox, "최대 중요 기억", "회수 시 항상 우선 검토할 중요 기억의 최대 개수입니다."))
+        layout.addWidget(
+            self._wrap_setting_row(
+                self.important_spinbox,
+                t("memory.tuning.important.title"),
+                t("memory.tuning.important.body"),
+            )
+        )
 
         self.similar_spinbox = QSpinBox()
         self.similar_spinbox.setRange(0, 20)
         self.similar_spinbox.setValue(3)
-        self.similar_spinbox.setSuffix("개")
+        self.similar_spinbox.setSuffix(t("memory.unit.count_suffix"))
         self.similar_spinbox.valueChanged.connect(self._on_memory_setting_changed)
-        layout.addWidget(self._wrap_setting_row(self.similar_spinbox, "최대 유사 기억", "현재 입력과 의미가 가까운 기억을 몇 개까지 가져올지 결정합니다."))
+        layout.addWidget(
+            self._wrap_setting_row(
+                self.similar_spinbox,
+                t("memory.tuning.similar.title"),
+                t("memory.tuning.similar.body"),
+            )
+        )
 
         self.recent_spinbox = QSpinBox()
         self.recent_spinbox.setRange(0, 20)
         self.recent_spinbox.setValue(2)
-        self.recent_spinbox.setSuffix("개")
+        self.recent_spinbox.setSuffix(t("memory.unit.count_suffix"))
         self.recent_spinbox.valueChanged.connect(self._on_memory_setting_changed)
-        layout.addWidget(self._wrap_setting_row(self.recent_spinbox, "최대 최근 기억", "유사도와 별개로 최근 맥락을 몇 개까지 보조로 포함할지 정합니다."))
+        layout.addWidget(
+            self._wrap_setting_row(
+                self.recent_spinbox,
+                t("memory.tuning.recent.title"),
+                t("memory.tuning.recent.body"),
+            )
+        )
 
         self.similarity_spinbox = QSpinBox()
         self.similarity_spinbox.setRange(1, 100)
         self.similarity_spinbox.setValue(35)
-        self.similarity_spinbox.setSuffix("%")
+        self.similarity_spinbox.setSuffix(t("memory.unit.percent_suffix"))
         self.similarity_spinbox.valueChanged.connect(self._on_memory_setting_changed)
-        layout.addWidget(self._wrap_setting_row(self.similarity_spinbox, "최소 유사도", "이 값보다 낮은 기억은 유사 기억 후보에서 제외합니다."))
+        layout.addWidget(
+            self._wrap_setting_row(
+                self.similarity_spinbox,
+                t("memory.tuning.similarity.title"),
+                t("memory.tuning.similarity.body"),
+            )
+        )
 
-        note = QLabel("이 탭의 값은 변경 즉시 설정 파일에 저장됩니다.")
+        note = QLabel(t("memory.tuning.note"))
         note.setObjectName("Body")
         note.setWordWrap(True)
         layout.addWidget(note)
@@ -536,7 +596,7 @@ class MemoryDialog(QDialog):
     def _memory_preview_text(self, memory) -> str:
         text = re.sub(r"\s+", " ", str(memory.summary or "")).strip()
         if not text:
-            return "요약된 내용이 아직 없습니다."
+            return t("memory.preview.empty")
 
         preview_limit = 104
         if len(text) <= preview_limit:
@@ -584,9 +644,9 @@ class MemoryDialog(QDialog):
         top.setSpacing(8)
         top.addWidget(self._memory_meta_pill(self._format_timestamp(memory.timestamp), "MutedPill", 116))
         if memory.is_important:
-            top.addWidget(self._memory_meta_pill("중요", "BluePill", 68))
+            top.addWidget(self._memory_meta_pill(t("memory.badge.important"), "BluePill", 68))
         if memory.embedding:
-            top.addWidget(self._memory_meta_pill("임베딩", "TagPill", 68))
+            top.addWidget(self._memory_meta_pill(t("memory.badge.embedding"), "TagPill", 68))
         top.addStretch()
         layout.addLayout(top)
 
@@ -609,8 +669,10 @@ class MemoryDialog(QDialog):
         self.total_metric.value_label.setText(f"{total:,}")
         self.important_metric.value_label.setText(f"{important:,}")
         self.embedding_metric.value_label.setText(coverage)
-        self.embedding_metric.detail_label.setText(f"{with_embedding:,}개 연결")
-        self.threshold_metric.value_label.setText(f"{self.threshold_spinbox.value()}개")
+        self.embedding_metric.detail_label.setText(
+            t("memory.metric.embedding.detail", count=f"{with_embedding:,}")
+        )
+        self.threshold_metric.value_label.setText(self._count_text(self.threshold_spinbox.value()))
 
     def _selected_memory_id(self) -> str | None:
         item = self.memory_list.currentItem()
@@ -652,23 +714,29 @@ class MemoryDialog(QDialog):
 
     def _update_inspector(self, memory) -> None:
         if memory is None:
-            self.inspector_title.setText("선택된 기억이 없습니다")
-            self.inspector_body.setText("왼쪽 목록에서 기억을 선택하면 상세 정보와 관리 액션이 여기에 표시됩니다.")
+            self.inspector_title.setText(t("memory.empty.title"))
+            self.inspector_body.setText(t("memory.empty.body"))
             self.inspector_time_value.setText("-")
             self.inspector_source_value.setText("-")
             self.inspector_important_value.setText("-")
             self.inspector_embedding_value.setText("-")
-            self.important_btn.setText("중요 표시")
+            self.important_btn.setText(t("memory.button.mark_important"))
             self._replace_inspector_tags([])
             return
 
-        self.inspector_title.setText((memory.summary or "요약 없음")[:60])
+        self.inspector_title.setText((memory.summary or t("memory.summary.empty"))[:60])
         self.inspector_body.setText(memory.summary or "")
         self.inspector_time_value.setText(self._format_timestamp(memory.timestamp))
-        self.inspector_source_value.setText(f"{len(memory.original_messages)}개 메시지")
-        self.inspector_important_value.setText("보존 대상" if memory.is_important else "일반 기억")
-        self.inspector_embedding_value.setText("연결됨" if memory.embedding else "없음")
-        self.important_btn.setText("중요 해제" if memory.is_important else "중요 표시")
+        self.inspector_source_value.setText(self._message_count_text(len(memory.original_messages)))
+        self.inspector_important_value.setText(
+            t("memory.value.important.true") if memory.is_important else t("memory.value.important.false")
+        )
+        self.inspector_embedding_value.setText(
+            t("memory.value.embedding.true") if memory.embedding else t("memory.value.embedding.false")
+        )
+        self.important_btn.setText(
+            t("memory.button.unmark_important") if memory.is_important else t("memory.button.mark_important")
+        )
         self._replace_inspector_tags(memory.tags)
 
     def _replace_inspector_tags(self, tags: list[str]) -> None:
@@ -690,7 +758,7 @@ class MemoryDialog(QDialog):
 
     def _toggle_sort_order(self) -> None:
         self._sort_descending = not self._sort_descending
-        self.sort_button.setText("최근순" if self._sort_descending else "오래된순")
+        self.sort_button.setText(self._sort_button_text())
         self._load_memories()
 
     def _apply_filters(self) -> None:
@@ -715,7 +783,7 @@ class MemoryDialog(QDialog):
             if visible:
                 visible_count += 1
 
-        self.list_hint_label.setText(f"{visible_count}개 항목 표시 중")
+        self.list_hint_label.setText(t("memory.list.visible_count", count=f"{visible_count:,}"))
         current_item = self.memory_list.currentItem()
         if current_item is None or current_item.isHidden():
             self._select_first_visible_item()
@@ -738,14 +806,14 @@ class MemoryDialog(QDialog):
             return
 
         memory = self._get_memory_by_id(memory_id)
-        summary = memory.summary if memory else "선택한 기억"
+        summary = memory.summary if memory else t("memory.delete.summary_fallback")
         if len(summary) > 60:
             summary = summary[:60] + "..."
 
         reply = QMessageBox.question(
             self,
-            "삭제 확인",
-            f"`{summary}` 항목을 삭제하시겠습니까?",
+            t("memory.delete.title"),
+            t("memory.delete.body", summary=summary),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -768,7 +836,7 @@ class MemoryDialog(QDialog):
             self.recent_spinbox.setValue(int(config.get("max_recent_memories", 2)))
 
     def _on_threshold_changed(self, value):
-        self.threshold_metric.value_label.setText(f"{value}개")
+        self.threshold_metric.value_label.setText(self._count_text(value))
         if self.bridge:
             self.bridge.summarize_threshold = value
             print(f"[Memory Dialog] 자동 요약 임계값: {value}개")
@@ -798,14 +866,18 @@ class MemoryDialog(QDialog):
 
     def _show_profile_dialog(self):
         if not self.bridge or not hasattr(self.bridge, "user_profile"):
-            QMessageBox.warning(self, "프로필 없음", "사용자 프로필이 초기화되지 않았습니다.")
+            QMessageBox.warning(
+                self,
+                t("memory.profile.missing.title"),
+                t("memory.profile.missing.body"),
+            )
             return
 
         if not self.bridge.user_profile:
             QMessageBox.information(
                 self,
-                "프로필 정보 없음",
-                "아직 저장된 마스터 정보가 없습니다.\n대화를 나누면 자동으로 정보가 추출됩니다.",
+                t("memory.profile.empty.title"),
+                t("memory.profile.empty.body"),
             )
             return
 

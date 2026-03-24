@@ -1,12 +1,18 @@
+import json
 import sys
 import types
 from types import SimpleNamespace
 
+from PyQt6.QtCore import QDate, Qt
+from PyQt6.QtWidgets import QLabel, QMessageBox, QPushButton
 from PyQt6.QtWidgets import QApplication
 
 from src.core.i18n import configure_i18n
 from src.core.tray_icon import TrayIcon
 from src.ui.obsidian_panel_window import ObsidianPanelWindow
+from src.ui.calendar_dialog import CalendarDialog
+from src.ui.memory_dialog import MemoryDialog
+from src.ui.profile_dialog import ProfileDialog
 
 
 _QAPP = None
@@ -39,9 +45,92 @@ class _DummyObsSettings:
 class _DummySettings:
     def __init__(self, config):
         self.config = dict(config)
+        self.saved = False
 
     def get(self, key, default=None):
         return self.config.get(key, default)
+
+    def save(self):
+        self.saved = True
+
+
+class _DummyCalendarManager:
+    def __init__(self):
+        self.conversation_counts = {"2026-03-24": 3}
+        self._head_pat_counts = {"2026-03-24": 1}
+        self.events = [
+            SimpleNamespace(
+                id="event-1",
+                date="2026-03-24",
+                title="Planning",
+                description="Review milestones",
+                completed=False,
+                source="ai_extracted",
+            )
+        ]
+        self.deleted_event_ids = []
+
+    def get_conversation_count(self, date_str):
+        return self.conversation_counts.get(date_str, 0)
+
+    def get_head_pat_count(self, date_str):
+        return self._head_pat_counts.get(date_str, 0)
+
+    def get_events_by_date(self, date_str):
+        return [event for event in self.events if event.date == date_str]
+
+    def toggle_event_completion(self, event_id):
+        for event in self.events:
+            if event.id == event_id:
+                event.completed = not event.completed
+                return
+
+    def delete_event(self, event_id):
+        self.deleted_event_ids.append(event_id)
+        self.events = [event for event in self.events if event.id != event_id]
+
+
+class _DummyUserProfile:
+    def __init__(self, basic_info=None, preferences=None, facts=None):
+        self.basic_info = basic_info or {}
+        self.preferences = preferences or {"likes": []}
+        self.facts = list(facts or [])
+
+    def __bool__(self):
+        return bool(self.basic_info or self.preferences.get("likes") or self.facts)
+
+    def delete_fact(self, index):
+        self.facts.pop(index)
+
+
+class _DummyMemoryManager:
+    def __init__(self, memories):
+        self.memories = list(memories)
+
+    def get_stats(self):
+        return {
+            "total": len(self.memories),
+            "important": sum(1 for memory in self.memories if memory.is_important),
+            "with_embedding": sum(1 for memory in self.memories if memory.embedding),
+        }
+
+    def set_important(self, memory_id, value):
+        for memory in self.memories:
+            if memory.id == memory_id:
+                memory.is_important = bool(value)
+                return
+
+    def delete(self, memory_id):
+        self.memories = [memory for memory in self.memories if memory.id != memory_id]
+
+
+def _write_locales(locales_dir, en_data, ja_data, ko_data=None):
+    (locales_dir / "en.json").write_text(json.dumps(en_data, ensure_ascii=False), encoding="utf-8-sig")
+    (locales_dir / "ja.json").write_text(json.dumps(ja_data, ensure_ascii=False), encoding="utf-8-sig")
+    (locales_dir / "ko.json").write_text(
+        json.dumps(ko_data or {}, ensure_ascii=False),
+        encoding="utf-8-sig",
+    )
 
 
 def _load_app_class():
@@ -65,6 +154,430 @@ def _load_app_class():
             else:
                 sys.modules[module_name] = previous
     return ENEApplication
+
+
+def test_calendar_dialog_translates_visible_strings_and_confirmations(tmp_path, monkeypatch):
+    _get_qapp()
+    locales_dir = tmp_path / "locales"
+    locales_dir.mkdir()
+    _write_locales(
+        locales_dir,
+        en_data={
+            "calendar.window.title": "ENE Calendar",
+            "calendar.date.placeholder": "Select a date",
+            "calendar.date.format": "yyyy-MM-dd",
+            "calendar.events.label": "Events:",
+            "calendar.activity.summary": "💬 {conversation_count} chats | 🖐 {head_pat_count} pats",
+            "calendar.empty": "No events scheduled",
+            "calendar.close": "Close",
+            "calendar.delete.title": "Delete event",
+            "calendar.delete.body": "Delete this event?",
+            "calendar.source.label": "Source: {source}",
+            "calendar.source.ai_extracted": "AI extracted",
+            "calendar.source.manual": "Manual",
+        },
+        ja_data={
+            "calendar.window.title": "ENE カレンダー",
+            "calendar.date.placeholder": "日付を選択してください",
+            "calendar.date.format": "yyyy/MM/dd",
+            "calendar.events.label": "予定:",
+            "calendar.activity.summary": "💬 {conversation_count}回 | 🖐 {head_pat_count}回",
+            "calendar.empty": "予定はありません",
+            "calendar.close": "閉じる",
+            "calendar.delete.title": "予定を削除",
+            "calendar.delete.body": "この予定を削除しますか？",
+            "calendar.source.label": "出典: {source}",
+            "calendar.source.ai_extracted": "AI抽出",
+            "calendar.source.manual": "手動入力",
+        },
+    )
+    configure_i18n(language="ja", locales_dir=locales_dir, system_locale="en_US")
+
+    dialog = CalendarDialog(_DummyCalendarManager())
+
+    assert dialog.windowTitle() == "ENE カレンダー"
+    assert dialog.date_label.text() == "日付を選択してください"
+    assert "閉じる" in {button.text() for button in dialog.findChildren(QPushButton)}
+    assert "予定:" in {label.text() for label in dialog.findChildren(QLabel)}
+
+    dialog._on_date_selected(QDate(2026, 3, 24))
+
+    assert dialog.date_label.text() == "2026/03/24"
+    assert dialog.activity_label.text() == "💬 3回 | 🖐 1回"
+
+    row = dialog.event_list.itemWidget(dialog.event_list.item(0))
+    row_texts = [label.text().strip() for label in row.findChildren(QLabel)]
+    assert "出典: AI抽出" in row_texts
+
+    dialog._on_date_selected(QDate(2026, 3, 25))
+    assert dialog.event_list.item(0).text() == "予定はありません"
+
+    questions = []
+
+    def fake_question(parent, title, text, buttons, default_button):
+        questions.append((title, text))
+        return QMessageBox.StandardButton.No
+
+    monkeypatch.setattr("PyQt6.QtWidgets.QMessageBox.question", fake_question)
+    dialog._on_event_deleted("event-1")
+
+    assert questions == [("予定を削除", "この予定を削除しますか？")]
+    dialog.close()
+
+
+def test_profile_dialog_translates_sections_fields_and_empty_state(tmp_path, monkeypatch):
+    _get_qapp()
+    locales_dir = tmp_path / "locales"
+    locales_dir.mkdir()
+    _write_locales(
+        locales_dir,
+        en_data={
+            "profile.window.title": "Profile Manager",
+            "profile.stats.summary": "Basic info {basic_count} | Extracted info {fact_count} | Likes {likes_count}",
+            "profile.button.delete": "🗑️ Delete",
+            "profile.button.refresh": "🔄 Refresh",
+            "profile.button.close": "Close",
+            "profile.empty": "No profile information saved.",
+            "profile.section.basic": "📋 Basic Info",
+            "profile.section.preferences": "❤️ Likes",
+            "profile.section.extracted": "🤖 Extracted Info",
+            "profile.field.name": "Name",
+            "profile.field.gender": "Gender",
+            "profile.field.birthday": "Birthday",
+            "profile.field.occupation": "Occupation",
+            "profile.field.major": "Major",
+            "profile.field.location": "Location",
+            "profile.source.label": "Source: {source}",
+            "profile.delete.title": "Delete confirmation",
+            "profile.delete.body": "Delete the selected profile entry?",
+        },
+        ja_data={
+            "profile.window.title": "プロフィール管理",
+            "profile.stats.summary": "基本情報 {basic_count}件 | 抽出情報 {fact_count}件 | 趣味・好み {likes_count}件",
+            "profile.button.delete": "🗑️ 削除",
+            "profile.button.refresh": "🔄 更新",
+            "profile.button.close": "閉じる",
+            "profile.empty": "登録されたプロフィール情報はありません。",
+            "profile.section.basic": "📋 基本情報",
+            "profile.section.preferences": "❤️ 趣味・好み",
+            "profile.section.extracted": "🤖 抽出情報",
+            "profile.field.name": "名前",
+            "profile.field.gender": "性別",
+            "profile.field.birthday": "誕生日",
+            "profile.field.occupation": "職業",
+            "profile.field.major": "専攻",
+            "profile.field.location": "居住地",
+            "profile.source.label": "出典: {source}",
+            "profile.delete.title": "削除の確認",
+            "profile.delete.body": "選択したプロフィール情報を削除しますか？",
+        },
+    )
+    configure_i18n(language="ja", locales_dir=locales_dir, system_locale="en_US")
+
+    profile = _DummyUserProfile(
+        basic_info={
+            "name": "Yuna",
+            "gender": "女性",
+            "birthday": "1998-03-24",
+            "occupation": "開発者",
+            "major": "デザイン",
+            "location": "Seoul",
+        },
+        preferences={"likes": ["Jazz"]},
+        facts=[
+            SimpleNamespace(
+                timestamp="2026-03-24T09:30:00",
+                category="memory",
+                content="Enjoys calm workspaces",
+                source="conversation",
+            )
+        ],
+    )
+    dialog = ProfileDialog(profile)
+
+    assert dialog.windowTitle() == "プロフィール管理"
+    assert dialog.stats_label.text() == "基本情報 6件 | 抽出情報 1件 | 趣味・好み 1件"
+    assert {button.text() for button in dialog.findChildren(QPushButton)} >= {"🗑️ 削除", "🔄 更新", "閉じる"}
+
+    item_texts = [dialog.profile_list.item(index).text() for index in range(dialog.profile_list.count()) if dialog.profile_list.item(index).text()]
+    assert "📋 基本情報" in item_texts
+    assert "❤️ 趣味・好み" in item_texts
+    assert "🤖 抽出情報" in item_texts
+    assert "  • 名前: Yuna" in item_texts
+    assert "  • 性別: 女性" in item_texts
+    assert "  • 職業: 開発者" in item_texts
+    assert "  • 居住地: Seoul" in item_texts
+
+    fact_widget = dialog.profile_list.itemWidget(dialog.profile_list.item(dialog.profile_list.count() - 1))
+    fact_texts = [label.text() for label in fact_widget.findChildren(QLabel)]
+    assert "出典: conversation" in fact_texts
+
+    dialog.profile_list.setCurrentRow(dialog.profile_list.count() - 1)
+    questions = []
+
+    def fake_question(parent, title, text, buttons, default_button):
+        questions.append((title, text))
+        return QMessageBox.StandardButton.No
+
+    monkeypatch.setattr("PyQt6.QtWidgets.QMessageBox.question", fake_question)
+    dialog._delete_fact()
+
+    assert questions == [("削除の確認", "選択したプロフィール情報を削除しますか？")]
+    dialog.close()
+
+    empty_dialog = ProfileDialog(_DummyUserProfile())
+    assert empty_dialog.profile_list.item(0).text() == "登録されたプロフィール情報はありません。"
+    empty_dialog.close()
+
+
+def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tmp_path, monkeypatch):
+    _get_qapp()
+    locales_dir = tmp_path / "locales"
+    locales_dir.mkdir()
+    _write_locales(
+        locales_dir,
+        en_data={
+            "memory.window.title": "ENE Memory Manager",
+            "memory.window.subtitle": "Manage summaries, search parameters, and saved memories in one place.",
+            "memory.metric.total.label": "Total memories",
+            "memory.metric.total.detail": "All stored memories",
+            "memory.metric.important.label": "Important memories",
+            "memory.metric.important.detail": "Items marked important",
+            "memory.metric.embedding.label": "Embedding coverage",
+            "memory.metric.embedding.detail": "{count} connected",
+            "memory.metric.threshold.label": "Auto summary threshold",
+            "memory.metric.threshold.detail": "Conversation unit",
+            "memory.search.placeholder": "Search titles, summaries, or tags",
+            "memory.filter.important_only": "Important only",
+            "memory.sort.newest": "Newest first",
+            "memory.sort.oldest": "Oldest first",
+            "memory.button.refresh": "Refresh",
+            "memory.chip.summary_tags": "Summary + tag search",
+            "memory.chip.retrieval_mix": "Important/similar/recent mix",
+            "memory.chip.auto_save": "Save immediately",
+            "memory.list.title": "Memory list",
+            "memory.list.latest_hint": "Showing newest memories first.",
+            "memory.list.visible_count": "Showing {count} items",
+            "memory.empty.title": "No memory selected",
+            "memory.empty.body": "Select a memory on the left to view details and actions here.",
+            "memory.inspector.title": "Selected memory",
+            "memory.detail.time": "Memory time",
+            "memory.detail.source_count": "Source messages",
+            "memory.detail.important": "Importance",
+            "memory.detail.embedding": "Embedding",
+            "memory.button.mark_important": "Mark important",
+            "memory.button.unmark_important": "Unmark important",
+            "memory.button.delete": "Delete memory",
+            "memory.tuning.title": "Memory retrieval settings",
+            "memory.tuning.body": "Adjust the auto-summary threshold and retrieval parameters here.",
+            "memory.tuning.threshold.title": "Auto-summary after N messages",
+            "memory.tuning.threshold.body": "Run auto-summary when a conversation chunk exceeds this value.",
+            "memory.tuning.important.title": "Max important memories",
+            "memory.tuning.important.body": "Always review up to this many important memories first.",
+            "memory.tuning.similar.title": "Max similar memories",
+            "memory.tuning.similar.body": "Choose how many meaningfully similar memories to retrieve.",
+            "memory.tuning.recent.title": "Max recent memories",
+            "memory.tuning.recent.body": "Include this many recent memories regardless of similarity.",
+            "memory.tuning.similarity.title": "Minimum similarity",
+            "memory.tuning.similarity.body": "Exclude memories below this similarity threshold.",
+            "memory.tuning.note": "Values in this tab are saved immediately.",
+            "memory.unit.count": "{count}",
+            "memory.unit.items": "{count} items",
+            "memory.unit.messages": "{count} messages",
+            "memory.unit.count_suffix": "",
+            "memory.unit.percent_suffix": "%",
+            "memory.preview.empty": "No summary yet.",
+            "memory.summary.empty": "No summary",
+            "memory.badge.important": "Important",
+            "memory.badge.embedding": "Embedding",
+            "memory.value.important.true": "Keep",
+            "memory.value.important.false": "Regular",
+            "memory.value.embedding.true": "Connected",
+            "memory.value.embedding.false": "None",
+            "memory.delete.title": "Delete confirmation",
+            "memory.delete.body": "Delete `{summary}`?",
+            "memory.profile.missing.title": "No profile",
+            "memory.profile.missing.body": "User profile is not initialized.",
+            "memory.profile.empty.title": "No profile data",
+            "memory.profile.empty.body": "No profile information is saved yet.\nChat to extract information automatically.",
+        },
+        ja_data={
+            "memory.window.title": "ENE メモリ管理",
+            "memory.window.subtitle": "自動要約、検索パラメータ、保存済みメモリを1か所で管理します。",
+            "memory.metric.total.label": "総メモリ",
+            "memory.metric.total.detail": "保存された全メモリ",
+            "memory.metric.important.label": "重要メモリ",
+            "memory.metric.important.detail": "重要としてマークされた項目",
+            "memory.metric.embedding.label": "埋め込みカバレッジ",
+            "memory.metric.embedding.detail": "{count}件接続",
+            "memory.metric.threshold.label": "自動要約基準",
+            "memory.metric.threshold.detail": "会話単位",
+            "memory.search.placeholder": "メモリのタイトル、要約、タグを検索",
+            "memory.filter.important_only": "重要のみ",
+            "memory.sort.newest": "新しい順",
+            "memory.sort.oldest": "古い順",
+            "memory.button.refresh": "更新",
+            "memory.chip.summary_tags": "要約 + タグ検索",
+            "memory.chip.retrieval_mix": "重要・類似・最近の組み合わせ",
+            "memory.chip.auto_save": "変更は即時保存",
+            "memory.list.title": "メモリ一覧",
+            "memory.list.latest_hint": "新しいメモリから表示します。",
+            "memory.list.visible_count": "{count}件を表示中",
+            "memory.empty.title": "選択されたメモリはありません",
+            "memory.empty.body": "左の一覧からメモリを選ぶと、詳細情報と管理アクションがここに表示されます。",
+            "memory.inspector.title": "選択中のメモリ",
+            "memory.detail.time": "メモリ時刻",
+            "memory.detail.source_count": "元メッセージ数",
+            "memory.detail.important": "重要度",
+            "memory.detail.embedding": "埋め込み状態",
+            "memory.button.mark_important": "重要にする",
+            "memory.button.unmark_important": "重要を解除",
+            "memory.button.delete": "メモリを削除",
+            "memory.tuning.title": "メモリ検索設定",
+            "memory.tuning.body": "自動要約の基準と検索パラメータをこの領域でその場で調整します。",
+            "memory.tuning.threshold.title": "会話がN件以上で自動要約",
+            "memory.tuning.threshold.body": "メモリが蓄積した会話のまとまりがこの値を超えると自動要約を実行します。",
+            "memory.tuning.important.title": "最大重要メモリ数",
+            "memory.tuning.important.body": "回収時に常に優先確認する重要メモリの最大数です。",
+            "memory.tuning.similar.title": "最大類似メモリ数",
+            "memory.tuning.similar.body": "現在の入力と意味が近いメモリをいくつまで取得するかを決めます。",
+            "memory.tuning.recent.title": "最大最近メモリ数",
+            "memory.tuning.recent.body": "類似度とは別に最近の文脈をいくつまで補助として含めるかを決めます。",
+            "memory.tuning.similarity.title": "最小類似度",
+            "memory.tuning.similarity.body": "この値より低いメモリは類似候補から除外します。",
+            "memory.tuning.note": "このタブの値は変更後すぐに設定ファイルへ保存されます。",
+            "memory.unit.count": "{count}件",
+            "memory.unit.items": "{count}件",
+            "memory.unit.messages": "{count}件のメッセージ",
+            "memory.unit.count_suffix": "件",
+            "memory.unit.percent_suffix": "%",
+            "memory.preview.empty": "まだ要約はありません。",
+            "memory.summary.empty": "要約なし",
+            "memory.badge.important": "重要",
+            "memory.badge.embedding": "埋め込み",
+            "memory.value.important.true": "保持対象",
+            "memory.value.important.false": "通常メモリ",
+            "memory.value.embedding.true": "接続済み",
+            "memory.value.embedding.false": "なし",
+            "memory.delete.title": "削除の確認",
+            "memory.delete.body": "`{summary}` を削除しますか？",
+            "memory.profile.missing.title": "プロフィールなし",
+            "memory.profile.missing.body": "ユーザープロフィールが初期化されていません。",
+            "memory.profile.empty.title": "プロフィール情報なし",
+            "memory.profile.empty.body": "まだ保存されたプロフィール情報はありません。\n会話すると自動で情報が抽出されます。",
+        },
+    )
+    configure_i18n(language="ja", locales_dir=locales_dir, system_locale="en_US")
+
+    bridge = SimpleNamespace(
+        summarize_threshold=8,
+        settings=_DummySettings(
+            {
+                "max_important_memories": 4,
+                "max_similar_memories": 5,
+                "min_similarity": 0.42,
+                "max_recent_memories": 2,
+            }
+        ),
+        user_profile=None,
+    )
+    manager = _DummyMemoryManager(
+        [
+            SimpleNamespace(
+                id="memory-1",
+                timestamp="2026-03-24T10:15:00",
+                summary="Keeps launch checklists ready",
+                tags=["ops", "launch"],
+                is_important=True,
+                embedding=[0.1],
+                original_messages=["a", "b"],
+            ),
+            SimpleNamespace(
+                id="memory-2",
+                timestamp="2026-03-23T08:00:00",
+                summary="",
+                tags=["archive"],
+                is_important=False,
+                embedding=None,
+                original_messages=["c"],
+            ),
+        ]
+    )
+
+    dialog = MemoryDialog(manager, bridge=bridge)
+
+    assert dialog.windowTitle() == "ENE メモリ管理"
+    assert dialog.search_input.placeholderText() == "メモリのタイトル、要約、タグを検索"
+    assert dialog.important_filter_btn.text() == "重要のみ"
+    assert dialog.sort_button.text() == "新しい順"
+    assert dialog.list_hint_label.text() == "2件を表示中"
+    assert dialog.important_btn.text() == "重要を解除"
+    assert dialog.delete_btn.text() == "メモリを削除"
+    assert dialog.inspector_source_value.text() == "2件のメッセージ"
+    assert dialog.inspector_important_value.text() == "保持対象"
+    assert dialog.inspector_embedding_value.text() == "接続済み"
+    assert dialog.total_metric.value_label.text() == "2"
+    assert dialog.important_metric.value_label.text() == "1"
+    assert dialog.embedding_metric.detail_label.text() == "1件接続"
+    assert dialog.threshold_metric.value_label.text() == "8件"
+
+    metric_labels = {
+        label.text()
+        for label in dialog.findChildren(QLabel)
+        if label.objectName() == "MetricLabel"
+    }
+    assert {"総メモリ", "重要メモリ", "埋め込みカバレッジ", "自動要約基準"} <= metric_labels
+
+    key_labels = {
+        label.text()
+        for label in dialog.findChildren(QLabel)
+        if label.objectName() == "KeyValueLabel"
+    }
+    assert {"メモリ時刻", "元メッセージ数", "重要度", "埋め込み状態"} <= key_labels
+
+    dialog._toggle_sort_order()
+    assert dialog.sort_button.text() == "古い順"
+
+    questions = []
+    warnings = []
+    infos = []
+
+    def fake_question(parent, title, text, buttons, default_button):
+        questions.append((title, text))
+        return QMessageBox.StandardButton.No
+
+    def fake_warning(parent, title, text):
+        warnings.append((title, text))
+
+    def fake_information(parent, title, text):
+        infos.append((title, text))
+
+    monkeypatch.setattr("PyQt6.QtWidgets.QMessageBox.question", fake_question)
+    monkeypatch.setattr("PyQt6.QtWidgets.QMessageBox.warning", fake_warning)
+    monkeypatch.setattr("PyQt6.QtWidgets.QMessageBox.information", fake_information)
+
+    dialog._delete_memory()
+    delattr(dialog.bridge, "user_profile")
+    dialog._show_profile_dialog()
+
+    assert questions == [("削除の確認", "`Keeps launch checklists ready` を削除しますか？")]
+    assert warnings == [("プロフィールなし", "ユーザープロフィールが初期化されていません。")]
+
+    bridge.user_profile = _DummyUserProfile()
+    dialog._show_profile_dialog()
+    assert infos == [
+        (
+            "プロフィール情報なし",
+            "まだ保存されたプロフィール情報はありません。\n会話すると自動で情報が抽出されます。",
+        )
+    ]
+    dialog.close()
+
+    empty_dialog = MemoryDialog(_DummyMemoryManager([]), bridge=bridge)
+    assert empty_dialog.inspector_title.text() == "選択されたメモリはありません"
+    assert empty_dialog.inspector_body.text() == "左の一覧からメモリを選ぶと、詳細情報と管理アクションがここに表示されます。"
+    assert empty_dialog.list_hint_label.text() == "0件を表示中"
+    empty_dialog.close()
 
 
 def test_obsidian_panel_translates_error_strings(tmp_path):
