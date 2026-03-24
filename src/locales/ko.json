@@ -1,8 +1,27 @@
-﻿{
+{
   "fallback.only": "영어 대체",
   "count.items": "{count}개 항목",
   "ui.language.auto": "자동",
   "ui.language.ko": "한국어",
   "ui.language.en": "영어",
-  "ui.language.ja": "일본어"
+  "ui.language.ja": "일본어",
+  "tray.tooltip": "ENE - AI 데스크톱 파트너",
+  "tray.settings": "설정",
+  "tray.calendar": "캘린더",
+  "tray.drag_bar.hide": "드래그 바 숨기기",
+  "tray.drag_bar.show": "드래그 바 표시",
+  "tray.mouse_tracking.disable": "마우스 트래킹 비활성화",
+  "tray.mouse_tracking.enable": "마우스 트래킹 활성화",
+  "tray.quit": "종료",
+  "obsidian.window.title": "Obsidian",
+  "obsidian.window.subtitle": "드래그로 이동 / 체크한 파일은 컨텍스트에 포함됩니다",
+  "obsidian.window.refresh": "새로고침",
+  "obsidian.error.parse_failed": "트리 파싱 실패: {error}",
+  "obsidian.error.fetch_failed": "트리 조회 실패",
+  "obsidian.error.connection_failed": "연결 실패: {error}",
+  "obsidian.empty": "표시할 파일이 없습니다",
+  "obsidian.prefix.dir": "[폴더]",
+  "obsidian.prefix.file": "[파일]",
+  "memory.warning.title": "메모리 없음",
+  "memory.warning.body": "메모리 매니저가 초기화되지 않았습니다."
 }

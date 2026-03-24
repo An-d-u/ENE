@@ -1,8 +1,27 @@
-﻿{
+{
   "fallback.only": "英語のフォールバック",
   "count.items": "{count} 件",
   "ui.language.auto": "自動",
   "ui.language.ko": "韓国語",
   "ui.language.en": "英語",
-  "ui.language.ja": "日本語"
+  "ui.language.ja": "日本語",
+  "tray.tooltip": "ENE - AIデスクトップパートナー",
+  "tray.settings": "設定",
+  "tray.calendar": "カレンダー",
+  "tray.drag_bar.hide": "ドラッグバーを隠す",
+  "tray.drag_bar.show": "ドラッグバーを表示",
+  "tray.mouse_tracking.disable": "マウストラッキングを無効化",
+  "tray.mouse_tracking.enable": "マウストラッキングを有効化",
+  "tray.quit": "終了",
+  "obsidian.window.title": "Obsidian",
+  "obsidian.window.subtitle": "ドラッグで移動 / チェックしたファイルはコンテキストに含まれます",
+  "obsidian.window.refresh": "更新",
+  "obsidian.error.parse_failed": "ツリーの解析に失敗しました: {error}",
+  "obsidian.error.fetch_failed": "ツリーの取得に失敗しました",
+  "obsidian.error.connection_failed": "接続に失敗しました: {error}",
+  "obsidian.empty": "表示するファイルがありません",
+  "obsidian.prefix.dir": "[フォルダ]",
+  "obsidian.prefix.file": "[ファイル]",
+  "memory.warning.title": "メモリを利用できません",
+  "memory.warning.body": "メモリマネージャーが初期化されていません。"
 }
