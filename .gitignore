@@ -28,8 +28,10 @@ pip-wheel-metadata/
 # Local runtime files
 backups/
 .worktrees/
-**/prompt.py
-src/ai/sub_prompt.py
+prompts/base_system_prompt.md
+prompts/sub_prompt_body.md
+prompts/analysis_system_appendix.md
+prompts/emotion_guides.md
 diary/
 note_runs/
 *.log
