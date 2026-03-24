@@ -43,6 +43,24 @@ def test_translation_falls_back_to_english_then_key_string(tmp_path):
     assert i18n.t("missing.key") == "missing.key"
 
 
+def test_explicit_language_selection_wins_over_system_locale(tmp_path):
+    locales_dir = tmp_path / "locales"
+    locales_dir.mkdir()
+    (locales_dir / "en.json").write_text(
+        '{"language.name": "English"}',
+        encoding="utf-8-sig",
+    )
+    (locales_dir / "ja.json").write_text(
+        '{"language.name": "日本語"}',
+        encoding="utf-8-sig",
+    )
+
+    i18n = I18n(language="ja", locales_dir=locales_dir, system_locale="en_US")
+
+    assert i18n.language == "ja"
+    assert i18n.t("language.name") == "日本語"
+
+
 def test_translation_formats_placeholders(tmp_path):
     locales_dir = tmp_path / "locales"
     locales_dir.mkdir()
@@ -54,6 +72,69 @@ def test_translation_formats_placeholders(tmp_path):
     i18n = I18n(language="en", locales_dir=locales_dir)
 
     assert i18n.t("count.items", count=3) == "3 items"
+
+
+def test_translation_placeholder_mismatch_falls_back_safely(tmp_path):
+    locales_dir = tmp_path / "locales"
+    locales_dir.mkdir()
+    (locales_dir / "en.json").write_text(
+        '{"count.items": "{count} items"}',
+        encoding="utf-8-sig",
+    )
+
+    i18n = I18n(language="en", locales_dir=locales_dir)
+
+    assert i18n.t("count.items") == "{count} items"
+
+
+def test_nested_dotted_key_lookup(tmp_path):
+    locales_dir = tmp_path / "locales"
+    locales_dir.mkdir()
+    (locales_dir / "en.json").write_text(
+        '{"settings": {"window": {"title": "Settings"}}}',
+        encoding="utf-8-sig",
+    )
+
+    i18n = I18n(language="en", locales_dir=locales_dir)
+
+    assert i18n.t("settings.window.title") == "Settings"
+
+
+def test_malformed_locale_json_degrades_safely(tmp_path):
+    locales_dir = tmp_path / "locales"
+    locales_dir.mkdir()
+    (locales_dir / "en.json").write_text(
+        '{"valid.key": "ok"}',
+        encoding="utf-8-sig",
+    )
+    (locales_dir / "ko.json").write_text(
+        '{"broken.key": ',
+        encoding="utf-8-sig",
+    )
+
+    i18n = I18n(language="ko", locales_dir=locales_dir)
+
+    assert i18n.t("valid.key") == "ok"
+    assert i18n.t("broken.key") == "broken.key"
+
+
+def test_locale_file_read_problem_degrades_safely(monkeypatch, tmp_path):
+    locales_dir = tmp_path / "locales"
+    locales_dir.mkdir()
+    unreadable = locales_dir / "ko.json"
+    unreadable.write_text('{"hello": "안녕하세요"}', encoding="utf-8-sig")
+
+    real_open = open
+
+    def failing_open(path, *args, **kwargs):
+        if Path(path) == unreadable:
+            raise OSError("read failed")
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.open", failing_open)
+
+    i18n = I18n(language="ko", locales_dir=locales_dir)
+    assert i18n.t("hello") == "hello"
 
 
 def test_default_locales_dir_prefers_meipass(monkeypatch, tmp_path):
