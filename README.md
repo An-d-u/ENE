@@ -56,11 +56,12 @@ In practice, this means the app UI and settings experience can be used in those 
 - Keep ENE visible on your desktop as a Live2D-based companion instead of opening a separate chat page every time you want to interact.
 - Chat with ENE through the main on-screen interface while using memory, master-related settings, and profile context to make conversations feel more personal over time.
 - Save notes, summaries, and diary-style content as part of your daily workflow instead of treating conversations as disposable.
+- Talk about schedules and calendar-related plans, with extracted event information being added into ENE's calendar flow.
 - Use quick actions such as summary, note, mood-related controls, and calendar-related support directly from the main experience.
 - Configure your own character setup, including Live2D model path, expressions, prompt tone, and companion behavior.
 - Open the settings window from the tray icon and adjust important options without manually editing raw files.
 - Use voice-related features such as push-to-talk and TTS-ready interaction if you want ENE to feel more like a spoken desktop companion.
-- Connect ENE to an Obsidian-based workflow, including Obsidian CLI integration for note and diary usage.
+- Use the `/note` command to work with connected Obsidian documents, and when Obsidian CLI integration is enabled, let ENE modify those documents through the linked workflow.
 - Let ENE detect long periods of inactivity, compare screen captures for activity changes, and proactively speak first when it thinks you have been away.
 
 ## Still Improving
