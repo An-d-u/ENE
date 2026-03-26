@@ -243,3 +243,15 @@ def test_resolve_cli_candidates_excludes_desktop_app_fallback(monkeypatch):
     joined = "\n".join(candidates).lower()
     assert "program files\\obsidian\\obsidian.exe" not in joined
     assert "programs\\obsidian\\obsidian.exe" not in joined
+
+
+def test_get_checked_file_contents_uses_settings_limits(monkeypatch):
+    manager = ObsidianManager(settings=DummySettings(), obs_settings=DummyObsSettings())
+    manager.settings._values["obsidian_checked_max_chars_per_file"] = 555
+    manager.settings._values["obsidian_checked_total_max_chars"] = 777
+
+    monkeypatch.setattr(manager, "read_file", lambda rel, allow_retry=True: "a" * 1000)
+
+    checked_contents = manager.get_checked_file_contents()
+
+    assert checked_contents == [("notes/a.md", "a" * 555)]

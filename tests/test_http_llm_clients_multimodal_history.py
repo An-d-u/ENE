@@ -243,3 +243,20 @@ def test_ollama_history_rehydrates_prior_image_turn(monkeypatch):
 
     assert captured["json"]["messages"][1]["content"] == "이전 이미지"
     assert captured["json"]["messages"][1]["images"] == ["QUJD"]
+
+
+def test_http_rebuild_context_from_conversation_prefixes_message_time():
+    client = _build_openai_compatible_client()
+
+    ok = client.rebuild_context_from_conversation(
+        [
+            ("user", "안녕", "2026-03-24 10:00"),
+            ("assistant", "반가워", "2026-03-24 10:01"),
+        ]
+    )
+
+    assert ok is True
+    assert client.get_conversation_history() == [
+        {"role": "user", "content": "[Message Time: 2026-03-24 10:00]\n안녕"},
+        {"role": "assistant", "content": "[Message Time: 2026-03-24 10:01]\n반가워"},
+    ]

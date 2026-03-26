@@ -19,6 +19,7 @@ import json
 import numpy as np
 import re
 
+from ..conversation_format import prepend_message_time, role_label_for_context
 from ..ai.diary_service import DiaryService
 from ..ai.note_service import NoteService, NoteCommand, NoteCommandResult, NotePlan
 from ..ai.obsidian_manager import ObsidianManager
@@ -239,8 +240,6 @@ class AIWorker(QThread):
         obs_tree_lines = self.obsidian_manager.get_tree_lines(max_lines=120, allow_retry=False)
         checked_files = self.obsidian_manager.get_checked_file_contents(
             max_files=8,
-            max_chars_per_file=3000,
-            total_max_chars=12000,
             allow_retry=False,
         )
         plan_prompt = self.note_service.build_plan_prompt(
@@ -431,8 +430,6 @@ class ObsidianCheckedFilesWorker(QThread):
         try:
             checked_contents = self.obsidian_manager.get_checked_file_contents(
                 max_files=8,
-                max_chars_per_file=3000,
-                total_max_chars=12000,
                 allow_retry=False,
             )
             parts: list[str] = []
@@ -1022,10 +1019,11 @@ class WebBridge(QObject):
                 parts.append(f"- {line}")
 
         if include_checked_files:
+            checked_limits = self._resolve_obsidian_checked_file_limits()
             checked_contents = self.obsidian_manager.get_checked_file_contents(
                 max_files=8,
-                max_chars_per_file=3000,
-                total_max_chars=12000,
+                max_chars_per_file=checked_limits["max_chars_per_file"],
+                total_max_chars=checked_limits["total_max_chars"],
                 allow_retry=False,
             )
             if checked_contents:
@@ -1034,6 +1032,26 @@ class WebBridge(QObject):
                     parts.append(f"[파일:{rel}]")
                     parts.append(content)
         return "\n".join(parts)
+
+    def _resolve_obsidian_checked_file_limits(self) -> dict[str, int]:
+        """체크된 Obsidian 파일 컨텍스트 길이 제한을 설정값에서 읽는다."""
+        max_chars_per_file = 3000
+        total_max_chars = 12000
+
+        if self.settings:
+            try:
+                max_chars_per_file = int(self.settings.get("obsidian_checked_max_chars_per_file", 3000) or 3000)
+            except Exception:
+                max_chars_per_file = 3000
+            try:
+                total_max_chars = int(self.settings.get("obsidian_checked_total_max_chars", 12000) or 12000)
+            except Exception:
+                total_max_chars = 12000
+
+        return {
+            "max_chars_per_file": max(100, min(max_chars_per_file, 200000)),
+            "total_max_chars": max(100, min(total_max_chars, 1000000)),
+        }
 
     def _get_checked_files_signature(self) -> tuple[str, ...]:
         """현재 체크된 Obsidian 파일 목록 시그니처를 반환한다."""
@@ -1129,7 +1147,7 @@ class WebBridge(QObject):
             turns = 2
         return max(0, min(turns, 50))
 
-    def _build_memory_search_text(self, current_message: str) -> str:
+    def _build_memory_search_text(self, current_message: str, current_timestamp: str | None = None) -> str:
         """최신 메시지와 최근 보이는 대화 N턴으로 검색용 문자열을 만든다."""
         current = str(current_message or "").strip()
         turns = self._resolve_memory_search_turns()
@@ -1145,11 +1163,12 @@ class WebBridge(QObject):
             text = str(item[1] or "").strip()
             if not text:
                 continue
-            role_label = "마스터" if role == "user" else "에네" if role == "assistant" else role
-            lines.append(f"[{role_label}] {text}")
+            timestamp = str(item[2]).strip() if len(item) >= 3 and item[2] else ""
+            role_label = role_label_for_context(role)
+            lines.append(prepend_message_time(f"[{role_label}] {text}", timestamp))
 
         if current:
-            lines.append(f"[현재 사용자 메시지] {current}")
+            lines.append(prepend_message_time(f"[현재 사용자 메시지] {current}", current_timestamp))
 
         return "\n".join(lines).strip()
 
@@ -1518,7 +1537,7 @@ class WebBridge(QObject):
         timestamp = self._now_timestamp()
         prompt = self._build_general_chat_prompt(message)
         message_with_time = f"[현재 시각: {timestamp}]\n{prompt}"
-        memory_search_text = self._build_memory_search_text(message)
+        memory_search_text = self._build_memory_search_text(message, timestamp)
         print(f"[Bridge] Message with timestamp: {message_with_time}")
 
         self._mark_user_activity()
@@ -1611,7 +1630,7 @@ class WebBridge(QObject):
         attachment_context = build_attachment_context_block(ready_attachments)
         prompt = self._build_general_chat_prompt(effective_message, attachment_context=attachment_context)
         message_with_time = f"[현재 시각: {timestamp}]\n{prompt}"
-        memory_search_text = self._build_memory_search_text(effective_message)
+        memory_search_text = self._build_memory_search_text(effective_message, timestamp)
 
         self._mark_user_activity()
         attachment_note = build_attachment_note(ready_attachments)
@@ -1766,7 +1785,7 @@ class WebBridge(QObject):
 
         prompt = self._build_general_chat_prompt(edited_message, attachment_context=attachment_context)
         message_with_time = f"[현재 시각: {timestamp}]\n{prompt}"
-        memory_search_text = self._build_memory_search_text(edited_message)
+        memory_search_text = self._build_memory_search_text(edited_message, timestamp)
         self._last_request_payload = {
             "type": payload_type,
             "message": edited_message,
