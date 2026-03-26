@@ -55,6 +55,18 @@ class ObsidianManager:
         value_ms = int(self.settings.get("obsidian_cli_retry_delay_ms", 500) or 500)
         return max(0.1, min(value_ms, 5000)) / 1000.0
 
+    def _checked_max_chars_per_file(self) -> int:
+        if self.settings is None:
+            return 3000
+        value = int(self.settings.get("obsidian_checked_max_chars_per_file", 3000) or 3000)
+        return max(100, min(value, 200000))
+
+    def _checked_total_max_chars(self) -> int:
+        if self.settings is None:
+            return 12000
+        value = int(self.settings.get("obsidian_checked_total_max_chars", 12000) or 12000)
+        return max(100, min(value, 1000000))
+
     def _resolve_cli_candidates(self) -> list[str]:
         """
         현재 실행 환경에서 Obsidian CLI 후보 실행 경로를 생성한다.
@@ -461,10 +473,15 @@ class ObsidianManager:
     def get_checked_file_contents(
         self,
         max_files: int = 8,
-        max_chars_per_file: int = 3000,
-        total_max_chars: int = 12000,
+        max_chars_per_file: int | None = None,
+        total_max_chars: int | None = None,
         allow_retry: bool = True,
     ) -> list[tuple[str, str]]:
+        if max_chars_per_file is None:
+            max_chars_per_file = self._checked_max_chars_per_file()
+        if total_max_chars is None:
+            total_max_chars = self._checked_total_max_chars()
+
         checked = self.obs_settings.get_checked_files()
         result: list[tuple[str, str]] = []
         total = 0

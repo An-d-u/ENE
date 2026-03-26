@@ -171,6 +171,8 @@ class Settings:
         "obsidian_cli_retry_count": 2,
         "obsidian_cli_retry_delay_ms": 500,
         "obsidian_cli_primary_for_diary": True,
+        "obsidian_checked_max_chars_per_file": 3000,
+        "obsidian_checked_total_max_chars": 12000,
         "diary_keep_local_copy_on_cli_success": False,
         "note_include_recent_context": False,
         "note_recent_context_turns": 4,

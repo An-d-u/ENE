@@ -1808,6 +1808,66 @@ function syncLastUserMessageRef() {
     hasUserMessage = true;
 }
 
+function parseMessageTimeValue(value) {
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+        return value;
+    }
+    if (typeof value === 'string') {
+        const trimmed = value.trim();
+        const match = trimmed.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/);
+        if (match) {
+            const [, year, month, day, hour, minute] = match;
+            return new Date(
+                Number(year),
+                Number(month) - 1,
+                Number(day),
+                Number(hour),
+                Number(minute),
+            );
+        }
+        const parsed = new Date(trimmed);
+        if (!Number.isNaN(parsed.getTime())) {
+            return parsed;
+        }
+    }
+    return new Date();
+}
+
+function formatMessageTime(value = new Date()) {
+    const date = parseMessageTimeValue(value);
+    const hours24 = date.getHours();
+    const meridiem = hours24 >= 12 ? 'PM' : 'AM';
+    let hours12 = hours24 % 12;
+    if (hours12 === 0) {
+        hours12 = 12;
+    }
+    const hourText = String(hours12).padStart(2, '0');
+    const minuteText = String(date.getMinutes()).padStart(2, '0');
+    return `${meridiem} ${hourText}:${minuteText}`;
+}
+
+function ensureMessageMetaRail(messageDiv, role, timestamp = new Date()) {
+    if (!messageDiv) return null;
+    let rail = messageDiv.querySelector('.message-meta-rail');
+    if (!rail) {
+        rail = document.createElement('div');
+        rail.className = 'message-meta-rail';
+        const timeLabel = document.createElement('span');
+        timeLabel.className = 'message-time';
+        rail.appendChild(timeLabel);
+    }
+
+    rail.classList.toggle('user', role === 'user');
+    rail.classList.toggle('assistant', role === 'assistant');
+    rail.dataset.role = role;
+
+    const timeLabel = rail.querySelector('.message-time');
+    if (timeLabel) {
+        timeLabel.textContent = formatMessageTime(timestamp);
+    }
+    return rail;
+}
+
 // 리롤/수정/수동요약 버튼의 표시 및 활성 상태를 재평가한다.
 function updateRerollButtonState() {
     if (manualSummarizeButton) {
@@ -1844,11 +1904,11 @@ function updateRerollButtonState() {
         updateRerollButtonState();
         window.pyBridge.reroll_last_response();
     });
-    const bubble = lastAssistantMessageEl.querySelector('.message-bubble');
-    if (!bubble) {
+    const assistantRail = ensureMessageMetaRail(lastAssistantMessageEl, 'assistant');
+    if (!assistantRail) {
         return;
     }
-    bubble.appendChild(btn);
+    assistantRail.appendChild(btn);
 
     if (!recentEditButtonVisibleBySetting || !hasUserMessage || !lastUserMessageEl) {
         return;
@@ -1867,7 +1927,11 @@ function updateRerollButtonState() {
         if (isRequestPending) return;
         openInlineEdit(userBubble);
     });
-    userBubble.appendChild(editBtn);
+    const userRail = ensureMessageMetaRail(lastUserMessageEl, 'user');
+    if (!userRail) {
+        return;
+    }
+    userRail.appendChild(editBtn);
 }
 
 // 설정창 값에 따라 리롤 버튼 표시 여부를 반영한다.
@@ -2084,7 +2148,7 @@ function requestManualSummary() {
 }
 
 // 리롤/수정 응답 수신 시 마지막 assistant 버블 내용을 교체한다.
-function replaceLastAssistantMessage(text) {
+function replaceLastAssistantMessage(text, timestamp = new Date()) {
     if (!lastAssistantMessageEl || !chatMessages.contains(lastAssistantMessageEl)) {
         syncLastAssistantMessageRef();
     }
@@ -2101,6 +2165,10 @@ function replaceLastAssistantMessage(text) {
     const textSpan = document.createElement('span');
     textSpan.textContent = text;
     bubble.appendChild(textSpan);
+    const rail = ensureMessageMetaRail(lastAssistantMessageEl, 'assistant', timestamp);
+    if (rail && rail.parentElement !== lastAssistantMessageEl) {
+        lastAssistantMessageEl.appendChild(rail);
+    }
     chatMessages.scrollTop = chatMessages.scrollHeight;
     return true;
 }
@@ -2109,7 +2177,7 @@ function replaceLastAssistantMessage(text) {
  * 채팅 영역에 메시지 버블을 추가한다.
  */
 // 채팅 메시지(텍스트/첨부)를 DOM에 append하고 상태를 갱신한다.
-function addMessage(text, role, attachments = []) {
+function addMessage(text, role, attachments = [], timestamp = new Date()) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${role}`;
 
@@ -2148,7 +2216,18 @@ function addMessage(text, role, attachments = []) {
     textSpan.textContent = text;
     bubble.appendChild(textSpan);
 
-    messageDiv.appendChild(bubble);
+    const metaRail = ensureMessageMetaRail(messageDiv, role, timestamp);
+    if (role === 'user') {
+        if (metaRail) {
+            messageDiv.appendChild(metaRail);
+        }
+        messageDiv.appendChild(bubble);
+    } else {
+        messageDiv.appendChild(bubble);
+        if (metaRail) {
+            messageDiv.appendChild(metaRail);
+        }
+    }
     chatMessages.appendChild(messageDiv);
     chatMessages.scrollTop = chatMessages.scrollHeight;
     if (role === 'assistant') {
@@ -2324,7 +2403,7 @@ function sendMessage() {
         type: attachment.type,
         category: attachment.category
     }));
-    addMessage(message || '(첨부)', 'user', pendingAttachments);
+    addMessage(message || '(첨부)', 'user', pendingAttachments, new Date());
     chatInput.value = '';
     autoResizeTextarea();
     if (window.pyBridge) {
@@ -2341,7 +2420,7 @@ function sendMessage() {
             }
         }, (error) => {
             console.error("Python bridge dispatch failed", error);
-            addMessage("연결 오류가 발생했어요.", 'assistant');
+            addMessage("연결 오류가 발생했어요.", 'assistant', [], new Date());
             isRequestPending = false;
             shouldReplaceNextAssistant = false;
             updateRerollButtonState();
@@ -2349,7 +2428,7 @@ function sendMessage() {
         });
     } else {
         console.error("Python bridge not connected");
-        addMessage("연결 오류가 발생했어요.", 'assistant');
+        addMessage("연결 오류가 발생했어요.", 'assistant', [], new Date());
         isRequestPending = false;
         shouldReplaceNextAssistant = false;
         updateRerollButtonState();
@@ -2363,7 +2442,7 @@ function submitVoiceText(text) {
     const message = (text || '').trim();
     if (!message) return;
 
-    addMessage(message, 'user');
+    addMessage(message, 'user', [], new Date());
     if (window.pyBridge && window.pyBridge.send_to_ai) {
         isRequestPending = true;
         shouldReplaceNextAssistant = false;
@@ -2373,7 +2452,7 @@ function submitVoiceText(text) {
             window.pyBridge.send_to_ai(message);
         }, (error) => {
             console.error("Python bridge dispatch failed", error);
-            addMessage("연결 오류가 발생했어요.", 'assistant');
+            addMessage("연결 오류가 발생했어요.", 'assistant', [], new Date());
             isRequestPending = false;
             shouldReplaceNextAssistant = false;
             updateRerollButtonState();
@@ -2383,7 +2462,7 @@ function submitVoiceText(text) {
     }
 
     console.error("Python bridge not connected");
-    addMessage("연결 오류가 발생했어요.", 'assistant');
+    addMessage("연결 오류가 발생했어요.", 'assistant', [], new Date());
     isRequestPending = false;
     shouldReplaceNextAssistant = false;
     updateRerollButtonState();
@@ -2530,13 +2609,14 @@ if (typeof QWebChannel !== 'undefined') {
             console.log(`Received from Python: "${text}" [${emotion}]`);
             showLoadingIndicator(false);
             isRequestPending = false;
+            const receivedAt = new Date();
             if (shouldReplaceNextAssistant) {
-                const replaced = replaceLastAssistantMessage(text);
+                const replaced = replaceLastAssistantMessage(text, receivedAt);
                 if (!replaced) {
-                    addMessage(text, 'assistant');
+                    addMessage(text, 'assistant', [], receivedAt);
                 }
             } else {
-                addMessage(text, 'assistant');
+                addMessage(text, 'assistant', [], receivedAt);
             }
             shouldReplaceNextAssistant = false;
             updateRerollButtonState();

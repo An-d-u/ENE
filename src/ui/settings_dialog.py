@@ -603,6 +603,8 @@ class SettingsDialog(QDialog):
         self._toggle_checks: list[ToggleSwitch] = []
         self._embedded_memory_panel = None
         self.memory_search_recent_turns_spin: QSpinBox | None = None
+        self.obsidian_checked_max_chars_per_file_spin: QSpinBox | None = None
+        self.obsidian_checked_total_max_chars_spin: QSpinBox | None = None
         self._lazy_tab_hosts: dict[str, QWidget] = {}
         self._lazy_tab_builders: dict[str, callable] = {}
         self._lazy_tab_loaded: set[str] = set()
@@ -3707,6 +3709,36 @@ class SettingsDialog(QDialog):
             "주입 턴 수 (0=전체):",
             self.note_recent_context_turns_spin,
         )
+
+        self.obsidian_checked_max_chars_per_file_spin = QSpinBox()
+        self.obsidian_checked_max_chars_per_file_spin.setRange(100, 200000)
+        self._bind_suffix(
+            self.obsidian_checked_max_chars_per_file_spin,
+            "settings.behavior.obsidian.checked_max_chars_per_file.suffix",
+            " 자",
+        )
+        self.obsidian_checked_max_chars_per_file_spin.valueChanged.connect(self._on_setting_changed)
+        self._add_form_row(
+            note_layout,
+            "settings.behavior.obsidian.checked_max_chars_per_file.label",
+            "체크 파일당 최대 글자 수:",
+            self.obsidian_checked_max_chars_per_file_spin,
+        )
+
+        self.obsidian_checked_total_max_chars_spin = QSpinBox()
+        self.obsidian_checked_total_max_chars_spin.setRange(100, 1000000)
+        self._bind_suffix(
+            self.obsidian_checked_total_max_chars_spin,
+            "settings.behavior.obsidian.checked_total_max_chars.suffix",
+            " 자",
+        )
+        self.obsidian_checked_total_max_chars_spin.valueChanged.connect(self._on_setting_changed)
+        self._add_form_row(
+            note_layout,
+            "settings.behavior.obsidian.checked_total_max_chars.label",
+            "체크 파일 전체 최대 글자 수:",
+            self.obsidian_checked_total_max_chars_spin,
+        )
         layout.addWidget(note_group)
 
         idle_group = QGroupBox("유휴 모션")
@@ -5197,6 +5229,18 @@ class SettingsDialog(QDialog):
                 except Exception:
                     memory_turns = 2
                 self.memory_search_recent_turns_spin.setValue(max(0, min(memory_turns, 50)))
+            if self.obsidian_checked_max_chars_per_file_spin is not None:
+                try:
+                    checked_max_chars = int(self._original_settings.get("obsidian_checked_max_chars_per_file", 3000) or 3000)
+                except Exception:
+                    checked_max_chars = 3000
+                self.obsidian_checked_max_chars_per_file_spin.setValue(max(100, min(checked_max_chars, 200000)))
+            if self.obsidian_checked_total_max_chars_spin is not None:
+                try:
+                    checked_total_chars = int(self._original_settings.get("obsidian_checked_total_max_chars", 12000) or 12000)
+                except Exception:
+                    checked_total_chars = 12000
+                self.obsidian_checked_total_max_chars_spin.setValue(max(100, min(checked_total_chars, 1000000)))
             self.mouse_tracking_check.setChecked(self._original_settings.get("mouse_tracking_enabled", True))
 
             self.idle_motion_check.setChecked(self._original_settings.get("enable_idle_motion", True))
@@ -5422,6 +5466,16 @@ class SettingsDialog(QDialog):
             "global_ptt_hotkey": normalize_hotkey_text(self._ptt_hotkey_value, default="alt"),
             "note_include_recent_context": self.note_include_recent_context_check.isChecked(),
             "note_recent_context_turns": self.note_recent_context_turns_spin.value(),
+            "obsidian_checked_max_chars_per_file": (
+                self.obsidian_checked_max_chars_per_file_spin.value()
+                if self.obsidian_checked_max_chars_per_file_spin is not None
+                else int(self._original_settings.get("obsidian_checked_max_chars_per_file", 3000) or 3000)
+            ),
+            "obsidian_checked_total_max_chars": (
+                self.obsidian_checked_total_max_chars_spin.value()
+                if self.obsidian_checked_total_max_chars_spin is not None
+                else int(self._original_settings.get("obsidian_checked_total_max_chars", 12000) or 12000)
+            ),
             "memory_search_recent_turns": max(0, min(memory_search_recent_turns, 50)),
             "mouse_tracking_enabled": self.mouse_tracking_check.isChecked(),
             "enable_idle_motion": self.idle_motion_check.isChecked(),
