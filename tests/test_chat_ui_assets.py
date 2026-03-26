@@ -32,3 +32,15 @@ def test_image_preview_stays_reserved_and_keeps_controls_inside():
     assert "overflow-y: hidden;" in preview_block
     assert "top: 4px;" in remove_button_block
     assert "right: 4px;" in remove_button_block
+
+
+def test_message_time_meta_rail_aligns_with_bubbles():
+    message_block = _rule_block(".message")
+    meta_block = _rule_block(".message-meta-rail")
+    time_block = _rule_block(".message-time")
+
+    assert "align-items: flex-end;" in message_block
+    assert "display: inline-flex;" in meta_block
+    assert "align-items: flex-end;" in meta_block
+    assert "font-size: 11px;" in time_block
+    assert "white-space: nowrap;" in time_block

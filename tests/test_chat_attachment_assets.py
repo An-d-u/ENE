@@ -26,6 +26,13 @@ def test_script_contains_token_usage_bubble_hooks():
     assert "window.pyBridge.token_usage_ready.connect" in script
 
 
+def test_script_contains_message_time_helpers_and_meta_rail():
+    script = SCRIPT_PATH.read_text(encoding="utf-8-sig")
+    assert "function formatMessageTime" in script
+    assert "function ensureMessageMetaRail" in script
+    assert "className = 'message-time'" in script
+
+
 def test_html_and_settings_include_token_usage_ui():
     html = INDEX_PATH.read_text(encoding="utf-8-sig")
     settings_dialog = SETTINGS_DIALOG_PATH.read_text(encoding="utf-8-sig")
