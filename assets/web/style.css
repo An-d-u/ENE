@@ -98,7 +98,7 @@ body {
 /* 메시지 스타일 */
 .message {
     display: flex;
-    align-items: flex-start;
+    align-items: flex-end;
     gap: 10px;
     animation: fadeIn 0.3s ease;
 }
@@ -142,6 +142,30 @@ body {
 .message.assistant .message-bubble {
     background: var(--ene-chat-assistant-bubble-bg);
     color: var(--ene-chat-assistant-bubble-text);
+}
+
+.message-meta-rail {
+    display: inline-flex;
+    align-items: flex-end;
+    gap: 6px;
+    flex-shrink: 0;
+    margin-bottom: 4px;
+}
+
+.message-time {
+    font-size: 11px;
+    line-height: 1;
+    white-space: nowrap;
+    color: rgba(255, 255, 255, 0.62);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+.message.user .message-time {
+    color: rgba(255, 255, 255, 0.72);
+}
+
+.message.assistant .message-time {
+    color: rgba(255, 255, 255, 0.58);
 }
 
 /* 로딩 인디케이터 */
@@ -652,9 +676,6 @@ body {
 }
 
 .message-reroll-btn {
-    position: absolute;
-    right: -20px;
-    bottom: 2px;
     border: none;
     background: transparent;
     color: rgba(255, 255, 255, 0.6);
@@ -680,9 +701,6 @@ body {
 }
 
 .message-edit-btn {
-    position: absolute;
-    left: -25px;
-    bottom: 2px;
     border: none;
     background: transparent;
     color: rgba(255, 255, 255, 0.68);
@@ -692,6 +710,9 @@ body {
     transition: color 0.2s ease, transform 0.2s ease;
     text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
     padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .message-edit-btn:hover:not(:disabled) {

@@ -609,6 +609,45 @@ def test_bridge_obs_summarize_command_starts_ai_worker(monkeypatch):
     assert "[요약 대상 파일: test.md]" in captured["message_with_time"]
 
 
+def test_bridge_obs_summarize_command_uses_configured_checked_file_limits(monkeypatch):
+    _ensure_qt_app()
+
+    class DummySettings:
+        def get(self, key, default=None):
+            values = {
+                "obsidian_checked_max_chars_per_file": 9000,
+                "obsidian_checked_total_max_chars": 18000,
+            }
+            return values.get(key, default)
+
+    bridge = WebBridge()
+    bridge.llm_client = object()
+    bridge.settings = DummySettings()
+
+    captured = {}
+
+    class DummyObsManager:
+        def read_file(self, rel_path):
+            return "# 제목\n내용"
+
+        def get_tree_lines(self, max_lines=120):
+            return []
+
+        def get_checked_file_contents(self, **kwargs):
+            captured["kwargs"] = dict(kwargs)
+            return []
+
+    bridge.obsidian_manager = DummyObsManager()
+
+    monkeypatch.setattr(bridge, "_start_ai_worker", lambda message_with_time, images_data=None: None)
+
+    handled = bridge._handle_obs_command("/obs summarize test.md")
+
+    assert handled is True
+    assert captured["kwargs"]["max_chars_per_file"] == 9000
+    assert captured["kwargs"]["total_max_chars"] == 18000
+
+
 def test_aiworker_diary_flow_uses_one_shot_and_does_not_need_history(tmp_path: Path):
     _ensure_qt_app()
 

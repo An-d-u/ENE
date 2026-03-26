@@ -5,6 +5,7 @@ import re
 from typing import Tuple, List, Dict
 from google import genai
 
+from ..conversation_format import prepend_message_time
 from .prompt import build_runtime_system_prompt, get_available_emotions
 
 ANALYSIS_KEYS = {
@@ -1077,7 +1078,9 @@ class GeminiClient:
                 if not item or len(item) < 2:
                     continue
                 role = str(item[0]).strip().lower()
-                content = str(item[1]) if item[1] is not None else ""
+                raw_content = str(item[1]) if item[1] is not None else ""
+                timestamp = str(item[2]).strip() if len(item) >= 3 and item[2] else ""
+                content = prepend_message_time(raw_content, timestamp)
                 if role == "assistant":
                     role = "model"
                 elif role != "user":

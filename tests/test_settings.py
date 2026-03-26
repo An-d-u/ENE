@@ -15,6 +15,8 @@ def test_load_missing_file_uses_default_config(tmp_path):
     assert settings.get("note_include_recent_context") is False
     assert settings.get("note_recent_context_turns") == 4
     assert settings.get("memory_search_recent_turns") == 2
+    assert settings.get("obsidian_checked_max_chars_per_file") == 3000
+    assert settings.get("obsidian_checked_total_max_chars") == 12000
 
 
 def test_save_and_reload_roundtrip(tmp_path):

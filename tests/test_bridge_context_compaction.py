@@ -147,6 +147,19 @@ def test_build_memory_search_text_uses_recent_visible_turns_with_latest_user_mes
     assert "두 번째 질문" in search_text
     assert "세 번째 답변" in search_text
     assert "네 번째 질문" in search_text
+    assert "[Message Time: 2026-03-24 10:02]" in search_text
+    assert "[Message Time: 2026-03-24 10:05]" in search_text
+
+
+def test_build_memory_search_text_prefixes_current_message_with_message_time():
+    dummy = type("BridgeDummy", (), {})()
+    dummy.conversation_buffer = []
+    dummy.settings = type("SettingsDummy", (), {"get": lambda self, key, default=None: 0 if key == "memory_search_recent_turns" else default})()
+    dummy._resolve_memory_search_turns = lambda: WebBridge._resolve_memory_search_turns(dummy)
+
+    search_text = WebBridge._build_memory_search_text(dummy, "지금 질문", "2026-03-24 10:06")
+
+    assert search_text == "[Message Time: 2026-03-24 10:06]\n[현재 사용자 메시지] 지금 질문"
 
 
 def test_on_response_ready_rebuilds_llm_history_from_visible_conversation_only():
@@ -186,4 +199,24 @@ def test_on_response_ready_rebuilds_llm_history_from_visible_conversation_only()
             ("user", "순수 사용자 메시지", "2026-03-24 10:00"),
             ("assistant", "analysis=user\n실제 응답 본문", "2026-03-24 10:01"),
         ]
+    ]
+
+
+def test_gemini_rebuild_context_from_conversation_prefixes_message_time():
+    captured = {}
+    dummy = type("ClientDummy", (), {})()
+    dummy._create_chat_session = lambda history: captured.setdefault("history", history) or history
+
+    ok = GeminiClient.rebuild_context_from_conversation(
+        dummy,
+        [
+            ("user", "안녕", "2026-03-24 10:00"),
+            ("assistant", "반가워", "2026-03-24 10:01"),
+        ],
+    )
+
+    assert ok is True
+    assert captured["history"] == [
+        {"role": "user", "parts": [{"text": "[Message Time: 2026-03-24 10:00]\n안녕"}]},
+        {"role": "model", "parts": [{"text": "[Message Time: 2026-03-24 10:01]\n반가워"}]},
     ]
