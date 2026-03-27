@@ -44,7 +44,8 @@ from PyQt6.QtWidgets import (
 
 from ..ai import prompt_config
 from ..ai.prompt import get_available_emotions
-from ..ai.tts_client import get_tts_provider_catalog, get_tts_provider_defaults
+from ..ai.tts_client import get_gpt_sovits_text_split_methods, get_tts_provider_catalog, get_tts_provider_defaults
+from ..core.audio_player import AudioPlayer
 from ..ai.llm_provider import LLMFormat, get_llm_provider_catalog
 from ..core.i18n import I18n, SUPPORTED_UI_LANGUAGES, get_i18n
 from ..core.system_theme import THEME_PRESETS, THEME_VARIANT_PRESETS, get_theme_preset, get_windows_theme_mode
@@ -641,6 +642,8 @@ class SettingsDialog(QDialog):
             default="alt",
         )
         self._tts_catalog = get_tts_provider_catalog()
+        self._gpt_sovits_text_split_methods = get_gpt_sovits_text_split_methods()
+        self._tts_output_devices = []
         raw_tts_configs = self._original_settings.get("tts_provider_configs", {})
         if not isinstance(raw_tts_configs, dict):
             raw_tts_configs = {}
@@ -2195,6 +2198,78 @@ class SettingsDialog(QDialog):
             return
         self.tts_ref_audio_path_edit.setText(self._normalize_path_for_storage(selected))
 
+    @staticmethod
+    def _build_tts_output_device_items(devices: list[dict], selected_device_id: str | None) -> list[tuple[str, str]]:
+        selected = str(selected_device_id or "").strip()
+        items: list[tuple[str, str]] = [
+            ("시스템 기본 장치 (현재 사용 중)" if not selected else "시스템 기본 장치", ""),
+        ]
+
+        normalized_devices = []
+        for device in devices:
+            if not isinstance(device, dict):
+                continue
+            normalized_devices.append(
+                {
+                    "id": str(device.get("id", "")).strip(),
+                    "name": str(device.get("name", "")).strip() or "이름 없는 장치",
+                    "is_default": bool(device.get("is_default", False)),
+                }
+            )
+
+        normalized_devices.sort(
+            key=lambda device: (
+                0 if device["is_default"] else 1,
+                device["name"].lower(),
+                device["id"],
+            )
+        )
+
+        found_selected = False
+        for device in normalized_devices:
+            tags = []
+            if device["is_default"]:
+                tags.append("기본")
+            if device["id"] == selected:
+                tags.append("현재 사용 중")
+                found_selected = True
+            suffix = f" ({', '.join(tags)})" if tags else ""
+            items.append((f"{device['name']}{suffix}", device["id"]))
+
+        if selected and not found_selected:
+            items.append((f"저장된 장치 (현재 없음, 현재 사용 중): {selected}", selected))
+
+        return items
+
+    def _refresh_tts_output_devices(self, selected_device_id: str | None = None) -> None:
+        selected = str(selected_device_id or "").strip()
+        try:
+            devices = AudioPlayer.list_output_devices()
+        except Exception:
+            devices = []
+        self._tts_output_devices = devices
+
+        if not hasattr(self, "tts_output_device_combo"):
+            return
+
+        combo = self.tts_output_device_combo
+        combo.blockSignals(True)
+        combo.clear()
+        for label, device_id in self._build_tts_output_device_items(devices, selected):
+            combo.addItem(label, device_id)
+        selected_index = combo.findData(selected) if selected else 0
+        if selected_index < 0:
+            selected_index = 0
+        combo.setCurrentIndex(max(0, selected_index))
+        combo.blockSignals(False)
+
+    def _on_tts_output_device_refresh_clicked(self):
+        current_device_id = ""
+        if hasattr(self, "tts_output_device_combo"):
+            current_device_id = str(self.tts_output_device_combo.currentData() or "").strip()
+        self._refresh_tts_output_devices(current_device_id)
+        self._on_setting_changed()
+
     def _get_overlay_web_page(self):
         if not self._bridge:
             return None
@@ -2417,6 +2492,11 @@ class SettingsDialog(QDialog):
                 "ref_text": self.tts_ref_text_edit.toPlainText().strip(),
                 "ref_language": self.tts_ref_language_edit.text().strip() or "ja",
                 "target_language": self.tts_target_language_edit.text().strip() or "ja",
+                "speed_factor": round(self.tts_gpt_speed_factor_spin.value(), 2),
+                "top_k": self.tts_gpt_top_k_spin.value(),
+                "top_p": round(self.tts_gpt_top_p_spin.value(), 2),
+                "temperature": round(self.tts_gpt_temperature_spin.value(), 2),
+                "text_split_method": str(self.tts_gpt_text_split_combo.currentData() or "cut5"),
             },
             "openai_audio_speech": {
                 "api_url": self.tts_openai_api_url_edit.text().strip() or "https://api.openai.com/v1",
@@ -2468,6 +2548,10 @@ class SettingsDialog(QDialog):
         browser = {**get_tts_provider_defaults("browser_speech"), **configs.get("browser_speech", {})}
 
         self.enable_tts_check.setChecked(self._original_settings.get("enable_tts", True))
+        self._refresh_tts_output_devices(str(self._original_settings.get("tts_output_device_id", "")).strip())
+        self.tts_output_volume_spin.setValue(
+            int(round(float(self._original_settings.get("tts_output_volume", 0.8) or 0.8) * 100))
+        )
 
         tts_provider = str(self._original_settings.get("tts_provider", "gpt_sovits_http")).strip().lower()
         tts_provider_index = self.tts_provider_combo.findData(tts_provider)
@@ -2480,6 +2564,16 @@ class SettingsDialog(QDialog):
         self.tts_ref_text_edit.setPlainText(str(gpt_sovits.get("ref_text", "")))
         self.tts_ref_language_edit.setText(str(gpt_sovits.get("ref_language", "ja")))
         self.tts_target_language_edit.setText(str(gpt_sovits.get("target_language", "ja")))
+        self.tts_gpt_speed_factor_spin.setValue(float(gpt_sovits.get("speed_factor", 1.0) or 1.0))
+        self.tts_gpt_top_k_spin.setValue(int(gpt_sovits.get("top_k", 15) or 15))
+        self.tts_gpt_top_p_spin.setValue(float(gpt_sovits.get("top_p", 1.0) or 1.0))
+        self.tts_gpt_temperature_spin.setValue(float(gpt_sovits.get("temperature", 1.0) or 1.0))
+        gpt_text_split_method = str(gpt_sovits.get("text_split_method", "cut5") or "cut5")
+        gpt_text_split_index = self.tts_gpt_text_split_combo.findData(gpt_text_split_method)
+        if gpt_text_split_index < 0:
+            self.tts_gpt_text_split_combo.addItem(gpt_text_split_method, gpt_text_split_method)
+            gpt_text_split_index = self.tts_gpt_text_split_combo.count() - 1
+        self.tts_gpt_text_split_combo.setCurrentIndex(gpt_text_split_index)
 
         self.tts_openai_api_key_edit.setText(str(self._tts_api_keys.get("openai_audio_speech", "")))
         self.tts_openai_api_url_edit.setText(str(openai.get("api_url", "https://api.openai.com/v1")))
@@ -3186,6 +3280,36 @@ class SettingsDialog(QDialog):
         overview_form.addRow(self.tts_provider_hint_label)
         layout.addWidget(overview_group)
 
+        playback_group = QGroupBox("재생")
+        playback_form = QFormLayout(playback_group)
+        playback_form.setSpacing(8)
+        playback_form.setContentsMargins(10, 15, 10, 10)
+
+        output_device_row = QHBoxLayout()
+        output_device_row.setSpacing(8)
+        self.tts_output_device_combo = QComboBox()
+        self.tts_output_device_combo.currentIndexChanged.connect(self._on_setting_changed)
+        output_device_row.addWidget(self.tts_output_device_combo, 1)
+        self.tts_output_device_refresh_button = QPushButton("새로고침")
+        self._bind_widget_text(self.tts_output_device_refresh_button, "settings.common.refresh", "새로고침")
+        self.tts_output_device_refresh_button.clicked.connect(self._on_tts_output_device_refresh_clicked)
+        output_device_row.addWidget(self.tts_output_device_refresh_button)
+        self._add_form_row(playback_form, "settings.tts.playback.output_device", "출력 장치:", output_device_row)
+
+        self.tts_output_volume_spin = QSpinBox()
+        self.tts_output_volume_spin.setRange(0, 100)
+        self.tts_output_volume_spin.setSuffix(" %")
+        self.tts_output_volume_spin.setValue(80)
+        self.tts_output_volume_spin.valueChanged.connect(self._on_setting_changed)
+        self._add_form_row(playback_form, "settings.tts.playback.volume", "볼륨:", self.tts_output_volume_spin)
+        playback_form.addRow(
+            self._build_hint_label(
+                "GPT-SoVITS, OpenAI Speech, 호환 API, ElevenLabs처럼 앱 내부 오디오 플레이어를 쓰는 TTS에 공통 적용됩니다. 브라우저 기본 TTS에는 적용되지 않습니다.",
+                key="settings.tts.playback.hint",
+            )
+        )
+        layout.addWidget(playback_group)
+
         self._tts_provider_pages = {}
         self.tts_provider_stack = QStackedWidget()
 
@@ -3247,13 +3371,69 @@ class SettingsDialog(QDialog):
         self._bind_placeholder(self.tts_target_language_edit, "settings.tts.gpt.reference.target_language.placeholder", "예: ja")
         self.tts_target_language_edit.textChanged.connect(self._on_setting_changed)
         self._add_form_row(gpt_reference_form, "settings.tts.gpt.reference.target_language.label", "출력 언어:", self.tts_target_language_edit)
+        gpt_layout.addWidget(gpt_reference_group)
+
+        gpt_sampling_group = QGroupBox("합성 파라미터")
+        gpt_sampling_form = QFormLayout(gpt_sampling_group)
+        gpt_sampling_form.setSpacing(8)
+        gpt_sampling_form.setContentsMargins(10, 15, 10, 10)
+
+        self.tts_gpt_speed_factor_spin = QDoubleSpinBox()
+        self.tts_gpt_speed_factor_spin.setRange(0.6, 1.65)
+        self.tts_gpt_speed_factor_spin.setSingleStep(0.05)
+        self.tts_gpt_speed_factor_spin.setDecimals(2)
+        self.tts_gpt_speed_factor_spin.setValue(1.0)
+        self.tts_gpt_speed_factor_spin.valueChanged.connect(self._on_setting_changed)
+        self._add_form_row(gpt_sampling_form, "settings.tts.gpt.sampling.speed_factor", "속도:", self.tts_gpt_speed_factor_spin)
+
+        self.tts_gpt_top_k_spin = QSpinBox()
+        self.tts_gpt_top_k_spin.setRange(1, 100)
+        self.tts_gpt_top_k_spin.setValue(15)
+        self.tts_gpt_top_k_spin.valueChanged.connect(self._on_setting_changed)
+        self._add_form_row(gpt_sampling_form, "settings.tts.gpt.sampling.top_k", "Top K:", self.tts_gpt_top_k_spin)
+
+        self.tts_gpt_top_p_spin = QDoubleSpinBox()
+        self.tts_gpt_top_p_spin.setRange(0.0, 1.0)
+        self.tts_gpt_top_p_spin.setSingleStep(0.05)
+        self.tts_gpt_top_p_spin.setDecimals(2)
+        self.tts_gpt_top_p_spin.setValue(1.0)
+        self.tts_gpt_top_p_spin.valueChanged.connect(self._on_setting_changed)
+        self._add_form_row(gpt_sampling_form, "settings.tts.gpt.sampling.top_p", "Top P:", self.tts_gpt_top_p_spin)
+
+        self.tts_gpt_temperature_spin = QDoubleSpinBox()
+        self.tts_gpt_temperature_spin.setRange(0.0, 1.0)
+        self.tts_gpt_temperature_spin.setSingleStep(0.05)
+        self.tts_gpt_temperature_spin.setDecimals(2)
+        self.tts_gpt_temperature_spin.setValue(1.0)
+        self.tts_gpt_temperature_spin.valueChanged.connect(self._on_setting_changed)
+        self._add_form_row(gpt_sampling_form, "settings.tts.gpt.sampling.temperature", "Temperature:", self.tts_gpt_temperature_spin)
+
+        self.tts_gpt_text_split_combo = QComboBox()
+        for method_name, label in (
+            ("cut0", "cut0 - 자르지 않음"),
+            ("cut1", "cut1 - 네 문장씩"),
+            ("cut2", "cut2 - 50자씩"),
+            ("cut3", "cut3 - 중국어 마침표"),
+            ("cut4", "cut4 - 영어 마침표"),
+            ("cut5", "cut5 - 문장부호 기준"),
+        ):
+            if method_name in self._gpt_sovits_text_split_methods:
+                self.tts_gpt_text_split_combo.addItem(label, method_name)
+        self.tts_gpt_text_split_combo.currentIndexChanged.connect(self._on_setting_changed)
+        self._add_form_row(gpt_sampling_form, "settings.tts.gpt.sampling.text_split_method", "자르기:", self.tts_gpt_text_split_combo)
         gpt_reference_form.addRow(
             self._build_hint_label(
                 "참조 음성 기반 합성입니다. 로컬 서버나 별도 머신의 GPT-SoVITS 엔드포인트를 그대로 지정할 수 있습니다.",
                 key="settings.tts.gpt.reference.hint",
             )
         )
-        gpt_layout.addWidget(gpt_reference_group)
+        gpt_sampling_form.addRow(
+            self._build_hint_label(
+                "WebUI에서 자주 쓰는 속도, 샘플링, 문장 자르기 옵션을 ENE에서도 직접 조절합니다.",
+                key="settings.tts.gpt.sampling.hint",
+            )
+        )
+        gpt_layout.addWidget(gpt_sampling_group)
         gpt_layout.addStretch()
         self.tts_provider_stack.addWidget(gpt_page)
         self._tts_provider_pages["gpt_sovits_http"] = gpt_page
@@ -5455,6 +5635,8 @@ class SettingsDialog(QDialog):
             "enable_global_ptt": self.enable_global_ptt_check.isChecked(),
             "interrupt_tts_on_ptt": self.interrupt_tts_on_ptt_check.isChecked(),
             "enable_tts": self.enable_tts_check.isChecked(),
+            "tts_output_device_id": str(self.tts_output_device_combo.currentData() or "").strip(),
+            "tts_output_volume": round(self.tts_output_volume_spin.value() / 100.0, 2),
             "tts_provider": str(self.tts_provider_combo.currentData() or "gpt_sovits_http"),
             "tts_api_url": self.tts_api_url_edit.text().strip(),
             "tts_ref_audio_path": self.tts_ref_audio_path_edit.text().strip(),
