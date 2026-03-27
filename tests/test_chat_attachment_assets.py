@@ -33,6 +33,14 @@ def test_script_contains_message_time_helpers_and_meta_rail():
     assert "className = 'message-time'" in script
 
 
+def test_script_persists_message_timestamp_for_meta_rail_refresh():
+    script = SCRIPT_PATH.read_text(encoding="utf-8-sig")
+    assert "messageDiv.dataset.messageTimestamp" in script
+    assert "rail.dataset.timestamp" in script
+    assert "lastAssistantMessageEl.dataset.messageTimestamp" in script
+    assert "lastUserMessageEl.dataset.messageTimestamp" in script
+
+
 def test_html_and_settings_include_token_usage_ui():
     html = INDEX_PATH.read_text(encoding="utf-8-sig")
     settings_dialog = SETTINGS_DIALOG_PATH.read_text(encoding="utf-8-sig")
