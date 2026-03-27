@@ -187,6 +187,54 @@ def _stub_prompt_module():
             sys.modules["src.ai.prompt"] = previous_prompt_module
 
 
+def test_tts_output_device_items_prioritize_default_and_mark_current():
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        items = SettingsDialog._build_tts_output_device_items(
+            [
+                {"id": "usb", "name": "USB DAC", "is_default": False},
+                {"id": "speaker", "name": "Speakers", "is_default": True},
+                {"id": "hdmi", "name": "HDMI", "is_default": False},
+            ],
+            "hdmi",
+        )
+
+        assert items == [
+            ("시스템 기본 장치", ""),
+            ("Speakers (기본)", "speaker"),
+            ("HDMI (현재 사용 중)", "hdmi"),
+            ("USB DAC", "usb"),
+        ]
+
+
+def test_tts_output_device_items_mark_system_default_as_current_when_unset():
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        items = SettingsDialog._build_tts_output_device_items(
+            [{"id": "speaker", "name": "Speakers", "is_default": True}],
+            "",
+        )
+
+        assert items == [
+            ("시스템 기본 장치 (현재 사용 중)", ""),
+            ("Speakers (기본)", "speaker"),
+        ]
+
+
+def test_tts_output_device_items_keep_missing_saved_device_visible():
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        items = SettingsDialog._build_tts_output_device_items(
+            [{"id": "speaker", "name": "Speakers", "is_default": True}],
+            "missing-device",
+        )
+
+        assert items[-1] == ("저장된 장치 (현재 없음, 현재 사용 중): missing-device", "missing-device")
+
+
 def test_settings_dialog_translates_metadata_in_english():
     _get_qapp()
     locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"

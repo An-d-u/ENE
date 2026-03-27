@@ -107,6 +107,8 @@ class Settings:
         "gemini_api_key": "",
         "summarize_threshold": 10,
         "enable_tts": True,
+        "tts_output_device_id": "",
+        "tts_output_volume": 0.8,
         "tts_provider": "gpt_sovits_http",
         "tts_api_url": "http://127.0.0.1:9880",
         "tts_ref_audio_path": "assets/ref_audio/refvoice.wav",
@@ -120,6 +122,11 @@ class Settings:
                 "ref_text": "人間さんはどんな色が一番好き？ ん？ なんで聞いたかって？ ふふん～ 内緒",
                 "ref_language": "ja",
                 "target_language": "ja",
+                "speed_factor": 1.0,
+                "top_k": 15,
+                "top_p": 1.0,
+                "temperature": 1.0,
+                "text_split_method": "cut5",
             },
             "openai_audio_speech": {
                 "api_url": "https://api.openai.com/v1",
@@ -383,6 +390,11 @@ class Settings:
         gpt_sovits_config["ref_text"] = str(self.config.get("tts_ref_text", defaults["gpt_sovits_http"]["ref_text"]))
         gpt_sovits_config["ref_language"] = str(self.config.get("tts_ref_language", defaults["gpt_sovits_http"]["ref_language"]))
         gpt_sovits_config["target_language"] = str(self.config.get("tts_target_language", defaults["gpt_sovits_http"]["target_language"]))
+        gpt_sovits_config["speed_factor"] = float(gpt_sovits_config.get("speed_factor", defaults["gpt_sovits_http"]["speed_factor"]) or defaults["gpt_sovits_http"]["speed_factor"])
+        gpt_sovits_config["top_k"] = int(gpt_sovits_config.get("top_k", defaults["gpt_sovits_http"]["top_k"]) or defaults["gpt_sovits_http"]["top_k"])
+        gpt_sovits_config["top_p"] = float(gpt_sovits_config.get("top_p", defaults["gpt_sovits_http"]["top_p"]) or defaults["gpt_sovits_http"]["top_p"])
+        gpt_sovits_config["temperature"] = float(gpt_sovits_config.get("temperature", defaults["gpt_sovits_http"]["temperature"]) or defaults["gpt_sovits_http"]["temperature"])
+        gpt_sovits_config["text_split_method"] = str(gpt_sovits_config.get("text_split_method", defaults["gpt_sovits_http"]["text_split_method"]) or defaults["gpt_sovits_http"]["text_split_method"])
 
         self.config["tts_provider_configs"] = merged
 

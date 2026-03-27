@@ -32,6 +32,16 @@ class TTSProviderMeta:
     default_config: dict
 
 
+GPT_SOVITS_TEXT_SPLIT_METHODS: tuple[str, ...] = (
+    "cut0",
+    "cut1",
+    "cut2",
+    "cut3",
+    "cut4",
+    "cut5",
+)
+
+
 TTS_PROVIDER_CATALOG: dict[str, TTSProviderMeta] = {
     "gpt_sovits_http": TTSProviderMeta(
         provider="gpt_sovits_http",
@@ -44,6 +54,11 @@ TTS_PROVIDER_CATALOG: dict[str, TTSProviderMeta] = {
             "ref_text": "人間さんはどんな色が一番好き？ ん？ なんで聞いたかって？ ふふん～ 内緒",
             "ref_language": "ja",
             "target_language": "ja",
+            "speed_factor": 1.0,
+            "top_k": 15,
+            "top_p": 1.0,
+            "temperature": 1.0,
+            "text_split_method": "cut5",
         },
     ),
     "openai_audio_speech": TTSProviderMeta(
@@ -116,6 +131,10 @@ def get_tts_provider_defaults(provider: str) -> dict:
     return dict(meta.default_config)
 
 
+def get_gpt_sovits_text_split_methods() -> tuple[str, ...]:
+    return GPT_SOVITS_TEXT_SPLIT_METHODS
+
+
 class BaseTTSClient:
     """여러 공급자가 공유하는 기본 유틸리티."""
 
@@ -176,6 +195,11 @@ class GPTSoVITSHTTPClient(BaseTTSClient):
         ref_text: str = "人間さんはどんな色が一番好き？ ん？ なんで聞いたかって？ ふふん～ 内緒",
         ref_language: str = "ja",
         target_language: str = "ja",
+        speed_factor: float = 1.0,
+        top_k: int = 15,
+        top_p: float = 1.0,
+        temperature: float = 1.0,
+        text_split_method: str = "cut5",
     ):
         super().__init__("gpt_sovits_http")
         self.api_url = self._normalize_base_url(api_url, "http://127.0.0.1:9880")
@@ -183,6 +207,13 @@ class GPTSoVITSHTTPClient(BaseTTSClient):
         self.ref_text = str(ref_text or "").strip()
         self.ref_language = str(ref_language or "ja").strip() or "ja"
         self.target_language = str(target_language or "ja").strip() or "ja"
+        self.speed_factor = float(speed_factor or 1.0)
+        self.top_k = int(top_k or 15)
+        self.top_p = float(top_p or 1.0)
+        self.temperature = float(temperature or 1.0)
+        self.text_split_method = str(text_split_method or "cut5").strip() or "cut5"
+        if self.text_split_method not in GPT_SOVITS_TEXT_SPLIT_METHODS:
+            self.text_split_method = "cut5"
 
         print(f"[TTS][GPT-SoVITS] API: {self.api_url}")
         print(f"[TTS][GPT-SoVITS] Reference audio: {self.ref_audio_path}")
@@ -202,6 +233,11 @@ class GPTSoVITSHTTPClient(BaseTTSClient):
             "ref_audio_path": str(ref_path.absolute()),
             "prompt_text": self.ref_text,
             "prompt_lang": self.ref_language,
+            "speed_factor": self.speed_factor,
+            "top_k": self.top_k,
+            "top_p": self.top_p,
+            "temperature": self.temperature,
+            "text_split_method": self.text_split_method,
         }
 
         try:
@@ -431,6 +467,11 @@ def create_tts_client(provider: str, config: dict | None = None, api_key: str = 
             ref_text=str(merged.get("ref_text", "")).strip(),
             ref_language=str(merged.get("ref_language", "ja")).strip() or "ja",
             target_language=str(merged.get("target_language", "ja")).strip() or "ja",
+            speed_factor=float(merged.get("speed_factor", 1.0) or 1.0),
+            top_k=int(merged.get("top_k", 15) or 15),
+            top_p=float(merged.get("top_p", 1.0) or 1.0),
+            temperature=float(merged.get("temperature", 1.0) or 1.0),
+            text_split_method=str(merged.get("text_split_method", "cut5")).strip() or "cut5",
         )
 
     if normalized == "openai_audio_speech":
