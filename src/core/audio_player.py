@@ -1,7 +1,7 @@
 """
 오디오 재생 관리
 """
-from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
+from PyQt6.QtMultimedia import QAudioOutput, QMediaDevices, QMediaPlayer
 from PyQt6.QtCore import QUrl, QObject, pyqtSignal
 import os
 import tempfile
@@ -14,7 +14,7 @@ class AudioPlayer(QObject):
     playback_finished = pyqtSignal()  # 재생 완료 시그널
     playback_error = pyqtSignal(str)  # 재생 오류 시그널
     
-    def __init__(self):
+    def __init__(self, output_device_id: str = "", volume: float = 0.8):
         super().__init__()
         
         # Qt 멀티미디어 플레이어 초기화
@@ -28,11 +28,62 @@ class AudioPlayer(QObject):
         
         # 임시 파일 경로
         self.temp_file = None
-        
-        # 볼륨 설정 (0.0 ~ 1.0)
-        self.audio_output.setVolume(0.8)
+
+        # 현재 출력 장치 상태
+        self.output_device_id = ""
+
+        self.set_output_device(output_device_id)
+        self.set_volume(volume)
         
         print("[AudioPlayer] Initialized")
+
+    @staticmethod
+    def serialize_device_id(device_id) -> str:
+        """QAudioDevice ID를 저장 가능한 문자열로 정규화한다."""
+        if device_id in (None, ""):
+            return ""
+        if isinstance(device_id, str):
+            return device_id.strip()
+        if isinstance(device_id, (bytes, bytearray, memoryview)):
+            return bytes(device_id).hex()
+        try:
+            return bytes(device_id).hex()
+        except Exception:
+            return str(device_id).strip()
+
+    @staticmethod
+    def normalize_volume(volume: float) -> float:
+        """Qt 오디오 출력용 볼륨 범위(0.0 ~ 1.0)로 정규화한다."""
+        return max(0.0, min(1.0, float(volume)))
+
+    @classmethod
+    def list_output_devices(cls) -> list[dict]:
+        """사용 가능한 오디오 출력 장치 목록을 반환한다."""
+        default_device = QMediaDevices.defaultAudioOutput()
+        default_device_id = cls.serialize_device_id(default_device.id())
+        devices = []
+        for device in QMediaDevices.audioOutputs():
+            device_id = cls.serialize_device_id(device.id())
+            devices.append(
+                {
+                    "id": device_id,
+                    "name": device.description(),
+                    "is_default": device_id == default_device_id,
+                }
+            )
+        return devices
+
+    @classmethod
+    def resolve_output_device(cls, device_id: str, devices=None):
+        """저장된 장치 ID와 일치하는 QAudioDevice를 찾는다."""
+        normalized_id = str(device_id or "").strip()
+        if not normalized_id:
+            return None
+        available_devices = devices if devices is not None else QMediaDevices.audioOutputs()
+        for device in available_devices:
+            if cls.serialize_device_id(device.id()) == normalized_id:
+                return device
+        return None
     
     def play(self, audio_data: bytes):
         """
@@ -83,6 +134,20 @@ class AudioPlayer(QObject):
         """재생 중지"""
         if self.player.playbackState() != QMediaPlayer.PlaybackState.StoppedState:
             self.player.stop()
+
+    def set_output_device(self, output_device_id: str):
+        """재생 출력 장치를 설정한다. 비어 있으면 시스템 기본 장치를 사용한다."""
+        normalized_id = str(output_device_id or "").strip()
+        target_device = self.resolve_output_device(normalized_id)
+        if target_device is None:
+            self.audio_output.setDevice(QMediaDevices.defaultAudioOutput())
+            self.output_device_id = ""
+            print("[AudioPlayer] Output device set to system default")
+            return
+
+        self.audio_output.setDevice(target_device)
+        self.output_device_id = self.serialize_device_id(target_device.id())
+        print(f"[AudioPlayer] Output device set: {target_device.description()}")
     
     def set_volume(self, volume: float):
         """
@@ -91,7 +156,7 @@ class AudioPlayer(QObject):
         Args:
             volume: 0.0 ~ 1.0
         """
-        volume = max(0.0, min(1.0, volume))
+        volume = self.normalize_volume(volume)
         self.audio_output.setVolume(volume)
         print(f"[AudioPlayer] Volume set to {volume:.2f}")
     
