@@ -17,6 +17,14 @@ def test_load_missing_file_uses_default_config(tmp_path):
     assert settings.get("memory_search_recent_turns") == 2
     assert settings.get("obsidian_checked_max_chars_per_file") == 3000
     assert settings.get("obsidian_checked_total_max_chars") == 12000
+    assert settings.get("tts_output_device_id") == ""
+    assert settings.get("tts_output_volume") == 0.8
+    gpt_sovits = settings.get("tts_provider_configs")["gpt_sovits_http"]
+    assert gpt_sovits["speed_factor"] == 1.0
+    assert gpt_sovits["top_k"] == 15
+    assert gpt_sovits["top_p"] == 1.0
+    assert gpt_sovits["temperature"] == 1.0
+    assert gpt_sovits["text_split_method"] == "cut5"
 
 
 def test_save_and_reload_roundtrip(tmp_path):

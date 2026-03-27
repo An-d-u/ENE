@@ -309,7 +309,10 @@ class ENEApplication(QObject):
                 return
             
             # 오디오 플레이어 초기화
-            self.audio_player = AudioPlayer()
+            self.audio_player = AudioPlayer(
+                output_device_id=str(self.settings.get("tts_output_device_id", "")).strip(),
+                volume=float(self.settings.get("tts_output_volume", 0.8) or 0.8),
+            )
             
             # TTS 사용 가능 여부 확인
             if self.tts_client.is_available():
@@ -522,6 +525,8 @@ class ENEApplication(QObject):
         old_tts_config = json.dumps(
             {
                 "enable_tts": bool(self.settings.get("enable_tts", False)),
+                "tts_output_device_id": str(self.settings.get("tts_output_device_id", "")).strip(),
+                "tts_output_volume": float(self.settings.get("tts_output_volume", 0.8) or 0.8),
                 "tts_provider": str(self.settings.get("tts_provider", "gpt_sovits_http")).strip(),
                 "tts_provider_configs": self.settings.get("tts_provider_configs", {}),
                 "tts_api_keys": self.settings.get("tts_api_keys", {}),
@@ -543,6 +548,8 @@ class ENEApplication(QObject):
         new_tts_config = json.dumps(
             {
                 "enable_tts": bool(new_settings.get("enable_tts", self.settings.get("enable_tts", False))),
+                "tts_output_device_id": str(new_settings.get("tts_output_device_id", self.settings.get("tts_output_device_id", ""))).strip(),
+                "tts_output_volume": float(new_settings.get("tts_output_volume", self.settings.get("tts_output_volume", 0.8)) or 0.8),
                 "tts_provider": str(new_settings.get("tts_provider", self.settings.get("tts_provider", "gpt_sovits_http"))).strip(),
                 "tts_provider_configs": new_settings.get("tts_provider_configs", self.settings.get("tts_provider_configs", {})),
                 "tts_api_keys": new_settings.get("tts_api_keys", self.settings.get("tts_api_keys", {})),
