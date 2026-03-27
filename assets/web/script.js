@@ -1846,8 +1846,35 @@ function formatMessageTime(value = new Date()) {
     return `${meridiem} ${hourText}:${minuteText}`;
 }
 
-function ensureMessageMetaRail(messageDiv, role, timestamp = new Date()) {
+function normalizeMessageTimestampValue(value = null) {
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+        const year = value.getFullYear();
+        const month = String(value.getMonth() + 1).padStart(2, '0');
+        const day = String(value.getDate()).padStart(2, '0');
+        const hour = String(value.getHours()).padStart(2, '0');
+        const minute = String(value.getMinutes()).padStart(2, '0');
+        return `${year}-${month}-${day} ${hour}:${minute}`;
+    }
+    if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (trimmed) {
+            return trimmed;
+        }
+    }
+    return normalizeMessageTimestampValue(new Date());
+}
+
+function getStoredMessageTimestamp(messageDiv) {
+    if (!messageDiv || !messageDiv.dataset) return '';
+    return String(messageDiv.dataset.messageTimestamp || '').trim();
+}
+
+function ensureMessageMetaRail(messageDiv, role, timestamp = null) {
     if (!messageDiv) return null;
+    const normalizedTimestamp = normalizeMessageTimestampValue(timestamp || getStoredMessageTimestamp(messageDiv));
+    if (messageDiv.dataset) {
+        messageDiv.dataset.messageTimestamp = normalizedTimestamp;
+    }
     let rail = messageDiv.querySelector('.message-meta-rail');
     if (!rail) {
         rail = document.createElement('div');
@@ -1860,10 +1887,11 @@ function ensureMessageMetaRail(messageDiv, role, timestamp = new Date()) {
     rail.classList.toggle('user', role === 'user');
     rail.classList.toggle('assistant', role === 'assistant');
     rail.dataset.role = role;
+    rail.dataset.timestamp = normalizedTimestamp;
 
     const timeLabel = rail.querySelector('.message-time');
     if (timeLabel) {
-        timeLabel.textContent = formatMessageTime(timestamp);
+        timeLabel.textContent = formatMessageTime(normalizedTimestamp);
     }
     return rail;
 }
@@ -1904,7 +1932,11 @@ function updateRerollButtonState() {
         updateRerollButtonState();
         window.pyBridge.reroll_last_response();
     });
-    const assistantRail = ensureMessageMetaRail(lastAssistantMessageEl, 'assistant');
+    const assistantRail = ensureMessageMetaRail(
+        lastAssistantMessageEl,
+        'assistant',
+        lastAssistantMessageEl.dataset.messageTimestamp,
+    );
     if (!assistantRail) {
         return;
     }
@@ -1927,7 +1959,11 @@ function updateRerollButtonState() {
         if (isRequestPending) return;
         openInlineEdit(userBubble);
     });
-    const userRail = ensureMessageMetaRail(lastUserMessageEl, 'user');
+    const userRail = ensureMessageMetaRail(
+        lastUserMessageEl,
+        'user',
+        lastUserMessageEl.dataset.messageTimestamp,
+    );
     if (!userRail) {
         return;
     }
@@ -2165,6 +2201,7 @@ function replaceLastAssistantMessage(text, timestamp = new Date()) {
     const textSpan = document.createElement('span');
     textSpan.textContent = text;
     bubble.appendChild(textSpan);
+    lastAssistantMessageEl.dataset.messageTimestamp = normalizeMessageTimestampValue(timestamp);
     const rail = ensureMessageMetaRail(lastAssistantMessageEl, 'assistant', timestamp);
     if (rail && rail.parentElement !== lastAssistantMessageEl) {
         lastAssistantMessageEl.appendChild(rail);
@@ -2180,6 +2217,7 @@ function replaceLastAssistantMessage(text, timestamp = new Date()) {
 function addMessage(text, role, attachments = [], timestamp = new Date()) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${role}`;
+    messageDiv.dataset.messageTimestamp = normalizeMessageTimestampValue(timestamp);
 
     const bubble = document.createElement('div');
     bubble.className = 'message-bubble';
