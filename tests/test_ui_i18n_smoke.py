@@ -298,8 +298,16 @@ def test_settings_dialog_exposes_language_selector_and_translated_static_strings
             "en",
             "ja",
         ]
+        assert dialog.ptt_language_combo.currentData() == "ko"
+        assert [dialog.ptt_language_combo.itemData(index) for index in range(dialog.ptt_language_combo.count())] == [
+            "ko",
+            "en",
+            "ja",
+        ]
         assert dialog.ui_language_combo.itemText(0) == "System default"
+        assert dialog.ptt_language_combo.itemText(0) == "Korean"
         assert dialog._get_current_values()["ui_language"] == "en"
+        assert dialog._get_current_values()["stt_language"] == "ko"
         assert dialog.content_header_title.text() == "Window Settings"
         assert dialog.content_header_meta.text() == "Window position, size, and language."
         assert {"General", "Emotion List and Usage Guide"}.issubset(
@@ -339,6 +347,34 @@ def test_settings_dialog_exposes_language_selector_and_translated_static_strings
                 "Every theme color must use a 6-digit HEX code in `#RRGGBB` format.",
             )
         ]
+        dialog.close()
+
+
+def test_settings_dialog_ptt_language_selection_is_saved_to_stt_language():
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        dialog = SettingsDialog(
+            {
+                "ui_language": "ko",
+                "llm_provider": "gemini",
+                "tts_provider": "gpt_sovits_http",
+                "enable_tts": True,
+                "stt_language": "en",
+            }
+        )
+
+        assert dialog.ptt_language_combo.currentData() == "en"
+
+        dialog.ptt_language_combo.setCurrentIndex(dialog.ptt_language_combo.findData("ja"))
+
+        current_values = dialog._get_current_values()
+        assert current_values["stt_language"] == "ja"
+
         dialog.close()
 
 
