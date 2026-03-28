@@ -637,6 +637,12 @@
         "title": "Voice input (global PTT)",
         "enable": "Enable global Push-to-Talk",
         "interrupt_tts": "Interrupt ENE speech when PTT starts",
+        "language": {
+          "label": "Input language:",
+          "ko": "Korean",
+          "en": "English",
+          "ja": "Japanese"
+        },
         "hotkey": {
           "label": "PTT hotkey:",
           "set": "Set Hotkey",
