@@ -841,6 +841,17 @@ class SettingsDialog(QDialog):
         for index, (_value, key, fallback) in enumerate(option_specs):
             self.ui_language_combo.setItemText(index, self._translated_text(key, fallback))
 
+    def _refresh_ptt_language_combo_labels(self) -> None:
+        if not hasattr(self, "ptt_language_combo"):
+            return
+        option_specs = [
+            ("ko", "settings.behavior.ptt.language.ko", "한국어"),
+            ("en", "settings.behavior.ptt.language.en", "영어"),
+            ("ja", "settings.behavior.ptt.language.ja", "일본어"),
+        ]
+        for index, (_value, key, fallback) in enumerate(option_specs):
+            self.ptt_language_combo.setItemText(index, self._translated_text(key, fallback))
+
     def _fact_category_label(self, category: str) -> str:
         normalized = str(category or "basic").strip() or "basic"
         fallback_map = {
@@ -903,6 +914,7 @@ class SettingsDialog(QDialog):
         for setter, key, fallback in self._ui_text_bindings:
             setter(self._translated_text(key, fallback))
         self._refresh_ui_language_combo_labels()
+        self._refresh_ptt_language_combo_labels()
         self._refresh_provider_combo_labels()
         self._refresh_fact_category_combo_labels()
         self._refresh_section_labels()
@@ -3858,6 +3870,16 @@ class SettingsDialog(QDialog):
         ptt_hotkey_row.addWidget(self.global_ptt_hotkey_reset_button)
         self._add_form_row(ptt_layout, "settings.behavior.ptt.hotkey.label", "PTT 단축키:", ptt_hotkey_row)
 
+        self.ptt_language_combo = QComboBox()
+        for value, key, fallback in (
+            ("ko", "settings.behavior.ptt.language.ko", "한국어"),
+            ("en", "settings.behavior.ptt.language.en", "영어"),
+            ("ja", "settings.behavior.ptt.language.ja", "일본어"),
+        ):
+            self.ptt_language_combo.addItem(self._translated_text(key, fallback), value)
+        self.ptt_language_combo.currentIndexChanged.connect(self._on_setting_changed)
+        self._add_form_row(ptt_layout, "settings.behavior.ptt.language.label", "입력 언어:", self.ptt_language_combo)
+
         self.global_ptt_hotkey_hint_label = QLabel("")
         self.global_ptt_hotkey_hint_label.setWordWrap(True)
         self.global_ptt_hotkey_hint_label.setObjectName("InlineHint")
@@ -5386,6 +5408,11 @@ class SettingsDialog(QDialog):
             self.interrupt_tts_on_ptt_check.setChecked(
                 self._original_settings.get("interrupt_tts_on_ptt", True)
             )
+            ptt_language = str(self._original_settings.get("stt_language", "ko")).strip().lower() or "ko"
+            ptt_language_index = self.ptt_language_combo.findData(ptt_language)
+            if ptt_language_index < 0:
+                ptt_language_index = self.ptt_language_combo.findData("ko")
+            self.ptt_language_combo.setCurrentIndex(ptt_language_index if ptt_language_index >= 0 else 0)
             self._load_tts_values()
             self._ptt_hotkey_value = normalize_hotkey_text(
                 str(self._original_settings.get("global_ptt_hotkey", "alt")),
@@ -5597,7 +5624,6 @@ class SettingsDialog(QDialog):
             key: self._original_settings[key]
             for key in (
                 "stt_model_size",
-                "stt_language",
                 "stt_device",
                 "stt_compute_type",
                 "stt_min_record_sec",
@@ -5634,6 +5660,7 @@ class SettingsDialog(QDialog):
             "show_mood_toggle_button": self.show_mood_toggle_button_check.isChecked(),
             "enable_global_ptt": self.enable_global_ptt_check.isChecked(),
             "interrupt_tts_on_ptt": self.interrupt_tts_on_ptt_check.isChecked(),
+            "stt_language": str(self.ptt_language_combo.currentData() or "ko"),
             "enable_tts": self.enable_tts_check.isChecked(),
             "tts_output_device_id": str(self.tts_output_device_combo.currentData() or "").strip(),
             "tts_output_volume": round(self.tts_output_volume_spin.value() / 100.0, 2),
