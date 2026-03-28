@@ -44,3 +44,10 @@ def test_message_time_meta_rail_aligns_with_bubbles():
     assert "align-items: flex-end;" in meta_block
     assert "font-size: 11px;" in time_block
     assert "white-space: nowrap;" in time_block
+
+
+def test_edit_button_uses_svg_icon_styles():
+    block = _rule_block(".message-edit-btn")
+    assert "width: 16px;" in block
+    assert "height: 16px;" in block
+    assert "border-radius: 999px;" in block

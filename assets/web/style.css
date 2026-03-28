@@ -702,20 +702,23 @@ body {
 
 .message-edit-btn {
     border: none;
-    background: transparent;
-    color: rgba(255, 255, 255, 0.68);
-    font-size: 12px;
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.72);
+    width: 16px;
+    height: 16px;
     line-height: 1;
     cursor: pointer;
-    transition: color 0.2s ease, transform 0.2s ease;
+    transition: color 0.2s ease, transform 0.2s ease, background 0.2s ease;
     text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
-    padding: 0;
+    padding: 6px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    border-radius: 999px;
 }
 
 .message-edit-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.14);
     color: rgba(255, 255, 255, 0.95);
     transform: translateY(-1px);
 }
@@ -790,18 +793,27 @@ body {
 
 /* 첨부 버튼 */
 #attach-button {
-    padding: 8px 12px;
+    padding: 8px 10px;
     border: none;
     border-radius: 20px;
     background: rgba(255, 255, 255, 0.1);
     color: white;
-    font-size: 16px;
     cursor: pointer;
     transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 #attach-button:hover {
     background: rgba(255, 255, 255, 0.2);
+}
+
+.lucide-icon {
+    width: 16px;
+    height: 16px;
+    display: block;
+    flex-shrink: 0;
 }
 
 /* 첨부 미리보기 컨테이너 */

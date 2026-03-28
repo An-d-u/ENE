@@ -12,11 +12,21 @@ def test_attachment_input_accepts_documents_and_images():
     assert 'accept="image/*,.txt,.md,.pdf,.docx"' in html
 
 
+def test_attachment_button_uses_svg_icon_instead_of_emoji():
+    html = INDEX_PATH.read_text(encoding="utf-8-sig")
+    assert 'id="attach-button"' in html
+    assert 'class="lucide-icon"' in html
+    assert "aria-label=\"파일 첨부\"" in html
+    assert "📎" not in html
+
+
 def test_script_uses_attachment_preview_bridge_and_generic_send_route():
     script = SCRIPT_PATH.read_text(encoding="utf-8-sig")
     assert "window.pyBridge.preview_attachments" in script
     assert "window.pyBridge.send_to_ai_with_attachments" in script
     assert "window.pyBridge.attachment_preview_ready.connect" in script
+    assert "createLucideIcon('pencil')" in script
+    assert "textContent = 'Edit'" not in script
 
 
 def test_script_contains_token_usage_bubble_hooks():
