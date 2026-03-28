@@ -171,3 +171,9 @@ Short-term priorities that would make ENE feel more complete as a product:
 - keep polishing the companion experience around memory, mood, and notes
 
 Longer-term, ENE is aiming toward a more polished, memory-aware, voice-capable desktop companion experience that feels persistent, personal, and genuinely useful during daily work.
+
+## Third-Party Licenses
+
+- The chat attachment and recent edit icons in ENE use the Lucide `paperclip` and `pencil` SVG icons to match the icon style used by [Forui](https://github.com/duobaseio/forui).
+- According to the upstream Forui project, Forui code is licensed under the MIT License, bundled fonts are under the SIL Open Font License 1.1, and bundled icons are under the ISC License.
+- The specific Lucide icons used in ENE for these controls are distributed under the ISC License. Please keep upstream attribution and license notices when redistributing these assets.

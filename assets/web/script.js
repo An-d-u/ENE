@@ -1383,6 +1383,14 @@ let tokenUsageBubbleTimer = null;
 let currentMoodSnapshot = { label: 'calm', valence: 0, energy: 0, bond: 0, stress: 0 };
 let currentUiStrings = null;
 
+function createLucideIcon(name) {
+    const icons = {
+        paperclip: '<svg class="lucide-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551" /></svg>',
+        pencil: '<svg class="lucide-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" /><path d="m15 5 4 4" /></svg>'
+    };
+    return icons[name] || '';
+}
+
 function mergeUiStrings(config) {
     const source = config || {};
     const input = source.input || {};
@@ -1951,8 +1959,10 @@ function updateRerollButtonState() {
     }
     const editBtn = document.createElement('button');
     editBtn.className = 'message-edit-btn';
-    editBtn.textContent = 'Edit';
+    editBtn.type = 'button';
+    editBtn.innerHTML = createLucideIcon('pencil');
     editBtn.title = '최근 메시지 수정';
+    editBtn.setAttribute('aria-label', '최근 메시지 수정');
     editBtn.disabled = isRequestPending || !window.pyBridge || !window.pyBridge.edit_last_user_message;
     editBtn.addEventListener('click', () => {
         if (!window.pyBridge || !window.pyBridge.edit_last_user_message) return;
