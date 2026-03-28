@@ -637,6 +637,12 @@
         "title": "음성 입력 (전역 PTT)",
         "enable": "전역 Push-to-Talk 활성화",
         "interrupt_tts": "PTT 시작 시 ENE 음성 출력 끊기",
+        "language": {
+          "label": "입력 언어:",
+          "ko": "한국어",
+          "en": "영어",
+          "ja": "일본어"
+        },
         "hotkey": {
           "label": "PTT 단축키:",
           "set": "단축키 설정",
