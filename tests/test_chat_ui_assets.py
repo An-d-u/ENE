@@ -51,3 +51,39 @@ def test_edit_button_uses_svg_icon_styles():
     assert "width: 16px;" in block
     assert "height: 16px;" in block
     assert "border-radius: 999px;" in block
+
+
+def test_reroll_button_uses_svg_icon_styles():
+    block = _rule_block(".message-reroll-btn")
+    assert "width: 16px;" in block
+    assert "height: 16px;" in block
+    assert "border-radius: 999px;" in block
+
+
+def test_loading_indicator_uses_plain_message_row_visuals():
+    indicator_block = _rule_block("#loading-indicator")
+    typing_text_block = _rule_block(".typing-text")
+
+    assert "display: inline-flex;" in indicator_block
+    assert "justify-content: flex-start;" in indicator_block
+    assert "gap: 8px;" in indicator_block
+    assert "padding-left: 12px;" in indicator_block
+    assert "margin-right: auto;" in indicator_block
+    assert "align-self: flex-start;" in indicator_block
+    assert "width: fit-content;" in indicator_block
+    assert "color: var(--ene-chat-panel-text);" in indicator_block
+    assert "color: var(--ene-chat-panel-text);" in typing_text_block
+    assert "font-size: 14px;" in typing_text_block
+    assert "line-height: 1.4;" in typing_text_block
+    assert "transform: translateY(4px);" in typing_text_block
+
+
+def test_token_usage_bubble_is_offset_slightly_lower_from_top_left():
+    block = _rule_block("#token-usage-bubble")
+    assert "top: 32px;" in block
+    assert "left: 4px;" in block
+
+
+def test_attach_button_centers_within_input_row():
+    block = _rule_block("#attach-button")
+    assert "align-self: center;" in block
