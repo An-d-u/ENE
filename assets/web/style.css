@@ -170,18 +170,26 @@ body {
 
 /* 로딩 인디케이터 */
 #loading-indicator {
-    padding: 12px 20px;
-    display: flex;
-    align-items: center;
+    display: inline-flex;
+    justify-content: flex-start;
     gap: 8px;
-    opacity: 0.7;
+    padding-left: 12px;
+    margin-right: auto;
+    align-self: flex-start;
+    width: fit-content;
+    color: var(--ene-chat-panel-text);
+    opacity: 0.92;
     flex-shrink: 0;
+}
+
+#loading-indicator .typing-dot {
+    opacity: 0.62;
 }
 
 .typing-dot {
     width: 8px;
     height: 8px;
-    background: var(--ene-chat-panel-muted-text);
+    background: currentColor;
     border-radius: 50%;
     display: inline-block;
     animation: typing 1.4s infinite;
@@ -196,9 +204,11 @@ body {
 }
 
 .typing-text {
-    color: var(--ene-chat-panel-muted-text);
-    font-size: 13px;
+    color: var(--ene-chat-panel-text);
+    font-size: 14px;
+    line-height: 1.4;
     margin-left: 4px;
+    transform: translateY(4px);
 }
 
 @keyframes typing {
@@ -309,8 +319,8 @@ body {
 
 #token-usage-bubble {
     position: fixed;
-    top: 12px;
-    left: 12px;
+    top: 32px;
+    left: 4px;
     z-index: 1250;
     max-width: min(320px, calc(100vw - 24px));
     padding: 9px 12px;
@@ -677,20 +687,23 @@ body {
 
 .message-reroll-btn {
     border: none;
-    background: transparent;
-    color: rgba(255, 255, 255, 0.6);
-    font-size: 19px;
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.72);
+    width: 16px;
+    height: 16px;
     line-height: 1;
     cursor: pointer;
-    display: flex;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    transition: color 0.2s ease, transform 0.2s ease;
+    transition: color 0.2s ease, transform 0.2s ease, background 0.2s ease;
     text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
-    padding: 0;
+    padding: 6px;
+    border-radius: 999px;
 }
 
 .message-reroll-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.14);
     color: rgba(255, 255, 255, 0.9);
     transform: translateY(-1px);
 }

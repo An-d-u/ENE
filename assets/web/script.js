@@ -1335,6 +1335,7 @@ const attachButton = document.getElementById('attach-button');
 const imageInput = document.getElementById('image-input');
 const imagePreviewContainer = document.getElementById('image-preview-container');
 const loadingIndicator = document.getElementById('loading-indicator');
+const loadingIndicatorAnchor = loadingIndicator ? loadingIndicator.parentElement : null;
 const loadingText = document.querySelector('#loading-indicator .typing-text');
 const summaryConfirmOverlay = document.getElementById('summary-confirm-overlay');
 const summaryConfirmTitle = document.getElementById('summary-confirm-title');
@@ -1386,7 +1387,8 @@ let currentUiStrings = null;
 function createLucideIcon(name) {
     const icons = {
         paperclip: '<svg class="lucide-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551" /></svg>',
-        pencil: '<svg class="lucide-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" /><path d="m15 5 4 4" /></svg>'
+        pencil: '<svg class="lucide-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" /><path d="m15 5 4 4" /></svg>',
+        'rotate-ccw': '<svg class="lucide-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg>'
     };
     return icons[name] || '';
 }
@@ -1785,9 +1787,17 @@ function requestObsTree() {
 // 요청 진행 중 로딩 인디케이터를 표시/숨김 처리한다.
 function showLoadingIndicator(show) {
     if (loadingIndicator) {
-        loadingIndicator.style.display = show ? 'flex' : 'none';
         if (show) {
+            if (loadingIndicator.parentElement !== chatMessages) {
+                chatMessages.appendChild(loadingIndicator);
+            }
+            loadingIndicator.style.display = 'inline-flex';
             chatMessages.scrollTop = chatMessages.scrollHeight;
+            return;
+        }
+        loadingIndicator.style.display = 'none';
+        if (loadingIndicator.parentElement === chatMessages && loadingIndicatorAnchor && imagePreviewContainer) {
+            loadingIndicatorAnchor.insertBefore(loadingIndicator, imagePreviewContainer);
         }
     }
 }
@@ -1929,8 +1939,10 @@ function updateRerollButtonState() {
 
     const btn = document.createElement('button');
     btn.className = 'message-reroll-btn';
-    btn.textContent = '⟲';
+    btn.type = 'button';
+    btn.innerHTML = createLucideIcon('rotate-ccw');
     btn.title = '최근 ENE 답변 다시 생성';
+    btn.setAttribute('aria-label', '최근 ENE 답변 다시 생성');
     btn.disabled = isRequestPending || !window.pyBridge || !window.pyBridge.reroll_last_response;
     btn.addEventListener('click', () => {
         if (!window.pyBridge || !window.pyBridge.reroll_last_response) return;
