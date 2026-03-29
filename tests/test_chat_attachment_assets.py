@@ -29,6 +29,12 @@ def test_script_uses_attachment_preview_bridge_and_generic_send_route():
     assert "textContent = 'Edit'" not in script
 
 
+def test_script_uses_svg_reroll_icon_instead_of_unicode():
+    script = SCRIPT_PATH.read_text(encoding="utf-8-sig")
+    assert "createLucideIcon('rotate-ccw')" in script
+    assert "textContent = '⟲'" not in script
+
+
 def test_script_contains_token_usage_bubble_hooks():
     script = SCRIPT_PATH.read_text(encoding="utf-8-sig")
     assert "window.setTokenUsageBubbleEnabled" in script
@@ -57,3 +63,13 @@ def test_html_and_settings_include_token_usage_ui():
 
     assert 'id="token-usage-bubble"' in html
     assert "대화 토큰 확인" in settings_dialog
+
+
+def test_loading_indicator_uses_plain_typing_row_and_reparents_only_while_pending():
+    html = INDEX_PATH.read_text(encoding="utf-8-sig")
+    script = SCRIPT_PATH.read_text(encoding="utf-8-sig")
+
+    assert 'id="loading-indicator" class="message assistant"' in html
+    assert 'class="message-bubble typing-bubble"' not in html
+    assert "chatMessages.appendChild(loadingIndicator);" in script
+    assert "loadingIndicatorAnchor.insertBefore(loadingIndicator, imagePreviewContainer);" in script
