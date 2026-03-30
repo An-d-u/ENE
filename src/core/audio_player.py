@@ -1,11 +1,21 @@
 """
 오디오 재생 관리
 """
-from PyQt6.QtMultimedia import QAudioOutput, QMediaDevices, QMediaPlayer
-from PyQt6.QtCore import QUrl, QObject, pyqtSignal
 import os
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+from PyQt6.QtCore import QUrl, QObject, pyqtSignal
+
+if TYPE_CHECKING:
+    from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
+
+
+def _load_qt_multimedia():
+    from PyQt6.QtMultimedia import QAudioOutput, QMediaDevices, QMediaPlayer
+
+    return QAudioOutput, QMediaDevices, QMediaPlayer
 
 
 class AudioPlayer(QObject):
@@ -16,10 +26,13 @@ class AudioPlayer(QObject):
     
     def __init__(self, output_device_id: str = "", volume: float = 0.8):
         super().__init__()
-        
+
+        QAudioOutput, _, QMediaPlayer = _load_qt_multimedia()
+
         # Qt 멀티미디어 플레이어 초기화
         self.player = QMediaPlayer()
         self.audio_output = QAudioOutput()
+        self._media_player_class = QMediaPlayer
         self.player.setAudioOutput(self.audio_output)
         
         # 시그널 연결
@@ -59,6 +72,7 @@ class AudioPlayer(QObject):
     @classmethod
     def list_output_devices(cls) -> list[dict]:
         """사용 가능한 오디오 출력 장치 목록을 반환한다."""
+        _, QMediaDevices, _ = _load_qt_multimedia()
         default_device = QMediaDevices.defaultAudioOutput()
         default_device_id = cls.serialize_device_id(default_device.id())
         devices = []
@@ -79,7 +93,11 @@ class AudioPlayer(QObject):
         normalized_id = str(device_id or "").strip()
         if not normalized_id:
             return None
-        available_devices = devices if devices is not None else QMediaDevices.audioOutputs()
+        if devices is None:
+            _, QMediaDevices, _ = _load_qt_multimedia()
+            available_devices = QMediaDevices.audioOutputs()
+        else:
+            available_devices = devices
         for device in available_devices:
             if cls.serialize_device_id(device.id()) == normalized_id:
                 return device
@@ -132,7 +150,7 @@ class AudioPlayer(QObject):
     
     def stop(self):
         """재생 중지"""
-        if self.player.playbackState() != QMediaPlayer.PlaybackState.StoppedState:
+        if self.player.playbackState() != self._media_player_class.PlaybackState.StoppedState:
             self.player.stop()
 
     def set_output_device(self, output_device_id: str):
@@ -140,6 +158,7 @@ class AudioPlayer(QObject):
         normalized_id = str(output_device_id or "").strip()
         target_device = self.resolve_output_device(normalized_id)
         if target_device is None:
+            _, QMediaDevices, _ = _load_qt_multimedia()
             self.audio_output.setDevice(QMediaDevices.defaultAudioOutput())
             self.output_device_id = ""
             print("[AudioPlayer] Output device set to system default")
@@ -162,7 +181,7 @@ class AudioPlayer(QObject):
     
     def _on_media_status_changed(self, status):
         """미디어 상태 변경 이벤트"""
-        if status == QMediaPlayer.MediaStatus.EndOfMedia:
+        if status == self._media_player_class.MediaStatus.EndOfMedia:
             print("[AudioPlayer] Playback finished")
             self.playback_finished.emit()
             

@@ -31,7 +31,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libegl1
+          sudo apt-get install -y libegl1 libpulse0
 
       - name: Ruff (basic)
         run: ruff check . --select E9,F63,F7,F82
