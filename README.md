@@ -146,6 +146,34 @@ These steps are not mandatory, but they are highly recommended if you want ENE t
 - `Master settings`: It is a good idea to fill in your master-related information and profile details early. ENE becomes more useful when it has some stable context about you.
 - `Embedding`: Voyage is the safest choice for now because that is the provider this project has actually been tested with.
 
+## Prompt Markdown Files
+
+ENE uses Markdown files inside the `prompts/` folder so you can adjust personality and behavior without directly editing Python code.
+
+Prompt content is arranged into the runtime context in this order during normal chat:
+
+1. `base_system_prompt.md`
+2. generated sub-prompt wrapper
+3. `sub_prompt_body.md`
+4. generated emotion usage section based on `emotion_guides.md`
+5. `analysis_system_appendix.md` when that appendix is enabled for the current prompt path
+
+- `prompts/base_system_prompt.md`
+  Write ENE's core identity here: who ENE is, how it should generally speak, what kind of relationship it should have with the user, and what attitude or tone it should maintain consistently.
+
+- `prompts/sub_prompt_body.md`
+  Write additional behavioral instructions here: how ENE should respond in daily situations, how affectionate, playful, calm, or serious it should feel, and any extra response rules you want on top of the base prompt.
+
+- `prompts/emotion_guides.md`
+  Write the list of emotion keys and short usage guidance here. This is where you explain what each emotion means and when ENE should choose it.
+
+- `prompts/analysis_system_appendix.md`
+  Write supporting analysis rules here if you want ENE to follow extra internal guidance for interpretation or structured reasoning. This is more of an advanced tuning file than a first-setup file. It is not loaded for `/note` planning flows that run without the normal sub-prompt path.
+
+For `/note` planning flows, ENE does not use the normal sub-prompt path, so `sub_prompt_body.md`, `emotion_guides.md`, and `analysis_system_appendix.md` are not placed into the planning context in the same way.
+
+If you are just starting, the most important files are `base_system_prompt.md`, `sub_prompt_body.md`, and `emotion_guides.md`.
+
 ## Configuration Notes
 
 The settings window already covers most of what you will want to change in normal use, including:
