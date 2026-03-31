@@ -6,8 +6,10 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
 from pathlib import Path
 import json
-from typing import List, Dict, Optional
+from typing import List, Dict
 import uuid
+
+from ..core.app_paths import resolve_user_storage_path
 
 
 @dataclass
@@ -34,12 +36,13 @@ class CalendarEvent:
 class CalendarManager:
     """캘린더 관리자"""
     
-    def __init__(self, calendar_file: str = "calendar.json"):
+    def __init__(self, calendar_file: str | Path | None = None):
         """
         Args:
             calendar_file: 캘린더 데이터 저장 파일
         """
-        self.calendar_file = Path(calendar_file)
+        target_file = calendar_file if calendar_file is not None else "calendar.json"
+        self.calendar_file = resolve_user_storage_path(target_file)
         self.events: List[CalendarEvent] = []
         self.conversation_counts: Dict[str, int] = {}
         self.head_pat_counts: Dict[str, int] = {}
@@ -66,6 +69,7 @@ class CalendarManager:
     def save(self):
         """캘린더 데이터 저장"""
         try:
+            self.calendar_file.parent.mkdir(parents=True, exist_ok=True)
             data = {
                 'events': [e.to_dict() for e in self.events],
                 'conversation_counts': self.conversation_counts,
@@ -73,7 +77,7 @@ class CalendarManager:
             }
             with open(self.calendar_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
-            print(f"[Calendar] 저장 완료")
+            print("[Calendar] 저장 완료")
         except Exception as e:
             print(f"[Calendar] 저장 실패: {e}")
     
@@ -140,7 +144,7 @@ class CalendarManager:
                 event_date = datetime.fromisoformat(event.date).date()
                 if today <= event_date <= end_date:
                     upcoming.append(event)
-            except:
+            except ValueError:
                 pass  # 잘못된 날짜 형식 무시
         
         return sorted(upcoming, key=lambda e: e.date)

@@ -85,3 +85,21 @@ def test_gpt_sovits_client_posts_extended_controls(tmp_path, monkeypatch):
     assert captured["json"]["top_p"] == 0.82
     assert captured["json"]["temperature"] == 0.66
     assert captured["json"]["text_split_method"] == "cut2"
+
+
+def test_gpt_sovits_client_resolves_relative_reference_audio_from_bundle_root(tmp_path, monkeypatch):
+    from src.ai.tts_client import GPTSoVITSHTTPClient
+
+    bundle_root = tmp_path / "bundle"
+    ref_audio = bundle_root / "assets" / "ref_audio" / "refvoice.wav"
+    ref_audio.parent.mkdir(parents=True, exist_ok=True)
+    ref_audio.write_bytes(b"fake")
+
+    monkeypatch.setenv("ENE_USER_DATA_DIR", str(tmp_path / "user"))
+    monkeypatch.setenv("ENE_BUNDLE_DIR", str(bundle_root))
+
+    client = GPTSoVITSHTTPClient(ref_audio_path="assets/ref_audio/refvoice.wav")
+
+    resolved = client._resolve_reference_audio_path()
+
+    assert resolved == ref_audio.resolve()
