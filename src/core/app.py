@@ -59,7 +59,6 @@ class ENEApplication(QObject):
         self.overlay_window.show()
         if bool(self.overlay_window.bridge.obs_settings.get("panel_visible", True)):
             self.obsidian_panel_window.show()
-            self.obsidian_panel_window.refresh_tree()
         
         # 트레이 아이콘 생성
         self.tray_icon = TrayIcon(
@@ -359,7 +358,6 @@ class ENEApplication(QObject):
 
         # 유휴 감지 모니터 시작
         self.overlay_window.bridge.start_away_monitor()
-        QTimer.singleShot(0, self.overlay_window.bridge._schedule_checked_files_context_refresh)
         
         # 트레이 아이콘 시그널
         self.tray_icon.settings_requested.connect(self._show_settings_dialog)

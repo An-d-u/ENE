@@ -481,6 +481,7 @@ class WebBridge(QObject):
         self._cached_checked_files_context = ""
         self._cached_checked_files_signature: tuple[str, ...] = tuple()
         self.obs_checked_files_worker = None
+        self._obsidian_integration_activated = False
         self._pending_attachment_cache: dict[str, dict] = {}
         self._session_attachment_documents: list[dict] = []
         
@@ -998,6 +999,7 @@ class WebBridge(QObject):
             self.message_received.emit("`/note` 뒤에 실행할 내용을 함께 입력해 주세요.", "confused")
             return True
 
+        self._activate_obsidian_integration()
         timestamp = self._now_timestamp()
         message_with_time = f"[현재 시각: {timestamp}]\n{note_body}"
         self._last_request_payload = None
@@ -1069,6 +1071,9 @@ class WebBridge(QObject):
 
     def _schedule_checked_files_context_refresh(self, force: bool = False):
         """일반 채팅용 체크 파일 컨텍스트를 백그라운드에서 갱신한다."""
+        if not self._obsidian_integration_activated:
+            return
+
         signature = self._get_checked_files_signature()
         if not signature:
             self._cached_checked_files_context = ""
@@ -1091,6 +1096,9 @@ class WebBridge(QObject):
 
     def _get_cached_checked_files_context(self) -> str:
         """전송 경로에서 사용할 체크 파일 컨텍스트 스냅샷을 반환한다."""
+        if not self._obsidian_integration_activated:
+            return ""
+
         signature = self._get_checked_files_signature()
         if not signature:
             self._cached_checked_files_context = ""
@@ -1326,6 +1334,7 @@ class WebBridge(QObject):
             self.message_received.emit("`/obs` 뒤에 작성할 내용을 함께 입력해 주세요.", "confused")
             return True
 
+        self._activate_obsidian_integration()
         command, payload = self._parse_obs_subcommand(obs_body)
         self._last_request_payload = None
         self._is_rerolling = False
@@ -1412,6 +1421,7 @@ class WebBridge(QObject):
     @pyqtSlot()
     def refresh_obs_tree(self):
         """JS에서 호출: 트리를 새로고침한다."""
+        self._activate_obsidian_integration()
         self._start_obs_tree_refresh(allow_retry=False, retry_sequence=False)
 
     @pyqtSlot()
@@ -1430,6 +1440,7 @@ class WebBridge(QObject):
                 self.obs_settings.set("panel_visible", False)
                 self.obs_settings.save()
             else:
+                self._activate_obsidian_integration()
                 if hasattr(panel, "_ensure_visible_on_screen"):
                     panel._ensure_visible_on_screen()
                 panel.show()
@@ -1455,6 +1466,12 @@ class WebBridge(QObject):
         self.obs_tree_worker.tree_ready.connect(self._on_obs_tree_ready)
         self.obs_tree_worker.error_occurred.connect(self._on_obs_tree_error)
         self.obs_tree_worker.start()
+
+    def _activate_obsidian_integration(self):
+        """사용자가 Obsidian 기능을 처음 요청한 뒤부터만 연동을 활성화한다."""
+        if self._obsidian_integration_activated:
+            return
+        self._obsidian_integration_activated = True
 
     def _retry_obs_tree_refresh(self):
         if self._obs_tree_retry_remaining <= 0:
