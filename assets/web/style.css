@@ -314,7 +314,55 @@ body {
     z-index: 1200;
     display: flex;
     flex-direction: column;
+    align-items: flex-end;
     gap: 8px;
+}
+
+#floating-actions-toggle {
+    border: 1px solid var(--ene-floating-panel-border);
+    border-radius: 999px;
+    width: 42px;
+    height: 42px;
+    background: var(--ene-floating-panel-bg);
+    color: var(--ene-floating-panel-text);
+    cursor: pointer;
+    backdrop-filter: blur(6px);
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 19px;
+    line-height: 1;
+    letter-spacing: 1px;
+    transition: background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+#floating-actions-toggle:hover {
+    background: var(--ene-floating-panel-button-hover);
+    transform: translateY(-1px);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
+}
+
+#floating-actions-toggle:active {
+    transform: translateY(0);
+}
+
+#floating-actions-menu {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-8px) scale(0.96);
+    transform-origin: top right;
+    transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+#floating-action-buttons.is-open #floating-actions-menu {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0) scale(1);
 }
 
 #token-usage-bubble {
@@ -363,6 +411,27 @@ body {
     justify-content: center;
     text-align: center;
     line-height: 1.2;
+}
+
+#settings-floating-btn {
+    z-index: 1200;
+    width: 42px;
+    height: 42px;
+    border: 1px solid var(--ene-floating-panel-border);
+    border-radius: 999px;
+    background: var(--ene-floating-panel-bg);
+    color: var(--ene-floating-panel-text);
+    cursor: pointer;
+    backdrop-filter: blur(4px);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s ease, transform 0.2s ease;
+}
+
+#settings-floating-btn:hover {
+    background: var(--ene-floating-panel-button-hover);
+    transform: translateY(-1px);
 }
 
 #manual-summarize-floating-btn {
