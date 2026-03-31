@@ -983,6 +983,31 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
     empty_dialog.close()
 
 
+def test_memory_dialog_does_not_overwrite_recent_memory_setting_during_load():
+    _get_qapp()
+
+    bridge = SimpleNamespace(
+        summarize_threshold=8,
+        settings=_DummySettings(
+            {
+                "max_important_memories": 3,
+                "max_similar_memories": 5,
+                "min_similarity": 0.42,
+                "max_recent_memories": 7,
+            }
+        ),
+        user_profile=None,
+    )
+
+    dialog = MemoryDialog(_DummyMemoryManager([]), bridge=bridge)
+
+    assert bridge.settings.saved is False
+    assert bridge.settings.config["max_recent_memories"] == 7
+    assert dialog.recent_spinbox.value() == 7
+
+    dialog.close()
+
+
 def test_obsidian_panel_translates_error_strings(tmp_path):
     _get_qapp()
     locales_dir = tmp_path / "locales"
