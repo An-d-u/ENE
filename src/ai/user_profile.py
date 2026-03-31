@@ -5,12 +5,11 @@ Stores durable user facts extracted from conversations.
 from dataclasses import dataclass, asdict
 from typing import List, Dict, Optional
 from datetime import datetime
-import json
 from pathlib import Path
 import difflib
 import re
 
-from ..core.app_paths import resolve_user_storage_path
+from ..core.app_paths import load_json_data, resolve_user_storage_path, save_json_data
 
 
 @dataclass
@@ -47,13 +46,8 @@ class UserProfile:
 
     def load(self):
         """Load profile from JSON file."""
-        if not self.profile_file.exists():
-            print("[Profile] Profile file not found. Starting fresh.")
-            return
-
         try:
-            with open(self.profile_file, "r", encoding="utf-8-sig") as f:
-                data = json.load(f)
+            data = load_json_data(self.profile_file, encoding="utf-8-sig")
 
             self.facts = [ProfileFact(**fact) for fact in data.get("facts", [])]
             self.basic_info = data.get("basic_info", {})
@@ -62,12 +56,14 @@ class UserProfile:
             print(f"[Profile] Loaded {len(self.facts)} facts")
 
         except Exception as e:
-            print(f"[Profile] Load failed: {e}")
+            if self.profile_file.exists():
+                print(f"[Profile] Load failed: {e}")
+            else:
+                print("[Profile] Profile file not found. Starting fresh.")
 
     def save(self):
         """Save profile to JSON file."""
         try:
-            self.profile_file.parent.mkdir(parents=True, exist_ok=True)
             data = {
                 "facts": [fact.to_dict() for fact in self.facts],
                 "basic_info": self.basic_info,
@@ -75,9 +71,14 @@ class UserProfile:
                 "last_updated": datetime.now().isoformat(),
             }
 
-            with open(self.profile_file, "w", encoding="utf-8-sig") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-                f.write("\n")
+            save_json_data(
+                self.profile_file,
+                data,
+                encoding="utf-8-sig",
+                indent=2,
+                ensure_ascii=False,
+                trailing_newline=True,
+            )
 
             print(f"[Profile] Saved {len(self.facts)} facts")
 
