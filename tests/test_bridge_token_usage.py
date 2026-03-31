@@ -39,3 +39,16 @@ def test_bridge_response_ready_emits_token_usage_payload():
             "total_tokens": 333,
         }
     ]
+
+
+def test_open_settings_dialog_slot_calls_registered_callback():
+    _ensure_qt_app()
+
+    bridge = WebBridge()
+    calls = []
+
+    bridge.set_settings_dialog_opener(lambda: calls.append("opened"))
+
+    bridge.open_settings_dialog()
+
+    assert calls == ["opened"]

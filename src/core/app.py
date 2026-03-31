@@ -342,6 +342,7 @@ class ENEApplication(QObject):
         """시그널 연결"""
         # WebBridge에 LLM 클라이언트 및 메모리 매니저 전달
         self.overlay_window.bridge.set_llm_client(self.llm_client)
+        self.overlay_window.bridge.set_settings_dialog_opener(self._show_settings_dialog)
         if hasattr(self, "mood_manager") and self.mood_manager:
             self.overlay_window.bridge.set_mood_manager(self.mood_manager)
         if hasattr(self, 'memory_manager'):

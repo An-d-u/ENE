@@ -469,6 +469,7 @@ class WebBridge(QObject):
         self.obs_settings = ObsSettings("obs_config.json")
         self.obsidian_manager = ObsidianManager(settings=self.settings, obs_settings=self.obs_settings)
         self.obs_panel_window = None
+        self._settings_dialog_opener = None
         self.obs_tree_worker = None
         self.obs_tree_retry_timer = QTimer(self)
         self.obs_tree_retry_timer.setSingleShot(True)
@@ -599,6 +600,10 @@ class WebBridge(QObject):
     def set_obs_panel_window(self, panel_window):
         """Obsidian 플로팅 패널 참조를 등록한다."""
         self.obs_panel_window = panel_window
+
+    def set_settings_dialog_opener(self, opener):
+        """설정창을 여는 콜백을 등록한다."""
+        self._settings_dialog_opener = opener if callable(opener) else None
 
     def refresh_away_settings(self):
         """설정 파일에서 유휴 감지 관련 값을 다시 읽는다."""
@@ -1452,6 +1457,12 @@ class WebBridge(QObject):
                 QTimer.singleShot(0, lambda: self._start_obs_tree_refresh(allow_retry=False, retry_sequence=True))
         except Exception as e:
             print(f"[Bridge] toggle_obs_panel failed: {e}")
+
+    @pyqtSlot()
+    def open_settings_dialog(self):
+        """JS에서 호출: 기존 설정창을 연다."""
+        if callable(self._settings_dialog_opener):
+            self._settings_dialog_opener()
 
     def _start_obs_tree_refresh(self, allow_retry: bool = False, retry_sequence: bool = False):
         """Obsidian 트리 갱신을 백그라운드 워커로 실행한다."""
