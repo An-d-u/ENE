@@ -435,6 +435,7 @@ def test_bridge_general_chat_includes_checked_obsidian_context(monkeypatch):
 
     bridge = WebBridge()
     bridge.llm_client = object()
+    bridge._obsidian_integration_activated = True
     bridge._cached_checked_files_signature = ("notes/test.md",)
     bridge._cached_checked_files_context = "[Obsidian 체크된 파일 본문]\n[파일:notes/test.md]\n# 테스트\n본문"
     monkeypatch.setattr(bridge.obs_settings, "get_checked_files", lambda: ["notes/test.md"])
@@ -497,7 +498,7 @@ def test_bridge_general_chat_skips_obsidian_context_when_disconnected(monkeypatc
     assert captured["message_with_time"].endswith("\n안녕")
 
 
-def test_bridge_general_chat_cache_miss_schedules_background_refresh(monkeypatch):
+def test_bridge_general_chat_cache_miss_before_obsidian_activation_skips_background_refresh(monkeypatch):
     _ensure_qt_app()
 
     bridge = WebBridge()
@@ -520,8 +521,81 @@ def test_bridge_general_chat_cache_miss_schedules_background_refresh(monkeypatch
 
     bridge.send_to_ai("안녕")
 
+    assert captured["refresh_called"] == 0
+    assert "[Obsidian 체크된 파일 본문]" not in captured["message_with_time"]
+
+
+def test_bridge_general_chat_cache_miss_after_obsidian_activation_schedules_background_refresh(monkeypatch):
+    _ensure_qt_app()
+
+    bridge = WebBridge()
+    bridge.llm_client = object()
+    bridge._obsidian_integration_activated = True
+    monkeypatch.setattr(bridge.obs_settings, "get_checked_files", lambda: ["notes/test.md"])
+
+    captured = {"refresh_called": 0}
+
+    def fake_refresh(force: bool = False):
+        captured["refresh_called"] += 1
+
+    def fake_start(message_with_time: str, images_data=None, memory_search_text: str = ""):
+        captured["message_with_time"] = message_with_time
+
+    monkeypatch.setattr(bridge, "_schedule_checked_files_context_refresh", fake_refresh)
+    monkeypatch.setattr(bridge, "_handle_note_command", lambda message: False)
+    monkeypatch.setattr(bridge, "_handle_obs_command", lambda message: False)
+    monkeypatch.setattr(bridge, "_handle_diary_command", lambda message: False)
+    monkeypatch.setattr(bridge, "_start_ai_worker", fake_start)
+
+    bridge.send_to_ai("안녕")
+
     assert captured["refresh_called"] == 1
     assert "[Obsidian 체크된 파일 본문]" not in captured["message_with_time"]
+
+
+def test_bridge_toggle_obs_panel_activates_obsidian_lazy_connection(monkeypatch):
+    _ensure_qt_app()
+
+    bridge = WebBridge()
+
+    class DummyPanel:
+        def __init__(self):
+            self._visible = False
+
+        def isVisible(self):
+            return self._visible
+
+        def show(self):
+            self._visible = True
+
+        def hide(self):
+            self._visible = False
+
+        def raise_(self):
+            return None
+
+        def activateWindow(self):
+            return None
+
+        def _ensure_visible_on_screen(self):
+            return None
+
+    bridge.obs_panel_window = DummyPanel()
+
+    captured = {"activated": 0, "scheduled": 0}
+
+    monkeypatch.setattr(
+        bridge,
+        "_activate_obsidian_integration",
+        lambda: captured.__setitem__("activated", captured["activated"] + 1),
+        raising=False,
+    )
+    monkeypatch.setattr("src.core.bridge.QTimer.singleShot", lambda ms, callback: captured.__setitem__("scheduled", captured["scheduled"] + 1))
+
+    bridge.toggle_obs_panel()
+
+    assert captured["activated"] == 1
+    assert captured["scheduled"] == 1
 
 
 def test_bridge_obs_tree_failed_payload_schedules_retry(monkeypatch):
@@ -607,6 +681,68 @@ def test_bridge_obs_summarize_command_starts_ai_worker(monkeypatch):
     assert "[Obsidian 트리 구조]" in captured["message_with_time"]
     assert "[Obsidian 체크된 파일 본문]" in captured["message_with_time"]
     assert "[요약 대상 파일: test.md]" in captured["message_with_time"]
+
+
+def test_bridge_note_command_activates_obsidian_lazy_connection(monkeypatch):
+    _ensure_qt_app()
+
+    bridge = WebBridge()
+    bridge.llm_client = object()
+
+    captured = {"activated": 0, "started": 0}
+
+    monkeypatch.setattr(
+        bridge,
+        "_activate_obsidian_integration",
+        lambda: captured.__setitem__("activated", captured["activated"] + 1),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        bridge,
+        "_start_note_worker",
+        lambda note_request, message_with_time, note_recent_context="": captured.__setitem__("started", captured["started"] + 1),
+    )
+
+    handled = bridge._handle_note_command("/note 자기소개서 수정해줘")
+
+    assert handled is True
+    assert captured["activated"] == 1
+
+    assert captured["started"] == 1
+
+
+def test_bridge_obs_command_activates_obsidian_lazy_connection(monkeypatch):
+    _ensure_qt_app()
+
+    bridge = WebBridge()
+    bridge.llm_client = object()
+
+    class DummyObsManager:
+        def read_file(self, rel_path):
+            return "# 제목\n내용"
+
+        def get_tree_lines(self, max_lines=120):
+            return []
+
+        def get_checked_file_contents(self, **kwargs):
+            return []
+
+    bridge.obsidian_manager = DummyObsManager()
+
+    captured = {"activated": 0}
+
+    monkeypatch.setattr(
+        bridge,
+        "_activate_obsidian_integration",
+        lambda: captured.__setitem__("activated", captured["activated"] + 1),
+        raising=False,
+    )
+    monkeypatch.setattr(bridge, "_start_ai_worker", lambda message_with_time, images_data=None: None)
+
+    handled = bridge._handle_obs_command("/obs summarize test.md")
+
+    assert handled is True
+    assert captured["activated"] == 1
 
 
 def test_bridge_obs_summarize_command_uses_configured_checked_file_limits(monkeypatch):
