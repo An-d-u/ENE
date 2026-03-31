@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
+from ..core.app_paths import resolve_runtime_resource_path
+
 
 @runtime_checkable
 class TTSClientProtocol(Protocol):
@@ -218,12 +220,16 @@ class GPTSoVITSHTTPClient(BaseTTSClient):
         print(f"[TTS][GPT-SoVITS] API: {self.api_url}")
         print(f"[TTS][GPT-SoVITS] Reference audio: {self.ref_audio_path}")
 
+    def _resolve_reference_audio_path(self) -> Path:
+        """참조 오디오 경로를 사용자 폴더/번들 기준으로 해석한다."""
+        return resolve_runtime_resource_path(self.ref_audio_path)
+
     async def generate_speech(self, text: str) -> bytes:
         normalized_text = self._normalize_tts_text(text)
         if not normalized_text:
             raise ValueError("Text cannot be empty")
 
-        ref_path = Path(self.ref_audio_path)
+        ref_path = self._resolve_reference_audio_path()
         if not ref_path.exists():
             raise FileNotFoundError(f"Reference audio not found: {self.ref_audio_path}")
 
@@ -257,7 +263,7 @@ class GPTSoVITSHTTPClient(BaseTTSClient):
             raise RuntimeError(f"TTS API connection error: {e}")
 
     def is_available(self) -> bool:
-        return Path(self.ref_audio_path).exists()
+        return self._resolve_reference_audio_path().exists()
 
 
 class OpenAISpeechClient(BaseTTSClient):

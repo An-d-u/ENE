@@ -6,6 +6,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from .app_paths import resolve_user_storage_path
+
 
 class ObsSettings:
     """Obsidian UI/선택 상태 전용 설정 관리자."""
@@ -20,8 +22,9 @@ class ObsSettings:
         "floating_window_height": 520,
     }
 
-    def __init__(self, config_path: str = "obs_config.json"):
-        self.config_path = Path(config_path)
+    def __init__(self, config_path: str | Path | None = None):
+        target_path = config_path if config_path is not None else "obs_config.json"
+        self.config_path = resolve_user_storage_path(target_path)
         self.config = self.load()
 
     def load(self) -> dict:
@@ -43,6 +46,7 @@ class ObsSettings:
 
     def save(self):
         try:
+            self.config_path.parent.mkdir(parents=True, exist_ok=True)
             with open(self.config_path, "w", encoding="utf-8") as f:
                 json.dump(self.config, f, ensure_ascii=False, indent=2)
         except Exception as e:

@@ -84,7 +84,11 @@ pip install -r requirements-dev.txt
 
 ### 2. Prepare configuration
 
-ENE uses several JSON files at the project root:
+ENE stores user-editable runtime files in the user data directory.
+
+- Windows: `%AppData%/ENE`
+
+Typical files stored there:
 
 - `config.json` for runtime settings and feature toggles
 - `api_keys.json` for secrets and provider keys
@@ -148,7 +152,9 @@ These steps are not mandatory, but they are highly recommended if you want ENE t
 
 ## Prompt Markdown Files
 
-ENE uses Markdown files inside the `prompts/` folder so you can adjust personality and behavior without directly editing Python code.
+ENE uses Markdown files inside the user prompt folder so you can adjust personality and behavior without directly editing Python code.
+
+- Windows: `%AppData%/ENE/prompts`
 
 Prompt content is arranged into the runtime context in this order during normal chat:
 
@@ -186,6 +192,28 @@ The settings window already covers most of what you will want to change in norma
 - Live2D model placement and scale
 
 You can use ENE without touching most internals, but if something does not behave the way you expect, the settings window is the first place to check before editing the raw configuration files.
+
+## Windows Release Build
+
+To build a portable Windows release locally:
+
+```powershell
+python -m pip install --upgrade pip
+pip install -r requirements-dev.txt
+python scripts/build_windows_release.py --version v0.1.0
+```
+
+The build produces a zip file in `release/` that contains the `ENE/` folder with `ENE.exe` and its bundled runtime files.
+
+The portable release intentionally bundles only release-safe built-in assets:
+
+- `assets/icons`
+- `assets/web`
+- `assets/live2d_models/hiyori`
+
+Personal Live2D purchases, private reference audio, and other user-specific assets should be provided through external paths after install, not committed into the public release bundle.
+
+GitHub Releases automation is configured so that pushing a tag such as `v0.1.0` builds the same portable zip on `windows-latest` and uploads it to the release.
 
 ## Roadmap
 

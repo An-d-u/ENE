@@ -338,3 +338,105 @@ def test_save_prompt_config_writes_readable_markdown_files(tmp_path, monkeypatch
     assert (local_dir / "base_system_prompt.md").read_text(encoding="utf-8-sig") == "첫 줄\n\n둘째 줄"
     assert (local_dir / "sub_prompt_body.md").read_text(encoding="utf-8-sig") == "가\n나"
     assert (local_dir / "analysis_system_appendix.md").read_text(encoding="utf-8-sig") == "부록 한 줄"
+
+
+def test_load_prompt_config_prefers_visible_roaming_prompts_under_store_python(tmp_path, monkeypatch):
+    from src.ai import prompt_config
+
+    default_dir = tmp_path / "prompts" / "defaults"
+    runtime_dir = tmp_path / "virtualized" / "prompts"
+    visible_dir = tmp_path / "visible" / "prompts"
+
+    default_payload = _sample_prompt_payload()
+    visible_payload = _sample_prompt_payload()
+    visible_payload["base_system_prompt"] = "실제 Roaming 프롬프트"
+    visible_payload["sub_prompt_body"] = "### [응답 형식]\n- 실제 Roaming 규칙"
+    visible_payload["analysis_system_appendix"] = "### [분석 규칙]\n- 실제 Roaming 부록"
+    visible_payload["emotion_guides"] = {
+        "normal": "실제 기본 상태",
+        "smile": "실제 미소 상태",
+    }
+
+    _write_prompt_markdown_files(default_dir, default_payload)
+    _write_prompt_markdown_files(visible_dir, visible_payload)
+
+    monkeypatch.setattr(prompt_config, "PROMPT_CONFIG_DIR", runtime_dir)
+    monkeypatch.setattr(prompt_config, "DEFAULT_PROMPT_CONFIG_DIR", default_dir)
+    monkeypatch.setattr(prompt_config, "BASE_SYSTEM_PROMPT_PATH", runtime_dir / "base_system_prompt.md")
+    monkeypatch.setattr(prompt_config, "SUB_PROMPT_BODY_PATH", runtime_dir / "sub_prompt_body.md")
+    monkeypatch.setattr(prompt_config, "ANALYSIS_SYSTEM_APPENDIX_PATH", runtime_dir / "analysis_system_appendix.md")
+    monkeypatch.setattr(prompt_config, "EMOTION_GUIDES_PATH", runtime_dir / "emotion_guides.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_BASE_SYSTEM_PROMPT_PATH", default_dir / "base_system_prompt.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_SUB_PROMPT_BODY_PATH", default_dir / "sub_prompt_body.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH", default_dir / "analysis_system_appendix.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_EMOTION_GUIDES_PATH", default_dir / "emotion_guides.md")
+    monkeypatch.setattr(prompt_config, "_is_windows_store_python_runtime", lambda: True, raising=False)
+    monkeypatch.setattr(prompt_config, "_should_sync_store_python_prompt_dirs", lambda: True, raising=False)
+    monkeypatch.setattr(prompt_config, "_get_visible_prompt_config_dir", lambda: visible_dir, raising=False)
+
+    loaded = prompt_config.load_prompt_config()
+
+    assert loaded["base_system_prompt"] == "실제 Roaming 프롬프트"
+    assert loaded["sub_prompt_body"] == "### [응답 형식]\n- 실제 Roaming 규칙"
+    assert loaded["analysis_system_appendix"] == "### [분석 규칙]\n- 실제 Roaming 부록"
+    assert loaded["emotion_guides"] == visible_payload["emotion_guides"]
+
+
+def test_save_prompt_config_mirrors_visible_roaming_prompts_under_store_python(tmp_path, monkeypatch):
+    from src.ai import prompt_config
+
+    default_dir = tmp_path / "prompts" / "defaults"
+    runtime_dir = tmp_path / "virtualized" / "prompts"
+    visible_dir = tmp_path / "visible" / "prompts"
+
+    _write_prompt_markdown_files(default_dir, _sample_prompt_payload())
+
+    monkeypatch.setattr(prompt_config, "PROMPT_CONFIG_DIR", runtime_dir)
+    monkeypatch.setattr(prompt_config, "DEFAULT_PROMPT_CONFIG_DIR", default_dir)
+    monkeypatch.setattr(prompt_config, "BASE_SYSTEM_PROMPT_PATH", runtime_dir / "base_system_prompt.md")
+    monkeypatch.setattr(prompt_config, "SUB_PROMPT_BODY_PATH", runtime_dir / "sub_prompt_body.md")
+    monkeypatch.setattr(prompt_config, "ANALYSIS_SYSTEM_APPENDIX_PATH", runtime_dir / "analysis_system_appendix.md")
+    monkeypatch.setattr(prompt_config, "EMOTION_GUIDES_PATH", runtime_dir / "emotion_guides.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_BASE_SYSTEM_PROMPT_PATH", default_dir / "base_system_prompt.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_SUB_PROMPT_BODY_PATH", default_dir / "sub_prompt_body.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH", default_dir / "analysis_system_appendix.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_EMOTION_GUIDES_PATH", default_dir / "emotion_guides.md")
+    monkeypatch.setattr(prompt_config, "_is_windows_store_python_runtime", lambda: True, raising=False)
+    monkeypatch.setattr(prompt_config, "_should_sync_store_python_prompt_dirs", lambda: True, raising=False)
+    monkeypatch.setattr(prompt_config, "_get_visible_prompt_config_dir", lambda: visible_dir, raising=False)
+
+    prompt_config.save_prompt_config(
+        {
+            "base_system_prompt": "실제 Roaming으로도 나가야 하는 베이스",
+            "sub_prompt_body": "### [응답 형식]\n- 저장 후 동기화",
+            "analysis_system_appendix": "### [분석 규칙]\n- 저장 후 동기화",
+            "emotions": ["normal"],
+            "emotion_guides": {"normal": "실제 Roaming 동기화"},
+        }
+    )
+
+    assert (visible_dir / "base_system_prompt.md").read_text(encoding="utf-8-sig") == "실제 Roaming으로도 나가야 하는 베이스"
+    assert (visible_dir / "sub_prompt_body.md").read_text(encoding="utf-8-sig") == "### [응답 형식]\n- 저장 후 동기화"
+    assert (visible_dir / "analysis_system_appendix.md").read_text(encoding="utf-8-sig") == "### [분석 규칙]\n- 저장 후 동기화"
+    assert "실제 Roaming 동기화" in (visible_dir / "emotion_guides.md").read_text(encoding="utf-8-sig")
+
+
+def test_store_python_sync_uses_visible_to_runtime_bridge_when_strings_match(monkeypatch):
+    from src.ai import prompt_config
+
+    same_dir = Path(r"C:\Users\umpad\AppData\Roaming\ENE\prompts")
+    calls: list[tuple[Path, Path]] = []
+
+    monkeypatch.setattr(prompt_config, "PROMPT_CONFIG_DIR", same_dir)
+    monkeypatch.setattr(prompt_config, "_should_sync_store_python_prompt_dirs", lambda: True, raising=False)
+    monkeypatch.setattr(prompt_config, "_get_visible_prompt_config_dir", lambda: same_dir, raising=False)
+    monkeypatch.setattr(
+        prompt_config,
+        "_copy_prompt_files_from_visible_to_runtime_via_powershell",
+        lambda source, target: calls.append((Path(source), Path(target))),
+        raising=False,
+    )
+
+    prompt_config._sync_visible_roaming_prompt_files_to_runtime()
+
+    assert calls == [(same_dir, same_dir)]
