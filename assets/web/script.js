@@ -1331,6 +1331,10 @@ const chatMessages = document.getElementById('chat-messages');
 const chatInput = document.getElementById('chat-input');
 const sendButton = document.getElementById('send-button');
 const manualSummarizeButton = document.getElementById('manual-summarize-floating-btn');
+const floatingActionsRoot = document.getElementById('floating-action-buttons');
+const floatingActionsToggle = document.getElementById('floating-actions-toggle');
+const floatingActionsMenu = document.getElementById('floating-actions-menu');
+const settingsFloatingButton = document.getElementById('settings-floating-btn');
 const attachButton = document.getElementById('attach-button');
 const imageInput = document.getElementById('image-input');
 const imagePreviewContainer = document.getElementById('image-preview-container');
@@ -1388,9 +1392,25 @@ function createLucideIcon(name) {
     const icons = {
         paperclip: '<svg class="lucide-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551" /></svg>',
         pencil: '<svg class="lucide-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" /><path d="m15 5 4 4" /></svg>',
-        'rotate-ccw': '<svg class="lucide-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg>'
+        'rotate-ccw': '<svg class="lucide-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg>',
+        settings: '<svg class="lucide-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" /><circle cx="12" cy="12" r="3" /></svg>'
     };
     return icons[name] || '';
+}
+
+let floatingActionsOpen = false;
+
+function setFloatingActionsOpen(open) {
+    floatingActionsOpen = Boolean(open);
+    if (floatingActionsRoot) {
+        floatingActionsRoot.classList.toggle('is-open', floatingActionsOpen);
+    }
+    if (floatingActionsToggle) {
+        floatingActionsToggle.setAttribute('aria-expanded', String(floatingActionsOpen));
+    }
+    if (floatingActionsMenu) {
+        floatingActionsMenu.setAttribute('aria-hidden', String(!floatingActionsOpen));
+    }
 }
 
 function mergeUiStrings(config) {
@@ -2549,7 +2569,10 @@ if (obsRefreshBtn) {
 }
 
 if (moodToggleButton) {
-    moodToggleButton.addEventListener('click', () => setMoodPanelOpen(!moodPanelOpen));
+    moodToggleButton.addEventListener('click', () => {
+        setMoodPanelOpen(!moodPanelOpen);
+        setFloatingActionsOpen(false);
+    });
 }
 
 if (obsNoteButton) {
@@ -2557,6 +2580,7 @@ if (obsNoteButton) {
         if (window.pyBridge && window.pyBridge.toggle_obs_panel) {
             window.pyBridge.toggle_obs_panel();
         }
+        setFloatingActionsOpen(false);
     });
 }
 
@@ -2565,7 +2589,33 @@ if (moodCollapseButton) {
 }
 
 if (manualSummarizeButton) {
-    manualSummarizeButton.addEventListener('click', requestManualSummary);
+    manualSummarizeButton.addEventListener('click', () => {
+        requestManualSummary();
+        setFloatingActionsOpen(false);
+    });
+}
+
+if (settingsFloatingButton) {
+    settingsFloatingButton.innerHTML = createLucideIcon('settings');
+    settingsFloatingButton.addEventListener('click', () => {
+        if (window.pyBridge && window.pyBridge.open_settings_dialog) {
+            window.pyBridge.open_settings_dialog();
+        }
+        setFloatingActionsOpen(false);
+    });
+}
+
+if (floatingActionsToggle) {
+    floatingActionsToggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        setFloatingActionsOpen(!floatingActionsOpen);
+    });
+}
+
+if (floatingActionsMenu) {
+    floatingActionsMenu.addEventListener('click', (e) => {
+        e.stopPropagation();
+    });
 }
 
 if (summaryConfirmNoButton) {
@@ -2592,8 +2642,20 @@ if (summaryConfirmOverlay) {
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && summaryConfirmOverlay && !summaryConfirmOverlay.classList.contains('hidden')) {
         hideSummaryConfirm();
+        return;
+    }
+    if (e.key === 'Escape' && floatingActionsOpen) {
+        setFloatingActionsOpen(false);
     }
 });
+
+document.addEventListener('click', (e) => {
+    if (!floatingActionsOpen || !floatingActionsRoot) return;
+    if (floatingActionsRoot.contains(e.target)) return;
+    setFloatingActionsOpen(false);
+});
+
+setFloatingActionsOpen(false);
 chatInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();

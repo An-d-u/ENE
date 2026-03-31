@@ -42,9 +42,18 @@
     </div>
 
     <div id="floating-action-buttons">
-        <button id="manual-summarize-floating-btn" title="대화 요약">요약</button>
-        <button id="obs-note-floating-btn" title="Obsidian 노트 패널 열기/닫기">노트</button>
-        <button id="mood-toggle-floating-btn" title="기분 상태">기분</button>
+        <button id="floating-actions-toggle" type="button" title="빠른 메뉴" aria-label="빠른 메뉴" aria-expanded="false">···</button>
+        <div id="floating-actions-menu" aria-hidden="true">
+            <button id="manual-summarize-floating-btn" title="대화 요약">요약</button>
+            <button id="obs-note-floating-btn" title="Obsidian 노트 패널 열기/닫기">노트</button>
+            <button id="mood-toggle-floating-btn" title="기분 상태">기분</button>
+            <button id="settings-floating-btn" type="button" title="설정 열기" aria-label="설정 열기">
+                <svg class="lucide-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" />
+                    <circle cx="12" cy="12" r="3" />
+                </svg>
+            </button>
+        </div>
     </div>
     <div id="mood-status-widget" class="hidden" aria-live="polite">
         <div id="mood-status-header">
