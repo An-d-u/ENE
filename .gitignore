@@ -22,6 +22,7 @@ htmlcov/
 coverage.xml
 build/
 dist/
+release/
 .eggs/
 pip-wheel-metadata/
 

@@ -8,6 +8,7 @@ from datetime import datetime
 
 from .memory_types import MemoryEntry, create_memory_entry
 from .embedding import EmbeddingGenerator
+from ..core.app_paths import resolve_user_storage_path
 
 
 class MemoryManager:
@@ -15,7 +16,7 @@ class MemoryManager:
     
     def __init__(
         self,
-        memory_file: str,
+        memory_file: str | Path | None = None,
         embedding_generator: Optional[EmbeddingGenerator] = None
     ):
         """
@@ -23,7 +24,8 @@ class MemoryManager:
             memory_file: 기억 저장 JSON 파일 경로
             embedding_generator: 임베딩 생성기 (옵션)
         """
-        self.memory_file = Path(memory_file)
+        target_file = memory_file if memory_file is not None else "memory.json"
+        self.memory_file = resolve_user_storage_path(target_file)
         self.embedding_generator = embedding_generator
         self.memories: List[MemoryEntry] = []
         
@@ -36,7 +38,7 @@ class MemoryManager:
     def load(self):
         """JSON 파일에서 기억 로드"""
         if not self.memory_file.exists():
-            print(f"[Memory] 기억 파일 없음. 새로 생성합니다.")
+            print("[Memory] 기억 파일 없음. 새로 생성합니다.")
             self.memories = []
             return
         
