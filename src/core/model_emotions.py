@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from .settings import Settings
+from .app_paths import get_bundle_root, resolve_runtime_resource_path
 
 
 DEFAULT_MODEL_JSON_PATH = "assets/live2d_models/jksalt/jksalt.model3.json"
@@ -17,7 +18,7 @@ def get_base_path() -> Path:
     """실행 환경에 맞는 프로젝트 기준 경로를 반환한다."""
     if getattr(sys, "frozen", False):
         return Path(getattr(sys, "_MEIPASS", Path.cwd()))
-    return Path(__file__).resolve().parents[2]
+    return get_bundle_root()
 
 
 def _resolve_settings_source(settings_source: dict | None = None) -> dict:
@@ -54,11 +55,11 @@ def resolve_model_json_path(
     source = _resolve_settings_source(settings_source)
     raw_model_path = str(source.get("model_json_path", DEFAULT_MODEL_JSON_PATH)).strip() or DEFAULT_MODEL_JSON_PATH
 
-    model_path = Path(raw_model_path)
     resolved_base_path = Path(base_path) if base_path else get_base_path()
-    if not model_path.is_absolute():
-        model_path = resolved_base_path / model_path
-    return model_path.resolve()
+    return resolve_runtime_resource_path(
+        raw_model_path,
+        bundle_root=resolved_base_path,
+    )
 
 
 def discover_model_emotions(model_json_path: str | Path) -> list[str]:

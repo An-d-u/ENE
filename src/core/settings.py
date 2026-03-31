@@ -5,6 +5,8 @@ Loads and saves user settings to JSON.
 import json
 from pathlib import Path
 
+from .app_paths import get_user_file, resolve_user_storage_path
+
 
 class Settings:
     """Application settings manager."""
@@ -210,9 +212,17 @@ class Settings:
 
     SECRET_KEYS = set(DEFAULT_SECRET_CONFIG.keys())
 
-    def __init__(self, config_path: str = "config.json", secret_path: str = "api_keys.json"):
-        self.config_path = Path(config_path)
-        self.secret_path = Path(secret_path)
+    def __init__(self, config_path: str | None = None, secret_path: str | None = None):
+        self.config_path = (
+            resolve_user_storage_path(config_path)
+            if config_path is not None
+            else get_user_file("config.json").resolve()
+        )
+        self.secret_path = (
+            resolve_user_storage_path(secret_path)
+            if secret_path is not None
+            else get_user_file("api_keys.json").resolve()
+        )
         self.config = self.load()
         self.secret_config = self.load_secret()
         self._migrate_secrets_from_legacy_config()
@@ -340,7 +350,9 @@ class Settings:
         과거 voyage_api_key.txt를 api_keys.json의 embedding_api_keys.voyage로 1회 이전한다.
         이전 후 레거시 파일은 제거한다.
         """
-        legacy_path = Path("voyage_api_key.txt")
+        legacy_path = resolve_user_storage_path("voyage_api_key.txt")
+        if not legacy_path.exists():
+            legacy_path = Path("voyage_api_key.txt")
         if not legacy_path.exists():
             return
 
@@ -408,11 +420,13 @@ class Settings:
     def save(self):
         """Persist current settings and secret settings."""
         try:
+            self.config_path.parent.mkdir(parents=True, exist_ok=True)
             with open(self.config_path, "w", encoding="utf-8-sig") as f:
                 json.dump(self.config, f, indent=2, ensure_ascii=False)
         except Exception as e:
             print(f"Settings save failed: {e}")
         try:
+            self.secret_path.parent.mkdir(parents=True, exist_ok=True)
             with open(self.secret_path, "w", encoding="utf-8-sig") as f:
                 json.dump(self.secret_config, f, indent=2, ensure_ascii=False)
         except Exception as e:

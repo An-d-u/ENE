@@ -9,6 +9,7 @@ from pathlib import Path
 
 try:
     import tiktoken
+    import tiktoken_ext.openai_public  # noqa: F401
 except ImportError:
     tiktoken = None
 from PyQt6.QtCore import QPoint, QRect, QSize, Qt, QEasingCurve, QTimer, QVariantAnimation, pyqtSignal
@@ -26,7 +27,6 @@ from PyQt6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QListWidget,
-    QListWidgetItem,
     QListView,
     QLabel,
     QLineEdit,
@@ -50,6 +50,7 @@ from ..ai.llm_provider import LLMFormat, get_llm_provider_catalog
 from ..core.i18n import I18n, SUPPORTED_UI_LANGUAGES, get_i18n
 from ..core.system_theme import THEME_PRESETS, THEME_VARIANT_PRESETS, get_theme_preset, get_windows_theme_mode
 from ..core.hotkey_utils import hotkey_to_display, normalize_hotkey_text
+from ..core.app_paths import get_bundle_root, get_user_data_dir, get_user_file, relativize_for_storage
 from .memory_dialog import MemoryDialog
 
 
@@ -542,10 +543,12 @@ class SettingsDialog(QDialog):
         self._browser_voice_refresh_timer = QTimer(self)
         self._browser_voice_refresh_timer.setSingleShot(True)
         self._browser_voice_refresh_timer.timeout.connect(self._request_browser_tts_voices)
-        self._project_root = Path(__file__).resolve().parents[2]
+        self._bundle_root = get_bundle_root()
+        self._user_data_root = get_user_data_dir()
+        self._project_root = self._bundle_root
         self._prompt_path = prompt_config.BASE_SYSTEM_PROMPT_PATH
         self._sub_prompt_path = prompt_config.SUB_PROMPT_BODY_PATH
-        self._user_profile_path = self._project_root / "user_profile.json"
+        self._user_profile_path = get_user_file("user_profile.json")
         self._prompt_status_label: QLabel | None = None
         self._profile_status_label: QLabel | None = None
         self._base_prompt_token_label: QLabel | None = None
@@ -1475,7 +1478,6 @@ class SettingsDialog(QDialog):
                 continue
 
             preset = preset_bundle.get("colors", preset_bundle)
-            accent = preset["theme_accent_color"]
             settings_window = preset["settings_window_bg_color"]
             settings_card = preset["settings_card_bg_color"]
             settings_input = preset["settings_input_bg_color"]
@@ -2167,21 +2169,16 @@ class SettingsDialog(QDialog):
         button.setText(self._localized_secret_toggle_text(not is_password))
 
     def _normalize_path_for_storage(self, path_text: str) -> str:
-        raw_path = str(path_text or "").strip()
-        if not raw_path:
-            return ""
-
-        try:
-            path_obj = Path(raw_path)
-            if not path_obj.is_absolute():
-                return raw_path.replace("\\", "/")
-            relative = path_obj.resolve().relative_to(self._project_root.resolve())
-            return str(relative).replace("\\", "/")
-        except Exception:
-            return raw_path.replace("\\", "/")
+        return relativize_for_storage(
+            path_text,
+            user_root=self._user_data_root,
+            bundle_root=self._bundle_root,
+        )
 
     def _browse_live2d_model_path(self):
-        start_dir = self._project_root / "assets" / "live2d_models"
+        start_dir = self._bundle_root / "assets" / "live2d_models"
+        if not start_dir.exists():
+            start_dir = self._user_data_root / "assets" / "live2d_models"
         selected, _ = QFileDialog.getOpenFileName(
             self,
             self._translated_text("settings.model.path.dialog.title", "Live2D 모델 파일 선택"),
@@ -2196,7 +2193,9 @@ class SettingsDialog(QDialog):
         self.model_json_path_edit.setText(self._normalize_path_for_storage(selected))
 
     def _browse_tts_ref_audio_path(self):
-        start_dir = self._project_root / "assets" / "ref_audio"
+        start_dir = self._bundle_root / "assets" / "ref_audio"
+        if not start_dir.exists():
+            start_dir = self._user_data_root / "assets" / "ref_audio"
         selected, _ = QFileDialog.getOpenFileName(
             self,
             self._translated_text("settings.tts.gpt.reference.audio.dialog.title", "참조 오디오 선택"),

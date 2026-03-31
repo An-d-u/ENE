@@ -80,6 +80,18 @@ def test_secret_values_are_saved_to_api_keys_file(tmp_path):
     assert secret_data["custom_api_key_or_password"] == "custom-secret"
 
 
+def test_save_creates_missing_parent_directories(tmp_path):
+    config_path = tmp_path / "nested" / "config.json"
+    secret_path = tmp_path / "nested" / "api_keys.json"
+
+    settings = Settings(config_path=str(config_path), secret_path=str(secret_path))
+    settings.set("window_width", 640)
+    settings.save()
+
+    assert config_path.exists()
+    assert secret_path.exists()
+
+
 def test_migrates_legacy_secret_values_from_config(tmp_path):
     config_path = tmp_path / "config.json"
     secret_path = tmp_path / "api_keys.json"

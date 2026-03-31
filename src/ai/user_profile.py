@@ -10,6 +10,8 @@ from pathlib import Path
 import difflib
 import re
 
+from ..core.app_paths import resolve_user_storage_path
+
 
 @dataclass
 class ProfileFact:
@@ -30,8 +32,9 @@ class UserProfile:
     MIN_CONFIDENCE = 0.65
     SIMILARITY_THRESHOLD = 0.80
 
-    def __init__(self, profile_file: str = "user_profile.json"):
-        self.profile_file = Path(profile_file)
+    def __init__(self, profile_file: str | Path | None = None):
+        target_file = profile_file if profile_file is not None else "user_profile.json"
+        self.profile_file = resolve_user_storage_path(target_file)
         self.facts: List[ProfileFact] = []
 
         self.basic_info: Dict[str, str] = {}
@@ -64,6 +67,7 @@ class UserProfile:
     def save(self):
         """Save profile to JSON file."""
         try:
+            self.profile_file.parent.mkdir(parents=True, exist_ok=True)
             data = {
                 "facts": [fact.to_dict() for fact in self.facts],
                 "basic_info": self.basic_info,

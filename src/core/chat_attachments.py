@@ -11,7 +11,11 @@ import math
 from pathlib import Path
 from typing import Iterable
 
-import tiktoken
+try:
+    import tiktoken
+    import tiktoken_ext.openai_public  # noqa: F401
+except ImportError:
+    tiktoken = None
 from PIL import Image
 
 
@@ -100,6 +104,8 @@ def _estimate_text_tokens(text: str, model_name: str = "") -> int:
         return 0
 
     try:
+        if tiktoken is None:
+            raise RuntimeError("tiktoken 인코더를 사용할 수 없습니다.")
         if model_name:
             encoder = tiktoken.encoding_for_model(model_name)
         else:

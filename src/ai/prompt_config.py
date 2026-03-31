@@ -4,16 +4,21 @@ ENE 프롬프트 설정 Markdown 로더
 
 from __future__ import annotations
 
+import base64
+import os
 import re
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 from ..core.model_emotions import get_available_model_emotions
+from ..core.app_paths import get_bundle_prompts_defaults_dir, get_bundle_root, get_user_prompts_dir
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-PROMPT_CONFIG_DIR = PROJECT_ROOT / "prompts"
-DEFAULT_PROMPT_CONFIG_DIR = PROMPT_CONFIG_DIR / "defaults"
+PROJECT_ROOT = get_bundle_root()
+PROMPT_CONFIG_DIR = get_user_prompts_dir()
+DEFAULT_PROMPT_CONFIG_DIR = get_bundle_prompts_defaults_dir()
 
 BASE_SYSTEM_PROMPT_PATH = PROMPT_CONFIG_DIR / "base_system_prompt.md"
 SUB_PROMPT_BODY_PATH = PROMPT_CONFIG_DIR / "sub_prompt_body.md"
@@ -24,6 +29,13 @@ DEFAULT_BASE_SYSTEM_PROMPT_PATH = DEFAULT_PROMPT_CONFIG_DIR / "base_system_promp
 DEFAULT_SUB_PROMPT_BODY_PATH = DEFAULT_PROMPT_CONFIG_DIR / "sub_prompt_body.md"
 DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH = DEFAULT_PROMPT_CONFIG_DIR / "analysis_system_appendix.md"
 DEFAULT_EMOTION_GUIDES_PATH = DEFAULT_PROMPT_CONFIG_DIR / "emotion_guides.md"
+
+PROMPT_MARKDOWN_FILENAMES = (
+    "base_system_prompt.md",
+    "sub_prompt_body.md",
+    "analysis_system_appendix.md",
+    "emotion_guides.md",
+)
 
 GENERATED_SUB_PROMPT_SECTION_TITLES = {
     "감정 표현 규칙",
@@ -140,7 +152,134 @@ def _copy_default_if_missing(target: Path, default: Path) -> None:
         target.write_text("", encoding="utf-8-sig")
 
 
+def _is_windows_store_python_runtime() -> bool:
+    executable = str(getattr(sys, "executable", "") or "").lower()
+    return os.name == "nt" and "\\windowsapps\\pythonsoftwarefoundation.python." in executable
+
+
+def _get_visible_prompt_config_dir() -> Path:
+    return Path.home() / "AppData" / "Roaming" / "ENE" / "prompts"
+
+
+def _should_sync_store_python_prompt_dirs() -> bool:
+    if not _is_windows_store_python_runtime():
+        return False
+    try:
+        return Path(PROMPT_CONFIG_DIR).resolve() == get_user_prompts_dir().resolve()
+    except Exception:
+        return False
+
+
+def _copy_prompt_files_locally(source_dir: Path, target_dir: Path) -> None:
+    source = Path(source_dir)
+    target = Path(target_dir)
+    if not source.exists():
+        return
+
+    target.mkdir(parents=True, exist_ok=True)
+    for filename in PROMPT_MARKDOWN_FILENAMES:
+        source_file = source / filename
+        if not source_file.exists():
+            continue
+        shutil.copyfile(source_file, target / filename)
+
+
+def _run_powershell_command(command: str) -> subprocess.CompletedProcess[str]:
+    command = "\n".join(
+        [command]
+    )
+    return subprocess.run(
+        ["powershell", "-NoProfile", "-Command", command],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _read_prompt_file_via_powershell(path: Path) -> bytes | None:
+    file_text = str(path).replace("'", "''")
+    result = _run_powershell_command(
+        "\n".join(
+            [
+                f"$path = '{file_text}'",
+                "if (-not (Test-Path -LiteralPath $path)) { exit 0 }",
+                "[Console]::Write([Convert]::ToBase64String([IO.File]::ReadAllBytes($path)))",
+            ]
+        )
+    )
+    payload = str(result.stdout or "").strip()
+    if not payload:
+        return None
+    return base64.b64decode(payload)
+
+
+def _write_prompt_file_via_powershell(path: Path, payload: bytes) -> None:
+    file_text = str(path).replace("'", "''")
+    encoded = base64.b64encode(payload).decode("ascii")
+    _run_powershell_command(
+        "\n".join(
+            [
+                f"$path = '{file_text}'",
+                f"$payload = '{encoded}'",
+                "$parent = Split-Path -Parent $path",
+                "New-Item -ItemType Directory -Path $parent -Force | Out-Null",
+                "[IO.File]::WriteAllBytes($path, [Convert]::FromBase64String($payload))",
+            ]
+        )
+    )
+
+
+def _copy_prompt_files_from_visible_to_runtime_via_powershell(source_dir: Path, target_dir: Path) -> None:
+    source = Path(source_dir)
+    target = Path(target_dir)
+    target.mkdir(parents=True, exist_ok=True)
+    for filename in PROMPT_MARKDOWN_FILENAMES:
+        payload = _read_prompt_file_via_powershell(source / filename)
+        if payload is None:
+            continue
+        (target / filename).write_bytes(payload)
+
+
+def _copy_prompt_files_from_runtime_to_visible_via_powershell(source_dir: Path, target_dir: Path) -> None:
+    source = Path(source_dir)
+    target = Path(target_dir)
+    for filename in PROMPT_MARKDOWN_FILENAMES:
+        source_file = source / filename
+        if not source_file.exists():
+            continue
+        _write_prompt_file_via_powershell(target / filename, source_file.read_bytes())
+
+
+def _sync_visible_roaming_prompt_files_to_runtime() -> None:
+    if not _should_sync_store_python_prompt_dirs():
+        return
+    try:
+        visible_dir = _get_visible_prompt_config_dir()
+        runtime_dir = Path(PROMPT_CONFIG_DIR)
+        if visible_dir == runtime_dir:
+            _copy_prompt_files_from_visible_to_runtime_via_powershell(visible_dir, runtime_dir)
+            return
+        _copy_prompt_files_locally(visible_dir, runtime_dir)
+    except Exception:
+        pass
+
+
+def _sync_runtime_prompt_files_to_visible_roaming() -> None:
+    if not _should_sync_store_python_prompt_dirs():
+        return
+    try:
+        runtime_dir = Path(PROMPT_CONFIG_DIR)
+        visible_dir = _get_visible_prompt_config_dir()
+        if visible_dir == runtime_dir:
+            _copy_prompt_files_from_runtime_to_visible_via_powershell(runtime_dir, visible_dir)
+            return
+        _copy_prompt_files_locally(runtime_dir, visible_dir)
+    except Exception:
+        pass
+
+
 def ensure_prompt_config_exists() -> Path:
+    _sync_visible_roaming_prompt_files_to_runtime()
     _copy_default_if_missing(BASE_SYSTEM_PROMPT_PATH, DEFAULT_BASE_SYSTEM_PROMPT_PATH)
     _copy_default_if_missing(SUB_PROMPT_BODY_PATH, DEFAULT_SUB_PROMPT_BODY_PATH)
     _copy_default_if_missing(ANALYSIS_SYSTEM_APPENDIX_PATH, DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH)
@@ -240,6 +379,7 @@ def save_prompt_config(config: dict) -> dict:
         EMOTION_GUIDES_PATH,
         _serialize_emotion_guides(normalized["emotions"], normalized["emotion_guides"]),
     )
+    _sync_runtime_prompt_files_to_visible_roaming()
     return normalized
 
 

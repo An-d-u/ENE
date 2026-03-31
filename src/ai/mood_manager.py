@@ -9,6 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from ..core.app_paths import resolve_user_storage_path
+
 
 class MoodManager:
     """장기 기분 상태를 저장/업데이트하는 매니저."""
@@ -29,8 +31,9 @@ class MoodManager:
         "high_positive": 0.10,
     }
 
-    def __init__(self, state_file: str = "mood_state.json", settings=None):
-        self.state_path = Path(state_file)
+    def __init__(self, state_file: str | Path | None = None, settings=None):
+        target_file = state_file if state_file is not None else "mood_state.json"
+        self.state_path = resolve_user_storage_path(target_file)
         self.settings = settings
         self.state = self._load_state()
 
@@ -65,6 +68,7 @@ class MoodManager:
 
     def _save_state(self):
         try:
+            self.state_path.parent.mkdir(parents=True, exist_ok=True)
             with open(self.state_path, "w", encoding="utf-8") as f:
                 json.dump(self.state, f, indent=2, ensure_ascii=False)
         except Exception as e:
