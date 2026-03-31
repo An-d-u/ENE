@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+import re
 from typing import Any
 
 from ..core.app_paths import load_json_data, resolve_user_storage_path, save_json_data
@@ -15,6 +16,29 @@ class MoodManager:
     """장기 기분 상태를 저장/업데이트하는 매니저."""
 
     AXES = ("valence", "energy", "bond", "stress")
+    INTENT_ALIASES = {
+        "greeting_and_check_status": ("greeting", "check_in"),
+        "greeting_check_status": ("greeting", "check_in"),
+        "greeting_check_in": ("greeting", "check_in"),
+        "check_in": ("check_in",),
+        "checkin": ("check_in",),
+        "social_interaction": ("chat",),
+        "small_talk": ("chat",),
+        "ask_for_help": ("ask_help",),
+        "help_request": ("ask_help",),
+        "comfort_request": ("seek_comfort",),
+        "seek_support": ("seek_comfort",),
+    }
+    EMOTION_ALIASES = {
+        "fatigued": ("tired",),
+        "sleepy": ("tired",),
+        "playfulness": ("playful",),
+    }
+    FLAG_ALIASES = {
+        "interaction_start": ("greeting",),
+        "conversation_start": ("greeting",),
+        "check_in": ("check_in",),
+    }
 
     PROFILE_BASELINES = {
         "calm": {"valence": 0.02, "energy": 0.00, "bond": 0.08, "stress": -0.02},
@@ -126,17 +150,77 @@ class MoodManager:
         return delta * scale
 
     def _parse_flags(self, raw_flags: str | list[str] | None) -> list[str]:
-        if isinstance(raw_flags, list):
-            return [str(flag).strip().lower() for flag in raw_flags if str(flag).strip()]
-        if isinstance(raw_flags, str):
-            return [flag.strip().lower() for flag in raw_flags.split(",") if flag.strip()]
-        return []
+        return self._parse_canonical_values(raw_flags, self.FLAG_ALIASES)
+
+    def _normalize_token(self, value: Any) -> str:
+        text = str(value or "").strip().lower()
+        if not text:
+            return ""
+        text = re.sub(r"[\s\-]+", "_", text)
+        text = re.sub(r"[^a-z0-9_,/]+", "_", text)
+        text = re.sub(r"_+", "_", text)
+        return text.strip("_")
+
+    def _split_raw_value(self, raw_value: str | list[str] | None) -> list[str]:
+        if isinstance(raw_value, list):
+            parts = [str(item) for item in raw_value]
+        elif isinstance(raw_value, str):
+            parts = re.split(r"[,/|]+", raw_value)
+        else:
+            return []
+        return [part.strip() for part in parts if str(part).strip()]
+
+    def _parse_canonical_values(
+        self,
+        raw_value: str | list[str] | None,
+        aliases: dict[str, tuple[str, ...]],
+    ) -> list[str]:
+        values: list[str] = []
+        for part in self._split_raw_value(raw_value):
+            normalized = self._normalize_token(part)
+            if not normalized:
+                continue
+            mapped = aliases.get(normalized, (normalized,))
+            for item in mapped:
+                canonical = self._normalize_token(item)
+                if canonical and canonical not in values:
+                    values.append(canonical)
+        return values
+
+    def _parse_intents(self, raw_value: str | list[str] | None) -> list[str]:
+        return self._parse_canonical_values(raw_value, self.INTENT_ALIASES)
+
+    def _parse_user_emotions(self, raw_value: str | list[str] | None) -> list[str]:
+        return self._parse_canonical_values(raw_value, self.EMOTION_ALIASES)
+
+    def _primary_intent(self, raw_value: str | list[str] | None) -> str:
+        intents = self._parse_intents(raw_value)
+        return intents[0] if intents else ""
 
     def _parse_confidence(self, value: str | float | None) -> float:
-        try:
-            parsed = float(value)
-        except (TypeError, ValueError):
-            parsed = 0.75
+        if isinstance(value, str):
+            normalized = self._normalize_token(value)
+            confidence_words = {
+                "very_high": 1.0,
+                "high": 0.95,
+                "medium": 0.7,
+                "mid": 0.7,
+                "low": 0.4,
+                "very_low": 0.2,
+                "uncertain": 0.3,
+            }
+            if normalized in confidence_words:
+                parsed = confidence_words[normalized]
+            else:
+                try:
+                    parsed = float(value)
+                except (TypeError, ValueError):
+                    parsed = 0.75
+        else:
+            try:
+                parsed = float(value)
+            except (TypeError, ValueError):
+                parsed = 0.75
         parsed = max(0.0, min(1.0, parsed))
         return 0.35 + (0.65 * parsed)
 
@@ -164,11 +248,12 @@ class MoodManager:
     def _get_repeat_scale(self, intent: str, flags: list[str]) -> float:
         if not intent:
             intent = "unknown"
+        intent = self._primary_intent(intent) or intent
         recent = self._recent_events(source="user_analysis", limit=5)
         same_intent_count = 0
         for event in recent:
             meta = event.get("meta") or {}
-            if str(meta.get("user_intent", "")).strip().lower() == intent:
+            if self._primary_intent(meta.get("user_intent")) == intent:
                 same_intent_count += 1
 
         scale = 1.0 - (same_intent_count * 0.22)
@@ -224,15 +309,15 @@ class MoodManager:
         stress = float(axes.get("stress", 0.0))
         temporary_state = self.state.get("temporary_state", "steady")
 
-        if stress >= 0.45 or temporary_state == "guarded":
+        if stress >= 0.32 or temporary_state == "guarded":
             return "tense"
         if temporary_state == "pout":
             return "sensitive"
-        if energy <= -0.35 or temporary_state == "drained":
+        if energy <= -0.20 or temporary_state == "drained":
             return "tired"
-        if bond >= 0.55 and valence >= 0.15:
+        if bond >= 0.34 and valence >= 0.12:
             return "affectionate"
-        if valence >= 0.40 and energy >= 0.10:
+        if valence >= 0.18 and energy >= 0.04:
             return "cheerful"
         return "calm"
 
@@ -264,7 +349,8 @@ class MoodManager:
 
     def _build_analysis_deltas(self, analysis: dict[str, Any], image_count: int = 0) -> tuple[dict[str, float], str]:
         flags = self._parse_flags(analysis.get("flags"))
-        intent = str(analysis.get("user_intent", "")).strip().lower()
+        intents = self._parse_intents(analysis.get("user_intent"))
+        intent = intents[0] if intents else ""
         confidence_scale = self._parse_confidence(analysis.get("confidence"))
         repeat_scale = self._get_repeat_scale(intent, flags)
         speed_scale = self._get_speed_multiplier()
@@ -276,7 +362,7 @@ class MoodManager:
             "stress": self._hint_value(analysis.get("stress_delta_hint")),
         }
 
-        interaction_effect = str(analysis.get("interaction_effect", "")).strip().lower()
+        interaction_effect = self._normalize_token(analysis.get("interaction_effect"))
         if interaction_effect == "positive":
             deltas["valence"] += 0.01
             deltas["bond"] += 0.01
@@ -286,12 +372,17 @@ class MoodManager:
         elif interaction_effect == "mixed":
             deltas["stress"] += 0.01
 
-        user_emotion = str(analysis.get("user_emotion", "")).strip().lower()
-        if user_emotion in {"sad", "anxious", "tired"} and intent in {"ask_help", "seek_comfort"}:
+        user_emotions = self._parse_user_emotions(analysis.get("user_emotion"))
+        if any(emotion in {"sad", "anxious", "tired"} for emotion in user_emotions) and intent in {"ask_help", "seek_comfort"}:
             deltas["bond"] += 0.02
             deltas["stress"] -= 0.01
-        if user_emotion == "playful" and intent == "tease":
+        if "playful" in user_emotions and intent == "tease":
             deltas["energy"] += 0.02
+        if "tired" in user_emotions:
+            deltas["energy"] -= 0.015
+        if intent in {"greeting", "check_in"} and interaction_effect == "positive":
+            deltas["bond"] += 0.01
+            deltas["valence"] += 0.005
 
         if "late_night" in flags:
             deltas["energy"] -= 0.02
@@ -326,19 +417,19 @@ class MoodManager:
 
         if analysis:
             flags = self._parse_flags(analysis.get("flags"))
-            user_emotion = str(analysis.get("user_emotion", "")).strip().lower()
-            intent = str(analysis.get("user_intent", "")).strip().lower()
-            interaction_effect = str(analysis.get("interaction_effect", "")).strip().lower()
+            user_emotions = self._parse_user_emotions(analysis.get("user_emotion"))
+            intent = self._primary_intent(analysis.get("user_intent"))
+            interaction_effect = self._normalize_token(analysis.get("interaction_effect"))
 
             if "direct_rejection" in flags:
                 return "guarded"
-            if intent == "tease" or user_emotion == "playful":
+            if intent == "tease" or "playful" in user_emotions:
                 return "playful"
             if interaction_effect in {"negative", "mixed"} and bond >= 0.2:
                 return "pout"
             if intent in {"ask_help", "seek_comfort"}:
                 return "focused"
-            if "late_night" in flags or user_emotion == "tired":
+            if "late_night" in flags or "tired" in user_emotions:
                 return "drained"
 
         if energy <= -0.25:
