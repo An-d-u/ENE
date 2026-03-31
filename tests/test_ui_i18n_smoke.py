@@ -1270,8 +1270,14 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
           "chat.mood.state.affectionate": "Affectionate",
           "chat.mood.state.tired": "Tired",
           "chat.mood.state.tense": "Tense",
-          "chat.mood.state.lonely": "Lonely",
+          "chat.mood.state.sensitive": "Sensitive",
           "chat.mood.state.unknown": "Unknown",
+          "chat.mood.temporary.steady": "Steady",
+          "chat.mood.temporary.playful": "Playful",
+          "chat.mood.temporary.focused": "Focused",
+          "chat.mood.temporary.drained": "Drained",
+          "chat.mood.temporary.guarded": "Guarded",
+          "chat.mood.temporary.pout": "Pouty",
           "chat.summary.confirm.title": "Manual summary",
           "chat.summary.confirm.body": "Would you like to start a manual summary?",
           "chat.summary.confirm.no": "No",
@@ -1303,9 +1309,15 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
           "chat.mood.state.cheerful": "晴れやか",
           "chat.mood.state.affectionate": "愛情たっぷり",
           "chat.mood.state.tired": "疲れ気味",
-          "chat.mood.state.tense": "緊張気味",
-          "chat.mood.state.lonely": "さみしい",
+          "chat.mood.state.tense": "警戒気味",
+          "chat.mood.state.sensitive": "敏感",
           "chat.mood.state.unknown": "不明",
+          "chat.mood.temporary.steady": "安定",
+          "chat.mood.temporary.playful": "いたずら気分",
+          "chat.mood.temporary.focused": "集中中",
+          "chat.mood.temporary.drained": "ぐったり",
+          "chat.mood.temporary.guarded": "警戒中",
+          "chat.mood.temporary.pout": "ふてくされ",
           "chat.summary.confirm.title": "手動要約",
           "chat.summary.confirm.body": "手動要約を実行しますか？",
           "chat.summary.confirm.no": "いいえ",
@@ -1343,6 +1355,10 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
     assert "メッセージを入力してください..." in captured[-1]
     assert "送信" in captured[-1]
     assert "考え中..." in captured[-1]
+    assert '"sensitive": "敏感"' in captured[-1]
+    assert '"tense": "警戒気味"' in captured[-1]
+    assert '"drained": "ぐったり"' in captured[-1]
+    assert '"lonely"' not in captured[-1]
 
 
 def test_chat_web_script_has_runtime_i18n_hooks():
@@ -1352,7 +1368,7 @@ def test_chat_web_script_has_runtime_i18n_hooks():
     assert "window.applyENEUiStrings = function applyENEUiStrings(config)" in content
     assert "chatInput.placeholder = currentUiStrings.input.placeholder;" in content
     assert "sendButton.textContent = currentUiStrings.send;" in content
-    assert "moodStatusLabel.textContent = formatMoodStatusText(label);" in content
+    assert "moodStatusLabel.textContent = formatMoodStatusText(label, temporaryState);" in content
 
 
 def test_chat_web_assets_translate_mood_axis_labels_and_center_floating_buttons():

@@ -75,12 +75,20 @@ const DEFAULT_UI_STRINGS = {
         },
         states: {
             calm: 'Calm',
-            cheerful: 'Cheerful',
-            affectionate: 'Affectionate',
+            cheerful: 'Bright',
+            affectionate: 'Warm',
             tired: 'Tired',
-            tense: 'Tense',
-            lonely: 'Lonely',
+            tense: 'Guarded',
+            sensitive: 'Sensitive',
             unknown: 'Unknown'
+        },
+        temporaryStates: {
+            steady: 'Steady',
+            playful: 'Playful',
+            focused: 'Focused',
+            drained: 'Drained',
+            guarded: 'Guarded',
+            pout: 'Pouty'
         }
     },
     summaryConfirm: {
@@ -1385,7 +1393,7 @@ let activeInlineEditBubble = null;
 let obsCheckedPaths = new Set();
 let moodWidgetDragState = null;
 let tokenUsageBubbleTimer = null;
-let currentMoodSnapshot = { label: 'calm', valence: 0, energy: 0, bond: 0, stress: 0 };
+let currentMoodSnapshot = { label: 'calm', temporaryState: 'steady', valence: 0, energy: 0, bond: 0, stress: 0 };
 let currentUiStrings = null;
 
 function createLucideIcon(name) {
@@ -1420,6 +1428,7 @@ function mergeUiStrings(config) {
     const mood = source.mood || {};
     const moodAxis = mood.axis || {};
     const moodStates = mood.states || {};
+    const moodTemporaryStates = mood.temporaryStates || {};
     const summaryConfirm = source.summaryConfirm || {};
 
     return {
@@ -1458,8 +1467,16 @@ function mergeUiStrings(config) {
                 affectionate: moodStates.affectionate || DEFAULT_UI_STRINGS.mood.states.affectionate,
                 tired: moodStates.tired || DEFAULT_UI_STRINGS.mood.states.tired,
                 tense: moodStates.tense || DEFAULT_UI_STRINGS.mood.states.tense,
-                lonely: moodStates.lonely || DEFAULT_UI_STRINGS.mood.states.lonely,
+                sensitive: moodStates.sensitive || DEFAULT_UI_STRINGS.mood.states.sensitive,
                 unknown: moodStates.unknown || DEFAULT_UI_STRINGS.mood.states.unknown
+            },
+            temporaryStates: {
+                steady: moodTemporaryStates.steady || DEFAULT_UI_STRINGS.mood.temporaryStates.steady,
+                playful: moodTemporaryStates.playful || DEFAULT_UI_STRINGS.mood.temporaryStates.playful,
+                focused: moodTemporaryStates.focused || DEFAULT_UI_STRINGS.mood.temporaryStates.focused,
+                drained: moodTemporaryStates.drained || DEFAULT_UI_STRINGS.mood.temporaryStates.drained,
+                guarded: moodTemporaryStates.guarded || DEFAULT_UI_STRINGS.mood.temporaryStates.guarded,
+                pout: moodTemporaryStates.pout || DEFAULT_UI_STRINGS.mood.temporaryStates.pout
             }
         },
         summaryConfirm: {
@@ -1471,13 +1488,25 @@ function mergeUiStrings(config) {
     };
 }
 
-function formatMoodStatusText(label) {
+function formatMoodTemporaryLabel(temporaryState) {
+    if (!temporaryState || temporaryState === 'steady') {
+        return '';
+    }
+    const map = (currentUiStrings && currentUiStrings.mood && currentUiStrings.mood.temporaryStates)
+        ? currentUiStrings.mood.temporaryStates
+        : DEFAULT_UI_STRINGS.mood.temporaryStates;
+    return map[temporaryState] || temporaryState;
+}
+
+function formatMoodStatusText(label, temporaryState) {
     const localizedLabel = formatMoodLabel(label);
+    const localizedTemporary = formatMoodTemporaryLabel(temporaryState);
+    const combinedLabel = localizedTemporary ? `${localizedLabel} · ${localizedTemporary}` : localizedLabel;
     const template = currentUiStrings.mood.label || DEFAULT_UI_STRINGS.mood.label;
     if (template.indexOf('{label}') >= 0) {
-        return template.replace('{label}', localizedLabel);
+        return template.replace('{label}', combinedLabel);
     }
-    return `${template} ${localizedLabel}`.trim();
+    return `${template} ${combinedLabel}`.trim();
 }
 
 function applyUiStringsToStaticNodes() {
@@ -1513,6 +1542,7 @@ window.applyENEUiStrings = function applyENEUiStrings(config) {
     applyUiStringsToStaticNodes();
     updateMoodWidget(
         currentMoodSnapshot.label,
+        currentMoodSnapshot.temporaryState,
         currentMoodSnapshot.valence,
         currentMoodSnapshot.energy,
         currentMoodSnapshot.bond,
@@ -1691,9 +1721,10 @@ function initMoodWidgetDrag() {
 }
 
 // mood 텍스트/게이지/툴팁을 한 번에 갱신한다.
-function updateMoodWidget(label, valence, energy, bond, stress) {
+function updateMoodWidget(label, temporaryState, valence, energy, bond, stress) {
     currentMoodSnapshot = {
         label: label,
+        temporaryState: temporaryState || 'steady',
         valence: valence,
         energy: energy,
         bond: bond,
@@ -1701,7 +1732,7 @@ function updateMoodWidget(label, valence, energy, bond, stress) {
     };
 
     if (moodStatusLabel) {
-        moodStatusLabel.textContent = formatMoodStatusText(label);
+        moodStatusLabel.textContent = formatMoodStatusText(label, temporaryState);
     }
 
     setMoodMeterWidth(moodMeterValence, normalizeMoodAxis(valence));
@@ -1722,7 +1753,7 @@ function updateMoodWidget(label, valence, energy, bond, stress) {
 }
 
 window.applyENEUiStrings(window.eneUiStrings);
-updateMoodWidget('calm', 0, 0, 0, 0);
+updateMoodWidget('calm', 'steady', 0, 0, 0, 0);
 setMoodPanelOpen(false);
 initMoodWidgetDrag();
 
@@ -2788,8 +2819,8 @@ if (typeof QWebChannel !== 'undefined') {
         }
 
         if (window.pyBridge.mood_changed) {
-            window.pyBridge.mood_changed.connect(function (label, valence, energy, bond, stress) {
-                updateMoodWidget(label, valence, energy, bond, stress);
+            window.pyBridge.mood_changed.connect(function (label, valence, energy, bond, stress, temporaryState) {
+                updateMoodWidget(label, temporaryState, valence, energy, bond, stress);
             });
         }
 
@@ -2813,6 +2844,7 @@ if (typeof QWebChannel !== 'undefined') {
                 if (!snapshot) return;
                 updateMoodWidget(
                     snapshot.current_mood,
+                    snapshot.temporary_state,
                     snapshot.valence,
                     snapshot.energy,
                     snapshot.bond,

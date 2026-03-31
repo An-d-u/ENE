@@ -148,3 +148,48 @@ def test_tired_help_request_stays_warm_but_lowers_energy(tmp_path):
     assert snapshot["energy"] < 0
     assert snapshot["expression_traits"]["warmth"] > 0.55
     assert snapshot["expression_traits"]["reply_length_bias"] < snapshot["expression_traits"]["warmth"]
+
+
+def test_noncanonical_analysis_values_are_normalized_into_visible_tired_state(tmp_path):
+    manager = MoodManager(state_file=str(tmp_path / "mood.json"))
+
+    snapshot = manager.on_user_analysis(
+        {
+            "user_emotion": "calm, tired",
+            "user_intent": "greeting_and_check_status",
+            "interaction_effect": "positive",
+            "bond_delta_hint": "low_positive",
+            "valence_delta_hint": "low_positive",
+            "stress_delta_hint": "none",
+            "energy_delta_hint": "none",
+            "confidence": "high",
+            "flags": "interaction_start",
+        }
+    )
+
+    assert snapshot["current_mood"] == "tired"
+    assert snapshot["temporary_state"] == "drained"
+    assert snapshot["bond"] > 0.22
+    assert snapshot["valence"] > 0.10
+
+
+def test_repeated_positive_affection_can_escape_calm_label(tmp_path):
+    manager = MoodManager(state_file=str(tmp_path / "mood.json"))
+    meta = {
+        "user_emotion": "affectionate",
+        "user_intent": "affection",
+        "interaction_effect": "positive",
+        "bond_delta_hint": "high_positive",
+        "valence_delta_hint": "low_positive",
+        "stress_delta_hint": "low_negative",
+        "energy_delta_hint": "none",
+        "confidence": "0.95",
+        "flags": "",
+    }
+
+    snapshot = None
+    for _ in range(4):
+        snapshot = manager.on_user_analysis(meta)
+
+    assert snapshot is not None
+    assert snapshot["current_mood"] == "affectionate"
