@@ -237,8 +237,16 @@ class OverlayWindow(QWidget):
                     "affectionate": i18n.t("chat.mood.state.affectionate"),
                     "tired": i18n.t("chat.mood.state.tired"),
                     "tense": i18n.t("chat.mood.state.tense"),
-                    "lonely": i18n.t("chat.mood.state.lonely"),
+                    "sensitive": i18n.t("chat.mood.state.sensitive"),
                     "unknown": i18n.t("chat.mood.state.unknown"),
+                },
+                "temporaryStates": {
+                    "steady": i18n.t("chat.mood.temporary.steady"),
+                    "playful": i18n.t("chat.mood.temporary.playful"),
+                    "focused": i18n.t("chat.mood.temporary.focused"),
+                    "drained": i18n.t("chat.mood.temporary.drained"),
+                    "guarded": i18n.t("chat.mood.temporary.guarded"),
+                    "pout": i18n.t("chat.mood.temporary.pout"),
                 },
             },
             "summaryConfirm": {
