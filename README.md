@@ -202,6 +202,6 @@ Longer-term, ENE is aiming toward a more polished, memory-aware, voice-capable d
 
 ## Third-Party Licenses
 
-- The chat attachment and recent edit icons in ENE use the Lucide `paperclip` and `pencil` SVG icons to match the icon style used by [Forui](https://github.com/duobaseio/forui).
-- According to the upstream Forui project, Forui code is licensed under the MIT License, bundled fonts are under the SIL Open Font License 1.1, and bundled icons are under the ISC License.
-- The specific Lucide icons used in ENE for these controls are distributed under the ISC License. Please keep upstream attribution and license notices when redistributing these assets.
+- ENE uses inline Lucide SVG icons for several controls in the web UI, including `paperclip`, `pencil`, and `rotate-ccw`.
+- These icons are used directly in the project UI and are not provided through the Forui framework.
+- When redistributing these icon assets or their adapted SVG markup, please keep the appropriate upstream attribution and license notices for Lucide.
