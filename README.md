@@ -204,4 +204,5 @@ Longer-term, ENE is aiming toward a more polished, memory-aware, voice-capable d
 
 - ENE uses inline Lucide SVG icons for several controls in the web UI, including `paperclip`, `pencil`, and `rotate-ccw`.
 - These icons are used directly in the project UI and are not provided through the Forui framework.
+- Lucide icons are distributed under the ISC License.
 - When redistributing these icon assets or their adapted SVG markup, please keep the appropriate upstream attribution and license notices for Lucide.
