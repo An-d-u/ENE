@@ -452,7 +452,7 @@ class WebBridge(QObject):
     lip_sync_update = pyqtSignal(float)      # 립싱크 업데이트 (mouth_value)
     reroll_state_changed = pyqtSignal(bool)  # 리롤 응답 교체 모드 on/off
     summary_notice = pyqtSignal(str, str)    # (메시지, 레벨)
-    mood_changed = pyqtSignal(str, float, float, float, float)  # (라벨, valence, energy, bond, stress)
+    mood_changed = pyqtSignal(str, float, float, float, float, str)  # (라벨, valence, energy, bond, stress, 단기 분위기)
     obs_tree_updated = pyqtSignal(str)       # Obsidian 트리 JSON
     attachment_preview_ready = pyqtSignal(str)  # 첨부 프리뷰 메타데이터 JSON
     token_usage_ready = pyqtSignal(str)  # 토큰 사용량 JSON
@@ -569,6 +569,7 @@ class WebBridge(QObject):
                 float(snapshot.get("energy", 0.0)),
                 float(snapshot.get("bond", 0.0)),
                 float(snapshot.get("stress", 0.0)),
+                str(snapshot.get("temporary_state", "steady")),
             )
         except Exception as e:
             print(f"[Bridge] mood_changed emit 실패: {e}")
