@@ -3,10 +3,9 @@ Obsidian 전용 상태(obs_config.json) 관리
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
-from .app_paths import resolve_user_storage_path
+from .app_paths import load_json_data, resolve_user_storage_path, save_json_data
 
 
 class ObsSettings:
@@ -28,27 +27,30 @@ class ObsSettings:
         self.config = self.load()
 
     def load(self) -> dict:
-        if self.config_path.exists():
-            try:
-                with open(self.config_path, "r", encoding="utf-8") as f:
-                    loaded = json.load(f)
-                if isinstance(loaded, dict):
-                    merged = dict(self.DEFAULT_CONFIG)
-                    merged.update(loaded)
-                    if not isinstance(merged.get("checked_files"), list):
-                        merged["checked_files"] = []
-                    if not isinstance(merged.get("expanded_dirs"), list):
-                        merged["expanded_dirs"] = []
-                    return merged
-            except Exception as e:
+        try:
+            loaded = load_json_data(self.config_path, encoding="utf-8")
+            if isinstance(loaded, dict):
+                merged = dict(self.DEFAULT_CONFIG)
+                merged.update(loaded)
+                if not isinstance(merged.get("checked_files"), list):
+                    merged["checked_files"] = []
+                if not isinstance(merged.get("expanded_dirs"), list):
+                    merged["expanded_dirs"] = []
+                return merged
+        except Exception as e:
+            if self.config_path.exists():
                 print(f"[ObsSettings] load failed: {e}")
         return dict(self.DEFAULT_CONFIG)
 
     def save(self):
         try:
-            self.config_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.config_path, "w", encoding="utf-8") as f:
-                json.dump(self.config, f, ensure_ascii=False, indent=2)
+            save_json_data(
+                self.config_path,
+                self.config,
+                encoding="utf-8",
+                indent=2,
+                ensure_ascii=False,
+            )
         except Exception as e:
             print(f"[ObsSettings] save failed: {e}")
 

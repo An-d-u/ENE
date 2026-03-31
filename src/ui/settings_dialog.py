@@ -50,7 +50,14 @@ from ..ai.llm_provider import LLMFormat, get_llm_provider_catalog
 from ..core.i18n import I18n, SUPPORTED_UI_LANGUAGES, get_i18n
 from ..core.system_theme import THEME_PRESETS, THEME_VARIANT_PRESETS, get_theme_preset, get_windows_theme_mode
 from ..core.hotkey_utils import hotkey_to_display, normalize_hotkey_text
-from ..core.app_paths import get_bundle_root, get_user_data_dir, get_user_file, relativize_for_storage
+from ..core.app_paths import (
+    get_bundle_root,
+    get_user_data_dir,
+    get_user_file,
+    read_text_data,
+    relativize_for_storage,
+    write_text_data,
+)
 from .memory_dialog import MemoryDialog
 
 
@@ -4610,11 +4617,11 @@ class SettingsDialog(QDialog):
         return scroll
 
     def _read_text_file(self, path: Path) -> str:
-        return path.read_text(encoding="utf-8-sig")
+        return read_text_data(path, encoding="utf-8-sig")
 
     def _write_text_file(self, path: Path, text: str) -> None:
         normalized = text.replace("\r\n", "\n")
-        path.write_text(normalized, encoding="utf-8-sig")
+        write_text_data(path, normalized, encoding="utf-8-sig")
 
     def _split_sub_prompt_content(self, text: str) -> tuple[str, dict[str, str]]:
         content = (text or "").strip()

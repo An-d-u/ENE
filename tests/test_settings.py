@@ -117,3 +117,49 @@ def test_migrates_legacy_secret_values_from_config(tmp_path):
     assert "llm_api_keys" not in saved_config
     assert "custom_api_key_or_password" not in saved_config
     assert saved_secret["llm_api_keys"]["openai"] == "old-openai-key"
+
+
+def test_store_python_settings_loads_visible_roaming_files_when_runtime_copy_is_missing(tmp_path, monkeypatch):
+    from src.core import app_paths
+
+    runtime_root = tmp_path / "runtime" / "ENE"
+    visible_root = tmp_path / "visible" / "ENE"
+    config_path = runtime_root / "config.json"
+    secret_path = runtime_root / "api_keys.json"
+    visible_config_path = visible_root / "config.json"
+    visible_secret_path = visible_root / "api_keys.json"
+
+    visible_config = {
+        "ui_language": "ko",
+        "embedding_provider": "voyage",
+        "llm_provider": "openai",
+        "stt_device": "cuda",
+    }
+    visible_secret = {
+        "llm_api_keys": {"openai": "real-openai-key"},
+        "embedding_api_keys": {"voyage": "real-voyage-key"},
+        "tts_api_keys": {},
+        "custom_api_key_or_password": "",
+    }
+
+    monkeypatch.delenv("ENE_USER_DATA_DIR", raising=False)
+    monkeypatch.setattr(app_paths, "is_windows_store_python_runtime", lambda: True)
+    monkeypatch.setattr(app_paths, "get_user_data_dir", lambda app_name=app_paths.APP_NAME: runtime_root)
+    monkeypatch.setattr(app_paths, "get_visible_user_data_dir", lambda app_name=app_paths.APP_NAME: visible_root)
+
+    def _read_visible_bytes(path):
+        if path == visible_config_path:
+            return json.dumps(visible_config, ensure_ascii=False).encode("utf-8-sig")
+        if path == visible_secret_path:
+            return json.dumps(visible_secret, ensure_ascii=False).encode("utf-8-sig")
+        return None
+
+    monkeypatch.setattr(app_paths, "_read_file_bytes_via_powershell", _read_visible_bytes)
+
+    settings = Settings(config_path=str(config_path), secret_path=str(secret_path))
+
+    assert settings.get("ui_language") == "ko"
+    assert settings.get("stt_device") == "cuda"
+    assert settings.get("llm_provider") == "openai"
+    assert settings.get("llm_api_keys")["openai"] == "real-openai-key"
+    assert settings.get("embedding_api_keys")["voyage"] == "real-voyage-key"

@@ -1,14 +1,13 @@
 """
 장기기억 관리 시스템
 """
-import json
 from pathlib import Path
 from typing import List, Optional, Tuple
 from datetime import datetime
 
 from .memory_types import MemoryEntry, create_memory_entry
 from .embedding import EmbeddingGenerator
-from ..core.app_paths import resolve_user_storage_path
+from ..core.app_paths import load_json_data, resolve_user_storage_path, save_json_data
 
 
 class MemoryManager:
@@ -37,14 +36,8 @@ class MemoryManager:
     
     def load(self):
         """JSON 파일에서 기억 로드"""
-        if not self.memory_file.exists():
-            print("[Memory] 기억 파일 없음. 새로 생성합니다.")
-            self.memories = []
-            return
-        
         try:
-            with open(self.memory_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+            data = load_json_data(self.memory_file, encoding="utf-8")
             
             self.memories = [
                 MemoryEntry.from_dict(entry)
@@ -54,22 +47,27 @@ class MemoryManager:
             print(f"[Memory] {len(self.memories)}개 기억 로드 완료")
             
         except Exception as e:
-            print(f"[Memory] 로드 실패: {e}")
+            if self.memory_file.exists():
+                print(f"[Memory] 로드 실패: {e}")
+            else:
+                print("[Memory] 기억 파일 없음. 새로 생성합니다.")
             self.memories = []
     
     def save(self):
         """JSON 파일에 기억 저장"""
         try:
-            # 디렉토리 생성
-            self.memory_file.parent.mkdir(parents=True, exist_ok=True)
-            
             data = {
                 'memories': [memory.to_dict() for memory in self.memories],
                 'last_updated': datetime.now().isoformat()
             }
-            
-            with open(self.memory_file, 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
+
+            save_json_data(
+                self.memory_file,
+                data,
+                encoding="utf-8",
+                indent=2,
+                ensure_ascii=False,
+            )
             
             print(f"[Memory] {len(self.memories)}개 기억 저장 완료")
             
