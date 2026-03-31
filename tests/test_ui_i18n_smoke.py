@@ -235,6 +235,45 @@ def test_tts_output_device_items_keep_missing_saved_device_visible():
         assert items[-1] == ("저장된 장치 (현재 없음, 현재 사용 중): missing-device", "missing-device")
 
 
+def test_settings_dialog_read_text_file_uses_app_paths_bridge(tmp_path, monkeypatch):
+    with _stub_prompt_module():
+        from src.ui import settings_dialog as settings_dialog_module
+
+        runtime_path = tmp_path / "runtime" / "user_profile.json"
+        monkeypatch.setattr(
+            settings_dialog_module,
+            "read_text_data",
+            lambda path, encoding="utf-8-sig": "실제 Roaming user_profile 내용",
+            raising=False,
+        )
+
+        loaded = settings_dialog_module.SettingsDialog._read_text_file(object(), runtime_path)
+
+        assert loaded == "실제 Roaming user_profile 내용"
+
+
+def test_settings_dialog_write_text_file_uses_app_paths_bridge(tmp_path, monkeypatch):
+    with _stub_prompt_module():
+        from src.ui import settings_dialog as settings_dialog_module
+
+        runtime_path = tmp_path / "runtime" / "user_profile.json"
+        calls: list[tuple[Path, str, str]] = []
+
+        def _capture_write(path, text, encoding="utf-8-sig"):
+            calls.append((Path(path), text, encoding))
+
+        monkeypatch.setattr(
+            settings_dialog_module,
+            "write_text_data",
+            _capture_write,
+            raising=False,
+        )
+
+        settings_dialog_module.SettingsDialog._write_text_file(object(), runtime_path, "a\r\nb")
+
+        assert calls == [(runtime_path, "a\nb", "utf-8-sig")]
+
+
 def test_settings_dialog_translates_metadata_in_english():
     _get_qapp()
     locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"

@@ -5,11 +5,10 @@
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
 from pathlib import Path
-import json
 from typing import List, Dict
 import uuid
 
-from ..core.app_paths import resolve_user_storage_path
+from ..core.app_paths import load_json_data, resolve_user_storage_path, save_json_data
 
 
 @dataclass
@@ -50,33 +49,36 @@ class CalendarManager:
     
     def load(self):
         """캘린더 데이터 로드"""
-        if self.calendar_file.exists():
-            try:
-                with open(self.calendar_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    self.events = [CalendarEvent.from_dict(e) for e in data.get('events', [])]
-                    self.conversation_counts = data.get('conversation_counts', {})
-                    self.head_pat_counts = data.get('head_pat_counts', {})
-                print(f"[Calendar] 로드 완료: {len(self.events)}개 일정, {len(self.conversation_counts)}일 대화 기록")
-            except Exception as e:
+        try:
+            data = load_json_data(self.calendar_file, encoding="utf-8")
+            self.events = [CalendarEvent.from_dict(e) for e in data.get('events', [])]
+            self.conversation_counts = data.get('conversation_counts', {})
+            self.head_pat_counts = data.get('head_pat_counts', {})
+            print(f"[Calendar] 로드 완료: {len(self.events)}개 일정, {len(self.conversation_counts)}일 대화 기록")
+        except Exception as e:
+            if self.calendar_file.exists():
                 print(f"[Calendar] 로드 실패: {e}")
-                self.events = []
-                self.conversation_counts = {}
-                self.head_pat_counts = {}
-        else:
-            print("[Calendar] 새 캘린더 파일 생성 예정")
+            else:
+                print("[Calendar] 새 캘린더 파일 생성 예정")
+            self.events = []
+            self.conversation_counts = {}
+            self.head_pat_counts = {}
     
     def save(self):
         """캘린더 데이터 저장"""
         try:
-            self.calendar_file.parent.mkdir(parents=True, exist_ok=True)
             data = {
                 'events': [e.to_dict() for e in self.events],
                 'conversation_counts': self.conversation_counts,
                 'head_pat_counts': self.head_pat_counts,
             }
-            with open(self.calendar_file, 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
+            save_json_data(
+                self.calendar_file,
+                data,
+                encoding="utf-8",
+                indent=2,
+                ensure_ascii=False,
+            )
             print("[Calendar] 저장 완료")
         except Exception as e:
             print(f"[Calendar] 저장 실패: {e}")
