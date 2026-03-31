@@ -67,6 +67,7 @@ class MemoryDialog(QDialog):
         self._show_only_important = False
         self._sort_descending = True
         self._item_frames: dict[str, QFrame] = {}
+        self._loading_settings = False
 
         self.setWindowTitle(t("memory.window.title"))
         if self._embedded:
@@ -842,16 +843,22 @@ class MemoryDialog(QDialog):
         if not self.bridge:
             return
 
-        self.threshold_spinbox.setValue(int(getattr(self.bridge, "summarize_threshold", 10)))
-        if hasattr(self.bridge, "settings") and self.bridge.settings:
-            config = self.bridge.settings.config
-            self.important_spinbox.setValue(int(config.get("max_important_memories", 3)))
-            self.similar_spinbox.setValue(int(config.get("max_similar_memories", 3)))
-            self.similarity_spinbox.setValue(int(config.get("min_similarity", 0.35) * 100))
-            self.recent_spinbox.setValue(int(config.get("max_recent_memories", 2)))
+        self._loading_settings = True
+        try:
+            self.threshold_spinbox.setValue(int(getattr(self.bridge, "summarize_threshold", 10)))
+            if hasattr(self.bridge, "settings") and self.bridge.settings:
+                config = self.bridge.settings.config
+                self.important_spinbox.setValue(int(config.get("max_important_memories", 3)))
+                self.similar_spinbox.setValue(int(config.get("max_similar_memories", 3)))
+                self.similarity_spinbox.setValue(int(config.get("min_similarity", 0.35) * 100))
+                self.recent_spinbox.setValue(int(config.get("max_recent_memories", 2)))
+        finally:
+            self._loading_settings = False
 
     def _on_threshold_changed(self, value):
         self.threshold_metric.value_label.setText(self._count_text(value))
+        if self._loading_settings:
+            return
         if self.bridge:
             self.bridge.summarize_threshold = value
             print(f"[Memory Dialog] 자동 요약 임계값: {value}개")
@@ -861,6 +868,8 @@ class MemoryDialog(QDialog):
                 print("[Memory Dialog] 설정 저장 완료")
 
     def _on_memory_setting_changed(self):
+        if self._loading_settings:
+            return
         if not self.bridge or not hasattr(self.bridge, "settings") or not self.bridge.settings:
             return
 
