@@ -5,7 +5,13 @@ Loads and saves user settings to JSON.
 import json
 from pathlib import Path
 
-from .app_paths import get_user_file, resolve_user_storage_path
+from .app_paths import (
+    get_user_file,
+    load_json_data,
+    resolve_user_storage_path,
+    save_json_data,
+    sync_visible_store_python_file_to_runtime,
+)
 
 
 class Settings:
@@ -231,96 +237,92 @@ class Settings:
 
     def load(self) -> dict:
         """Load settings. Return defaults on failure."""
-        if self.config_path.exists():
-            try:
-                with open(self.config_path, "r", encoding="utf-8-sig") as f:
-                    loaded_config = json.load(f)
-                if not isinstance(loaded_config, dict):
-                    loaded_config = {}
-                # 비밀값은 api_keys.json으로 분리 관리한다.
-                loaded_config = {
-                    k: v for k, v in loaded_config.items()
-                    if k not in self.SECRET_KEYS
-                }
-                merged = {**self.DEFAULT_CONFIG, **loaded_config}
+        try:
+            loaded_config = load_json_data(self.config_path, encoding="utf-8-sig")
+            if not isinstance(loaded_config, dict):
+                loaded_config = {}
+            # 비밀값은 api_keys.json으로 분리 관리한다.
+            loaded_config = {
+                k: v for k, v in loaded_config.items()
+                if k not in self.SECRET_KEYS
+            }
+            merged = {**self.DEFAULT_CONFIG, **loaded_config}
 
-                base_models = dict(self.DEFAULT_CONFIG["llm_models"])
-                loaded_models = loaded_config.get("llm_models", {})
-                if isinstance(loaded_models, dict):
-                    base_models.update(loaded_models)
-                merged["llm_models"] = base_models
+            base_models = dict(self.DEFAULT_CONFIG["llm_models"])
+            loaded_models = loaded_config.get("llm_models", {})
+            if isinstance(loaded_models, dict):
+                base_models.update(loaded_models)
+            merged["llm_models"] = base_models
 
-                base_params = json.loads(json.dumps(self.DEFAULT_CONFIG["llm_model_params"]))
-                loaded_params = loaded_config.get("llm_model_params", {})
-                if isinstance(loaded_params, dict):
-                    for provider, provider_params in loaded_params.items():
-                        if not isinstance(provider_params, dict):
-                            continue
-                        store = base_params.setdefault(provider, {})
-                        for model_name, params in provider_params.items():
-                            if isinstance(params, dict):
-                                store[model_name] = params
-                merged["llm_model_params"] = base_params
+            base_params = json.loads(json.dumps(self.DEFAULT_CONFIG["llm_model_params"]))
+            loaded_params = loaded_config.get("llm_model_params", {})
+            if isinstance(loaded_params, dict):
+                for provider, provider_params in loaded_params.items():
+                    if not isinstance(provider_params, dict):
+                        continue
+                    store = base_params.setdefault(provider, {})
+                    for model_name, params in provider_params.items():
+                        if isinstance(params, dict):
+                            store[model_name] = params
+            merged["llm_model_params"] = base_params
 
-                base_tts_configs = json.loads(json.dumps(self.DEFAULT_CONFIG["tts_provider_configs"]))
-                loaded_tts_configs = loaded_config.get("tts_provider_configs", {})
-                if isinstance(loaded_tts_configs, dict):
-                    for provider, provider_config in loaded_tts_configs.items():
-                        if not isinstance(provider_config, dict):
-                            continue
-                        store = base_tts_configs.setdefault(provider, {})
-                        store.update(provider_config)
-                merged["tts_provider_configs"] = base_tts_configs
+            base_tts_configs = json.loads(json.dumps(self.DEFAULT_CONFIG["tts_provider_configs"]))
+            loaded_tts_configs = loaded_config.get("tts_provider_configs", {})
+            if isinstance(loaded_tts_configs, dict):
+                for provider, provider_config in loaded_tts_configs.items():
+                    if not isinstance(provider_config, dict):
+                        continue
+                    store = base_tts_configs.setdefault(provider, {})
+                    store.update(provider_config)
+            merged["tts_provider_configs"] = base_tts_configs
 
-                return merged
-            except Exception as e:
+            return merged
+        except Exception as e:
+            if self.config_path.exists():
                 print(f"Settings load failed: {e}")
-                return self.DEFAULT_CONFIG.copy()
         return self.DEFAULT_CONFIG.copy()
 
     def load_secret(self) -> dict:
         """Load secret settings. Return defaults on failure."""
-        if self.secret_path.exists():
-            try:
-                with open(self.secret_path, "r", encoding="utf-8-sig") as f:
-                    loaded_secret = json.load(f)
-                if not isinstance(loaded_secret, dict):
-                    loaded_secret = {}
-                merged = {**self.DEFAULT_SECRET_CONFIG, **loaded_secret}
-                # 중첩 딕셔너리는 안전하게 병합한다.
-                base_api_keys = dict(self.DEFAULT_SECRET_CONFIG["llm_api_keys"])
-                loaded_api_keys = merged.get("llm_api_keys", {})
-                if isinstance(loaded_api_keys, dict):
-                    base_api_keys.update(loaded_api_keys)
-                merged["llm_api_keys"] = base_api_keys
+        try:
+            loaded_secret = load_json_data(self.secret_path, encoding="utf-8-sig")
+            if not isinstance(loaded_secret, dict):
+                loaded_secret = {}
+            merged = {**self.DEFAULT_SECRET_CONFIG, **loaded_secret}
+            # 중첩 딕셔너리는 안전하게 병합한다.
+            base_api_keys = dict(self.DEFAULT_SECRET_CONFIG["llm_api_keys"])
+            loaded_api_keys = merged.get("llm_api_keys", {})
+            if isinstance(loaded_api_keys, dict):
+                base_api_keys.update(loaded_api_keys)
+            merged["llm_api_keys"] = base_api_keys
 
-                base_embedding_keys = dict(self.DEFAULT_SECRET_CONFIG["embedding_api_keys"])
-                loaded_embedding_keys = merged.get("embedding_api_keys", {})
-                if isinstance(loaded_embedding_keys, dict):
-                    base_embedding_keys.update(loaded_embedding_keys)
-                merged["embedding_api_keys"] = base_embedding_keys
+            base_embedding_keys = dict(self.DEFAULT_SECRET_CONFIG["embedding_api_keys"])
+            loaded_embedding_keys = merged.get("embedding_api_keys", {})
+            if isinstance(loaded_embedding_keys, dict):
+                base_embedding_keys.update(loaded_embedding_keys)
+            merged["embedding_api_keys"] = base_embedding_keys
 
-                base_tts_keys = dict(self.DEFAULT_SECRET_CONFIG["tts_api_keys"])
-                loaded_tts_keys = merged.get("tts_api_keys", {})
-                if isinstance(loaded_tts_keys, dict):
-                    base_tts_keys.update(loaded_tts_keys)
-                merged["tts_api_keys"] = base_tts_keys
-                return merged
-            except Exception as e:
+            base_tts_keys = dict(self.DEFAULT_SECRET_CONFIG["tts_api_keys"])
+            loaded_tts_keys = merged.get("tts_api_keys", {})
+            if isinstance(loaded_tts_keys, dict):
+                base_tts_keys.update(loaded_tts_keys)
+            merged["tts_api_keys"] = base_tts_keys
+            return merged
+        except Exception as e:
+            if self.secret_path.exists():
                 print(f"Secret settings load failed: {e}")
-                return self.DEFAULT_SECRET_CONFIG.copy()
         return self.DEFAULT_SECRET_CONFIG.copy()
 
     def _migrate_secrets_from_legacy_config(self):
         """
         과거 config.json에 저장된 비밀값을 api_keys.json으로 1회 이전한다.
         """
+        sync_visible_store_python_file_to_runtime(self.config_path)
         if not self.config_path.exists():
             return
 
         try:
-            with open(self.config_path, "r", encoding="utf-8-sig") as f:
-                raw_config = json.load(f)
+            raw_config = load_json_data(self.config_path, encoding="utf-8-sig")
             if not isinstance(raw_config, dict):
                 return
         except Exception:
@@ -351,6 +353,7 @@ class Settings:
         이전 후 레거시 파일은 제거한다.
         """
         legacy_path = resolve_user_storage_path("voyage_api_key.txt")
+        sync_visible_store_python_file_to_runtime(legacy_path)
         if not legacy_path.exists():
             legacy_path = Path("voyage_api_key.txt")
         if not legacy_path.exists():
@@ -420,15 +423,23 @@ class Settings:
     def save(self):
         """Persist current settings and secret settings."""
         try:
-            self.config_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.config_path, "w", encoding="utf-8-sig") as f:
-                json.dump(self.config, f, indent=2, ensure_ascii=False)
+            save_json_data(
+                self.config_path,
+                self.config,
+                encoding="utf-8-sig",
+                indent=2,
+                ensure_ascii=False,
+            )
         except Exception as e:
             print(f"Settings save failed: {e}")
         try:
-            self.secret_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.secret_path, "w", encoding="utf-8-sig") as f:
-                json.dump(self.secret_config, f, indent=2, ensure_ascii=False)
+            save_json_data(
+                self.secret_path,
+                self.secret_config,
+                encoding="utf-8-sig",
+                indent=2,
+                ensure_ascii=False,
+            )
         except Exception as e:
             print(f"Secret settings save failed: {e}")
 
