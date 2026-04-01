@@ -1378,6 +1378,7 @@ const SUPPORTED_DOCUMENT_EXTENSIONS = new Set(['txt', 'md', 'pdf', 'docx']);
 const MESSAGE_TYPING_BASE_INTERVAL_MS = 28;
 const MESSAGE_TYPING_MAX_DURATION_MS = 2400;
 const MESSAGE_TYPING_MIN_INTERVAL_MS = 10;
+const MESSAGE_VISUAL_SENTENCE_SPLIT_MIN_LENGTH = 72;
 const MESSAGE_TYPING_SPEED_MULTIPLIERS = {
     fast: 0.72,
     normal: 1.0,
@@ -1397,7 +1398,7 @@ let shouldReplaceNextAssistant = false;
 let lastAssistantMessageEl = null;
 let lastUserMessageEl = null;
 let moodPanelOpen = false;
-let activeInlineEditBubble = null;
+let activeInlineEditMessageEl = null;
 let obsCheckedPaths = new Set();
 let moodWidgetDragState = null;
 let tokenUsageBubbleTimer = null;
@@ -2026,8 +2027,8 @@ function updateRerollButtonState() {
     if (!recentEditButtonVisibleBySetting || !hasUserMessage || !lastUserMessageEl) {
         return;
     }
-    const userBubble = lastUserMessageEl.querySelector('.message-bubble');
-    if (!userBubble) {
+    const userBubbleStack = lastUserMessageEl.querySelector('.message-bubble-stack');
+    if (!userBubbleStack) {
         return;
     }
     const editBtn = document.createElement('button');
@@ -2040,7 +2041,7 @@ function updateRerollButtonState() {
     editBtn.addEventListener('click', () => {
         if (!window.pyBridge || !window.pyBridge.edit_last_user_message) return;
         if (isRequestPending) return;
-        openInlineEdit(userBubble);
+        openInlineEdit(lastUserMessageEl);
     });
     const userRail = ensureMessageMetaRail(
         lastUserMessageEl,
@@ -2167,35 +2168,207 @@ function showToast(message, level = 'info') {
 }
 window.showToast = showToast;
 
-// 인라인 수정 UI를 닫고 표시 상태를 정리한다.
-function closeInlineEdit(bubble, keepText = true) {
-    if (!bubble) return;
-    const editor = bubble.querySelector('.inline-edit-wrap');
-    const textNode = bubble.querySelector('span');
-    if (editor) editor.remove();
-    if (textNode && keepText) {
-        textNode.style.display = '';
+function normalizeLogicalMessageText(text) {
+    return String(text || '').replace(/\r\n?/g, '\n');
+}
+
+function setMessageLogicalText(messageDiv, text) {
+    if (!messageDiv) return '';
+    const normalizedText = normalizeLogicalMessageText(text);
+    messageDiv.dataset.logicalMessageText = normalizedText;
+    return normalizedText;
+}
+
+function getMessageLogicalText(messageDiv) {
+    if (!messageDiv) return '';
+    return normalizeLogicalMessageText(messageDiv.dataset.logicalMessageText || '');
+}
+
+function getMessageBubbleStack(messageDiv) {
+    if (!messageDiv) return null;
+    let stack = messageDiv.querySelector('.message-bubble-stack');
+    if (!stack) {
+        stack = document.createElement('div');
+        stack.className = 'message-bubble-stack';
     }
-    if (activeInlineEditBubble === bubble) {
-        activeInlineEditBubble = null;
+    return stack;
+}
+
+function normalizeMessageAttachments(attachments) {
+    if (!attachments || attachments.length === 0) {
+        return [];
+    }
+    return attachments.map((attachment) => {
+        if (typeof attachment === 'string') {
+            return { category: 'image', name: '이미지', dataUrl: attachment };
+        }
+        return attachment;
+    });
+}
+
+function getMessageVisualAttachments(messageDiv) {
+    if (!messageDiv || !Array.isArray(messageDiv._messageAttachments)) {
+        return [];
+    }
+    return messageDiv._messageAttachments;
+}
+
+function splitLongMessageLineBySentence(line) {
+    const normalizedLine = String(line || '').trim();
+    if (!normalizedLine || normalizedLine.length < MESSAGE_VISUAL_SENTENCE_SPLIT_MIN_LENGTH) {
+        return [normalizedLine].filter(Boolean);
+    }
+
+    const sentenceMatches = normalizedLine.match(/[^.!?。！？]+(?:[.!?。！？]+["')\]]*\s*|$)/g);
+    if (!sentenceMatches || sentenceMatches.length <= 1) {
+        return [normalizedLine];
+    }
+
+    return sentenceMatches
+        .map((sentence) => sentence.trim())
+        .filter(Boolean);
+}
+
+function splitMessageIntoVisualChunks(text) {
+    const normalizedText = normalizeLogicalMessageText(text);
+    const rawLines = normalizedText.split('\n');
+    const chunks = [];
+
+    rawLines.forEach((line) => {
+        const trimmedLine = line.trim();
+        if (!trimmedLine) {
+            return;
+        }
+
+        splitLongMessageLineBySentence(trimmedLine).forEach((segment) => {
+            if (segment) {
+                chunks.push(segment);
+            }
+        });
+    });
+
+    if (chunks.length > 0) {
+        return chunks;
+    }
+
+    return normalizedText.trim() ? [normalizedText.trim()] : [];
+}
+
+function createMessageAttachmentBubble(attachments) {
+    const normalizedAttachments = normalizeMessageAttachments(attachments);
+    if (normalizedAttachments.length === 0) {
+        return null;
+    }
+
+    const bubble = document.createElement('div');
+    bubble.className = 'message-bubble message-bubble-attachment';
+
+    const attachmentList = document.createElement('div');
+    attachmentList.className = 'message-attachment-list';
+
+    normalizedAttachments.forEach((attachment) => {
+        const chip = document.createElement('div');
+        chip.className = 'message-attachment-chip';
+
+        if (attachment.category === 'image' && attachment.dataUrl) {
+            const img = document.createElement('img');
+            img.src = attachment.dataUrl;
+            chip.appendChild(img);
+        } else {
+            const extensionBadge = document.createElement('span');
+            extensionBadge.textContent = getFileExtension(attachment.name || 'file').toUpperCase() || 'FILE';
+            chip.appendChild(extensionBadge);
+        }
+
+        const label = document.createElement('span');
+        label.textContent = attachment.name || (attachment.category === 'image' ? '이미지' : '첨부 파일');
+        chip.appendChild(label);
+        attachmentList.appendChild(chip);
+    });
+
+    bubble.appendChild(attachmentList);
+    return bubble;
+}
+
+function createTextMessageBubble() {
+    const bubble = document.createElement('div');
+    bubble.className = 'message-bubble';
+    const textSpan = document.createElement('span');
+    bubble.appendChild(textSpan);
+    return { bubble, textSpan };
+}
+
+function renderMessageBubbleSegments(messageDiv, text, { attachments = null, immediate = false } = {}) {
+    if (!messageDiv) {
+        return Promise.resolve();
+    }
+
+    const stack = getMessageBubbleStack(messageDiv);
+    const normalizedText = setMessageLogicalText(messageDiv, text);
+    const resolvedAttachments = attachments === null
+        ? getMessageVisualAttachments(messageDiv)
+        : normalizeMessageAttachments(attachments);
+
+    messageDiv._messageAttachments = resolvedAttachments;
+
+    if (activeInlineEditMessageEl === messageDiv) {
+        closeInlineEdit(messageDiv, false);
+    }
+
+    stack.classList.remove('is-editing');
+    stack.querySelectorAll('.message-bubble span').forEach((textNode) => cancelMessageTyping(textNode));
+    stack.innerHTML = '';
+
+    const attachmentBubble = createMessageAttachmentBubble(resolvedAttachments);
+    if (attachmentBubble) {
+        stack.appendChild(attachmentBubble);
+    }
+
+    const segments = splitMessageIntoVisualChunks(text);
+    if (!attachmentBubble && segments.length === 0) {
+        segments.push('');
+    }
+
+    let animationQueue = Promise.resolve();
+    segments.forEach((segment) => {
+        const { bubble, textSpan } = createTextMessageBubble();
+        stack.appendChild(bubble);
+        animationQueue = animationQueue.then(() => animateMessageText(textSpan, segment, { immediate }));
+    });
+
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+    return animationQueue;
+}
+
+// 인라인 수정 UI를 닫고 표시 상태를 정리한다.
+function closeInlineEdit(messageDiv, keepText = true) {
+    if (!messageDiv) return;
+    const stack = getMessageBubbleStack(messageDiv);
+    const editor = stack ? stack.querySelector('.inline-edit-wrap') : null;
+    if (editor) editor.remove();
+    if (stack && keepText) {
+        stack.classList.remove('is-editing');
+    }
+    if (activeInlineEditMessageEl === messageDiv) {
+        activeInlineEditMessageEl = null;
     }
 }
 
 // 최근 user 메시지 버블 안에서 인라인 수정 편집기를 연다.
-function openInlineEdit(bubble) {
-    if (!bubble) return;
-    if (activeInlineEditBubble && activeInlineEditBubble !== bubble) {
-        closeInlineEdit(activeInlineEditBubble, true);
+function openInlineEdit(messageDiv) {
+    if (!messageDiv) return;
+    const stack = getMessageBubbleStack(messageDiv);
+    if (!stack) return;
+
+    if (activeInlineEditMessageEl && activeInlineEditMessageEl !== messageDiv) {
+        closeInlineEdit(activeInlineEditMessageEl, true);
     }
-    if (bubble.querySelector('.inline-edit-wrap')) {
+    if (stack.querySelector('.inline-edit-wrap')) {
         return;
     }
 
-    const textNode = bubble.querySelector('span');
-    const currentText = textNode ? textNode.textContent : '';
-    if (textNode) {
-        textNode.style.display = 'none';
-    }
+    const currentText = getMessageLogicalText(messageDiv);
+    stack.classList.add('is-editing');
 
     const wrap = document.createElement('div');
     wrap.className = 'inline-edit-wrap';
@@ -2224,11 +2397,11 @@ function openInlineEdit(bubble) {
         if (!window.pyBridge || !window.pyBridge.edit_last_user_message) return;
         if (isRequestPending) return;
 
-        if (textNode) {
-            textNode.textContent = trimmed;
-            textNode.style.display = '';
-        }
-        closeInlineEdit(bubble, false);
+        closeInlineEdit(messageDiv, false);
+        renderMessageBubbleSegments(messageDiv, trimmed, {
+            attachments: getMessageVisualAttachments(messageDiv),
+            immediate: true
+        });
         isRequestPending = true;
         shouldReplaceNextAssistant = true;
         showLoadingIndicator(true);
@@ -2236,7 +2409,7 @@ function openInlineEdit(bubble) {
         window.pyBridge.edit_last_user_message(trimmed);
     };
 
-    cancelBtn.addEventListener('click', () => closeInlineEdit(bubble, true));
+    cancelBtn.addEventListener('click', () => closeInlineEdit(messageDiv, true));
     saveBtn.addEventListener('click', commit);
     input.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -2244,7 +2417,7 @@ function openInlineEdit(bubble) {
             commit();
         } else if (e.key === 'Escape') {
             e.preventDefault();
-            closeInlineEdit(bubble, true);
+            closeInlineEdit(messageDiv, true);
         }
     });
 
@@ -2252,8 +2425,8 @@ function openInlineEdit(bubble) {
     actions.appendChild(saveBtn);
     wrap.appendChild(input);
     wrap.appendChild(actions);
-    bubble.appendChild(wrap);
-    activeInlineEditBubble = bubble;
+    stack.appendChild(wrap);
+    activeInlineEditMessageEl = messageDiv;
 
     input.focus();
     input.setSelectionRange(input.value.length, input.value.length);
@@ -2368,22 +2541,15 @@ function replaceLastAssistantMessage(text, timestamp = new Date()) {
         return false;
     }
 
-    const bubble = lastAssistantMessageEl.querySelector('.message-bubble');
-    if (!bubble) {
-        return false;
-    }
-
-    cancelMessageTyping(bubble.querySelector('span'));
-    bubble.innerHTML = '';
-    const textSpan = document.createElement('span');
-    bubble.appendChild(textSpan);
     lastAssistantMessageEl.dataset.messageTimestamp = normalizeMessageTimestampValue(timestamp);
     const rail = ensureMessageMetaRail(lastAssistantMessageEl, 'assistant', timestamp);
     if (rail && rail.parentElement !== lastAssistantMessageEl) {
         lastAssistantMessageEl.appendChild(rail);
     }
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-    animateMessageText(textSpan, text, { immediate: false });
+    renderMessageBubbleSegments(lastAssistantMessageEl, text, {
+        attachments: getMessageVisualAttachments(lastAssistantMessageEl),
+        immediate: false
+    });
     return true;
 }
 
@@ -2395,49 +2561,18 @@ function addMessage(text, role, attachments = [], timestamp = new Date()) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${role}`;
     messageDiv.dataset.messageTimestamp = normalizeMessageTimestampValue(timestamp);
-
-    const bubble = document.createElement('div');
-    bubble.className = 'message-bubble';
-    if (attachments && attachments.length > 0) {
-        const attachmentList = document.createElement('div');
-        attachmentList.className = 'message-attachment-list';
-
-        attachments.forEach((attachment) => {
-            const normalized = typeof attachment === 'string'
-                ? { category: 'image', name: '이미지', dataUrl: attachment }
-                : attachment;
-            const chip = document.createElement('div');
-            chip.className = 'message-attachment-chip';
-
-            if (normalized.category === 'image' && normalized.dataUrl) {
-                const img = document.createElement('img');
-                img.src = normalized.dataUrl;
-                chip.appendChild(img);
-            } else {
-                const extensionBadge = document.createElement('span');
-                extensionBadge.textContent = getFileExtension(normalized.name || 'file').toUpperCase() || 'FILE';
-                chip.appendChild(extensionBadge);
-            }
-
-            const label = document.createElement('span');
-            label.textContent = normalized.name || (normalized.category === 'image' ? '이미지' : '첨부 파일');
-            chip.appendChild(label);
-            attachmentList.appendChild(chip);
-        });
-
-        bubble.appendChild(attachmentList);
-    }
-    const textSpan = document.createElement('span');
-    bubble.appendChild(textSpan);
+    setMessageLogicalText(messageDiv, text);
+    messageDiv._messageAttachments = normalizeMessageAttachments(attachments);
+    const bubbleStack = getMessageBubbleStack(messageDiv);
 
     const metaRail = ensureMessageMetaRail(messageDiv, role, timestamp);
     if (role === 'user') {
         if (metaRail) {
             messageDiv.appendChild(metaRail);
         }
-        messageDiv.appendChild(bubble);
+        messageDiv.appendChild(bubbleStack);
     } else {
-        messageDiv.appendChild(bubble);
+        messageDiv.appendChild(bubbleStack);
         if (metaRail) {
             messageDiv.appendChild(metaRail);
         }
@@ -2451,7 +2586,10 @@ function addMessage(text, role, attachments = [], timestamp = new Date()) {
         hasUserMessage = true;
         lastUserMessageEl = messageDiv;
     }
-    animateMessageText(textSpan, text, { immediate: false });
+    renderMessageBubbleSegments(messageDiv, text, {
+        attachments: messageDiv._messageAttachments,
+        immediate: false
+    });
     updateRerollButtonState();
     return messageDiv;
 }
