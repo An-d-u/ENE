@@ -123,8 +123,24 @@ body {
     justify-content: flex-start;
 }
 
-.message-bubble {
+.message-bubble-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
     max-width: 70%;
+}
+
+.message.user .message-bubble-stack {
+    align-items: flex-end;
+}
+
+.message.assistant .message-bubble-stack {
+    align-items: flex-start;
+}
+
+.message-bubble {
+    max-width: 100%;
+    width: fit-content;
     padding: 10px 14px;
     border-radius: 18px;
     font-size: 14px;
@@ -132,6 +148,14 @@ body {
     white-space: pre-wrap;
     word-wrap: break-word;
     position: relative;
+}
+
+.message-bubble-stack.is-editing > .message-bubble {
+    display: none;
+}
+
+.message-bubble-stack .inline-edit-wrap {
+    width: min(100%, 360px);
 }
 
 .message.user .message-bubble {
