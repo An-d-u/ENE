@@ -629,6 +629,13 @@
         "recent_reroll": "최근 메시지 리롤 버튼 표시",
         "recent_edit": "최근 메시지 수정 버튼 표시",
         "token_usage": "대화 토큰 확인",
+        "typing_effect": "타이핑 효과",
+        "typing_speed": {
+          "label": "타이핑 속도:",
+          "fast": "빠름",
+          "normal": "보통",
+          "slow": "느림"
+        },
         "mouse_tracking": "마우스 트래킹 활성화",
         "hint": "기본 노출 요소와 마우스 상호작용을 한 묶음으로 관리합니다."
       },
