@@ -1406,6 +1406,7 @@ let currentMoodSnapshot = { label: 'calm', temporaryState: 'steady', valence: 0,
 let currentUiStrings = null;
 let typingEffectEnabled = true;
 let typingEffectSpeed = 'normal';
+let messageSplitEnabled = false;
 
 function createLucideIcon(name) {
     const icons = {
@@ -2231,6 +2232,9 @@ function splitLongMessageLineBySentence(line) {
 
 function splitMessageIntoVisualChunks(text) {
     const normalizedText = normalizeLogicalMessageText(text);
+    if (!messageSplitEnabled) {
+        return normalizedText ? [normalizedText] : [];
+    }
     const rawLines = normalizedText.split('\n');
     const chunks = [];
 
@@ -2529,6 +2533,14 @@ window.setTypingEffectConfig = function (config) {
     window.eneTypingEffectConfig = {
         enabled: typingEffectEnabled,
         speed: typingEffectSpeed
+    };
+};
+
+window.setMessageSplitConfig = function (config) {
+    const source = config || {};
+    messageSplitEnabled = source.enabled === true;
+    window.eneMessageSplitConfig = {
+        enabled: messageSplitEnabled
     };
 };
 
