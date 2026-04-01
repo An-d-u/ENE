@@ -2,7 +2,9 @@
 import re
 
 
-STYLE_PATH = Path(__file__).resolve().parents[1] / "assets" / "web" / "style.css"
+WEB_DIR = Path(__file__).resolve().parents[1] / "assets" / "web"
+STYLE_PATH = WEB_DIR / "style.css"
+SCRIPT_PATH = WEB_DIR / "script.js"
 
 
 def _rule_block(selector: str) -> str:
@@ -11,6 +13,10 @@ def _rule_block(selector: str) -> str:
     match = re.search(pattern, css, re.DOTALL)
     assert match, f"{selector} 규칙을 찾지 못했습니다."
     return match.group("body")
+
+
+def _script_text() -> str:
+    return SCRIPT_PATH.read_text(encoding="utf-8-sig")
 
 
 def test_chat_container_uses_roomier_bounded_height():
@@ -87,3 +93,23 @@ def test_token_usage_bubble_is_offset_slightly_lower_from_top_left():
 def test_attach_button_centers_within_input_row():
     block = _rule_block("#attach-button")
     assert "align-self: center;" in block
+
+
+def test_chat_script_defines_typing_effect_speed_guards():
+    script = _script_text()
+    assert "const MESSAGE_TYPING_BASE_INTERVAL_MS =" in script
+    assert "const MESSAGE_TYPING_MAX_DURATION_MS =" in script
+
+
+def test_chat_script_reuses_typing_renderer_for_new_and_replaced_messages():
+    script = _script_text()
+    assert "function animateMessageText(" in script
+    assert "animateMessageText(textSpan, text" in script
+    assert "animateMessageText(textSpan, text, { immediate: false })" in script
+
+
+def test_chat_script_exposes_runtime_typing_config_hook():
+    script = _script_text()
+    assert "window.setTypingEffectConfig = function" in script
+    assert "typingEffectEnabled" in script
+    assert "typingEffectSpeed" in script
