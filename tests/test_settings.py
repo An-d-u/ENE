@@ -19,6 +19,8 @@ def test_load_missing_file_uses_default_config(tmp_path):
     assert settings.get("obsidian_checked_total_max_chars") == 12000
     assert settings.get("tts_output_device_id") == ""
     assert settings.get("tts_output_volume") == 0.8
+    assert settings.get("typing_effect_enabled") is True
+    assert settings.get("typing_effect_speed") == "normal"
     gpt_sovits = settings.get("tts_provider_configs")["gpt_sovits_http"]
     assert gpt_sovits["speed_factor"] == 1.0
     assert gpt_sovits["top_k"] == 15
@@ -34,12 +36,16 @@ def test_save_and_reload_roundtrip(tmp_path):
     settings.set("window_width", 777)
     settings.set("zoom_level", 1.25)
     settings.set("ui_language", "ja")
+    settings.set("typing_effect_enabled", False)
+    settings.set("typing_effect_speed", "slow")
     settings.save()
 
     reloaded = Settings(config_path=str(config_path), secret_path=str(secret_path))
     assert reloaded.get("window_width") == 777
     assert reloaded.get("zoom_level") == 1.25
     assert reloaded.get("ui_language") == "ja"
+    assert reloaded.get("typing_effect_enabled") is False
+    assert reloaded.get("typing_effect_speed") == "slow"
 
 
 def test_load_invalid_json_falls_back_to_default(tmp_path):

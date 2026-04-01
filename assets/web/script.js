@@ -1375,6 +1375,14 @@ const obsRefreshBtn = document.getElementById('obs-refresh-btn');
 const tokenUsageBubble = document.getElementById('token-usage-bubble');
 const MAX_ATTACHMENT_COUNT = 5;
 const SUPPORTED_DOCUMENT_EXTENSIONS = new Set(['txt', 'md', 'pdf', 'docx']);
+const MESSAGE_TYPING_BASE_INTERVAL_MS = 28;
+const MESSAGE_TYPING_MAX_DURATION_MS = 2400;
+const MESSAGE_TYPING_MIN_INTERVAL_MS = 10;
+const MESSAGE_TYPING_SPEED_MULTIPLIERS = {
+    fast: 0.72,
+    normal: 1.0,
+    slow: 1.38
+};
 let attachedAttachments = [];
 let rerollButtonVisibleBySetting = true;
 let recentEditButtonVisibleBySetting = true;
@@ -1395,6 +1403,8 @@ let moodWidgetDragState = null;
 let tokenUsageBubbleTimer = null;
 let currentMoodSnapshot = { label: 'calm', temporaryState: 'steady', valence: 0, energy: 0, bond: 0, stress: 0 };
 let currentUiStrings = null;
+let typingEffectEnabled = true;
+let typingEffectSpeed = 'normal';
 
 function createLucideIcon(name) {
     const icons = {
@@ -2256,6 +2266,99 @@ function requestManualSummary() {
     showSummaryConfirm();
 }
 
+function resolveTypingIntervalMs(text) {
+    const chars = Array.from(String(text || ''));
+    if (chars.length <= 1) {
+        return MESSAGE_TYPING_BASE_INTERVAL_MS;
+    }
+
+    const speedMultiplier = MESSAGE_TYPING_SPEED_MULTIPLIERS[typingEffectSpeed] || MESSAGE_TYPING_SPEED_MULTIPLIERS.normal;
+    const configuredBaseInterval = Math.round(MESSAGE_TYPING_BASE_INTERVAL_MS * speedMultiplier);
+    const configuredMaxDuration = Math.round(MESSAGE_TYPING_MAX_DURATION_MS * speedMultiplier);
+    const boundedByDuration = Math.floor(configuredMaxDuration / chars.length);
+    return Math.max(
+        MESSAGE_TYPING_MIN_INTERVAL_MS,
+        Math.min(configuredBaseInterval, boundedByDuration)
+    );
+}
+
+function cancelMessageTyping(textNode) {
+    if (!textNode) return;
+    if (typeof textNode._typingTimerId === 'number') {
+        window.clearTimeout(textNode._typingTimerId);
+    }
+    textNode._typingTimerId = null;
+    textNode._typingRunId = null;
+    const bubble = textNode.closest('.message-bubble');
+    if (bubble) {
+        bubble.classList.remove('is-typing');
+    }
+}
+
+function animateMessageText(textNode, text, { immediate = false } = {}) {
+    if (!textNode) return Promise.resolve();
+
+    const resolvedText = String(text || '');
+    cancelMessageTyping(textNode);
+
+    const bubble = textNode.closest('.message-bubble');
+    if (!resolvedText || immediate || !typingEffectEnabled) {
+        textNode.textContent = resolvedText;
+        if (bubble) {
+            bubble.classList.remove('is-typing');
+        }
+        return Promise.resolve();
+    }
+
+    const chars = Array.from(resolvedText);
+    const intervalMs = resolveTypingIntervalMs(resolvedText);
+    let index = 0;
+    const runId = Symbol('messageTyping');
+    textNode.textContent = '';
+    textNode._typingRunId = runId;
+    if (bubble) {
+        bubble.classList.add('is-typing');
+    }
+
+    return new Promise((resolve) => {
+        const step = () => {
+            if (textNode._typingRunId !== runId) {
+                resolve();
+                return;
+            }
+
+            index += 1;
+            textNode.textContent = chars.slice(0, index).join('');
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+
+            if (index >= chars.length) {
+                textNode._typingTimerId = null;
+                textNode._typingRunId = null;
+                if (bubble) {
+                    bubble.classList.remove('is-typing');
+                }
+                resolve();
+                return;
+            }
+
+            textNode._typingTimerId = window.setTimeout(step, intervalMs);
+        };
+
+        textNode._typingTimerId = window.setTimeout(step, intervalMs);
+    });
+}
+
+window.setTypingEffectConfig = function (config) {
+    const source = config || {};
+    typingEffectEnabled = source.enabled !== false;
+    const nextSpeed = String(source.speed || 'normal').trim().toLowerCase();
+    typingEffectSpeed = MESSAGE_TYPING_SPEED_MULTIPLIERS[nextSpeed] ? nextSpeed : 'normal';
+    window.eneTypingEffectConfig = {
+        enabled: typingEffectEnabled,
+        speed: typingEffectSpeed
+    };
+};
+
 // 리롤/수정 응답 수신 시 마지막 assistant 버블 내용을 교체한다.
 function replaceLastAssistantMessage(text, timestamp = new Date()) {
     if (!lastAssistantMessageEl || !chatMessages.contains(lastAssistantMessageEl)) {
@@ -2270,9 +2373,9 @@ function replaceLastAssistantMessage(text, timestamp = new Date()) {
         return false;
     }
 
+    cancelMessageTyping(bubble.querySelector('span'));
     bubble.innerHTML = '';
     const textSpan = document.createElement('span');
-    textSpan.textContent = text;
     bubble.appendChild(textSpan);
     lastAssistantMessageEl.dataset.messageTimestamp = normalizeMessageTimestampValue(timestamp);
     const rail = ensureMessageMetaRail(lastAssistantMessageEl, 'assistant', timestamp);
@@ -2280,6 +2383,7 @@ function replaceLastAssistantMessage(text, timestamp = new Date()) {
         lastAssistantMessageEl.appendChild(rail);
     }
     chatMessages.scrollTop = chatMessages.scrollHeight;
+    animateMessageText(textSpan, text, { immediate: false });
     return true;
 }
 
@@ -2324,7 +2428,6 @@ function addMessage(text, role, attachments = [], timestamp = new Date()) {
         bubble.appendChild(attachmentList);
     }
     const textSpan = document.createElement('span');
-    textSpan.textContent = text;
     bubble.appendChild(textSpan);
 
     const metaRail = ensureMessageMetaRail(messageDiv, role, timestamp);
@@ -2348,6 +2451,7 @@ function addMessage(text, role, attachments = [], timestamp = new Date()) {
         hasUserMessage = true;
         lastUserMessageEl = messageDiv;
     }
+    animateMessageText(textSpan, text, { immediate: false });
     updateRerollButtonState();
     return messageDiv;
 }

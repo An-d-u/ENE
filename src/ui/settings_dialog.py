@@ -3794,6 +3794,56 @@ class SettingsDialog(QDialog):
         self.show_token_usage_bubble_check.toggled.connect(self._on_setting_changed)
         display_layout.addWidget(self.show_token_usage_bubble_check)
 
+        self.typing_effect_check = self._create_toggle(
+            "타이핑 효과",
+            key="settings.behavior.display.typing_effect",
+        )
+        self.typing_effect_check.toggled.connect(self._on_typing_effect_toggle)
+        display_layout.addWidget(self.typing_effect_check)
+
+        typing_speed_layout = QFormLayout()
+        typing_speed_layout.setContentsMargins(0, 0, 0, 0)
+        typing_speed_layout.setSpacing(8)
+        self.typing_effect_speed_combo = QComboBox()
+        self.typing_effect_speed_combo.addItem(
+            self._translated_text("settings.behavior.display.typing_speed.fast", "빠름"),
+            "fast",
+        )
+        self._bind_combo_item(
+            self.typing_effect_speed_combo,
+            0,
+            "settings.behavior.display.typing_speed.fast",
+            "빠름",
+        )
+        self.typing_effect_speed_combo.addItem(
+            self._translated_text("settings.behavior.display.typing_speed.normal", "보통"),
+            "normal",
+        )
+        self._bind_combo_item(
+            self.typing_effect_speed_combo,
+            1,
+            "settings.behavior.display.typing_speed.normal",
+            "보통",
+        )
+        self.typing_effect_speed_combo.addItem(
+            self._translated_text("settings.behavior.display.typing_speed.slow", "느림"),
+            "slow",
+        )
+        self._bind_combo_item(
+            self.typing_effect_speed_combo,
+            2,
+            "settings.behavior.display.typing_speed.slow",
+            "느림",
+        )
+        self.typing_effect_speed_combo.currentIndexChanged.connect(self._on_setting_changed)
+        self.typing_effect_speed_label = self._add_form_row(
+            typing_speed_layout,
+            "settings.behavior.display.typing_speed.label",
+            "타이핑 속도:",
+            self.typing_effect_speed_combo,
+        )
+        display_layout.addLayout(typing_speed_layout)
+
         self.mouse_tracking_check = self._create_toggle(
             "마우스 트래킹 활성화",
             key="settings.behavior.display.mouse_tracking",
@@ -5353,6 +5403,17 @@ class SettingsDialog(QDialog):
             return
         self._preview_settings()
 
+    def _refresh_typing_effect_controls(self, enabled: bool | None = None):
+        is_enabled = bool(self.typing_effect_check.isChecked()) if enabled is None else bool(enabled)
+        if hasattr(self, "typing_effect_speed_label") and self.typing_effect_speed_label:
+            self.typing_effect_speed_label.setEnabled(is_enabled)
+        if hasattr(self, "typing_effect_speed_combo") and self.typing_effect_speed_combo:
+            self.typing_effect_speed_combo.setEnabled(is_enabled)
+
+    def _on_typing_effect_toggle(self, checked: bool):
+        self._refresh_typing_effect_controls(bool(checked))
+        self._on_setting_changed()
+
     def _on_note_context_toggle(self, checked: bool):
         self.note_recent_context_turns_spin.setEnabled(bool(checked))
         self._on_setting_changed()
@@ -5399,6 +5460,15 @@ class SettingsDialog(QDialog):
             self.show_token_usage_bubble_check.setChecked(
                 self._original_settings.get("show_token_usage_bubble", False)
             )
+            self.typing_effect_check.setChecked(
+                self._original_settings.get("typing_effect_enabled", True)
+            )
+            typing_effect_speed = str(self._original_settings.get("typing_effect_speed", "normal")).strip().lower()
+            if typing_effect_speed not in {"fast", "normal", "slow"}:
+                typing_effect_speed = "normal"
+            typing_speed_index = self.typing_effect_speed_combo.findData(typing_effect_speed)
+            self.typing_effect_speed_combo.setCurrentIndex(typing_speed_index if typing_speed_index >= 0 else 1)
+            self._refresh_typing_effect_controls(bool(self.typing_effect_check.isChecked()))
             self.show_manual_summary_button_check.setChecked(
                 self._original_settings.get("show_manual_summary_button", True)
             )
@@ -5661,6 +5731,8 @@ class SettingsDialog(QDialog):
             "show_recent_reroll_button": self.show_recent_reroll_button_check.isChecked(),
             "show_recent_edit_button": self.show_recent_edit_button_check.isChecked(),
             "show_token_usage_bubble": self.show_token_usage_bubble_check.isChecked(),
+            "typing_effect_enabled": self.typing_effect_check.isChecked(),
+            "typing_effect_speed": str(self.typing_effect_speed_combo.currentData() or "normal"),
             "show_manual_summary_button": self.show_manual_summary_button_check.isChecked(),
             "show_obsidian_note_button": self.show_obsidian_note_button_check.isChecked(),
             "show_mood_toggle_button": self.show_mood_toggle_button_check.isChecked(),

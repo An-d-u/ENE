@@ -102,6 +102,7 @@ class OverlayWindow(QWidget):
         self._sync_obsidian_note_button_visibility_to_js()
         self._sync_mood_toggle_button_visibility_to_js()
         self._sync_token_usage_bubble_visibility_to_js()
+        self._sync_typing_effect_settings_to_js()
         print("Web page loaded")
 
     def _get_base_path(self) -> Path:
@@ -257,6 +258,16 @@ class OverlayWindow(QWidget):
             },
         }
 
+    def _resolve_typing_effect_payload(self, settings_override: dict | None = None) -> dict:
+        source = settings_override if isinstance(settings_override, dict) else self.settings.config
+        speed = str(source.get("typing_effect_speed", "normal")).strip().lower() or "normal"
+        if speed not in {"fast", "normal", "slow"}:
+            speed = "normal"
+        return {
+            "enabled": bool(source.get("typing_effect_enabled", True)),
+            "speed": speed,
+        }
+
     def _sync_ui_strings_to_js(self, settings_override: dict | None = None) -> None:
         if not self._page_loaded:
             return
@@ -267,6 +278,21 @@ class OverlayWindow(QWidget):
             window.eneUiStrings = {json.dumps(payload, ensure_ascii=False)};
             if (typeof window.applyENEUiStrings === 'function') {{
                 window.applyENEUiStrings(window.eneUiStrings);
+            }}
+        }})();
+        """
+        self.web_view.page().runJavaScript(js_code)
+
+    def _sync_typing_effect_settings_to_js(self, settings_override: dict | None = None) -> None:
+        if not self._page_loaded:
+            return
+
+        payload = self._resolve_typing_effect_payload(settings_override)
+        js_code = f"""
+        (function() {{
+            window.eneTypingEffectConfig = {json.dumps(payload)};
+            if (typeof window.setTypingEffectConfig === 'function') {{
+                window.setTypingEffectConfig(window.eneTypingEffectConfig);
             }}
         }})();
         """
@@ -350,6 +376,7 @@ class OverlayWindow(QWidget):
         self._sync_obsidian_note_button_visibility_to_js()
         self._sync_mood_toggle_button_visibility_to_js()
         self._sync_token_usage_bubble_visibility_to_js()
+        self._sync_typing_effect_settings_to_js()
         if hasattr(self, "bridge") and self.bridge:
             self.bridge.refresh_away_settings()
         self.settings.save()
@@ -395,6 +422,7 @@ class OverlayWindow(QWidget):
             self._sync_obsidian_note_button_visibility_to_js(new_settings)
             self._sync_mood_toggle_button_visibility_to_js(new_settings)
             self._sync_token_usage_bubble_visibility_to_js(new_settings)
+            self._sync_typing_effect_settings_to_js(new_settings)
 
     def restore_settings(self):
         self._apply_settings()
@@ -409,6 +437,7 @@ class OverlayWindow(QWidget):
         self._sync_obsidian_note_button_visibility_to_js()
         self._sync_mood_toggle_button_visibility_to_js()
         self._sync_token_usage_bubble_visibility_to_js()
+        self._sync_typing_effect_settings_to_js()
 
     def toggle_drag_bar(self):
         visible = not self.drag_bar.isVisible()

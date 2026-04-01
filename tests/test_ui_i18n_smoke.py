@@ -1,4 +1,4 @@
-import json
+﻿import json
 import sys
 import types
 from contextlib import contextmanager
@@ -413,6 +413,48 @@ def test_settings_dialog_ptt_language_selection_is_saved_to_stt_language():
 
         current_values = dialog._get_current_values()
         assert current_values["stt_language"] == "ja"
+
+        dialog.close()
+
+
+def test_settings_dialog_exposes_typing_effect_controls_and_saves_values():
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        dialog = SettingsDialog(
+            {
+                "ui_language": "ko",
+                "llm_provider": "gemini",
+                "tts_provider": "gpt_sovits_http",
+                "enable_tts": True,
+                "typing_effect_enabled": True,
+                "typing_effect_speed": "normal",
+            }
+        )
+
+        assert dialog.typing_effect_check.isChecked() is True
+        assert [dialog.typing_effect_speed_combo.itemData(index) for index in range(dialog.typing_effect_speed_combo.count())] == [
+            "fast",
+            "normal",
+            "slow",
+        ]
+        assert dialog.typing_effect_speed_combo.currentData() == "normal"
+
+        dialog.typing_effect_check.setChecked(False)
+        assert dialog.typing_effect_speed_combo.isEnabled() is False
+
+        dialog.typing_effect_check.setChecked(True)
+        dialog.typing_effect_speed_combo.setCurrentIndex(
+            dialog.typing_effect_speed_combo.findData("slow")
+        )
+
+        current_values = dialog._get_current_values()
+        assert current_values["typing_effect_enabled"] is True
+        assert current_values["typing_effect_speed"] == "slow"
 
         dialog.close()
 
