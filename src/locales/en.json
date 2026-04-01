@@ -629,6 +629,13 @@
         "recent_reroll": "Show recent message reroll button",
         "recent_edit": "Show recent message edit button",
         "token_usage": "Show conversation token usage",
+        "typing_effect": "Enable typing effect",
+        "typing_speed": {
+          "label": "Typing speed:",
+          "fast": "Fast",
+          "normal": "Normal",
+          "slow": "Slow"
+        },
         "mouse_tracking": "Enable mouse tracking",
         "hint": "Manage core surface visibility and mouse interaction together."
       },

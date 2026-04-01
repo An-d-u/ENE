@@ -629,6 +629,13 @@
         "recent_reroll": "Show recent message reroll button",
         "recent_edit": "Show recent message edit button",
         "token_usage": "Show conversation token usage",
+        "typing_effect": "タイピング効果",
+        "typing_speed": {
+          "label": "タイピング速度:",
+          "fast": "速い",
+          "normal": "普通",
+          "slow": "遅い"
+        },
         "mouse_tracking": "Enable mouse tracking",
         "hint": "Manage core surface visibility and mouse interaction together."
       },

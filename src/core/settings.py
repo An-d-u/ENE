@@ -30,6 +30,8 @@ class Settings:
         "show_obsidian_note_button": True,
         "show_mood_toggle_button": True,
         "show_token_usage_bubble": False,
+        "typing_effect_enabled": True,
+        "typing_effect_speed": "normal",
         "enable_global_ptt": True,
         "global_ptt_hotkey": "alt",
         "interrupt_tts_on_ptt": True,
