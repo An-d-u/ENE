@@ -103,6 +103,7 @@ class OverlayWindow(QWidget):
         self._sync_mood_toggle_button_visibility_to_js()
         self._sync_token_usage_bubble_visibility_to_js()
         self._sync_typing_effect_settings_to_js()
+        self._sync_message_split_settings_to_js()
         print("Web page loaded")
 
     def _get_base_path(self) -> Path:
@@ -268,6 +269,12 @@ class OverlayWindow(QWidget):
             "speed": speed,
         }
 
+    def _resolve_message_split_payload(self, settings_override: dict | None = None) -> dict:
+        source = settings_override if isinstance(settings_override, dict) else self.settings.config
+        return {
+            "enabled": bool(source.get("message_split_enabled", False)),
+        }
+
     def _sync_ui_strings_to_js(self, settings_override: dict | None = None) -> None:
         if not self._page_loaded:
             return
@@ -293,6 +300,21 @@ class OverlayWindow(QWidget):
             window.eneTypingEffectConfig = {json.dumps(payload)};
             if (typeof window.setTypingEffectConfig === 'function') {{
                 window.setTypingEffectConfig(window.eneTypingEffectConfig);
+            }}
+        }})();
+        """
+        self.web_view.page().runJavaScript(js_code)
+
+    def _sync_message_split_settings_to_js(self, settings_override: dict | None = None) -> None:
+        if not self._page_loaded:
+            return
+
+        payload = self._resolve_message_split_payload(settings_override)
+        js_code = f"""
+        (function() {{
+            window.eneMessageSplitConfig = {json.dumps(payload)};
+            if (typeof window.setMessageSplitConfig === 'function') {{
+                window.setMessageSplitConfig(window.eneMessageSplitConfig);
             }}
         }})();
         """
@@ -377,6 +399,7 @@ class OverlayWindow(QWidget):
         self._sync_mood_toggle_button_visibility_to_js()
         self._sync_token_usage_bubble_visibility_to_js()
         self._sync_typing_effect_settings_to_js()
+        self._sync_message_split_settings_to_js()
         if hasattr(self, "bridge") and self.bridge:
             self.bridge.refresh_away_settings()
         self.settings.save()
@@ -423,6 +446,7 @@ class OverlayWindow(QWidget):
             self._sync_mood_toggle_button_visibility_to_js(new_settings)
             self._sync_token_usage_bubble_visibility_to_js(new_settings)
             self._sync_typing_effect_settings_to_js(new_settings)
+            self._sync_message_split_settings_to_js(new_settings)
 
     def restore_settings(self):
         self._apply_settings()
@@ -438,6 +462,7 @@ class OverlayWindow(QWidget):
         self._sync_mood_toggle_button_visibility_to_js()
         self._sync_token_usage_bubble_visibility_to_js()
         self._sync_typing_effect_settings_to_js()
+        self._sync_message_split_settings_to_js()
 
     def toggle_drag_bar(self):
         visible = not self.drag_bar.isVisible()

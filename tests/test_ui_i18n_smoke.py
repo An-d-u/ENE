@@ -459,6 +459,34 @@ def test_settings_dialog_exposes_typing_effect_controls_and_saves_values():
         dialog.close()
 
 
+def test_settings_dialog_exposes_message_split_toggle_and_saves_value():
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        dialog = SettingsDialog(
+            {
+                "ui_language": "ko",
+                "llm_provider": "gemini",
+                "tts_provider": "gpt_sovits_http",
+                "enable_tts": True,
+                "message_split_enabled": False,
+            }
+        )
+
+        assert dialog.message_split_check.isChecked() is False
+
+        dialog.message_split_check.setChecked(True)
+
+        current_values = dialog._get_current_values()
+        assert current_values["message_split_enabled"] is True
+
+        dialog.close()
+
+
 def test_settings_dialog_language_preview_restores_original_runtime_on_cancel():
     _get_qapp()
     locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
@@ -1436,6 +1464,42 @@ def test_chat_web_script_has_runtime_i18n_hooks():
     assert "chatInput.placeholder = currentUiStrings.input.placeholder;" in content
     assert "sendButton.textContent = currentUiStrings.send;" in content
     assert "moodStatusLabel.textContent = formatMoodStatusText(label, temporaryState);" in content
+
+
+def test_overlay_window_syncs_message_split_settings_to_webview(tmp_path):
+    _get_qapp()
+    locales_dir = tmp_path / "locales"
+    locales_dir.mkdir(parents=True, exist_ok=True)
+    (locales_dir / "en.json").write_text("{}", encoding="utf-8-sig")
+    (locales_dir / "ja.json").write_text("{}", encoding="utf-8-sig")
+    (locales_dir / "ko.json").write_text("{}", encoding="utf-8-sig")
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+
+    from src.core.overlay_window import OverlayWindow
+
+    captured = []
+
+    class _FakePage:
+        def runJavaScript(self, code):
+            captured.append(code)
+
+    class _FakeWebView:
+        def __init__(self):
+            self._page = _FakePage()
+
+        def page(self):
+            return self._page
+
+    overlay = OverlayWindow.__new__(OverlayWindow)
+    overlay.settings = _DummySettings({"message_split_enabled": False})
+    overlay.web_view = _FakeWebView()
+    overlay._page_loaded = True
+
+    OverlayWindow._sync_message_split_settings_to_js(overlay, {"message_split_enabled": True})
+
+    assert captured
+    assert 'window.eneMessageSplitConfig = {"enabled": true};' in captured[-1]
+    assert "window.setMessageSplitConfig(window.eneMessageSplitConfig);" in captured[-1]
 
 
 def test_chat_web_assets_translate_mood_axis_labels_and_center_floating_buttons():

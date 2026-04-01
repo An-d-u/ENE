@@ -630,6 +630,7 @@
         "recent_edit": "Show recent message edit button",
         "token_usage": "Show conversation token usage",
         "typing_effect": "タイピング効果",
+        "message_split": "メッセージ分割表示",
         "typing_speed": {
           "label": "タイピング速度:",
           "fast": "速い",
