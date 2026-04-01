@@ -104,8 +104,9 @@ def test_chat_script_defines_typing_effect_speed_guards():
 def test_chat_script_reuses_typing_renderer_for_new_and_replaced_messages():
     script = _script_text()
     assert "function animateMessageText(" in script
-    assert "animateMessageText(textSpan, text" in script
-    assert "animateMessageText(textSpan, text, { immediate: false })" in script
+    assert "function renderMessageBubbleSegments(" in script
+    assert "animateMessageText(textSpan, segment, { immediate })" in script
+    assert "renderMessageBubbleSegments(lastAssistantMessageEl, text" in script
 
 
 def test_chat_script_exposes_runtime_typing_config_hook():
@@ -113,3 +114,29 @@ def test_chat_script_exposes_runtime_typing_config_hook():
     assert "window.setTypingEffectConfig = function" in script
     assert "typingEffectEnabled" in script
     assert "typingEffectSpeed" in script
+
+
+def test_message_bubble_stack_supports_visual_multi_bubble_layout():
+    stack_block = _rule_block(".message-bubble-stack")
+    user_stack_block = _rule_block(".message.user .message-bubble-stack")
+    assistant_stack_block = _rule_block(".message.assistant .message-bubble-stack")
+
+    assert "display: flex;" in stack_block
+    assert "flex-direction: column;" in stack_block
+    assert "max-width: 70%;" in stack_block
+    assert "align-items: flex-end;" in user_stack_block
+    assert "align-items: flex-start;" in assistant_stack_block
+
+
+def test_chat_script_keeps_visual_split_messages_as_single_logical_message():
+    script = _script_text()
+    assert "function splitMessageIntoVisualChunks(" in script
+    assert "messageDiv.dataset.logicalMessageText" in script
+    assert "function renderMessageBubbleSegments(" in script
+    assert "splitMessageIntoVisualChunks(text)" in script
+
+
+def test_chat_script_routes_recent_user_edit_through_logical_message_container():
+    script = _script_text()
+    assert "openInlineEdit(lastUserMessageEl);" in script
+    assert "function getMessageLogicalText(" in script
