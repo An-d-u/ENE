@@ -116,6 +116,13 @@ def test_chat_script_exposes_runtime_typing_config_hook():
     assert "typingEffectSpeed" in script
 
 
+def test_chat_script_exposes_runtime_message_split_config_hook():
+    script = _script_text()
+    assert "window.setMessageSplitConfig = function" in script
+    assert "messageSplitEnabled" in script
+    assert "splitMessageIntoVisualChunks(" in script
+
+
 def test_message_bubble_stack_supports_visual_multi_bubble_layout():
     stack_block = _rule_block(".message-bubble-stack")
     user_stack_block = _rule_block(".message.user .message-bubble-stack")

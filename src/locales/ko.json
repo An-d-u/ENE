@@ -630,6 +630,7 @@
         "recent_edit": "최근 메시지 수정 버튼 표시",
         "token_usage": "대화 토큰 확인",
         "typing_effect": "타이핑 효과",
+        "message_split": "메시지 분할 표시",
         "typing_speed": {
           "label": "타이핑 속도:",
           "fast": "빠름",

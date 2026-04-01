@@ -3801,6 +3801,13 @@ class SettingsDialog(QDialog):
         self.typing_effect_check.toggled.connect(self._on_typing_effect_toggle)
         display_layout.addWidget(self.typing_effect_check)
 
+        self.message_split_check = self._create_toggle(
+            "메시지 분할 표시",
+            key="settings.behavior.display.message_split",
+        )
+        self.message_split_check.toggled.connect(self._on_setting_changed)
+        display_layout.addWidget(self.message_split_check)
+
         typing_speed_layout = QFormLayout()
         typing_speed_layout.setContentsMargins(0, 0, 0, 0)
         typing_speed_layout.setSpacing(8)
@@ -5463,6 +5470,9 @@ class SettingsDialog(QDialog):
             self.typing_effect_check.setChecked(
                 self._original_settings.get("typing_effect_enabled", True)
             )
+            self.message_split_check.setChecked(
+                self._original_settings.get("message_split_enabled", False)
+            )
             typing_effect_speed = str(self._original_settings.get("typing_effect_speed", "normal")).strip().lower()
             if typing_effect_speed not in {"fast", "normal", "slow"}:
                 typing_effect_speed = "normal"
@@ -5733,6 +5743,7 @@ class SettingsDialog(QDialog):
             "show_token_usage_bubble": self.show_token_usage_bubble_check.isChecked(),
             "typing_effect_enabled": self.typing_effect_check.isChecked(),
             "typing_effect_speed": str(self.typing_effect_speed_combo.currentData() or "normal"),
+            "message_split_enabled": self.message_split_check.isChecked(),
             "show_manual_summary_button": self.show_manual_summary_button_check.isChecked(),
             "show_obsidian_note_button": self.show_obsidian_note_button_check.isChecked(),
             "show_mood_toggle_button": self.show_mood_toggle_button_check.isChecked(),

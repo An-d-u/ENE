@@ -21,6 +21,7 @@ def test_load_missing_file_uses_default_config(tmp_path):
     assert settings.get("tts_output_volume") == 0.8
     assert settings.get("typing_effect_enabled") is True
     assert settings.get("typing_effect_speed") == "normal"
+    assert settings.get("message_split_enabled") is False
     gpt_sovits = settings.get("tts_provider_configs")["gpt_sovits_http"]
     assert gpt_sovits["speed_factor"] == 1.0
     assert gpt_sovits["top_k"] == 15
@@ -38,6 +39,7 @@ def test_save_and_reload_roundtrip(tmp_path):
     settings.set("ui_language", "ja")
     settings.set("typing_effect_enabled", False)
     settings.set("typing_effect_speed", "slow")
+    settings.set("message_split_enabled", True)
     settings.save()
 
     reloaded = Settings(config_path=str(config_path), secret_path=str(secret_path))
@@ -46,6 +48,7 @@ def test_save_and_reload_roundtrip(tmp_path):
     assert reloaded.get("ui_language") == "ja"
     assert reloaded.get("typing_effect_enabled") is False
     assert reloaded.get("typing_effect_speed") == "slow"
+    assert reloaded.get("message_split_enabled") is True
 
 
 def test_load_invalid_json_falls_back_to_default(tmp_path):

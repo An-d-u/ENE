@@ -630,6 +630,7 @@
         "recent_edit": "Show recent message edit button",
         "token_usage": "Show conversation token usage",
         "typing_effect": "Enable typing effect",
+        "message_split": "Split long messages into bubbles",
         "typing_speed": {
           "label": "Typing speed:",
           "fast": "Fast",
