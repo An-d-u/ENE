@@ -217,16 +217,10 @@ GitHub Releases automation is configured so that pushing a tag such as `v0.1.0` 
 
 ## Roadmap
 
-Short-term priorities that would make ENE feel more complete as a product:
-
-- improve first-run setup and configuration guidance
-- add better README visuals and usage walkthroughs
-- improve stability across different environments
-- add internet search capabilities
-- make the initial prompt and profile setup easier to understand
-- keep polishing the companion experience around memory, mood, and notes
-
-Longer-term, ENE is aiming toward a more polished, memory-aware, voice-capable desktop companion experience that feels persistent, personal, and genuinely useful during daily work.
+- [ ] improve first-run setup and configuration guidance
+- [ ] improve stability
+- [ ] start conversations first with an appropriate topic when it is not already in an active conversation
+- [ ] add internet search capabilities
 
 ## Third-Party Licenses
 
