@@ -11,7 +11,7 @@ import io
 import wave
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import AsyncIterator, Protocol, runtime_checkable
 
 from ..core.app_paths import resolve_runtime_resource_path
 
@@ -19,6 +19,9 @@ from ..core.app_paths import resolve_runtime_resource_path
 @runtime_checkable
 class TTSClientProtocol(Protocol):
     async def generate_speech(self, text: str) -> bytes:
+        ...
+
+    async def stream_speech(self, text: str) -> AsyncIterator[bytes]:
         ...
 
     def is_available(self) -> bool:
@@ -156,6 +159,8 @@ def get_gpt_sovits_text_split_methods() -> tuple[str, ...]:
 class BaseTTSClient:
     """여러 공급자가 공유하는 기본 유틸리티."""
 
+    supports_streaming = False
+
     def __init__(self, provider_name: str):
         self.provider_name = provider_name
 
@@ -202,9 +207,14 @@ class BaseTTSClient:
             wav_file.writeframes(pcm_data)
         return buffer.getvalue()
 
+    async def stream_speech(self, text: str) -> AsyncIterator[bytes]:
+        raise RuntimeError(f"{self.provider_name} 공급자는 스트리밍 TTS를 지원하지 않습니다.")
+
 
 class GPTSoVITSHTTPClient(BaseTTSClient):
     """GPT-SoVITS API 클라이언트."""
+
+    supports_streaming = True
 
     def __init__(
         self,
@@ -240,7 +250,7 @@ class GPTSoVITSHTTPClient(BaseTTSClient):
         """참조 오디오 경로를 사용자 폴더/번들 기준으로 해석한다."""
         return resolve_runtime_resource_path(self.ref_audio_path)
 
-    async def generate_speech(self, text: str) -> bytes:
+    def _build_request_payload(self, text: str) -> dict:
         normalized_text = self._normalize_tts_text(text)
         if not normalized_text:
             raise ValueError("Text cannot be empty")
@@ -249,7 +259,7 @@ class GPTSoVITSHTTPClient(BaseTTSClient):
         if not ref_path.exists():
             raise FileNotFoundError(f"Reference audio not found: {self.ref_audio_path}")
 
-        params = {
+        return {
             "text": normalized_text,
             "text_lang": self.target_language,
             "ref_audio_path": str(ref_path.absolute()),
@@ -262,6 +272,9 @@ class GPTSoVITSHTTPClient(BaseTTSClient):
             "text_split_method": self.text_split_method,
         }
 
+    async def generate_speech(self, text: str) -> bytes:
+        params = self._build_request_payload(text)
+
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(
@@ -273,6 +286,27 @@ class GPTSoVITSHTTPClient(BaseTTSClient):
                         error_text = await response.text()
                         raise RuntimeError(f"TTS API error ({response.status}): {error_text}")
                     return await response.read()
+        except asyncio.TimeoutError:
+            raise RuntimeError("TTS API timeout - server may be offline")
+        except aiohttp.ClientError as e:
+            raise RuntimeError(f"TTS API connection error: {e}")
+
+    async def stream_speech(self, text: str) -> AsyncIterator[bytes]:
+        params = self._build_request_payload(text)
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{self.api_url}/tts",
+                    json=params,
+                    timeout=aiohttp.ClientTimeout(total=90),
+                ) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        raise RuntimeError(f"TTS API error ({response.status}): {error_text}")
+                    async for chunk in response.content.iter_chunked(4096):
+                        if chunk:
+                            yield bytes(chunk)
         except asyncio.TimeoutError:
             raise RuntimeError("TTS API timeout - server may be offline")
         except aiohttp.ClientError as e:

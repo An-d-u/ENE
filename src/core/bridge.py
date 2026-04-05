@@ -387,6 +387,80 @@ class TTSWorker(QThread):
                 loop.close()
 
 
+class StreamingTTSWorker(QThread):
+    """HTTP chunked TTS를 PCM 청크 단위로 전달하는 워커 스레드."""
+
+    stream_format_ready = pyqtSignal(int, int, int)  # (sample_rate, channels, sample_width)
+    stream_chunk_ready = pyqtSignal(bytes, list)  # (pcm_bytes, mouth_values)
+    stream_finished = pyqtSignal()
+    error_occurred = pyqtSignal(str)
+
+    def __init__(self, tts_client, text: str):
+        super().__init__()
+        self.tts_client = tts_client
+        self.text = text
+        self._stop_requested = False
+
+    def request_stop(self):
+        """다음 청크 경계에서 안전하게 스트림 처리를 중단한다."""
+        self._stop_requested = True
+
+    def run(self):
+        loop = None
+        try:
+            import asyncio
+            from src.ai.audio_analyzer import RealtimeLipSyncAnalyzer, StreamingWavDecoder
+
+            print(f"[StreamingTTSWorker] Streaming speech for: {self.text[:30]}...")
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+            async def _consume_stream():
+                decoder = StreamingWavDecoder()
+                analyzer = None
+                format_emitted = False
+
+                async for chunk in self.tts_client.stream_speech(self.text):
+                    if self._stop_requested:
+                        print("[StreamingTTSWorker] Stop requested before consuming next chunk")
+                        break
+
+                    audio_format, pcm_bytes = decoder.push(chunk)
+                    if audio_format is not None and not format_emitted:
+                        self.stream_format_ready.emit(
+                            audio_format.sample_rate,
+                            audio_format.channels,
+                            audio_format.sample_width,
+                        )
+                        analyzer = RealtimeLipSyncAnalyzer(
+                            sample_rate=audio_format.sample_rate,
+                            channels=audio_format.channels,
+                            sample_width=audio_format.sample_width,
+                            frame_duration_ms=50,
+                        )
+                        format_emitted = True
+
+                    if pcm_bytes and analyzer is not None:
+                        mouth_values = analyzer.push_pcm(pcm_bytes)
+                        self.stream_chunk_ready.emit(pcm_bytes, mouth_values)
+
+                if analyzer is not None and not self._stop_requested:
+                    tail_values = analyzer.finalize()
+                    if tail_values:
+                        self.stream_chunk_ready.emit(b"", tail_values)
+
+            loop.run_until_complete(_consume_stream())
+            self.stream_finished.emit()
+        except Exception as e:
+            print(f"[StreamingTTSWorker] Error: {e}")
+            import traceback
+            traceback.print_exc()
+            self.error_occurred.emit(str(e))
+        finally:
+            if loop is not None:
+                loop.close()
+
+
 class ObsidianTreeWorker(QThread):
     """Obsidian 트리 조회를 백그라운드에서 처리하는 워커."""
 
@@ -491,6 +565,14 @@ class WebBridge(QObject):
         self.audio_player = None
         self.enable_tts = False  # TTS 활성화 여부
         self.tts_worker = None  # TTS 워커 스레드
+        self.tts_streaming_enabled = False
+        self.tts_streaming_emit_message_on_first_chunk = True
+        self._streaming_tts_started = False
+        self._stream_lip_sync_next_timestamp = 0.0
+        self._stream_lip_sync_values = []
+        self._stream_lip_sync_timer = None
+        self._stream_lip_sync_finished = False
+        self._stream_audio_format = None
         
         # 립싱크 데이터 및 타이머
         self.lip_sync_data = None
@@ -536,6 +618,10 @@ class WebBridge(QObject):
         if settings and hasattr(settings, 'config'):
             self.summarize_threshold = settings.config.get('summarize_threshold', 10)
             self.enable_tts = settings.config.get('enable_tts', False)
+            self.tts_streaming_enabled = bool(settings.config.get("tts_streaming_enabled", False))
+            self.tts_streaming_emit_message_on_first_chunk = bool(
+                settings.config.get("tts_streaming_emit_message_on_first_chunk", True)
+            )
         else:
             self.summarize_threshold = 10
 
@@ -1979,6 +2065,38 @@ class WebBridge(QObject):
                 print("[Bridge] LLM 히스토리 재구성 실패")
         except Exception as e:
             print(f"[Bridge] LLM 히스토리 재구성 중 오류: {e}")
+
+    def _should_use_streaming_tts(self) -> bool:
+        """현재 응답에서 스트리밍 TTS 경로를 사용할지 판단한다."""
+        if not self.tts_streaming_enabled:
+            return False
+        if not self.tts_client:
+            return False
+        if getattr(self.tts_client, "uses_browser_playback", False):
+            return False
+        return bool(getattr(self.tts_client, "supports_streaming", False))
+
+    def _stop_streaming_lip_sync(self, reset_mouth: bool = True):
+        """스트리밍 립싱크 큐와 타이머를 정리한다."""
+        if self._stream_lip_sync_timer:
+            try:
+                self._stream_lip_sync_timer.stop()
+            except Exception:
+                pass
+            self._stream_lip_sync_timer = None
+        self._stream_lip_sync_values = []
+        if self.lip_sync_timer:
+            try:
+                self.lip_sync_timer.stop()
+            except Exception:
+                pass
+            self.lip_sync_timer = None
+        self.lip_sync_data = None
+        self.lip_sync_start_time = None
+        self._stream_lip_sync_next_timestamp = 0.0
+        self._stream_lip_sync_finished = False
+        if reset_mouth:
+            self.lip_sync_update.emit(0.0)
     
     def _play_tts(self, text: str):
         """립싱크를 포함한 TTS 재생 (비동기 스레드)"""
@@ -1990,9 +2108,28 @@ class WebBridge(QObject):
 
         # 기존 TTS 워커 종료
         if self.tts_worker and self.tts_worker.isRunning():
+            stop_worker = getattr(self.tts_worker, "request_stop", None)
+            if callable(stop_worker):
+                stop_worker()
             self.tts_worker.quit()
             self.tts_worker.wait()
-        
+
+        self._stop_streaming_lip_sync(reset_mouth=False)
+        self._streaming_tts_started = False
+        self._stream_lip_sync_next_timestamp = 0.0
+        self._stream_lip_sync_finished = False
+        self._stream_audio_format = None
+
+        if self._should_use_streaming_tts():
+            self.tts_worker = StreamingTTSWorker(self.tts_client, text)
+            self.tts_worker.stream_format_ready.connect(self._on_tts_stream_format)
+            self.tts_worker.stream_chunk_ready.connect(self._on_tts_stream_chunk)
+            self.tts_worker.stream_finished.connect(self._on_tts_stream_finished)
+            self.tts_worker.error_occurred.connect(self._on_tts_error)
+            self.tts_worker.start()
+            print("[Bridge] 스트리밍 TTS 워커 시작 (백그라운드)")
+            return
+
         # 새 TTS 워커 생성
         self.tts_worker = TTSWorker(self.tts_client, text)
         self.tts_worker.tts_ready.connect(self._on_tts_ready)
@@ -2083,12 +2220,76 @@ class WebBridge(QObject):
 
         return json.dumps(usage, ensure_ascii=False)
 
+    def _on_tts_stream_format(self, sample_rate: int, channels: int, sample_width: int):
+        """스트리밍 TTS의 PCM 포맷이 준비되면 재생기를 시작한다."""
+        self._stream_audio_format = (int(sample_rate), int(channels), int(sample_width))
+        print(
+            f"[Bridge] 스트리밍 TTS 포맷 준비: "
+            f"{sample_rate}Hz / {channels}ch / {sample_width}byte"
+        )
+        if self.audio_player:
+            self.audio_player.start_stream(sample_rate, channels, sample_width)
+
+    def _on_tts_stream_chunk(self, pcm_bytes: bytes, mouth_values: list):
+        """스트리밍 PCM 청크를 재생 버퍼와 실시간 립싱크 큐에 전달한다."""
+        if not self._streaming_tts_started and pcm_bytes:
+            self._streaming_tts_started = True
+            if self.tts_streaming_emit_message_on_first_chunk:
+                self._flush_pending_response_if_any()
+
+        if self._tts_interrupted_for_ptt:
+            print("[Bridge] PTT 중단 플래그로 스트리밍 청크 무시")
+            return
+
+        if pcm_bytes and self.audio_player:
+            self.audio_player.append_stream_pcm(pcm_bytes)
+
+        if mouth_values:
+            if self.lip_sync_data is None:
+                self.lip_sync_data = []
+            for value in mouth_values:
+                self.lip_sync_data.append((self._stream_lip_sync_next_timestamp, float(value)))
+                self._stream_lip_sync_next_timestamp = round(self._stream_lip_sync_next_timestamp + 0.05, 6)
+            if not self.lip_sync_timer and self.lip_sync_data:
+                self._start_lip_sync()
+
+    def _on_tts_stream_finished(self):
+        """스트리밍 TTS 종료 신호를 받아 잔여 버퍼를 마무리한다."""
+        print("[Bridge] 스트리밍 TTS 종료")
+        self._stream_lip_sync_finished = True
+        if not self._streaming_tts_started:
+            self._flush_pending_response_if_any()
+        if self.audio_player:
+            self.audio_player.finish_stream()
+
+    def _drain_stream_lip_sync_queue(self):
+        """50ms 간격으로 스트리밍 립싱크 값을 UI에 보낸다."""
+        if self._stream_lip_sync_values:
+            next_value = float(self._stream_lip_sync_values.pop(0))
+            self.lip_sync_update.emit(next_value)
+
+        if self._stream_lip_sync_values:
+            if self._stream_lip_sync_timer and not self._stream_lip_sync_timer.isActive():
+                self._stream_lip_sync_timer.start(50)
+            return
+
+        if self._stream_lip_sync_finished:
+            self._stop_streaming_lip_sync(reset_mouth=True)
+            return
+
+        if self._stream_lip_sync_timer:
+            self._stream_lip_sync_timer.stop()
+
     def interrupt_tts_for_ptt(self):
         """PTT 시작 시 현재 음성 출력/립싱크를 즉시 중단한다."""
         # 생성 중인 TTS 결과가 곧 도착할 수 있으면 다음 오디오 재생을 1회 스킵한다.
         self._tts_interrupted_for_ptt = bool(self.pending_response) or bool(
             self.tts_worker and self.tts_worker.isRunning()
         )
+        if self.tts_worker and self.tts_worker.isRunning():
+            stop_worker = getattr(self.tts_worker, "request_stop", None)
+            if callable(stop_worker):
+                stop_worker()
 
         # 재생 중 오디오 중단
         if self.audio_player:
@@ -2106,6 +2307,7 @@ class WebBridge(QObject):
             self.lip_sync_timer = None
         self.lip_sync_data = None
         self.lip_sync_start_time = None
+        self._stop_streaming_lip_sync(reset_mouth=False)
         self.lip_sync_update.emit(0.0)
         self._run_parent_javascript(
             "(function(){"
@@ -2122,6 +2324,7 @@ class WebBridge(QObject):
     def _on_tts_ready(self, audio_data: bytes, lip_sync_data: list):
         """비동기 TTS 완료 후 오디오 재생"""
         print(f"[Bridge] TTS 준비 완료: {len(audio_data)} bytes, {len(lip_sync_data)} 프레임")
+        self._stop_streaming_lip_sync(reset_mouth=False)
         
         # 립싱크 데이터 저장
         self.lip_sync_data = lip_sync_data if lip_sync_data else None
@@ -2147,6 +2350,7 @@ class WebBridge(QObject):
     def _on_tts_error(self, error_msg: str):
         """TTS 오류 처리"""
         print(f"[Bridge] TTS 오류: {error_msg}")
+        self._stop_streaming_lip_sync(reset_mouth=True)
         # TTS 실패 시 보류 중이던 텍스트를 즉시 복구 전송한다.
         self._flush_pending_response_if_any()
         if self._is_rerolling:
@@ -2207,7 +2411,10 @@ class WebBridge(QObject):
         
         # 모든 데이터 처리 완료 시 타이머 종료
         if self.lip_sync_index >= len(self.lip_sync_data) - 1:
+            if self._stream_audio_format is not None and not self._stream_lip_sync_finished:
+                return
             self.lip_sync_timer.stop()
+            self.lip_sync_timer = None
             self.lip_sync_update.emit(0.0)  # 입 닫기
             print(f"[Bridge] 립싱크 완료")
     

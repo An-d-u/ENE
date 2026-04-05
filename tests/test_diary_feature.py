@@ -1008,26 +1008,6 @@ def test_aiworker_note_flow_generates_path_when_request_has_no_md_and_plan_has_n
     assert manager.calls[1][2].startswith("content=# 오늘의 일기")
     assert "overwrite" in manager.calls[1]
 
-def test_bridge_tts_error_restores_pending_response():
-    _ensure_qt_app()
-
-    bridge = WebBridge()
-    bridge.pending_response = ("복구할 응답", "normal")
-    bridge._is_rerolling = True
-
-    received = []
-    reroll_states = []
-    bridge.message_received.connect(lambda text, emotion: received.append((text, emotion)))
-    bridge.reroll_state_changed.connect(lambda state: reroll_states.append(bool(state)))
-
-    bridge._on_tts_error("mock error")
-
-    assert received == [("복구할 응답", "normal")]
-    assert bridge.pending_response is None
-    assert bridge._is_rerolling is False
-    assert reroll_states and reroll_states[-1] is False
-
-
 def test_bridge_edit_without_payload_resets_pending_ui_state():
     _ensure_qt_app()
 

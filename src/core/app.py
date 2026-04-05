@@ -333,6 +333,12 @@ class ENEApplication(QObject):
         self._init_tts()
         if hasattr(self, "overlay_window") and self.overlay_window and hasattr(self.overlay_window, "bridge"):
             self.overlay_window.bridge.enable_tts = bool(self.settings.get("enable_tts", False))
+            self.overlay_window.bridge.tts_streaming_enabled = bool(
+                self.settings.get("tts_streaming_enabled", False)
+            )
+            self.overlay_window.bridge.tts_streaming_emit_message_on_first_chunk = bool(
+                self.settings.get("tts_streaming_emit_message_on_first_chunk", True)
+            )
             self.overlay_window.bridge.set_tts(
                 self.tts_client if hasattr(self, "tts_client") else None,
                 self.audio_player if hasattr(self, "audio_player") else None,
@@ -524,6 +530,10 @@ class ENEApplication(QObject):
         old_tts_config = json.dumps(
             {
                 "enable_tts": bool(self.settings.get("enable_tts", False)),
+                "tts_streaming_enabled": bool(self.settings.get("tts_streaming_enabled", False)),
+                "tts_streaming_emit_message_on_first_chunk": bool(
+                    self.settings.get("tts_streaming_emit_message_on_first_chunk", True)
+                ),
                 "tts_output_device_id": str(self.settings.get("tts_output_device_id", "")).strip(),
                 "tts_output_volume": float(self.settings.get("tts_output_volume", 0.8) or 0.8),
                 "tts_provider": str(self.settings.get("tts_provider", "gpt_sovits_http")).strip(),
@@ -547,6 +557,15 @@ class ENEApplication(QObject):
         new_tts_config = json.dumps(
             {
                 "enable_tts": bool(new_settings.get("enable_tts", self.settings.get("enable_tts", False))),
+                "tts_streaming_enabled": bool(
+                    new_settings.get("tts_streaming_enabled", self.settings.get("tts_streaming_enabled", False))
+                ),
+                "tts_streaming_emit_message_on_first_chunk": bool(
+                    new_settings.get(
+                        "tts_streaming_emit_message_on_first_chunk",
+                        self.settings.get("tts_streaming_emit_message_on_first_chunk", True),
+                    )
+                ),
                 "tts_output_device_id": str(new_settings.get("tts_output_device_id", self.settings.get("tts_output_device_id", ""))).strip(),
                 "tts_output_volume": float(new_settings.get("tts_output_volume", self.settings.get("tts_output_volume", 0.8)) or 0.8),
                 "tts_provider": str(new_settings.get("tts_provider", self.settings.get("tts_provider", "gpt_sovits_http"))).strip(),
@@ -582,6 +601,15 @@ class ENEApplication(QObject):
             self.global_ptt.apply_settings(new_settings)
         if hasattr(self, "overlay_window") and self.overlay_window and hasattr(self.overlay_window, "bridge"):
             self.overlay_window.bridge.enable_tts = bool(new_settings.get("enable_tts", self.settings.get("enable_tts", False)))
+            self.overlay_window.bridge.tts_streaming_enabled = bool(
+                new_settings.get("tts_streaming_enabled", self.settings.get("tts_streaming_enabled", False))
+            )
+            self.overlay_window.bridge.tts_streaming_emit_message_on_first_chunk = bool(
+                new_settings.get(
+                    "tts_streaming_emit_message_on_first_chunk",
+                    self.settings.get("tts_streaming_emit_message_on_first_chunk", True),
+                )
+            )
 
     def _on_settings_cancelled(self):
         """설정 취소 - 저장된 값으로 복원"""
@@ -591,6 +619,12 @@ class ENEApplication(QObject):
             self.global_ptt.apply_settings(self.settings.config)
         if hasattr(self, "overlay_window") and self.overlay_window and hasattr(self.overlay_window, "bridge"):
             self.overlay_window.bridge.enable_tts = bool(self.settings.get("enable_tts", False))
+            self.overlay_window.bridge.tts_streaming_enabled = bool(
+                self.settings.get("tts_streaming_enabled", False)
+            )
+            self.overlay_window.bridge.tts_streaming_emit_message_on_first_chunk = bool(
+                self.settings.get("tts_streaming_emit_message_on_first_chunk", True)
+            )
     
     def _toggle_drag_bar(self):
         """드래그 바 토글"""

@@ -2584,6 +2584,9 @@ class SettingsDialog(QDialog):
         browser = {**get_tts_provider_defaults("browser_speech"), **configs.get("browser_speech", {})}
 
         self.enable_tts_check.setChecked(self._original_settings.get("enable_tts", True))
+        self.tts_streaming_enabled_check.setChecked(
+            self._original_settings.get("tts_streaming_enabled", False)
+        )
         self._refresh_tts_output_devices(str(self._original_settings.get("tts_output_device_id", "")).strip())
         self.tts_output_volume_spin.setValue(
             int(round(float(self._original_settings.get("tts_output_volume", 0.8) or 0.8) * 100))
@@ -3312,6 +3315,13 @@ class SettingsDialog(QDialog):
         )
         self.enable_tts_check.toggled.connect(self._on_setting_changed)
         overview_form.addRow(self.enable_tts_check)
+
+        self.tts_streaming_enabled_check = self._create_toggle(
+            "GPT-SoVITS 스트리밍 TTS 사용",
+            key="settings.tts.overview.streaming_enabled",
+        )
+        self.tts_streaming_enabled_check.toggled.connect(self._on_setting_changed)
+        overview_form.addRow(self.tts_streaming_enabled_check)
 
         self.tts_provider_combo = QComboBox()
         for provider_id, meta in self._tts_catalog.items():
@@ -5944,6 +5954,10 @@ class SettingsDialog(QDialog):
             "interrupt_tts_on_ptt": self.interrupt_tts_on_ptt_check.isChecked(),
             "stt_language": str(self.ptt_language_combo.currentData() or "ko"),
             "enable_tts": self.enable_tts_check.isChecked(),
+            "tts_streaming_enabled": self.tts_streaming_enabled_check.isChecked(),
+            "tts_streaming_emit_message_on_first_chunk": bool(
+                self._original_settings.get("tts_streaming_emit_message_on_first_chunk", True)
+            ),
             "tts_output_device_id": str(self.tts_output_device_combo.currentData() or "").strip(),
             "tts_output_volume": round(self.tts_output_volume_spin.value() / 100.0, 2),
             "tts_provider": str(self.tts_provider_combo.currentData() or "gpt_sovits_http"),
