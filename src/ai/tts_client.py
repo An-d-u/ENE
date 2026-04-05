@@ -63,6 +63,22 @@ TTS_PROVIDER_CATALOG: dict[str, TTSProviderMeta] = {
             "text_split_method": "cut5",
         },
     ),
+    "genie_tts_http": TTSProviderMeta(
+        provider="genie_tts_http",
+        display_name="Genie-TTS HTTP",
+        description="고정 캐릭터와 참조 음성을 미리 적재하는 Genie-TTS 서버",
+        requires_api_key=False,
+        default_config={
+            "api_url": "http://127.0.0.1:7860",
+            "character_name": "",
+            "onnx_model_dir": "",
+            "model_language": "ja",
+            "ref_audio_path": "assets/ref_audio/refvoice.wav",
+            "ref_text": "",
+            "ref_language": "ja",
+            "split_sentence": True,
+        },
+    ),
     "openai_audio_speech": TTSProviderMeta(
         provider="openai_audio_speech",
         display_name="OpenAI Audio Speech",
@@ -264,6 +280,122 @@ class GPTSoVITSHTTPClient(BaseTTSClient):
 
     def is_available(self) -> bool:
         return self._resolve_reference_audio_path().exists()
+
+
+class GenieTTSHTTPClient(BaseTTSClient):
+    """Genie-TTS API 클라이언트."""
+
+    def __init__(
+        self,
+        api_url: str = "http://127.0.0.1:7860",
+        character_name: str = "",
+        onnx_model_dir: str = "",
+        model_language: str = "ja",
+        ref_audio_path: str = "assets/ref_audio/refvoice.wav",
+        ref_text: str = "",
+        ref_language: str = "ja",
+        split_sentence: bool = True,
+    ):
+        super().__init__("genie_tts_http")
+        self.api_url = self._normalize_base_url(api_url, "http://127.0.0.1:7860")
+        self.character_name = str(character_name or "").strip()
+        self.onnx_model_dir = str(onnx_model_dir or "").strip()
+        self.model_language = str(model_language or "ja").strip() or "ja"
+        self.ref_audio_path = str(ref_audio_path or "").strip()
+        self.ref_text = str(ref_text or "").strip()
+        self.ref_language = str(ref_language or "ja").strip() or "ja"
+        self.split_sentence = bool(split_sentence)
+        self._initialized = False
+
+        print(f"[TTS][Genie] API: {self.api_url}")
+        print(f"[TTS][Genie] Character: {self.character_name or '(unset)'}")
+
+    def _resolve_reference_audio_path(self) -> Path:
+        return resolve_runtime_resource_path(self.ref_audio_path)
+
+    @staticmethod
+    def _normalize_genie_language(language: str) -> str:
+        normalized = str(language or "").strip().lower()
+        if not normalized:
+            return "jp"
+        mapping = {
+            "ja": "jp",
+            "jp": "jp",
+            "ko": "kr",
+            "kr": "kr",
+        }
+        return mapping.get(normalized, normalized)
+
+    async def _post_json(self, session: aiohttp.ClientSession, endpoint: str, payload: dict) -> bytes:
+        async with session.post(
+            f"{self.api_url}/{endpoint}",
+            json=payload,
+            timeout=aiohttp.ClientTimeout(total=45),
+        ) as response:
+            if response.status != 200:
+                error_text = await response.text()
+                raise RuntimeError(f"TTS API error ({response.status}): {error_text}")
+            return await response.read()
+
+    async def _ensure_initialized(self, session: aiohttp.ClientSession) -> None:
+        if self._initialized:
+            return
+        if not self.character_name:
+            raise ValueError("Character name cannot be empty")
+        if not self.onnx_model_dir:
+            raise ValueError("ONNX model directory cannot be empty")
+        if not self.ref_text:
+            raise ValueError("Reference text cannot be empty")
+
+        ref_path = self._resolve_reference_audio_path()
+        if not ref_path.exists():
+            raise FileNotFoundError(f"Reference audio not found: {self.ref_audio_path}")
+
+        await self._post_json(
+            session,
+            "load_character",
+            {
+                "character_name": self.character_name,
+                "onnx_model_dir": self.onnx_model_dir,
+                "language": self._normalize_genie_language(self.model_language),
+            },
+        )
+        await self._post_json(
+            session,
+            "set_reference_audio",
+            {
+                "character_name": self.character_name,
+                "audio_path": str(ref_path.resolve()),
+                "audio_text": self.ref_text,
+                "language": self._normalize_genie_language(self.ref_language),
+            },
+        )
+        self._initialized = True
+
+    async def generate_speech(self, text: str) -> bytes:
+        normalized_text = self._normalize_tts_text(text)
+        if not normalized_text:
+            raise ValueError("Text cannot be empty")
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                await self._ensure_initialized(session)
+                return await self._post_json(
+                    session,
+                    "tts",
+                    {
+                        "character_name": self.character_name,
+                        "text": normalized_text,
+                        "split_sentence": self.split_sentence,
+                    },
+                )
+        except asyncio.TimeoutError:
+            raise RuntimeError("TTS API timeout - server may be offline")
+        except aiohttp.ClientError as e:
+            raise RuntimeError(f"TTS API connection error: {e}")
+
+    def is_available(self) -> bool:
+        return bool(self.api_url and self.character_name and self.onnx_model_dir and self.ref_text)
 
 
 class OpenAISpeechClient(BaseTTSClient):
@@ -478,6 +610,18 @@ def create_tts_client(provider: str, config: dict | None = None, api_key: str = 
             top_p=float(merged.get("top_p", 1.0) or 1.0),
             temperature=float(merged.get("temperature", 1.0) or 1.0),
             text_split_method=str(merged.get("text_split_method", "cut5")).strip() or "cut5",
+        )
+
+    if normalized == "genie_tts_http":
+        return GenieTTSHTTPClient(
+            api_url=str(merged.get("api_url", "http://127.0.0.1:7860")).strip(),
+            character_name=str(merged.get("character_name", "")).strip(),
+            onnx_model_dir=str(merged.get("onnx_model_dir", "")).strip(),
+            model_language=str(merged.get("model_language", "ja")).strip() or "ja",
+            ref_audio_path=str(merged.get("ref_audio_path", "assets/ref_audio/refvoice.wav")).strip(),
+            ref_text=str(merged.get("ref_text", "")).strip(),
+            ref_language=str(merged.get("ref_language", "ja")).strip() or "ja",
+            split_sentence=bool(merged.get("split_sentence", True)),
         )
 
     if normalized == "openai_audio_speech":

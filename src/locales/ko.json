@@ -190,6 +190,8 @@
   "settings.llm.provider.custom_api.label": "커스텀 API 엔드포인트",
   "settings.tts.provider.gpt_sovits_http.label": "GPT-SoVITS HTTP",
   "settings.tts.provider.gpt_sovits_http.hint": "참조 음성과 프롬프트 텍스트를 함께 사용하는 로컬 또는 원격 GPT-SoVITS 서버입니다.",
+  "settings.tts.provider.genie_tts_http.label": "Genie-TTS HTTP",
+  "settings.tts.provider.genie_tts_http.hint": "고정 캐릭터를 먼저 적재하고 참조 음성을 등록한 뒤 합성하는 Genie-TTS 서버입니다.",
   "settings.tts.provider.openai_audio_speech.label": "OpenAI Audio Speech",
   "settings.tts.provider.openai_audio_speech.hint": "OpenAI 공식 텍스트 음성 합성 엔드포인트입니다.",
   "settings.tts.provider.openai_compatible_audio_speech.label": "OpenAI 호환 음성 합성",
@@ -518,6 +520,56 @@
             "placeholder": "예: ja"
           },
           "hint": "참조 음성 기반 합성입니다. 로컬 서버나 별도 머신의 GPT-SoVITS 엔드포인트를 그대로 지정할 수 있습니다."
+        }
+      },
+      "genie": {
+        "connection": {
+          "title": "Genie 연결",
+          "api_url": {
+            "label": "API URL:",
+            "placeholder": "예: http://127.0.0.1:7860"
+          }
+        },
+        "character": {
+          "title": "캐릭터",
+          "name": {
+            "label": "캐릭터 이름:",
+            "placeholder": "예: ene"
+          },
+          "model_dir": {
+            "label": "ONNX 모델 폴더:",
+            "placeholder": "예: models/ene"
+          },
+          "model_language": {
+            "label": "모델 언어:",
+            "placeholder": "예: ja"
+          },
+          "hint": "Genie 서버가 캐릭터를 미리 적재할 수 있도록 캐릭터 이름, ONNX 모델 폴더, 모델 언어를 함께 저장합니다."
+        },
+        "reference": {
+          "title": "참조 음성",
+          "audio": {
+            "label": "참조 오디오:",
+            "placeholder": "예: assets/ref_audio/refvoice.wav",
+            "dialog": {
+              "title": "Genie 참조 오디오 선택",
+              "filter": "Audio Files (*.wav *.mp3 *.flac *.ogg);;모든 파일 (*.*)"
+            }
+          },
+          "text": {
+            "label": "참조 텍스트:",
+            "placeholder": "참조 오디오의 원문 텍스트"
+          },
+          "ref_language": {
+            "label": "참조 언어:",
+            "placeholder": "예: ja"
+          },
+          "hint": "Genie는 참조 음성을 서버에 먼저 등록하므로 오디오 경로, 원문 텍스트, 참조 언어가 모두 필요합니다."
+        },
+        "synthesis": {
+          "title": "합성",
+          "split_sentence": "문장 단위로 나눠 합성",
+          "hint": "긴 문장을 서버에서 먼저 분리하도록 맡기고 싶을 때 켭니다."
         }
       },
       "openai": {
