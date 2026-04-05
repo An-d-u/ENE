@@ -1,7 +1,10 @@
 ﻿import asyncio
+import io
+import wave
 import aiohttp
 import pytest
 
+from src.ai.audio_analyzer import RealtimeLipSyncAnalyzer, StreamingWavDecoder
 from src.ai.tts_client import TTSClient, create_tts_client, get_tts_provider_defaults
 
 
@@ -260,3 +263,103 @@ def test_gpt_sovits_client_resolves_relative_reference_audio_from_bundle_root(tm
     resolved = client._resolve_reference_audio_path()
 
     assert resolved == ref_audio.resolve()
+
+
+def test_streaming_wav_decoder_extracts_header_and_pcm_bytes():
+    pcm_samples = (b"\x00\x00" * 4) + (b"\x10\x27" * 4)
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(24000)
+        wav_file.writeframes(pcm_samples)
+    wav_bytes = buffer.getvalue()
+
+    decoder = StreamingWavDecoder()
+    audio_format, first_pcm = decoder.push(wav_bytes[:48])
+    _, second_pcm = decoder.push(wav_bytes[48:])
+
+    assert audio_format is not None
+    assert audio_format.sample_rate == 24000
+    assert audio_format.channels == 1
+    assert audio_format.sample_width == 2
+    assert first_pcm + second_pcm == pcm_samples
+
+
+def test_realtime_lip_sync_analyzer_generates_values_from_pcm_frames():
+    analyzer = RealtimeLipSyncAnalyzer(sample_rate=20, channels=1, sample_width=2, frame_duration_ms=100)
+    pcm_frame = (
+        (0).to_bytes(2, "little", signed=True)
+        + (0).to_bytes(2, "little", signed=True)
+        + (16000).to_bytes(2, "little", signed=True)
+        + (16000).to_bytes(2, "little", signed=True)
+    )
+
+    values = analyzer.push_pcm(pcm_frame)
+
+    assert len(values) == 2
+    assert values[0] == pytest.approx(0.0, abs=1e-6)
+    assert 0.1 < values[1] <= 1.0
+
+
+def test_gpt_sovits_client_stream_speech_yields_http_chunks(tmp_path, monkeypatch):
+    ref_audio = tmp_path / "ref.wav"
+    ref_audio.write_bytes(b"fake")
+    captured = {}
+
+    class DummyContent:
+        async def iter_chunked(self, size):
+            assert size == 4096
+            yield b"RIFF"
+            yield b"DATA"
+
+    class DummyResponse:
+        status = 200
+        content = DummyContent()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def text(self):
+            return ""
+
+    class DummySession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, url, json, timeout):
+            captured["url"] = url
+            captured["json"] = json
+            return DummyResponse()
+
+    async def collect_chunks(client):
+        chunks = []
+        async for chunk in client.stream_speech("안녕"):
+            chunks.append(chunk)
+        return chunks
+
+    monkeypatch.setattr(aiohttp, "ClientSession", DummySession)
+
+    client = create_tts_client(
+        "gpt_sovits_http",
+        {
+            "api_url": "http://127.0.0.1:9880",
+            "ref_audio_path": str(ref_audio),
+            "ref_text": "테스트 프롬프트",
+            "ref_language": "ja",
+            "target_language": "ko",
+        },
+    )
+
+    chunks = asyncio.run(collect_chunks(client))
+
+    assert getattr(client, "supports_streaming", False) is True
+    assert chunks == [b"RIFF", b"DATA"]
+    assert captured["url"] == "http://127.0.0.1:9880/tts"
+    assert captured["json"]["text"] == "안녕"

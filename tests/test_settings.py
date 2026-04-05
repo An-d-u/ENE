@@ -47,6 +47,19 @@ def test_load_missing_file_includes_genie_tts_defaults(tmp_path):
     assert genie["split_sentence"] is True
 
 
+def test_load_missing_file_includes_streaming_tts_defaults(tmp_path):
+    config_path = tmp_path / "config.json"
+    secret_path = tmp_path / "api_keys.json"
+    settings = Settings(config_path=str(config_path), secret_path=str(secret_path))
+
+    assert "tts_streaming_enabled" in Settings.DEFAULT_CONFIG
+    assert "tts_streaming_emit_message_on_first_chunk" in Settings.DEFAULT_CONFIG
+    assert "tts_streaming_enabled" in settings.config
+    assert "tts_streaming_emit_message_on_first_chunk" in settings.config
+    assert settings.get("tts_streaming_enabled", False) is False
+    assert settings.get("tts_streaming_emit_message_on_first_chunk", True) is True
+
+
 def test_settings_roundtrip_preserves_genie_tts_config(tmp_path):
     config_path = tmp_path / "config.json"
     secret_path = tmp_path / "api_keys.json"

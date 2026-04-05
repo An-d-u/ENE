@@ -309,6 +309,37 @@ def test_settings_dialog_translates_metadata_in_english():
         dialog.close()
 
 
+def test_settings_dialog_loads_and_saves_streaming_tts_toggle(monkeypatch):
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        monkeypatch.setattr(SettingsDialog, "_load_prompt_configuration", lambda self: None)
+
+        dialog = SettingsDialog(
+            {
+                "ui_language": "ko",
+                "llm_provider": "gemini",
+                "tts_provider": "gpt_sovits_http",
+                "enable_tts": True,
+                "tts_streaming_enabled": True,
+            }
+        )
+
+        assert dialog.tts_streaming_enabled_check.isChecked() is True
+
+        dialog.tts_streaming_enabled_check.setChecked(False)
+
+        values = dialog._get_current_values()
+
+        assert values["tts_streaming_enabled"] is False
+
+        dialog.close()
+
+
 def test_settings_dialog_exposes_language_selector_and_translated_static_strings(monkeypatch):
     _get_qapp()
     locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
