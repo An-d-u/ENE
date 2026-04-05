@@ -492,6 +492,9 @@ window.addEventListener('resize', () => {
         applyCurrentModelPlacement();
         console.log("Window resized, model repositioned");
     }
+    if (chatPanelHeightPx !== null) {
+        applyChatPanelHeight(chatPanelHeightPx);
+    }
 });
 window.addEventListener('load', () => {
     if (window.live2dModel || currentModelLoadToken > 0) {
@@ -1336,6 +1339,8 @@ async function changeExpression(emotion) {
 // ==========================================
 
 const chatMessages = document.getElementById('chat-messages');
+const chatContainer = document.getElementById('chat-container');
+const chatResizeHandle = document.getElementById('chat-resize-handle');
 const chatInput = document.getElementById('chat-input');
 const sendButton = document.getElementById('send-button');
 const manualSummarizeButton = document.getElementById('manual-summarize-floating-btn');
@@ -1407,6 +1412,124 @@ let currentUiStrings = null;
 let typingEffectEnabled = true;
 let typingEffectSpeed = 'normal';
 let messageSplitEnabled = false;
+let chatPanelHeightPx = null;
+let chatResizeState = null;
+
+function getChatPanelMinHeight() {
+    return 136;
+}
+
+function getChatPanelMaxHeight() {
+    return Math.max(getChatPanelMinHeight(), Math.min(window.innerHeight - 64, 560));
+}
+
+function clampChatPanelHeight(height) {
+    if (!Number.isFinite(height)) {
+        return null;
+    }
+    return Math.max(getChatPanelMinHeight(), Math.min(Math.round(height), getChatPanelMaxHeight()));
+}
+
+function applyChatPanelHeight(height, { persist = false } = {}) {
+    if (!chatContainer) {
+        return null;
+    }
+
+    const numericHeight = Number(height);
+    if (!Number.isFinite(numericHeight) || numericHeight <= 0) {
+        chatPanelHeightPx = null;
+        chatContainer.style.height = '';
+        chatContainer.style.maxHeight = 'min(360px, 42vh)';
+        return null;
+    }
+
+    const nextHeight = clampChatPanelHeight(numericHeight);
+    if (nextHeight === null) {
+        return null;
+    }
+
+    chatPanelHeightPx = nextHeight;
+    chatContainer.style.height = `${nextHeight}px`;
+    chatContainer.style.maxHeight = `${nextHeight}px`;
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+
+    if (persist && window.pyBridge && typeof window.pyBridge.save_chat_panel_height === 'function') {
+        window.pyBridge.save_chat_panel_height(String(nextHeight));
+    }
+
+    return nextHeight;
+}
+
+function finishChatPanelResize(pointerId = null, { persist = true } = {}) {
+    if (!chatResizeState) {
+        return;
+    }
+    if (pointerId !== null && chatResizeState.pointerId !== pointerId) {
+        return;
+    }
+
+    const finalHeight = chatPanelHeightPx;
+    chatResizeState = null;
+    if (chatResizeHandle) {
+        chatResizeHandle.classList.remove('is-dragging');
+        if (pointerId !== null && typeof chatResizeHandle.releasePointerCapture === 'function') {
+            try {
+                chatResizeHandle.releasePointerCapture(pointerId);
+            } catch (_) {
+            }
+        }
+    }
+    document.body.classList.remove('is-chat-resizing');
+
+    if (persist && finalHeight !== null && window.pyBridge && typeof window.pyBridge.save_chat_panel_height === 'function') {
+        window.pyBridge.save_chat_panel_height(String(finalHeight));
+    }
+}
+
+function onChatResizePointerDown(event) {
+    if (!chatResizeHandle || !chatContainer) {
+        return;
+    }
+    if (event.pointerType === 'mouse' && event.button !== 0) {
+        return;
+    }
+
+    const currentHeight = chatPanelHeightPx || chatContainer.getBoundingClientRect().height;
+    chatResizeState = {
+        pointerId: event.pointerId,
+        startY: event.clientY,
+        startHeight: currentHeight
+    };
+    setFloatingActionsOpen(false);
+    chatResizeHandle.classList.add('is-dragging');
+    document.body.classList.add('is-chat-resizing');
+    if (typeof chatResizeHandle.setPointerCapture === 'function') {
+        try {
+            chatResizeHandle.setPointerCapture(event.pointerId);
+        } catch (_) {
+        }
+    }
+    event.preventDefault();
+}
+
+function onChatResizePointerMove(event) {
+    if (!chatResizeState || chatResizeState.pointerId !== event.pointerId) {
+        return;
+    }
+
+    const deltaY = chatResizeState.startY - event.clientY;
+    const nextHeight = chatResizeState.startHeight + deltaY;
+    applyChatPanelHeight(nextHeight);
+    event.preventDefault();
+}
+
+function onChatResizePointerUp(event) {
+    finishChatPanelResize(event.pointerId, { persist: true });
+}
+
+window.setChatPanelHeight = function setChatPanelHeight(height) {
+    return applyChatPanelHeight(height);
+};
 
 function createLucideIcon(name) {
     const icons = {
@@ -2335,9 +2458,12 @@ function renderMessageBubbleSegments(messageDiv, text, { attachments = null, imm
 
     let animationQueue = Promise.resolve();
     segments.forEach((segment) => {
-        const { bubble, textSpan } = createTextMessageBubble();
-        stack.appendChild(bubble);
-        animationQueue = animationQueue.then(() => animateMessageText(textSpan, segment, { immediate }));
+        animationQueue = animationQueue.then(() => {
+            const { bubble, textSpan } = createTextMessageBubble();
+            stack.appendChild(bubble);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            return animateMessageText(textSpan, segment, { immediate });
+        });
     });
 
     chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -2842,6 +2968,14 @@ function autoResizeTextarea() {
     chatInput.style.height = 'auto';
     chatInput.style.height = chatInput.scrollHeight + 'px';
 }
+
+if (chatResizeHandle) {
+    chatResizeHandle.addEventListener('pointerdown', onChatResizePointerDown);
+    chatResizeHandle.addEventListener('pointermove', onChatResizePointerMove);
+    chatResizeHandle.addEventListener('pointerup', onChatResizePointerUp);
+    chatResizeHandle.addEventListener('pointercancel', () => finishChatPanelResize(null, { persist: false }));
+}
+
 sendButton.addEventListener('click', sendMessage);
 if (obsRefreshBtn) {
     obsRefreshBtn.addEventListener('click', () => {

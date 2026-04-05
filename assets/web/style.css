@@ -66,6 +66,38 @@ body {
     overflow: hidden;
 }
 
+#chat-resize-handle {
+    position: relative;
+    height: 12px;
+    flex-shrink: 0;
+    cursor: ns-resize;
+    touch-action: none;
+}
+
+#chat-resize-handle::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 56px;
+    height: 4px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.24);
+    transform: translate(-50%, -50%);
+    transition: background 0.18s ease, opacity 0.18s ease;
+    opacity: 0.9;
+}
+
+#chat-resize-handle:hover::before,
+#chat-resize-handle.is-dragging::before {
+    background: rgba(255, 255, 255, 0.42);
+}
+
+body.is-chat-resizing {
+    user-select: none;
+    cursor: ns-resize;
+}
+
 /* 메시지 리스트 */
 #chat-messages {
     flex: 1;
