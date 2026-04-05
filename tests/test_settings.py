@@ -31,6 +31,50 @@ def test_load_missing_file_uses_default_config(tmp_path):
     assert gpt_sovits["text_split_method"] == "cut5"
 
 
+def test_load_missing_file_includes_genie_tts_defaults(tmp_path):
+    config_path = tmp_path / "config.json"
+    secret_path = tmp_path / "api_keys.json"
+    settings = Settings(config_path=str(config_path), secret_path=str(secret_path))
+
+    genie = settings.get("tts_provider_configs")["genie_tts_http"]
+    assert genie["api_url"] == "http://127.0.0.1:7860"
+    assert genie["character_name"] == ""
+    assert genie["onnx_model_dir"] == ""
+    assert genie["model_language"] == "ja"
+    assert genie["ref_audio_path"] == "assets/ref_audio/refvoice.wav"
+    assert genie["ref_text"] == ""
+    assert genie["ref_language"] == "ja"
+    assert genie["split_sentence"] is True
+
+
+def test_settings_roundtrip_preserves_genie_tts_config(tmp_path):
+    config_path = tmp_path / "config.json"
+    secret_path = tmp_path / "api_keys.json"
+    settings = Settings(config_path=str(config_path), secret_path=str(secret_path))
+
+    provider_configs = settings.get("tts_provider_configs")
+    provider_configs["genie_tts_http"] = {
+        "api_url": "http://127.0.0.1:7860",
+        "character_name": "ene",
+        "onnx_model_dir": "models/ene",
+        "model_language": "ja",
+        "ref_audio_path": "assets/ref_audio/refvoice.wav",
+        "ref_text": "테스트 참조 문장",
+        "ref_language": "ja",
+        "split_sentence": False,
+    }
+    settings.set("tts_provider_configs", provider_configs)
+    settings.save()
+
+    reloaded = Settings(config_path=str(config_path), secret_path=str(secret_path))
+    genie = reloaded.get("tts_provider_configs")["genie_tts_http"]
+    assert genie["character_name"] == "ene"
+    assert genie["onnx_model_dir"] == "models/ene"
+    assert genie["model_language"] == "ja"
+    assert genie["ref_text"] == "테스트 참조 문장"
+    assert genie["split_sentence"] is False
+
+
 def test_save_and_reload_roundtrip(tmp_path):
     config_path = tmp_path / "config.json"
     secret_path = tmp_path / "api_keys.json"

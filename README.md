@@ -193,6 +193,19 @@ The settings window already covers most of what you will want to change in norma
 
 You can use ENE without touching most internals, but if something does not behave the way you expect, the settings window is the first place to check before editing the raw configuration files.
 
+### Genie-TTS HTTP Provider
+
+ENE now includes a dedicated `Genie-TTS HTTP` provider for Genie-TTS style servers.
+
+Before using it:
+
+- start the Genie-TTS API server first
+- open ENE settings and switch the TTS provider to `Genie-TTS HTTP`
+- fill in `API URL`, `Character Name`, and `ONNX Model Folder`
+- set the reference voice path, reference transcript, and reference language
+
+This provider uses a fixed character flow. On first synthesis, ENE loads the configured character, registers the reference audio, and then requests speech from the Genie server. If the reference audio path is wrong or the server is not already running, synthesis will fail until those values are corrected.
+
 ## Windows Release Build
 
 To build a portable Windows release locally:

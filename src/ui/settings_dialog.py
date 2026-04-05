@@ -2199,13 +2199,13 @@ class SettingsDialog(QDialog):
             return
         self.model_json_path_edit.setText(self._normalize_path_for_storage(selected))
 
-    def _browse_tts_ref_audio_path(self):
+    def _browse_tts_audio_path_into(self, target_edit, title_key: str, title_fallback: str):
         start_dir = self._bundle_root / "assets" / "ref_audio"
         if not start_dir.exists():
             start_dir = self._user_data_root / "assets" / "ref_audio"
         selected, _ = QFileDialog.getOpenFileName(
             self,
-            self._translated_text("settings.tts.gpt.reference.audio.dialog.title", "참조 오디오 선택"),
+            self._translated_text(title_key, title_fallback),
             str(start_dir),
             self._translated_text(
                 "settings.tts.gpt.reference.audio.dialog.filter",
@@ -2214,7 +2214,14 @@ class SettingsDialog(QDialog):
         )
         if not selected:
             return
-        self.tts_ref_audio_path_edit.setText(self._normalize_path_for_storage(selected))
+        target_edit.setText(self._normalize_path_for_storage(selected))
+
+    def _browse_tts_ref_audio_path(self):
+        self._browse_tts_audio_path_into(
+            self.tts_ref_audio_path_edit,
+            "settings.tts.gpt.reference.audio.dialog.title",
+            "참조 오디오 선택",
+        )
 
     @staticmethod
     def _build_tts_output_device_items(devices: list[dict], selected_device_id: str | None) -> list[tuple[str, str]]:
@@ -2516,6 +2523,16 @@ class SettingsDialog(QDialog):
                 "temperature": round(self.tts_gpt_temperature_spin.value(), 2),
                 "text_split_method": str(self.tts_gpt_text_split_combo.currentData() or "cut5"),
             },
+            "genie_tts_http": {
+                "api_url": self.tts_genie_api_url_edit.text().strip() or "http://127.0.0.1:7860",
+                "character_name": self.tts_genie_character_name_edit.text().strip(),
+                "onnx_model_dir": self.tts_genie_model_dir_edit.text().strip(),
+                "model_language": self.tts_genie_model_language_edit.text().strip() or "ja",
+                "ref_audio_path": self.tts_genie_ref_audio_path_edit.text().strip() or "assets/ref_audio/refvoice.wav",
+                "ref_text": self.tts_genie_ref_text_edit.toPlainText().strip(),
+                "ref_language": self.tts_genie_ref_language_edit.text().strip() or "ja",
+                "split_sentence": self.tts_genie_split_sentence_check.isChecked(),
+            },
             "openai_audio_speech": {
                 "api_url": self.tts_openai_api_url_edit.text().strip() or "https://api.openai.com/v1",
                 "model": str(self.tts_openai_model_combo.currentData() or "gpt-4o-mini-tts"),
@@ -2560,6 +2577,7 @@ class SettingsDialog(QDialog):
     def _load_tts_values(self):
         configs = self._tts_provider_configs
         gpt_sovits = {**get_tts_provider_defaults("gpt_sovits_http"), **configs.get("gpt_sovits_http", {})}
+        genie = {**get_tts_provider_defaults("genie_tts_http"), **configs.get("genie_tts_http", {})}
         openai = {**get_tts_provider_defaults("openai_audio_speech"), **configs.get("openai_audio_speech", {})}
         compatible = {**get_tts_provider_defaults("openai_compatible_audio_speech"), **configs.get("openai_compatible_audio_speech", {})}
         elevenlabs = {**get_tts_provider_defaults("elevenlabs"), **configs.get("elevenlabs", {})}
@@ -2592,6 +2610,15 @@ class SettingsDialog(QDialog):
             self.tts_gpt_text_split_combo.addItem(gpt_text_split_method, gpt_text_split_method)
             gpt_text_split_index = self.tts_gpt_text_split_combo.count() - 1
         self.tts_gpt_text_split_combo.setCurrentIndex(gpt_text_split_index)
+
+        self.tts_genie_api_url_edit.setText(str(genie.get("api_url", "http://127.0.0.1:7860")))
+        self.tts_genie_character_name_edit.setText(str(genie.get("character_name", "")))
+        self.tts_genie_model_dir_edit.setText(str(genie.get("onnx_model_dir", "")))
+        self.tts_genie_model_language_edit.setText(str(genie.get("model_language", "ja")))
+        self.tts_genie_ref_audio_path_edit.setText(str(genie.get("ref_audio_path", "assets/ref_audio/refvoice.wav")))
+        self.tts_genie_ref_text_edit.setPlainText(str(genie.get("ref_text", "")))
+        self.tts_genie_ref_language_edit.setText(str(genie.get("ref_language", "ja")))
+        self.tts_genie_split_sentence_check.setChecked(bool(genie.get("split_sentence", True)))
 
         self.tts_openai_api_key_edit.setText(str(self._tts_api_keys.get("openai_audio_speech", "")))
         self.tts_openai_api_url_edit.setText(str(openai.get("api_url", "https://api.openai.com/v1")))
@@ -3455,6 +3482,172 @@ class SettingsDialog(QDialog):
         gpt_layout.addStretch()
         self.tts_provider_stack.addWidget(gpt_page)
         self._tts_provider_pages["gpt_sovits_http"] = gpt_page
+
+        genie_page = QWidget()
+        genie_layout = QVBoxLayout(genie_page)
+        genie_layout.setSpacing(12)
+        genie_layout.setContentsMargins(0, 0, 0, 0)
+
+        genie_connection_group = QGroupBox("Genie 연결")
+        self._bind_group_title(genie_connection_group, "settings.tts.genie.connection.title", "Genie 연결")
+        genie_connection_form = QFormLayout(genie_connection_group)
+        genie_connection_form.setSpacing(8)
+        genie_connection_form.setContentsMargins(10, 15, 10, 10)
+        self.tts_genie_api_url_edit = QLineEdit()
+        self._bind_placeholder(
+            self.tts_genie_api_url_edit,
+            "settings.tts.genie.connection.api_url.placeholder",
+            "예: http://127.0.0.1:7860",
+        )
+        self.tts_genie_api_url_edit.textChanged.connect(self._on_setting_changed)
+        self._add_form_row(
+            genie_connection_form,
+            "settings.tts.genie.connection.api_url.label",
+            "API URL:",
+            self.tts_genie_api_url_edit,
+        )
+        genie_layout.addWidget(genie_connection_group)
+
+        genie_character_group = QGroupBox("캐릭터")
+        self._bind_group_title(genie_character_group, "settings.tts.genie.character.title", "캐릭터")
+        genie_character_form = QFormLayout(genie_character_group)
+        genie_character_form.setSpacing(8)
+        genie_character_form.setContentsMargins(10, 15, 10, 10)
+        self.tts_genie_character_name_edit = QLineEdit()
+        self._bind_placeholder(
+            self.tts_genie_character_name_edit,
+            "settings.tts.genie.character.name.placeholder",
+            "예: ene",
+        )
+        self.tts_genie_character_name_edit.textChanged.connect(self._on_setting_changed)
+        self._add_form_row(
+            genie_character_form,
+            "settings.tts.genie.character.name.label",
+            "캐릭터 이름:",
+            self.tts_genie_character_name_edit,
+        )
+        self.tts_genie_model_dir_edit = QLineEdit()
+        self._bind_placeholder(
+            self.tts_genie_model_dir_edit,
+            "settings.tts.genie.character.model_dir.placeholder",
+            "예: models/ene",
+        )
+        self.tts_genie_model_dir_edit.textChanged.connect(self._on_setting_changed)
+        self._add_form_row(
+            genie_character_form,
+            "settings.tts.genie.character.model_dir.label",
+            "ONNX 모델 폴더:",
+            self.tts_genie_model_dir_edit,
+        )
+        self.tts_genie_model_language_edit = QLineEdit()
+        self._bind_placeholder(
+            self.tts_genie_model_language_edit,
+            "settings.tts.genie.character.model_language.placeholder",
+            "예: ja",
+        )
+        self.tts_genie_model_language_edit.textChanged.connect(self._on_setting_changed)
+        self._add_form_row(
+            genie_character_form,
+            "settings.tts.genie.character.model_language.label",
+            "모델 언어:",
+            self.tts_genie_model_language_edit,
+        )
+        genie_character_form.addRow(
+            self._build_hint_label(
+                "Genie 서버가 캐릭터를 미리 적재할 수 있도록 캐릭터 이름, ONNX 모델 폴더, 모델 언어를 함께 저장합니다.",
+                key="settings.tts.genie.character.hint",
+            )
+        )
+        genie_layout.addWidget(genie_character_group)
+
+        genie_reference_group = QGroupBox("참조 음성")
+        self._bind_group_title(genie_reference_group, "settings.tts.genie.reference.title", "참조 음성")
+        genie_reference_form = QFormLayout(genie_reference_group)
+        genie_reference_form.setSpacing(8)
+        genie_reference_form.setContentsMargins(10, 15, 10, 10)
+        genie_audio_row = QHBoxLayout()
+        genie_audio_row.setSpacing(8)
+        self.tts_genie_ref_audio_path_edit = QLineEdit()
+        self._bind_placeholder(
+            self.tts_genie_ref_audio_path_edit,
+            "settings.tts.genie.reference.audio.placeholder",
+            "예: assets/ref_audio/refvoice.wav",
+        )
+        self.tts_genie_ref_audio_path_edit.textChanged.connect(self._on_setting_changed)
+        genie_audio_row.addWidget(self.tts_genie_ref_audio_path_edit, 1)
+        genie_browse_audio_btn = QPushButton("찾아보기")
+        self._bind_widget_text(genie_browse_audio_btn, "settings.common.browse", "찾아보기")
+        genie_browse_audio_btn.clicked.connect(
+            lambda: self._browse_tts_audio_path_into(
+                self.tts_genie_ref_audio_path_edit,
+                "settings.tts.genie.reference.audio.dialog.title",
+                "Genie 참조 오디오 선택",
+            )
+        )
+        genie_audio_row.addWidget(genie_browse_audio_btn)
+        self._add_form_row(
+            genie_reference_form,
+            "settings.tts.genie.reference.audio.label",
+            "참조 오디오:",
+            genie_audio_row,
+        )
+        self.tts_genie_ref_text_edit = QPlainTextEdit()
+        self._bind_placeholder(
+            self.tts_genie_ref_text_edit,
+            "settings.tts.genie.reference.text.placeholder",
+            "참조 오디오의 원문 텍스트",
+        )
+        self.tts_genie_ref_text_edit.setFixedHeight(96)
+        self.tts_genie_ref_text_edit.textChanged.connect(self._on_setting_changed)
+        self._add_form_row(
+            genie_reference_form,
+            "settings.tts.genie.reference.text.label",
+            "참조 텍스트:",
+            self.tts_genie_ref_text_edit,
+        )
+        self.tts_genie_ref_language_edit = QLineEdit()
+        self._bind_placeholder(
+            self.tts_genie_ref_language_edit,
+            "settings.tts.genie.reference.ref_language.placeholder",
+            "예: ja",
+        )
+        self.tts_genie_ref_language_edit.textChanged.connect(self._on_setting_changed)
+        self._add_form_row(
+            genie_reference_form,
+            "settings.tts.genie.reference.ref_language.label",
+            "참조 언어:",
+            self.tts_genie_ref_language_edit,
+        )
+        genie_reference_form.addRow(
+            self._build_hint_label(
+                "Genie는 참조 음성을 서버에 먼저 등록하므로 오디오 경로, 원문 텍스트, 참조 언어가 모두 필요합니다.",
+                key="settings.tts.genie.reference.hint",
+            )
+        )
+        genie_layout.addWidget(genie_reference_group)
+
+        genie_synthesis_group = QGroupBox("합성")
+        self._bind_group_title(genie_synthesis_group, "settings.tts.genie.synthesis.title", "합성")
+        genie_synthesis_form = QFormLayout(genie_synthesis_group)
+        genie_synthesis_form.setSpacing(8)
+        genie_synthesis_form.setContentsMargins(10, 15, 10, 10)
+        self.tts_genie_split_sentence_check = self._create_toggle(
+            "문장 단위로 나눠 합성",
+            key="settings.tts.genie.synthesis.split_sentence",
+        )
+        self.tts_genie_split_sentence_check.toggled.connect(self._on_setting_changed)
+        genie_synthesis_form.addRow(self.tts_genie_split_sentence_check)
+        genie_synthesis_form.addRow(
+            self._build_hint_label(
+                "긴 문장을 서버에서 먼저 분리하도록 맡기고 싶을 때 켭니다.",
+                key="settings.tts.genie.synthesis.hint",
+            )
+        )
+        genie_layout.addWidget(genie_synthesis_group)
+
+        genie_layout.addStretch()
+        self.tts_provider_stack.addWidget(genie_page)
+        self._tts_provider_pages["genie_tts_http"] = genie_page
 
         openai_page = QWidget()
         openai_layout = QVBoxLayout(openai_page)
