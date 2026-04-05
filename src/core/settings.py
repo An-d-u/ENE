@@ -119,6 +119,8 @@ class Settings:
         "gemini_api_key": "",
         "summarize_threshold": 10,
         "enable_tts": True,
+        "tts_streaming_enabled": False,
+        "tts_streaming_emit_message_on_first_chunk": True,
         "tts_output_device_id": "",
         "tts_output_volume": 0.8,
         "tts_provider": "gpt_sovits_http",

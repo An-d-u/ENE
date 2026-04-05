@@ -487,6 +487,7 @@
       "overview": {
         "title": "Provider selection",
         "enable": "Enable TTS for Japanese responses",
+        "streaming_enabled": "Use GPT-SoVITS streaming TTS",
         "provider": "Provider:"
       },
       "gpt": {

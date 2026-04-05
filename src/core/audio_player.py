@@ -1,4 +1,4 @@
-"""
+﻿"""
 오디오 재생 관리
 """
 import os
@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import QUrl, QObject, pyqtSignal
+from PyQt6.QtCore import QTimer, QUrl, QObject, pyqtSignal
 
 if TYPE_CHECKING:
     from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
@@ -16,6 +16,12 @@ def _load_qt_multimedia():
     from PyQt6.QtMultimedia import QAudioOutput, QMediaDevices, QMediaPlayer
 
     return QAudioOutput, QMediaDevices, QMediaPlayer
+
+
+def _load_qt_streaming_audio():
+    from PyQt6.QtMultimedia import QAudio, QAudioFormat, QAudioSink, QMediaDevices
+
+    return QAudio, QAudioFormat, QAudioSink, QMediaDevices
 
 
 class AudioPlayer(QObject):
@@ -44,6 +50,13 @@ class AudioPlayer(QObject):
 
         # 현재 출력 장치 상태
         self.output_device_id = ""
+        self.stream_sink = None
+        self.stream_device = None
+        self._stream_pending_pcm = bytearray()
+        self._stream_finished = False
+        self._stream_timer = QTimer(self)
+        self._stream_timer.setSingleShot(True)
+        self._stream_timer.timeout.connect(self._flush_stream_pcm)
 
         self.set_output_device(output_device_id)
         self.set_volume(volume)
@@ -138,6 +151,58 @@ class AudioPlayer(QObject):
         except Exception as e:
             print(f"[AudioPlayer] Error playing audio: {e}")
             self.playback_error.emit(str(e))
+
+    def start_stream(self, sample_rate: int, channels: int = 1, sample_width: int = 2):
+        """PCM 스트리밍 재생을 시작한다."""
+        try:
+            self.stop()
+
+            QAudio, QAudioFormat, QAudioSink, QMediaDevices = _load_qt_streaming_audio()
+
+            audio_format = QAudioFormat()
+            audio_format.setSampleRate(max(1, int(sample_rate)))
+            audio_format.setChannelCount(max(1, int(channels)))
+            if int(sample_width) == 1:
+                audio_format.setSampleFormat(QAudioFormat.SampleFormat.UInt8)
+            elif int(sample_width) == 2:
+                audio_format.setSampleFormat(QAudioFormat.SampleFormat.Int16)
+            else:
+                audio_format.setSampleFormat(QAudioFormat.SampleFormat.Int32)
+
+            target_device = self.resolve_output_device(self.output_device_id)
+            if target_device is None:
+                target_device = QMediaDevices.defaultAudioOutput()
+
+            self.stream_sink = QAudioSink(target_device, audio_format)
+            self.stream_sink.setVolume(self.audio_output.volume())
+            self.stream_sink.stateChanged.connect(self._on_stream_state_changed)
+            self.stream_device = self.stream_sink.start()
+            self._stream_pending_pcm.clear()
+            self._stream_finished = False
+            print(
+                f"[AudioPlayer] Streaming audio started: {audio_format.sampleRate()}Hz, "
+                f"{audio_format.channelCount()}ch, format={audio_format.sampleFormat().name}"
+            )
+        except Exception as e:
+            print(f"[AudioPlayer] Error starting stream audio: {e}")
+            self.playback_error.emit(str(e))
+
+    def append_stream_pcm(self, pcm_data: bytes):
+        """스트리밍 PCM 청크를 재생 버퍼에 추가한다."""
+        if not pcm_data:
+            return
+        self._stream_pending_pcm.extend(pcm_data)
+        self._flush_stream_pcm()
+
+    def finish_stream(self):
+        """더 이상 들어올 PCM이 없음을 표시한다."""
+        self._stream_finished = True
+        self._flush_stream_pcm()
+        if self.stream_device is not None and not self._stream_pending_pcm:
+            try:
+                self.stream_device.close()
+            except Exception:
+                pass
     
     def _delete_old_file(self, file_path: str):
         """이전 임시 파일 삭제 (지연 실행)"""
@@ -152,6 +217,7 @@ class AudioPlayer(QObject):
         """재생 중지"""
         if self.player.playbackState() != self._media_player_class.PlaybackState.StoppedState:
             self.player.stop()
+        self._stop_stream_playback()
 
     def set_output_device(self, output_device_id: str):
         """재생 출력 장치를 설정한다. 비어 있으면 시스템 기본 장치를 사용한다."""
@@ -177,6 +243,8 @@ class AudioPlayer(QObject):
         """
         volume = self.normalize_volume(volume)
         self.audio_output.setVolume(volume)
+        if self.stream_sink is not None:
+            self.stream_sink.setVolume(volume)
         print(f"[AudioPlayer] Volume set to {volume:.2f}")
     
     def _on_media_status_changed(self, status):
@@ -192,6 +260,79 @@ class AudioPlayer(QObject):
         """에러 발생 이벤트"""
         print(f"[AudioPlayer] Error: {error_string}")
         self.playback_error.emit(error_string)
+
+    def _flush_stream_pcm(self):
+        if self.stream_sink is None or self.stream_device is None:
+            return
+
+        while self._stream_pending_pcm:
+            bytes_free = int(self.stream_sink.bytesFree())
+            if bytes_free <= 0:
+                break
+            chunk = bytes(self._stream_pending_pcm[:bytes_free])
+            written = int(self.stream_device.write(chunk))
+            if written <= 0:
+                break
+            del self._stream_pending_pcm[:written]
+
+        if self._stream_pending_pcm:
+            self._stream_timer.start(5)
+            return
+
+        if self._stream_finished and self.stream_device is not None:
+            try:
+                self.stream_device.close()
+            except Exception:
+                pass
+
+    def _stop_stream_playback(self):
+        if self._stream_timer.isActive():
+            self._stream_timer.stop()
+        self._stream_pending_pcm.clear()
+        self._stream_finished = False
+        if self.stream_device is not None:
+            try:
+                self.stream_device.close()
+            except Exception:
+                pass
+            self.stream_device = None
+        if self.stream_sink is not None:
+            try:
+                self.stream_sink.stop()
+            except Exception:
+                pass
+            self.stream_sink = None
+
+    def _on_stream_state_changed(self, state):
+        try:
+            QAudio, _, _, _ = _load_qt_streaming_audio()
+            error = self.stream_sink.error() if self.stream_sink is not None else QAudio.Error.NoError
+        except Exception:
+            QAudio = None
+            error = None
+
+        if self._stream_pending_pcm:
+            self._flush_stream_pcm()
+
+        if (
+            QAudio is not None
+            and state == QAudio.State.IdleState
+            and self._stream_finished
+            and not self._stream_pending_pcm
+        ):
+            print("[AudioPlayer] Streaming playback finished")
+            self._stop_stream_playback()
+            self.playback_finished.emit()
+            return
+
+        if (
+            QAudio is not None
+            and state == QAudio.State.StoppedState
+            and error not in (None, QAudio.Error.NoError, QAudio.Error.UnderrunError)
+        ):
+            error_text = f"Streaming audio error: {error}"
+            print(f"[AudioPlayer] {error_text}")
+            self.playback_error.emit(error_text)
     
     def cleanup(self):
         """리소스 정리"""
