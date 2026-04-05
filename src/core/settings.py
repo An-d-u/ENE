@@ -33,6 +33,7 @@ class Settings:
         "typing_effect_enabled": True,
         "typing_effect_speed": "normal",
         "message_split_enabled": False,
+        "chat_panel_height": 0,
         "enable_global_ptt": True,
         "global_ptt_hotkey": "alt",
         "interrupt_tts_on_ptt": True,

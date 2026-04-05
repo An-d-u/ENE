@@ -95,6 +95,20 @@ def test_attach_button_centers_within_input_row():
     assert "align-self: center;" in block
 
 
+def test_chat_resize_handle_markup_exists_above_messages():
+    html = (WEB_DIR / "index.html").read_text(encoding="utf-8-sig")
+    assert 'id="chat-resize-handle"' in html
+    assert '<div id="chat-resize-handle"' in html
+    assert html.index('id="chat-resize-handle"') < html.index('id="chat-messages"')
+
+
+def test_chat_resize_handle_uses_vertical_drag_styles():
+    block = _rule_block("#chat-resize-handle")
+    assert "cursor: ns-resize;" in block
+    assert "touch-action: none;" in block
+    assert "flex-shrink: 0;" in block
+
+
 def test_chat_script_defines_typing_effect_speed_guards():
     script = _script_text()
     assert "const MESSAGE_TYPING_BASE_INTERVAL_MS =" in script
@@ -107,6 +121,13 @@ def test_chat_script_reuses_typing_renderer_for_new_and_replaced_messages():
     assert "function renderMessageBubbleSegments(" in script
     assert "animateMessageText(textSpan, segment, { immediate })" in script
     assert "renderMessageBubbleSegments(lastAssistantMessageEl, text" in script
+
+
+def test_chat_script_creates_split_bubbles_only_when_each_segment_starts_typing():
+    script = _script_text()
+    assert "animationQueue = animationQueue.then(() => {" in script
+    assert "const { bubble, textSpan } = createTextMessageBubble();" in script
+    assert "stack.appendChild(bubble);" in script
 
 
 def test_chat_script_exposes_runtime_typing_config_hook():
@@ -147,3 +168,12 @@ def test_chat_script_routes_recent_user_edit_through_logical_message_container()
     script = _script_text()
     assert "openInlineEdit(lastUserMessageEl);" in script
     assert "function getMessageLogicalText(" in script
+
+
+def test_chat_script_exposes_chat_panel_height_restore_and_drag_persistence():
+    script = _script_text()
+    assert "const chatResizeHandle = document.getElementById('chat-resize-handle');" in script
+    assert "function applyChatPanelHeight(height, { persist = false } = {})" in script
+    assert "window.setChatPanelHeight = function setChatPanelHeight(height)" in script
+    assert "window.pyBridge.save_chat_panel_height(String(nextHeight));" in script
+    assert "chatResizeHandle.addEventListener('pointerdown'" in script

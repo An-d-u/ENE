@@ -1465,6 +1465,25 @@ class WebBridge(QObject):
         if callable(self._settings_dialog_opener):
             self._settings_dialog_opener()
 
+    @pyqtSlot(str)
+    def save_chat_panel_height(self, height: str):
+        """JS에서 호출: 채팅 패널 높이를 설정에 저장한다."""
+        if not self.settings:
+            return
+
+        try:
+            numeric_height = int(float(str(height or "0").strip()))
+        except Exception:
+            numeric_height = 0
+
+        numeric_height = max(0, min(numeric_height, 4096))
+
+        try:
+            self.settings.set("chat_panel_height", numeric_height)
+            self.settings.save()
+        except Exception as e:
+            print(f"[Bridge] chat panel height save failed: {e}")
+
     def _start_obs_tree_refresh(self, allow_retry: bool = False, retry_sequence: bool = False):
         """Obsidian 트리 갱신을 백그라운드 워커로 실행한다."""
         if self.obs_tree_worker and self.obs_tree_worker.isRunning():
