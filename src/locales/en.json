@@ -190,6 +190,8 @@
   "settings.llm.provider.custom_api.label": "Custom API Endpoint",
   "settings.tts.provider.gpt_sovits_http.label": "GPT-SoVITS HTTP",
   "settings.tts.provider.gpt_sovits_http.hint": "Local or remote GPT-SoVITS server that uses reference audio and prompt text.",
+  "settings.tts.provider.genie_tts_http.label": "Genie-TTS HTTP",
+  "settings.tts.provider.genie_tts_http.hint": "Genie-TTS server that preloads a fixed character, registers reference audio, and then synthesizes speech.",
   "settings.tts.provider.openai_audio_speech.label": "OpenAI Audio Speech",
   "settings.tts.provider.openai_audio_speech.hint": "Official OpenAI text-to-speech endpoint.",
   "settings.tts.provider.openai_compatible_audio_speech.label": "OpenAI-Compatible Speech",
@@ -518,6 +520,56 @@
             "placeholder": "e.g. ja"
           },
           "hint": "This uses reference-voice synthesis, so you can point directly at a local or remote GPT-SoVITS endpoint."
+        }
+      },
+      "genie": {
+        "connection": {
+          "title": "Genie connection",
+          "api_url": {
+            "label": "API URL:",
+            "placeholder": "e.g. http://127.0.0.1:7860"
+          }
+        },
+        "character": {
+          "title": "Character",
+          "name": {
+            "label": "Character name:",
+            "placeholder": "e.g. ene"
+          },
+          "model_dir": {
+            "label": "ONNX model folder:",
+            "placeholder": "e.g. models/ene"
+          },
+          "model_language": {
+            "label": "Model language:",
+            "placeholder": "e.g. ja"
+          },
+          "hint": "Store the character name, ONNX model folder, and model language together so the Genie server can preload the character."
+        },
+        "reference": {
+          "title": "Reference voice",
+          "audio": {
+            "label": "Reference audio:",
+            "placeholder": "e.g. assets/ref_audio/refvoice.wav",
+            "dialog": {
+              "title": "Choose Genie reference audio",
+              "filter": "Audio Files (*.wav *.mp3 *.flac *.ogg);;All files (*.*)"
+            }
+          },
+          "text": {
+            "label": "Reference text:",
+            "placeholder": "Transcript of the reference audio"
+          },
+          "ref_language": {
+            "label": "Reference language:",
+            "placeholder": "e.g. ja"
+          },
+          "hint": "Genie registers the reference voice on the server first, so it needs the audio path, transcript, and reference language together."
+        },
+        "synthesis": {
+          "title": "Synthesis",
+          "split_sentence": "Split by sentence before synthesis",
+          "hint": "Enable this if you want the server to break long text into sentence-sized chunks first."
         }
       },
       "openai": {

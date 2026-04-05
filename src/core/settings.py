@@ -140,6 +140,16 @@ class Settings:
                 "temperature": 1.0,
                 "text_split_method": "cut5",
             },
+            "genie_tts_http": {
+                "api_url": "http://127.0.0.1:7860",
+                "character_name": "",
+                "onnx_model_dir": "",
+                "model_language": "ja",
+                "ref_audio_path": "assets/ref_audio/refvoice.wav",
+                "ref_text": "",
+                "ref_language": "ja",
+                "split_sentence": True,
+            },
             "openai_audio_speech": {
                 "api_url": "https://api.openai.com/v1",
                 "model": "gpt-4o-mini-tts",
