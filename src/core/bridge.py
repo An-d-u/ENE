@@ -23,6 +23,7 @@ from ..conversation_format import prepend_message_time, role_label_for_context
 from ..ai.diary_service import DiaryService
 from ..ai.note_service import NoteService, NoteCommand, NoteCommandResult, NotePlan
 from ..ai.obsidian_manager import ObsidianManager
+from ..ai.promise_reminder_manager import GENERIC_PROMISE_TITLE, extract_promise_candidates
 from .chat_attachments import (
     build_attachment_context_block,
     build_attachment_note,
@@ -1691,6 +1692,7 @@ class WebBridge(QObject):
 
         self._mark_user_activity()
         self._append_conversation("user", message, timestamp)
+        self._store_local_promise_candidates(message, timestamp, source="user")
         if self.mood_manager:
             snapshot = self.mood_manager.on_user_message(message, image_count=0)
             self._emit_mood_changed(snapshot)
@@ -1785,6 +1787,7 @@ class WebBridge(QObject):
         attachment_note = build_attachment_note(ready_attachments)
         history_message = ((message or "").strip() or "(첨부)") + attachment_note
         self._append_conversation("user", history_message, timestamp)
+        self._store_local_promise_candidates(effective_message, timestamp, source="user")
         if self.mood_manager:
             snapshot = self.mood_manager.on_user_message(effective_message, image_count=len(image_attachments))
             self._emit_mood_changed(snapshot)
@@ -2038,6 +2041,9 @@ class WebBridge(QObject):
         store_promises = getattr(self, "_store_scheduled_promises", None)
         if callable(store_promises):
             store_promises(scheduled_promises or [])
+        maybe_store_assistant_promises = getattr(self, "_maybe_store_assistant_promise_candidates", None)
+        if callable(maybe_store_assistant_promises):
+            maybe_store_assistant_promises(text)
         
         # TTS 재생 (일본어가 있고 TTS가 활성화되어 있으면)
         if japanese_text and self.enable_tts and self.tts_client and self.audio_player:
@@ -2081,14 +2087,43 @@ class WebBridge(QObject):
                 continue
             title = str(item.get("title", "") or "").strip()
             trigger_at = str(item.get("trigger_at", "") or "").strip()
+            source_excerpt = str(item.get("source_excerpt", "") or "").strip()
             if not title or not trigger_at:
+                continue
+            existing = self.promise_manager.find_similar_promise(
+                title=title,
+                trigger_at=trigger_at,
+                source_excerpt=source_excerpt,
+                include_statuses=("scheduled", "queued", "missed", "triggered"),
+            )
+            if existing:
+                existing_id = ""
+                existing_title = ""
+                if isinstance(existing, dict):
+                    existing_id = str(existing.get("id", "") or "").strip()
+                    existing_title = str(existing.get("title", "") or "").strip()
+                else:
+                    existing_id = str(getattr(existing, "id", "") or "").strip()
+                    existing_title = str(getattr(existing, "title", "") or "").strip()
+                updater = getattr(self.promise_manager, "update_promise_title", None)
+                if (
+                    existing_id
+                    and existing_title == GENERIC_PROMISE_TITLE
+                    and title
+                    and title != GENERIC_PROMISE_TITLE
+                    and callable(updater)
+                ):
+                    updater(existing_id, title)
+                    emit_items = getattr(self, "_emit_promise_items_updated", None)
+                    if callable(emit_items):
+                        emit_items()
                 continue
             stored.append(
                 self.promise_manager.add_promise(
                     title=title,
                     trigger_at=trigger_at,
                     source=str(item.get("source", "") or "user"),
-                    source_excerpt=str(item.get("source_excerpt", "") or "").strip(),
+                    source_excerpt=source_excerpt,
                 )
             )
 
@@ -2098,6 +2133,87 @@ class WebBridge(QObject):
             if callable(emit_items):
                 emit_items()
         return stored
+
+    def _store_local_promise_candidates(
+        self,
+        source_text: str,
+        timestamp: str,
+        source: str = "user",
+    ) -> list:
+        """LLM 태그가 없어도 사용자 원문에서 약속을 보수적으로 추출해 저장한다."""
+        if not self.promise_manager:
+            return []
+
+        candidates = extract_promise_candidates(source_text, now=timestamp, source=source)
+        if not candidates:
+            return []
+
+        stored = []
+        for item in candidates:
+            existing = self.promise_manager.find_similar_promise(
+                title=str(item.get("title", "") or "").strip(),
+                trigger_at=str(item.get("trigger_at", "") or "").strip(),
+                source_excerpt=str(item.get("source_excerpt", "") or "").strip(),
+                include_statuses=("scheduled", "queued", "missed", "triggered"),
+            )
+            if existing:
+                continue
+            stored.append(
+                self.promise_manager.add_promise(
+                    title=str(item.get("title", "") or "").strip(),
+                    trigger_at=str(item.get("trigger_at", "") or "").strip(),
+                    source=str(item.get("source", "") or source).strip() or source,
+                    source_excerpt=str(item.get("source_excerpt", "") or "").strip(),
+                )
+            )
+
+        if stored:
+            self.promise_notice.emit("대화 약속이 저장되었습니다.", "success")
+            self._emit_promise_items_updated()
+        return stored
+
+    def _maybe_store_assistant_promise_candidates(self, source_text: str) -> list:
+        """명시적인 예약 요청 직후라면 assistant 응답에서도 약속 후보를 보수적으로 저장한다."""
+        if not self.promise_manager:
+            return []
+
+        latest_user_text = ""
+        latest_user_timestamp = ""
+        for item in reversed(list(getattr(self, "conversation_buffer", []) or [])):
+            if not item or len(item) < 2:
+                continue
+            role = str(item[0] or "").strip().lower()
+            if role != "user":
+                continue
+            latest_user_text = str(item[1] or "").strip()
+            latest_user_timestamp = str(item[2] or "").strip() if len(item) >= 3 and item[2] else ""
+            break
+
+        if not latest_user_text:
+            return []
+
+        normalized = re.sub(r"\s+", " ", latest_user_text).strip().lower()
+        explicit_schedule_request = (
+            (
+                ("예정" in normalized)
+                or ("약속" in normalized)
+                or ("리마인드" in normalized)
+                or ("예약" in normalized)
+                or ("일정" in normalized)
+            )
+            and (
+                ("잡아" in normalized)
+                or ("등록" in normalized)
+                or ("저장" in normalized)
+                or ("추가" in normalized)
+                or ("만들" in normalized)
+            )
+        )
+        if not explicit_schedule_request:
+            return []
+
+        base_timestamp = latest_user_timestamp or self._now_timestamp()
+        return self._store_local_promise_candidates(source_text, base_timestamp, source="assistant")
 
     def _enqueue_due_promise(self, payload: dict) -> None:
         """현재 생성 중이면 약속 발화를 큐에 넣고, 아니면 즉시 시작한다."""

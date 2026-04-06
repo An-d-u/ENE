@@ -1,12 +1,121 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List
+import re
 import uuid
 
 from ..core.app_paths import load_json_data, resolve_user_storage_path, save_json_data
+
+
+PROMISE_TIMEZONE = timezone(timedelta(hours=9))
+GENERIC_PROMISE_TITLE = "대화 약속"
+RELATIVE_PROMISE_PATTERNS = (
+    re.compile(r"(?P<amount>\d+)\s*(?P<unit>분|시간|일)\s*(?:뒤|후)"),
+    re.compile(r"(?P<amount>\d+)\s*(?P<unit>분|시간)\s*만\b"),
+)
+ABSOLUTE_PROMISE_PATTERN = re.compile(
+    r"(?:(?P<day>오늘|내일|모레)\s*)?"
+    r"(?:(?P<ampm>오전|오후)\s*)?"
+    r"(?P<hour>\d{1,2})\s*시"
+    r"(?:\s*(?P<minute>\d{1,2})\s*분?)?"
+)
+
+
+def _coerce_base_datetime(now: str | datetime | None = None) -> datetime:
+    if isinstance(now, datetime):
+        base = now
+    elif isinstance(now, str):
+        parsed = None
+        for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S"):
+            try:
+                parsed = datetime.strptime(now, fmt)
+                break
+            except ValueError:
+                continue
+        base = parsed or datetime.fromisoformat(now)
+    else:
+        base = datetime.now(PROMISE_TIMEZONE)
+
+    if base.tzinfo is None:
+        return base.replace(tzinfo=PROMISE_TIMEZONE)
+    return base.astimezone(PROMISE_TIMEZONE)
+
+
+def _normalize_promise_text(text: str) -> str:
+    cleaned = re.sub(r"\s+", " ", str(text or "").strip())
+    cleaned = cleaned.strip(" .,!?:;\"'`~")
+    return cleaned
+
+
+def _infer_promise_title(text: str) -> str:
+    _ = text
+    return GENERIC_PROMISE_TITLE
+
+
+def _parse_relative_trigger(text: str, base_dt: datetime) -> datetime | None:
+    earliest: tuple[int, datetime] | None = None
+    for pattern in RELATIVE_PROMISE_PATTERNS:
+        for match in pattern.finditer(text):
+            amount = int(match.group("amount"))
+            unit = match.group("unit")
+            if amount <= 0:
+                continue
+            if unit == "분":
+                trigger_at = base_dt + timedelta(minutes=amount)
+            elif unit == "시간":
+                trigger_at = base_dt + timedelta(hours=amount)
+            else:
+                trigger_at = base_dt + timedelta(days=amount)
+            if earliest is None or match.start() < earliest[0]:
+                earliest = (match.start(), trigger_at)
+    return earliest[1] if earliest else None
+
+
+def _parse_absolute_trigger(text: str, base_dt: datetime) -> datetime | None:
+    match = ABSOLUTE_PROMISE_PATTERN.search(text)
+    if not match:
+        return None
+
+    hour = int(match.group("hour"))
+    minute = int(match.group("minute") or 0)
+    ampm = str(match.group("ampm") or "").strip()
+    day_token = str(match.group("day") or "").strip()
+
+    if ampm == "오후" and hour < 12:
+        hour += 12
+    elif ampm == "오전" and hour == 12:
+        hour = 0
+
+    day_offset = {"": 0, "오늘": 0, "내일": 1, "모레": 2}.get(day_token, 0)
+    candidate = base_dt.replace(hour=hour % 24, minute=minute, second=0, microsecond=0) + timedelta(days=day_offset)
+    if day_token:
+        return candidate
+    if candidate > base_dt:
+        return candidate
+    return None
+
+
+def extract_promise_candidates(text: str, now: str | datetime | None = None, source: str = "user") -> list[dict]:
+    normalized = _normalize_promise_text(text)
+    if not normalized:
+        return []
+
+    base_dt = _coerce_base_datetime(now)
+    trigger_at = _parse_relative_trigger(normalized, base_dt) or _parse_absolute_trigger(normalized, base_dt)
+    if trigger_at is None or trigger_at <= base_dt:
+        return []
+
+    return [
+        {
+            "title": _infer_promise_title(normalized),
+            "trigger_at": trigger_at.isoformat(timespec="seconds"),
+            "source": str(source or "user").strip() or "user",
+            "source_excerpt": normalized,
+        }
+    ]
 
 
 @dataclass
@@ -88,6 +197,66 @@ class PromiseReminderManager:
         self.items.sort(key=lambda item: item.trigger_at)
         self.save()
         return created
+
+    def update_promise_title(self, reminder_id: str, title: str) -> bool:
+        normalized_title = str(title or "").strip()
+        if not reminder_id or not normalized_title:
+            return False
+        for item in self.items:
+            if item.id != reminder_id:
+                continue
+            if item.title == normalized_title:
+                return False
+            item.title = normalized_title
+            self.save()
+            return True
+        return False
+
+    def find_similar_promise(
+        self,
+        *,
+        title: str,
+        trigger_at: str,
+        source_excerpt: str = "",
+        include_statuses: tuple[str, ...] | list[str] | None = None,
+        tolerance_seconds: int = 120,
+    ) -> PromiseReminder | None:
+        allowed_statuses = None
+        if include_statuses:
+            allowed_statuses = {str(status or "").strip() for status in include_statuses if str(status or "").strip()}
+
+        normalized_title = _normalize_promise_text(title)
+        normalized_excerpt = _normalize_promise_text(source_excerpt)
+        try:
+            target_dt = datetime.fromisoformat(str(trigger_at or "").strip())
+        except Exception:
+            return None
+
+        for item in self.items:
+            if allowed_statuses is not None and item.status not in allowed_statuses:
+                continue
+            try:
+                item_dt = datetime.fromisoformat(item.trigger_at)
+            except Exception:
+                continue
+            if abs((item_dt - target_dt).total_seconds()) > max(0, tolerance_seconds):
+                continue
+
+            item_title = _normalize_promise_text(item.title)
+            item_excerpt = _normalize_promise_text(item.source_excerpt)
+            same_title = normalized_title != _normalize_promise_text(GENERIC_PROMISE_TITLE) and bool(normalized_title) and (
+                item_title == normalized_title
+                or (len(normalized_title) >= 2 and normalized_title in item_title)
+                or (len(item_title) >= 2 and item_title in normalized_title)
+            )
+            same_excerpt = bool(normalized_excerpt) and (
+                item_excerpt == normalized_excerpt
+                or (len(normalized_excerpt) >= 4 and normalized_excerpt in item_excerpt)
+                or (len(item_excerpt) >= 4 and item_excerpt in normalized_excerpt)
+            )
+            if same_title or same_excerpt:
+                return item
+        return None
 
     def list_promises(self) -> List[PromiseReminder]:
         return list(sorted(self.items, key=lambda item: item.trigger_at))

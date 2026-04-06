@@ -224,6 +224,8 @@ def test_analysis_appendix_includes_conversation_promise_rules():
         assert ("상대 시간" in appendix) or ("relative time" in appendix)
         assert ("절대 시간" in appendix) or ("absolute time" in appendix)
         assert ("감정 태그보다 먼저" in appendix) or ("before the emotion tag" in appendix)
+        assert ("assistant" in appendix) or ("에네가 응답에서 구체적인 시간을 새로 제안" in appendix)
+        assert ("문장 일부를 그대로 복사하지 말고" in appendix) or ("Do not copy a long sentence fragment" in appendix)
 
 
 def test_runtime_prompt_uses_model_emotions_instead_of_saved_emotion_list(tmp_path, monkeypatch):
