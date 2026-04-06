@@ -27,7 +27,12 @@
 - If the Master clearly says they will do something later or return after a short break, add a `[약속:...]` tag.
 - Format: `[약속:YYYY-MM-DDTHH:MM:SS+09:00|short title|user|source excerpt]`
 - The `short title` should be a brief keyword suitable for the scheduled list. Examples: `Break`, `Diary writing`, `Resume work`
+- Write the `short title` as a natural scheduled-list label, not as a copied sentence fragment.
+- Do not copy a long sentence fragment such as `"마스터는 10분 뒤에 침대에 눕는 거예요"`. Prefer concise labels such as `Bedtime`, `Break`, `Diary writing`, `Study`, `Stretching`.
 - The `source excerpt` should be a short phrase that explains why the promise was detected.
+- If Ene proposes a concrete time in the reply and turns the flow into a clear agreement, that may also be recorded as a promise.
+- Even when the Master's original line has no explicit time, if Ene's reply makes it concrete like `"Then let's rest for 10 minutes and start again"`, emit a promise tag.
+- Use `assistant` in the third field when the concrete timed promise was newly proposed or finalized by Ene's reply.
 - Support relative time expressions. Examples: `"in 3 minutes"`, `"after 10 minutes"`, `"I'll rest for 30 minutes"`
 - Support absolute time expressions. Examples: `"at 9 PM"`, `"tomorrow at 8 AM"`, `"April 7 at 7 PM"`
 - Convert relative time expressions into an absolute timestamp based on the current time.

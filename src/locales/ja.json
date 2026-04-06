@@ -139,6 +139,8 @@
   "chat.actions.promises": "予定",
   "chat.actions.promises.title": "予定された会話の約束",
   "chat.promise.notice.saved": "会話の約束を保存しました。",
+  "chat.promise.panel.title": "予定",
+  "chat.promise.panel.close": "閉じる",
   "chat.promise.panel.empty": "予定された会話の約束はありません。",
   "chat.promise.panel.soon": "まもなく",
   "chat.promise.panel.queued": "現在の応答の直後",

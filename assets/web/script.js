@@ -71,6 +71,8 @@ const DEFAULT_UI_STRINGS = {
         saved: 'Conversation promise saved.'
     },
     promisePanel: {
+        title: 'Scheduled',
+        close: 'Close',
         empty: 'No scheduled conversation promises.',
         soon: 'Soon',
         queued: 'Right after the current reply',
@@ -1378,6 +1380,9 @@ const moodToggleButton = document.getElementById('mood-toggle-floating-btn');
 const obsNoteButton = document.getElementById('obs-note-floating-btn');
 const promiseRemindersButton = document.getElementById('promise-reminders-floating-btn');
 const promiseRemindersPanel = document.getElementById('promise-reminders-panel');
+const promiseRemindersPanelTitle = document.getElementById('promise-reminders-panel-title');
+const promiseRemindersCloseButton = document.getElementById('promise-reminders-close-btn');
+const promiseRemindersList = document.getElementById('promise-reminders-list');
 const moodWidget = document.getElementById('mood-status-widget');
 const moodStatusHeader = document.getElementById('mood-status-header');
 const moodCollapseButton = document.getElementById('mood-status-collapse-btn');
@@ -1613,6 +1618,8 @@ function mergeUiStrings(config) {
             saved: promiseNotice.saved || DEFAULT_UI_STRINGS.promiseNotice.saved
         },
         promisePanel: {
+            title: promisePanel.title || DEFAULT_UI_STRINGS.promisePanel.title,
+            close: promisePanel.close || DEFAULT_UI_STRINGS.promisePanel.close,
             empty: promisePanel.empty || DEFAULT_UI_STRINGS.promisePanel.empty,
             soon: promisePanel.soon || DEFAULT_UI_STRINGS.promisePanel.soon,
             queued: promisePanel.queued || DEFAULT_UI_STRINGS.promisePanel.queued,
@@ -1696,6 +1703,13 @@ function applyUiStringsToStaticNodes() {
     if (promiseRemindersButton) {
         promiseRemindersButton.textContent = currentUiStrings.actions.promises.label;
         promiseRemindersButton.title = currentUiStrings.actions.promises.title;
+    }
+    if (promiseRemindersPanelTitle) {
+        promiseRemindersPanelTitle.textContent = currentUiStrings.promisePanel.title;
+    }
+    if (promiseRemindersCloseButton) {
+        promiseRemindersCloseButton.title = currentUiStrings.promisePanel.close;
+        promiseRemindersCloseButton.setAttribute('aria-label', currentUiStrings.promisePanel.close);
     }
     if (moodMeterNameValence) moodMeterNameValence.textContent = currentUiStrings.mood.axis.valence;
     if (moodMeterNameBond) moodMeterNameBond.textContent = currentUiStrings.mood.axis.bond;
@@ -2355,8 +2369,15 @@ function formatPromiseReminderClock(triggerAt) {
     });
 }
 
-function renderPromiseReminderPanel() {
+function setPromiseRemindersPanelOpen(open) {
     if (!promiseRemindersPanel) {
+        return;
+    }
+    promiseRemindersPanel.classList.toggle('hidden', !open);
+}
+
+function renderPromiseReminderPanel() {
+    if (!promiseRemindersList) {
         return;
     }
 
@@ -2364,9 +2385,12 @@ function renderPromiseReminderPanel() {
         ? currentUiStrings.promisePanel
         : DEFAULT_UI_STRINGS.promisePanel;
     const visibleItems = getVisiblePromiseReminderItems();
-    promiseRemindersPanel.textContent = '';
+    promiseRemindersList.textContent = '';
     if (!visibleItems.length) {
-        promiseRemindersPanel.textContent = promisePanelStrings.empty;
+        const empty = document.createElement('div');
+        empty.className = 'promise-reminder-meta';
+        empty.textContent = promisePanelStrings.empty;
+        promiseRemindersList.appendChild(empty);
         return;
     }
 
@@ -2402,7 +2426,7 @@ function renderPromiseReminderPanel() {
             window.pyBridge.delete_promise_reminder(String((item && item.id) || ''));
         });
         row.appendChild(removeButton);
-        promiseRemindersPanel.appendChild(row);
+        promiseRemindersList.appendChild(row);
     });
 }
 
@@ -3201,10 +3225,15 @@ if (promiseRemindersButton) {
         if (window.pyBridge && window.pyBridge.request_promise_items) {
             window.pyBridge.request_promise_items();
         }
-        if (promiseRemindersPanel) {
-            promiseRemindersPanel.classList.toggle('hidden');
-        }
+        const nextOpen = promiseRemindersPanel ? promiseRemindersPanel.classList.contains('hidden') : false;
+        setPromiseRemindersPanelOpen(nextOpen);
         setFloatingActionsOpen(false);
+    });
+}
+
+if (promiseRemindersCloseButton) {
+    promiseRemindersCloseButton.addEventListener('click', () => {
+        setPromiseRemindersPanelOpen(false);
     });
 }
 

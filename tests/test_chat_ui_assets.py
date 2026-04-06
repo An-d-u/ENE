@@ -106,6 +106,7 @@ def test_scheduled_promises_menu_markup_exists():
     html = (WEB_DIR / "index.html").read_text(encoding="utf-8-sig")
     assert 'id="promise-reminders-floating-btn"' in html
     assert 'id="promise-reminders-panel"' in html
+    assert 'id="promise-reminders-close-btn"' in html
 
 
 def test_chat_resize_handle_uses_vertical_drag_styles():
@@ -189,6 +190,14 @@ def test_chat_script_exposes_promise_panel_runtime_hooks():
     script = _script_text()
     assert "function getVisiblePromiseReminderItems()" in script
     assert "function formatPromiseReminderClock(" in script
+    assert "function setPromiseRemindersPanelOpen(open)" in script
     assert "window.setPromiseReminderItems = function" in script
     assert "window.showPromiseReminderNotice = function" in script
     assert "window.setInterval(() => {" in script
+
+
+def test_chat_script_binds_close_button_for_promise_panel():
+    script = _script_text()
+    assert "const promiseRemindersCloseButton = document.getElementById('promise-reminders-close-btn');" in script
+    assert "promiseRemindersCloseButton.addEventListener('click'" in script
+    assert "setPromiseRemindersPanelOpen(false);" in script
