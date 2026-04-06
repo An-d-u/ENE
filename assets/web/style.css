@@ -476,7 +476,8 @@ body.is-chat-resizing {
 
 #manual-summarize-floating-btn,
 #obs-note-floating-btn,
-#mood-toggle-floating-btn {
+#mood-toggle-floating-btn,
+#promise-reminders-floating-btn {
     z-index: 1200;
     padding: 8px 12px;
     border: 1px solid var(--ene-floating-panel-border);
@@ -544,6 +545,74 @@ body.is-chat-resizing {
 #obs-note-floating-btn:hover {
     background: var(--ene-floating-panel-button-hover);
     transform: translateY(-1px);
+}
+
+#promise-reminders-floating-btn {
+    transition: background 0.2s ease, transform 0.2s ease;
+}
+
+#promise-reminders-floating-btn:hover {
+    background: var(--ene-floating-panel-button-hover);
+    transform: translateY(-1px);
+}
+
+#promise-reminders-panel {
+    position: fixed;
+    right: 12px;
+    top: 112px;
+    width: 220px;
+    min-height: 52px;
+    z-index: 1200;
+    border: 1px solid var(--ene-floating-panel-border);
+    border-radius: 14px;
+    background: var(--ene-floating-panel-bg);
+    color: var(--ene-floating-panel-text);
+    backdrop-filter: blur(5px);
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+    padding: 12px;
+}
+
+#promise-reminders-panel.hidden {
+    display: none;
+}
+
+.promise-reminder-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.promise-reminder-item:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.promise-reminder-text {
+    min-width: 0;
+}
+
+.promise-reminder-title {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.promise-reminder-meta {
+    margin-top: 3px;
+    font-size: 11px;
+    color: var(--ene-floating-panel-muted-text);
+}
+
+.promise-reminder-remove {
+    width: 24px;
+    height: 24px;
+    border: 1px solid var(--ene-floating-panel-border);
+    border-radius: 999px;
+    background: var(--ene-floating-panel-button-bg);
+    color: var(--ene-floating-panel-text);
+    cursor: pointer;
 }
 
 #obs-panel {

@@ -27,6 +27,7 @@ user_emotion=calm
 user_intent=greeting
 confidence=0.8
 [/analysis]
+[약속:2026-04-06T21:10:00+09:00|쉬는 시간|user|10분만 쉬고 다시 할게]
 좋은 저녁이에요. [smile]
 こんばんは。
 """.strip()
@@ -156,7 +157,7 @@ def test_provider_send_message_keeps_raw_assistant_output_in_history(monkeypatch
     client = factory()
     monkeypatch.setattr(client, request_method, lambda *args, **kwargs: RAW_OUTPUT)
 
-    text, emotion, japanese_text, events, analysis = client.send_message("테스트")
+    text, emotion, japanese_text, events, analysis, promises = client.send_message("테스트")
     history = client.get_conversation_history()
 
     assert text == "좋은 저녁이에요."
@@ -164,5 +165,13 @@ def test_provider_send_message_keeps_raw_assistant_output_in_history(monkeypatch
     assert japanese_text == "こんばんは。"
     assert events == []
     assert analysis["user_intent"] == "greeting"
+    assert promises == [
+        {
+            "trigger_at": "2026-04-06T21:10:00+09:00",
+            "title": "쉬는 시간",
+            "source": "user",
+            "source_excerpt": "10분만 쉬고 다시 할게",
+        }
+    ]
     assert history[-1]["role"] == "assistant"
     assert history[-1]["content"] == RAW_OUTPUT
