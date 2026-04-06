@@ -102,6 +102,12 @@ def test_chat_resize_handle_markup_exists_above_messages():
     assert html.index('id="chat-resize-handle"') < html.index('id="chat-messages"')
 
 
+def test_scheduled_promises_menu_markup_exists():
+    html = (WEB_DIR / "index.html").read_text(encoding="utf-8-sig")
+    assert 'id="promise-reminders-floating-btn"' in html
+    assert 'id="promise-reminders-panel"' in html
+
+
 def test_chat_resize_handle_uses_vertical_drag_styles():
     block = _rule_block("#chat-resize-handle")
     assert "cursor: ns-resize;" in block
@@ -177,3 +183,12 @@ def test_chat_script_exposes_chat_panel_height_restore_and_drag_persistence():
     assert "window.setChatPanelHeight = function setChatPanelHeight(height)" in script
     assert "window.pyBridge.save_chat_panel_height(String(nextHeight));" in script
     assert "chatResizeHandle.addEventListener('pointerdown'" in script
+
+
+def test_chat_script_exposes_promise_panel_runtime_hooks():
+    script = _script_text()
+    assert "function getVisiblePromiseReminderItems()" in script
+    assert "function formatPromiseReminderClock(" in script
+    assert "window.setPromiseReminderItems = function" in script
+    assert "window.showPromiseReminderNotice = function" in script
+    assert "window.setInterval(() => {" in script

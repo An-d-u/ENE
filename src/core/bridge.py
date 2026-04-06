@@ -47,7 +47,7 @@ VISIBLE_RESPONSE_ANALYSIS_KEYS = (
 class AIWorker(QThread):
     """AI 응답을 비동기로 처리하는 워커 스레드"""
     
-    response_ready = pyqtSignal(str, str, str, list, str, str)  # (텍스트, 감정, 일본어, 이벤트, analysis JSON, 토큰 JSON)
+    response_ready = pyqtSignal(str, str, str, list, str, str, list)  # (텍스트, 감정, 일본어, 이벤트, analysis JSON, 토큰 JSON, 약속 리스트)
     error_occurred = pyqtSignal(str)  # 오류 메시지
     
     def __init__(
@@ -80,13 +80,16 @@ class AIWorker(QThread):
         self.use_obsidian_priority = bool(use_obsidian_priority)
 
     def _normalize_response_payload(self, payload):
-        """신구 응답 형식을 모두 5개 값으로 정규화한다."""
+        """신구 응답 형식을 모두 6개 값으로 정규화한다."""
         if isinstance(payload, tuple):
-            if len(payload) == 5:
+            if len(payload) == 6:
                 return payload
+            if len(payload) == 5:
+                text, emotion, japanese_text, events, analysis = payload
+                return text, emotion, japanese_text, events, analysis, []
             if len(payload) == 4:
                 text, emotion, japanese_text, events = payload
-                return text, emotion, japanese_text, events, {}
+                return text, emotion, japanese_text, events, {}, []
         raise ValueError("지원하지 않는 응답 형식입니다.")
     
     def run(self):
@@ -104,21 +107,22 @@ class AIWorker(QThread):
             
             events = []
             analysis = {}
+            promises = []
 
             if self.note_request and self.note_service and self.obsidian_manager:
                 print("[AI Worker] /note 모드")
-                response_text, emotion, japanese_text, events, analysis = self._normalize_response_payload(
+                response_text, emotion, japanese_text, events, analysis, promises = self._normalize_response_payload(
                     loop.run_until_complete(self._run_note_flow())
                 )
             elif self.diary_request and self.diary_service:
                 print("[AI Worker] /diary 모드")
-                response_text, emotion, japanese_text, events, analysis = self._normalize_response_payload(
+                response_text, emotion, japanese_text, events, analysis, promises = self._normalize_response_payload(
                     loop.run_until_complete(self._run_diary_flow())
                 )
             # 이미지가 있으면 멀티모달로 처리
             elif self.images:
                 print(f"[AI Worker] 이미지 {len(self.images)}개 포함 - 멀티모달 모드")
-                response_text, emotion, japanese_text, events, analysis = self._normalize_response_payload(
+                response_text, emotion, japanese_text, events, analysis, promises = self._normalize_response_payload(
                     loop.run_until_complete(
                         self.llm_client.send_message_with_images(
                             self.message,
@@ -129,7 +133,7 @@ class AIWorker(QThread):
                 )
             elif self.use_memory and hasattr(self.llm_client, 'send_message_with_memory'):
                 print(f"[AI Worker] 메모리 활용 모드")
-                response_text, emotion, japanese_text, events, analysis = self._normalize_response_payload(
+                response_text, emotion, japanese_text, events, analysis, promises = self._normalize_response_payload(
                     loop.run_until_complete(
                         self.llm_client.send_message_with_memory(
                             self.message,
@@ -139,7 +143,7 @@ class AIWorker(QThread):
                 )
             else:
                 print(f"[AI Worker] 일반 모드 (메모리 없음)")
-                response_text, emotion, japanese_text, events, analysis = self._normalize_response_payload(
+                response_text, emotion, japanese_text, events, analysis, promises = self._normalize_response_payload(
                     self.llm_client.send_message(self.message)
                 )
             
@@ -159,6 +163,7 @@ class AIWorker(QThread):
                 events,
                 json.dumps(analysis, ensure_ascii=False),
                 token_usage_payload,
+                promises,
             )
         except Exception as e:
             print(f"[AI Worker] Error: {e}")
@@ -530,6 +535,8 @@ class WebBridge(QObject):
     obs_tree_updated = pyqtSignal(str)       # Obsidian 트리 JSON
     attachment_preview_ready = pyqtSignal(str)  # 첨부 프리뷰 메타데이터 JSON
     token_usage_ready = pyqtSignal(str)  # 토큰 사용량 JSON
+    promise_notice = pyqtSignal(str, str)  # (메시지, 레벨)
+    promise_items_updated = pyqtSignal(str)  # 예정 목록 JSON
     
     def __init__(self, settings=None, parent=None):
         super().__init__(parent)
@@ -589,6 +596,14 @@ class WebBridge(QObject):
         self._last_request_payload = None
         self._last_assistant_response = None
         self._is_rerolling = False
+        self.promise_manager = None
+        self.promise_run_queue = []
+        self._active_promise_id = None
+
+        self.promise_timer = QTimer(self)
+        self.promise_timer.setInterval(10_000)
+        self.promise_timer.timeout.connect(self._poll_promise_reminders)
+        self.promise_timer.start()
 
         # 자리 비움/유휴 감지 상태
         self.last_user_message_at = None
@@ -1978,8 +1993,10 @@ class WebBridge(QObject):
         events: list = None,
         analysis_payload: str = "",
         token_usage_payload: str = "",
+        scheduled_promises: list | None = None,
     ):
         """AI 응답 준비 완료"""
+        completed_promise_id = str(getattr(self, "_active_promise_id", "") or "").strip()
         text = self._sanitize_visible_response_text(text)
         print(f"[Bridge] Response ready: {text[:50]}... [{emotion}]")
         self._last_assistant_response = {"text": text, "emotion": emotion}
@@ -2017,6 +2034,10 @@ class WebBridge(QObject):
                     print(f"[Bridge] 일정 추가: {event.date} - {event.title}")
                 except Exception as e:
                     print(f"[Bridge] 일정 추가 실패: {e}")
+
+        store_promises = getattr(self, "_store_scheduled_promises", None)
+        if callable(store_promises):
+            store_promises(scheduled_promises or [])
         
         # TTS 재생 (일본어가 있고 TTS가 활성화되어 있으면)
         if japanese_text and self.enable_tts and self.tts_client and self.audio_player:
@@ -2038,6 +2059,126 @@ class WebBridge(QObject):
         
         # 자동 요약 확인
         self._check_auto_summarize()
+        promise_manager = getattr(self, "promise_manager", None)
+        if promise_manager and completed_promise_id:
+            promise_manager.delete_promise(completed_promise_id)
+            emit_items = getattr(self, "_emit_promise_items_updated", None)
+            if callable(emit_items):
+                emit_items()
+        self._active_promise_id = None
+        drain_queue = getattr(self, "_drain_promise_queue_if_idle", None)
+        if callable(drain_queue):
+            drain_queue()
+
+    def _store_scheduled_promises(self, scheduled_promises: list | None) -> list:
+        """응답 메타에 포함된 대화 약속을 저장하고 알림을 보낸다."""
+        if not scheduled_promises or not self.promise_manager:
+            return []
+
+        stored = []
+        for item in scheduled_promises:
+            if not isinstance(item, dict):
+                continue
+            title = str(item.get("title", "") or "").strip()
+            trigger_at = str(item.get("trigger_at", "") or "").strip()
+            if not title or not trigger_at:
+                continue
+            stored.append(
+                self.promise_manager.add_promise(
+                    title=title,
+                    trigger_at=trigger_at,
+                    source=str(item.get("source", "") or "user"),
+                    source_excerpt=str(item.get("source_excerpt", "") or "").strip(),
+                )
+            )
+
+        if stored:
+            self.promise_notice.emit("대화 약속이 저장되었습니다.", "success")
+            emit_items = getattr(self, "_emit_promise_items_updated", None)
+            if callable(emit_items):
+                emit_items()
+        return stored
+
+    def _enqueue_due_promise(self, payload: dict) -> None:
+        """현재 생성 중이면 약속 발화를 큐에 넣고, 아니면 즉시 시작한다."""
+        reminder_id = str((payload or {}).get("id", "") or "").strip()
+        if self.worker and self.worker.isRunning():
+            promise_manager = getattr(self, "promise_manager", None)
+            if promise_manager and reminder_id:
+                promise_manager.set_status(reminder_id, "queued")
+            self.promise_run_queue.append(payload)
+            emit_items = getattr(self, "_emit_promise_items_updated", None)
+            if callable(emit_items):
+                emit_items()
+            return
+        self._start_promise_ai_worker(payload)
+
+    def _drain_promise_queue_if_idle(self) -> None:
+        """유휴 상태가 되면 대기 중인 약속 발화를 하나 실행한다."""
+        if self.worker and self.worker.isRunning():
+            return
+        if not self.promise_run_queue:
+            return
+        payload = self.promise_run_queue.pop(0)
+        self._start_promise_ai_worker(payload)
+
+    def _start_promise_ai_worker(self, payload: dict) -> None:
+        """대화 약속 기반 프롬프트로 응답 생성을 시작한다."""
+        reminder_id = str((payload or {}).get("id", "") or "").strip()
+        if self.promise_manager and reminder_id:
+            self.promise_manager.set_status(reminder_id, "triggered")
+        self._active_promise_id = reminder_id or None
+        self._emit_promise_items_updated()
+        title = str((payload or {}).get("title", "") or "").strip() or "약속"
+        source_excerpt = str((payload or {}).get("source_excerpt", "") or "").strip()
+        prompt = (
+            f"상태 알림: 마스터와의 대화 약속 시간이 되었어. "
+            f"약속 제목은 '{title}'이고, 원래 맥락은 '{source_excerpt}' 이야. "
+            f"이전 대화를 이어주는 짧고 자연스러운 한마디를 해줘."
+        )
+        timestamp = self._now_timestamp()
+        self._start_ai_worker(f"[현재 시각: {timestamp}]\n{prompt}")
+
+    def _emit_promise_items_updated(self) -> None:
+        """현재 예정 목록을 JSON으로 UI에 전달한다."""
+        if not self.promise_manager:
+            self.promise_items_updated.emit("[]")
+            return
+        self.promise_items_updated.emit(
+            json.dumps(
+                self.promise_manager.list_promise_dicts(
+                    include_statuses=("scheduled", "queued", "missed"),
+                ),
+                ensure_ascii=False,
+            )
+        )
+
+    def _poll_promise_reminders(self) -> None:
+        """도래한 대화 약속을 찾아 즉시 실행하거나 큐에 넣는다."""
+        if not self.promise_manager:
+            return
+
+        due_items, _, _ = self.promise_manager.refresh_overdue_statuses()
+        if not due_items:
+            self._emit_promise_items_updated()
+            return
+
+        for item in due_items:
+            self._enqueue_due_promise(item.to_public_dict())
+
+    @pyqtSlot()
+    def request_promise_items(self):
+        """웹 UI에서 예정 목록 새로고침을 요청한다."""
+        self._emit_promise_items_updated()
+
+    @pyqtSlot(str)
+    def delete_promise_reminder(self, reminder_id: str):
+        """웹 UI에서 지정한 대화 약속을 삭제한다."""
+        if not self.promise_manager:
+            return
+        removed = self.promise_manager.delete_promise(reminder_id)
+        if removed:
+            self._emit_promise_items_updated()
 
     def _sanitize_visible_response_text(self, text: str) -> str:
         """표시 직전 응답에서 내부 메타데이터와 잔여 감정 태그를 제거한다."""
@@ -2497,10 +2638,21 @@ class WebBridge(QObject):
     def _on_error(self, error_msg: str):
         """오류 발생"""
         print(f"[Bridge] Error occurred: {error_msg}")
+        reminder_id = str(getattr(self, "_active_promise_id", "") or "").strip()
+        promise_manager = getattr(self, "promise_manager", None)
+        if promise_manager and reminder_id:
+            promise_manager.set_status(reminder_id, "missed")
+            emit_items = getattr(self, "_emit_promise_items_updated", None)
+            if callable(emit_items):
+                emit_items()
+            self._active_promise_id = None
         if self._is_rerolling:
             self._is_rerolling = False
             self.reroll_state_changed.emit(False)
         self.message_received.emit("음... 무슨 일이 있었나봐요.", "confused")
+        drain_queue = getattr(self, "_drain_promise_queue_if_idle", None)
+        if callable(drain_queue):
+            drain_queue()
     
     @pyqtSlot()
     def clear_conversation(self):

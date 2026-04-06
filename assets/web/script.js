@@ -61,7 +61,21 @@ const DEFAULT_UI_STRINGS = {
         mood: {
             label: 'Mood',
             title: 'Mood status'
+        },
+        promises: {
+            label: 'Scheduled',
+            title: 'Scheduled conversation promises'
         }
+    },
+    promiseNotice: {
+        saved: 'Conversation promise saved.'
+    },
+    promisePanel: {
+        empty: 'No scheduled conversation promises.',
+        soon: 'Soon',
+        queued: 'Right after the current reply',
+        inMinutes: 'In {minutes} min',
+        overdueMinutes: '{minutes} min late'
     },
     mood: {
         label: 'Mood: {label}',
@@ -1362,6 +1376,8 @@ const summaryConfirmNoButton = document.getElementById('summary-confirm-no');
 const toastContainer = document.getElementById('toast-container');
 const moodToggleButton = document.getElementById('mood-toggle-floating-btn');
 const obsNoteButton = document.getElementById('obs-note-floating-btn');
+const promiseRemindersButton = document.getElementById('promise-reminders-floating-btn');
+const promiseRemindersPanel = document.getElementById('promise-reminders-panel');
 const moodWidget = document.getElementById('mood-status-widget');
 const moodStatusHeader = document.getElementById('mood-status-header');
 const moodCollapseButton = document.getElementById('mood-status-collapse-btn');
@@ -1407,6 +1423,7 @@ let activeInlineEditMessageEl = null;
 let obsCheckedPaths = new Set();
 let moodWidgetDragState = null;
 let tokenUsageBubbleTimer = null;
+let promiseReminderItems = [];
 let currentMoodSnapshot = { label: 'calm', temporaryState: 'steady', valence: 0, energy: 0, bond: 0, stress: 0 };
 let currentUiStrings = null;
 let typingEffectEnabled = true;
@@ -1565,6 +1582,8 @@ function mergeUiStrings(config) {
     const moodStates = mood.states || {};
     const moodTemporaryStates = mood.temporaryStates || {};
     const summaryConfirm = source.summaryConfirm || {};
+    const promiseNotice = source.promiseNotice || {};
+    const promisePanel = source.promisePanel || {};
 
     return {
         loading: source.loading || DEFAULT_UI_STRINGS.loading,
@@ -1584,7 +1603,21 @@ function mergeUiStrings(config) {
             mood: {
                 label: (actions.mood && actions.mood.label) || DEFAULT_UI_STRINGS.actions.mood.label,
                 title: (actions.mood && actions.mood.title) || DEFAULT_UI_STRINGS.actions.mood.title
+            },
+            promises: {
+                label: (actions.promises && actions.promises.label) || DEFAULT_UI_STRINGS.actions.promises.label,
+                title: (actions.promises && actions.promises.title) || DEFAULT_UI_STRINGS.actions.promises.title
             }
+        },
+        promiseNotice: {
+            saved: promiseNotice.saved || DEFAULT_UI_STRINGS.promiseNotice.saved
+        },
+        promisePanel: {
+            empty: promisePanel.empty || DEFAULT_UI_STRINGS.promisePanel.empty,
+            soon: promisePanel.soon || DEFAULT_UI_STRINGS.promisePanel.soon,
+            queued: promisePanel.queued || DEFAULT_UI_STRINGS.promisePanel.queued,
+            inMinutes: promisePanel.inMinutes || DEFAULT_UI_STRINGS.promisePanel.inMinutes,
+            overdueMinutes: promisePanel.overdueMinutes || DEFAULT_UI_STRINGS.promisePanel.overdueMinutes
         },
         mood: {
             label: mood.label || DEFAULT_UI_STRINGS.mood.label,
@@ -1660,6 +1693,10 @@ function applyUiStringsToStaticNodes() {
         moodToggleButton.textContent = currentUiStrings.actions.mood.label;
         moodToggleButton.title = currentUiStrings.actions.mood.title;
     }
+    if (promiseRemindersButton) {
+        promiseRemindersButton.textContent = currentUiStrings.actions.promises.label;
+        promiseRemindersButton.title = currentUiStrings.actions.promises.title;
+    }
     if (moodMeterNameValence) moodMeterNameValence.textContent = currentUiStrings.mood.axis.valence;
     if (moodMeterNameBond) moodMeterNameBond.textContent = currentUiStrings.mood.axis.bond;
     if (moodMeterNameEnergy) moodMeterNameEnergy.textContent = currentUiStrings.mood.axis.energy;
@@ -1675,6 +1712,7 @@ window.applyENEUiStrings = function applyENEUiStrings(config) {
     currentUiStrings = mergeUiStrings(config);
     window.eneUiStrings = currentUiStrings;
     applyUiStringsToStaticNodes();
+    renderPromiseReminderPanel();
     updateMoodWidget(
         currentMoodSnapshot.label,
         currentMoodSnapshot.temporaryState,
@@ -2251,6 +2289,150 @@ function showTokenUsageBubble(payload) {
         tokenUsageBubbleTimer = null;
     }, 3000);
 }
+
+function showTextBubble(message) {
+    if (!tokenUsageBubble || !message) {
+        return;
+    }
+
+    tokenUsageBubble.textContent = String(message);
+    tokenUsageBubble.classList.remove('hidden');
+
+    if (tokenUsageBubbleTimer) {
+        clearTimeout(tokenUsageBubbleTimer);
+    }
+    tokenUsageBubbleTimer = setTimeout(() => {
+        hideTokenUsageBubble();
+        tokenUsageBubbleTimer = null;
+    }, 3000);
+}
+
+function formatPromiseReminderTemplate(template, minutes) {
+    return String(template || '').replace('{minutes}', String(minutes));
+}
+
+function getVisiblePromiseReminderItems() {
+    return promiseReminderItems.filter((item) => {
+        const status = String((item && item.status) || '');
+        return status === 'scheduled' || status === 'queued' || status === 'missed';
+    });
+}
+
+function formatPromiseReminderTime(triggerAt, status = 'scheduled') {
+    const promisePanelStrings = (currentUiStrings && currentUiStrings.promisePanel)
+        ? currentUiStrings.promisePanel
+        : DEFAULT_UI_STRINGS.promisePanel;
+    if (status === 'queued') {
+        return promisePanelStrings.queued;
+    }
+
+    const parsed = new Date(triggerAt);
+    if (Number.isNaN(parsed.getTime())) {
+        return String(triggerAt || '');
+    }
+
+    const diffMs = parsed.getTime() - Date.now();
+    const diffMinutes = Math.round(diffMs / 60000);
+    if (diffMinutes > 0) {
+        return formatPromiseReminderTemplate(promisePanelStrings.inMinutes, diffMinutes);
+    }
+    if (diffMinutes === 0) {
+        return promisePanelStrings.soon;
+    }
+    return formatPromiseReminderTemplate(promisePanelStrings.overdueMinutes, Math.abs(diffMinutes));
+}
+
+function formatPromiseReminderClock(triggerAt) {
+    const parsed = new Date(triggerAt);
+    if (Number.isNaN(parsed.getTime())) {
+        return '';
+    }
+    return parsed.toLocaleString([], {
+        month: 'numeric',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit'
+    });
+}
+
+function renderPromiseReminderPanel() {
+    if (!promiseRemindersPanel) {
+        return;
+    }
+
+    const promisePanelStrings = (currentUiStrings && currentUiStrings.promisePanel)
+        ? currentUiStrings.promisePanel
+        : DEFAULT_UI_STRINGS.promisePanel;
+    const visibleItems = getVisiblePromiseReminderItems();
+    promiseRemindersPanel.textContent = '';
+    if (!visibleItems.length) {
+        promiseRemindersPanel.textContent = promisePanelStrings.empty;
+        return;
+    }
+
+    visibleItems.forEach((item) => {
+        const row = document.createElement('div');
+        row.className = 'promise-reminder-item';
+
+        const textWrap = document.createElement('div');
+        textWrap.className = 'promise-reminder-text';
+
+        const title = document.createElement('div');
+        title.className = 'promise-reminder-title';
+        title.textContent = String((item && item.title) || '');
+
+        const meta = document.createElement('div');
+        meta.className = 'promise-reminder-meta';
+        const timeText = formatPromiseReminderTime(item && item.trigger_at, item && item.status);
+        const clockText = formatPromiseReminderClock(item && item.trigger_at);
+        meta.textContent = clockText ? `${timeText} · ${clockText}` : timeText;
+
+        textWrap.appendChild(title);
+        textWrap.appendChild(meta);
+        row.appendChild(textWrap);
+
+        const removeButton = document.createElement('button');
+        removeButton.type = 'button';
+        removeButton.className = 'promise-reminder-remove';
+        removeButton.textContent = '×';
+        removeButton.addEventListener('click', () => {
+            if (!window.pyBridge || !window.pyBridge.delete_promise_reminder) {
+                return;
+            }
+            window.pyBridge.delete_promise_reminder(String((item && item.id) || ''));
+        });
+        row.appendChild(removeButton);
+        promiseRemindersPanel.appendChild(row);
+    });
+}
+
+window.setPromiseReminderItems = function setPromiseReminderItems(items) {
+    let normalized = items;
+    if (typeof items === 'string') {
+        try {
+            normalized = JSON.parse(items);
+        } catch (error) {
+            normalized = [];
+        }
+    }
+    promiseReminderItems = Array.isArray(normalized) ? normalized : [];
+    renderPromiseReminderPanel();
+};
+
+window.showPromiseReminderNotice = function showPromiseReminderNotice(message) {
+    const fallback = (currentUiStrings && currentUiStrings.promiseNotice)
+        ? currentUiStrings.promiseNotice.saved
+        : DEFAULT_UI_STRINGS.promiseNotice.saved;
+    const text = String(message || fallback);
+    showTextBubble(text);
+};
+
+window.setInterval(() => {
+    if (!promiseRemindersPanel || !getVisiblePromiseReminderItems().length) {
+        return;
+    }
+    renderPromiseReminderPanel();
+}, 30000);
 
 window.setTokenUsageBubbleEnabled = function (enabled) {
     tokenUsageBubbleVisibleBySetting = Boolean(enabled);
@@ -3014,6 +3196,18 @@ if (manualSummarizeButton) {
     });
 }
 
+if (promiseRemindersButton) {
+    promiseRemindersButton.addEventListener('click', () => {
+        if (window.pyBridge && window.pyBridge.request_promise_items) {
+            window.pyBridge.request_promise_items();
+        }
+        if (promiseRemindersPanel) {
+            promiseRemindersPanel.classList.toggle('hidden');
+        }
+        setFloatingActionsOpen(false);
+    });
+}
+
 if (settingsFloatingButton) {
     settingsFloatingButton.innerHTML = createLucideIcon('settings');
     settingsFloatingButton.addEventListener('click', () => {
@@ -3145,6 +3339,19 @@ if (typeof QWebChannel !== 'undefined') {
             window.pyBridge.token_usage_ready.connect(function (value) {
                 showTokenUsageBubble(value);
             });
+        }
+        if (window.pyBridge.promise_notice) {
+            window.pyBridge.promise_notice.connect(function (message) {
+                window.showPromiseReminderNotice(message);
+            });
+        }
+        if (window.pyBridge.promise_items_updated) {
+            window.pyBridge.promise_items_updated.connect(function (value) {
+                window.setPromiseReminderItems(value);
+            });
+        }
+        if (window.pyBridge.request_promise_items) {
+            window.pyBridge.request_promise_items();
         }
         window.pyBridge.message_received.connect(function (text, emotion) {
             console.log(`Received from Python: "${text}" [${emotion}]`);

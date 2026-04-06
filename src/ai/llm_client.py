@@ -140,7 +140,7 @@ class GeminiClient:
     async def generate_diary_completion_reply(
         self,
         context_message: str,
-    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         """파일 작성 완료 안내 응답을 생성한다."""
         response_text = self._generate_one_shot_text(context_message, include_sub_prompt=True)
         return self._parse_response(response_text)
@@ -154,7 +154,7 @@ class GeminiClient:
     async def generate_note_execution_report(
         self,
         context_message: str,
-    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         """sub prompt 적용 상태로 /note 실행 결과 보고 응답을 생성한다."""
         response_text = self._generate_one_shot_text(context_message, include_sub_prompt=True)
         return self._parse_response(response_text)
@@ -163,7 +163,7 @@ class GeminiClient:
         self,
         message: str,
         memory_search_text: str | None = None,
-    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         """
         메모리를 활용한 메시지 전송
         
@@ -192,7 +192,7 @@ class GeminiClient:
         message: str,
         images_data: list,
         memory_search_text: str | None = None,
-    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         """
         이미지와 함께 메시지 전송 (멀티모달)
         
@@ -256,7 +256,7 @@ class GeminiClient:
             print(f"[LLM] 멀티모달 응답: {response_text[:100]}...")
             
             # 응답에서 텍스트, 감정, 일정 분리 (기존 메서드 활용)
-            clean_text, emotion, japanese_text, events, analysis = self._parse_response(response_text)
+            clean_text, emotion, japanese_text, events, analysis, promises = self._parse_response(response_text)
             
             # 일본어가 있으면 로깅
             if japanese_text:
@@ -266,7 +266,7 @@ class GeminiClient:
             if events:
                 print(f"[LLM] {len(events)}개 일정 추출됨")
             
-            return clean_text, emotion, japanese_text, events, analysis
+            return clean_text, emotion, japanese_text, events, analysis, promises
 
             
         except Exception as e:
@@ -535,7 +535,7 @@ class GeminiClient:
     def send_message(
         self,
         message: str,
-    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         """
         메시지 전송 및 응답 받기
         
@@ -561,7 +561,7 @@ class GeminiClient:
             print(f"[LLM] Received response: {response_text[:50]}...")
             
             # 응답에서 텍스트와 감정 분리
-            text, emotion, japanese_text, events, analysis = self._parse_response(response_text)
+            text, emotion, japanese_text, events, analysis, promises = self._parse_response(response_text)
             
             # 일본어가 있으면 로깅
             if japanese_text:
@@ -571,7 +571,7 @@ class GeminiClient:
             if events:
                 print(f"[LLM] {len(events)}개 일정 추출됨")
             
-            return text, emotion, japanese_text, events, analysis
+            return text, emotion, japanese_text, events, analysis, promises
             
         except Exception as e:
             print(f"[LLM] Error: {e}")
@@ -935,7 +935,7 @@ class GeminiClient:
         japanese_text = "\n".join(japanese_lines).strip() if japanese_lines else None
         return clean_text, japanese_text
 
-    def _parse_response(self, response_text: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+    def _parse_response(self, response_text: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         """
         응답 텍스트에서 감정 태그, 일본어, 일정 추출
         
@@ -943,7 +943,7 @@ class GeminiClient:
             response_text: AI 응답 텍스트
             
         Returns:
-            (텍스트, 감정, 일본어, 이벤트 리스트, analysis 메타) 튜플
+            (텍스트, 감정, 일본어, 이벤트 리스트, analysis 메타, 약속 리스트) 튜플
         """
         response_text, analysis = self._extract_analysis_block(response_text)
 
@@ -965,6 +965,21 @@ class GeminiClient:
         
         # 이벤트 태그 제거
         response_text = re.sub(event_pattern, '', response_text)
+
+        promises = []
+        promise_pattern = r'\[약속:([^\]]+)\]'
+        promise_matches = re.findall(promise_pattern, response_text)
+        for match in promise_matches:
+            parts = [p.strip() for p in match.split('|')]
+            if len(parts) >= 2:
+                promises.append({
+                    'trigger_at': parts[0],
+                    'title': parts[1],
+                    'source': parts[2] if len(parts) > 2 else "user",
+                    'source_excerpt': parts[3] if len(parts) > 3 else "",
+                })
+
+        response_text = re.sub(promise_pattern, '', response_text)
         
         # [emotion] 패턴 찾기
         emotion_pattern = r'\[(\w+)\]'
@@ -985,7 +1000,7 @@ class GeminiClient:
         # 일본어 추출 및 제거
         clean_text, japanese_text = self._extract_japanese_lines(clean_text)
 
-        return clean_text, emotion, japanese_text, events, analysis
+        return clean_text, emotion, japanese_text, events, analysis, promises
     
     def _is_japanese(self, text: str) -> bool:
         """일본어 텍스트인지 확인"""

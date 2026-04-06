@@ -37,6 +37,7 @@ class ENEApplication(QObject):
         
         # 캘린더 매니저 초기화
         self._init_calendar_manager()
+        self._init_promise_manager()
         
         # 오버레이 윈도우 생성
         self.overlay_window = OverlayWindow(self.settings)
@@ -48,6 +49,10 @@ class ENEApplication(QObject):
             if self.overlay_window.bridge.llm_client:
                 self.overlay_window.bridge.llm_client.calendar_manager = self.calendar_manager
             print("[App] Bridge에 캘린더 매니저 연결")
+        if hasattr(self, 'promise_manager') and self.promise_manager:
+            self.overlay_window.bridge.promise_manager = self.promise_manager
+            self.overlay_window.bridge.request_promise_items()
+            print("[App] Bridge에 대화 약속 매니저 연결")
 
         # Obsidian 패널 창 생성 (ENE 외부 플로팅)
         self.obsidian_panel_window = ObsidianPanelWindow(
@@ -214,6 +219,19 @@ class ENEApplication(QObject):
             import traceback
             traceback.print_exc()
             self.calendar_manager = None
+
+    def _init_promise_manager(self):
+        """대화 약속 매니저 초기화"""
+        from src.ai.promise_reminder_manager import PromiseReminderManager
+
+        try:
+            self.promise_manager = PromiseReminderManager()
+            print("OK: 대화 약속 매니저 초기화 성공")
+        except Exception as e:
+            print(f"ERROR: 대화 약속 매니저 초기화 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            self.promise_manager = None
     
     def _init_memory_manager(self):
         """메모리 매니저 초기화"""

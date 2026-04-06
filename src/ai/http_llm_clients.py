@@ -274,7 +274,7 @@ class _CommonMixin:
     async def generate_diary_completion_reply(
         self,
         context_message: str,
-    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         response_text = self._request_one_shot_raw(context_message, include_sub_prompt=True)
         return self._parse_response(response_text)
 
@@ -287,11 +287,11 @@ class _CommonMixin:
     async def generate_note_execution_report(
         self,
         context_message: str,
-    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         response_text = self._request_one_shot_raw(context_message, include_sub_prompt=True)
         return self._parse_response(response_text)
 
-    def _parse_response(self, response_text: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+    def _parse_response(self, response_text: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         response_text, analysis = self._extract_analysis_block(response_text)
 
         events = []
@@ -309,6 +309,22 @@ class _CommonMixin:
                 )
         response_text = re.sub(event_pattern, "", response_text)
 
+        promises = []
+        promise_pattern = r"\[약속:([^\]]+)\]"
+        promise_matches = re.findall(promise_pattern, response_text)
+        for match in promise_matches:
+            parts = [p.strip() for p in match.split("|")]
+            if len(parts) >= 2:
+                promises.append(
+                    {
+                        "trigger_at": parts[0],
+                        "title": parts[1],
+                        "source": parts[2] if len(parts) > 2 else "user",
+                        "source_excerpt": parts[3] if len(parts) > 3 else "",
+                    }
+                )
+        response_text = re.sub(promise_pattern, "", response_text)
+
         emotion_pattern = r"\[(\w+)\]"
         matches = re.findall(emotion_pattern, response_text)
         clean_text = re.sub(emotion_pattern, "", response_text).strip()
@@ -322,7 +338,7 @@ class _CommonMixin:
                 break
 
         clean_text, japanese_text = self._extract_japanese_lines(clean_text)
-        return clean_text, emotion, japanese_text, events, analysis
+        return clean_text, emotion, japanese_text, events, analysis, promises
 
     def _parse_summary_response(self, response_text: str) -> tuple[str, list[str]]:
         try:
@@ -515,7 +531,7 @@ class OpenAICompatibleClient(_CommonMixin):
         self,
         message: str,
         memory_search_text: str | None = None,
-    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         search_query = str(memory_search_text or "").strip() or message
         memory_context = await self._build_memory_context(search_query)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
@@ -526,7 +542,7 @@ class OpenAICompatibleClient(_CommonMixin):
         message: str,
         images_data: list,
         memory_search_text: str | None = None,
-    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         search_query = str(memory_search_text or "").strip() or message
         memory_context = await self._build_memory_context(search_query)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
@@ -537,15 +553,15 @@ class OpenAICompatibleClient(_CommonMixin):
                 parts.append({"type": "image_url", "image_url": {"url": data_url}})
 
         raw_response_text = self._request_openai(parts)
-        clean_text, emotion, japanese_text, events, analysis = self._parse_response(raw_response_text)
+        clean_text, emotion, japanese_text, events, analysis, promises = self._parse_response(raw_response_text)
         self._remember_turn(parts, raw_response_text)
-        return clean_text, emotion, japanese_text, events, analysis
+        return clean_text, emotion, japanese_text, events, analysis, promises
 
-    def send_message(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+    def send_message(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         raw_response_text = self._request_openai(message)
-        clean_text, emotion, japanese_text, events, analysis = self._parse_response(raw_response_text)
+        clean_text, emotion, japanese_text, events, analysis, promises = self._parse_response(raw_response_text)
         self._remember_turn(message, raw_response_text)
-        return clean_text, emotion, japanese_text, events, analysis
+        return clean_text, emotion, japanese_text, events, analysis, promises
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str]]:
         conversation_text = "\n".join(
@@ -703,7 +719,7 @@ class OpenAIResponseAPIClient(_CommonMixin):
         self,
         message: str,
         memory_search_text: str | None = None,
-    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         search_query = str(memory_search_text or "").strip() or message
         memory_context = await self._build_memory_context(search_query)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
@@ -714,7 +730,7 @@ class OpenAIResponseAPIClient(_CommonMixin):
         message: str,
         images_data: list,
         memory_search_text: str | None = None,
-    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         search_query = str(memory_search_text or "").strip() or message
         memory_context = await self._build_memory_context(search_query)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
@@ -725,16 +741,16 @@ class OpenAIResponseAPIClient(_CommonMixin):
                 parts.append({"type": "image_url", "image_url": {"url": data_url}})
 
         raw_response_text = self._request_responses(parts)
-        clean_text, emotion, japanese_text, events, analysis = self._parse_response(raw_response_text)
+        clean_text, emotion, japanese_text, events, analysis, promises = self._parse_response(raw_response_text)
         self._remember_turn(parts, raw_response_text)
-        return clean_text, emotion, japanese_text, events, analysis
+        return clean_text, emotion, japanese_text, events, analysis, promises
 
-    def send_message(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+    def send_message(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         raw_response_text = self._request_responses(message)
-        clean_text, emotion, japanese_text, events, analysis = self._parse_response(raw_response_text)
+        clean_text, emotion, japanese_text, events, analysis, promises = self._parse_response(raw_response_text)
         self._history.append({"role": "user", "content": message})
         self._history.append({"role": "assistant", "content": raw_response_text})
-        return clean_text, emotion, japanese_text, events, analysis
+        return clean_text, emotion, japanese_text, events, analysis, promises
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str]]:
         conversation_text = "\n".join(
@@ -956,7 +972,7 @@ class GoogleCloudClient(_CommonMixin):
         self,
         message: str,
         memory_search_text: str | None = None,
-    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         search_query = str(memory_search_text or "").strip() or message
         memory_context = await self._build_memory_context(search_query)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
@@ -967,21 +983,21 @@ class GoogleCloudClient(_CommonMixin):
         message: str,
         images_data: list,
         memory_search_text: str | None = None,
-    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         search_query = str(memory_search_text or "").strip() or message
         memory_context = await self._build_memory_context(search_query)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         user_parts = self._to_parts(enhanced, images_data)
         raw_response_text = self._request_google(enhanced, images_data=images_data)
-        clean_text, emotion, japanese_text, events, analysis = self._parse_response(raw_response_text)
+        clean_text, emotion, japanese_text, events, analysis, promises = self._parse_response(raw_response_text)
         self._remember_turn(user_parts, raw_response_text)
-        return clean_text, emotion, japanese_text, events, analysis
+        return clean_text, emotion, japanese_text, events, analysis, promises
 
-    def send_message(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+    def send_message(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         raw_response_text = self._request_google(message)
-        clean_text, emotion, japanese_text, events, analysis = self._parse_response(raw_response_text)
+        clean_text, emotion, japanese_text, events, analysis, promises = self._parse_response(raw_response_text)
         self._remember_turn(message, raw_response_text)
-        return clean_text, emotion, japanese_text, events, analysis
+        return clean_text, emotion, japanese_text, events, analysis, promises
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str]]:
         conversation_text = "\n".join(
@@ -1099,7 +1115,7 @@ class CohereClient(_CommonMixin):
         self,
         message: str,
         memory_search_text: str | None = None,
-    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         search_query = str(memory_search_text or "").strip() or message
         memory_context = await self._build_memory_context(search_query)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
@@ -1110,17 +1126,17 @@ class CohereClient(_CommonMixin):
         message: str,
         images_data: list,
         memory_search_text: str | None = None,
-    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         search_query = str(memory_search_text or "").strip() or message
         memory_context = await self._build_memory_context(search_query)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         return self.send_message(enhanced)
 
-    def send_message(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+    def send_message(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         raw_response_text = self._request_cohere(message)
-        clean_text, emotion, japanese_text, events, analysis = self._parse_response(raw_response_text)
+        clean_text, emotion, japanese_text, events, analysis, promises = self._parse_response(raw_response_text)
         self._remember_turn(message, raw_response_text)
-        return clean_text, emotion, japanese_text, events, analysis
+        return clean_text, emotion, japanese_text, events, analysis, promises
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str]]:
         conversation_text = "\n".join(
@@ -1224,7 +1240,7 @@ class AnthropicClient(_CommonMixin):
         self,
         message: str,
         memory_search_text: str | None = None,
-    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         search_query = str(memory_search_text or "").strip() or message
         memory_context = await self._build_memory_context(search_query)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
@@ -1235,7 +1251,7 @@ class AnthropicClient(_CommonMixin):
         message: str,
         images_data: list,
         memory_search_text: str | None = None,
-    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         search_query = str(memory_search_text or "").strip() or message
         memory_context = await self._build_memory_context(search_query)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
@@ -1255,15 +1271,15 @@ class AnthropicClient(_CommonMixin):
                 }
             )
         raw_response_text = self._request_anthropic(blocks)
-        clean_text, emotion, japanese_text, events, analysis = self._parse_response(raw_response_text)
+        clean_text, emotion, japanese_text, events, analysis, promises = self._parse_response(raw_response_text)
         self._remember_turn(blocks, raw_response_text)
-        return clean_text, emotion, japanese_text, events, analysis
+        return clean_text, emotion, japanese_text, events, analysis, promises
 
-    def send_message(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+    def send_message(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         raw_response_text = self._request_anthropic([{"type": "text", "text": message}])
-        clean_text, emotion, japanese_text, events, analysis = self._parse_response(raw_response_text)
+        clean_text, emotion, japanese_text, events, analysis, promises = self._parse_response(raw_response_text)
         self._remember_turn(message, raw_response_text)
-        return clean_text, emotion, japanese_text, events, analysis
+        return clean_text, emotion, japanese_text, events, analysis, promises
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str]]:
         conversation_text = "\n".join(
@@ -1386,7 +1402,7 @@ class OllamaClient(_CommonMixin):
         self,
         message: str,
         memory_search_text: str | None = None,
-    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         search_query = str(memory_search_text or "").strip() or message
         memory_context = await self._build_memory_context(search_query)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
@@ -1397,12 +1413,12 @@ class OllamaClient(_CommonMixin):
         message: str,
         images_data: list,
         memory_search_text: str | None = None,
-    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         search_query = str(memory_search_text or "").strip() or message
         memory_context = await self._build_memory_context(search_query)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         raw_response_text = self._request_ollama(enhanced, images_data=images_data)
-        clean_text, emotion, japanese_text, events, analysis = self._parse_response(raw_response_text)
+        clean_text, emotion, japanese_text, events, analysis, promises = self._parse_response(raw_response_text)
         user_content = {"content": enhanced}
         images = []
         for img in images_data or []:
@@ -1413,13 +1429,13 @@ class OllamaClient(_CommonMixin):
         if images:
             user_content["images"] = images
         self._remember_turn(user_content, raw_response_text)
-        return clean_text, emotion, japanese_text, events, analysis
+        return clean_text, emotion, japanese_text, events, analysis, promises
 
-    def send_message(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+    def send_message(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         raw_response_text = self._request_ollama(message)
-        clean_text, emotion, japanese_text, events, analysis = self._parse_response(raw_response_text)
+        clean_text, emotion, japanese_text, events, analysis, promises = self._parse_response(raw_response_text)
         self._remember_turn(message, raw_response_text)
-        return clean_text, emotion, japanese_text, events, analysis
+        return clean_text, emotion, japanese_text, events, analysis, promises
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str]]:
         conversation_text = "\n".join(
