@@ -215,6 +215,17 @@ def test_get_system_prompt_reads_from_markdown_files(tmp_path, monkeypatch):
     assert prompt_module.get_available_emotions() == ["calm", "focus"]
 
 
+def test_analysis_appendix_includes_conversation_promise_rules():
+    repo_appendix = (Path("prompts") / "analysis_system_appendix.md").read_text(encoding="utf-8-sig")
+    default_appendix = (Path("prompts") / "defaults" / "analysis_system_appendix.md").read_text(encoding="utf-8-sig")
+
+    for appendix in (repo_appendix, default_appendix):
+        assert "[약속:" in appendix
+        assert ("상대 시간" in appendix) or ("relative time" in appendix)
+        assert ("절대 시간" in appendix) or ("absolute time" in appendix)
+        assert ("감정 태그보다 먼저" in appendix) or ("before the emotion tag" in appendix)
+
+
 def test_runtime_prompt_uses_model_emotions_instead_of_saved_emotion_list(tmp_path, monkeypatch):
     from src.ai import prompt as prompt_module
     from src.ai import prompt_config
