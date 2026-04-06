@@ -30,6 +30,17 @@ def test_load_missing_file_uses_default_config(tmp_path):
     assert gpt_sovits["text_split_method"] == "cut5"
 
 
+def test_live2d_performance_defaults_are_present(tmp_path):
+    config_path = tmp_path / "config.json"
+    secret_path = tmp_path / "api_keys.json"
+    settings = Settings(config_path=str(config_path), secret_path=str(secret_path))
+    assert settings.get("performance_engine_enabled") is True
+    assert settings.get("performance_intensity") == 1.0
+    assert settings.get("speech_reactivity") == 1.0
+    assert settings.get("idle_micro_motion") == 0.35
+    assert settings.get("show_motion_debug_overlay") is False
+
+
 def test_save_and_reload_roundtrip(tmp_path):
     config_path = tmp_path / "config.json"
     secret_path = tmp_path / "api_keys.json"

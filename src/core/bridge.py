@@ -450,6 +450,8 @@ class WebBridge(QObject):
     message_received = pyqtSignal(str, str)  # (텍스트, 감정)
     expression_changed = pyqtSignal(str)     # 표정 변경
     lip_sync_update = pyqtSignal(float)      # 립싱크 업데이트 (mouth_value)
+    speech_state_changed = pyqtSignal(str, float)  # (speech state, intensity)
+    performance_state_changed = pyqtSignal(str)  # performance state
     reroll_state_changed = pyqtSignal(bool)  # 리롤 응답 교체 모드 on/off
     summary_notice = pyqtSignal(str, str)    # (메시지, 레벨)
     mood_changed = pyqtSignal(str, float, float, float, float, str)  # (라벨, valence, energy, bond, stress, 단기 분위기)
@@ -868,6 +870,20 @@ class WebBridge(QObject):
     def _append_conversation(self, role: str, message: str, timestamp: str | None = None):
         """Append a conversation tuple to the in-memory buffer."""
         self.conversation_buffer.append((role, message, timestamp or self._now_timestamp()))
+
+    def _emit_performance_state(self, state: str):
+        """연기 엔진용 상태 신호를 JS로 보낸다."""
+        try:
+            self.performance_state_changed.emit(str(state or "idle"))
+        except Exception as e:
+            print(f"[Bridge] performance_state_changed emit 실패: {e}")
+
+    def _emit_speech_state(self, state: str, intensity: float = 0.0):
+        """연기 엔진용 음성 상태 신호를 JS로 보낸다."""
+        try:
+            self.speech_state_changed.emit(str(state or "idle"), float(intensity))
+        except Exception as e:
+            print(f"[Bridge] speech_state_changed emit 실패: {e}")
 
     def _start_ai_worker(
         self,
@@ -1585,6 +1601,7 @@ class WebBridge(QObject):
         }
         self._is_rerolling = False
 
+        self._emit_performance_state("thinking")
         self._start_ai_worker(message_with_time, memory_search_text=memory_search_text)
         print("[Bridge] Worker thread started")
 
@@ -1680,6 +1697,7 @@ class WebBridge(QObject):
         }
         self._is_rerolling = False
 
+        self._emit_performance_state("thinking")
         self._start_ai_worker(
             message_with_time,
             image_attachments,
@@ -1721,6 +1739,7 @@ class WebBridge(QObject):
         payload = self._last_request_payload
         self._is_rerolling = True
         self.reroll_state_changed.emit(True)
+        self._emit_performance_state("thinking")
         self._start_ai_worker(
             payload["message_with_time"],
             payload.get("images") or [],
@@ -1914,16 +1933,21 @@ class WebBridge(QObject):
                     print(f"[Bridge] 일정 추가 실패: {e}")
         
         # TTS 재생 (일본어가 있고 TTS가 활성화되어 있으면)
+        emit_performance_state = getattr(self, "_emit_performance_state", None)
         if japanese_text and self.enable_tts and self.tts_client and self.audio_player:
             print(f"[Bridge] TTS 활성화 - 텍스트 보류 중, TTS 생성 시작")
             # 텍스트를 보류하고 TTS 완료 대기
             self.pending_response = (text, emotion)
             self.pending_token_usage_payload = resolved_token_usage_payload
+            if callable(emit_performance_state):
+                emit_performance_state("preSpeech")
             self._play_tts(japanese_text)
         else:
             # TTS 비활성화 또는 일본어 없음 - 즉시 텍스트 전송
             print(f"[Bridge] TTS 비활성화 - 텍스트 즉시 전송")
             self.message_received.emit(text, emotion)
+            if callable(emit_performance_state):
+                emit_performance_state("listening")
             self.token_usage_ready.emit(resolved_token_usage_payload)
             if self._is_rerolling:
                 self._is_rerolling = False
@@ -2005,6 +2029,7 @@ class WebBridge(QObject):
         self.lip_sync_data = None
         self.lip_sync_start_time = None
         self.lip_sync_update.emit(0.0)
+        self._emit_speech_state("ended", 0.0)
         self._run_parent_javascript(
             "(function(){"
             "if (typeof window.playBrowserTTS === 'function') {"
@@ -2021,6 +2046,7 @@ class WebBridge(QObject):
         text, emotion = self.pending_response
         print(f"[Bridge] 보류된 응답 즉시 전송: {text[:50]}... [{emotion}]")
         self.message_received.emit(text, emotion)
+        self._emit_performance_state("listening")
         self.token_usage_ready.emit(self._resolve_token_usage_payload(self.pending_token_usage_payload))
         if self._is_rerolling:
             self._is_rerolling = False
@@ -2088,6 +2114,8 @@ class WebBridge(QObject):
         self.lip_sync_data = None
         self.lip_sync_start_time = None
         self.lip_sync_update.emit(0.0)
+        self._emit_speech_state("ended", 0.0)
+        self._emit_performance_state("listening")
         self._run_parent_javascript(
             "(function(){"
             "if (typeof window.stopBrowserTTS === 'function') {"
@@ -2154,6 +2182,8 @@ class WebBridge(QObject):
         self.lip_sync_timer = QTimer(self)
         self.lip_sync_timer.timeout.connect(self._update_lip_sync)
         self.lip_sync_timer.start(10)
+        self._emit_speech_state("started", 0.0)
+        self._emit_performance_state("preSpeech")
         
         print(f"[Bridge] 립싱크 타이머 시작")
     
@@ -2185,11 +2215,14 @@ class WebBridge(QObject):
         # 값 전송
         if found:
             self.lip_sync_update.emit(mouth_value)
+            self._emit_speech_state("speaking", mouth_value)
         
         # 모든 데이터 처리 완료 시 타이머 종료
         if self.lip_sync_index >= len(self.lip_sync_data) - 1:
             self.lip_sync_timer.stop()
             self.lip_sync_update.emit(0.0)  # 입 닫기
+            self._emit_speech_state("ended", 0.0)
+            self._emit_performance_state("settling")
             print(f"[Bridge] 립싱크 완료")
     
     def _check_auto_summarize(self):
@@ -2274,6 +2307,7 @@ class WebBridge(QObject):
         if self._is_rerolling:
             self._is_rerolling = False
             self.reroll_state_changed.emit(False)
+        self._emit_performance_state("listening")
         self.message_received.emit("음... 무슨 일이 있었나봐요.", "confused")
     
     @pyqtSlot()

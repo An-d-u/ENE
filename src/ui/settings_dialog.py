@@ -4042,6 +4042,66 @@ class SettingsDialog(QDialog):
         self._add_form_row(idle_layout, "settings.behavior.idle.speed", "유휴 모션 속도:", self.idle_motion_speed_spin)
         layout.addWidget(idle_group)
 
+        performance_group = QGroupBox("연기 엔진")
+        self._bind_group_title(performance_group, "settings.behavior.performance.title", "연기 엔진")
+        performance_layout = QFormLayout(performance_group)
+        performance_layout.setSpacing(8)
+        performance_layout.setContentsMargins(10, 15, 10, 10)
+
+        self.performance_engine_check = self._create_toggle(
+            "버튜버식 연기 엔진 활성화",
+            key="settings.behavior.performance.enable",
+        )
+        self.performance_engine_check.toggled.connect(self._on_setting_changed)
+        performance_layout.addRow(self.performance_engine_check)
+
+        self.performance_intensity_spin = QDoubleSpinBox()
+        self.performance_intensity_spin.setRange(0.2, 2.5)
+        self.performance_intensity_spin.setSingleStep(0.1)
+        self.performance_intensity_spin.setDecimals(2)
+        self.performance_intensity_spin.setSuffix("x")
+        self.performance_intensity_spin.valueChanged.connect(self._on_setting_changed)
+        self._add_form_row(
+            performance_layout,
+            "settings.behavior.performance.intensity",
+            "전체 연기 강도:",
+            self.performance_intensity_spin,
+        )
+
+        self.speech_reactivity_spin = QDoubleSpinBox()
+        self.speech_reactivity_spin.setRange(0.2, 2.5)
+        self.speech_reactivity_spin.setSingleStep(0.1)
+        self.speech_reactivity_spin.setDecimals(2)
+        self.speech_reactivity_spin.setSuffix("x")
+        self.speech_reactivity_spin.valueChanged.connect(self._on_setting_changed)
+        self._add_form_row(
+            performance_layout,
+            "settings.behavior.performance.speech_reactivity",
+            "말 반응 강도:",
+            self.speech_reactivity_spin,
+        )
+
+        self.idle_micro_motion_spin = QDoubleSpinBox()
+        self.idle_micro_motion_spin.setRange(0.0, 1.5)
+        self.idle_micro_motion_spin.setSingleStep(0.05)
+        self.idle_micro_motion_spin.setDecimals(2)
+        self.idle_micro_motion_spin.setSuffix("x")
+        self.idle_micro_motion_spin.valueChanged.connect(self._on_setting_changed)
+        self._add_form_row(
+            performance_layout,
+            "settings.behavior.performance.idle_micro_motion",
+            "무음 중 미세 동작:",
+            self.idle_micro_motion_spin,
+        )
+
+        self.show_motion_debug_overlay_check = self._create_toggle(
+            "연기 디버그 오버레이 표시",
+            key="settings.behavior.performance.debug_overlay",
+        )
+        self.show_motion_debug_overlay_check.toggled.connect(self._on_setting_changed)
+        performance_layout.addRow(self.show_motion_debug_overlay_check)
+        layout.addWidget(performance_group)
+
         pat_group = QGroupBox("머리 쓰다듬기")
         self._bind_group_title(pat_group, "settings.behavior.head_pat.title", "머리 쓰다듬기")
         pat_layout = QFormLayout(pat_group)
@@ -5540,6 +5600,13 @@ class SettingsDialog(QDialog):
             self.idle_motion_dynamic_check.setChecked(self._original_settings.get("idle_motion_dynamic_mode", False))
             self.idle_motion_strength_spin.setValue(float(self._original_settings.get("idle_motion_strength", 1.0)))
             self.idle_motion_speed_spin.setValue(float(self._original_settings.get("idle_motion_speed", 1.0)))
+            self.performance_engine_check.setChecked(self._original_settings.get("performance_engine_enabled", True))
+            self.performance_intensity_spin.setValue(float(self._original_settings.get("performance_intensity", 1.0)))
+            self.speech_reactivity_spin.setValue(float(self._original_settings.get("speech_reactivity", 1.0)))
+            self.idle_micro_motion_spin.setValue(float(self._original_settings.get("idle_micro_motion", 0.35)))
+            self.show_motion_debug_overlay_check.setChecked(
+                self._original_settings.get("show_motion_debug_overlay", False)
+            )
 
             self.head_pat_check.setChecked(self._original_settings.get("enable_head_pat", True))
             self.head_pat_strength_spin.setValue(float(self._original_settings.get("head_pat_strength", 1.0)))
@@ -5780,6 +5847,11 @@ class SettingsDialog(QDialog):
             "idle_motion_dynamic_mode": self.idle_motion_dynamic_check.isChecked(),
             "idle_motion_strength": self.idle_motion_strength_spin.value(),
             "idle_motion_speed": self.idle_motion_speed_spin.value(),
+            "performance_engine_enabled": self.performance_engine_check.isChecked(),
+            "performance_intensity": self.performance_intensity_spin.value(),
+            "speech_reactivity": self.speech_reactivity_spin.value(),
+            "idle_micro_motion": self.idle_micro_motion_spin.value(),
+            "show_motion_debug_overlay": self.show_motion_debug_overlay_check.isChecked(),
             "enable_head_pat": self.head_pat_check.isChecked(),
             "head_pat_strength": self.head_pat_strength_spin.value(),
             "head_pat_fade_in_ms": self.head_pat_fade_in_spin.value(),

@@ -147,3 +147,10 @@ def test_chat_script_routes_recent_user_edit_through_logical_message_container()
     script = _script_text()
     assert "openInlineEdit(lastUserMessageEl);" in script
     assert "function getMessageLogicalText(" in script
+
+
+def test_chat_script_routes_expression_updates_through_base_store():
+    script = _script_text()
+    assert "let expressionBaseParams = new Map();" in script
+    assert "function setExpressionBaseParams(" in script
+    assert "function clearExpressionBaseParams(" in script

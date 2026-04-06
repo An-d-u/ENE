@@ -107,6 +107,15 @@ let currentAvailableEmotions = new Set(['normal']);
 let currentModelLoadToken = 0;
 let currentModelErrorText = null;
 let currentThemeAccent = DEFAULT_THEME.accentColor;
+let modelCapabilityProfile = null;
+let modelIdleAnimationActive = false;
+window.enePerformanceConfig = window.enePerformanceConfig || {};
+let performanceEngineEnabled = true;
+let performanceIntensity = 1.0;
+let speechReactivity = 1.0;
+let idleMicroMotion = 0.35;
+let motionDebugOverlayEnabled = false;
+const ALLOW_MOTION_DEBUG_OVERLAY = false;
 
 function resolveModelPathFromConfig() {
     return window.eneModelConfig.modelPath || DEFAULT_MODEL_PATH;
@@ -251,6 +260,41 @@ window.applyENETheme = function applyENETheme(config) {
 window.applyENETheme(window.eneThemeConfig);
 syncAvailableEmotionsFromConfig();
 
+window.setPerformanceEngineConfig = function setPerformanceEngineConfig(config) {
+    const source = config || {};
+    performanceEngineEnabled = source.enabled !== false;
+    performanceIntensity = Math.max(0.2, Math.min(2.5, Number(source.intensity) || 1.0));
+    speechReactivity = Math.max(0.2, Math.min(2.5, Number(source.speechReactivity) || 1.0));
+    idleMicroMotion = Math.max(0.0, Math.min(1.5, Number(source.idleMicroMotion) || 0.35));
+    setMotionDebugOverlayEnabled(Boolean(source.showDebugOverlay));
+    syncModelIdleAnimationState(window.live2dModel);
+};
+
+window.setPerformanceEngineConfig(window.enePerformanceConfig);
+
+function setMotionDebugOverlayEnabled(enabled) {
+    motionDebugOverlayEnabled = ALLOW_MOTION_DEBUG_OVERLAY && Boolean(enabled);
+    if (!window.motionDebugOverlay) {
+        return;
+    }
+    window.motionDebugOverlay.classList.toggle('hidden', !motionDebugOverlayEnabled);
+}
+
+function renderMotionDebugOverlay(snapshot) {
+    if (!window.motionDebugOverlay || !motionDebugOverlayEnabled) {
+        return;
+    }
+    const safeSnapshot = snapshot || {};
+    window.motionDebugOverlay.textContent = [
+        `state: ${safeSnapshot.state || 'idle'}`,
+        `mood: ${safeSnapshot.mood || 'calm'}`,
+        `gesture: ${safeSnapshot.gesture || '-'}`,
+        `speech: ${Number(safeSnapshot.speech || 0).toFixed(2)}`,
+        `headYaw: ${Number(safeSnapshot.headYaw || 0).toFixed(2)}`,
+        `headPitch: ${Number(safeSnapshot.headPitch || 0).toFixed(2)}`,
+    ].join('\n');
+}
+
 function resolveBrowserSpeechVoice(preferredVoice, preferredLang) {
     if (!('speechSynthesis' in window)) {
         return null;
@@ -369,12 +413,55 @@ function removeCurrentModelArtifacts() {
     }
     trackingParamSupport = null;
     headPatEyeParamSupport = null;
+    modelCapabilityProfile = null;
+    modelIdleAnimationActive = false;
+    smoothedPerformanceOffsets = { angleX: 0, angleY: 0, bodyX: 0, bodyY: 0, bodyZ: 0, breath: 0, eyeY: 0 };
     isHeadPatting = false;
     headPatPointerId = null;
     patRawIntensity = 0;
     patDirection = 0;
     patBlend = 0;
     patBlendMode = 'idle';
+}
+
+function syncModelIdleAnimationState(model = window.live2dModel) {
+    if (!model || !model.internalModel || !model.internalModel.motionManager) {
+        modelIdleAnimationActive = false;
+        return;
+    }
+
+    const motionManager = model.internalModel.motionManager;
+    const shouldRunIdleAnimation = idleMotionEnabled && !performanceEngineEnabled;
+
+    if (!shouldRunIdleAnimation) {
+        if (!modelIdleAnimationActive) {
+            return;
+        }
+        try {
+            if (typeof motionManager.stopAllMotions === 'function') {
+                motionManager.stopAllMotions();
+            } else if (typeof motionManager.stopAllMotion === 'function') {
+                motionManager.stopAllMotion();
+            }
+            modelIdleAnimationActive = false;
+            console.log("Model Idle motion stopped");
+        } catch (e) {
+            console.warn("Failed to stop Idle motion:", e);
+        }
+        return;
+    }
+
+    if (modelIdleAnimationActive) {
+        return;
+    }
+
+    try {
+        model.motion('Idle');
+        modelIdleAnimationActive = true;
+        console.log("Idle motion started");
+    } catch (e) {
+        console.warn("Failed to start Idle motion:", e);
+    }
 }
 
 function applyCurrentModelPlacement() {
@@ -412,6 +499,92 @@ window.applyENEModelSettings = async function applyENEModelSettings(config) {
     applyCurrentModelPlacement();
 };
 
+function resolveMotionSlotCandidates(slotName) {
+    const candidates = {
+        headYaw: ['ParamAngleX'],
+        headPitch: ['ParamAngleY'],
+        bodyYaw: ['ParamBodyAngleX', 'ParamBodyAngleX2'],
+        bodyPitch: ['ParamBodyAngleY', 'ParamBodyAngleY2'],
+        bodyRoll: ['ParamBodyAngleZ', 'ParamBodyAngleZ2'],
+        breath: ['ParamBreath'],
+        gazeX: ['ParamEyeBallX', 'ParamAngleX'],
+        gazeY: ['ParamEyeBallY', 'ParamAngleY'],
+        mouthOpen: ['ParamMouthOpenY'],
+        mouthForm: ['ParamMouthForm'],
+        eyeOpenL: ['ParamEyeLOpen'],
+        eyeOpenR: ['ParamEyeROpen'],
+    };
+    return candidates[slotName] || [];
+}
+
+function readModelParameterIds(coreModel) {
+    if (!coreModel) {
+        return [];
+    }
+
+    const found = [];
+    const pushUnique = (value) => {
+        const paramId = String(value || '').trim();
+        if (paramId && !found.includes(paramId)) {
+            found.push(paramId);
+        }
+    };
+
+    try {
+        const ids = coreModel.parameters?.ids;
+        if (ids && typeof ids.length === 'number') {
+            for (let index = 0; index < ids.length; index += 1) {
+                pushUnique(ids[index]);
+            }
+        }
+    } catch (_) {
+    }
+
+    try {
+        if (found.length === 0 && typeof coreModel.getParameterCount === 'function' && typeof coreModel.getParameterId === 'function') {
+            const count = Number(coreModel.getParameterCount()) || 0;
+            for (let index = 0; index < count; index += 1) {
+                pushUnique(coreModel.getParameterId(index));
+            }
+        }
+    } catch (_) {
+    }
+
+    return found;
+}
+
+function buildModelCapabilityProfile(coreModel) {
+    const rawParameterIds = readModelParameterIds(coreModel);
+    const available = new Set(rawParameterIds);
+    const slots = {};
+
+    [
+        'headYaw',
+        'headPitch',
+        'bodyYaw',
+        'bodyPitch',
+        'bodyRoll',
+        'breath',
+        'gazeX',
+        'gazeY',
+        'mouthOpen',
+        'mouthForm',
+        'eyeOpenL',
+        'eyeOpenR',
+    ].forEach((slotName) => {
+        const paramId = resolveMotionSlotCandidates(slotName).find((candidate) => available.has(candidate)) || '';
+        slots[slotName] = {
+            paramId,
+            enabled: Boolean(paramId),
+        };
+    });
+
+    return {
+        rawParameterIds,
+        slots,
+    };
+}
+
 // Live2D 모델 파일을 로드하고 초기 배치/초기 모션을 적용한다.
 async function loadModel() {
     const requestToken = ++currentModelLoadToken;
@@ -437,16 +610,15 @@ async function loadModel() {
         window.live2dModel = model;
         app.stage.addChild(model);
         applyCurrentModelPlacement();
+        if (model.internalModel && model.internalModel.coreModel) {
+            modelCapabilityProfile = buildModelCapabilityProfile(model.internalModel.coreModel);
+            console.log('Model capability profile:', modelCapabilityProfile);
+        }
 
         console.log(`Model positioned at (${model.x}, ${model.y}) with scale ${model.scale.x}`);
         if (model.internalModel && model.internalModel.motionManager) {
             console.log("Motion manager available");
-            try {
-                model.motion('Idle');
-                console.log("Idle motion started");
-            } catch (e) {
-                console.warn("Failed to start Idle motion:", e);
-            }
+            syncModelIdleAnimationState(model);
         } else {
             console.log("No motion manager found");
         }
@@ -532,9 +704,9 @@ let patDirection = 0;
 let patBlend = 0;
 let patBlendMode = 'idle'; // idle | in | hold | out
 let patFadeElapsedMs = 0;
-let patOffsetsCurrent = { angleX: 0, angleY: 0, bodyX: 0, eyeY: 0 };
-let patOffsetsApplied = { angleX: 0, angleY: 0, bodyX: 0, eyeY: 0 };
-let lastNonPatTrackingState = { angleX: 0, angleY: 0, bodyX: 0, eyeY: 0 };
+let patOffsetsCurrent = { angleX: 0, angleY: 0, bodyX: 0, bodyY: 0, bodyZ: 0, breath: 0, eyeY: 0 };
+let patOffsetsApplied = { angleX: 0, angleY: 0, bodyX: 0, bodyY: 0, bodyZ: 0, breath: 0, eyeY: 0 };
+let lastNonPatTrackingState = { angleX: 0, angleY: 0, bodyX: 0, bodyY: 0, bodyZ: 0, breath: 0, eyeY: 0 };
 let previousEmotionBeforePat = 'normal';
 let currentEmotionTag = 'normal';
 let baseEmotionTag = 'normal';
@@ -558,9 +730,19 @@ const TRACKING_DAMPING_AT_60FPS = 0.2;
 const TRACKING_FACE_Y_RATIO = 0.32;
 const IDLE_MOTION_BASE_SPEED_HZ = 0.12;
 const IDLE_MOTION_BASE_ANGLE_X = 2.5;
-const IDLE_MOTION_BASE_ANGLE_Y = 0.8;
+const IDLE_MOTION_BASE_ANGLE_Y = 1.3;
 const IDLE_MOTION_BASE_BODY_X = 1.3;
+const IDLE_MOTION_BASE_BODY_Y = 1.15;
 const SPEECH_IDLE_BLOCK_MS = 450;
+const PERFORMANCE_IDLE_RETURN_FADE_MS = 900;
+const SPEAKING_GESTURE_TRIGGER_THRESHOLD = 0.32;
+const SPEAKING_GESTURE_COOLDOWN_MS = 980;
+const SPEAKING_MOTION_SMOOTHING_AT_60FPS = 0.18;
+const SPEAKING_MOTION_GAIN = 1.45;
+const BODY_MOTION_GAIN = 1.7;
+const BODY_PITCH_MOTION_GAIN = 2.35;
+const BODY_ROLL_MOTION_GAIN = 2.15;
+const BODY_MOTION_SMOOTHING_AT_60FPS = 0.09;
 const HEAD_PAT_SPEED_EMA = 0.28;
 const HEAD_PAT_INTENSITY_EMA = 0.22;
 const HEAD_PAT_DIRECTION_EMA = 0.35;
@@ -571,6 +753,314 @@ let idleMotionSpeedHz = IDLE_MOTION_BASE_SPEED_HZ;
 let idleMotionAngleX = IDLE_MOTION_BASE_ANGLE_X;
 let idleMotionAngleY = IDLE_MOTION_BASE_ANGLE_Y;
 let idleMotionBodyX = IDLE_MOTION_BASE_BODY_X;
+let idleMotionBodyY = IDLE_MOTION_BASE_BODY_Y;
+let currentMouthOpenValue = 0;
+const PERFORMANCE_STATES = ['idle', 'listening', 'thinking', 'preSpeech', 'speaking', 'settling'];
+const PERFORMANCE_GESTURES = ['microNod', 'sideGlance', 'focusLean', 'headTilt', 'resetPose'];
+let currentPerformanceState = 'idle';
+let currentPerformanceMood = 'calm';
+let performanceStateChangedAt = performance.now();
+let lastSpeechSignalAt = 0;
+let speechLeadUntilMs = 0;
+let performanceSpeechIntensity = 0;
+let activePerformanceGesture = null;
+let lastPerformanceGestureAt = 0;
+let smoothedPerformanceOffsets = { angleX: 0, angleY: 0, bodyX: 0, bodyY: 0, bodyZ: 0, breath: 0, eyeY: 0 };
+
+function setPerformanceState(nextState) {
+    const normalized = String(nextState || '').trim();
+    if (!PERFORMANCE_STATES.includes(normalized) || currentPerformanceState === normalized) {
+        return;
+    }
+    currentPerformanceState = normalized;
+    performanceStateChangedAt = performance.now();
+}
+
+function setPerformanceMood(nextMood) {
+    const normalized = String(nextMood || '').trim().toLowerCase();
+    if (!normalized) {
+        return;
+    }
+    currentPerformanceMood = normalized;
+}
+
+function mapTemporaryMoodToPerformanceMood(temporaryState, label) {
+    const normalizedTemporary = String(temporaryState || '').trim().toLowerCase();
+    const normalizedLabel = String(label || '').trim().toLowerCase();
+    if (normalizedTemporary === 'playful') return 'playful';
+    if (normalizedTemporary === 'focused') return 'focused';
+    if (normalizedTemporary === 'guarded') return 'guarded';
+    if (normalizedTemporary === 'drained') return 'tired';
+    if (normalizedTemporary === 'steady') return 'calm';
+    if (normalizedLabel.includes('warm') || normalizedLabel.includes('affection')) return 'warm';
+    if (normalizedLabel.includes('tired')) return 'tired';
+    return 'calm';
+}
+
+function receiveSpeechStateSignal(state, intensity = 0) {
+    const normalized = String(state || '').trim().toLowerCase();
+    const nextIntensity = clamp01(Number(intensity) || 0);
+    if (normalized === 'started') {
+        performanceSpeechIntensity = Math.max(performanceSpeechIntensity, nextIntensity);
+        lastSpeechSignalAt = performance.now();
+        speechLeadUntilMs = lastSpeechSignalAt + 120;
+        setPerformanceState('preSpeech');
+        return;
+    }
+    if (normalized === 'speaking') {
+        performanceSpeechIntensity = Math.max(nextIntensity, performanceSpeechIntensity * 0.75);
+        lastSpeechSignalAt = performance.now();
+        if (currentPerformanceState === 'thinking') {
+            speechLeadUntilMs = lastSpeechSignalAt + 120;
+            setPerformanceState('preSpeech');
+        }
+        return;
+    }
+    if (normalized === 'ended') {
+        performanceSpeechIntensity = 0;
+        lastSpeechSignalAt = performance.now();
+        setPerformanceState('settling');
+    }
+}
+
+function updateSpeechFeatureState(mouthValue, nowMs) {
+    if (!performanceEngineEnabled) {
+        performanceSpeechIntensity = 0;
+        if (!isRequestPending) {
+            setPerformanceState('idle');
+        }
+        return;
+    }
+    const intensity = clamp01(Number(mouthValue) || 0);
+    performanceSpeechIntensity += ((intensity * speechReactivity) - performanceSpeechIntensity) * 0.32;
+
+    if (intensity > 0.08) {
+        lastSpeechSignalAt = nowMs;
+        if (currentPerformanceState === 'thinking' || currentPerformanceState === 'listening' || currentPerformanceState === 'idle') {
+            speechLeadUntilMs = nowMs + 90;
+            setPerformanceState('preSpeech');
+        }
+    }
+
+    if (currentPerformanceState === 'preSpeech' && nowMs >= speechLeadUntilMs) {
+        setPerformanceState('speaking');
+    } else if (currentPerformanceState === 'speaking' && (nowMs - lastSpeechSignalAt) > 170) {
+        setPerformanceState('settling');
+    } else if (currentPerformanceState === 'settling' && (nowMs - lastSpeechSignalAt) > 650) {
+        setPerformanceState(isRequestPending ? 'thinking' : 'listening');
+    } else if (!isRequestPending && currentPerformanceState === 'listening' && performanceSpeechIntensity < 0.01 && (nowMs - performanceStateChangedAt) > 2500) {
+        setPerformanceState('idle');
+    }
+}
+
+function schedulePerformanceGesture(type, payload = {}) {
+    if (!PERFORMANCE_GESTURES.includes(type)) {
+        return;
+    }
+    activePerformanceGesture = {
+        type,
+        payload,
+        startedAt: performance.now(),
+        durationMs: Math.max(140, Math.min(900, Number(payload.durationMs) || 320)),
+    };
+    lastPerformanceGestureAt = activePerformanceGesture.startedAt;
+}
+
+function maybeScheduleThinkingGesture(nowMs) {
+    if (!performanceEngineEnabled) {
+        return;
+    }
+    if (activePerformanceGesture || currentPerformanceState !== 'thinking') {
+        return;
+    }
+    if ((nowMs - lastPerformanceGestureAt) < 1800) {
+        return;
+    }
+    if (Math.random() < 0.009) {
+        schedulePerformanceGesture(Math.random() < 0.6 ? 'sideGlance' : 'headTilt', { durationMs: 260 });
+    }
+}
+
+function maybeScheduleSpeechPeakGesture(nowMs) {
+    if (!performanceEngineEnabled) {
+        return;
+    }
+    if (activePerformanceGesture || currentPerformanceState !== 'speaking') {
+        return;
+    }
+    if ((nowMs - lastPerformanceGestureAt) < SPEAKING_GESTURE_COOLDOWN_MS) {
+        return;
+    }
+    if (performanceSpeechIntensity >= SPEAKING_GESTURE_TRIGGER_THRESHOLD) {
+        schedulePerformanceGesture(Math.random() < 0.7 ? 'microNod' : 'focusLean', { durationMs: 240 });
+    }
+}
+
+function getPerformanceSettleProgress(nowMs) {
+    if (currentPerformanceState !== 'settling') {
+        return 1;
+    }
+    return clamp01((nowMs - performanceStateChangedAt) / PERFORMANCE_IDLE_RETURN_FADE_MS);
+}
+
+function buildPerformanceStateOffsets(nowMs) {
+    if (!performanceEngineEnabled) {
+        return { angleX: 0, angleY: 0, bodyX: 0, bodyY: 0, bodyZ: 0, breath: 0, eyeY: 0 };
+    }
+    const moodAngleBias = currentPerformanceMood === 'playful' ? 0.9 : currentPerformanceMood === 'focused' ? 0.2 : 0;
+    const moodPitchBias = currentPerformanceMood === 'tired' ? -1.0 : currentPerformanceMood === 'warm' ? 0.5 : 0;
+    const stateWave = Math.sin(nowMs * 0.0024);
+    const subtleScale = idleMicroMotion * performanceIntensity;
+    const expressiveScale = performanceIntensity;
+
+    if (currentPerformanceState === 'thinking') {
+        return {
+            angleX: (stateWave * 0.6 + moodAngleBias) * subtleScale,
+            angleY: (1.0 + (Math.sin(nowMs * 0.0017) * 0.5)) * subtleScale,
+            bodyX: (stateWave * 0.35) * subtleScale,
+            bodyY: (0.34 + Math.sin(nowMs * 0.0012 + 0.4) * 0.16) * subtleScale,
+            bodyZ: ((stateWave * 0.42) + (Math.sin(nowMs * 0.0016 + 0.3) * 0.12)) * subtleScale,
+            breath: clamp01(0.16 + subtleScale * 0.3),
+            eyeY: (-0.04 + moodPitchBias * 0.01) * subtleScale,
+        };
+    }
+    if (currentPerformanceState === 'preSpeech') {
+        return {
+            angleX: (moodAngleBias * 0.4) * expressiveScale,
+            angleY: (0.7 + moodPitchBias * 0.1) * expressiveScale,
+            bodyX: 0.3 * expressiveScale,
+            bodyY: 0.55 * expressiveScale,
+            bodyZ: moodAngleBias * 0.22 * expressiveScale,
+            breath: clamp01(0.14 + expressiveScale * 0.1),
+            eyeY: -0.02 * expressiveScale,
+        };
+    }
+    if (currentPerformanceState === 'speaking') {
+        const speechPulse = Math.max(performanceSpeechIntensity, clamp01(currentMouthOpenValue * 1.35));
+        const speechYawWave = (Math.sin(nowMs * 0.0042) * 1.25) + (Math.sin(nowMs * 0.0081 + 0.6) * 0.34);
+        const speechPitchWave = 0.38 + (Math.sin(nowMs * 0.0071 + 0.25) * 0.78);
+        return {
+            angleX: (((speechYawWave * (1.15 + speechPulse * 1.2)) + (moodAngleBias * 0.55)) * expressiveScale) * SPEAKING_MOTION_GAIN,
+            angleY: ((((speechPitchWave * (0.45 + speechPulse * 0.9)) - 0.18) + (moodPitchBias * 0.35)) * expressiveScale) * 1.18,
+            bodyX: clampSymmetric(((speechYawWave * (0.2 + speechPulse * 0.36)) * expressiveScale) * BODY_MOTION_GAIN, 6.4),
+            bodyY: clampSymmetric(((((speechPitchWave * (0.4 + speechPulse * 0.72)) - 0.08) + (moodPitchBias * 0.12)) * expressiveScale) * BODY_PITCH_MOTION_GAIN, 8.8),
+            bodyZ: clampSymmetric(((((speechYawWave * (0.34 + speechPulse * 0.5)) + (speechPitchWave * 0.16)) + (moodAngleBias * 0.24)) * expressiveScale) * BODY_ROLL_MOTION_GAIN, 7.8),
+            breath: clamp01(0.16 + speechPulse * 0.3),
+            eyeY: (-0.01 - speechPulse * 0.028) * expressiveScale,
+        };
+    }
+    if (currentPerformanceState === 'settling') {
+        const settleFade = 1 - getPerformanceSettleProgress(nowMs);
+        return {
+            angleX: (Math.sin(nowMs * 0.0028) * 0.16) * subtleScale * settleFade,
+            angleY: (moodPitchBias * 0.28) * subtleScale * settleFade,
+            bodyX: (Math.sin(nowMs * 0.0019 + 0.4) * 0.14 + 0.06) * subtleScale * settleFade,
+            bodyY: (Math.sin(nowMs * 0.0015 + 0.8) * 0.12 + 0.08) * subtleScale * settleFade,
+            bodyZ: (Math.sin(nowMs * 0.0021 + 0.3) * 0.1) * subtleScale * settleFade,
+            breath: clamp01((0.12 + subtleScale * 0.14) * settleFade),
+            eyeY: 0,
+        };
+    }
+    if (currentPerformanceState === 'listening') {
+        return {
+            angleX: (moodAngleBias * 0.25) * subtleScale,
+            angleY: (moodPitchBias * 0.35) * subtleScale,
+            bodyX: 0,
+            bodyY: subtleScale * 0.22,
+            bodyZ: (moodAngleBias * 0.14 + Math.sin(nowMs * 0.0014 + 0.6) * 0.1) * subtleScale,
+            breath: clamp01(0.12 + subtleScale * 0.2),
+            eyeY: 0,
+        };
+    }
+    return {
+        angleX: (moodAngleBias * 0.15) * subtleScale,
+        angleY: (moodPitchBias * 0.2) * subtleScale,
+        bodyX: 0,
+        bodyY: subtleScale * 0.16,
+        bodyZ: Math.sin(nowMs * 0.0012 + 0.1) * subtleScale * 0.14,
+        breath: clamp01(0.1 + subtleScale * 0.16),
+        eyeY: 0,
+    };
+}
+
+function buildPerformanceGestureOffsets(nowMs) {
+    if (!performanceEngineEnabled) {
+        return { angleX: 0, angleY: 0, bodyX: 0, bodyY: 0, bodyZ: 0, breath: 0, eyeY: 0 };
+    }
+    if (!activePerformanceGesture) {
+        return { angleX: 0, angleY: 0, bodyX: 0, bodyY: 0, bodyZ: 0, breath: 0, eyeY: 0 };
+    }
+
+    const elapsedMs = nowMs - activePerformanceGesture.startedAt;
+    const progress = clamp01(elapsedMs / Math.max(1, activePerformanceGesture.durationMs));
+    const envelope = Math.sin(progress * Math.PI);
+    let offsets = { angleX: 0, angleY: 0, bodyX: 0, bodyY: 0, bodyZ: 0, breath: 0, eyeY: 0 };
+
+    if (activePerformanceGesture.type === 'microNod') {
+        offsets = { angleX: 0, angleY: envelope * 1.35, bodyX: envelope * 0.16, bodyY: envelope * 0.24, bodyZ: 0, breath: envelope * 0.03, eyeY: 0 };
+    } else if (activePerformanceGesture.type === 'sideGlance') {
+        offsets = { angleX: envelope * 1.25, angleY: 0.18, bodyX: envelope * 0.18, bodyY: 0, bodyZ: envelope * 0.2, breath: 0, eyeY: -0.03 };
+    } else if (activePerformanceGesture.type === 'focusLean') {
+        offsets = { angleX: envelope * 0.4, angleY: envelope * 0.55, bodyX: envelope * 0.22, bodyY: envelope * 0.34, bodyZ: envelope * 0.08, breath: envelope * 0.05, eyeY: -0.015 };
+    } else if (activePerformanceGesture.type === 'headTilt') {
+        offsets = { angleX: envelope * 0.9, angleY: 0.32, bodyX: envelope * 0.12, bodyY: 0, bodyZ: envelope * 0.22, breath: 0, eyeY: 0 };
+    } else if (activePerformanceGesture.type === 'resetPose') {
+        offsets = { angleX: envelope * -0.45, angleY: envelope * -0.22, bodyX: envelope * -0.08, bodyY: envelope * -0.12, bodyZ: envelope * -0.1, breath: envelope * -0.04, eyeY: 0 };
+    }
+
+    offsets = {
+        angleX: offsets.angleX * performanceIntensity,
+        angleY: offsets.angleY * performanceIntensity,
+        bodyX: offsets.bodyX * performanceIntensity,
+        bodyY: offsets.bodyY * performanceIntensity,
+        bodyZ: offsets.bodyZ * performanceIntensity,
+        breath: offsets.breath * performanceIntensity,
+        eyeY: offsets.eyeY * performanceIntensity,
+    };
+
+    if (progress >= 0.999) {
+        activePerformanceGesture = null;
+    }
+    return offsets;
+}
+
+function smoothPerformanceOffsets(targetOffsets, dtMs, nowMs) {
+    const target = targetOffsets || { angleX: 0, angleY: 0, bodyX: 0, bodyY: 0, bodyZ: 0, breath: 0, eyeY: 0 };
+    const frameScale = dtMs > 0 ? dtMs / (1000 / 60) : 1;
+    let smoothingAt60Fps = currentPerformanceState === 'speaking' ? SPEAKING_MOTION_SMOOTHING_AT_60FPS : 0.08;
+    const bodySmoothingAt60Fps = currentPerformanceState === 'speaking' ? BODY_MOTION_SMOOTHING_AT_60FPS : 0.06;
+    if (currentPerformanceState === 'settling') {
+        const settleProgress = getPerformanceSettleProgress(nowMs);
+        smoothingAt60Fps = lerp(0.07, 0.14, settleProgress);
+    }
+    const smoothing = 1 - Math.pow(1 - smoothingAt60Fps, frameScale);
+    const bodySmoothing = 1 - Math.pow(1 - bodySmoothingAt60Fps, frameScale);
+    smoothedPerformanceOffsets = {
+        angleX: lerp(smoothedPerformanceOffsets.angleX || 0, target.angleX || 0, smoothing),
+        angleY: lerp(smoothedPerformanceOffsets.angleY || 0, target.angleY || 0, smoothing),
+        bodyX: lerp(smoothedPerformanceOffsets.bodyX || 0, target.bodyX || 0, bodySmoothing),
+        bodyY: lerp(smoothedPerformanceOffsets.bodyY || 0, target.bodyY || 0, bodySmoothing),
+        bodyZ: lerp(smoothedPerformanceOffsets.bodyZ || 0, target.bodyZ || 0, bodySmoothing),
+        breath: lerp(smoothedPerformanceOffsets.breath || 0, target.breath || 0, bodySmoothing),
+        eyeY: lerp(smoothedPerformanceOffsets.eyeY || 0, target.eyeY || 0, smoothing),
+    };
+    return { ...smoothedPerformanceOffsets };
+}
+
+function mergeMotionOffsets(...offsetsList) {
+    return offsetsList.reduce((merged, offsets) => {
+        const source = offsets || {};
+        return {
+            angleX: (merged.angleX || 0) + (source.angleX || 0),
+            angleY: (merged.angleY || 0) + (source.angleY || 0),
+            bodyX: (merged.bodyX || 0) + (source.bodyX || 0),
+            bodyY: (merged.bodyY || 0) + (source.bodyY || 0),
+            bodyZ: (merged.bodyZ || 0) + (source.bodyZ || 0),
+            breath: (merged.breath || 0) + (source.breath || 0),
+            eyeY: (merged.eyeY || 0) + (source.eyeY || 0),
+        };
+    }, { angleX: 0, angleY: 0, bodyX: 0, bodyY: 0, bodyZ: 0, breath: 0, eyeY: 0 });
+}
 
 // 마우스 트래킹에 사용할 Live2D coreModel 인스턴스를 가져온다.
 function getTrackingCoreModel() {
@@ -599,6 +1089,9 @@ function detectTrackingParams(coreModel) {
         angleX: hasParam('ParamAngleX'),
         angleY: hasParam('ParamAngleY'),
         bodyAngleX: hasParam('ParamBodyAngleX'),
+        bodyAngleY: hasParam('ParamBodyAngleY'),
+        bodyAngleZ: hasParam('ParamBodyAngleZ'),
+        breath: hasParam('ParamBreath'),
         eyeBallX: hasParam('ParamEyeBallX'),
         eyeBallY: hasParam('ParamEyeBallY'),
     };
@@ -607,17 +1100,124 @@ function detectTrackingParams(coreModel) {
 }
 
 // 정규화된 시선 입력값을 실제 Live2D 파라미터 값으로 변환해 적용한다.
-function applyTrackingParams(coreModel, x, y, idleOffsets = null) {
+function getMotionSlotParamId(slotName) {
+    const profileParamId = modelCapabilityProfile?.slots?.[slotName]?.paramId;
+    if (profileParamId) {
+        return profileParamId;
+    }
+    return resolveMotionSlotCandidates(slotName)[0] || '';
+}
+
+function getExpressionBaseParamValue(paramId, fallbackValue = 0) {
+    if (!paramId || !expressionBaseParams.has(paramId)) {
+        return fallbackValue;
+    }
+    const value = Number(expressionBaseParams.get(paramId));
+    return Number.isFinite(value) ? value : fallbackValue;
+}
+
+function addMixedValue(target, paramId, delta) {
+    if (!paramId || !Number.isFinite(delta)) {
+        return;
+    }
+    target.set(paramId, (target.get(paramId) || 0) + delta);
+}
+
+function setMixedValue(target, paramId, value) {
+    if (!paramId || !Number.isFinite(value)) {
+        return;
+    }
+    target.set(paramId, value);
+}
+
+function buildTrackingParameterValues(coreModel, x, y, idleOffsets = null) {
     const support = detectTrackingParams(coreModel);
     const idleAngleX = idleOffsets ? idleOffsets.angleX : 0;
     const idleAngleY = idleOffsets ? idleOffsets.angleY : 0;
     const idleBodyX = idleOffsets ? idleOffsets.bodyX : 0;
+    const idleBodyY = idleOffsets ? idleOffsets.bodyY : 0;
+    const idleBodyZ = idleOffsets ? idleOffsets.bodyZ : 0;
+    const idleBreath = idleOffsets && Number.isFinite(idleOffsets.breath) ? idleOffsets.breath : 0;
     const idleEyeY = idleOffsets && Number.isFinite(idleOffsets.eyeY) ? idleOffsets.eyeY : 0;
-    if (support.angleX) coreModel.setParameterValueById('ParamAngleX', (x * 15) + idleAngleX);
-    if (support.angleY) coreModel.setParameterValueById('ParamAngleY', (-y * 15) + idleAngleY);
-    if (support.bodyAngleX) coreModel.setParameterValueById('ParamBodyAngleX', (x * 5) + idleBodyX);
-    if (support.eyeBallX) coreModel.setParameterValueById('ParamEyeBallX', x * 0.8);
-    if (support.eyeBallY) coreModel.setParameterValueById('ParamEyeBallY', (-y * 0.8) + idleEyeY);
+    const values = new Map();
+
+    if (support.angleX) addMixedValue(values, getMotionSlotParamId('headYaw') || 'ParamAngleX', (x * 15) + idleAngleX);
+    if (support.angleY) addMixedValue(values, getMotionSlotParamId('headPitch') || 'ParamAngleY', (-y * 15) + idleAngleY);
+    if (support.bodyAngleX) addMixedValue(values, getMotionSlotParamId('bodyYaw') || 'ParamBodyAngleX', (x * 5) + idleBodyX);
+    if (support.bodyAngleY) addMixedValue(values, getMotionSlotParamId('bodyPitch') || 'ParamBodyAngleY', (-y * 3.2) + idleBodyY);
+    if (support.bodyAngleZ) addMixedValue(values, getMotionSlotParamId('bodyRoll') || 'ParamBodyAngleZ', (x * 2.4) + idleBodyZ);
+    if (support.breath) addMixedValue(values, getMotionSlotParamId('breath') || 'ParamBreath', idleBreath);
+    if (support.eyeBallX) addMixedValue(values, getMotionSlotParamId('gazeX') || 'ParamEyeBallX', x * 0.8);
+    if (support.eyeBallY) addMixedValue(values, getMotionSlotParamId('gazeY') || 'ParamEyeBallY', (-y * 0.8) + idleEyeY);
+
+    return values;
+}
+
+function blendEyeOpenValue(expressionValue, blinkFactor, stateFactor) {
+    return clamp01(expressionValue * blinkFactor * stateFactor);
+}
+
+function buildHeadPatEyeOverrides(coreModel, blend) {
+    const support = detectHeadPatEyeParams(coreModel);
+    const closeAmount = clamp01(blend);
+    const openFactor = 1 - closeAmount;
+    const values = new Map();
+
+    const leftOpenParamId = support.eyeLOpen ? (getMotionSlotParamId('eyeOpenL') || 'ParamEyeLOpen') : '';
+    const rightOpenParamId = support.eyeROpen ? (getMotionSlotParamId('eyeOpenR') || 'ParamEyeROpen') : '';
+
+    if (leftOpenParamId) {
+        setMixedValue(values, leftOpenParamId, blendEyeOpenValue(getExpressionBaseParamValue(leftOpenParamId, 1), 1, openFactor));
+    }
+    if (rightOpenParamId) {
+        setMixedValue(values, rightOpenParamId, blendEyeOpenValue(getExpressionBaseParamValue(rightOpenParamId, 1), 1, openFactor));
+    }
+    if (support.eyeLSquint) {
+        setMixedValue(values, 'ParamEyeLSquint', closeAmount);
+    }
+    if (support.eyeRSquint) {
+        setMixedValue(values, 'ParamEyeRSquint', closeAmount);
+    }
+
+    return values;
+}
+
+function buildMixedParameterFrame(coreModel, trackingX = 0, trackingY = 0, idleOffsets = null, headPatBlend = 0) {
+    const values = new Map();
+    expressionBaseParams.forEach((value, paramId) => {
+        setMixedValue(values, paramId, Number(value) || 0);
+    });
+
+    buildTrackingParameterValues(coreModel, trackingX, trackingY, idleOffsets).forEach((value, paramId) => {
+        addMixedValue(values, paramId, value);
+    });
+
+    if (headPatBlend > 0.001) {
+        buildHeadPatEyeOverrides(coreModel, headPatBlend).forEach((value, paramId) => {
+            setMixedValue(values, paramId, value);
+        });
+    }
+
+    const mouthOpenParamId = getMotionSlotParamId('mouthOpen') || 'ParamMouthOpenY';
+    if (mouthOpenParamId) {
+        setMixedValue(values, mouthOpenParamId, clamp01(currentMouthOpenValue));
+    }
+
+    return {
+        values,
+    };
+}
+
+function applyMixedParameterFrame(coreModel, frame) {
+    if (!coreModel || !frame || !(frame.values instanceof Map)) {
+        return;
+    }
+    frame.values.forEach((value, paramId) => {
+        try {
+            coreModel.setParameterValueById(paramId, value);
+        } catch (_) {
+        }
+    });
 }
 
 // 쓰다듬기 시 눈 감기 오버라이드에 필요한 파라미터 지원 여부를 확인한다.
@@ -645,19 +1245,38 @@ function detectHeadPatEyeParams(coreModel) {
 
 // 쓰다듬기 강도에 맞춰 눈 파라미터를 보정한다.
 function applyHeadPatEyeCloseOverride(coreModel, blend) {
-    const support = detectHeadPatEyeParams(coreModel);
-    const closeAmount = clamp01(blend);
-    const openValue = 1 - closeAmount;
-
-    if (support.eyeLOpen) coreModel.setParameterValueById('ParamEyeLOpen', openValue);
-    if (support.eyeROpen) coreModel.setParameterValueById('ParamEyeROpen', openValue);
-    if (support.eyeLSquint) coreModel.setParameterValueById('ParamEyeLSquint', closeAmount);
-    if (support.eyeRSquint) coreModel.setParameterValueById('ParamEyeRSquint', closeAmount);
+    applyMixedParameterFrame(coreModel, { values: buildHeadPatEyeOverrides(coreModel, blend) });
 }
 
 // 립싱크 직후 구간인지 판정해 idle 모션 간섭을 줄인다.
 function isSpeakingNow(nowMs) {
     return (nowMs - lastSpeechAt) < SPEECH_IDLE_BLOCK_MS;
+}
+
+function getIdleMotionBlendFactor(nowMs) {
+    if (!performanceEngineEnabled) {
+        return 1;
+    }
+    if (currentPerformanceState === 'preSpeech') {
+        return 0.1;
+    }
+    if (currentPerformanceState === 'speaking') {
+        if (isSpeakingNow(nowMs)) {
+            return 0.06;
+        }
+        return 0.12;
+    }
+    if (currentPerformanceState === 'settling') {
+        const settleProgress = getPerformanceSettleProgress(nowMs);
+        return lerp(0.08, 0.34, settleProgress);
+    }
+    if (currentPerformanceState === 'thinking') {
+        return 0.24;
+    }
+    if (currentPerformanceState === 'listening') {
+        return 0.32;
+    }
+    return 0.42;
 }
 
 // idle 모션 전체 활성/비활성 토글.
@@ -666,6 +1285,7 @@ window.setIdleMotionEnabled = function (enabled) {
     if (!idleMotionEnabled) {
         idleMotionPhase = 0;
     }
+    syncModelIdleAnimationState(window.live2dModel);
     console.log("Idle motion:", idleMotionEnabled ? "enabled" : "disabled");
 };
 
@@ -677,6 +1297,7 @@ window.setIdleMotionConfig = function (strength, speed) {
     idleMotionAngleX = IDLE_MOTION_BASE_ANGLE_X * s;
     idleMotionAngleY = IDLE_MOTION_BASE_ANGLE_Y * s;
     idleMotionBodyX = IDLE_MOTION_BASE_BODY_X * s;
+    idleMotionBodyY = IDLE_MOTION_BASE_BODY_Y * s;
     idleMotionSpeedHz = IDLE_MOTION_BASE_SPEED_HZ * v;
 };
 
@@ -739,6 +1360,11 @@ window.setHeadPatEmotionConfig = function (activeEmotion = 'eyeclose', endEmotio
 // 0~1 범위로 clamp.
 function clamp01(v) {
     return Math.max(0, Math.min(1, v));
+}
+
+function clampSymmetric(value, limit) {
+    const safeLimit = Math.max(0, Number(limit) || 0);
+    return Math.max(-safeLimit, Math.min(safeLimit, Number(value) || 0));
 }
 
 // 부드러운 페이드용 easing 함수.
@@ -1080,12 +1706,14 @@ window.setMouseTrackingEnabled = function (enabled) {
     patBlendMode = 'idle';
     patRawIntensity = 0;
     patDirection = 0;
+    smoothedPerformanceOffsets = { angleX: 0, angleY: 0, bodyX: 0, bodyY: 0, bodyZ: 0, breath: 0, eyeY: 0 };
 
     const coreModel = getTrackingCoreModel();
     if (!coreModel) return;
 
     try {
-        applyTrackingParams(coreModel, 0, 0);
+        const frame = buildMixedParameterFrame(coreModel, 0, 0, { angleX: 0, angleY: 0, bodyX: 0, bodyY: 0, bodyZ: 0, breath: 0, eyeY: 0 }, 0);
+        applyMixedParameterFrame(coreModel, frame);
     } catch (_) {
     }
 };
@@ -1117,11 +1745,15 @@ function updateMouseTracking(nowMs) {
     currentMouseY += (targetMouseY - currentMouseY) * damping;
     if (Math.abs(currentMouseX) < 0.0005) currentMouseX = 0;
     if (Math.abs(currentMouseY) < 0.0005) currentMouseY = 0;
+    updateSpeechFeatureState(currentMouthOpenValue, nowMs);
+    maybeScheduleThinkingGesture(nowMs);
+    maybeScheduleSpeechPeakGesture(nowMs);
     updateHeadPatState(dtMs);
     const hasHeadPatEffect = headPatEnabled && patBlend > 0.001;
+    const idleBlendFactor = getIdleMotionBlendFactor(nowMs);
 
     let idleOffsets = null;
-    if (!hasHeadPatEffect && idleMotionEnabled && !isSpeakingNow(nowMs)) {
+    if (!hasHeadPatEffect && idleMotionEnabled && idleBlendFactor > 0.001 && !isSpeakingNow(nowMs)) {
         idleMotionPhase += dtMs / 1000.0 * Math.PI * 2 * idleMotionSpeedHz;
         if (idleMotionDynamicMode) {
             // Dynamic mode: stronger, layered movement with occasional pulse.
@@ -1135,22 +1767,37 @@ function updateMouseTracking(nowMs) {
             const bodyXDynamic =
                 (Math.sin(idleMotionPhase * 1.05 + 0.6) * idleMotionBodyX * 2.6) +
                 (Math.sin(idleMotionPhase * 2.1 + 1.4) * idleMotionBodyX * 0.75);
+            const bodyYDynamic =
+                (Math.sin(idleMotionPhase * 0.92 + 0.9) * idleMotionBodyY * 2.2) +
+                (Math.sin(idleMotionPhase * 1.85 + 0.1) * idleMotionBodyY * 0.7);
 
             idleOffsets = {
-                angleX: Math.max(-18, Math.min(18, angleXDynamic)),
-                angleY: Math.max(-12, Math.min(12, angleYDynamic)),
-                bodyX: Math.max(-10, Math.min(10, bodyXDynamic))
+                angleX: Math.max(-18, Math.min(18, angleXDynamic * idleBlendFactor)),
+                angleY: Math.max(-15, Math.min(15, angleYDynamic * idleBlendFactor)),
+                bodyX: Math.max(-10, Math.min(10, bodyXDynamic * idleBlendFactor)),
+                bodyY: Math.max(-7.5, Math.min(7.5, bodyYDynamic * idleBlendFactor)),
+                bodyZ: Math.max(-4.5, Math.min(4.5, Math.sin(idleMotionPhase * 0.85 + 0.5) * idleBlendFactor * 2.4)),
+                breath: clamp01(idleBlendFactor * 0.08),
             };
         } else {
             idleOffsets = {
-                angleX: Math.sin(idleMotionPhase) * idleMotionAngleX,
-                angleY: Math.sin(idleMotionPhase * 0.7 + 1.2) * idleMotionAngleY,
-                bodyX: Math.sin(idleMotionPhase * 0.5 + 0.6) * idleMotionBodyX
+                angleX: Math.sin(idleMotionPhase) * idleMotionAngleX * idleBlendFactor,
+                angleY: Math.sin(idleMotionPhase * 0.7 + 1.2) * idleMotionAngleY * idleBlendFactor,
+                bodyX: Math.sin(idleMotionPhase * 0.5 + 0.6) * idleMotionBodyX * idleBlendFactor,
+                bodyY: Math.sin(idleMotionPhase * 0.62 + 0.9) * idleMotionBodyY * idleBlendFactor,
+                bodyZ: Math.sin(idleMotionPhase * 0.4 + 0.2) * idleBlendFactor * 1.6,
+                breath: clamp01(idleBlendFactor * 0.06),
             };
         }
     }
 
-    const baseTrackingOffsets = idleOffsets || { angleX: 0, angleY: 0, bodyX: 0, eyeY: 0 };
+    const targetPerformanceOffsets = mergeMotionOffsets(
+        idleOffsets || { angleX: 0, angleY: 0, bodyX: 0, bodyY: 0, bodyZ: 0, breath: 0, eyeY: 0 },
+        buildPerformanceStateOffsets(nowMs),
+        buildPerformanceGestureOffsets(nowMs)
+    );
+    const smoothedPerformanceOffsets = smoothPerformanceOffsets(targetPerformanceOffsets, dtMs, nowMs);
+    const baseTrackingOffsets = smoothedPerformanceOffsets || { angleX: 0, angleY: 0, bodyX: 0, bodyY: 0, bodyZ: 0, breath: 0, eyeY: 0 };
     if (!hasHeadPatEffect) {
         lastNonPatTrackingState = { ...baseTrackingOffsets };
     }
@@ -1159,16 +1806,25 @@ function updateMouseTracking(nowMs) {
         angleX: lerp(lastNonPatTrackingState.angleX, patOffsetsCurrent.angleX, patBlend),
         angleY: lerp(lastNonPatTrackingState.angleY, patOffsetsCurrent.angleY, patBlend),
         bodyX: lerp(lastNonPatTrackingState.bodyX, patOffsetsCurrent.bodyX, patBlend),
+        bodyY: lerp(lastNonPatTrackingState.bodyY || 0, patOffsetsCurrent.bodyY || 0, patBlend),
+        bodyZ: lerp(lastNonPatTrackingState.bodyZ || 0, patOffsetsCurrent.bodyZ || 0, patBlend),
+        breath: lerp(lastNonPatTrackingState.breath || 0, patOffsetsCurrent.breath || 0, patBlend),
         eyeY: lerp(lastNonPatTrackingState.eyeY, patOffsetsCurrent.eyeY, patBlend),
     };
 
     try {
-        if (hasHeadPatEffect) {
-            applyTrackingParams(coreModel, 0, 0, patOffsetsApplied);
-            applyHeadPatEyeCloseOverride(coreModel, patBlend);
-        } else {
-            applyTrackingParams(coreModel, currentMouseX, currentMouseY, idleOffsets);
-        }
+        const frame = hasHeadPatEffect
+            ? buildMixedParameterFrame(coreModel, 0, 0, patOffsetsApplied, patBlend)
+            : buildMixedParameterFrame(coreModel, currentMouseX, currentMouseY, smoothedPerformanceOffsets, 0);
+        applyMixedParameterFrame(coreModel, frame);
+        renderMotionDebugOverlay({
+            state: currentPerformanceState,
+            mood: currentPerformanceMood,
+            gesture: activePerformanceGesture ? activePerformanceGesture.type : '',
+            speech: performanceSpeechIntensity,
+            headYaw: hasHeadPatEffect ? patOffsetsApplied.angleX : smoothedPerformanceOffsets.angleX,
+            headPitch: hasHeadPatEffect ? patOffsetsApplied.angleY : smoothedPerformanceOffsets.angleY,
+        });
     } catch (_) {
     }
 
@@ -1185,6 +1841,15 @@ console.log("Mouse tracking initialized");
  */
 let currentExpressionAnimation = null;
 let previousExpressionParams = [];
+let expressionBaseParams = new Map();
+
+function setExpressionBaseParams(entries) {
+    expressionBaseParams = new Map(entries);
+}
+
+function clearExpressionBaseParams() {
+    expressionBaseParams = new Map();
+}
 
 function resolveExpressionEmotion(emotion) {
     const normalized = String(emotion || '').trim().toLowerCase();
@@ -1217,21 +1882,17 @@ async function changeExpression(emotion) {
         currentEmotionTag = resolvedEmotion;
         if (resolvedEmotion === 'normal') {
             console.log('Resetting to normal expression');
+            clearExpressionBaseParams();
             if (currentExpressionAnimation) {
                 cancelAnimationFrame(currentExpressionAnimation);
             }
-            const model = window.live2dModel;
             if (model.internalModel && model.internalModel.coreModel) {
                 const startValues = {};
                 const targetValues = {};
 
                 previousExpressionParams.forEach(paramId => {
-                    try {
-                        const currentValue = model.internalModel.coreModel.getParameterValueById(paramId);
-                        startValues[paramId] = currentValue;
-                        targetValues[paramId] = 0;
-                    } catch (e) {
-                    }
+                    startValues[paramId] = getExpressionBaseParamValue(paramId, 0);
+                    targetValues[paramId] = 0;
                 });
                 const duration = 300;
                 const startTime = Date.now();
@@ -1240,23 +1901,22 @@ async function changeExpression(emotion) {
                     const elapsed = Date.now() - startTime;
                     const progress = Math.min(elapsed / duration, 1.0);
                     const eased = 1 - Math.pow(1 - progress, 3);
+                    const animatedEntries = [];
 
                     Object.keys(targetValues).forEach(paramId => {
-                        try {
-                            const start = startValues[paramId] || 0;
-                            const target = targetValues[paramId];
-                            const value = start + (target - start) * eased;
-                            model.internalModel.coreModel.setParameterValueById(paramId, value);
-                        } catch (e) {
-                            // 파라미터가 없는 모델에서는 무시
-                        }
+                        const start = startValues[paramId] || 0;
+                        const target = targetValues[paramId];
+                        const value = start + (target - start) * eased;
+                        animatedEntries.push([paramId, value]);
                     });
+                    setExpressionBaseParams(animatedEntries);
 
                     if (progress < 1.0) {
                         currentExpressionAnimation = requestAnimationFrame(animate);
                     } else {
                         currentExpressionAnimation = null;
                         previousExpressionParams = [];
+                        clearExpressionBaseParams();
                         console.log('Reset to normal complete');
                     }
                 }
@@ -1276,23 +1936,14 @@ async function changeExpression(emotion) {
             const startValues = {};
             const targetValues = {};
             previousExpressionParams.forEach(paramId => {
-                try {
-                    const currentValue = model.internalModel.coreModel.getParameterValueById(paramId);
-                    startValues[paramId] = currentValue;
-                    targetValues[paramId] = 0;
-                } catch (e) {
-                }
+                startValues[paramId] = getExpressionBaseParamValue(paramId, 0);
+                targetValues[paramId] = 0;
             });
             const newExpressionParams = [];
             expressionData.Parameters.forEach(param => {
-                try {
-                    const currentValue = model.internalModel.coreModel.getParameterValueById(param.Id);
-                    startValues[param.Id] = currentValue;
-                    targetValues[param.Id] = param.Value;
-                    newExpressionParams.push(param.Id);
-                } catch (e) {
-                    console.warn(`Failed to get parameter ${param.Id}:`, e);
-                }
+                startValues[param.Id] = getExpressionBaseParamValue(param.Id, 0);
+                targetValues[param.Id] = param.Value;
+                newExpressionParams.push(param.Id);
             });
             previousExpressionParams = newExpressionParams;
             const duration = 500;
@@ -1301,20 +1952,14 @@ async function changeExpression(emotion) {
                 const elapsed = Date.now() - startTime;
                 const progress = Math.min(elapsed / duration, 1.0);
                 const eased = 1 - Math.pow(1 - progress, 3);
+                const animatedEntries = [];
                 Object.keys(targetValues).forEach(paramId => {
-                    try {
-                        const start = startValues[paramId] || 0;
-                        const target = targetValues[paramId];
-                        const value = start + (target - start) * eased;
-
-                        model.internalModel.coreModel.setParameterValueById(
-                            paramId,
-                            value
-                        );
-                    } catch (e) {
-                        // 파라미터가 없는 모델에서는 무시
-                    }
+                    const start = startValues[paramId] || 0;
+                    const target = targetValues[paramId];
+                    const value = start + (target - start) * eased;
+                    animatedEntries.push([paramId, value]);
                 });
+                setExpressionBaseParams(animatedEntries);
                 if (progress < 1.0) {
                     currentExpressionAnimation = requestAnimationFrame(animate);
                 } else {
@@ -1355,6 +2000,9 @@ const summaryConfirmBody = document.getElementById('summary-confirm-body');
 const summaryConfirmYesButton = document.getElementById('summary-confirm-yes');
 const summaryConfirmNoButton = document.getElementById('summary-confirm-no');
 const toastContainer = document.getElementById('toast-container');
+const motionDebugOverlay = document.getElementById('motion-debug-overlay');
+window.motionDebugOverlay = motionDebugOverlay;
+setMotionDebugOverlayEnabled(motionDebugOverlayEnabled);
 const moodToggleButton = document.getElementById('mood-toggle-floating-btn');
 const obsNoteButton = document.getElementById('obs-note-floating-btn');
 const moodWidget = document.getElementById('mood-status-widget');
@@ -2773,6 +3421,7 @@ function sendMessage() {
     autoResizeTextarea();
     if (window.pyBridge) {
         isRequestPending = true;
+        setPerformanceState('thinking');
         shouldReplaceNextAssistant = false;
         updateRerollButtonState();
         showLoadingIndicator(true);
@@ -2810,6 +3459,7 @@ function submitVoiceText(text) {
     addMessage(message, 'user', [], new Date());
     if (window.pyBridge && window.pyBridge.send_to_ai) {
         isRequestPending = true;
+        setPerformanceState('thinking');
         shouldReplaceNextAssistant = false;
         updateRerollButtonState();
         showLoadingIndicator(true);
@@ -3031,6 +3681,11 @@ if (typeof QWebChannel !== 'undefined') {
             baseEmotionTag = (typeof emotion === 'string' && emotion.trim()) ? emotion.trim() : 'normal';
             changeExpression(emotion);
         });
+        if (window.pyBridge.performance_state_changed) {
+            window.pyBridge.performance_state_changed.connect(function (state) {
+                setPerformanceState(state);
+            });
+        }
         window.pyBridge.expression_changed.connect(function (emotion) {
             console.log(`Expression changed: ${emotion}`);
             cancelPendingPatEmotionRestore();
@@ -3043,6 +3698,11 @@ if (typeof QWebChannel !== 'undefined') {
             });
             console.log("Lip sync signal connected");
         }
+        if (window.pyBridge.speech_state_changed) {
+            window.pyBridge.speech_state_changed.connect(function (state, intensity) {
+                receiveSpeechStateSignal(state, intensity);
+            });
+        }
 
         if (window.pyBridge.reroll_state_changed) {
             window.pyBridge.reroll_state_changed.connect(function (active) {
@@ -3050,6 +3710,7 @@ if (typeof QWebChannel !== 'undefined') {
                 isRequestPending = Boolean(active);
                 showLoadingIndicator(Boolean(active));
                 updateRerollButtonState();
+                setPerformanceState(active ? 'thinking' : 'listening');
             });
         }
 
@@ -3075,6 +3736,7 @@ if (typeof QWebChannel !== 'undefined') {
         if (window.pyBridge.mood_changed) {
             window.pyBridge.mood_changed.connect(function (label, valence, energy, bond, stress, temporaryState) {
                 updateMoodWidget(label, temporaryState, valence, energy, bond, stress);
+                setPerformanceMood(mapTemporaryMoodToPerformanceMood(temporaryState, label));
             });
         }
 
@@ -3104,6 +3766,7 @@ if (typeof QWebChannel !== 'undefined') {
                     snapshot.bond,
                     snapshot.stress
                 );
+                setPerformanceMood(mapTemporaryMoodToPerformanceMood(snapshot.temporary_state, snapshot.current_mood));
             };
 
             try {
@@ -3135,23 +3798,9 @@ if (typeof QWebChannel !== 'undefined') {
  */
 // 립싱크 시 ParamMouthOpenY 값을 업데이트한다.
 function setMouthOpen(value) {
-    const model = window.live2dModel;
-    if (!model || !model.internalModel) {
-        return;
-    }
-
-    try {
-        const core = model.internalModel.coreModel;
-        if (core && typeof core.setParameterValueById === 'function') {
-            core.setParameterValueById('ParamMouthOpenY', value);
-        } else if (model.internalModel.setParameterValueById) {
-            model.internalModel.setParameterValueById('ParamMouthOpenY', value);
-        }
-    } catch (e) {
-        if (!window._mouthOpenWarned) {
-            console.warn("ParamMouthOpenY not available:", e);
-            window._mouthOpenWarned = true;
-        }
+    currentMouthOpenValue = clamp01(Number(value) || 0);
+    if (currentMouthOpenValue > 0.001) {
+        lastSpeechAt = performance.now();
     }
 }
 // Python에서 직접 입 모양을 갱신할 수 있도록 전역에 노출한다.

@@ -96,6 +96,7 @@ class OverlayWindow(QWidget):
         self._sync_ui_strings_to_js()
         self._sync_mouse_tracking_state_to_js()
         self._sync_idle_motion_settings_to_js()
+        self._sync_performance_engine_settings_to_js()
         self._sync_reroll_button_visibility_to_js()
         self._sync_edit_button_visibility_to_js()
         self._sync_manual_summary_button_visibility_to_js()
@@ -392,6 +393,7 @@ class OverlayWindow(QWidget):
             self._set_mouse_tracking_enabled(new_tracking)
 
         self._sync_idle_motion_settings_to_js()
+        self._sync_performance_engine_settings_to_js()
         self._sync_reroll_button_visibility_to_js()
         self._sync_edit_button_visibility_to_js()
         self._sync_manual_summary_button_visibility_to_js()
@@ -439,6 +441,7 @@ class OverlayWindow(QWidget):
             self._sync_theme_to_js(new_settings)
             self._sync_ui_strings_to_js(new_settings)
             self._sync_idle_motion_settings_to_js(new_settings)
+            self._sync_performance_engine_settings_to_js(new_settings)
             self._sync_reroll_button_visibility_to_js(new_settings)
             self._sync_edit_button_visibility_to_js(new_settings)
             self._sync_manual_summary_button_visibility_to_js(new_settings)
@@ -455,6 +458,7 @@ class OverlayWindow(QWidget):
         self._sync_ui_strings_to_js()
         self._apply_drag_bar_theme()
         self._sync_idle_motion_settings_to_js()
+        self._sync_performance_engine_settings_to_js()
         self._sync_reroll_button_visibility_to_js()
         self._sync_edit_button_visibility_to_js()
         self._sync_manual_summary_button_visibility_to_js()
@@ -607,6 +611,30 @@ class OverlayWindow(QWidget):
             f"{json.dumps(head_pat_end_emotion)}, "
             f"{head_pat_duration_sec}"
             ");"
+            "}"
+            "})();"
+        )
+
+    def _resolve_performance_engine_payload(self, settings_override: dict | None = None) -> dict:
+        source = settings_override if settings_override is not None else self.settings.config
+        return {
+            "enabled": bool(source.get("performance_engine_enabled", True)),
+            "intensity": float(source.get("performance_intensity", 1.0)),
+            "speechReactivity": float(source.get("speech_reactivity", 1.0)),
+            "idleMicroMotion": float(source.get("idle_micro_motion", 0.35)),
+            "showDebugOverlay": bool(source.get("show_motion_debug_overlay", False)),
+        }
+
+    def _sync_performance_engine_settings_to_js(self, settings_override: dict | None = None):
+        if not self._page_loaded:
+            return
+
+        payload = self._resolve_performance_engine_payload(settings_override)
+        self.web_view.page().runJavaScript(
+            "(function(){"
+            f"window.enePerformanceConfig = {json.dumps(payload)};"
+            "if (typeof window.setPerformanceEngineConfig === 'function') {"
+            "window.setPerformanceEngineConfig(window.enePerformanceConfig);"
             "}"
             "})();"
         )

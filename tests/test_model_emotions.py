@@ -58,3 +58,40 @@ def test_resolve_model_json_path_falls_back_to_bundle_root_when_user_copy_is_mis
     )
 
     assert resolved == model_path.resolve()
+
+
+def test_overlay_window_syncs_performance_settings_to_webview(tmp_path):
+    from src.core.overlay_window import OverlayWindow
+
+    captured = []
+
+    class _FakePage:
+        def runJavaScript(self, code):
+            captured.append(code)
+
+    class _FakeWebView:
+        def __init__(self):
+            self._page = _FakePage()
+
+        def page(self):
+            return self._page
+
+    overlay = OverlayWindow.__new__(OverlayWindow)
+    overlay.settings = type("DummySettings", (), {"config": {"performance_engine_enabled": False}})()
+    overlay.web_view = _FakeWebView()
+    overlay._page_loaded = True
+
+    OverlayWindow._sync_performance_engine_settings_to_js(
+        overlay,
+        {
+            "performance_engine_enabled": True,
+            "performance_intensity": 1.2,
+            "speech_reactivity": 0.8,
+            "idle_micro_motion": 0.25,
+            "show_motion_debug_overlay": True,
+        },
+    )
+
+    assert captured
+    assert 'window.enePerformanceConfig = {"enabled": true, "intensity": 1.2, "speechReactivity": 0.8, "idleMicroMotion": 0.25, "showDebugOverlay": true};' in captured[-1]
+    assert "window.setPerformanceEngineConfig(window.enePerformanceConfig);" in captured[-1]
