@@ -13,7 +13,7 @@ class LLMClientProtocol(Protocol):
         self,
         message: str,
         memory_search_text: str | None = None,
-    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         ...
 
     async def send_message_with_images(
@@ -21,10 +21,10 @@ class LLMClientProtocol(Protocol):
         message: str,
         images_data: list,
         memory_search_text: str | None = None,
-    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         ...
 
-    def send_message(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+    def send_message(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         ...
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str]]:
@@ -33,13 +33,13 @@ class LLMClientProtocol(Protocol):
     async def generate_markdown_document(self, message: str) -> str:
         ...
 
-    async def generate_diary_completion_reply(self, context_message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+    async def generate_diary_completion_reply(self, context_message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         ...
 
     async def generate_note_command_plan(self, context_message: str) -> str:
         ...
 
-    async def generate_note_execution_report(self, context_message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str]]:
+    async def generate_note_execution_report(self, context_message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         ...
 
     def clear_context(self):

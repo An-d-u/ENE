@@ -1384,6 +1384,14 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
           "chat.actions.note.title": "Open or close the Obsidian note panel",
           "chat.actions.mood": "Mood",
           "chat.actions.mood.title": "Mood status",
+          "chat.actions.promises": "Scheduled",
+          "chat.actions.promises.title": "Scheduled conversation promises",
+          "chat.promise.notice.saved": "Conversation promise saved.",
+          "chat.promise.panel.empty": "No scheduled conversation promises.",
+          "chat.promise.panel.soon": "Soon",
+          "chat.promise.panel.queued": "Right after the current reply",
+          "chat.promise.panel.in_minutes": "In {minutes} min",
+          "chat.promise.panel.overdue_minutes": "{minutes} min late",
           "chat.mood.label": "Mood: {label}",
           "chat.mood.loading": "Loading",
           "chat.mood.collapse": "Collapse",
@@ -1424,6 +1432,14 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
           "chat.actions.note.title": "Obsidianノートパネルを開く / 閉じる",
           "chat.actions.mood": "気分",
           "chat.actions.mood.title": "気分の状態",
+          "chat.actions.promises": "予定",
+          "chat.actions.promises.title": "予定された会話の約束",
+          "chat.promise.notice.saved": "会話の約束を保存しました。",
+          "chat.promise.panel.empty": "予定された会話の約束はありません。",
+          "chat.promise.panel.soon": "まもなく",
+          "chat.promise.panel.queued": "現在の応答の直後",
+          "chat.promise.panel.in_minutes": "{minutes}分後",
+          "chat.promise.panel.overdue_minutes": "{minutes}分経過",
           "chat.mood.label": "気分: {label}",
           "chat.mood.loading": "読み込み中",
           "chat.mood.collapse": "折りたたむ",
@@ -1481,6 +1497,10 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
     assert "メッセージを入力してください..." in captured[-1]
     assert "送信" in captured[-1]
     assert "考え中..." in captured[-1]
+    assert '"promises": {' in captured[-1]
+    assert '"label": "予定"' in captured[-1]
+    assert '"saved": "会話の約束を保存しました。"' in captured[-1]
+    assert '"empty": "予定された会話の約束はありません。"' in captured[-1]
     assert '"sensitive": "敏感"' in captured[-1]
     assert '"tense": "警戒気味"' in captured[-1]
     assert '"drained": "ぐったり"' in captured[-1]
@@ -1495,6 +1515,8 @@ def test_chat_web_script_has_runtime_i18n_hooks():
     assert "chatInput.placeholder = currentUiStrings.input.placeholder;" in content
     assert "sendButton.textContent = currentUiStrings.send;" in content
     assert "moodStatusLabel.textContent = formatMoodStatusText(label, temporaryState);" in content
+    assert "promiseRemindersButton.textContent = currentUiStrings.actions.promises.label;" in content
+    assert "renderPromiseReminderPanel();" in content
 
 
 def test_overlay_window_syncs_message_split_settings_to_webview(tmp_path):

@@ -223,6 +223,20 @@ class OverlayWindow(QWidget):
                     "label": i18n.t("chat.actions.mood"),
                     "title": i18n.t("chat.actions.mood.title"),
                 },
+                "promises": {
+                    "label": i18n.t("chat.actions.promises"),
+                    "title": i18n.t("chat.actions.promises.title"),
+                },
+            },
+            "promiseNotice": {
+                "saved": i18n.t("chat.promise.notice.saved"),
+            },
+            "promisePanel": {
+                "empty": i18n.t("chat.promise.panel.empty"),
+                "soon": i18n.t("chat.promise.panel.soon"),
+                "queued": i18n.t("chat.promise.panel.queued"),
+                "inMinutes": i18n.t("chat.promise.panel.in_minutes"),
+                "overdueMinutes": i18n.t("chat.promise.panel.overdue_minutes"),
             },
             "mood": {
                 "label": i18n.t("chat.mood.label"),
