@@ -139,6 +139,8 @@
   "chat.actions.promises": "Scheduled",
   "chat.actions.promises.title": "Scheduled conversation promises",
   "chat.promise.notice.saved": "Conversation promise saved.",
+  "chat.promise.panel.title": "Scheduled",
+  "chat.promise.panel.close": "Close",
   "chat.promise.panel.empty": "No scheduled conversation promises.",
   "chat.promise.panel.soon": "Soon",
   "chat.promise.panel.queued": "Right after the current reply",

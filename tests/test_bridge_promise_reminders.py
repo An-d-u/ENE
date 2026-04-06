@@ -42,6 +42,17 @@ class _DummyPromiseManager:
         allowed = set(include_statuses)
         return [item for item in self.items if item.get("status") in allowed]
 
+    def find_similar_promise(self, **kwargs):
+        return None
+
+    def update_promise_title(self, reminder_id, title):
+        self.updated.append((reminder_id, title))
+        for item in self.items:
+            if item.get("id") == reminder_id:
+                item["title"] = title
+                return True
+        return False
+
     def set_status(self, reminder_id, status):
         self.updated.append((reminder_id, status))
         for item in self.items:
@@ -160,3 +171,172 @@ def test_emit_promise_items_updated_hides_triggered_items():
 
     payload = json.loads(dummy.promise_items_updated.emitted[-1][0])
     assert [item["id"] for item in payload] == ["scheduled-1"]
+
+
+def test_store_local_promise_candidates_parses_user_message_and_emits_notice():
+    dummy = type("BridgeDummy", (), {})()
+    dummy.promise_manager = _DummyPromiseManager()
+    dummy.promise_notice = _DummySignal()
+    dummy.promise_items_updated = _DummySignal()
+    dummy._emit_promise_items_updated = lambda: WebBridge._emit_promise_items_updated(dummy)
+
+    stored = WebBridge._store_local_promise_candidates(
+        dummy,
+        "3분 뒤 일기 써야지",
+        "2026-04-06 21:00",
+        source="user",
+    )
+
+    assert len(stored) == 1
+    assert dummy.promise_manager.added[0]["title"] == "대화 약속"
+    assert dummy.promise_manager.added[0]["trigger_at"] == "2026-04-06T21:03:00+09:00"
+    assert dummy.promise_notice.emitted[-1] == ("대화 약속이 저장되었습니다.", "success")
+
+
+def test_store_scheduled_promises_upgrades_generic_title_when_llm_title_arrives():
+    dummy = type("BridgeDummy", (), {})()
+    dummy.promise_manager = _DummyPromiseManager()
+    dummy.promise_notice = _DummySignal()
+    dummy.promise_items_updated = _DummySignal()
+    dummy._emit_promise_items_updated = lambda: WebBridge._emit_promise_items_updated(dummy)
+    dummy.promise_manager.add_promise(
+        id="scheduled-1",
+        title="대화 약속",
+        trigger_at="2026-04-06T21:10:00+09:00",
+        source="assistant",
+        source_excerpt="10분 뒤에 다시 한 번 쓰다듬어 주는 건 어때요",
+        status="scheduled",
+    )
+    dummy.promise_manager.find_similar_promise = lambda **kwargs: dummy.promise_manager.items[0]
+
+    stored = WebBridge._store_scheduled_promises(
+        dummy,
+        [
+            {
+                "title": "쓰다듬기",
+                "trigger_at": "2026-04-06T21:10:00+09:00",
+                "source": "assistant",
+                "source_excerpt": "10분 뒤에 다시 한 번 쓰다듬어 주는 건 어때요",
+            }
+        ],
+    )
+
+    assert stored == []
+    assert dummy.promise_manager.items[0]["title"] == "쓰다듬기"
+
+
+def test_on_response_ready_stores_assistant_promise_when_user_requested_schedule():
+    dummy = type("BridgeDummy", (), {})()
+    dummy.promise_manager = _DummyPromiseManager()
+    dummy.promise_notice = _DummySignal()
+    dummy.promise_items_updated = _DummySignal()
+    dummy.message_received = _DummySignal()
+    dummy.token_usage_ready = _DummySignal()
+    dummy.reroll_state_changed = _DummySignal()
+    dummy.conversation_buffer = [("user", "에네한테 n분 뒤에 뭐뭐하기 예정을 하나 잡아줘", "2026-04-07 10:00")]
+    dummy.mood_manager = None
+    dummy.calendar_manager = None
+    dummy.enable_tts = False
+    dummy.tts_client = None
+    dummy.audio_player = None
+    dummy.pending_response = None
+    dummy.pending_token_usage_payload = ""
+    dummy._is_rerolling = False
+    dummy._active_promise_id = ""
+    dummy._last_assistant_response = None
+    dummy._emit_mood_changed = lambda snapshot: None
+    dummy._sanitize_visible_response_text = lambda text: text
+    dummy._resolve_token_usage_payload = lambda payload="": payload
+    dummy._append_conversation = lambda role, text, timestamp=None: dummy.conversation_buffer.append(
+        (role, text, timestamp or "2026-04-07 10:00")
+    )
+    dummy._refresh_llm_history_from_visible_conversation = lambda: None
+    dummy._check_auto_summarize = lambda: None
+    dummy._emit_promise_items_updated = lambda: WebBridge._emit_promise_items_updated(dummy)
+    dummy._drain_promise_queue_if_idle = lambda: None
+    dummy._store_scheduled_promises = lambda items: WebBridge._store_scheduled_promises(dummy, items)
+    dummy._store_local_promise_candidates = (
+        lambda source_text, timestamp, source="user": WebBridge._store_local_promise_candidates(
+            dummy,
+            source_text,
+            timestamp,
+            source=source,
+        )
+    )
+    dummy._maybe_store_assistant_promise_candidates = (
+        lambda source_text: WebBridge._maybe_store_assistant_promise_candidates(dummy, source_text)
+    )
+
+    WebBridge._on_response_ready(
+        dummy,
+        "음, 그럼 10분 뒤에 다시 한 번 쓰다듬어 주는 건 어때요?",
+        "smile",
+        "",
+        [],
+        "",
+        "",
+        [],
+    )
+
+    assert len(dummy.promise_manager.added) == 1
+    assert dummy.promise_manager.added[0]["title"] == "대화 약속"
+    assert dummy.promise_manager.added[0]["source"] == "assistant"
+    assert dummy.promise_manager.added[0]["trigger_at"] == "2026-04-07T10:10:00+09:00"
+
+
+def test_on_response_ready_stores_assistant_promise_when_user_requested_schedule_with_iljeong_wording():
+    dummy = type("BridgeDummy", (), {})()
+    dummy.promise_manager = _DummyPromiseManager()
+    dummy.promise_notice = _DummySignal()
+    dummy.promise_items_updated = _DummySignal()
+    dummy.message_received = _DummySignal()
+    dummy.token_usage_ready = _DummySignal()
+    dummy.reroll_state_changed = _DummySignal()
+    dummy.conversation_buffer = [("user", "이제 에네가 N분 후에 뭐뭐하기 식으로 일정을 하나 만들어줘.", "2026-04-07 10:00")]
+    dummy.mood_manager = None
+    dummy.calendar_manager = None
+    dummy.enable_tts = False
+    dummy.tts_client = None
+    dummy.audio_player = None
+    dummy.pending_response = None
+    dummy.pending_token_usage_payload = ""
+    dummy._is_rerolling = False
+    dummy._active_promise_id = ""
+    dummy._last_assistant_response = None
+    dummy._emit_mood_changed = lambda snapshot: None
+    dummy._sanitize_visible_response_text = lambda text: text
+    dummy._resolve_token_usage_payload = lambda payload="": payload
+    dummy._append_conversation = lambda role, text, timestamp=None: dummy.conversation_buffer.append(
+        (role, text, timestamp or "2026-04-07 10:00")
+    )
+    dummy._refresh_llm_history_from_visible_conversation = lambda: None
+    dummy._check_auto_summarize = lambda: None
+    dummy._emit_promise_items_updated = lambda: WebBridge._emit_promise_items_updated(dummy)
+    dummy._drain_promise_queue_if_idle = lambda: None
+    dummy._store_scheduled_promises = lambda items: WebBridge._store_scheduled_promises(dummy, items)
+    dummy._store_local_promise_candidates = (
+        lambda source_text, timestamp, source="user": WebBridge._store_local_promise_candidates(
+            dummy,
+            source_text,
+            timestamp,
+            source=source,
+        )
+    )
+    dummy._maybe_store_assistant_promise_candidates = (
+        lambda source_text: WebBridge._maybe_store_assistant_promise_candidates(dummy, source_text)
+    )
+
+    WebBridge._on_response_ready(
+        dummy,
+        "그럼 제가 정할 테니까, 10분 뒤에 침대에 눕는 거예요.",
+        "smile",
+        "",
+        [],
+        "",
+        "",
+        [],
+    )
+
+    assert len(dummy.promise_manager.added) == 1
+    assert dummy.promise_manager.added[0]["source"] == "assistant"
+    assert dummy.promise_manager.added[0]["trigger_at"] == "2026-04-07T10:10:00+09:00"
