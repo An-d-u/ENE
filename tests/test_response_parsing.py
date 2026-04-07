@@ -1,4 +1,4 @@
-﻿import pytest
+import pytest
 
 pytest.importorskip("google.genai")
 
@@ -13,13 +13,14 @@ def test_parse_response_keeps_multiline_japanese_for_tts():
 二行目です。
 """.strip()
 
-    text, emotion, japanese_text, events, analysis = client._parse_response(response_text)
+    text, emotion, japanese_text, events, analysis, promises = client._parse_response(response_text)
 
     assert text == "한국어 본문입니다."
     assert emotion == "smile"
     assert japanese_text == "一行目です。\n二行目です。"
     assert events == []
     assert analysis == {}
+    assert promises == []
 
 
 def test_parse_response_extracts_analysis_block_without_leaking_to_text():
@@ -34,7 +35,7 @@ confidence=0.86
 はい、わかりました。
 """.strip()
 
-    text, emotion, japanese_text, events, analysis = client._parse_response(response_text)
+    text, emotion, japanese_text, events, analysis, promises = client._parse_response(response_text)
 
     assert text == "네, 알겠어요."
     assert emotion == "smile"
@@ -45,6 +46,7 @@ confidence=0.86
         "user_intent": "affection",
         "confidence": "0.86",
     }
+    assert promises == []
 
 
 def test_parse_response_extracts_plain_analysis_lines_at_top():
@@ -64,7 +66,7 @@ flags=greeting
 こんばんは。
 """.strip()
 
-    text, emotion, japanese_text, events, analysis = client._parse_response(response_text)
+    text, emotion, japanese_text, events, analysis, promises = client._parse_response(response_text)
 
     assert text == "좋은 저녁이에요."
     assert emotion == "smile"
@@ -72,6 +74,7 @@ flags=greeting
     assert events == []
     assert analysis["user_emotion"] == "calm"
     assert analysis["flags"] == "greeting"
+    assert promises == []
 
 
 def test_parse_response_removes_japanese_lines_even_when_not_at_end():
@@ -83,7 +86,7 @@ def test_parse_response_removes_japanese_lines_even_when_not_at_end():
 아까 정리하던 문서, 지금은 거의 마무리된 상태인가요?
 """.strip()
 
-    text, emotion, japanese_text, events, analysis = client._parse_response(response_text)
+    text, emotion, japanese_text, events, analysis, promises = client._parse_response(response_text)
 
     assert text == (
         "좋은 저녁이에요.\n\n"
@@ -93,3 +96,4 @@ def test_parse_response_removes_japanese_lines_even_when_not_at_end():
     assert japanese_text == "こんばんは。"
     assert events == []
     assert analysis == {}
+    assert promises == []
