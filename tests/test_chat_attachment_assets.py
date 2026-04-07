@@ -38,6 +38,13 @@ def test_attachment_delete_confirm_markup_exists():
     assert 'id="attachment-delete-confirm-yes"' in html
 
 
+def test_image_lightbox_markup_exists():
+    html = INDEX_PATH.read_text(encoding="utf-8-sig")
+    assert 'id="image-lightbox-overlay"' in html
+    assert 'id="image-lightbox-image"' in html
+    assert 'id="image-lightbox-close"' in html
+
+
 def test_script_uses_svg_reroll_icon_instead_of_unicode():
     script = SCRIPT_PATH.read_text(encoding="utf-8-sig")
     assert "createLucideIcon('rotate-ccw')" in script
