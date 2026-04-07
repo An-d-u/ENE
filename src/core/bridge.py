@@ -567,6 +567,7 @@ class WebBridge(QObject):
         self._obsidian_integration_activated = False
         self._pending_attachment_cache: dict[str, dict] = {}
         self._session_attachment_documents: list[dict] = []
+        self._message_attachment_records: dict[str, dict] = {}
         
         # TTS 및 오디오 재생
         self.tts_client = None
@@ -1362,6 +1363,71 @@ class WebBridge(QObject):
             )
         return json.dumps(payload, ensure_ascii=False)
 
+    def _extract_attachment_message_id(self, attachments_data: list[dict]) -> str:
+        """프런트가 보낸 첨부 목록에서 메시지 ID를 추출한다."""
+        for item in attachments_data or []:
+            message_id = str((item or {}).get("messageId", "")).strip()
+            if message_id:
+                return message_id
+        return ""
+
+    def _normalize_attachment_runtime_state(self, prepared_attachments: list[dict]) -> list[dict]:
+        """브리지 내부에서 삭제 상태까지 함께 관리할 첨부 런타임 상태를 만든다."""
+        normalized: list[dict] = []
+        for item in prepared_attachments or []:
+            normalized_item = dict(item)
+            if str(normalized_item.get("category", "")) == "image":
+                normalized_item["deleted"] = bool(normalized_item.get("deleted", False))
+            else:
+                normalized_item["deleted"] = False
+            normalized.append(normalized_item)
+        return normalized
+
+    def _build_active_image_payload(self, attachments: list[dict]) -> list[dict]:
+        """현재 요청에 실제 이미지 입력으로 포함할 활성 이미지 목록을 만든다."""
+        payload: list[dict] = []
+        for item in attachments or []:
+            if str(item.get("status", "ready")) != "ready":
+                continue
+            if str(item.get("category", "")) != "image":
+                continue
+            if bool(item.get("deleted")):
+                continue
+            payload.append(
+                {
+                    "id": item.get("id", ""),
+                    "dataUrl": item.get("dataUrl", ""),
+                    "name": item.get("name", ""),
+                    "type": item.get("type", "image/png"),
+                }
+            )
+        return payload
+
+    def _compose_attachment_history_message(self, message: str, attachments: list[dict]) -> str:
+        """현재 첨부 상태를 반영한 사용자 대화 버퍼용 텍스트를 만든다."""
+        return ((message or "").strip() or "(첨부)") + build_attachment_note(attachments)
+
+    def _find_attachment_conversation_index(self, record: dict) -> int:
+        """첨부 상태 레코드와 연결된 사용자 대화 버퍼 인덱스를 찾는다."""
+        try:
+            stored_index = int(record.get("conversation_index", -1))
+        except Exception:
+            stored_index = -1
+
+        if 0 <= stored_index < len(self.conversation_buffer):
+            entry = self.conversation_buffer[stored_index]
+            if len(entry) >= 3 and entry[0] == "user":
+                return stored_index
+
+        timestamp = str(record.get("timestamp", "")).strip()
+        if timestamp:
+            for index in range(len(self.conversation_buffer) - 1, -1, -1):
+                role, _, entry_timestamp = self.conversation_buffer[index]
+                if role == "user" and str(entry_timestamp or "").strip() == timestamp:
+                    return index
+
+        return -1
+
     def _upsert_session_documents(self, prepared_attachments: list[dict]):
         """전송이 완료된 문서 첨부를 현재 세션 참고 자료로 유지한다."""
         for item in prepared_attachments or []:
@@ -1762,31 +1828,34 @@ class WebBridge(QObject):
             attachments_data = []
 
         prepared_attachments = self._resolve_prepared_attachments(attachments_data)
+        runtime_attachments = self._normalize_attachment_runtime_state(prepared_attachments)
         ready_attachments = [
-            item for item in prepared_attachments
+            item for item in runtime_attachments
             if str(item.get("status", "ready")) == "ready"
         ]
-        image_attachments = [
-            {
-                "id": item.get("id", ""),
-                "dataUrl": item.get("dataUrl", ""),
-                "name": item.get("name", ""),
-                "type": item.get("type", "image/png"),
-            }
-            for item in ready_attachments
-            if str(item.get("category", "")) == "image"
-        ]
-        effective_message = (message or "").strip() or "첨부한 자료를 확인해 줘."
+        image_attachments = self._build_active_image_payload(runtime_attachments)
         timestamp = self._now_timestamp()
-        attachment_context = build_attachment_context_block(ready_attachments)
+        message_id = self._extract_attachment_message_id(attachments_data)
+        if not message_id:
+            message_id = f"attachment-message-{timestamp}"
+        effective_message = (message or "").strip() or "첨부한 자료를 확인해 줘."
+        attachment_context = build_attachment_context_block(runtime_attachments)
         prompt = self._build_general_chat_prompt(effective_message, attachment_context=attachment_context)
         message_with_time = f"[현재 시각: {timestamp}]\n{prompt}"
         memory_search_text = self._build_memory_search_text(effective_message, timestamp)
 
         self._mark_user_activity()
-        attachment_note = build_attachment_note(ready_attachments)
-        history_message = ((message or "").strip() or "(첨부)") + attachment_note
+        attachment_note = build_attachment_note(runtime_attachments)
+        history_message = self._compose_attachment_history_message(effective_message, runtime_attachments)
         self._append_conversation("user", history_message, timestamp)
+        self._message_attachment_records[message_id] = {
+            "message": effective_message,
+            "timestamp": timestamp,
+            "conversation_index": len(self.conversation_buffer) - 1,
+            "attachments": runtime_attachments,
+            "attachment_note": attachment_note,
+            "attachment_context": attachment_context,
+        }
         self._store_local_promise_candidates(effective_message, timestamp, source="user")
         if self.mood_manager:
             snapshot = self.mood_manager.on_user_message(effective_message, image_count=len(image_attachments))
@@ -1795,6 +1864,7 @@ class WebBridge(QObject):
         self._last_request_payload = {
             "type": "attachments" if ready_attachments else "text",
             "message": effective_message,
+            "message_id": message_id,
             "message_with_time": message_with_time,
             "images": image_attachments,
             "attachment_note": attachment_note,
@@ -1813,6 +1883,56 @@ class WebBridge(QObject):
             f"{len(image_attachments)} images and "
             f"{len([item for item in ready_attachments if item.get('category') == 'document'])} documents"
         )
+
+    @pyqtSlot(str, str)
+    def delete_message_attachment(self, message_id: str, attachment_id: str):
+        """전송된 사용자 메시지 안의 이미지 첨부 하나를 삭제 상태로 바꾼다."""
+        normalized_message_id = str(message_id or "").strip()
+        normalized_attachment_id = str(attachment_id or "").strip()
+        if not normalized_message_id or not normalized_attachment_id:
+            return
+
+        record = self._message_attachment_records.get(normalized_message_id)
+        if not isinstance(record, dict):
+            return
+
+        attachments = record.get("attachments") or []
+        changed = False
+        for item in attachments:
+            if str(item.get("id", "")).strip() != normalized_attachment_id:
+                continue
+            if str(item.get("category", "")) != "image":
+                return
+            if bool(item.get("deleted")):
+                return
+            item["deleted"] = True
+            item["dataUrl"] = ""
+            changed = True
+            break
+
+        if not changed:
+            return
+
+        attachment_note = build_attachment_note(attachments)
+        attachment_context = build_attachment_context_block(attachments)
+        history_message = self._compose_attachment_history_message(record.get("message", ""), attachments)
+        conversation_index = self._find_attachment_conversation_index(record)
+        if 0 <= conversation_index < len(self.conversation_buffer):
+            role, _, timestamp = self.conversation_buffer[conversation_index]
+            self.conversation_buffer[conversation_index] = (role, history_message, timestamp)
+            record["conversation_index"] = conversation_index
+        record["attachment_note"] = attachment_note
+        record["attachment_context"] = attachment_context
+
+        if (
+            self._last_request_payload
+            and str(self._last_request_payload.get("message_id", "")).strip() == normalized_message_id
+        ):
+            self._last_request_payload["images"] = self._build_active_image_payload(attachments)
+            self._last_request_payload["attachment_note"] = attachment_note
+            self._last_request_payload["attachment_context"] = attachment_context
+
+        self._refresh_llm_history_from_visible_conversation()
 
     @pyqtSlot()
     def reroll_last_response(self):
@@ -1930,10 +2050,26 @@ class WebBridge(QObject):
         images = self._last_request_payload.get("images") or []
         attachment_note = str(self._last_request_payload.get("attachment_note", "") or "")
         attachment_context = str(self._last_request_payload.get("attachment_context", "") or "")
+        message_id = str(self._last_request_payload.get("message_id", "") or "")
         if payload_type in {"images", "attachments"}:
             self._append_conversation("user", edited_message + attachment_note, timestamp)
         else:
             self._append_conversation("user", edited_message, timestamp)
+
+        record = self._message_attachment_records.get(message_id) if message_id else None
+        if isinstance(record, dict):
+            record["message"] = edited_message
+            record["timestamp"] = timestamp
+            record["conversation_index"] = len(self.conversation_buffer) - 1
+            attachment_note = build_attachment_note(record.get("attachments") or [])
+            attachment_context = build_attachment_context_block(record.get("attachments") or [])
+            self.conversation_buffer[-1] = (
+                self.conversation_buffer[-1][0],
+                self._compose_attachment_history_message(edited_message, record.get("attachments") or []),
+                self.conversation_buffer[-1][2],
+            )
+            record["attachment_note"] = attachment_note
+            record["attachment_context"] = attachment_context
 
         prompt = self._build_general_chat_prompt(edited_message, attachment_context=attachment_context)
         message_with_time = f"[현재 시각: {timestamp}]\n{prompt}"
@@ -1941,6 +2077,7 @@ class WebBridge(QObject):
         self._last_request_payload = {
             "type": payload_type,
             "message": edited_message,
+            "message_id": message_id,
             "message_with_time": message_with_time,
             "images": images,
             "attachment_note": attachment_note,
@@ -2794,6 +2931,7 @@ class WebBridge(QObject):
         self._is_rerolling = False
         self._pending_attachment_cache = {}
         self._session_attachment_documents = []
+        self._message_attachment_records = {}
         self.away_already_triggered_since_last_user_msg = False
         self.away_trigger_count_since_last_user_msg = 0
         self.last_away_trigger_at = None

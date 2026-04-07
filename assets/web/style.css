@@ -897,6 +897,59 @@ body.is-chat-resizing {
     filter: brightness(1.08);
 }
 
+#attachment-delete-confirm-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.42);
+}
+
+#attachment-delete-confirm-overlay.hidden {
+    display: none;
+}
+
+#attachment-delete-confirm-dialog {
+    width: min(360px, calc(100vw - 32px));
+    padding: 18px;
+    border: 1px solid var(--ene-floating-panel-border);
+    border-radius: 14px;
+    background: var(--ene-floating-panel-bg);
+    color: var(--ene-floating-panel-text);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+}
+
+#attachment-delete-confirm-body {
+    white-space: pre-line;
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+#attachment-delete-confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 16px;
+}
+
+#attachment-delete-confirm-no,
+#attachment-delete-confirm-yes {
+    min-width: 68px;
+    height: 34px;
+    border: 1px solid var(--ene-floating-panel-border);
+    border-radius: 10px;
+    background: var(--ene-floating-panel-button-bg);
+    color: var(--ene-floating-panel-text);
+    cursor: pointer;
+}
+
+#attachment-delete-confirm-no:hover,
+#attachment-delete-confirm-yes:hover {
+    background: var(--ene-floating-panel-button-hover);
+}
+
 #toast-container {
     position: fixed;
     right: 12px;
@@ -1196,6 +1249,86 @@ body.is-chat-resizing {
     flex-wrap: wrap;
     gap: 6px;
     margin-bottom: 8px;
+}
+
+.message-attachment-image {
+    overflow: hidden;
+    padding: 0;
+    background: rgba(255, 255, 255, 0.98);
+    color: #111214;
+}
+
+.message-attachment-image img {
+    display: block;
+    width: min(240px, 48vw);
+    max-width: 100%;
+    min-height: 120px;
+    max-height: 220px;
+    object-fit: cover;
+}
+
+.message-attachment-caption {
+    padding: 9px 12px 10px;
+    border-top: 1px solid rgba(17, 18, 20, 0.08);
+    color: #3A4350;
+    font-size: 12px;
+    line-height: 1.35;
+}
+
+.message-attachment-delete-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border: none;
+    border-radius: 999px;
+    background: rgba(239, 68, 68, 0.94);
+    color: #FFFFFF;
+    box-shadow: 0 8px 18px rgba(239, 68, 68, 0.34);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.16s ease, transform 0.16s ease, background 0.16s ease;
+    transform: translateY(-2px);
+}
+
+.message.user .message-attachment-image:hover .message-attachment-delete-btn {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.message-attachment-delete-btn:hover {
+    background: rgba(220, 38, 38, 0.98);
+}
+
+.message-attachment-deleted {
+    border: 1px dashed rgba(130, 142, 156, 0.48);
+    background: rgba(223, 227, 232, 0.96);
+    color: #6E7784;
+}
+
+.message-attachment-file {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.message-attachment-file-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 42px;
+    height: 24px;
+    padding: 0 8px;
+    border-radius: 999px;
+    background: rgba(var(--ene-accent-rgb), 0.14);
+    color: var(--ene-chat-panel-text);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
 }
 
 .message-attachment-chip {

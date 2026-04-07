@@ -114,6 +114,7 @@ const DEFAULT_UI_STRINGS = {
         yes: 'Yes'
     }
 };
+const ATTACHMENT_DELETE_CONFIRM_BODY = '지운 사진은 컨텍스트에 포함되지 않습니다.\n정말 지우시겠습니까?';
 window.eneModelConfig = window.eneModelConfig || {};
 window.eneThemeConfig = window.eneThemeConfig || {};
 window.eneUiStrings = window.eneUiStrings || {};
@@ -1375,6 +1376,10 @@ const summaryConfirmTitle = document.getElementById('summary-confirm-title');
 const summaryConfirmBody = document.getElementById('summary-confirm-body');
 const summaryConfirmYesButton = document.getElementById('summary-confirm-yes');
 const summaryConfirmNoButton = document.getElementById('summary-confirm-no');
+const attachmentDeleteConfirmOverlay = document.getElementById('attachment-delete-confirm-overlay');
+const attachmentDeleteConfirmBody = document.getElementById('attachment-delete-confirm-body');
+const attachmentDeleteConfirmYesButton = document.getElementById('attachment-delete-confirm-yes');
+const attachmentDeleteConfirmNoButton = document.getElementById('attachment-delete-confirm-no');
 const toastContainer = document.getElementById('toast-container');
 const moodToggleButton = document.getElementById('mood-toggle-floating-btn');
 const obsNoteButton = document.getElementById('obs-note-floating-btn');
@@ -1436,6 +1441,7 @@ let typingEffectSpeed = 'normal';
 let messageSplitEnabled = false;
 let chatPanelHeightPx = null;
 let chatResizeState = null;
+let pendingAttachmentDeletion = null;
 
 function getChatPanelMinHeight() {
     return 136;
@@ -2481,6 +2487,66 @@ function hideSummaryConfirm() {
     summaryConfirmOverlay.classList.add('hidden');
 }
 
+function showAttachmentDeleteConfirm() {
+    if (!attachmentDeleteConfirmOverlay) return;
+    if (attachmentDeleteConfirmBody) {
+        attachmentDeleteConfirmBody.textContent = ATTACHMENT_DELETE_CONFIRM_BODY;
+    }
+    attachmentDeleteConfirmOverlay.classList.remove('hidden');
+}
+
+function hideAttachmentDeleteConfirm() {
+    if (!attachmentDeleteConfirmOverlay) return;
+    attachmentDeleteConfirmOverlay.classList.add('hidden');
+    pendingAttachmentDeletion = null;
+}
+
+function requestAttachmentDeletion(messageDiv, attachmentId) {
+    if (!messageDiv || !attachmentId) return;
+    pendingAttachmentDeletion = {
+        messageDiv,
+        attachmentId
+    };
+    showAttachmentDeleteConfirm();
+}
+
+function confirmAttachmentDeletion() {
+    if (!pendingAttachmentDeletion) {
+        hideAttachmentDeleteConfirm();
+        return;
+    }
+
+    const { messageDiv, attachmentId } = pendingAttachmentDeletion;
+    const attachments = normalizeMessageAttachments(getMessageVisualAttachments(messageDiv));
+    const nextAttachments = attachments.map((attachment) => {
+        if (attachment.id !== attachmentId) {
+            return attachment;
+        }
+        return {
+            ...attachment,
+            deleted: true,
+            dataUrl: ''
+        };
+    });
+
+    messageDiv._messageAttachments = nextAttachments;
+    renderMessageBubbleSegments(messageDiv, getMessageLogicalText(messageDiv), {
+        attachments: nextAttachments,
+        immediate: true
+    });
+
+    const messageId = getStoredMessageId(messageDiv);
+    hideAttachmentDeleteConfirm();
+
+    if (window.pyBridge && window.pyBridge.delete_message_attachment && messageId) {
+        dispatchBridgeCall(() => {
+            window.pyBridge.delete_message_attachment(messageId, attachmentId);
+        }, (error) => {
+            console.error('Python bridge attachment delete failed', error);
+        });
+    }
+}
+
 // 토스트 메시지를 생성해 일정 시간 후 자동 제거한다.
 function showToast(message, level = 'info') {
     if (!toastContainer || !message) return;
@@ -2530,9 +2596,13 @@ function normalizeMessageAttachments(attachments) {
     }
     return attachments.map((attachment) => {
         if (typeof attachment === 'string') {
-            return { category: 'image', name: '이미지', dataUrl: attachment };
+            return { id: createAttachmentId(), category: 'image', name: '이미지', dataUrl: attachment, deleted: false };
         }
-        return attachment;
+        return {
+            ...attachment,
+            id: attachment && attachment.id ? attachment.id : createAttachmentId(),
+            deleted: Boolean(attachment && attachment.deleted),
+        };
     });
 }
 
@@ -2541,6 +2611,11 @@ function getMessageVisualAttachments(messageDiv) {
         return [];
     }
     return messageDiv._messageAttachments;
+}
+
+function getStoredMessageId(messageDiv) {
+    if (!messageDiv || !messageDiv.dataset) return '';
+    return String(messageDiv.dataset.messageId || '').trim();
 }
 
 function splitLongMessageLineBySentence(line) {
@@ -2587,40 +2662,75 @@ function splitMessageIntoVisualChunks(text) {
     return normalizedText.trim() ? [normalizedText.trim()] : [];
 }
 
-function createMessageAttachmentBubble(attachments) {
-    const normalizedAttachments = normalizeMessageAttachments(attachments);
-    if (normalizedAttachments.length === 0) {
-        return null;
+function createMessageAttachmentImageBubble(messageDiv, attachment) {
+    const bubble = document.createElement('div');
+    bubble.className = 'message-bubble message-attachment-image';
+
+    const img = document.createElement('img');
+    img.src = attachment.dataUrl;
+    img.alt = attachment.name || '첨부 이미지';
+    bubble.appendChild(img);
+
+    const caption = document.createElement('div');
+    caption.className = 'message-attachment-caption';
+    caption.textContent = attachment.name || '이미지';
+    bubble.appendChild(caption);
+
+    if (messageDiv && messageDiv.classList.contains('user')) {
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'message-attachment-delete-btn';
+        removeBtn.type = 'button';
+        removeBtn.textContent = '×';
+        removeBtn.setAttribute('aria-label', '사진 삭제');
+        removeBtn.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            requestAttachmentDeletion(messageDiv, attachment.id);
+        });
+        bubble.appendChild(removeBtn);
     }
 
-    const bubble = document.createElement('div');
-    bubble.className = 'message-bubble message-bubble-attachment';
-
-    const attachmentList = document.createElement('div');
-    attachmentList.className = 'message-attachment-list';
-
-    normalizedAttachments.forEach((attachment) => {
-        const chip = document.createElement('div');
-        chip.className = 'message-attachment-chip';
-
-        if (attachment.category === 'image' && attachment.dataUrl) {
-            const img = document.createElement('img');
-            img.src = attachment.dataUrl;
-            chip.appendChild(img);
-        } else {
-            const extensionBadge = document.createElement('span');
-            extensionBadge.textContent = getFileExtension(attachment.name || 'file').toUpperCase() || 'FILE';
-            chip.appendChild(extensionBadge);
-        }
-
-        const label = document.createElement('span');
-        label.textContent = attachment.name || (attachment.category === 'image' ? '이미지' : '첨부 파일');
-        chip.appendChild(label);
-        attachmentList.appendChild(chip);
-    });
-
-    bubble.appendChild(attachmentList);
     return bubble;
+}
+
+function createMessageAttachmentDeletedBubble() {
+    const bubble = document.createElement('div');
+    bubble.className = 'message-bubble message-attachment-deleted';
+    bubble.textContent = '[사진이 삭제되었습니다.]';
+    return bubble;
+}
+
+function createMessageAttachmentFileBubble(attachment) {
+    const bubble = document.createElement('div');
+    bubble.className = 'message-bubble message-attachment-file';
+
+    const extensionBadge = document.createElement('span');
+    extensionBadge.className = 'message-attachment-file-badge';
+    extensionBadge.textContent = getFileExtension(attachment.name || 'file').toUpperCase() || 'FILE';
+    bubble.appendChild(extensionBadge);
+
+    const label = document.createElement('span');
+    label.textContent = attachment.name || '첨부 파일';
+    bubble.appendChild(label);
+
+    return bubble;
+}
+
+function createMessageAttachmentBubbles(messageDiv, attachments) {
+    const normalizedAttachments = normalizeMessageAttachments(attachments);
+    if (normalizedAttachments.length === 0) {
+        return [];
+    }
+
+    return normalizedAttachments.map((attachment) => {
+        if (attachment.category === 'image' && attachment.deleted) {
+            return createMessageAttachmentDeletedBubble();
+        }
+        if (attachment.category === 'image' && attachment.dataUrl) {
+            return createMessageAttachmentImageBubble(messageDiv, attachment);
+        }
+        return createMessageAttachmentFileBubble(attachment);
+    });
 }
 
 function createTextMessageBubble() {
@@ -2652,13 +2762,13 @@ function renderMessageBubbleSegments(messageDiv, text, { attachments = null, imm
     stack.querySelectorAll('.message-bubble span').forEach((textNode) => cancelMessageTyping(textNode));
     stack.innerHTML = '';
 
-    const attachmentBubble = createMessageAttachmentBubble(resolvedAttachments);
-    if (attachmentBubble) {
+    const attachmentBubbles = createMessageAttachmentBubbles(messageDiv, resolvedAttachments);
+    attachmentBubbles.forEach((attachmentBubble) => {
         stack.appendChild(attachmentBubble);
-    }
+    });
 
     const segments = splitMessageIntoVisualChunks(text);
-    if (!attachmentBubble && segments.length === 0) {
+    if (attachmentBubbles.length === 0 && segments.length === 0) {
         segments.push('');
     }
 
@@ -2901,10 +3011,13 @@ function replaceLastAssistantMessage(text, timestamp = new Date()) {
  * 채팅 영역에 메시지 버블을 추가한다.
  */
 // 채팅 메시지(텍스트/첨부)를 DOM에 append하고 상태를 갱신한다.
-function addMessage(text, role, attachments = [], timestamp = new Date()) {
+function addMessage(text, role, attachments = [], timestamp = new Date(), options = {}) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${role}`;
     messageDiv.dataset.messageTimestamp = normalizeMessageTimestampValue(timestamp);
+    messageDiv.dataset.messageId = (options && typeof options.messageId === 'string' && options.messageId.trim())
+        ? options.messageId.trim()
+        : `message-${createAttachmentId()}`;
     setMessageLogicalText(messageDiv, text);
     messageDiv._messageAttachments = normalizeMessageAttachments(attachments);
     const bubbleStack = getMessageBubbleStack(messageDiv);
@@ -3093,14 +3206,16 @@ function sendMessage() {
     const message = chatInput.value.trim();
 
     if (!message && attachedAttachments.length === 0) return;
+    const clientMessageId = `message-${createAttachmentId()}`;
     const pendingAttachments = attachedAttachments.map((attachment) => ({
         id: attachment.id,
         dataUrl: attachment.dataUrl,
         name: attachment.name,
         type: attachment.type,
-        category: attachment.category
+        category: attachment.category,
+        messageId: clientMessageId
     }));
-    addMessage(message || '(첨부)', 'user', pendingAttachments, new Date());
+    addMessage(message || '(첨부)', 'user', pendingAttachments, new Date(), { messageId: clientMessageId });
     chatInput.value = '';
     autoResizeTextarea();
     if (window.pyBridge) {
@@ -3281,7 +3396,27 @@ if (summaryConfirmOverlay) {
     });
 }
 
+if (attachmentDeleteConfirmNoButton) {
+    attachmentDeleteConfirmNoButton.addEventListener('click', hideAttachmentDeleteConfirm);
+}
+
+if (attachmentDeleteConfirmYesButton) {
+    attachmentDeleteConfirmYesButton.addEventListener('click', confirmAttachmentDeletion);
+}
+
+if (attachmentDeleteConfirmOverlay) {
+    attachmentDeleteConfirmOverlay.addEventListener('click', (e) => {
+        if (e.target === attachmentDeleteConfirmOverlay) {
+            hideAttachmentDeleteConfirm();
+        }
+    });
+}
+
 document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && attachmentDeleteConfirmOverlay && !attachmentDeleteConfirmOverlay.classList.contains('hidden')) {
+        hideAttachmentDeleteConfirm();
+        return;
+    }
     if (e.key === 'Escape' && summaryConfirmOverlay && !summaryConfirmOverlay.classList.contains('hidden')) {
         hideSummaryConfirm();
         return;
