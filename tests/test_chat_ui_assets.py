@@ -205,13 +205,18 @@ def test_chat_script_binds_close_button_for_promise_panel():
 
 def test_message_attachment_image_bubble_styles_support_hover_delete_and_deleted_placeholder():
     image_block = _rule_block(".message-attachment-image")
+    media_block = _rule_block(".message-attachment-media")
     delete_button_block = _rule_block(".message-attachment-delete-btn")
-    delete_hover_block = _rule_block(".message.user .message-attachment-image:hover .message-attachment-delete-btn")
+    delete_hover_block = _rule_block(".message.user .message-attachment-media:hover .message-attachment-delete-btn")
+    caption_block = _rule_block(".message-attachment-caption")
     deleted_block = _rule_block(".message-attachment-deleted")
 
     assert "overflow: hidden;" in image_block
+    assert "cursor: zoom-in;" in media_block
     assert "opacity: 0;" in delete_button_block
     assert "opacity: 1;" in delete_hover_block
+    assert "font-size: 14px;" in caption_block
+    assert "padding: 10px 14px;" in caption_block
     assert "background:" in deleted_block
     assert "border:" in deleted_block
 
@@ -227,3 +232,11 @@ def test_chat_script_routes_attachment_delete_through_confirm_modal():
     assert "function confirmAttachmentDeletion()" in script
     assert "window.pyBridge.delete_message_attachment(" in script
     assert "지운 사진은 컨텍스트에 포함되지 않습니다.\\n정말 지우시겠습니까?" in script
+
+
+def test_chat_script_opens_image_lightbox_from_image_area_only():
+    script = _script_text()
+    assert "function openImageLightbox(" in script
+    assert "function closeImageLightbox()" in script
+    assert "mediaButton.addEventListener('click'" in script
+    assert "imgWrapper.appendChild(removeBtn);" not in script
