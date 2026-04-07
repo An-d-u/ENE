@@ -23,6 +23,7 @@ from PIL import Image
 지원_DOCX_MIME = {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
+삭제된_이미지_문구 = "[사진이 삭제되었습니다.]"
 
 
 def _parse_data_url(data_url: str, fallback_mime: str = "application/octet-stream") -> tuple[str, bytes]:
@@ -96,6 +97,18 @@ def _guess_attachment_category(name: str, mime_type: str) -> str:
     if normalized in 지원_DOCX_MIME:
         return "document"
     return "unsupported"
+
+
+def _is_ready_attachment(item: dict) -> bool:
+    return str((item or {}).get("status", "ready")).strip() == "ready"
+
+
+def _is_deleted_image(item: dict) -> bool:
+    return (
+        _is_ready_attachment(item)
+        and str((item or {}).get("category", "")).strip() == "image"
+        and bool((item or {}).get("deleted"))
+    )
 
 
 def _estimate_text_tokens(text: str, model_name: str = "") -> int:
@@ -190,8 +203,12 @@ def build_attachment_context_block(documents: Iterable[dict]) -> str:
     """
     현재 세션에서 유지할 문서 첨부 컨텍스트를 구성한다.
     """
+    deleted_images = []
     items = []
     for item in documents or []:
+        if _is_deleted_image(item):
+            deleted_images.append(item)
+            continue
         category = str((item or {}).get("category", "")).strip()
         if category == "document":
             items.append(item)
@@ -202,14 +219,23 @@ def build_attachment_context_block(documents: Iterable[dict]) -> str:
         )
         if guessed == "document":
             items.append(item)
-    if not items:
+    if not items and not deleted_images:
         return ""
 
-    parts = [
-        "[현재 세션 첨부 자료]",
-        "- 아래 문서들은 현재 대화 세션에서 계속 참고할 수 있는 자료입니다.",
-        "- 파일명을 기준으로 구분해서 질문해 주세요.",
-    ]
+    parts = ["[현재 세션 첨부 자료]"]
+
+    if deleted_images:
+        parts.append("- 삭제된 이미지는 실제 이미지 대신 아래 문구만 참고해 주세요.")
+        for _ in deleted_images:
+            parts.append(삭제된_이미지_문구)
+
+    if items:
+        parts.extend(
+            [
+                "- 아래 문서들은 현재 대화 세션에서 계속 참고할 수 있는 자료입니다.",
+                "- 파일명을 기준으로 구분해서 질문해 주세요.",
+            ]
+        )
 
     for item in items:
         name = str(item.get("name", "")).strip() or "이름 없는 문서"
@@ -246,14 +272,20 @@ def build_attachment_note(attachments: Iterable[dict]) -> str:
     """
     대화 버퍼에 남길 첨부 요약 메모를 만든다.
     """
-    docs = [str(item.get("name", "")).strip() for item in (attachments or []) if item.get("category") == "document"]
-    image_count = sum(1 for item in (attachments or []) if item.get("category") == "image")
-
     parts: list[str] = []
-    if docs:
-        parts.append(f"파일: {', '.join(name for name in docs if name)}")
-    if image_count:
-        parts.append(f"이미지 {image_count}장")
+    for item in attachments or []:
+        if not _is_ready_attachment(item):
+            continue
+        category = str((item or {}).get("category", "")).strip()
+        name = str((item or {}).get("name", "")).strip()
+        if category == "document":
+            parts.append(f"파일:{name or '이름 없는 문서'}")
+            continue
+        if category == "image":
+            if bool((item or {}).get("deleted")):
+                parts.append(삭제된_이미지_문구)
+            else:
+                parts.append(f"이미지:{name or '이미지'}")
 
     if not parts:
         return ""

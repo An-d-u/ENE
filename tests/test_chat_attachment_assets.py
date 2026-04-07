@@ -24,9 +24,18 @@ def test_script_uses_attachment_preview_bridge_and_generic_send_route():
     script = SCRIPT_PATH.read_text(encoding="utf-8-sig")
     assert "window.pyBridge.preview_attachments" in script
     assert "window.pyBridge.send_to_ai_with_attachments" in script
+    assert "window.pyBridge.delete_message_attachment" in script
     assert "window.pyBridge.attachment_preview_ready.connect" in script
     assert "createLucideIcon('pencil')" in script
     assert "textContent = 'Edit'" not in script
+
+
+def test_attachment_delete_confirm_markup_exists():
+    html = INDEX_PATH.read_text(encoding="utf-8-sig")
+    assert 'id="attachment-delete-confirm-overlay"' in html
+    assert 'id="attachment-delete-confirm-body"' in html
+    assert 'id="attachment-delete-confirm-no"' in html
+    assert 'id="attachment-delete-confirm-yes"' in html
 
 
 def test_script_uses_svg_reroll_icon_instead_of_unicode():

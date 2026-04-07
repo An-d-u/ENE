@@ -97,12 +97,45 @@ def test_build_general_chat_prompt_combines_obsidian_and_attachment_contexts():
 def test_build_attachment_note_lists_file_names_and_image_count():
     note = build_attachment_note(
         [
-            {"name": "회의록.pdf", "category": "document"},
-            {"name": "정리.txt", "category": "document"},
-            {"name": "장면.png", "category": "image"},
+            {"name": "회의록.pdf", "category": "document", "status": "ready"},
+            {"name": "장면.png", "category": "image", "status": "ready", "deleted": False},
+            {"name": "삭제됨.png", "category": "image", "status": "ready", "deleted": True},
         ]
     )
 
-    assert "회의록.pdf" in note
-    assert "정리.txt" in note
-    assert "이미지 1장" in note
+    assert "파일:회의록.pdf" in note
+    assert "이미지:장면.png" in note
+    assert "[사진이 삭제되었습니다.]" in note
+
+
+def test_build_attachment_context_block_keeps_deleted_image_notice_for_follow_up_context():
+    context = build_attachment_context_block(
+        [
+            {
+                "name": "첫장.png",
+                "type": "image/png",
+                "category": "image",
+                "status": "ready",
+                "deleted": False,
+            },
+            {
+                "name": "삭제됨.png",
+                "type": "image/png",
+                "category": "image",
+                "status": "ready",
+                "deleted": True,
+            },
+            {
+                "name": "회의록.pdf",
+                "type": "application/pdf",
+                "category": "document",
+                "status": "ready",
+                "tokenEstimate": 321,
+                "extractedText": "이번 주 일정은 수요일 회의입니다.",
+            },
+        ]
+    )
+
+    assert "[사진이 삭제되었습니다.]" in context
+    assert "회의록.pdf" in context
+    assert "이번 주 일정은 수요일 회의입니다." in context

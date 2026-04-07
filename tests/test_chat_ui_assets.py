@@ -201,3 +201,29 @@ def test_chat_script_binds_close_button_for_promise_panel():
     assert "const promiseRemindersCloseButton = document.getElementById('promise-reminders-close-btn');" in script
     assert "promiseRemindersCloseButton.addEventListener('click'" in script
     assert "setPromiseRemindersPanelOpen(false);" in script
+
+
+def test_message_attachment_image_bubble_styles_support_hover_delete_and_deleted_placeholder():
+    image_block = _rule_block(".message-attachment-image")
+    delete_button_block = _rule_block(".message-attachment-delete-btn")
+    delete_hover_block = _rule_block(".message.user .message-attachment-image:hover .message-attachment-delete-btn")
+    deleted_block = _rule_block(".message-attachment-deleted")
+
+    assert "overflow: hidden;" in image_block
+    assert "opacity: 0;" in delete_button_block
+    assert "opacity: 1;" in delete_hover_block
+    assert "background:" in deleted_block
+    assert "border:" in deleted_block
+
+
+def test_attachment_delete_confirm_body_keeps_multiline_copy():
+    confirm_body_block = _rule_block("#attachment-delete-confirm-body")
+    assert "white-space: pre-line;" in confirm_body_block
+
+
+def test_chat_script_routes_attachment_delete_through_confirm_modal():
+    script = _script_text()
+    assert "function requestAttachmentDeletion(" in script
+    assert "function confirmAttachmentDeletion()" in script
+    assert "window.pyBridge.delete_message_attachment(" in script
+    assert "지운 사진은 컨텍스트에 포함되지 않습니다.\\n정말 지우시겠습니까?" in script
