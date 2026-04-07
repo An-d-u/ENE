@@ -2310,21 +2310,39 @@ class WebBridge(QObject):
         return stored
 
     def _maybe_store_assistant_promise_candidates(self, source_text: str) -> list:
-        """명시적인 예약 요청 직후라면 assistant 응답에서도 약속 후보를 보수적으로 저장한다."""
+        """명시적 예약 요청이나 최근 합의 흐름이 있으면 assistant 응답에서도 약속 후보를 저장한다."""
         if not self.promise_manager:
             return []
 
+        entries = list(getattr(self, "conversation_buffer", []) or [])
+        latest_user_index = -1
         latest_user_text = ""
         latest_user_timestamp = ""
-        for item in reversed(list(getattr(self, "conversation_buffer", []) or [])):
+        previous_assistant_text = ""
+        previous_assistant_timestamp = ""
+        for index in range(len(entries) - 1, -1, -1):
+            item = entries[index]
             if not item or len(item) < 2:
                 continue
             role = str(item[0] or "").strip().lower()
             if role != "user":
                 continue
+            latest_user_index = index
             latest_user_text = str(item[1] or "").strip()
             latest_user_timestamp = str(item[2] or "").strip() if len(item) >= 3 and item[2] else ""
             break
+
+        if latest_user_index > 0:
+            for index in range(latest_user_index - 1, -1, -1):
+                item = entries[index]
+                if not item or len(item) < 2:
+                    continue
+                role = str(item[0] or "").strip().lower()
+                if role != "assistant":
+                    continue
+                previous_assistant_text = str(item[1] or "").strip()
+                previous_assistant_timestamp = str(item[2] or "").strip() if len(item) >= 3 and item[2] else ""
+                break
 
         if not latest_user_text:
             return []
@@ -2347,6 +2365,66 @@ class WebBridge(QObject):
             )
         )
         if not explicit_schedule_request:
+            negative_tokens = ("아니", "싫", "말고", "안 할", "안할", "못 하", "못할")
+            acceptance_tokens = (
+                "응",
+                "그래",
+                "좋아",
+                "그럴래",
+                "알겠",
+                "오케이",
+                "ㅇㅋ",
+                "콜",
+                "하자",
+                "딱 하자",
+            )
+            user_acceptance = (
+                not any(token in latest_user_text for token in negative_tokens)
+                and any(token in latest_user_text for token in acceptance_tokens)
+            )
+            user_defined_time = bool(
+                extract_promise_candidates(
+                    latest_user_text,
+                    now=latest_user_timestamp or self._now_timestamp(),
+                    source="user",
+                )
+            )
+            current_assistant_candidates = extract_promise_candidates(
+                source_text,
+                now=latest_user_timestamp or self._now_timestamp(),
+                source="assistant",
+            )
+            previous_assistant_candidates = extract_promise_candidates(
+                previous_assistant_text,
+                now=previous_assistant_timestamp or latest_user_timestamp or self._now_timestamp(),
+                source="assistant",
+            ) if previous_assistant_text else []
+            assistant_confirmation = any(
+                token in source_text
+                for token in (
+                    "알겠",
+                    "불러드릴게",
+                    "알려드릴게",
+                    "시간 되면",
+                    "약속",
+                    "그때",
+                    "이따",
+                )
+            )
+            if user_defined_time:
+                return []
+            if user_acceptance and (current_assistant_candidates or (assistant_confirmation and previous_assistant_candidates)):
+                if current_assistant_candidates:
+                    return self._store_local_promise_candidates(
+                        source_text,
+                        latest_user_timestamp or self._now_timestamp(),
+                        source="assistant",
+                    )
+                return self._store_local_promise_candidates(
+                    previous_assistant_text,
+                    previous_assistant_timestamp or latest_user_timestamp or self._now_timestamp(),
+                    source="assistant",
+                )
             return []
 
         base_timestamp = latest_user_timestamp or self._now_timestamp()

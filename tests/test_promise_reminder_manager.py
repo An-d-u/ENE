@@ -121,6 +121,23 @@ def test_extract_promise_candidates_assigns_clean_bedtime_title():
     ]
 
 
+def test_extract_promise_candidates_prefers_future_interpretation_for_ambiguous_clock_time():
+    items = extract_promise_candidates(
+        "응.. 9시 20분에 딱 하자...",
+        now="2026-04-07 21:15",
+        source="user",
+    )
+
+    assert items == [
+        {
+            "title": "대화 약속",
+            "trigger_at": "2026-04-07T21:20:00+09:00",
+            "source": "user",
+            "source_excerpt": "응.. 9시 20분에 딱 하자",
+        }
+    ]
+
+
 def test_find_similar_promise_matches_nearby_same_excerpt(tmp_path):
     manager = PromiseReminderManager(tmp_path / "promises.json")
     manager.add_promise(

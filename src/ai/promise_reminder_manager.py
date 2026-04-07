@@ -14,7 +14,7 @@ PROMISE_TIMEZONE = timezone(timedelta(hours=9))
 GENERIC_PROMISE_TITLE = "대화 약속"
 RELATIVE_PROMISE_PATTERNS = (
     re.compile(r"(?P<amount>\d+)\s*(?P<unit>분|시간|일)\s*(?:뒤|후)"),
-    re.compile(r"(?P<amount>\d+)\s*(?P<unit>분|시간)\s*만\b"),
+    re.compile(r"(?P<amount>\d+)\s*(?P<unit>분|시간)\s*만"),
 )
 ABSOLUTE_PROMISE_PATTERN = re.compile(
     r"(?:(?P<day>오늘|내일|모레)\s*)?"
@@ -90,12 +90,27 @@ def _parse_absolute_trigger(text: str, base_dt: datetime) -> datetime | None:
         hour = 0
 
     day_offset = {"": 0, "오늘": 0, "내일": 1, "모레": 2}.get(day_token, 0)
-    candidate = base_dt.replace(hour=hour % 24, minute=minute, second=0, microsecond=0) + timedelta(days=day_offset)
     if day_token:
+        candidate = base_dt.replace(hour=hour % 24, minute=minute, second=0, microsecond=0) + timedelta(days=day_offset)
         return candidate
-    if candidate > base_dt:
-        return candidate
-    return None
+
+    interpreted_hours = {hour % 24}
+    if not ampm:
+        if 1 <= hour <= 11:
+            interpreted_hours.add((hour % 12) + 12)
+        elif hour == 12:
+            interpreted_hours.update({0, 12})
+
+    candidates: list[datetime] = []
+    for interpreted_hour in interpreted_hours:
+        candidate = base_dt.replace(hour=interpreted_hour % 24, minute=minute, second=0, microsecond=0)
+        if candidate <= base_dt:
+            candidate += timedelta(days=1)
+        candidates.append(candidate)
+
+    if not candidates:
+        return None
+    return min(candidates)
 
 
 def extract_promise_candidates(text: str, now: str | datetime | None = None, source: str = "user") -> list[dict]:
