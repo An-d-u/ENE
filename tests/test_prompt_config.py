@@ -216,8 +216,11 @@ def test_get_system_prompt_reads_from_markdown_files(tmp_path, monkeypatch):
 
 
 def test_analysis_appendix_includes_conversation_promise_rules():
-    repo_appendix = (Path("prompts") / "analysis_system_appendix.md").read_text(encoding="utf-8-sig")
-    default_appendix = (Path("prompts") / "defaults" / "analysis_system_appendix.md").read_text(encoding="utf-8-sig")
+    from src.ai import prompt_config
+
+    prompt_config.ensure_prompt_config_exists()
+    repo_appendix = prompt_config.ANALYSIS_SYSTEM_APPENDIX_PATH.read_text(encoding="utf-8-sig")
+    default_appendix = prompt_config.DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH.read_text(encoding="utf-8-sig")
 
     for appendix in (repo_appendix, default_appendix):
         assert "[약속:" in appendix
