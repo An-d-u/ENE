@@ -1380,6 +1380,9 @@ const attachmentDeleteConfirmOverlay = document.getElementById('attachment-delet
 const attachmentDeleteConfirmBody = document.getElementById('attachment-delete-confirm-body');
 const attachmentDeleteConfirmYesButton = document.getElementById('attachment-delete-confirm-yes');
 const attachmentDeleteConfirmNoButton = document.getElementById('attachment-delete-confirm-no');
+const imageLightboxOverlay = document.getElementById('image-lightbox-overlay');
+const imageLightboxImage = document.getElementById('image-lightbox-image');
+const imageLightboxClose = document.getElementById('image-lightbox-close');
 const toastContainer = document.getElementById('toast-container');
 const moodToggleButton = document.getElementById('mood-toggle-floating-btn');
 const obsNoteButton = document.getElementById('obs-note-floating-btn');
@@ -2547,6 +2550,19 @@ function confirmAttachmentDeletion() {
     }
 }
 
+function openImageLightbox(imageUrl, imageName = '') {
+    if (!imageLightboxOverlay || !imageLightboxImage || !imageUrl) return;
+    imageLightboxImage.src = imageUrl;
+    imageLightboxImage.alt = imageName || '확대된 이미지';
+    imageLightboxOverlay.classList.remove('hidden');
+}
+
+function closeImageLightbox() {
+    if (!imageLightboxOverlay || !imageLightboxImage) return;
+    imageLightboxOverlay.classList.add('hidden');
+    imageLightboxImage.removeAttribute('src');
+}
+
 // 토스트 메시지를 생성해 일정 시간 후 자동 제거한다.
 function showToast(message, level = 'info') {
     if (!toastContainer || !message) return;
@@ -2666,15 +2682,22 @@ function createMessageAttachmentImageBubble(messageDiv, attachment) {
     const bubble = document.createElement('div');
     bubble.className = 'message-bubble message-attachment-image';
 
+    const mediaButton = document.createElement('button');
+    mediaButton.className = 'message-attachment-media';
+    mediaButton.type = 'button';
+    mediaButton.setAttribute('aria-label', `${attachment.name || '첨부 이미지'} 확대 보기`);
+    mediaButton.addEventListener('click', () => {
+        openImageLightbox(attachment.dataUrl, attachment.name || '첨부 이미지');
+    });
+
     const img = document.createElement('img');
     img.src = attachment.dataUrl;
     img.alt = attachment.name || '첨부 이미지';
-    bubble.appendChild(img);
+    mediaButton.appendChild(img);
 
     const caption = document.createElement('div');
     caption.className = 'message-attachment-caption';
     caption.textContent = attachment.name || '이미지';
-    bubble.appendChild(caption);
 
     if (messageDiv && messageDiv.classList.contains('user')) {
         const removeBtn = document.createElement('button');
@@ -2687,9 +2710,11 @@ function createMessageAttachmentImageBubble(messageDiv, attachment) {
             event.stopPropagation();
             requestAttachmentDeletion(messageDiv, attachment.id);
         });
-        bubble.appendChild(removeBtn);
+        mediaButton.appendChild(removeBtn);
     }
 
+    bubble.appendChild(mediaButton);
+    bubble.appendChild(caption);
     return bubble;
 }
 
@@ -3412,7 +3437,23 @@ if (attachmentDeleteConfirmOverlay) {
     });
 }
 
+if (imageLightboxClose) {
+    imageLightboxClose.addEventListener('click', closeImageLightbox);
+}
+
+if (imageLightboxOverlay) {
+    imageLightboxOverlay.addEventListener('click', (e) => {
+        if (e.target === imageLightboxOverlay) {
+            closeImageLightbox();
+        }
+    });
+}
+
 document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && imageLightboxOverlay && !imageLightboxOverlay.classList.contains('hidden')) {
+        closeImageLightbox();
+        return;
+    }
     if (e.key === 'Escape' && attachmentDeleteConfirmOverlay && !attachmentDeleteConfirmOverlay.classList.contains('hidden')) {
         hideAttachmentDeleteConfirm();
         return;
