@@ -235,6 +235,7 @@ GitHub Releases automation is configured so that pushing a tag such as `v0.1.0` 
 - [ ] start conversations first with an appropriate topic when it is not already in an active conversation
 - [ ] add internet search capabilities
 - [ ] add better memory controls
+- [ ] upgrade ENE Memory 2.0 from JSON to SQLite
 - [ ] make expression and emotion switching feel more natural
 - [ ] import and export settings, prompts, and profile data
 - [ ] add relationship and personality tuning presets
