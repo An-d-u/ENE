@@ -2930,13 +2930,28 @@ class WebBridge(QObject):
                     original_messages.append(item[1])  # (role, msg)
             
             # LLM으로 요약 + 사용자 정보 생성
-            summary, user_facts = await self.llm_client.summarize_conversation(messages)
+            summary_result = await self.llm_client.summarize_conversation(messages)
+            if isinstance(summary_result, tuple) and len(summary_result) == 3:
+                summary, user_facts, memory_meta = summary_result
+            elif isinstance(summary_result, tuple) and len(summary_result) == 2:
+                summary, user_facts = summary_result
+                memory_meta = {}
+            else:
+                raise ValueError("지원하지 않는 요약 응답 형식입니다.")
+
+            if not isinstance(memory_meta, dict):
+                memory_meta = {}
             
             # 메모리에 요약 저장
             await self.memory_manager.add_summary(
                 summary=summary,
                 original_messages=original_messages,
-                is_important=False
+                is_important=False,
+                source="chat",
+                memory_type=str(memory_meta.get("memory_type") or "general"),
+                importance_reason=str(memory_meta.get("importance_reason")).strip() if memory_meta.get("importance_reason") else None,
+                confidence=memory_meta.get("confidence"),
+                entity_names=memory_meta.get("entity_names") or [],
             )
             
             # 사용자 정보 저장

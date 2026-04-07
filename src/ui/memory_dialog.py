@@ -68,6 +68,8 @@ class MemoryDialog(QDialog):
         self._sort_descending = True
         self._item_frames: dict[str, QFrame] = {}
         self._loading_settings = False
+        self._source_filter_value = "all"
+        self._type_filter_value = "all"
 
         self.setWindowTitle(t("memory.window.title"))
         if self._embedded:
@@ -336,6 +338,20 @@ class MemoryDialog(QDialog):
         top.addWidget(self.refresh_btn)
         layout.addLayout(top)
 
+        filter_row = QHBoxLayout()
+        filter_row.setSpacing(10)
+
+        self.source_filter_btn = QPushButton("")
+        self.source_filter_btn.clicked.connect(self._cycle_source_filter)
+        filter_row.addWidget(self.source_filter_btn)
+
+        self.type_filter_btn = QPushButton("")
+        self.type_filter_btn.clicked.connect(self._cycle_type_filter)
+        filter_row.addWidget(self.type_filter_btn)
+
+        filter_row.addStretch()
+        layout.addLayout(filter_row)
+
         chip_row = QHBoxLayout()
         chip_row.setSpacing(10)
         chip_row.addWidget(self._pill(t("memory.chip.summary_tags"), "TagPill"))
@@ -394,6 +410,18 @@ class MemoryDialog(QDialog):
         layout.addWidget(time_row)
         source_row, self.inspector_source_value = self._key_value_row(t("memory.detail.source_count"))
         layout.addWidget(source_row)
+        memory_source_row, self.inspector_memory_source_value = self._key_value_row(t("memory.detail.source"))
+        layout.addWidget(memory_source_row)
+        memory_type_row, self.inspector_memory_type_value = self._key_value_row(t("memory.detail.type"))
+        layout.addWidget(memory_type_row)
+        confidence_row, self.inspector_confidence_value = self._key_value_row(t("memory.detail.confidence"))
+        layout.addWidget(confidence_row)
+        migration_row, self.inspector_migration_value = self._key_value_row(t("memory.detail.migration"))
+        layout.addWidget(migration_row)
+        entities_row, self.inspector_entities_value = self._key_value_row(t("memory.detail.entities"))
+        layout.addWidget(entities_row)
+        importance_reason_row, self.inspector_importance_reason_value = self._key_value_row(t("memory.detail.importance_reason"))
+        layout.addWidget(importance_reason_row)
         important_row, self.inspector_important_value = self._key_value_row(t("memory.detail.important"))
         layout.addWidget(important_row)
         embedding_row, self.inspector_embedding_value = self._key_value_row(t("memory.detail.embedding"))
@@ -601,6 +629,11 @@ class MemoryDialog(QDialog):
             self.memory_list.setItemWidget(item, widget)
             self._item_frames[memory.id] = widget
 
+        if self._source_filter_value not in self._available_source_filters():
+            self._source_filter_value = "all"
+        if self._type_filter_value not in self._available_type_filters():
+            self._type_filter_value = "all"
+        self._update_filter_button_texts()
         self._apply_filters()
         QTimer.singleShot(0, self._refresh_memory_item_size_hints)
 
@@ -626,6 +659,116 @@ class MemoryDialog(QDialog):
         label.setFixedWidth(width)
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         return label
+
+    def _memory_source_label(self, source: str | None) -> str:
+        normalized = str(source or "").strip().lower() or "legacy"
+        translated = t(f"memory.value.source.{normalized}")
+        if translated != f"memory.value.source.{normalized}":
+            return translated
+        return self._memory_source_filter_label(normalized)
+
+    def _memory_source_filter_label(self, source: str) -> str:
+        translated = t(f"memory.filter.source.{source}")
+        return translated if translated != f"memory.filter.source.{source}" else source
+
+    def _memory_type_label(self, memory_type: str | None) -> str:
+        normalized = str(memory_type or "").strip().lower() or "general"
+        translated = t(f"memory.value.type.{normalized}")
+        if translated != f"memory.value.type.{normalized}":
+            return translated
+        return self._memory_type_filter_label(normalized)
+
+    def _memory_type_filter_label(self, memory_type: str) -> str:
+        translated = t(f"memory.filter.type.{memory_type}")
+        return translated if translated != f"memory.filter.type.{memory_type}" else memory_type
+
+    def _memory_badge_label(self, category: str, value: str | None, fallback: str) -> str:
+        normalized = str(value or "").strip().lower()
+        if normalized:
+            translated = t(f"memory.badge.{category}.{normalized}")
+            if translated != f"memory.badge.{category}.{normalized}":
+                return translated
+        return fallback
+
+    def _memory_confidence_text(self, confidence_value) -> str:
+        try:
+            percent = round(max(0.0, min(1.0, float(confidence_value))) * 100)
+        except (TypeError, ValueError):
+            percent = 50
+        return t("memory.value.confidence.percent", percent=str(percent))
+
+    def _memory_migration_text(self, memory) -> str:
+        migration_meta = getattr(memory, "migration_meta", {}) or {}
+        return (
+            t("memory.value.migration.migrated")
+            if isinstance(migration_meta, dict) and migration_meta
+            else t("memory.value.migration.current")
+        )
+
+    def _memory_entities_text(self, memory) -> str:
+        entity_names = getattr(memory, "entity_names", None) or []
+        normalized = [str(item).strip() for item in entity_names if str(item).strip()]
+        if normalized:
+            return ", ".join(normalized)
+        return t("memory.value.entities.none")
+
+    def _memory_importance_reason_text(self, memory) -> str:
+        normalized = str(getattr(memory, "importance_reason", "") or "").strip().lower() or "none"
+        translated = t(f"memory.value.importance_reason.{normalized}")
+        return translated if translated != f"memory.value.importance_reason.{normalized}" else normalized
+
+    def _available_source_filters(self) -> list[str]:
+        values = ["all"]
+        if not self.memory_manager:
+            return values
+        for memory in self.memory_manager.memories:
+            normalized = str(getattr(memory, "source", "") or "").strip().lower()
+            if normalized and normalized not in values:
+                values.append(normalized)
+        return values
+
+    def _available_type_filters(self) -> list[str]:
+        values = ["all"]
+        if not self.memory_manager:
+            return values
+        for memory in self.memory_manager.memories:
+            normalized = str(getattr(memory, "memory_type", "") or "").strip().lower()
+            if normalized and normalized not in values:
+                values.append(normalized)
+        return values
+
+    def _update_filter_button_texts(self) -> None:
+        self.source_filter_btn.setText(
+            t("memory.filter.source.prefix", value=self._memory_source_filter_label(self._source_filter_value))
+        )
+        self.type_filter_btn.setText(
+            t("memory.filter.type.prefix", value=self._memory_type_filter_label(self._type_filter_value))
+        )
+
+    def _cycle_filter_value(self, current_value: str, available_values: list[str]) -> str:
+        if not available_values:
+            return "all"
+        try:
+            index = available_values.index(current_value)
+        except ValueError:
+            return available_values[0]
+        return available_values[(index + 1) % len(available_values)]
+
+    def _cycle_source_filter(self) -> None:
+        self._source_filter_value = self._cycle_filter_value(
+            self._source_filter_value,
+            self._available_source_filters(),
+        )
+        self._update_filter_button_texts()
+        self._apply_filters()
+
+    def _cycle_type_filter(self) -> None:
+        self._type_filter_value = self._cycle_filter_value(
+            self._type_filter_value,
+            self._available_type_filters(),
+        )
+        self._update_filter_button_texts()
+        self._apply_filters()
 
     def _refresh_memory_item_size_hints(self) -> None:
         if not hasattr(self, "memory_list"):
@@ -659,6 +802,20 @@ class MemoryDialog(QDialog):
         top = QHBoxLayout()
         top.setSpacing(8)
         top.addWidget(self._memory_meta_pill(self._format_timestamp(memory.timestamp), "MutedPill", 116))
+        top.addWidget(
+            self._memory_meta_pill(
+                self._memory_badge_label("source", getattr(memory, "source", None), self._memory_source_label(getattr(memory, "source", None))),
+                "TagPill",
+                76,
+            )
+        )
+        top.addWidget(
+            self._memory_meta_pill(
+                self._memory_badge_label("type", getattr(memory, "memory_type", None), self._memory_type_label(getattr(memory, "memory_type", None))),
+                "TagPill",
+                68,
+            )
+        )
         if memory.is_important:
             top.addWidget(self._memory_meta_pill(t("memory.badge.important"), "BluePill", 68))
         if memory.embedding:
@@ -734,6 +891,12 @@ class MemoryDialog(QDialog):
             self.inspector_body.setText(t("memory.empty.body"))
             self.inspector_time_value.setText("-")
             self.inspector_source_value.setText("-")
+            self.inspector_memory_source_value.setText("-")
+            self.inspector_memory_type_value.setText("-")
+            self.inspector_confidence_value.setText("-")
+            self.inspector_migration_value.setText("-")
+            self.inspector_entities_value.setText("-")
+            self.inspector_importance_reason_value.setText("-")
             self.inspector_important_value.setText("-")
             self.inspector_embedding_value.setText("-")
             self.important_btn.setText(t("memory.button.mark_important"))
@@ -744,6 +907,12 @@ class MemoryDialog(QDialog):
         self.inspector_body.setText(memory.summary or "")
         self.inspector_time_value.setText(self._format_timestamp(memory.timestamp))
         self.inspector_source_value.setText(self._message_count_text(len(memory.original_messages)))
+        self.inspector_memory_source_value.setText(self._memory_source_label(getattr(memory, "source", None)))
+        self.inspector_memory_type_value.setText(self._memory_type_label(getattr(memory, "memory_type", None)))
+        self.inspector_confidence_value.setText(self._memory_confidence_text(getattr(memory, "confidence", 0.5)))
+        self.inspector_migration_value.setText(self._memory_migration_text(memory))
+        self.inspector_entities_value.setText(self._memory_entities_text(memory))
+        self.inspector_importance_reason_value.setText(self._memory_importance_reason_text(memory))
         self.inspector_important_value.setText(
             t("memory.value.important.true") if memory.is_important else t("memory.value.important.false")
         )
@@ -794,7 +963,15 @@ class MemoryDialog(QDialog):
                 or any(query in str(tag).lower() for tag in memory.tags)
             )
             matches_flag = (not self._show_only_important) or memory.is_important
-            visible = matches_query and matches_flag
+            matches_source = (
+                self._source_filter_value == "all"
+                or str(getattr(memory, "source", "") or "").strip().lower() == self._source_filter_value
+            )
+            matches_type = (
+                self._type_filter_value == "all"
+                or str(getattr(memory, "memory_type", "") or "").strip().lower() == self._type_filter_value
+            )
+            visible = matches_query and matches_flag and matches_source and matches_type
             item.setHidden(not visible)
             if visible:
                 visible_count += 1
