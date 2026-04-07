@@ -225,13 +225,13 @@ class AIWorker(QThread):
             completion_context += f"\n- 비고: {result.obsidian_cli_error}"
 
         if hasattr(self.llm_client, "generate_diary_completion_reply"):
-            text, emotion, japanese_text, events, analysis = self._normalize_response_payload(
+            text, emotion, japanese_text, events, analysis, promises = self._normalize_response_payload(
                 await self.llm_client.generate_diary_completion_reply(completion_context)
             )
             required = "성공적으로 파일 작성에 완료되었습니다."
             if required not in text:
                 text = f"{required}\n{text}".strip()
-            return text, emotion, japanese_text, events, analysis
+            return text, emotion, japanese_text, events, analysis, promises
 
         # 하위 호환 폴백 (기존 클라이언트 경로)
         return self._normalize_response_payload(self.llm_client.send_message(completion_context))
