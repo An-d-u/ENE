@@ -20,6 +20,13 @@ ANALYSIS_KEYS = {
     "flags",
 }
 
+SUMMARY_MEMORY_META_KEYS = {
+    "memory_type",
+    "importance_reason",
+    "confidence",
+    "entity_names",
+}
+
 
 class GeminiClient:
     """Gemini API 클라이언트"""
@@ -579,7 +586,7 @@ class GeminiClient:
             traceback.print_exc()
             raise
     
-    async def summarize_conversation(self, messages: list) -> tuple[str, list[str]]:
+    async def summarize_conversation(self, messages: list) -> tuple[str, list[str], dict]:
         """
         대화 내용 요약 및 사용자 정보 추출
         
@@ -587,7 +594,7 @@ class GeminiClient:
             messages: [(role, content), ...] 형식의 메시지 리스트
             
         Returns:
-            (요약 텍스트, 사용자 정보 목록) 튜플
+            (요약 텍스트, 사용자 정보 목록, 메모리 메타데이터) 튜플
         """
         try:
             # 현재 시간 가져오기
@@ -722,6 +729,14 @@ class GeminiClient:
 - [goal] ...
 - [habit] ...
 
+[MEMORY_META]
+- 없으면: none
+- 있으면 아래 형식으로만 작성:
+- memory_type: fact | preference | promise | event | relationship | task | general
+- importance_reason: user_marked | promise | repeated_topic | long_term_preference | none
+- confidence: 0.0~1.0 사이 숫자
+- entity_names: 이름1, 이름2
+
 [ALLOW]
 - basic: 신상/직업/학력/환경/관계 같은 정적 정보
 - preference: 선호하는 방식이나 취향/스타일
@@ -756,7 +771,7 @@ class GeminiClient:
             response_text = response.text.strip()
             
             # 응답 파싱
-            summary, user_facts = self._parse_summary_response(response_text)
+            summary, user_facts, memory_meta = self._parse_summary_response(response_text)
 
             # 요약에 날짜 정보가 없으면 최소한 시간 범위를 보강
             has_date = (
@@ -769,20 +784,69 @@ class GeminiClient:
             print(f"[LLM] 요약 생성 완료: {summary[:50]}...")
             if user_facts:
                 print(f"[LLM] 마스터 정보 {len(user_facts)}개 추출: {user_facts}")
+            if memory_meta:
+                print(f"[LLM] 메모리 메타 추출: {memory_meta}")
             
-            return summary, user_facts
+            return summary, user_facts, memory_meta
             
         except Exception as e:
             print(f"[LLM] 요약 생성 실패: {e}")
             import traceback
             traceback.print_exc()
             # 실패 시 간단한 요약 반환
-            return f"대화 {len(messages)}개 메시지", []
+            return f"대화 {len(messages)}개 메시지", [], {}
     
-    def _parse_summary_response(self, response_text: str) -> tuple[str, list[str]]:
-        """요약 응답 파싱 ([SUMMARY]와 [MASTER_INFO] 분리)."""
+    def _parse_summary_memory_meta(self, meta_lines: list[str]) -> dict:
+        """요약 응답의 MEMORY_META 섹션을 정규화된 딕셔너리로 파싱한다."""
+        memory_meta: dict = {}
+
+        for raw_line in meta_lines:
+            line = raw_line.strip()
+            if not line:
+                continue
+            if line.startswith("-"):
+                line = line[1:].strip()
+            if not line or line.lower() in {"none", "none.", "없음"}:
+                continue
+            if ":" not in line:
+                continue
+
+            key, value = line.split(":", 1)
+            normalized_key = key.strip().lower()
+            if normalized_key not in SUMMARY_MEMORY_META_KEYS:
+                continue
+
+            normalized_value = value.strip()
+            if not normalized_value:
+                continue
+
+            if normalized_key == "confidence":
+                try:
+                    memory_meta[normalized_key] = max(0.0, min(1.0, float(normalized_value)))
+                except ValueError:
+                    continue
+                continue
+
+            if normalized_key == "entity_names":
+                cleaned_value = normalized_value.strip("[]")
+                entity_names = [
+                    item.strip().strip("'\"")
+                    for item in cleaned_value.split(",")
+                    if item.strip().strip("'\"")
+                ]
+                if entity_names:
+                    memory_meta[normalized_key] = entity_names
+                continue
+
+            memory_meta[normalized_key] = normalized_value
+
+        return memory_meta
+
+    def _parse_summary_response(self, response_text: str) -> tuple[str, list[str], dict]:
+        """요약 응답 파싱 ([SUMMARY], [MASTER_INFO], [MEMORY_META] 분리)."""
         summary_lines: list[str] = []
         user_facts: list[str] = []
+        memory_meta_lines: list[str] = []
 
         try:
             lines = response_text.split("\n")
@@ -805,6 +869,9 @@ class GeminiClient:
                     or "MASTER INFO" in upper
                 ):
                     current_section = "facts"
+                    continue
+                if upper in {"[MEMORY_META]", "MEMORY_META"} or "[기억 메타]" in line:
+                    current_section = "memory_meta"
                     continue
 
                 if current_section == "summary":
@@ -834,6 +901,10 @@ class GeminiClient:
                     else:
                         # 구형 형식도 최소 호환
                         user_facts.append(fact_line)
+                    continue
+
+                if current_section == "memory_meta":
+                    memory_meta_lines.append(line)
 
             summary = " ".join(summary_lines).strip()
             summary = re.sub(r"\s+", " ", summary).strip()
@@ -841,14 +912,16 @@ class GeminiClient:
                 # fallback: 섹션 파싱 실패 시 상단 2줄만 요약으로 사용
                 non_empty = [ln.strip() for ln in response_text.split("\n") if ln.strip()]
                 summary = " ".join(non_empty[:2]).strip()
+            memory_meta = self._parse_summary_memory_meta(memory_meta_lines)
 
         except Exception as e:
             print(f"[LLM] 요약 파싱 실패: {e}")
             non_empty = [ln.strip() for ln in response_text.split("\n") if ln.strip()]
             summary = " ".join(non_empty[:2]).strip()
             user_facts = []
+            memory_meta = {}
 
-        return summary, user_facts
+        return summary, user_facts, memory_meta
 
     def _parse_analysis_lines(self, raw_block: str) -> Dict[str, str]:
         """analysis 메타 블록의 key=value 줄을 안전하게 파싱한다."""

@@ -25,12 +25,29 @@ class _DummyMemoryManager:
     def __init__(self):
         self.calls = []
 
-    async def add_summary(self, summary, original_messages, is_important=False):
+    async def add_summary(
+        self,
+        summary,
+        original_messages,
+        is_important=False,
+        tags=None,
+        source="chat",
+        memory_type="general",
+        importance_reason=None,
+        confidence=0.5,
+        entity_names=None,
+    ):
         self.calls.append(
             {
                 "summary": summary,
                 "original_messages": list(original_messages),
                 "is_important": is_important,
+                "tags": list(tags or []),
+                "source": source,
+                "memory_type": memory_type,
+                "importance_reason": importance_reason,
+                "confidence": confidence,
+                "entity_names": list(entity_names or []),
             }
         )
 
@@ -43,7 +60,12 @@ class _DummyLLMClient:
 
     async def summarize_conversation(self, messages):
         self.summarize_calls.append(list(messages))
-        return "압축된 요약", []
+        return "압축된 요약", [], {
+            "memory_type": "task",
+            "importance_reason": "repeated_topic",
+            "confidence": 0.81,
+            "entity_names": ["ENE"],
+        }
 
     def clear_context(self):
         self.clear_context_calls += 1
@@ -71,6 +93,12 @@ def test_auto_summarize_clears_llm_chat_context_after_persisting_summary():
             "summary": "압축된 요약",
             "original_messages": ["안녕", "안녕하세요", "오늘 일정 알려줘"],
             "is_important": False,
+            "tags": [],
+            "source": "chat",
+            "memory_type": "task",
+            "importance_reason": "repeated_topic",
+            "confidence": 0.81,
+            "entity_names": ["ENE"],
         }
     ]
     assert dummy.llm_client.clear_context_calls == 1

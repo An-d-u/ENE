@@ -27,7 +27,7 @@ class LLMClientProtocol(Protocol):
     def send_message(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         ...
 
-    async def summarize_conversation(self, messages: list) -> tuple[str, list[str]]:
+    async def summarize_conversation(self, messages: list) -> tuple[str, list[str], dict]:
         ...
 
     async def generate_markdown_document(self, message: str) -> str:

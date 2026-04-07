@@ -5,9 +5,25 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 from datetime import datetime
 
-from .memory_types import MemoryEntry, create_memory_entry
+from .memory_types import CURRENT_MEMORY_SCHEMA_VERSION, MemoryEntry, create_memory_entry
 from .embedding import EmbeddingGenerator
 from ..core.app_paths import load_json_data, resolve_user_storage_path, save_json_data
+
+
+_MIGRATED_MEMORY_REQUIRED_FIELDS = (
+    "source",
+    "memory_type",
+    "importance_reason",
+    "retrieval_count",
+    "last_used_at",
+    "confidence",
+    "user_confirmed",
+    "entity_names",
+    "conversation_id",
+    "expires_at",
+    "schema_version",
+    "migration_meta",
+)
 
 
 class MemoryManager:
@@ -38,13 +54,22 @@ class MemoryManager:
         """JSON 파일에서 기억 로드"""
         try:
             data = load_json_data(self.memory_file, encoding="utf-8")
-            
-            self.memories = [
-                MemoryEntry.from_dict(entry)
-                for entry in data.get('memories', [])
-            ]
+            raw_entries = data.get('memories', [])
+            if not isinstance(raw_entries, list):
+                raw_entries = []
+
+            self.memories = []
+            needs_persist = False
+            for raw_entry in raw_entries:
+                entry = MemoryEntry.from_dict(raw_entry if isinstance(raw_entry, dict) else {})
+                self.memories.append(entry)
+                if self._entry_needs_persisted_migration(raw_entry):
+                    needs_persist = True
             
             print(f"[Memory] {len(self.memories)}개 기억 로드 완료")
+            if needs_persist and self.memory_file.exists():
+                print("[Memory] 레거시 기억 스키마를 최신 형식으로 저장합니다.")
+                self.save()
             
         except Exception as e:
             if self.memory_file.exists():
@@ -52,6 +77,21 @@ class MemoryManager:
             else:
                 print("[Memory] 기억 파일 없음. 새로 생성합니다.")
             self.memories = []
+
+    def _entry_needs_persisted_migration(self, raw_entry) -> bool:
+        """레거시 항목인지 확인해 최신 스키마로 재저장이 필요한지 판단한다."""
+        if not isinstance(raw_entry, dict):
+            return True
+
+        try:
+            schema_version = int(raw_entry.get("schema_version", 0))
+        except (TypeError, ValueError):
+            schema_version = 0
+
+        if schema_version < CURRENT_MEMORY_SCHEMA_VERSION:
+            return True
+
+        return any(field_name not in raw_entry for field_name in _MIGRATED_MEMORY_REQUIRED_FIELDS)
     
     def save(self):
         """JSON 파일에 기억 저장"""
@@ -79,7 +119,12 @@ class MemoryManager:
         summary: str,
         original_messages: List[str],
         is_important: bool = False,
-        tags: Optional[List[str]] = None
+        tags: Optional[List[str]] = None,
+        source: str = "chat",
+        memory_type: str = "general",
+        importance_reason: Optional[str] = None,
+        confidence: Optional[float] = None,
+        entity_names: Optional[List[str]] = None,
     ) -> MemoryEntry:
         """
         새 요약 추가
@@ -89,6 +134,11 @@ class MemoryManager:
             original_messages: 원본 메시지 리스트
             is_important: 중요 여부
             tags: 태그 리스트
+            source: 기억 출처
+            memory_type: 기억 유형
+            importance_reason: 중요도 이유
+            confidence: 기억 신뢰도
+            entity_names: 연관 엔티티 이름 목록
             
         Returns:
             생성된 MemoryEntry
@@ -108,7 +158,12 @@ class MemoryManager:
             original_messages=original_messages,
             is_important=is_important,
             embedding=embedding,
-            tags=tags
+            tags=tags,
+            source=source,
+            memory_type=memory_type,
+            importance_reason=importance_reason,
+            confidence=confidence,
+            entity_names=entity_names,
         )
         
         self.memories.append(memory)

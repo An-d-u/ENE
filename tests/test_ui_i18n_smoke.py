@@ -850,6 +850,14 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
             "memory.metric.threshold.detail": "Conversation unit",
             "memory.search.placeholder": "Search titles, summaries, or tags",
             "memory.filter.important_only": "Important only",
+            "memory.filter.source.prefix": "Source: {value}",
+            "memory.filter.source.all": "All",
+            "memory.filter.source.legacy": "Legacy",
+            "memory.filter.source.chat": "Chat",
+            "memory.filter.type.prefix": "Type: {value}",
+            "memory.filter.type.all": "All",
+            "memory.filter.type.preference": "Preference",
+            "memory.filter.type.fact": "Fact",
             "memory.sort.newest": "Newest first",
             "memory.sort.oldest": "Oldest first",
             "memory.button.refresh": "Refresh",
@@ -864,6 +872,12 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
             "memory.inspector.title": "Selected memory",
             "memory.detail.time": "Memory time",
             "memory.detail.source_count": "Source messages",
+            "memory.detail.source": "Source",
+            "memory.detail.type": "Type",
+            "memory.detail.confidence": "Confidence",
+            "memory.detail.migration": "Migration",
+            "memory.detail.entities": "Entities",
+            "memory.detail.importance_reason": "Importance reason",
             "memory.detail.important": "Importance",
             "memory.detail.embedding": "Embedding",
             "memory.button.mark_important": "Mark important",
@@ -891,10 +905,20 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
             "memory.summary.empty": "No summary",
             "memory.badge.important": "Important",
             "memory.badge.embedding": "Embedding",
+            "memory.badge.source.legacy": "Legacy",
+            "memory.badge.type.preference": "Preference",
             "memory.value.important.true": "Keep",
             "memory.value.important.false": "Regular",
             "memory.value.embedding.true": "Connected",
             "memory.value.embedding.false": "None",
+            "memory.value.source.legacy": "Legacy import",
+            "memory.value.type.preference": "Preference",
+            "memory.value.confidence.percent": "{percent}%",
+            "memory.value.migration.migrated": "Migrated",
+            "memory.value.migration.current": "Current schema",
+            "memory.value.entities.none": "None",
+            "memory.value.importance_reason.legacy_important": "Legacy important",
+            "memory.value.importance_reason.none": "None",
             "memory.delete.title": "Delete confirmation",
             "memory.delete.body": "Delete `{summary}`?",
             "memory.profile.missing.title": "No profile",
@@ -915,6 +939,14 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
             "memory.metric.threshold.detail": "会話単位",
             "memory.search.placeholder": "メモリのタイトル、要約、タグを検索",
             "memory.filter.important_only": "重要のみ",
+            "memory.filter.source.prefix": "由来: {value}",
+            "memory.filter.source.all": "すべて",
+            "memory.filter.source.legacy": "旧メモリ",
+            "memory.filter.source.chat": "会話",
+            "memory.filter.type.prefix": "種類: {value}",
+            "memory.filter.type.all": "すべて",
+            "memory.filter.type.preference": "好み",
+            "memory.filter.type.fact": "事実",
             "memory.sort.newest": "新しい順",
             "memory.sort.oldest": "古い順",
             "memory.button.refresh": "更新",
@@ -929,6 +961,12 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
             "memory.inspector.title": "選択中のメモリ",
             "memory.detail.time": "メモリ時刻",
             "memory.detail.source_count": "元メッセージ数",
+            "memory.detail.source": "由来",
+            "memory.detail.type": "種類",
+            "memory.detail.confidence": "信頼度",
+            "memory.detail.migration": "移行状態",
+            "memory.detail.entities": "エンティティ",
+            "memory.detail.importance_reason": "重要理由",
             "memory.detail.important": "重要度",
             "memory.detail.embedding": "埋め込み状態",
             "memory.button.mark_important": "重要にする",
@@ -956,10 +994,20 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
             "memory.summary.empty": "要約なし",
             "memory.badge.important": "重要",
             "memory.badge.embedding": "埋め込み",
+            "memory.badge.source.legacy": "旧メモリ",
+            "memory.badge.type.preference": "好み",
             "memory.value.important.true": "保持対象",
             "memory.value.important.false": "通常メモリ",
             "memory.value.embedding.true": "接続済み",
             "memory.value.embedding.false": "なし",
+            "memory.value.source.legacy": "旧データ",
+            "memory.value.type.preference": "好み",
+            "memory.value.confidence.percent": "{percent}%",
+            "memory.value.migration.migrated": "移行済み",
+            "memory.value.migration.current": "現行スキーマ",
+            "memory.value.entities.none": "なし",
+            "memory.value.importance_reason.legacy_important": "旧重要メモリ",
+            "memory.value.importance_reason.none": "なし",
             "memory.delete.title": "削除の確認",
             "memory.delete.body": "`{summary}` を削除しますか？",
             "memory.profile.missing.title": "プロフィールなし",
@@ -992,6 +1040,12 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
                 is_important=True,
                 embedding=[0.1],
                 original_messages=["a", "b"],
+                source="legacy",
+                memory_type="preference",
+                confidence=0.6,
+                entity_names=["ENE", "Obsidian"],
+                importance_reason="legacy_important",
+                migration_meta={"migration_version": 1},
             ),
             SimpleNamespace(
                 id="memory-2",
@@ -1001,6 +1055,12 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
                 is_important=False,
                 embedding=None,
                 original_messages=["c"],
+                source="chat",
+                memory_type="fact",
+                confidence=0.5,
+                entity_names=[],
+                importance_reason="none",
+                migration_meta={},
             ),
         ]
     )
@@ -1010,11 +1070,19 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
     assert dialog.windowTitle() == "ENE メモリ管理"
     assert dialog.search_input.placeholderText() == "メモリのタイトル、要約、タグを検索"
     assert dialog.important_filter_btn.text() == "重要のみ"
+    assert dialog.source_filter_btn.text() == "由来: すべて"
+    assert dialog.type_filter_btn.text() == "種類: すべて"
     assert dialog.sort_button.text() == "新しい順"
     assert dialog.list_hint_label.text() == "2件を表示中"
     assert dialog.important_btn.text() == "重要を解除"
     assert dialog.delete_btn.text() == "メモリを削除"
     assert dialog.inspector_source_value.text() == "2件のメッセージ"
+    assert dialog.inspector_memory_source_value.text() == "旧データ"
+    assert dialog.inspector_memory_type_value.text() == "好み"
+    assert dialog.inspector_confidence_value.text() == "60%"
+    assert dialog.inspector_migration_value.text() == "移行済み"
+    assert dialog.inspector_entities_value.text() == "ENE, Obsidian"
+    assert dialog.inspector_importance_reason_value.text() == "旧重要メモリ"
     assert dialog.inspector_important_value.text() == "保持対象"
     assert dialog.inspector_embedding_value.text() == "接続済み"
     assert dialog.total_metric.value_label.text() == "2"
@@ -1034,10 +1102,43 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
         for label in dialog.findChildren(QLabel)
         if label.objectName() == "KeyValueLabel"
     }
-    assert {"メモリ時刻", "元メッセージ数", "重要度", "埋め込み状態"} <= key_labels
+    assert {"メモリ時刻", "元メッセージ数", "由来", "種類", "信頼度", "移行状態", "エンティティ", "重要理由", "重要度", "埋め込み状態"} <= key_labels
+
+    first_memory_widget = dialog.memory_list.itemWidget(dialog.memory_list.item(0))
+    first_widget_texts = {
+        label.text()
+        for label in first_memory_widget.findChildren(QLabel)
+        if label.text()
+    }
+    assert "旧メモリ" in first_widget_texts
+    assert "好み" in first_widget_texts
+
+    dialog.source_filter_btn.click()
+    assert dialog.source_filter_btn.text() == "由来: 旧メモリ"
+    assert dialog.list_hint_label.text() == "1件を表示中"
+    assert dialog.inspector_title.text() == "Keeps launch checklists ready"
+
+    dialog.type_filter_btn.click()
+    assert dialog.type_filter_btn.text() == "種類: 好み"
+    assert dialog.list_hint_label.text() == "1件を表示中"
+
+    dialog.source_filter_btn.click()
+    assert dialog.source_filter_btn.text() == "由来: 会話"
+    assert dialog.list_hint_label.text() == "0件を表示中"
+
+    dialog.type_filter_btn.click()
+    assert dialog.type_filter_btn.text() == "種類: 事実"
+    assert dialog.list_hint_label.text() == "1件を表示中"
+    assert dialog.inspector_memory_source_value.text() == "会話"
+    assert dialog.inspector_memory_type_value.text() == "事実"
+    assert dialog.inspector_entities_value.text() == "なし"
+    assert dialog.inspector_importance_reason_value.text() == "なし"
 
     dialog._toggle_sort_order()
     assert dialog.sort_button.text() == "古い順"
+    dialog.source_filter_btn.click()
+    dialog.type_filter_btn.click()
+    dialog._select_memory_by_id("memory-1")
 
     questions = []
     warnings = []
