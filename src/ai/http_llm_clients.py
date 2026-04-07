@@ -32,6 +32,79 @@ ANALYSIS_KEYS = {
 }
 
 
+def _parse_summary_memory_meta_lines(meta_lines: list[str]) -> dict:
+    """요약 응답의 MEMORY_META 줄을 정규화된 딕셔너리로 변환한다."""
+    memory_meta: dict = {}
+
+    for raw_line in meta_lines:
+        line = str(raw_line).strip()
+        if not line:
+            continue
+        if line.startswith("-"):
+            line = line[1:].strip()
+        if not line or line.lower() in {"none", "none.", "없음"}:
+            continue
+        if ":" not in line:
+            continue
+
+        key, value = line.split(":", 1)
+        normalized_key = key.strip().lower()
+        normalized_value = value.strip()
+        if not normalized_value:
+            continue
+
+        if normalized_key == "confidence":
+            try:
+                memory_meta[normalized_key] = max(0.0, min(1.0, float(normalized_value)))
+            except ValueError:
+                continue
+            continue
+
+        if normalized_key == "entity_names":
+            cleaned_value = normalized_value.strip("[]")
+            entity_names = [
+                item.strip().strip("'\"")
+                for item in cleaned_value.split(",")
+                if item.strip().strip("'\"")
+            ]
+            if entity_names:
+                memory_meta[normalized_key] = entity_names
+            continue
+
+        if normalized_key in {"memory_type", "importance_reason"}:
+            memory_meta[normalized_key] = normalized_value
+
+    return memory_meta
+
+
+def _build_summary_prompt(conversation_text: str) -> str:
+    """HTTP 공급자 공통 요약 프롬프트를 생성한다."""
+    return f"""아래 대화를 요약하고 사용자 정보를 추출하세요.
+[CONVERSATION]
+{conversation_text}
+
+[OUTPUT_FORMAT]
+[SUMMARY]
+- 대화 핵심 요약 1~3문장
+
+[MASTER_INFO]
+- 없으면 none
+- 있으면 아래 형식:
+- [basic] ...
+- [preference] ...
+- [goal] ...
+- [habit] ...
+
+[MEMORY_META]
+- 없으면 none
+- 있으면 아래 형식:
+- memory_type: fact | preference | promise | event | relationship | task | general
+- importance_reason: user_marked | promise | repeated_topic | long_term_preference | none
+- confidence: 0.0~1.0 사이 숫자
+- entity_names: 이름1, 이름2
+"""
+
+
 def _extract_error_detail(response) -> str:
     try:
         data = response.json()
@@ -340,13 +413,14 @@ class _CommonMixin:
         clean_text, japanese_text = self._extract_japanese_lines(clean_text)
         return clean_text, emotion, japanese_text, events, analysis, promises
 
-    def _parse_summary_response(self, response_text: str) -> tuple[str, list[str]]:
+    def _parse_summary_response(self, response_text: str) -> tuple[str, list[str], dict]:
         try:
             from .llm_client import GeminiClient
             return GeminiClient._parse_summary_response(self, response_text)
         except Exception:
             summary_lines = []
             user_facts = []
+            memory_meta_lines = []
             section = None
             for raw in response_text.split("\n"):
                 line = raw.strip()
@@ -359,16 +433,21 @@ class _CommonMixin:
                 if up in {"[MASTER_INFO]", "MASTER_INFO"}:
                     section = "facts"
                     continue
+                if up in {"[MEMORY_META]", "MEMORY_META"}:
+                    section = "memory_meta"
+                    continue
                 if section == "summary":
                     summary_lines.append(line.lstrip("- ").strip())
                 elif section == "facts" and line.startswith("-"):
                     fact = line.lstrip("- ").strip()
                     if fact.lower() not in {"none", "none."}:
                         user_facts.append(fact)
+                elif section == "memory_meta":
+                    memory_meta_lines.append(line)
             summary = " ".join(summary_lines).strip()
             if not summary:
                 summary = response_text.strip().split("\n")[0].strip()
-            return summary, user_facts
+            return summary, user_facts, _parse_summary_memory_meta_lines(memory_meta_lines)
 
     def _is_japanese(self, text: str) -> bool:
         try:
@@ -563,26 +642,11 @@ class OpenAICompatibleClient(_CommonMixin):
         self._remember_turn(message, raw_response_text)
         return clean_text, emotion, japanese_text, events, analysis, promises
 
-    async def summarize_conversation(self, messages: list) -> tuple[str, list[str]]:
+    async def summarize_conversation(self, messages: list) -> tuple[str, list[str], dict]:
         conversation_text = "\n".join(
             [f"{item[0]}: {item[1]}" if len(item) >= 2 else str(item) for item in messages]
         )
-        prompt = f"""아래 대화를 요약하고 사용자 정보를 추출하세요.
-[CONVERSATION]
-{conversation_text}
-
-[OUTPUT_FORMAT]
-[SUMMARY]
-- 대화 핵심 요약 1~3문장
-
-[MASTER_INFO]
-- 없으면 none
-- 있으면 아래 형식:
-- [basic] ...
-- [preference] ...
-- [goal] ...
-- [habit] ...
-"""
+        prompt = _build_summary_prompt(conversation_text)
         response_text = self._request_openai(prompt)
         return self._parse_summary_response(response_text)
 
@@ -752,26 +816,11 @@ class OpenAIResponseAPIClient(_CommonMixin):
         self._history.append({"role": "assistant", "content": raw_response_text})
         return clean_text, emotion, japanese_text, events, analysis, promises
 
-    async def summarize_conversation(self, messages: list) -> tuple[str, list[str]]:
+    async def summarize_conversation(self, messages: list) -> tuple[str, list[str], dict]:
         conversation_text = "\n".join(
             [f"{item[0]}: {item[1]}" if len(item) >= 2 else str(item) for item in messages]
         )
-        prompt = f"""아래 대화를 요약하고 사용자 정보를 추출하세요.
-[CONVERSATION]
-{conversation_text}
-
-[OUTPUT_FORMAT]
-[SUMMARY]
-- 대화 핵심 요약 1~3문장
-
-[MASTER_INFO]
-- 없으면 none
-- 있으면 아래 형식:
-- [basic] ...
-- [preference] ...
-- [goal] ...
-- [habit] ...
-"""
+        prompt = _build_summary_prompt(conversation_text)
         response_text = self._request_responses(prompt)
         return self._parse_summary_response(response_text)
 
@@ -999,26 +1048,11 @@ class GoogleCloudClient(_CommonMixin):
         self._remember_turn(message, raw_response_text)
         return clean_text, emotion, japanese_text, events, analysis, promises
 
-    async def summarize_conversation(self, messages: list) -> tuple[str, list[str]]:
+    async def summarize_conversation(self, messages: list) -> tuple[str, list[str], dict]:
         conversation_text = "\n".join(
             [f"{item[0]}: {item[1]}" if len(item) >= 2 else str(item) for item in messages]
         )
-        prompt = f"""아래 대화를 요약하고 사용자 정보를 추출하세요.
-[CONVERSATION]
-{conversation_text}
-
-[OUTPUT_FORMAT]
-[SUMMARY]
-- 대화 핵심 요약 1~3문장
-
-[MASTER_INFO]
-- 없으면 none
-- 있으면 아래 형식:
-- [basic] ...
-- [preference] ...
-- [goal] ...
-- [habit] ...
-"""
+        prompt = _build_summary_prompt(conversation_text)
         response_text = self._request_google(prompt)
         return self._parse_summary_response(response_text)
 
@@ -1138,26 +1172,11 @@ class CohereClient(_CommonMixin):
         self._remember_turn(message, raw_response_text)
         return clean_text, emotion, japanese_text, events, analysis, promises
 
-    async def summarize_conversation(self, messages: list) -> tuple[str, list[str]]:
+    async def summarize_conversation(self, messages: list) -> tuple[str, list[str], dict]:
         conversation_text = "\n".join(
             [f"{item[0]}: {item[1]}" if len(item) >= 2 else str(item) for item in messages]
         )
-        prompt = f"""아래 대화를 요약하고 사용자 정보를 추출하세요.
-[CONVERSATION]
-{conversation_text}
-
-[OUTPUT_FORMAT]
-[SUMMARY]
-- 대화 핵심 요약 1~3문장
-
-[MASTER_INFO]
-- 없으면 none
-- 있으면 아래 형식:
-- [basic] ...
-- [preference] ...
-- [goal] ...
-- [habit] ...
-"""
+        prompt = _build_summary_prompt(conversation_text)
         response_text = self._request_cohere(prompt)
         return self._parse_summary_response(response_text)
 
@@ -1281,26 +1300,11 @@ class AnthropicClient(_CommonMixin):
         self._remember_turn(message, raw_response_text)
         return clean_text, emotion, japanese_text, events, analysis, promises
 
-    async def summarize_conversation(self, messages: list) -> tuple[str, list[str]]:
+    async def summarize_conversation(self, messages: list) -> tuple[str, list[str], dict]:
         conversation_text = "\n".join(
             [f"{item[0]}: {item[1]}" if len(item) >= 2 else str(item) for item in messages]
         )
-        prompt = f"""아래 대화를 요약하고 사용자 정보를 추출하세요.
-[CONVERSATION]
-{conversation_text}
-
-[OUTPUT_FORMAT]
-[SUMMARY]
-- 대화 핵심 요약 1~3문장
-
-[MASTER_INFO]
-- 없으면 none
-- 있으면 아래 형식:
-- [basic] ...
-- [preference] ...
-- [goal] ...
-- [habit] ...
-"""
+        prompt = _build_summary_prompt(conversation_text)
         response_text = self._request_anthropic([{"type": "text", "text": prompt}])
         return self._parse_summary_response(response_text)
 
@@ -1437,25 +1441,10 @@ class OllamaClient(_CommonMixin):
         self._remember_turn(message, raw_response_text)
         return clean_text, emotion, japanese_text, events, analysis, promises
 
-    async def summarize_conversation(self, messages: list) -> tuple[str, list[str]]:
+    async def summarize_conversation(self, messages: list) -> tuple[str, list[str], dict]:
         conversation_text = "\n".join(
             [f"{item[0]}: {item[1]}" if len(item) >= 2 else str(item) for item in messages]
         )
-        prompt = f"""아래 대화를 요약하고 사용자 정보를 추출하세요.
-[CONVERSATION]
-{conversation_text}
-
-[OUTPUT_FORMAT]
-[SUMMARY]
-- 대화 핵심 요약 1~3문장
-
-[MASTER_INFO]
-- 없으면 none
-- 있으면 아래 형식:
-- [basic] ...
-- [preference] ...
-- [goal] ...
-- [habit] ...
-"""
+        prompt = _build_summary_prompt(conversation_text)
         response_text = self._request_ollama(prompt)
         return self._parse_summary_response(response_text)
