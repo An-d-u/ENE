@@ -340,3 +340,64 @@ def test_on_response_ready_stores_assistant_promise_when_user_requested_schedule
     assert len(dummy.promise_manager.added) == 1
     assert dummy.promise_manager.added[0]["source"] == "assistant"
     assert dummy.promise_manager.added[0]["trigger_at"] == "2026-04-07T10:10:00+09:00"
+
+
+def test_on_response_ready_stores_assistant_promise_after_user_accepts_recent_suggestion():
+    dummy = type("BridgeDummy", (), {})()
+    dummy.promise_manager = _DummyPromiseManager()
+    dummy.promise_notice = _DummySignal()
+    dummy.promise_items_updated = _DummySignal()
+    dummy.message_received = _DummySignal()
+    dummy.token_usage_ready = _DummySignal()
+    dummy.reroll_state_changed = _DummySignal()
+    dummy.conversation_buffer = [
+        ("assistant", "차라리 5분만 더 멍하니 계시다가, 다시 한번 의자에 앉아보는 건 어때요?", "2026-04-07 21:10"),
+        ("user", "응.. 그럴래...", "2026-04-07 21:11"),
+    ]
+    dummy.mood_manager = None
+    dummy.calendar_manager = None
+    dummy.enable_tts = False
+    dummy.tts_client = None
+    dummy.audio_player = None
+    dummy.pending_response = None
+    dummy.pending_token_usage_payload = ""
+    dummy._is_rerolling = False
+    dummy._active_promise_id = ""
+    dummy._last_assistant_response = None
+    dummy._emit_mood_changed = lambda snapshot: None
+    dummy._sanitize_visible_response_text = lambda text: text
+    dummy._resolve_token_usage_payload = lambda payload="": payload
+    dummy._append_conversation = lambda role, text, timestamp=None: dummy.conversation_buffer.append(
+        (role, text, timestamp or "2026-04-07 21:11")
+    )
+    dummy._refresh_llm_history_from_visible_conversation = lambda: None
+    dummy._check_auto_summarize = lambda: None
+    dummy._emit_promise_items_updated = lambda: WebBridge._emit_promise_items_updated(dummy)
+    dummy._drain_promise_queue_if_idle = lambda: None
+    dummy._store_scheduled_promises = lambda items: WebBridge._store_scheduled_promises(dummy, items)
+    dummy._store_local_promise_candidates = (
+        lambda source_text, timestamp, source="user": WebBridge._store_local_promise_candidates(
+            dummy,
+            source_text,
+            timestamp,
+            source=source,
+        )
+    )
+    dummy._maybe_store_assistant_promise_candidates = (
+        lambda source_text: WebBridge._maybe_store_assistant_promise_candidates(dummy, source_text)
+    )
+
+    WebBridge._on_response_ready(
+        dummy,
+        "알겠어요. 그럼 딱 5분만이에요. 제가 시간 되면 정확히 알려드릴 테니까요.",
+        "smile",
+        "",
+        [],
+        "",
+        "",
+        [],
+    )
+
+    assert len(dummy.promise_manager.added) == 1
+    assert dummy.promise_manager.added[0]["source"] == "assistant"
+    assert dummy.promise_manager.added[0]["trigger_at"] == "2026-04-07T21:16:00+09:00"
