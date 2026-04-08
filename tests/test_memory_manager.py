@@ -17,6 +17,17 @@ class FakeEmbeddingGenerator:
         return EmbeddingGenerator.cosine_similarity(vec1, vec2)
 
 
+class ScoreEmbeddingGenerator:
+    async def embed(self, text: str):
+        return [1.0]
+
+    @staticmethod
+    def cosine_similarity(vec1, vec2):
+        if not vec2:
+            return 0.0
+        return float(vec2[0])
+
+
 def test_load_missing_file_starts_empty(tmp_path):
     memory_file = tmp_path / "memory.json"
     manager = MemoryManager(str(memory_file))
@@ -216,3 +227,92 @@ def test_add_summary_persists_memory_metadata_fields(tmp_path):
     assert created.importance_reason == "repeated_topic"
     assert created.confidence == 0.85
     assert created.entity_names == ["ENE"]
+
+
+def test_find_similar_reranks_by_metadata_bonus(tmp_path):
+    manager = MemoryManager(
+        str(tmp_path / "memory.json"),
+        embedding_generator=ScoreEmbeddingGenerator(),
+    )
+    base_winner = create_memory_entry(
+        "일반적인 일정 메모",
+        ["내일 일정이 있다."],
+        embedding=[0.78],
+        memory_type="general",
+        confidence=0.5,
+    )
+    metadata_winner = create_memory_entry(
+        "병원 예약 일정 메모",
+        ["내일 병원 예약이 있다."],
+        is_important=True,
+        embedding=[0.74],
+        memory_type="event",
+        importance_reason="promise",
+        confidence=0.95,
+    )
+    manager.memories = [base_winner, metadata_winner]
+
+    results = asyncio.run(
+        manager.find_similar("내일 일정 알려줘", top_k=2, min_similarity=0.5)
+    )
+
+    assert [memory.summary for memory, _ in results] == [
+        "병원 예약 일정 메모",
+        "일반적인 일정 메모",
+    ]
+    assert results[0][1] > results[1][1]
+
+
+def test_find_similar_metadata_bonus_does_not_bypass_min_similarity(tmp_path):
+    manager = MemoryManager(
+        str(tmp_path / "memory.json"),
+        embedding_generator=ScoreEmbeddingGenerator(),
+    )
+    manager.memories = [
+        create_memory_entry(
+            "중요한 약속 메모",
+            ["내일 꼭 알려줘."],
+            is_important=True,
+            embedding=[0.34],
+            memory_type="promise",
+            importance_reason="promise",
+            confidence=0.99,
+        )
+    ]
+
+    results = asyncio.run(
+        manager.find_similar("내일 약속 기억해줘", top_k=3, min_similarity=0.35)
+    )
+
+    assert results == []
+
+
+def test_find_similar_updates_retrieval_metadata_for_returned_results(tmp_path):
+    manager = MemoryManager(
+        str(tmp_path / "memory.json"),
+        embedding_generator=ScoreEmbeddingGenerator(),
+    )
+    returned = create_memory_entry(
+        "반환되는 메모",
+        ["python"],
+        embedding=[0.9],
+    )
+    returned.retrieval_count = 2
+    untouched = create_memory_entry(
+        "반환되지 않는 메모",
+        ["food"],
+        embedding=[0.1],
+    )
+    untouched.retrieval_count = 5
+    manager.memories = [returned, untouched]
+
+    results = asyncio.run(
+        manager.find_similar("python 질문", top_k=1, min_similarity=0.5)
+    )
+
+    assert len(results) == 1
+    assert results[0][0].summary == "반환되는 메모"
+    assert returned.retrieval_count == 3
+    assert isinstance(returned.last_used_at, str)
+    assert untouched.retrieval_count == 5
+    assert untouched.last_used_at is None
