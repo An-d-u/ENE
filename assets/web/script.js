@@ -1406,7 +1406,9 @@ const moodMeterStress = document.getElementById('mood-meter-stress');
 const obsPanel = document.getElementById('obs-panel');
 const obsTree = document.getElementById('obs-tree');
 const obsRefreshBtn = document.getElementById('obs-refresh-btn');
+const overlayNoticeStack = document.getElementById('overlay-notice-stack');
 const tokenUsageBubble = document.getElementById('token-usage-bubble');
+const promiseNoticeBubble = document.getElementById('promise-notice-bubble');
 const MAX_ATTACHMENT_COUNT = 5;
 const SUPPORTED_DOCUMENT_EXTENSIONS = new Set(['txt', 'md', 'pdf', 'docx']);
 const MESSAGE_TYPING_BASE_INTERVAL_MS = 28;
@@ -1436,6 +1438,7 @@ let activeInlineEditMessageEl = null;
 let obsCheckedPaths = new Set();
 let moodWidgetDragState = null;
 let tokenUsageBubbleTimer = null;
+let promiseNoticeBubbleTimer = null;
 let promiseReminderItems = [];
 let currentMoodSnapshot = { label: 'calm', temporaryState: 'steady', valence: 0, energy: 0, bond: 0, stress: 0 };
 let currentUiStrings = null;
@@ -2313,20 +2316,25 @@ function showTokenUsageBubble(payload) {
     }, 3000);
 }
 
-function showTextBubble(message) {
-    if (!tokenUsageBubble || !message) {
+function hidePromiseNoticeBubble() {
+    if (!promiseNoticeBubble) return;
+    promiseNoticeBubble.classList.add('hidden');
+}
+
+function showPromiseNoticeBubble(message) {
+    if (!promiseNoticeBubble || !message) {
         return;
     }
 
-    tokenUsageBubble.textContent = String(message);
-    tokenUsageBubble.classList.remove('hidden');
+    promiseNoticeBubble.textContent = String(message);
+    promiseNoticeBubble.classList.remove('hidden');
 
-    if (tokenUsageBubbleTimer) {
-        clearTimeout(tokenUsageBubbleTimer);
+    if (promiseNoticeBubbleTimer) {
+        clearTimeout(promiseNoticeBubbleTimer);
     }
-    tokenUsageBubbleTimer = setTimeout(() => {
-        hideTokenUsageBubble();
-        tokenUsageBubbleTimer = null;
+    promiseNoticeBubbleTimer = setTimeout(() => {
+        hidePromiseNoticeBubble();
+        promiseNoticeBubbleTimer = null;
     }, 3000);
 }
 
@@ -2457,7 +2465,7 @@ window.showPromiseReminderNotice = function showPromiseReminderNotice(message) {
         ? currentUiStrings.promiseNotice.saved
         : DEFAULT_UI_STRINGS.promiseNotice.saved;
     const text = String(message || fallback);
-    showTextBubble(text);
+    showPromiseNoticeBubble(text);
 };
 
 window.setInterval(() => {

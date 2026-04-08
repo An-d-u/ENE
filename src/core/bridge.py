@@ -601,6 +601,8 @@ class WebBridge(QObject):
         self.promise_manager = None
         self.promise_run_queue = []
         self._active_promise_id = None
+        self._active_promise_signature = None
+        self._recent_promise_fire_signatures = {}
 
         self.promise_timer = QTimer(self)
         self.promise_timer.setInterval(10_000)
@@ -1758,7 +1760,6 @@ class WebBridge(QObject):
 
         self._mark_user_activity()
         self._append_conversation("user", message, timestamp)
-        self._store_local_promise_candidates(message, timestamp, source="user")
         if self.mood_manager:
             snapshot = self.mood_manager.on_user_message(message, image_count=0)
             self._emit_mood_changed(snapshot)
@@ -1856,7 +1857,6 @@ class WebBridge(QObject):
             "attachment_note": attachment_note,
             "attachment_context": attachment_context,
         }
-        self._store_local_promise_candidates(effective_message, timestamp, source="user")
         if self.mood_manager:
             snapshot = self.mood_manager.on_user_message(effective_message, image_count=len(image_attachments))
             self._emit_mood_changed(snapshot)
@@ -1957,6 +1957,8 @@ class WebBridge(QObject):
             self._reset_pending_ui_state("리롤 준비 중 문제가 생겼어요.")
             return
 
+        self._delete_tracked_promises_for_retry()
+
         # 교체 의미를 지키기 위해 최근 assistant 응답 하나를 버퍼에서 제거
         if self.conversation_buffer and self.conversation_buffer[-1][0] == "assistant":
             self.conversation_buffer.pop()
@@ -2027,6 +2029,8 @@ class WebBridge(QObject):
             print("[Bridge] Edit aborted: failed to rollback/rebuild LLM context")
             self._reset_pending_ui_state("수정 재요청 준비 중 문제가 생겼어요.")
             return
+
+        self._delete_tracked_promises_for_retry()
 
         # 대화 버퍼의 최근 assistant/user 턴 제거
         if self.conversation_buffer and self.conversation_buffer[-1][0] == "assistant":
@@ -2175,12 +2179,21 @@ class WebBridge(QObject):
                 except Exception as e:
                     print(f"[Bridge] 일정 추가 실패: {e}")
 
+        stored_promise_ids: list[str] = []
+        llm_promises = list(scheduled_promises or [])
         store_promises = getattr(self, "_store_scheduled_promises", None)
         if callable(store_promises):
-            store_promises(scheduled_promises or [])
+            stored = store_promises(llm_promises)
+            stored_promise_ids.extend(self._collect_promise_ids(stored))
+        maybe_store_user_promises = getattr(self, "_maybe_store_user_promise_candidates", None)
+        if callable(maybe_store_user_promises) and not llm_promises:
+            stored = maybe_store_user_promises(llm_promises)
+            stored_promise_ids.extend(self._collect_promise_ids(stored))
         maybe_store_assistant_promises = getattr(self, "_maybe_store_assistant_promise_candidates", None)
-        if callable(maybe_store_assistant_promises):
-            maybe_store_assistant_promises(text)
+        if callable(maybe_store_assistant_promises) and not llm_promises:
+            stored = maybe_store_assistant_promises(text)
+            stored_promise_ids.extend(self._collect_promise_ids(stored))
+        self._remember_tracked_promise_ids(stored_promise_ids)
         
         # TTS 재생 (일본어가 있고 TTS가 활성화되어 있으면)
         if japanese_text and self.enable_tts and self.tts_client and self.audio_player:
@@ -2209,6 +2222,7 @@ class WebBridge(QObject):
             if callable(emit_items):
                 emit_items()
         self._active_promise_id = None
+        self._active_promise_signature = None
         drain_queue = getattr(self, "_drain_promise_queue_if_idle", None)
         if callable(drain_queue):
             drain_queue()
@@ -2309,8 +2323,35 @@ class WebBridge(QObject):
             self._emit_promise_items_updated()
         return stored
 
+    def _maybe_store_user_promise_candidates(self, scheduled_promises: list | None = None) -> list:
+        """LLM이 약속 태그를 놓쳤을 때만 최근 사용자 원문을 fallback으로 보완한다."""
+        if scheduled_promises or not self.promise_manager:
+            return []
+
+        entries = list(getattr(self, "conversation_buffer", []) or [])
+        latest_user_text = ""
+        latest_user_timestamp = ""
+        for index in range(len(entries) - 1, -1, -1):
+            item = entries[index]
+            if not item or len(item) < 2:
+                continue
+            role = str(item[0] or "").strip().lower()
+            if role != "user":
+                continue
+            latest_user_text = str(item[1] or "").strip()
+            latest_user_timestamp = str(item[2] or "").strip() if len(item) >= 3 and item[2] else ""
+            break
+
+        if not latest_user_text:
+            return []
+        return self._store_local_promise_candidates(
+            latest_user_text,
+            latest_user_timestamp or self._now_timestamp(),
+            source="user",
+        )
+
     def _maybe_store_assistant_promise_candidates(self, source_text: str) -> list:
-        """명시적 예약 요청이나 최근 합의 흐름이 있으면 assistant 응답에서도 약속 후보를 저장한다."""
+        """LLM이 약속 태그를 놓쳤을 때만 assistant 응답에서 제한적으로 fallback을 시도한다."""
         if not self.promise_manager:
             return []
 
@@ -2430,8 +2471,133 @@ class WebBridge(QObject):
         base_timestamp = latest_user_timestamp or self._now_timestamp()
         return self._store_local_promise_candidates(source_text, base_timestamp, source="assistant")
 
+    def _collect_promise_ids(self, items: list | None) -> list[str]:
+        """저장 결과에서 유효한 약속 id만 추출한다."""
+        collected: list[str] = []
+        for item in items or []:
+            reminder_id = ""
+            if isinstance(item, dict):
+                reminder_id = str(item.get("id", "") or "").strip()
+            else:
+                reminder_id = str(getattr(item, "id", "") or "").strip()
+            if reminder_id:
+                collected.append(reminder_id)
+        return collected
+
+    def _remember_tracked_promise_ids(self, reminder_ids: list[str] | None) -> None:
+        """최근 요청 턴에서 생성된 약속 id 목록을 payload에 기록한다."""
+        if not isinstance(self._last_request_payload, dict):
+            return
+        unique_ids: list[str] = []
+        for reminder_id in reminder_ids or []:
+            normalized = str(reminder_id or "").strip()
+            if normalized and normalized not in unique_ids:
+                unique_ids.append(normalized)
+        self._last_request_payload["promise_ids"] = unique_ids
+
+    def _delete_tracked_promises_for_retry(self) -> list[str]:
+        """리롤/수정 전에 직전 턴에서 생성한 약속만 제거한다."""
+        payload = self._last_request_payload if isinstance(self._last_request_payload, dict) else None
+        if payload is None:
+            return []
+
+        tracked_ids = payload.get("promise_ids") or []
+        if not isinstance(tracked_ids, list):
+            tracked_ids = []
+        payload["promise_ids"] = []
+
+        if not tracked_ids or not self.promise_manager:
+            return []
+
+        removed_ids: list[str] = []
+        for reminder_id in tracked_ids:
+            normalized = str(reminder_id or "").strip()
+            if not normalized:
+                continue
+            if self.promise_manager.delete_promise(normalized):
+                removed_ids.append(normalized)
+
+        if removed_ids:
+            emit_items = getattr(self, "_emit_promise_items_updated", None)
+            if callable(emit_items):
+                emit_items()
+        return removed_ids
+
+    def _current_promise_fire_time(self) -> datetime:
+        """중복 발화 억제 계산에 사용할 현재 시각을 반환한다."""
+        return datetime.now()
+
+    def _promise_fire_signature(self, payload: dict | None) -> str:
+        """같은 예약 발화인지 판별할 간단한 서명을 만든다."""
+        data = payload or {}
+        title = str(data.get("title", "") or "").strip().lower()
+        trigger_at = str(data.get("trigger_at", "") or "").strip()
+        trigger_key = trigger_at[:16] if trigger_at else ""
+        if not title or not trigger_key:
+            return ""
+        return f"{title}|{trigger_key}"
+
+    def _prune_recent_promise_fire_signatures(self, now_dt: datetime | None = None) -> None:
+        """최근 발화 서명 목록에서 만료된 항목을 정리한다."""
+        current = now_dt or self._current_promise_fire_time()
+        source = getattr(self, "_recent_promise_fire_signatures", None)
+        if not isinstance(source, dict):
+            source = {}
+        kept = {}
+        for signature, fired_at in source.items():
+            if not isinstance(fired_at, datetime):
+                continue
+            if (current - fired_at).total_seconds() <= 600:
+                kept[str(signature)] = fired_at
+        self._recent_promise_fire_signatures = kept
+
+    def _should_suppress_duplicate_promise_fire(self, payload: dict | None) -> bool:
+        """이미 진행/대기/최근 발화한 동일 예약이면 중복 발화를 막는다."""
+        signature = self._promise_fire_signature(payload)
+        if not signature:
+            return False
+
+        now_dt = self._current_promise_fire_time()
+        self._prune_recent_promise_fire_signatures(now_dt)
+
+        if signature == str(getattr(self, "_active_promise_signature", "") or "").strip():
+            return True
+
+        for queued in list(getattr(self, "promise_run_queue", []) or []):
+            if self._promise_fire_signature(queued) == signature:
+                return True
+
+        fired_at = self._recent_promise_fire_signatures.get(signature)
+        if isinstance(fired_at, datetime) and (now_dt - fired_at).total_seconds() <= 600:
+            return True
+        return False
+
+    def _dismiss_duplicate_promise_payload(self, payload: dict | None) -> bool:
+        """중복으로 판단된 예약은 예정 목록에서 제거하고 건너뛴다."""
+        reminder_id = str((payload or {}).get("id", "") or "").strip()
+        if not reminder_id or not self.promise_manager:
+            return False
+        removed = bool(self.promise_manager.delete_promise(reminder_id))
+        if removed:
+            emit_items = getattr(self, "_emit_promise_items_updated", None)
+            if callable(emit_items):
+                emit_items()
+        return removed
+
+    def _mark_promise_fire_started(self, payload: dict | None) -> None:
+        """실제로 발화를 시작한 예약 서명을 기억한다."""
+        signature = self._promise_fire_signature(payload)
+        self._active_promise_signature = signature or None
+        if not signature:
+            return
+        self._prune_recent_promise_fire_signatures()
+        self._recent_promise_fire_signatures[signature] = self._current_promise_fire_time()
+
     def _enqueue_due_promise(self, payload: dict) -> None:
         """현재 생성 중이면 약속 발화를 큐에 넣고, 아니면 즉시 시작한다."""
+        if self._should_suppress_duplicate_promise_fire(payload):
+            self._dismiss_duplicate_promise_payload(payload)
+            return
         reminder_id = str((payload or {}).get("id", "") or "").strip()
         if self.worker and self.worker.isRunning():
             promise_manager = getattr(self, "promise_manager", None)
@@ -2458,6 +2624,7 @@ class WebBridge(QObject):
         reminder_id = str((payload or {}).get("id", "") or "").strip()
         if self.promise_manager and reminder_id:
             self.promise_manager.set_status(reminder_id, "triggered")
+        self._mark_promise_fire_started(payload)
         self._active_promise_id = reminder_id or None
         self._emit_promise_items_updated()
         title = str((payload or {}).get("title", "") or "").strip() or "약속"
@@ -2992,6 +3159,7 @@ class WebBridge(QObject):
             if callable(emit_items):
                 emit_items()
             self._active_promise_id = None
+            self._active_promise_signature = None
         if self._is_rerolling:
             self._is_rerolling = False
             self.reroll_state_changed.emit(False)
