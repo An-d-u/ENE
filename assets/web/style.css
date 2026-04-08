@@ -445,11 +445,22 @@ body.is-chat-resizing {
     transform: translateY(0) scale(1);
 }
 
-#token-usage-bubble {
+#overlay-notice-stack {
     position: fixed;
     top: 32px;
     left: 4px;
     z-index: 1250;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    pointer-events: none;
+    max-width: min(320px, calc(100vw - 24px));
+}
+
+#token-usage-bubble,
+#promise-notice-bubble {
+    position: relative;
     max-width: min(320px, calc(100vw - 24px));
     padding: 9px 12px;
     border-radius: 999px;
@@ -468,7 +479,17 @@ body.is-chat-resizing {
     transition: opacity 0.18s ease, transform 0.18s ease;
 }
 
-#token-usage-bubble.hidden {
+#token-usage-bubble {
+    position: relative;
+}
+
+#promise-notice-bubble {
+    position: relative;
+}
+
+#token-usage-bubble.hidden,
+#promise-notice-bubble.hidden {
+    display: none;
     opacity: 0;
     transform: translateY(-6px);
     pointer-events: none;

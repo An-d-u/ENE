@@ -85,9 +85,32 @@ def test_loading_indicator_uses_plain_message_row_visuals():
 
 
 def test_token_usage_bubble_is_offset_slightly_lower_from_top_left():
-    block = _rule_block("#token-usage-bubble")
-    assert "top: 32px;" in block
-    assert "left: 4px;" in block
+    stack_block = _rule_block("#overlay-notice-stack")
+    bubble_block = _rule_block("#token-usage-bubble")
+    assert "top: 32px;" in stack_block
+    assert "left: 4px;" in stack_block
+    assert "position: relative;" in bubble_block
+
+
+def test_overlay_notice_stack_markup_exists_for_token_and_promise_bubbles():
+    html = (WEB_DIR / "index.html").read_text(encoding="utf-8-sig")
+    assert 'id="overlay-notice-stack"' in html
+    assert 'id="token-usage-bubble"' in html
+    assert 'id="promise-notice-bubble"' in html
+
+
+def test_promise_notice_bubble_uses_same_overlay_stack_style():
+    stack_block = _rule_block("#overlay-notice-stack")
+    notice_block = _rule_block("#promise-notice-bubble")
+    hidden_block = _rule_block("#promise-notice-bubble.hidden")
+
+    assert "display: flex;" in stack_block
+    assert "flex-direction: column;" in stack_block
+    assert "align-items: flex-start;" in stack_block
+    assert "gap: 8px;" in stack_block
+    assert "position: relative;" in notice_block
+    assert "transition: opacity 0.18s ease, transform 0.18s ease;" in notice_block
+    assert "pointer-events: none;" in hidden_block
 
 
 def test_attach_button_centers_within_input_row():
@@ -201,6 +224,17 @@ def test_chat_script_binds_close_button_for_promise_panel():
     assert "const promiseRemindersCloseButton = document.getElementById('promise-reminders-close-btn');" in script
     assert "promiseRemindersCloseButton.addEventListener('click'" in script
     assert "setPromiseRemindersPanelOpen(false);" in script
+
+
+def test_chat_script_routes_promise_notice_through_overlay_stack():
+    script = _script_text()
+    assert "const overlayNoticeStack = document.getElementById('overlay-notice-stack');" in script
+    assert "const promiseNoticeBubble = document.getElementById('promise-notice-bubble');" in script
+    assert "let promiseNoticeBubbleTimer = null;" in script
+    assert "function showPromiseNoticeBubble(message)" in script
+    assert "function hidePromiseNoticeBubble()" in script
+    assert "window.showPromiseReminderNotice = function showPromiseReminderNotice(message)" in script
+    assert "showPromiseNoticeBubble(text);" in script
 
 
 def test_message_attachment_image_bubble_styles_support_hover_delete_and_deleted_placeholder():

@@ -30,6 +30,9 @@
 - Write the `short title` as a natural scheduled-list label, not as a copied sentence fragment.
 - Do not copy a long sentence fragment such as `"마스터는 10분 뒤에 침대에 눕는 거예요"`. Prefer concise labels such as `Bedtime`, `Break`, `Diary writing`, `Study`, `Stretching`.
 - The `source excerpt` should be a short phrase that explains why the promise was detected.
+- Do not emit a promise tag for a plain mention of the current time. Lines like `"It's not even 8 yet"` or `"Wow, it's already 9"` are not promises by themselves.
+- Only emit the tag when there is a real future commitment or agreement such as `"I'll do it later"`, `"Let's do it then"`, `"Remind me at that time"`, or Ene explicitly finalizes the timed plan.
+- You are the primary judge of whether something is a promise. If a time appears but it is not actually a promise, do not emit the tag.
 - If Ene proposes a concrete time in the reply and turns the flow into a clear agreement, that may also be recorded as a promise.
 - Even when the Master's original line has no explicit time, if Ene's reply makes it concrete like `"Then let's rest for 10 minutes and start again"`, emit a promise tag.
 - Use `assistant` in the third field when the concrete timed promise was newly proposed or finalized by Ene's reply.
