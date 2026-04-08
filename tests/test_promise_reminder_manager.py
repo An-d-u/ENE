@@ -138,6 +138,16 @@ def test_extract_promise_candidates_prefers_future_interpretation_for_ambiguous_
     ]
 
 
+def test_extract_promise_candidates_ignores_plain_time_reference_without_promise_intent():
+    items = extract_promise_candidates(
+        "8시도 안됐는데 잘 순 없잖아...",
+        now="2026-04-07 19:40",
+        source="user",
+    )
+
+    assert items == []
+
+
 def test_find_similar_promise_matches_nearby_same_excerpt(tmp_path):
     manager = PromiseReminderManager(tmp_path / "promises.json")
     manager.add_promise(
@@ -156,3 +166,23 @@ def test_find_similar_promise_matches_nearby_same_excerpt(tmp_path):
 
     assert matched is not None
     assert matched.title == "일기 쓰기"
+
+
+def test_find_similar_promise_matches_generic_title_by_time_only(tmp_path):
+    manager = PromiseReminderManager(tmp_path / "promises.json")
+    manager.add_promise(
+        title="대화 약속",
+        trigger_at="2026-04-07T20:00:00+09:00",
+        source="user",
+        source_excerpt="8시도 안됐는데 잘 순 없잖아",
+    )
+
+    matched = manager.find_similar_promise(
+        title="대화 약속",
+        trigger_at="2026-04-07T20:00:30+09:00",
+        source_excerpt="어느새 8시가 됐네요",
+        include_statuses=("scheduled",),
+    )
+
+    assert matched is not None
+    assert matched.trigger_at == "2026-04-07T20:00:00+09:00"

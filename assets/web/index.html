@@ -10,7 +10,10 @@
 
 <body>
     <canvas id="live2d-canvas"></canvas>
-    <div id="token-usage-bubble" class="hidden" aria-live="polite"></div>
+    <div id="overlay-notice-stack" aria-live="polite">
+        <div id="token-usage-bubble" class="hidden"></div>
+        <div id="promise-notice-bubble" class="hidden"></div>
+    </div>
 
     <!-- 채팅 UI -->
     <div id="chat-container">

@@ -55,6 +55,56 @@ def _infer_promise_title(text: str) -> str:
     return GENERIC_PROMISE_TITLE
 
 
+def _has_promise_intent(text: str, source: str = "user") -> bool:
+    normalized = _normalize_promise_text(text)
+    if not normalized:
+        return False
+
+    negative_markers = (
+        "안됐",
+        "안 됐",
+        "도 안",
+        "밖에 안",
+        "아직",
+        "벌써",
+        "잖아",
+        "인데",
+        "였는데",
+    )
+    if any(marker in normalized for marker in negative_markers):
+        return False
+
+    positive_markers = (
+        "하자",
+        "할게",
+        "하겠다",
+        "해야",
+        "할래",
+        "다시",
+        "쉬고",
+        "쉬자",
+        "쓸게",
+        "써야",
+        "시작",
+        "깨워",
+        "불러",
+        "알려",
+        "맞춰",
+        "그때",
+        "있다가",
+        "어때요",
+        "하죠",
+        "거예요",
+        "드릴게",
+    )
+    if any(marker in normalized for marker in positive_markers):
+        return True
+
+    if source == "assistant" and ("?" in text or "?" in normalized):
+        return True
+    return False
+
+
 def _parse_relative_trigger(text: str, base_dt: datetime) -> datetime | None:
     earliest: tuple[int, datetime] | None = None
     for pattern in RELATIVE_PROMISE_PATTERNS:
@@ -116,6 +166,8 @@ def _parse_absolute_trigger(text: str, base_dt: datetime) -> datetime | None:
 def extract_promise_candidates(text: str, now: str | datetime | None = None, source: str = "user") -> list[dict]:
     normalized = _normalize_promise_text(text)
     if not normalized:
+        return []
+    if not _has_promise_intent(normalized, source=source):
         return []
 
     base_dt = _coerce_base_datetime(now)
@@ -242,6 +294,7 @@ class PromiseReminderManager:
 
         normalized_title = _normalize_promise_text(title)
         normalized_excerpt = _normalize_promise_text(source_excerpt)
+        generic_title = _normalize_promise_text(GENERIC_PROMISE_TITLE)
         try:
             target_dt = datetime.fromisoformat(str(trigger_at or "").strip())
         except Exception:
@@ -259,17 +312,18 @@ class PromiseReminderManager:
 
             item_title = _normalize_promise_text(item.title)
             item_excerpt = _normalize_promise_text(item.source_excerpt)
-            same_title = normalized_title != _normalize_promise_text(GENERIC_PROMISE_TITLE) and bool(normalized_title) and (
+            same_title = normalized_title != generic_title and bool(normalized_title) and (
                 item_title == normalized_title
                 or (len(normalized_title) >= 2 and normalized_title in item_title)
                 or (len(item_title) >= 2 and item_title in normalized_title)
             )
+            same_generic_time = normalized_title == generic_title and item_title == generic_title
             same_excerpt = bool(normalized_excerpt) and (
                 item_excerpt == normalized_excerpt
                 or (len(normalized_excerpt) >= 4 and normalized_excerpt in item_excerpt)
                 or (len(item_excerpt) >= 4 and item_excerpt in normalized_excerpt)
             )
-            if same_title or same_excerpt:
+            if same_title or same_excerpt or same_generic_time:
                 return item
         return None
 
