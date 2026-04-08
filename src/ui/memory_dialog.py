@@ -5,7 +5,7 @@ from datetime import datetime
 import re
 
 from PyQt6.QtCore import QPoint, QSize, Qt, QTimer
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor, QTextLayout
 from PyQt6.QtWidgets import (
     QDialog,
     QFrame,
@@ -40,6 +40,20 @@ class CardFrame(QFrame):
         self.setObjectName(object_name)
         self.setFrameShape(QFrame.Shape.NoFrame)
         apply_soft_shadow(self)
+
+
+class MemoryPreviewLabel(QLabel):
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._refresh_callback = None
+
+    def set_refresh_callback(self, callback) -> None:
+        self._refresh_callback = callback
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if self._refresh_callback is not None:
+            self._refresh_callback()
 
 
 class MemoryDialog(QDialog):
@@ -646,17 +660,12 @@ class MemoryDialog(QDialog):
         text = re.sub(r"\s+", " ", str(memory.summary or "")).strip()
         if not text:
             return t("memory.preview.empty")
-
-        preview_limit = 104
-        if len(text) <= preview_limit:
-            return text
-
-        trimmed = text[:preview_limit].rstrip(" ,.;:")
-        return f"{trimmed}..."
+        return text
 
     def _memory_meta_pill(self, text: str, object_name: str, width: int) -> QLabel:
         label = self._pill(text, object_name)
-        label.setFixedWidth(width)
+        content_width = label.fontMetrics().horizontalAdvance(text) + 28
+        label.setFixedWidth(max(width, content_width))
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         return label
 
@@ -786,8 +795,62 @@ class MemoryDialog(QDialog):
 
             widget.setFixedWidth(viewport_width)
             widget.layout().activate()
+            self._refresh_memory_widget_preview(widget)
+            widget.layout().activate()
             height = max(84, widget.sizeHint().height())
             item.setSizeHint(QSize(viewport_width, height))
+
+    def _elide_memory_preview_to_lines(self, text: str, label: QLabel, max_lines: int = 4) -> str:
+        normalized = re.sub(r"\s+", " ", str(text or "")).strip()
+        if not normalized:
+            return t("memory.preview.empty")
+
+        available_width = max(0, label.contentsRect().width() or label.width())
+        if available_width <= 0:
+            return normalized
+
+        layout = QTextLayout(normalized, label.font())
+        layout.beginLayout()
+        line_ranges: list[tuple[int, int]] = []
+        while len(line_ranges) < max_lines:
+            line = layout.createLine()
+            if not line.isValid():
+                break
+            line.setLineWidth(float(available_width))
+            start = line.textStart()
+            end = start + line.textLength()
+            line_ranges.append((start, end))
+
+        overflow_line = layout.createLine()
+        truncated = overflow_line.isValid()
+        layout.endLayout()
+
+        if not line_ranges:
+            return normalized
+
+        segments = [normalized[start:end].strip() for start, end in line_ranges]
+        if truncated:
+            last_start, _last_end = line_ranges[-1]
+            segments[-1] = label.fontMetrics().elidedText(
+                normalized[last_start:].lstrip(),
+                Qt.TextElideMode.ElideRight,
+                available_width,
+            ).rstrip().replace("…", "...")
+
+        return "\n".join(segment for segment in segments if segment)
+
+    def _refresh_memory_widget_preview(self, widget: QWidget) -> None:
+        label = getattr(widget, "summary_label", None)
+        if label is None:
+            return
+
+        source_text = str(label.property("previewSourceText") or "")
+        if not source_text:
+            return
+
+        label.setText(self._elide_memory_preview_to_lines(source_text, label, max_lines=4))
+        label.setFixedHeight(min(label.sizeHint().height(), (label.fontMetrics().lineSpacing() * 4) + 8))
+        label.updateGeometry()
 
     def _create_memory_widget(self, memory):
         card = CardFrame("MemoryItem")
@@ -823,10 +886,13 @@ class MemoryDialog(QDialog):
         top.addStretch()
         layout.addLayout(top)
 
-        summary = QLabel(self._memory_preview_text(memory))
+        summary = MemoryPreviewLabel()
         summary.setObjectName("Body")
-        summary.setWordWrap(True)
+        summary.setWordWrap(False)
+        summary.setProperty("previewSourceText", self._memory_preview_text(memory))
+        summary.set_refresh_callback(lambda current_card=card: self._refresh_memory_widget_preview(current_card))
         layout.addWidget(summary)
+        card.summary_label = summary
 
         if memory.tags:
             tags_row = QHBoxLayout()
@@ -835,6 +901,7 @@ class MemoryDialog(QDialog):
                 tags_row.addWidget(self._pill(f"#{tag}", "TagPill"))
             tags_row.addStretch()
             layout.addLayout(tags_row)
+        self._refresh_memory_widget_preview(card)
         return card
 
     def _update_stats(self, total: int, important: int, with_embedding: int) -> None:
