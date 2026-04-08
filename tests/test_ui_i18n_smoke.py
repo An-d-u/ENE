@@ -309,6 +309,29 @@ def test_settings_dialog_translates_metadata_in_english():
         dialog.close()
 
 
+def test_settings_dialog_uses_wider_default_size():
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        dialog = SettingsDialog(
+            {
+                "ui_language": "ko",
+                "llm_provider": "gemini",
+                "tts_provider": "gpt_sovits_http",
+                "enable_tts": True,
+            }
+        )
+
+        assert dialog.minimumWidth() >= 1280
+        assert dialog.width() >= 1460
+
+        dialog.close()
+
+
 def test_settings_dialog_loads_and_saves_streaming_tts_toggle(monkeypatch):
     _get_qapp()
     locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
@@ -1206,6 +1229,68 @@ def test_memory_dialog_does_not_overwrite_recent_memory_setting_during_load():
     assert bridge.settings.saved is False
     assert bridge.settings.config["max_recent_memories"] == 7
     assert dialog.recent_spinbox.value() == 7
+
+    dialog.close()
+
+
+def test_memory_dialog_preview_truncates_card_text_with_ellipsis_and_keeps_badges_readable():
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+
+    medium_summary = (
+        "2026년 4월 8일 새벽 1시경, 마스터는 에네의 기억 시스템 개선 작업을 진행하면서 "
+        "과거 커버 주식회사 지원 당시의 첫 만남과 프로젝트 흐름을 함께 정리했습니다."
+    )
+    long_summary = (
+        medium_summary
+        + " "
+        "이후 Everyday Near Ears 프로젝트의 캐릭터 기획과 감정 구조까지 하나의 문맥으로 연결해 기록했습니다."
+        + " 이 과정에서 방송 전 루틴, 태그 구조, 기억 저장 우선순위까지 함께 재정리했습니다."
+        + " 또한 장기 기억 검색 범위와 중요 기억 우선순위가 실제 대화 품질에 어떤 영향을 주는지도 비교했습니다."
+        + " 마지막으로 프로젝트 별칭과 첫 만남의 의미를 다시 정리해 에네가 이후 대화에서 자연스럽게 회상할 수 있도록 구성했습니다."
+    )
+    dialog = MemoryDialog(_DummyMemoryManager([]))
+
+    medium_widget = dialog._create_memory_widget(
+        SimpleNamespace(
+            id="memory-medium",
+            timestamp="2026-04-08T01:59:00",
+            summary=medium_summary,
+            tags=[],
+            is_important=False,
+            embedding=None,
+            source="chat",
+            memory_type="fact",
+        )
+    )
+    medium_widget.setFixedWidth(320)
+    medium_widget.show()
+    QApplication.processEvents()
+    medium_summary_label = medium_widget.summary_label
+    assert "..." not in medium_summary_label.text()
+
+    long_widget = dialog._create_memory_widget(
+        SimpleNamespace(
+            id="memory-long",
+            timestamp="2026-04-08T01:59:00",
+            summary=long_summary,
+            tags=[],
+            is_important=False,
+            embedding=None,
+            source="chat",
+            memory_type="relationship, fact",
+        )
+    )
+    long_widget.setFixedWidth(320)
+    long_widget.show()
+    QApplication.processEvents()
+    long_summary_label = long_widget.summary_label
+    assert long_summary_label.text().endswith("...")
+    assert len(long_summary_label.text()) < len(long_summary)
+
+    badge = dialog._memory_meta_pill("relationship", "TagPill", 68)
+    assert badge.width() >= badge.fontMetrics().horizontalAdvance("relationship") + 24
 
     dialog.close()
 

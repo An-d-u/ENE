@@ -676,8 +676,8 @@ class SettingsDialog(QDialog):
             icon_path = self._project_root / "assets" / "icons" / "tray_icon.png"
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
-        self.setMinimumSize(1020, 700)
-        self.resize(1180, 780)
+        self.setMinimumSize(1280, 740)
+        self.resize(1460, 860)
         self.setWindowFlags(
             Qt.WindowType.Dialog 
             | Qt.WindowType.FramelessWindowHint 
