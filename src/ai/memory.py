@@ -25,6 +25,14 @@ _MIGRATED_MEMORY_REQUIRED_FIELDS = (
     "migration_meta",
 )
 
+_QUERY_TYPE_PATTERNS = {
+    "promise": ("기억해줘", "리마인드", "알려줘", "까먹지", "약속"),
+    "preference": ("좋아", "싫어", "선호", "취향", "편해", "익숙"),
+    "event": ("일정", "예약", "회의", "내일", "오늘", "시간", "날짜"),
+    "task": ("해야", "할 일", "정리", "작업", "TODO", "todo"),
+    "relationship": ("호칭", "관계", "애칭", "성격"),
+}
+
 
 class MemoryManager:
     """장기기억 관리자"""
@@ -205,6 +213,7 @@ class MemoryManager:
         try:
             # 쿼리 임베딩
             query_embedding = await self.embedding_generator.embed(query)
+            query_memory_type = self._infer_query_memory_type(query)
             
             # 유사도 계산
             similarities = []
@@ -220,16 +229,19 @@ class MemoryManager:
                     max_similarity = similarity
                 
                 if similarity >= min_similarity:
-                    similarities.append((memory, similarity))
+                    final_score = similarity + self._metadata_rank_bonus(memory, query_memory_type)
+                    similarities.append((memory, final_score, similarity))
             
             # 디버깅: 최대 유사도 출력
             print(f"[Memory] 검색 쿼리: '{query}' (최대 유사도: {max_similarity:.4f})")
             
-            # 유사도 높은 순으로 정렬
-            similarities.sort(key=lambda x: x[1], reverse=True)
+            # 최종 점수 높은 순으로 정렬하고, 동점이면 기본 유사도를 우선한다.
+            similarities.sort(key=lambda item: (item[1], item[2]), reverse=True)
             
             # 상위 k개 반환
-            result = similarities[:top_k]
+            ranked = similarities[:top_k]
+            result = [(memory, final_score) for memory, final_score, _ in ranked]
+            self._mark_memories_retrieved([memory for memory, _ in result])
             
             if result:
                 print(f"[Memory] 유사 기억 {len(result)}개 찾음 (임계값: {min_similarity})")
@@ -243,6 +255,74 @@ class MemoryManager:
         except Exception as e:
             print(f"[Memory] 검색 실패: {e}")
             return []
+
+    def _infer_query_memory_type(self, query: str) -> str:
+        """검색 질의에서 대략적인 기억 유형을 추정한다."""
+        normalized = str(query or "").strip().lower()
+        if not normalized:
+            return "general"
+
+        for memory_type, patterns in _QUERY_TYPE_PATTERNS.items():
+            if any(pattern.lower() in normalized for pattern in patterns):
+                return memory_type
+        return "general"
+
+    def _metadata_rank_bonus(self, memory: MemoryEntry, query_memory_type: str) -> float:
+        """메타데이터 기반의 작은 보정 점수를 계산한다."""
+        bonus = 0.0
+
+        try:
+            confidence = float(memory.confidence)
+        except (TypeError, ValueError):
+            confidence = 0.5
+        bonus += max(0.0, min(confidence, 1.0) - 0.5) * 0.2
+
+        if memory.is_important:
+            bonus += 0.04
+
+        memory_type = str(memory.memory_type or "general").strip().lower() or "general"
+        if query_memory_type != "general":
+            if memory_type == query_memory_type:
+                bonus += 0.06
+            elif {memory_type, query_memory_type} == {"event", "promise"}:
+                bonus += 0.03
+
+        last_used_at = self._parse_iso_datetime(memory.last_used_at)
+        if last_used_at is not None:
+            now = datetime.now(last_used_at.tzinfo) if last_used_at.tzinfo else datetime.now()
+            age_seconds = max(0.0, (now - last_used_at).total_seconds())
+            if age_seconds <= 7 * 24 * 60 * 60:
+                bonus += 0.02
+            elif age_seconds <= 30 * 24 * 60 * 60:
+                bonus += 0.01
+
+        return bonus
+
+    def _parse_iso_datetime(self, value: str | None) -> datetime | None:
+        """ISO 날짜 문자열을 안전하게 파싱한다."""
+        text = str(value or "").strip()
+        if not text:
+            return None
+
+        try:
+            return datetime.fromisoformat(text)
+        except ValueError:
+            return None
+
+    def _mark_memories_retrieved(self, memories: List[MemoryEntry]):
+        """실제로 사용된 기억의 회수 메타데이터를 갱신한다."""
+        if not memories:
+            return
+
+        updated = False
+        now_iso = datetime.now().astimezone().isoformat(timespec="seconds")
+        for memory in memories:
+            memory.retrieval_count = int(memory.retrieval_count or 0) + 1
+            memory.last_used_at = now_iso
+            updated = True
+
+        if updated:
+            self.save()
     
     def get_recent(self, count: int = 5) -> List[MemoryEntry]:
         """
