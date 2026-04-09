@@ -26,6 +26,12 @@ python -m ruff check . --select E9,F63,F7,F82
   - 대화 요약 파싱 로직 검증
 - `tests/test_audio_analyzer.py`
   - WAV 기반 립싱크 분석 결과 검증
+- `tests/test_viseme_stream_analyzer.py`
+  - 실시간 viseme 프레임 인터페이스와 폴백 가능한 분석기 계약 검증
+- `tests/test_tts_sync_controller.py`
+  - `80~120ms` 적응형 동기화 버퍼 시작 규칙과 RMS 폴백 규칙 검증
+- `tests/test_bridge_tts_streaming.py`
+  - 스트리밍 TTS에서 메시지 표시, 오디오 시작, 립싱크 시작 시점 동기화 검증
 - `tests/test_settings.py`
   - 설정 로드/저장/복구 로직 검증
 
@@ -47,3 +53,11 @@ python -m ruff check . --select E9,F63,F7,F82
 - `python test_summarization.py`
 
 위 파일들은 기존 실행 습관 유지를 위한 래퍼이며, 내부적으로 pytest를 호출한다.
+
+## 수동 확인 권장 항목
+
+- `gpt_sovits_http` 스트리밍 ON에서 메시지와 오디오가 동시에 시작되는지 확인
+- 스트리밍 ON에서 viseme 준비가 늦을 때 `120ms` 안에서 RMS 폴백으로 자연스럽게 시작되는지 확인
+- `gpt_sovits_http` 스트리밍 OFF에서도 메시지 표시 직후 오디오가 바로 시작되는지 확인
+- `openai_audio_speech`, `openai_compatible_audio_speech`, `elevenlabs`, `genie_tts_http` 전환 후에도 회귀가 없는지 확인
+- `browser_speech`는 기존 브라우저 재생 경로가 유지되는지만 확인
