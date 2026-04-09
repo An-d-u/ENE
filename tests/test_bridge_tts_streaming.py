@@ -59,7 +59,7 @@ def test_should_use_sync_buffer_returns_false_for_browser_tts():
     assert bridge._should_use_sync_buffer() is False
 
 
-def test_bridge_streaming_first_chunk_flushes_pending_response():
+def test_streaming_path_flushes_message_only_when_playback_really_starts():
     _ensure_qt_app()
 
     class DummyAudioPlayer:
@@ -85,31 +85,71 @@ def test_bridge_streaming_first_chunk_flushes_pending_response():
         ensure_ascii=False,
     )
     bridge.tts_streaming_enabled = True
-    bridge.tts_streaming_emit_message_on_first_chunk = True
 
     received = []
     token_payloads = []
     bridge.message_received.connect(lambda text, emotion: received.append((text, emotion)))
     bridge.token_usage_ready.connect(lambda payload: token_payloads.append(json.loads(payload)))
 
-    bridge._on_tts_stream_format(24000, 1, 2)
-    bridge._on_tts_stream_chunk(b"\x01\x02\x03\x04", [0.25, 0.6])
+    bridge._on_tts_stream_format(1000, 1, 2)
+    bridge._get_stream_sync_elapsed_ms = lambda: 0
+    bridge._sync_controller.mark_viseme_ready_through(0.08)
+    bridge._on_tts_stream_chunk(b"\x01" * 160, [0.25, 0.6])
 
-    assert bridge.audio_player.started == (24000, 1, 2)
-    assert bridge.audio_player.chunks == [b"\x01\x02\x03\x04"]
+    assert bridge.audio_player.started == (1000, 1, 2)
+    assert bridge.audio_player.chunks == []
+    assert received == []
+    assert token_payloads == []
+
+    bridge._get_stream_sync_elapsed_ms = lambda: 80
+    bridge._on_tts_stream_chunk(b"", [])
+
+    assert bridge.audio_player.chunks == [b"\x01" * 160]
     assert received == [("실시간 응답", "happy")]
     assert token_payloads == [{"input_tokens": 3, "output_tokens": 5, "total_tokens": 8}]
     assert bridge.pending_response is None
 
 
-def test_bridge_streaming_chunk_builds_timestamped_lip_sync_timeline():
+def test_streaming_path_starts_with_rms_fallback_after_max_buffer_timeout():
     _ensure_qt_app()
 
     bridge = WebBridge()
-    started = []
-    bridge._start_lip_sync = lambda: started.append(True)
+    bridge.tts_streaming_enabled = True
+    bridge.pending_response = ("지연 응답", "normal")
+    bridge._on_tts_stream_format(1000, 1, 2)
+    bridge._get_stream_sync_elapsed_ms = lambda: 121
 
-    bridge._on_tts_stream_chunk(b"\x01\x02\x03\x04", [0.25, 0.6])
+    class DummyAudioPlayer:
+        def __init__(self):
+            self.started = None
+            self.chunks = []
 
-    assert bridge.lip_sync_data == [(0.0, 0.25), (0.05, 0.6)]
-    assert started == [True]
+        def start_stream(self, sample_rate: int, channels: int, sample_width: int):
+            self.started = (sample_rate, channels, sample_width)
+
+        def append_stream_pcm(self, pcm_data: bytes):
+            self.chunks.append(pcm_data)
+
+        def finish_stream(self):
+            pass
+
+    bridge.audio_player = DummyAudioPlayer()
+    bridge._on_tts_stream_chunk(b"\x02" * 140, [0.4])
+
+    assert bridge._sync_started is True
+    assert bridge._sync_using_rms_fallback is True
+    assert bridge.audio_player.chunks == [b"\x02" * 140]
+
+
+def test_interrupt_tts_for_ptt_resets_sync_buffer_state():
+    _ensure_qt_app()
+
+    bridge = WebBridge()
+    bridge._sync_started = True
+    bridge._sync_controller.mark_started(at_ms=100)
+    bridge.lip_sync_data = [(0.0, 0.5)]
+
+    bridge.interrupt_tts_for_ptt()
+
+    assert bridge._sync_started is False
+    assert bridge.lip_sync_data is None
