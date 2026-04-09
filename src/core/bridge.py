@@ -18,8 +18,10 @@ from datetime import datetime
 import json
 import numpy as np
 import re
+import time
 
 from ..conversation_format import prepend_message_time, role_label_for_context
+from ..ai.viseme_stream_analyzer import VisemeStreamAnalyzer
 from ..ai.diary_service import DiaryService
 from ..ai.note_service import NoteService, NoteCommand, NoteCommandResult, NotePlan
 from ..ai.obsidian_manager import ObsidianManager
@@ -31,6 +33,7 @@ from .chat_attachments import (
     prepare_attachments,
 )
 from .obs_settings import ObsSettings
+from .tts_sync_controller import TTSSyncController
 
 VISIBLE_RESPONSE_ANALYSIS_KEYS = (
     "user_emotion",
@@ -582,6 +585,14 @@ class WebBridge(QObject):
         self._stream_lip_sync_timer = None
         self._stream_lip_sync_finished = False
         self._stream_audio_format = None
+        self._stream_audio_output_started = False
+        self._stream_sync_started_at = None
+        self._stream_pending_pcm_chunks = []
+        self._stream_pending_lip_sync_data = []
+        self._stream_viseme_analyzer = None
+        self._sync_controller = TTSSyncController()
+        self._sync_started = False
+        self._sync_using_rms_fallback = False
         
         # 립싱크 데이터 및 타이머
         self.lip_sync_data = None
@@ -2715,6 +2726,97 @@ class WebBridge(QObject):
             return False
         return bool(getattr(self.tts_client, "supports_streaming", False))
 
+    def _should_use_sync_buffer(self) -> bool:
+        """앱이 오디오 출력을 직접 제어할 수 있는 TTS인지 판단한다."""
+        if not self.tts_client:
+            return True
+        return not bool(getattr(self.tts_client, "uses_browser_playback", False))
+
+    def _reset_stream_sync_state(self) -> None:
+        """스트리밍 재생 시작 게이트 상태를 초기화한다."""
+        self._stream_audio_output_started = False
+        self._stream_sync_started_at = None
+        self._stream_pending_pcm_chunks = []
+        self._stream_pending_lip_sync_data = []
+        self._stream_viseme_analyzer = None
+        self._sync_controller = TTSSyncController()
+        self._sync_started = False
+        self._sync_using_rms_fallback = False
+
+    def _get_stream_sync_elapsed_ms(self) -> int:
+        """스트리밍 동기화 게이트가 열린 뒤 경과한 시간을 반환한다."""
+        if self._stream_sync_started_at is None:
+            return 0
+        return int(max(0.0, (time.monotonic() - self._stream_sync_started_at) * 1000.0))
+
+    def _estimate_stream_chunk_duration_ms(self, pcm_bytes: bytes) -> int:
+        """PCM 청크 길이를 밀리초로 환산한다."""
+        if not pcm_bytes or not self._stream_audio_format:
+            return 0
+        sample_rate, channels, sample_width = self._stream_audio_format
+        bytes_per_frame = max(1, int(channels) * int(sample_width))
+        frame_count = len(pcm_bytes) / bytes_per_frame
+        return int(round((frame_count / max(1, int(sample_rate))) * 1000.0))
+
+    def _append_stream_lip_sync_values(self, mouth_values: list, *, target_pending: bool) -> None:
+        """스트리밍 립싱크 프레임을 버퍼 또는 활성 타임라인에 적재한다."""
+        if not mouth_values:
+            return
+
+        target = self._stream_pending_lip_sync_data if target_pending else self.lip_sync_data
+        if target is None:
+            target = []
+            if target_pending:
+                self._stream_pending_lip_sync_data = target
+            else:
+                self.lip_sync_data = target
+
+        for value in mouth_values:
+            target.append((self._stream_lip_sync_next_timestamp, float(value)))
+            self._stream_lip_sync_next_timestamp = round(self._stream_lip_sync_next_timestamp + 0.05, 6)
+
+    def _ensure_stream_audio_output_started(self) -> None:
+        """필요할 때만 실제 스트리밍 오디오 출력을 시작한다."""
+        if self._stream_audio_output_started:
+            return
+        if not self.audio_player or not self._stream_audio_format:
+            return
+        sample_rate, channels, sample_width = self._stream_audio_format
+        self.audio_player.start_stream(sample_rate, channels, sample_width)
+        self._stream_audio_output_started = True
+
+    def _start_stream_sync_playback(self) -> None:
+        """버퍼링된 메시지, 오디오, 립싱크를 같은 시점에 시작한다."""
+        if self._sync_started:
+            return
+
+        self._sync_started = True
+        self._streaming_tts_started = True
+        self._sync_controller.mark_started(self._get_stream_sync_elapsed_ms())
+        self._ensure_stream_audio_output_started()
+        self._flush_pending_response_if_any()
+
+        if self._stream_pending_pcm_chunks and self.audio_player:
+            for chunk in self._stream_pending_pcm_chunks:
+                self.audio_player.append_stream_pcm(chunk)
+        self._stream_pending_pcm_chunks = []
+
+        if self._stream_pending_lip_sync_data:
+            self.lip_sync_data = list(self._stream_pending_lip_sync_data)
+            self._stream_pending_lip_sync_data = []
+            if not self.lip_sync_timer and self.lip_sync_data:
+                self._start_lip_sync()
+
+    def _maybe_start_stream_sync(self) -> None:
+        """현재 버퍼 상태로 재생을 시작할지 판단한다."""
+        if self._sync_started or not self._should_use_sync_buffer():
+            return
+        now_ms = self._get_stream_sync_elapsed_ms()
+        if not self._sync_controller.should_start(now_ms):
+            return
+        self._sync_using_rms_fallback = self._sync_controller.should_use_rms_fallback(now_ms)
+        self._start_stream_sync_playback()
+
     def _stop_streaming_lip_sync(self, reset_mouth: bool = True):
         """스트리밍 립싱크 큐와 타이머를 정리한다."""
         if self._stream_lip_sync_timer:
@@ -2734,6 +2836,7 @@ class WebBridge(QObject):
         self.lip_sync_start_time = None
         self._stream_lip_sync_next_timestamp = 0.0
         self._stream_lip_sync_finished = False
+        self._reset_stream_sync_state()
         if reset_mouth:
             self.lip_sync_update.emit(0.0)
     
@@ -2758,6 +2861,7 @@ class WebBridge(QObject):
         self._stream_lip_sync_next_timestamp = 0.0
         self._stream_lip_sync_finished = False
         self._stream_audio_format = None
+        self._reset_stream_sync_state()
 
         if self._should_use_streaming_tts():
             self.tts_worker = StreamingTTSWorker(self.tts_client, text)
@@ -2862,43 +2966,67 @@ class WebBridge(QObject):
     def _on_tts_stream_format(self, sample_rate: int, channels: int, sample_width: int):
         """스트리밍 TTS의 PCM 포맷이 준비되면 재생기를 시작한다."""
         self._stream_audio_format = (int(sample_rate), int(channels), int(sample_width))
+        self._stream_viseme_analyzer = VisemeStreamAnalyzer(
+            sample_rate=sample_rate,
+            channels=channels,
+            sample_width=sample_width,
+        )
         print(
             f"[Bridge] 스트리밍 TTS 포맷 준비: "
             f"{sample_rate}Hz / {channels}ch / {sample_width}byte"
         )
         if self.audio_player:
             self.audio_player.start_stream(sample_rate, channels, sample_width)
+            self._stream_audio_output_started = True
 
     def _on_tts_stream_chunk(self, pcm_bytes: bytes, mouth_values: list):
         """스트리밍 PCM 청크를 재생 버퍼와 실시간 립싱크 큐에 전달한다."""
-        if not self._streaming_tts_started and pcm_bytes:
-            self._streaming_tts_started = True
-            if self.tts_streaming_emit_message_on_first_chunk:
-                self._flush_pending_response_if_any()
-
         if self._tts_interrupted_for_ptt:
             print("[Bridge] PTT 중단 플래그로 스트리밍 청크 무시")
             return
 
-        if pcm_bytes and self.audio_player:
-            self.audio_player.append_stream_pcm(pcm_bytes)
+        if self._stream_sync_started_at is None and (pcm_bytes or mouth_values):
+            self._stream_sync_started_at = time.monotonic()
+
+        if pcm_bytes and self._stream_audio_format:
+            duration_ms = self._estimate_stream_chunk_duration_ms(pcm_bytes)
+            self._sync_controller.push_audio(duration_ms=duration_ms, pcm_bytes=pcm_bytes)
+            if self._stream_viseme_analyzer is not None:
+                viseme_frames = self._stream_viseme_analyzer.push_pcm(pcm_bytes)
+                if viseme_frames:
+                    self._sync_controller.mark_viseme_ready_through(viseme_frames[-1].timestamp + 0.05)
+                    self._sync_controller.push_viseme_frames(viseme_frames)
+
+        self._maybe_start_stream_sync()
+
+        if pcm_bytes:
+            if self._sync_started and self.audio_player:
+                self._ensure_stream_audio_output_started()
+                self.audio_player.append_stream_pcm(pcm_bytes)
+            else:
+                self._stream_pending_pcm_chunks.append(bytes(pcm_bytes))
 
         if mouth_values:
-            if self.lip_sync_data is None:
-                self.lip_sync_data = []
-            for value in mouth_values:
-                self.lip_sync_data.append((self._stream_lip_sync_next_timestamp, float(value)))
-                self._stream_lip_sync_next_timestamp = round(self._stream_lip_sync_next_timestamp + 0.05, 6)
-            if not self.lip_sync_timer and self.lip_sync_data:
+            self._append_stream_lip_sync_values(mouth_values, target_pending=not self._sync_started)
+            if self._sync_started and not self.lip_sync_timer and self.lip_sync_data:
                 self._start_lip_sync()
 
     def _on_tts_stream_finished(self):
         """스트리밍 TTS 종료 신호를 받아 잔여 버퍼를 마무리한다."""
         print("[Bridge] 스트리밍 TTS 종료")
         self._stream_lip_sync_finished = True
-        if not self._streaming_tts_started:
+        if self._stream_viseme_analyzer is not None:
+            tail_frames = self._stream_viseme_analyzer.finalize()
+            if tail_frames:
+                self._sync_controller.mark_viseme_ready_through(tail_frames[-1].timestamp + 0.05)
+                self._sync_controller.push_viseme_frames(tail_frames)
+        if not self._sync_started and self._stream_pending_pcm_chunks:
+            self._sync_using_rms_fallback = self._sync_controller.should_use_rms_fallback(self._get_stream_sync_elapsed_ms())
+            self._start_stream_sync_playback()
+        elif not self._streaming_tts_started:
             self._flush_pending_response_if_any()
         if self.audio_player:
+            self._ensure_stream_audio_output_started()
             self.audio_player.finish_stream()
 
     def _drain_stream_lip_sync_queue(self):
