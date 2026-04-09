@@ -26,7 +26,11 @@ class TTSSyncController:
     def should_start(self, now_ms: int) -> bool:
         if self.started:
             return False
-        if self.buffered_audio_ms >= self.min_buffer_ms and self.viseme_ready_through >= (self.min_buffer_ms / 1000.0):
+        if (
+            int(now_ms) >= self.min_buffer_ms
+            and self.buffered_audio_ms >= self.min_buffer_ms
+            and self.viseme_ready_through >= (self.min_buffer_ms / 1000.0)
+        ):
             return True
         return int(now_ms) >= self.max_buffer_ms
 
