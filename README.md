@@ -193,6 +193,16 @@ The settings window already covers most of what you will want to change in norma
 
 You can use ENE without touching most internals, but if something does not behave the way you expect, the settings window is the first place to check before editing the raw configuration files.
 
+### TTS 동기화 버퍼와 립싱크 시작 시점
+
+지원되는 앱 내부 오디오 TTS 공급자에서는 메시지 표시, 오디오 재생, 립싱크 시작을 가능한 한 같은 시점으로 맞춘다.
+
+- `gpt_sovits_http` 스트리밍 ON에서는 적응형 `80~120ms` 동기화 버퍼를 사용한다.
+- viseme 준비가 최소 버퍼 안에서 끝나면 그 시점에 메시지와 오디오를 함께 시작한다.
+- viseme 준비가 늦으면 `120ms`를 넘겨 기다리지 않고 현재 RMS 기반 립싱크로 폴백해 재생을 시작한다.
+- `gpt_sovits_http` 스트리밍 OFF, `openai_audio_speech`, `openai_compatible_audio_speech`, `elevenlabs`, `genie_tts_http`는 완성된 오디오를 받은 뒤 같은 시작 계약을 사용한다.
+- `browser_speech`는 브라우저 내부 `speechSynthesis` 재생이라서 이 V1 동기화 버퍼 범위에는 포함되지 않는다.
+
 ### Genie-TTS HTTP Provider
 
 ENE now includes a dedicated `Genie-TTS HTTP` provider for Genie-TTS style servers.
