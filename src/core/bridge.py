@@ -2715,6 +2715,12 @@ class WebBridge(QObject):
             return False
         return bool(getattr(self.tts_client, "supports_streaming", False))
 
+    def _should_use_sync_buffer(self) -> bool:
+        """앱이 오디오 출력을 직접 제어할 수 있는 TTS인지 판단한다."""
+        if not self.tts_client:
+            return False
+        return not bool(getattr(self.tts_client, "uses_browser_playback", False))
+
     def _stop_streaming_lip_sync(self, reset_mouth: bool = True):
         """스트리밍 립싱크 큐와 타이머를 정리한다."""
         if self._stream_lip_sync_timer:

@@ -39,6 +39,11 @@ def test_create_tts_client_returns_genie_client():
     assert client.__class__.__name__ == "GenieTTSHTTPClient"
 
 
+def test_supported_providers_use_app_managed_audio_path():
+    assert create_tts_client("gpt_sovits_http", {}).supports_streaming is True
+    assert getattr(create_tts_client("browser_speech", {}), "uses_browser_playback", False) is True
+
+
 def test_genie_client_initializes_server_before_tts(tmp_path, monkeypatch):
     ref_audio = tmp_path / "ref.wav"
     ref_audio.write_bytes(b"fake")
