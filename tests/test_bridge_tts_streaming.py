@@ -2,6 +2,7 @@ import json
 
 from PyQt6.QtCore import QCoreApplication
 
+from src.ai.tts_client import create_tts_client
 from src.core.bridge import WebBridge
 
 
@@ -47,6 +48,15 @@ def test_bridge_should_use_streaming_tts_only_when_enabled_and_supported():
 
     bridge.tts_streaming_enabled = False
     assert bridge._should_use_streaming_tts() is False
+
+
+def test_should_use_sync_buffer_returns_false_for_browser_tts():
+    _ensure_qt_app()
+
+    bridge = WebBridge()
+    bridge.tts_client = create_tts_client("browser_speech", {})
+
+    assert bridge._should_use_sync_buffer() is False
 
 
 def test_bridge_streaming_first_chunk_flushes_pending_response():
