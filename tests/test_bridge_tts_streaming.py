@@ -4,6 +4,7 @@ from PyQt6.QtCore import QCoreApplication
 
 from src.ai.tts_client import create_tts_client
 from src.core.bridge import WebBridge
+from src.core.model_lip_sync_profile import build_model_lip_sync_profile_from_params
 
 
 def _ensure_qt_app():
@@ -153,3 +154,80 @@ def test_interrupt_tts_for_ptt_resets_sync_buffer_state():
 
     assert bridge._sync_started is False
     assert bridge.lip_sync_data is None
+
+
+def test_bridge_builds_mouth_pose_from_rms_and_viseme():
+    _ensure_qt_app()
+
+    bridge = WebBridge()
+    bridge._model_lip_sync_profile = build_model_lip_sync_profile_from_params(
+        {
+            "ParamMouthOpenY",
+            "ParamMouthForm",
+            "ParamMouthFunnel",
+            "ParamMouthPuckerWiden",
+            "ParamJawOpen",
+        }
+    )
+
+    pose = bridge._build_mouth_pose(rms_open=0.6, viseme="O", confidence=0.8)
+
+    assert pose["open"] >= 0.6
+    assert "funnel" in pose
+    assert pose["source"] == "viseme_blend"
+
+
+def test_bridge_keeps_rms_open_when_viseme_confidence_is_low():
+    _ensure_qt_app()
+
+    bridge = WebBridge()
+    bridge._model_lip_sync_profile = build_model_lip_sync_profile_from_params(
+        {
+            "ParamMouthOpenY",
+            "ParamMouthForm",
+            "ParamMouthFunnel",
+            "ParamMouthPuckerWiden",
+            "ParamJawOpen",
+        }
+    )
+
+    pose = bridge._build_mouth_pose(rms_open=0.5, viseme="I", confidence=0.2)
+
+    assert pose["open"] == 0.5
+    assert abs(pose["form"]) < 0.2
+
+
+def test_bridge_invalidates_profile_cache_when_model_path_changes(tmp_path):
+    _ensure_qt_app()
+
+    first_model_dir = tmp_path / "first"
+    first_model_dir.mkdir()
+    first_model_path = first_model_dir / "first.model3.json"
+    first_model_path.write_text(json.dumps({"Groups": []}, ensure_ascii=False), encoding="utf-8-sig")
+    first_model_path.with_suffix(".cdi3.json").write_text(
+        json.dumps({"Parameters": [{"Id": "ParamMouthOpenY"}]}, ensure_ascii=False),
+        encoding="utf-8-sig",
+    )
+
+    second_model_dir = tmp_path / "second"
+    second_model_dir.mkdir()
+    second_model_path = second_model_dir / "second.model3.json"
+    second_model_path.write_text(json.dumps({"Groups": []}, ensure_ascii=False), encoding="utf-8-sig")
+    second_model_path.with_suffix(".cdi3.json").write_text(
+        json.dumps(
+            {
+                "Parameters": [
+                    {"Id": "ParamMouthOpenY"},
+                    {"Id": "ParamMouthForm"},
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8-sig",
+    )
+
+    bridge = WebBridge(settings={"model_json_path": str(first_model_path)})
+    old_profile = bridge._get_model_lip_sync_profile()
+    bridge.settings = {"model_json_path": str(second_model_path)}
+
+    assert bridge._get_model_lip_sync_profile() is not old_profile
