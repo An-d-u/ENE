@@ -33,6 +33,7 @@ from .chat_attachments import (
     prepare_attachments,
 )
 from .obs_settings import ObsSettings
+from .model_lip_sync_profile import load_model_lip_sync_profile_for_model_json
 from .tts_sync_controller import TTSSyncController
 
 VISIBLE_RESPONSE_ANALYSIS_KEYS = (
@@ -533,6 +534,7 @@ class WebBridge(QObject):
     message_received = pyqtSignal(str, str)  # (텍스트, 감정)
     expression_changed = pyqtSignal(str)     # 표정 변경
     lip_sync_update = pyqtSignal(float)      # 립싱크 업데이트 (mouth_value)
+    mouth_pose_update = pyqtSignal(str)      # 모델 적응형 입모양 JSON
     reroll_state_changed = pyqtSignal(bool)  # 리롤 응답 교체 모드 on/off
     summary_notice = pyqtSignal(str, str)    # (메시지, 레벨)
     mood_changed = pyqtSignal(str, float, float, float, float, str)  # (라벨, valence, energy, bond, stress, 단기 분위기)
@@ -593,6 +595,9 @@ class WebBridge(QObject):
         self._sync_controller = TTSSyncController()
         self._sync_started = False
         self._sync_using_rms_fallback = False
+        self._stream_future_viseme_frames = []
+        self._model_lip_sync_profile = None
+        self._model_lip_sync_profile_key = None
         
         # 립싱크 데이터 및 타이머
         self.lip_sync_data = None
@@ -2962,6 +2967,74 @@ class WebBridge(QObject):
                 }
 
         return json.dumps(usage, ensure_ascii=False)
+
+    def _get_settings_value(self, key: str, default=None):
+        """Settings 객체나 dict 어디서든 값을 읽는다."""
+        if isinstance(self.settings, dict):
+            return self.settings.get(key, default)
+        getter = getattr(self.settings, "get", None)
+        if callable(getter):
+            try:
+                return getter(key, default)
+            except TypeError:
+                return getter(key)
+        return default
+
+    def _get_model_lip_sync_profile(self):
+        """현재 모델 경로 기준 립싱크 프로파일을 캐시해 반환한다."""
+        model_json_path = str(self._get_settings_value("model_json_path", "") or "").strip()
+        cache_key = model_json_path or "__default__"
+        if self._model_lip_sync_profile is not None and self._model_lip_sync_profile_key is None:
+            return self._model_lip_sync_profile
+        if self._model_lip_sync_profile is not None and self._model_lip_sync_profile_key == cache_key:
+            return self._model_lip_sync_profile
+
+        settings_source = self.settings if isinstance(self.settings, dict) else None
+        self._model_lip_sync_profile = load_model_lip_sync_profile_for_model_json(
+            model_json_path=model_json_path or None,
+            settings_source=settings_source,
+        )
+        self._model_lip_sync_profile_key = cache_key
+        return self._model_lip_sync_profile
+
+    def _build_mouth_pose(self, rms_open: float, viseme: str | None = None, confidence: float = 0.0) -> dict:
+        """RMS와 viseme를 합쳐 모델 적응형 입모양 payload를 만든다."""
+        profile = self._get_model_lip_sync_profile()
+        threshold = float(profile.fallback.get("confidence_threshold", 0.55) or 0.55)
+        shape_weight = float(profile.fallback.get("viseme_shape_weight", 0.75) or 0.75)
+        open_value = max(0.0, min(float(rms_open), 1.0))
+        normalized_confidence = max(0.0, min(float(confidence), 1.0))
+        viseme_key = str(viseme or "sil").strip() or "sil"
+        viseme_payload = profile.viseme_map.get(viseme_key, profile.viseme_map.get("sil", {}))
+
+        pose = {
+            "open": open_value,
+            "jaw": 0.0,
+            "form": 0.0,
+            "funnel": 0.0,
+            "pucker_widen": 0.0,
+            "tongue": 0.0,
+            "confidence": normalized_confidence,
+            "source": "rms",
+        }
+
+        if viseme_payload:
+            viseme_open = float(viseme_payload.get("mouth_open", open_value))
+            pose["open"] = max(open_value, viseme_open * normalized_confidence)
+            pose["source"] = "viseme_blend" if normalized_confidence >= threshold else "rms_blend"
+
+            confidence_scale = 1.0
+            if normalized_confidence < threshold and threshold > 0:
+                confidence_scale = normalized_confidence / threshold
+            scaled_weight = shape_weight * confidence_scale
+
+            pose["jaw"] = max(float(viseme_payload.get("jaw_open", 0.0)) * scaled_weight, pose["open"] * 0.45 if "jaw_open" in profile.param_bindings else 0.0)
+            pose["form"] = float(viseme_payload.get("mouth_form", 0.0)) * scaled_weight
+            pose["funnel"] = float(viseme_payload.get("mouth_funnel", 0.0)) * scaled_weight
+            pose["pucker_widen"] = float(viseme_payload.get("mouth_pucker_widen", 0.0)) * scaled_weight
+            pose["tongue"] = float(viseme_payload.get("tongue", 0.0)) * scaled_weight
+
+        return pose
 
     def _on_tts_stream_format(self, sample_rate: int, channels: int, sample_width: int):
         """스트리밍 TTS의 PCM 포맷이 준비되면 재생기를 시작한다."""
