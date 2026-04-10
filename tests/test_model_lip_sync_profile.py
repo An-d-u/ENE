@@ -3,6 +3,7 @@ import json
 from src.core.model_lip_sync_profile import (
     build_model_lip_sync_profile_from_params,
     load_model_lip_sync_profile,
+    load_model_lip_sync_profile_for_model_json,
 )
 
 
@@ -70,3 +71,33 @@ def test_invalid_override_file_falls_back_to_auto_detected_profile(tmp_path):
     )
 
     assert profile.mode == "open_only"
+
+
+def test_model_json_loader_detects_vbridger_profile_for_jksalt_like_params(tmp_path):
+    model_dir = tmp_path / "jksalt"
+    model_dir.mkdir()
+    model_path = model_dir / "jksalt.model3.json"
+    model_path.write_text(
+        json.dumps({"Groups": []}, ensure_ascii=False),
+        encoding="utf-8-sig",
+    )
+    model_path.with_suffix(".cdi3.json").write_text(
+        json.dumps(
+            {
+                "Parameters": [
+                    {"Id": "ParamMouthOpenY"},
+                    {"Id": "ParamMouthForm"},
+                    {"Id": "ParamMouthFunnel"},
+                    {"Id": "ParamMouthPuckerWiden"},
+                    {"Id": "ParamJawOpen"},
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8-sig",
+    )
+
+    profile = load_model_lip_sync_profile_for_model_json(model_path)
+
+    assert profile.mode == "vbridger"
+    assert profile.viseme_map["O"]["mouth_funnel"] > 0.3

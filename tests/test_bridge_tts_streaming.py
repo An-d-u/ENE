@@ -3,6 +3,7 @@ import json
 from PyQt6.QtCore import QCoreApplication
 
 from src.ai.tts_client import create_tts_client
+from src.ai.viseme_stream_analyzer import VisemeFrame
 from src.core.bridge import WebBridge
 from src.core.model_lip_sync_profile import build_model_lip_sync_profile_from_params
 
@@ -231,3 +232,30 @@ def test_bridge_invalidates_profile_cache_when_model_path_changes(tmp_path):
     bridge.settings = {"model_json_path": str(second_model_path)}
 
     assert bridge._get_model_lip_sync_profile() is not old_profile
+
+
+def test_bridge_emits_mouth_pose_payload_with_stream_viseme_shape():
+    _ensure_qt_app()
+
+    bridge = WebBridge()
+    bridge._model_lip_sync_profile = build_model_lip_sync_profile_from_params(
+        {
+            "ParamMouthOpenY",
+            "ParamMouthForm",
+            "ParamMouthFunnel",
+            "ParamMouthPuckerWiden",
+            "ParamJawOpen",
+        }
+    )
+    bridge._sync_controller.push_viseme_frames(
+        [VisemeFrame(timestamp=0.05, viseme="U", confidence=0.9)]
+    )
+
+    emitted = []
+    bridge.mouth_pose_update.connect(lambda payload: emitted.append(json.loads(payload)))
+
+    bridge._emit_mouth_signals(0.3, timestamp_sec=0.05)
+
+    assert emitted
+    assert emitted[-1]["open"] >= 0.3
+    assert emitted[-1]["funnel"] > 0.0
