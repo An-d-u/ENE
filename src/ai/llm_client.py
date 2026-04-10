@@ -38,6 +38,7 @@ class GeminiClient:
         generation_params: dict | None = None,
         memory_manager=None,
         user_profile=None,
+        ene_profile=None,
         settings=None,
         calendar_manager=None,
         mood_manager=None,
@@ -58,6 +59,7 @@ class GeminiClient:
         self.generation_params = self._normalize_generation_params(generation_params)
         self.memory_manager = memory_manager
         self.user_profile = user_profile
+        self.ene_profile = ene_profile
         self.settings = settings
         self.calendar_manager = calendar_manager
         self.mood_manager = mood_manager
@@ -350,6 +352,45 @@ class GeminiClient:
                         fact_lines.append(f"- [{fact.category}] : {fact.content}")
                     context_parts.append("\n".join(fact_lines))
                     print(f"[LLM] facts 포함: {len(facts)}개 항목")
+
+        ene_profile = getattr(self, "ene_profile", None)
+        if ene_profile:
+            core_profile = getattr(ene_profile, "core_profile", {}) or {}
+            ene_core_lines = ["[에네 기본 설정]"]
+            for group_name in ("identity", "speaking_style", "relationship_tone"):
+                values = core_profile.get(group_name, []) or []
+                for value in values:
+                    text = str(value or "").strip()
+                    if text:
+                        ene_core_lines.append(f"- {text}")
+            if len(ene_core_lines) > 1:
+                context_parts.append("\n".join(ene_core_lines))
+                print(f"[LLM] 에네 기본 설정 포함: {len(ene_core_lines) - 1}개 항목")
+
+            raw_ene_facts = list(getattr(ene_profile, "facts", []) or [])
+            if raw_ene_facts:
+                sorted_ene_facts = sorted(
+                    raw_ene_facts,
+                    key=lambda fact: (
+                        0 if getattr(fact, "origin", "") == "manual" and not getattr(fact, "auto_update", True) else
+                        1 if getattr(fact, "origin", "") == "manual" else
+                        2,
+                        str(getattr(fact, "timestamp", "") or ""),
+                    ),
+                )
+                ene_fact_lines = ["[에네에 대한 누적 정보]"]
+                for fact in sorted_ene_facts[:max_profile_facts]:
+                    category = str(getattr(fact, "category", "") or "").strip()
+                    content = str(getattr(fact, "content", "") or "").strip()
+                    if not content:
+                        continue
+                    if category:
+                        ene_fact_lines.append(f"- [{category}] {content}")
+                    else:
+                        ene_fact_lines.append(f"- {content}")
+                if len(ene_fact_lines) > 1:
+                    context_parts.append("\n".join(ene_fact_lines))
+                    print(f"[LLM] 에네 facts 포함: {len(ene_fact_lines) - 1}개 항목")
         
         # 설정값 가져오기
         if self.mood_manager and hasattr(self.mood_manager, "build_context_block"):
@@ -586,7 +627,7 @@ class GeminiClient:
             traceback.print_exc()
             raise
     
-    async def summarize_conversation(self, messages: list) -> tuple[str, list[str], dict]:
+    async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
         """
         대화 내용 요약 및 사용자 정보 추출
         
@@ -594,7 +635,7 @@ class GeminiClient:
             messages: [(role, content), ...] 형식의 메시지 리스트
             
         Returns:
-            (요약 텍스트, 사용자 정보 목록, 메모리 메타데이터) 튜플
+            (요약 텍스트, 사용자 정보 목록, 에네 정보 목록, 메모리 메타데이터) 튜플
         """
         try:
             # 현재 시간 가져오기
@@ -699,7 +740,7 @@ class GeminiClient:
                     current_profile = "\n".join(profile_lines)
             
             # 요약 + 정보 추출 프롬프트 (시간 정보 강조)
-            summarize_prompt = f"""아래 대화를 요약하고, 마스터 정보를 추출하세요.
+            summarize_prompt = f"""아래 대화를 요약하고, 마스터 정보와 에네 정보를 추출하세요.
 [CURRENT_PROFILE]
 {current_profile}
 
@@ -729,6 +770,16 @@ class GeminiClient:
 - [goal] ...
 - [habit] ...
 
+[ENE_INFO]
+- 없으면: none
+- 있으면 아래 형식으로만 작성:
+- [basic] ...
+- [preference] ...
+- [goal] ...
+- [habit] ...
+- [speaking_style] ...
+- [relationship_tone] ...
+
 [MEMORY_META]
 - 없으면: none
 - 있으면 아래 형식으로만 작성:
@@ -742,16 +793,20 @@ class GeminiClient:
 - preference: 선호하는 방식이나 취향/스타일
 - goal: 달성하려는 목표
 - habit: 반복되는 행동/루틴 성향
+- speaking_style: 에네가 유지하는 말투, 설명 방식, 반응 스타일
+- relationship_tone: 사용자와의 지속적인 거리감, 태도, 챙김 방식
 
 [DISALLOW]
 - 감정/기분/피곤함/흥분 등 일시적 상태
 - 단순 인사/추임새
 - 이미 basic 정보와 중복되는 취업/전공 진술
+- 사용자에 대한 정보를 에네 정보처럼 옮겨 적는 것
 - 근거 없는 추측성 정보
 
 [DEDUP]
 - 기존 정보와 의미가 같으면 새로 쓰지 마세요.
 - 같은 의미의 문장은 더 구체적인 1개만 남기세요.
+- 사용자 정보와 에네 정보가 겹치면 에네 정보에는 쓰지 마세요.
 
 [STYLE]
 - 너무 길지 않게 간결하게 작성하세요.
@@ -771,7 +826,7 @@ class GeminiClient:
             response_text = response.text.strip()
             
             # 응답 파싱
-            summary, user_facts, memory_meta = self._parse_summary_response(response_text)
+            summary, user_facts, ene_facts, memory_meta = self._parse_summary_response(response_text)
 
             # 요약에 날짜 정보가 없으면 최소한 시간 범위를 보강
             has_date = (
@@ -784,17 +839,19 @@ class GeminiClient:
             print(f"[LLM] 요약 생성 완료: {summary[:50]}...")
             if user_facts:
                 print(f"[LLM] 마스터 정보 {len(user_facts)}개 추출: {user_facts}")
+            if ene_facts:
+                print(f"[LLM] 에네 정보 {len(ene_facts)}개 추출: {ene_facts}")
             if memory_meta:
                 print(f"[LLM] 메모리 메타 추출: {memory_meta}")
             
-            return summary, user_facts, memory_meta
+            return summary, user_facts, ene_facts, memory_meta
             
         except Exception as e:
             print(f"[LLM] 요약 생성 실패: {e}")
             import traceback
             traceback.print_exc()
             # 실패 시 간단한 요약 반환
-            return f"대화 {len(messages)}개 메시지", [], {}
+            return f"대화 {len(messages)}개 메시지", [], [], {}
     
     def _parse_summary_memory_meta(self, meta_lines: list[str]) -> dict:
         """요약 응답의 MEMORY_META 섹션을 정규화된 딕셔너리로 파싱한다."""
@@ -842,10 +899,11 @@ class GeminiClient:
 
         return memory_meta
 
-    def _parse_summary_response(self, response_text: str) -> tuple[str, list[str], dict]:
-        """요약 응답 파싱 ([SUMMARY], [MASTER_INFO], [MEMORY_META] 분리)."""
+    def _parse_summary_response(self, response_text: str) -> tuple[str, list[str], list[str], dict]:
+        """요약 응답 파싱 ([SUMMARY], [MASTER_INFO], [ENE_INFO], [MEMORY_META] 분리)."""
         summary_lines: list[str] = []
         user_facts: list[str] = []
+        ene_facts: list[str] = []
         memory_meta_lines: list[str] = []
 
         try:
@@ -870,13 +928,20 @@ class GeminiClient:
                 ):
                     current_section = "facts"
                     continue
+                if upper in {"[ENE_INFO]", "ENE_INFO"} or "[에네 정보]" in line or "ENE INFO" in upper:
+                    current_section = "ene_facts"
+                    continue
                 if upper in {"[MEMORY_META]", "MEMORY_META"} or "[기억 메타]" in line:
                     current_section = "memory_meta"
                     continue
 
                 if current_section == "summary":
                     # 사실 라인 형태는 summary에 섞이지 않게 제외
-                    if re.match(r"^-\s*\[(basic|preference|goal|habit)\]\s*.+$", line, re.IGNORECASE):
+                    if re.match(
+                        r"^-\s*\[(basic|preference|goal|habit|speaking_style|relationship_tone)\]\s*.+$",
+                        line,
+                        re.IGNORECASE,
+                    ):
                         continue
                     if line.startswith("-"):
                         line = line[1:].strip()
@@ -903,6 +968,29 @@ class GeminiClient:
                         user_facts.append(fact_line)
                     continue
 
+                if current_section == "ene_facts":
+                    if not line.startswith("-"):
+                        continue
+                    fact_line = line[1:].strip()
+                    if not fact_line:
+                        continue
+                    if fact_line.lower() in {"none", "none.", "없음"}:
+                        continue
+
+                    tagged = re.match(
+                        r"^\[(basic|preference|goal|habit|speaking_style|relationship_tone)\]\s*(.+)$",
+                        fact_line,
+                        re.IGNORECASE,
+                    )
+                    if tagged:
+                        category = tagged.group(1).lower()
+                        content = tagged.group(2).strip()
+                        if content:
+                            ene_facts.append(f"[{category}] {content}")
+                    else:
+                        ene_facts.append(fact_line)
+                    continue
+
                 if current_section == "memory_meta":
                     memory_meta_lines.append(line)
 
@@ -919,9 +1007,10 @@ class GeminiClient:
             non_empty = [ln.strip() for ln in response_text.split("\n") if ln.strip()]
             summary = " ".join(non_empty[:2]).strip()
             user_facts = []
+            ene_facts = []
             memory_meta = {}
 
-        return summary, user_facts, memory_meta
+        return summary, user_facts, ene_facts, memory_meta
 
     def _parse_analysis_lines(self, raw_block: str) -> Dict[str, str]:
         """analysis 메타 블록의 key=value 줄을 안전하게 파싱한다."""
