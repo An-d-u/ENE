@@ -119,6 +119,23 @@ class _TruthyEmptyUserProfile(_DummyUserProfile):
         return True
 
 
+class _DummyEneProfile:
+    def __init__(self, core_profile=None, facts=None):
+        self.core_profile = core_profile or {
+            "identity": [],
+            "speaking_style": [],
+            "relationship_tone": [],
+        }
+        self.facts = list(facts or [])
+        self.saved = False
+
+    def save(self):
+        self.saved = True
+
+    def delete_fact(self, index):
+        self.facts.pop(index)
+
+
 class _DummyMemoryManager:
     def __init__(self, memories):
         self.memories = list(memories)
@@ -854,6 +871,78 @@ def test_profile_dialog_translates_sections_fields_and_empty_state(tmp_path, mon
     dislikes_only_dialog.close()
 
 
+def test_ene_profile_dialog_translates_sections_and_controls(tmp_path):
+    _get_qapp()
+    locales_dir = tmp_path / "locales"
+    locales_dir.mkdir()
+    _write_locales(
+        locales_dir,
+        en_data={
+            "ene_profile.window.title": "ENE Profile Manager",
+            "ene_profile.stats.summary": "Core {core_count} | Learned {fact_count}",
+            "ene_profile.button.close": "Close",
+            "ene_profile.button.refresh": "Refresh",
+            "ene_profile.button.save": "Save",
+            "ene_profile.section.core": "Core Profile",
+            "ene_profile.section.facts": "Learned Facts",
+            "ene_profile.core.identity": "Identity",
+            "ene_profile.core.speaking_style": "Speaking Style",
+            "ene_profile.core.relationship_tone": "Relationship Tone",
+            "ene_profile.category.speaking_style": "Speaking Style",
+            "ene_profile.origin.auto": "Auto",
+            "ene_profile.source.label": "Source: {source}",
+        },
+        ja_data={
+            "ene_profile.window.title": "エネ情報管理",
+            "ene_profile.stats.summary": "基本設定 {core_count}件 | 学習情報 {fact_count}件",
+            "ene_profile.button.close": "閉じる",
+            "ene_profile.button.refresh": "更新",
+            "ene_profile.button.save": "保存",
+            "ene_profile.section.core": "基本設定",
+            "ene_profile.section.facts": "学習情報",
+            "ene_profile.core.identity": "自己定義",
+            "ene_profile.core.speaking_style": "話し方",
+            "ene_profile.core.relationship_tone": "関係トーン",
+            "ene_profile.category.speaking_style": "話し方",
+            "ene_profile.origin.auto": "自動",
+            "ene_profile.source.label": "出典: {source}",
+        },
+    )
+    configure_i18n(language="ja", locales_dir=locales_dir, system_locale="en_US")
+
+    from src.ui.ene_profile_dialog import EneProfileDialog
+
+    profile = _DummyEneProfile(
+        core_profile={
+            "identity": ["에네는 차분한 데스크톱 동반자다."],
+            "speaking_style": ["짧고 단정한 문장을 선호한다."],
+            "relationship_tone": ["사용자를 다정하게 챙긴다."],
+        },
+        facts=[
+            SimpleNamespace(
+                timestamp="2026-03-24T09:30:00",
+                category="speaking_style",
+                content="짧고 단정한 말투를 유지한다.",
+                source="대화 요약 (2026-03-24 09:30)",
+                origin="auto",
+                auto_update=True,
+            )
+        ],
+    )
+    dialog = EneProfileDialog(profile)
+
+    assert dialog.windowTitle() == "エネ情報管理"
+    assert dialog.stats_label.text() == "基本設定 3件 | 学習情報 1件"
+    assert dialog.core_group.title() == "基本設定"
+    assert dialog.fact_group.title() == "学習情報"
+    assert {button.text() for button in dialog.findChildren(QPushButton)} >= {"閉じる", "更新", "保存"}
+    assert dialog.core_list.count() == 3
+    assert dialog.fact_list.count() == 1
+    assert "自己定義" in dialog.core_list.item(0).text()
+    assert "話し方" in dialog.fact_list.item(0).text()
+    dialog.close()
+
+
 def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tmp_path, monkeypatch):
     _get_qapp()
     locales_dir = tmp_path / "locales"
@@ -948,6 +1037,10 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
             "memory.profile.missing.body": "User profile is not initialized.",
             "memory.profile.empty.title": "No profile data",
             "memory.profile.empty.body": "No profile information is saved yet.\nChat to extract information automatically.",
+            "memory.ene_profile.missing.title": "No ENE profile",
+            "memory.ene_profile.missing.body": "ENE profile is not initialized.",
+            "memory.ene_profile.empty.title": "No ENE profile data",
+            "memory.ene_profile.empty.body": "No ENE information is saved yet.\nTalk more to let ENE build self-information.",
         },
         ja_data={
             "memory.window.title": "ENE メモリ管理",
@@ -1037,6 +1130,10 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
             "memory.profile.missing.body": "ユーザープロフィールが初期化されていません。",
             "memory.profile.empty.title": "プロフィール情報なし",
             "memory.profile.empty.body": "まだ保存されたプロフィール情報はありません。\n会話すると自動で情報が抽出されます。",
+            "memory.ene_profile.missing.title": "エネ情報なし",
+            "memory.ene_profile.missing.body": "エネプロフィールが初期化されていません。",
+            "memory.ene_profile.empty.title": "エネ情報なし",
+            "memory.ene_profile.empty.body": "まだ保存されたエネ情報はありません。\n会話を重ねると自動で自己情報が蓄積されます。",
         },
     )
     configure_i18n(language="ja", locales_dir=locales_dir, system_locale="en_US")
@@ -1052,6 +1149,7 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
             }
         ),
         user_profile=None,
+        ene_profile=_DummyEneProfile(),
     )
     manager = _DummyMemoryManager(
         [
@@ -1167,6 +1265,7 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
     warnings = []
     infos = []
     opened_profile_dialogs = []
+    opened_ene_profile_dialogs = []
 
     def fake_question(parent, title, text, buttons, default_button):
         questions.append((title, text))
@@ -1182,23 +1281,36 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
     monkeypatch.setattr("PyQt6.QtWidgets.QMessageBox.warning", fake_warning)
     monkeypatch.setattr("PyQt6.QtWidgets.QMessageBox.information", fake_information)
     monkeypatch.setattr("src.ui.profile_dialog.ProfileDialog.exec", lambda self: opened_profile_dialogs.append(self))
+    monkeypatch.setattr("src.ui.ene_profile_dialog.EneProfileDialog.exec", lambda self: opened_ene_profile_dialogs.append(self))
 
     dialog._delete_memory()
     delattr(dialog.bridge, "user_profile")
     dialog._show_profile_dialog()
+    delattr(dialog.bridge, "ene_profile")
+    dialog._show_ene_profile_dialog()
 
     assert questions == [("削除の確認", "`Keeps launch checklists ready` を削除しますか？")]
-    assert warnings == [("プロフィールなし", "ユーザープロフィールが初期化されていません。")]
+    assert warnings == [
+        ("プロフィールなし", "ユーザープロフィールが初期化されていません。"),
+        ("エネ情報なし", "エネプロフィールが初期化されていません。"),
+    ]
 
     bridge.user_profile = _TruthyEmptyUserProfile()
+    bridge.ene_profile = _DummyEneProfile()
     dialog._show_profile_dialog()
+    dialog._show_ene_profile_dialog()
     assert infos == [
         (
             "プロフィール情報なし",
             "まだ保存されたプロフィール情報はありません。\n会話すると自動で情報が抽出されます。",
-        )
+        ),
+        (
+            "エネ情報なし",
+            "まだ保存されたエネ情報はありません。\n会話を重ねると自動で自己情報が蓄積されます。",
+        ),
     ]
     assert opened_profile_dialogs == []
+    assert opened_ene_profile_dialogs == []
     dialog.close()
 
     empty_dialog = MemoryDialog(_DummyMemoryManager([]), bridge=bridge)

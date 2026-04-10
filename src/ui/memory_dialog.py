@@ -232,6 +232,18 @@ class MemoryDialog(QDialog):
         facts = getattr(profile, "facts", None) or []
         return bool(facts)
 
+    def _ene_profile_has_content(self, profile) -> bool:
+        if profile is None:
+            return False
+
+        core_profile = getattr(profile, "core_profile", {}) or {}
+        for values in core_profile.values():
+            if any(str(value or "").strip() for value in (values or [])):
+                return True
+
+        facts = getattr(profile, "facts", None) or []
+        return bool(facts)
+
     def _setup_ui(self) -> None:
         root = QVBoxLayout(self)
         root.setContentsMargins(0 if self._embedded else 18, 0 if self._embedded else 18, 0 if self._embedded else 18, 0 if self._embedded else 18)
@@ -545,6 +557,19 @@ class MemoryDialog(QDialog):
         note.setObjectName("Body")
         note.setWordWrap(True)
         layout.addWidget(note)
+
+        profile_actions = QHBoxLayout()
+        profile_actions.setSpacing(8)
+
+        self.user_profile_btn = QPushButton(t("memory.profile.button"))
+        self.user_profile_btn.clicked.connect(self._show_profile_dialog)
+        profile_actions.addWidget(self.user_profile_btn)
+
+        self.ene_profile_btn = QPushButton(t("memory.ene_profile.button"))
+        self.ene_profile_btn.clicked.connect(self._show_ene_profile_dialog)
+        profile_actions.addWidget(self.ene_profile_btn)
+
+        layout.addLayout(profile_actions)
         layout.addStretch(1)
         return card
 
@@ -1152,6 +1177,28 @@ class MemoryDialog(QDialog):
         from src.ui.profile_dialog import ProfileDialog
 
         dialog = ProfileDialog(self.bridge.user_profile, self)
+        dialog.exec()
+
+    def _show_ene_profile_dialog(self):
+        if not self.bridge or not hasattr(self.bridge, "ene_profile"):
+            QMessageBox.warning(
+                self,
+                t("memory.ene_profile.missing.title"),
+                t("memory.ene_profile.missing.body"),
+            )
+            return
+
+        if not self._ene_profile_has_content(self.bridge.ene_profile):
+            QMessageBox.information(
+                self,
+                t("memory.ene_profile.empty.title"),
+                t("memory.ene_profile.empty.body"),
+            )
+            return
+
+        from src.ui.ene_profile_dialog import EneProfileDialog
+
+        dialog = EneProfileDialog(self.bridge.ene_profile, self)
         dialog.exec()
 
     def _format_timestamp(self, timestamp: str) -> str:

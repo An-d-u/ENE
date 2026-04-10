@@ -79,7 +79,7 @@ def _parse_summary_memory_meta_lines(meta_lines: list[str]) -> dict:
 
 def _build_summary_prompt(conversation_text: str) -> str:
     """HTTP 공급자 공통 요약 프롬프트를 생성한다."""
-    return f"""아래 대화를 요약하고 사용자 정보를 추출하세요.
+    return f"""아래 대화를 요약하고 사용자 정보와 에네 정보를 추출하세요.
 [CONVERSATION]
 {conversation_text}
 
@@ -94,6 +94,16 @@ def _build_summary_prompt(conversation_text: str) -> str:
 - [preference] ...
 - [goal] ...
 - [habit] ...
+
+[ENE_INFO]
+- 없으면 none
+- 있으면 아래 형식:
+- [basic] ...
+- [preference] ...
+- [goal] ...
+- [habit] ...
+- [speaking_style] ...
+- [relationship_tone] ...
 
 [MEMORY_META]
 - 없으면 none
@@ -413,13 +423,14 @@ class _CommonMixin:
         clean_text, japanese_text = self._extract_japanese_lines(clean_text)
         return clean_text, emotion, japanese_text, events, analysis, promises
 
-    def _parse_summary_response(self, response_text: str) -> tuple[str, list[str], dict]:
+    def _parse_summary_response(self, response_text: str) -> tuple[str, list[str], list[str], dict]:
         try:
             from .llm_client import GeminiClient
             return GeminiClient._parse_summary_response(self, response_text)
         except Exception:
             summary_lines = []
             user_facts = []
+            ene_facts = []
             memory_meta_lines = []
             section = None
             for raw in response_text.split("\n"):
@@ -433,6 +444,9 @@ class _CommonMixin:
                 if up in {"[MASTER_INFO]", "MASTER_INFO"}:
                     section = "facts"
                     continue
+                if up in {"[ENE_INFO]", "ENE_INFO"}:
+                    section = "ene_facts"
+                    continue
                 if up in {"[MEMORY_META]", "MEMORY_META"}:
                     section = "memory_meta"
                     continue
@@ -442,12 +456,16 @@ class _CommonMixin:
                     fact = line.lstrip("- ").strip()
                     if fact.lower() not in {"none", "none."}:
                         user_facts.append(fact)
+                elif section == "ene_facts" and line.startswith("-"):
+                    fact = line.lstrip("- ").strip()
+                    if fact.lower() not in {"none", "none."}:
+                        ene_facts.append(fact)
                 elif section == "memory_meta":
                     memory_meta_lines.append(line)
             summary = " ".join(summary_lines).strip()
             if not summary:
                 summary = response_text.strip().split("\n")[0].strip()
-            return summary, user_facts, _parse_summary_memory_meta_lines(memory_meta_lines)
+            return summary, user_facts, ene_facts, _parse_summary_memory_meta_lines(memory_meta_lines)
 
     def _is_japanese(self, text: str) -> bool:
         try:
@@ -534,6 +552,7 @@ class OpenAICompatibleClient(_CommonMixin):
         provider_name: str,
         memory_manager=None,
         user_profile=None,
+        ene_profile=None,
         settings=None,
         calendar_manager=None,
         mood_manager=None,
@@ -546,6 +565,7 @@ class OpenAICompatibleClient(_CommonMixin):
         self.provider_name = provider_name
         self.memory_manager = memory_manager
         self.user_profile = user_profile
+        self.ene_profile = ene_profile
         self.settings = settings
         self.calendar_manager = calendar_manager
         self.mood_manager = mood_manager
@@ -642,7 +662,7 @@ class OpenAICompatibleClient(_CommonMixin):
         self._remember_turn(message, raw_response_text)
         return clean_text, emotion, japanese_text, events, analysis, promises
 
-    async def summarize_conversation(self, messages: list) -> tuple[str, list[str], dict]:
+    async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
         conversation_text = "\n".join(
             [f"{item[0]}: {item[1]}" if len(item) >= 2 else str(item) for item in messages]
         )
@@ -660,6 +680,7 @@ class OpenAIResponseAPIClient(_CommonMixin):
         endpoint: str,
         memory_manager=None,
         user_profile=None,
+        ene_profile=None,
         settings=None,
         calendar_manager=None,
         mood_manager=None,
@@ -670,6 +691,7 @@ class OpenAIResponseAPIClient(_CommonMixin):
         self.endpoint = endpoint or "https://api.openai.com/v1/responses"
         self.memory_manager = memory_manager
         self.user_profile = user_profile
+        self.ene_profile = ene_profile
         self.settings = settings
         self.calendar_manager = calendar_manager
         self.mood_manager = mood_manager
@@ -816,7 +838,7 @@ class OpenAIResponseAPIClient(_CommonMixin):
         self._history.append({"role": "assistant", "content": raw_response_text})
         return clean_text, emotion, japanese_text, events, analysis, promises
 
-    async def summarize_conversation(self, messages: list) -> tuple[str, list[str], dict]:
+    async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
         conversation_text = "\n".join(
             [f"{item[0]}: {item[1]}" if len(item) >= 2 else str(item) for item in messages]
         )
@@ -903,6 +925,7 @@ class GoogleCloudClient(_CommonMixin):
         endpoint: str,
         memory_manager=None,
         user_profile=None,
+        ene_profile=None,
         settings=None,
         calendar_manager=None,
         mood_manager=None,
@@ -913,6 +936,7 @@ class GoogleCloudClient(_CommonMixin):
         self.endpoint = endpoint or "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
         self.memory_manager = memory_manager
         self.user_profile = user_profile
+        self.ene_profile = ene_profile
         self.settings = settings
         self.calendar_manager = calendar_manager
         self.mood_manager = mood_manager
@@ -1048,7 +1072,7 @@ class GoogleCloudClient(_CommonMixin):
         self._remember_turn(message, raw_response_text)
         return clean_text, emotion, japanese_text, events, analysis, promises
 
-    async def summarize_conversation(self, messages: list) -> tuple[str, list[str], dict]:
+    async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
         conversation_text = "\n".join(
             [f"{item[0]}: {item[1]}" if len(item) >= 2 else str(item) for item in messages]
         )
@@ -1066,6 +1090,7 @@ class CohereClient(_CommonMixin):
         endpoint: str,
         memory_manager=None,
         user_profile=None,
+        ene_profile=None,
         settings=None,
         calendar_manager=None,
         mood_manager=None,
@@ -1076,6 +1101,7 @@ class CohereClient(_CommonMixin):
         self.endpoint = endpoint or "https://api.cohere.com/v1/chat"
         self.memory_manager = memory_manager
         self.user_profile = user_profile
+        self.ene_profile = ene_profile
         self.settings = settings
         self.calendar_manager = calendar_manager
         self.mood_manager = mood_manager
@@ -1172,7 +1198,7 @@ class CohereClient(_CommonMixin):
         self._remember_turn(message, raw_response_text)
         return clean_text, emotion, japanese_text, events, analysis, promises
 
-    async def summarize_conversation(self, messages: list) -> tuple[str, list[str], dict]:
+    async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
         conversation_text = "\n".join(
             [f"{item[0]}: {item[1]}" if len(item) >= 2 else str(item) for item in messages]
         )
@@ -1190,6 +1216,7 @@ class AnthropicClient(_CommonMixin):
         endpoint: str,
         memory_manager=None,
         user_profile=None,
+        ene_profile=None,
         settings=None,
         calendar_manager=None,
         mood_manager=None,
@@ -1200,6 +1227,7 @@ class AnthropicClient(_CommonMixin):
         self.endpoint = endpoint
         self.memory_manager = memory_manager
         self.user_profile = user_profile
+        self.ene_profile = ene_profile
         self.settings = settings
         self.calendar_manager = calendar_manager
         self.mood_manager = mood_manager
@@ -1300,7 +1328,7 @@ class AnthropicClient(_CommonMixin):
         self._remember_turn(message, raw_response_text)
         return clean_text, emotion, japanese_text, events, analysis, promises
 
-    async def summarize_conversation(self, messages: list) -> tuple[str, list[str], dict]:
+    async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
         conversation_text = "\n".join(
             [f"{item[0]}: {item[1]}" if len(item) >= 2 else str(item) for item in messages]
         )
@@ -1318,6 +1346,7 @@ class OllamaClient(_CommonMixin):
         endpoint: str,
         memory_manager=None,
         user_profile=None,
+        ene_profile=None,
         settings=None,
         calendar_manager=None,
         mood_manager=None,
@@ -1328,6 +1357,7 @@ class OllamaClient(_CommonMixin):
         self.endpoint = endpoint
         self.memory_manager = memory_manager
         self.user_profile = user_profile
+        self.ene_profile = ene_profile
         self.settings = settings
         self.calendar_manager = calendar_manager
         self.mood_manager = mood_manager
@@ -1441,7 +1471,7 @@ class OllamaClient(_CommonMixin):
         self._remember_turn(message, raw_response_text)
         return clean_text, emotion, japanese_text, events, analysis, promises
 
-    async def summarize_conversation(self, messages: list) -> tuple[str, list[str], dict]:
+    async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
         conversation_text = "\n".join(
             [f"{item[0]}: {item[1]}" if len(item) >= 2 else str(item) for item in messages]
         )
