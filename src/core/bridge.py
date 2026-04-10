@@ -705,12 +705,14 @@ class WebBridge(QObject):
         if notice:
             self.summary_notice.emit(notice, "info")
     
-    def set_memory_manager(self, memory_manager, _llm_client, user_profile=None):
-        """메모리 매니저 및 사용자 프로필 설정"""
+    def set_memory_manager(self, memory_manager, _llm_client, user_profile=None, ene_profile=None):
+        """메모리 매니저 및 사용자/에네 프로필 설정"""
         self.memory_manager = memory_manager
         self.user_profile = user_profile
+        self.ene_profile = ene_profile
         print(f"[Bridge] Memory manager set: {memory_manager is not None}")
         print(f"[Bridge] User profile set: {user_profile is not None}")
+        print(f"[Bridge] ENE profile set: {ene_profile is not None}")
     
     def set_tts(self, tts_client, audio_player):
         """TTS 클라이언트 및 오디오 플레이어 설정"""
@@ -3333,9 +3335,12 @@ class WebBridge(QObject):
                 else:
                     original_messages.append(item[1])  # (role, msg)
             
-            # LLM으로 요약 + 사용자 정보 생성
+            # LLM으로 요약 + 사용자/에네 정보 생성
             summary_result = await self.llm_client.summarize_conversation(messages)
-            if isinstance(summary_result, tuple) and len(summary_result) == 3:
+            ene_facts = []
+            if isinstance(summary_result, tuple) and len(summary_result) == 4:
+                summary, user_facts, ene_facts, memory_meta = summary_result
+            elif isinstance(summary_result, tuple) and len(summary_result) == 3:
                 summary, user_facts, memory_meta = summary_result
             elif isinstance(summary_result, tuple) and len(summary_result) == 2:
                 summary, user_facts = summary_result
@@ -3345,6 +3350,12 @@ class WebBridge(QObject):
 
             if not isinstance(memory_meta, dict):
                 memory_meta = {}
+            if not isinstance(ene_facts, list):
+                ene_facts = []
+
+            source_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M')
+            if messages and len(messages[-1]) == 3 and messages[-1][2]:
+                source_timestamp = str(messages[-1][2]).strip()
             
             # 메모리에 요약 저장
             await self.memory_manager.add_summary(
@@ -3365,7 +3376,18 @@ class WebBridge(QObject):
                     self.user_profile.add_fact(
                         content=fact,
                         category="fact",
-                        source=f"대화 요약 ({datetime.now().strftime('%Y-%m-%d %H:%M')})"
+                        source=f"대화 요약 ({source_timestamp})"
+                    )
+
+            if ene_facts and hasattr(self, 'ene_profile') and self.ene_profile:
+                print(f"[Bridge] 에네 정보 {len(ene_facts)}개 저장")
+                for fact in ene_facts:
+                    self.ene_profile.add_fact(
+                        content=fact,
+                        category="fact",
+                        source=f"대화 요약 ({source_timestamp})",
+                        origin="auto",
+                        auto_update=True,
                     )
 
             clear_context = getattr(self.llm_client, "clear_context", None)
@@ -3379,6 +3401,8 @@ class WebBridge(QObject):
             print(f"[Bridge] 대화 요약 완료: {summary[:50]}...")
             if user_facts:
                 print(f"[Bridge] 마스터 정보: {user_facts}")
+            if ene_facts:
+                print(f"[Bridge] 에네 정보: {ene_facts}")
             
         except Exception as e:
             print(f"[Bridge] 자동 요약 실패: {e}")

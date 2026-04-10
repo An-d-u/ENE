@@ -60,7 +60,7 @@ class _DummyLLMClient:
 
     async def summarize_conversation(self, messages):
         self.summarize_calls.append(list(messages))
-        return "압축된 요약", [], {
+        return "압축된 요약", [], ["[speaking_style] 짧고 단정한 말투를 유지한다."], {
             "memory_type": "task",
             "importance_reason": "repeated_topic",
             "confidence": 0.81,
@@ -85,6 +85,7 @@ def test_auto_summarize_clears_llm_chat_context_after_persisting_summary():
     dummy.memory_manager = _DummyMemoryManager()
     dummy.llm_client = _DummyLLMClient()
     dummy.user_profile = None
+    dummy.ene_profile = _DummyEneProfile()
 
     asyncio.run(WebBridge._auto_summarize(dummy))
 
@@ -99,6 +100,16 @@ def test_auto_summarize_clears_llm_chat_context_after_persisting_summary():
             "importance_reason": "repeated_topic",
             "confidence": 0.81,
             "entity_names": ["ENE"],
+        }
+    ]
+    assert dummy.ene_profile.calls == [
+        {
+            "content": "[speaking_style] 짧고 단정한 말투를 유지한다.",
+            "category": "fact",
+            "source": "대화 요약 (2026-03-24 10:02)",
+            "origin": "auto",
+            "auto_update": True,
+            "confidence": None,
         }
     ]
     assert dummy.llm_client.clear_context_calls == 1
@@ -121,6 +132,59 @@ class _DummyProfile:
 
     def get_all_facts(self):
         return list(self._facts)
+
+
+class _DummyEneProfile:
+    def __init__(self):
+        self.calls = []
+        self.core_profile = {
+            "identity": ["에네는 차분한 동반자다."],
+            "speaking_style": [],
+            "relationship_tone": [],
+        }
+        self.facts = []
+
+    def add_fact(self, content, category="fact", source="", origin="auto", auto_update=True, confidence=None):
+        self.calls.append(
+            {
+                "content": content,
+                "category": category,
+                "source": source,
+                "origin": origin,
+                "auto_update": auto_update,
+                "confidence": confidence,
+            }
+        )
+
+
+def test_build_memory_context_includes_ene_profile_blocks():
+    dummy = type("ClientDummy", (), {})()
+    dummy.memory_manager = _EmptyMemoryManager()
+    dummy.user_profile = _DummyProfile([])
+    dummy.ene_profile = _DummyEneProfile()
+    dummy.ene_profile.facts = [
+        type(
+            "Fact",
+            (),
+            {
+                "category": "speaking_style",
+                "content": "짧고 단정한 말투를 유지한다.",
+                "origin": "auto",
+                "auto_update": True,
+                "timestamp": "2026-03-24T10:00:00",
+            },
+        )()
+    ]
+    dummy.mood_manager = None
+    dummy.settings = type("SettingsDummy", (), {"config": {"max_profile_facts_in_context": 2}})()
+    dummy.calendar_manager = None
+
+    context = asyncio.run(GeminiClient._build_memory_context(dummy, "에네는 어떤 말투야?"))
+
+    assert "[에네 기본 설정]" in context
+    assert "에네는 차분한 동반자다." in context
+    assert "[에네에 대한 누적 정보]" in context
+    assert "[speaking_style] 짧고 단정한 말투를 유지한다." in context
 
 
 class _EmptyMemoryManager:
@@ -210,6 +274,8 @@ def test_on_response_ready_rebuilds_llm_history_from_visible_conversation_only()
     dummy._check_auto_summarize = lambda: None
     dummy._resolve_token_usage_payload = lambda payload="": payload or "{}"
     dummy._sanitize_visible_response_text = lambda text: WebBridge._sanitize_visible_response_text(dummy, text)
+    dummy._collect_promise_ids = lambda stored: WebBridge._collect_promise_ids(dummy, stored)
+    dummy._remember_tracked_promise_ids = lambda promise_ids: None
     dummy._refresh_llm_history_from_visible_conversation = (
         lambda: WebBridge._refresh_llm_history_from_visible_conversation(dummy)
     )
