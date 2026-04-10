@@ -2747,6 +2747,7 @@ class WebBridge(QObject):
         self._sync_controller = TTSSyncController()
         self._sync_started = False
         self._sync_using_rms_fallback = False
+        self._stream_future_viseme_frames = []
 
     def _get_stream_sync_elapsed_ms(self) -> int:
         """스트리밍 동기화 게이트가 열린 뒤 경과한 시간을 반환한다."""
@@ -2843,7 +2844,7 @@ class WebBridge(QObject):
         self._stream_lip_sync_finished = False
         self._reset_stream_sync_state()
         if reset_mouth:
-            self.lip_sync_update.emit(0.0)
+            self._emit_mouth_signals(0.0)
     
     def _play_tts(self, text: str):
         """립싱크를 포함한 TTS 재생 (비동기 스레드)"""
@@ -2908,7 +2909,7 @@ class WebBridge(QObject):
 
         self.lip_sync_data = None
         self.lip_sync_start_time = None
-        self.lip_sync_update.emit(0.0)
+        self._emit_mouth_signals(0.0)
         self._run_parent_javascript(
             "(function(){"
             "if (typeof window.playBrowserTTS === 'function') {"
@@ -3036,6 +3037,41 @@ class WebBridge(QObject):
 
         return pose
 
+    def _dequeue_stream_viseme_frame(self, timestamp_sec: float):
+        """현재 재생 시점까지 도달한 viseme 프레임 하나를 꺼낸다."""
+        future_frames = self._sync_controller.dequeue_future_visemes()
+        if future_frames:
+            self._stream_future_viseme_frames.extend(future_frames)
+
+        matched_frame = None
+        remaining_frames = []
+        for frame in self._stream_future_viseme_frames:
+            if float(frame.timestamp) <= float(timestamp_sec) + 0.001:
+                matched_frame = frame
+            else:
+                remaining_frames.append(frame)
+        self._stream_future_viseme_frames = remaining_frames
+        return matched_frame
+
+    def _emit_mouth_signals(self, mouth_value: float, *, timestamp_sec: float | None = None) -> None:
+        """기존 mouth open 시그널과 새 mouth pose 시그널을 함께 보낸다."""
+        self.lip_sync_update.emit(float(mouth_value))
+
+        viseme = None
+        confidence = 0.0
+        if timestamp_sec is not None and not self._sync_using_rms_fallback:
+            frame = self._dequeue_stream_viseme_frame(timestamp_sec)
+            if frame is not None:
+                viseme = frame.viseme
+                confidence = frame.confidence
+
+        pose = self._build_mouth_pose(
+            rms_open=float(mouth_value),
+            viseme=viseme,
+            confidence=confidence,
+        )
+        self.mouth_pose_update.emit(json.dumps(pose, ensure_ascii=False))
+
     def _on_tts_stream_format(self, sample_rate: int, channels: int, sample_width: int):
         """스트리밍 TTS의 PCM 포맷이 준비되면 재생기를 시작한다."""
         self._stream_audio_format = (int(sample_rate), int(channels), int(sample_width))
@@ -3106,7 +3142,7 @@ class WebBridge(QObject):
         """50ms 간격으로 스트리밍 립싱크 값을 UI에 보낸다."""
         if self._stream_lip_sync_values:
             next_value = float(self._stream_lip_sync_values.pop(0))
-            self.lip_sync_update.emit(next_value)
+            self._emit_mouth_signals(next_value)
 
         if self._stream_lip_sync_values:
             if self._stream_lip_sync_timer and not self._stream_lip_sync_timer.isActive():
@@ -3148,7 +3184,7 @@ class WebBridge(QObject):
         self.lip_sync_data = None
         self.lip_sync_start_time = None
         self._stop_streaming_lip_sync(reset_mouth=False)
-        self.lip_sync_update.emit(0.0)
+        self._emit_mouth_signals(0.0)
         self._run_parent_javascript(
             "(function(){"
             "if (typeof window.stopBrowserTTS === 'function') {"
@@ -3176,7 +3212,7 @@ class WebBridge(QObject):
         if self._tts_interrupted_for_ptt:
             self._tts_interrupted_for_ptt = False
             self.lip_sync_data = None
-            self.lip_sync_update.emit(0.0)
+            self._emit_mouth_signals(0.0)
             print("[Bridge] PTT 중단 플래그로 오디오 재생 생략")
             return
         
@@ -3247,7 +3283,7 @@ class WebBridge(QObject):
         
         # 값 전송
         if found:
-            self.lip_sync_update.emit(mouth_value)
+            self._emit_mouth_signals(mouth_value, timestamp_sec=elapsed_sec)
         
         # 모든 데이터 처리 완료 시 타이머 종료
         if self.lip_sync_index >= len(self.lip_sync_data) - 1:
@@ -3255,7 +3291,7 @@ class WebBridge(QObject):
                 return
             self.lip_sync_timer.stop()
             self.lip_sync_timer = None
-            self.lip_sync_update.emit(0.0)  # 입 닫기
+            self._emit_mouth_signals(0.0)  # 입 닫기
             print(f"[Bridge] 립싱크 완료")
     
     def _check_auto_summarize(self):

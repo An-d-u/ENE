@@ -237,6 +237,22 @@ def test_chat_script_routes_promise_notice_through_overlay_stack():
     assert "showPromiseNoticeBubble(text);" in script
 
 
+def test_script_exposes_apply_mouth_pose_hook():
+    script = _script_text()
+    assert "function applyMouthPose(" in script
+    assert "window.pyBridge.mouth_pose_update" in script
+
+
+def test_script_guards_missing_model_parameters_for_mouth_pose():
+    script = _script_text()
+    assert "function setModelParameterValue(" in script
+    assert "ParamMouthOpenY" in script
+    assert "ParamJawOpen" in script
+    assert "ParamMouthForm" in script
+    assert "ParamMouthFunnel" in script
+    assert "ParamMouthPuckerWiden" in script
+
+
 def test_message_attachment_image_bubble_styles_support_hover_delete_and_deleted_placeholder():
     image_block = _rule_block(".message-attachment-image")
     media_block = _rule_block(".message-attachment-media")

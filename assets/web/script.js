@@ -3597,6 +3597,17 @@ if (typeof QWebChannel !== 'undefined') {
             });
             console.log("Lip sync signal connected");
         }
+        if (window.pyBridge.mouth_pose_update) {
+            window.pyBridge.mouth_pose_update.connect(function (payload) {
+                try {
+                    const pose = (typeof payload === 'string') ? JSON.parse(payload) : payload;
+                    applyMouthPose(pose);
+                } catch (e) {
+                    console.warn("Failed to parse mouth pose payload:", e);
+                }
+            });
+            console.log("Mouth pose signal connected");
+        }
 
         if (window.pyBridge.reroll_state_changed) {
             window.pyBridge.reroll_state_changed.connect(function (active) {
@@ -3687,29 +3698,61 @@ if (typeof QWebChannel !== 'undefined') {
 /**
  * Live2D 입 벌림 파라미터를 갱신한다.
  */
-// 립싱크 시 ParamMouthOpenY 값을 업데이트한다.
-function setMouthOpen(value) {
+function setModelParameterValue(paramId, value) {
     const model = window.live2dModel;
     if (!model || !model.internalModel) {
-        return;
+        return false;
     }
 
     try {
         const core = model.internalModel.coreModel;
         if (core && typeof core.setParameterValueById === 'function') {
-            core.setParameterValueById('ParamMouthOpenY', value);
+            core.setParameterValueById(paramId, value);
         } else if (model.internalModel.setParameterValueById) {
-            model.internalModel.setParameterValueById('ParamMouthOpenY', value);
+            model.internalModel.setParameterValueById(paramId, value);
         }
+        return true;
     } catch (e) {
-        if (!window._mouthOpenWarned) {
-            console.warn("ParamMouthOpenY not available:", e);
-            window._mouthOpenWarned = true;
+        window._mouthPoseWarnedParams = window._mouthPoseWarnedParams || {};
+        if (!window._mouthPoseWarnedParams[paramId]) {
+            console.warn(`${paramId} not available:`, e);
+            window._mouthPoseWarnedParams[paramId] = true;
         }
+        return false;
     }
+}
+
+// 립싱크 시 ParamMouthOpenY 값을 업데이트한다.
+function setMouthOpen(value) {
+    setModelParameterValue('ParamMouthOpenY', value);
+}
+
+function normalizeMouthPoseNumber(value) {
+    return Number.isFinite(value) ? value : 0;
+}
+
+function applyMouthPose(pose) {
+    if (!pose || typeof pose !== 'object') {
+        return;
+    }
+
+    const open = normalizeMouthPoseNumber(Number(pose.open));
+    const jaw = normalizeMouthPoseNumber(Number(pose.jaw));
+    const form = normalizeMouthPoseNumber(Number(pose.form));
+    const funnel = normalizeMouthPoseNumber(Number(pose.funnel));
+    const puckerWiden = normalizeMouthPoseNumber(Number(pose.pucker_widen));
+    const tongue = normalizeMouthPoseNumber(Number(pose.tongue));
+
+    setModelParameterValue('ParamMouthOpenY', open);
+    setModelParameterValue('ParamJawOpen', jaw);
+    setModelParameterValue('ParamMouthForm', form);
+    setModelParameterValue('ParamMouthFunnel', funnel);
+    setModelParameterValue('ParamMouthPuckerWiden', puckerWiden);
+    setModelParameterValue('ParamTongue', tongue);
 }
 // Python에서 직접 입 모양을 갱신할 수 있도록 전역에 노출한다.
 window.setMouthOpen = setMouthOpen;
+window.applyMouthPose = applyMouthPose;
 
 console.log("=== Chat and expression system initialized ===");
 console.log("=== Lip sync system ready ===");
