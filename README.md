@@ -203,6 +203,23 @@ You can use ENE without touching most internals, but if something does not behav
 - `gpt_sovits_http` 스트리밍 OFF, `openai_audio_speech`, `openai_compatible_audio_speech`, `elevenlabs`, `genie_tts_http`는 완성된 오디오를 받은 뒤 같은 시작 계약을 사용한다.
 - `browser_speech`는 브라우저 내부 `speechSynthesis` 재생이라서 이 V1 동기화 버퍼 범위에는 포함되지 않는다.
 
+### 모델 적응형 립싱크
+
+ENE의 립싱크는 이제 Live2D 모델이 가진 입 파라미터 구성을 읽어 자동으로 모드를 고른다.
+
+- `ParamMouthOpenY`만 있으면 `open_only`
+- `ParamMouthOpenY + ParamMouthForm`이면 `open_form`
+- `ParamMouthOpenY + ParamMouthForm + ParamMouthFunnel + ParamMouthPuckerWiden + ParamJawOpen` 조합이면 `vbridger`
+- 직접 `A/I/U/E/O` 계열 파라미터가 있으면 `phoneme_direct`
+
+기본 동작은 자동 감지이며, 모델 폴더에 `lip_sync_profile.json` 파일이 있으면 그 파일의 값만 부분적으로 덮어쓴다.
+
+- 파일이 없으면 자동 감지 결과만 사용한다.
+- override 파일이 깨졌거나 일부 키만 있어도 재생을 막지 않고 자동 감지 결과로 자연스럽게 폴백한다.
+- viseme 품질이 낮거나 준비가 늦으면 `shape` 계열만 약해지고, 입 개폐는 RMS 기반으로 계속 유지된다.
+
+즉, 새 모델을 추가할 때는 먼저 그냥 연결해 보고, 입모양 강도만 더 다듬고 싶을 때만 `lip_sync_profile.json`을 추가하면 된다.
+
 ### Genie-TTS HTTP Provider
 
 ENE now includes a dedicated `Genie-TTS HTTP` provider for Genie-TTS style servers.

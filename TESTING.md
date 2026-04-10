@@ -30,8 +30,12 @@ python -m ruff check . --select E9,F63,F7,F82
   - 실시간 viseme 프레임 인터페이스와 폴백 가능한 분석기 계약 검증
 - `tests/test_tts_sync_controller.py`
   - `80~120ms` 적응형 동기화 버퍼 시작 규칙과 RMS 폴백 규칙 검증
+- `tests/test_model_lip_sync_profile.py`
+  - 모델 입 파라미터 자동 감지, override merge, 잘못된 프로파일 폴백 검증
 - `tests/test_bridge_tts_streaming.py`
-  - 스트리밍 TTS에서 메시지 표시, 오디오 시작, 립싱크 시작 시점 동기화 검증
+  - 스트리밍 TTS에서 메시지 표시, 오디오 시작, 립싱크 시작 시점 동기화와 `mouth_pose` 생성 검증
+- `tests/test_chat_ui_assets.py`
+  - web 자산의 `mouth_pose` 훅과 다중 입 파라미터 적용 경로 존재 검증
 - `tests/test_settings.py`
   - 설정 로드/저장/복구 로직 검증
 
@@ -61,3 +65,6 @@ python -m ruff check . --select E9,F63,F7,F82
 - `gpt_sovits_http` 스트리밍 OFF에서도 메시지 표시 직후 오디오가 바로 시작되는지 확인
 - `openai_audio_speech`, `openai_compatible_audio_speech`, `elevenlabs`, `genie_tts_http` 전환 후에도 회귀가 없는지 확인
 - `browser_speech`는 기존 브라우저 재생 경로가 유지되는지만 확인
+- `vbridger`형 모델에서는 `A/I/U/E/O`에 따라 `Form/Funnel/Pucker`가 자연스럽게 섞이는지 확인
+- 단순 모델에서는 별도 shape 파라미터 없이도 `open_only`로 깨지지 않는지 확인
+- 모델 폴더에 `lip_sync_profile.json`이 없을 때 자동 감지가 정상 동작하는지 확인
