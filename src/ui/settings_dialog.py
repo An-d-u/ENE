@@ -58,6 +58,7 @@ from ..core.app_paths import (
     relativize_for_storage,
     write_text_data,
 )
+from .ene_profile_editor import EneProfileEditorPanel
 from .memory_dialog import MemoryDialog
 
 
@@ -613,6 +614,7 @@ class SettingsDialog(QDialog):
         self._prompt_token_update_timer.timeout.connect(self._refresh_prompt_token_counts)
         self._toggle_checks: list[ToggleSwitch] = []
         self._embedded_memory_panel = None
+        self._embedded_ene_profile_panel = None
         self.memory_search_recent_turns_spin: QSpinBox | None = None
         self.obsidian_checked_max_chars_per_file_spin: QSpinBox | None = None
         self.obsidian_checked_total_max_chars_spin: QSpinBox | None = None
@@ -938,6 +940,8 @@ class SettingsDialog(QDialog):
             )
             active_title = self._theme_color_titles.get(self._theme_picker_active_key or "", "")
             self._theme_picker_popup.set_title(active_title)
+        if self._embedded_ene_profile_panel is not None:
+            self._embedded_ene_profile_panel.set_translators(self._translated_text, self._translated_text_format)
         self._refresh_prompt_token_counts()
         self._update_ptt_hotkey_ui()
         self._sync_tts_provider_ui()
@@ -1935,6 +1939,14 @@ class SettingsDialog(QDialog):
             description_key="settings.section.profile.description",
         )
         self._add_lazy_tab(
+            "ene_profile",
+            "ENE 기억 관리",
+            "에네 자기 정보 구조 편집",
+            self._create_ene_profile_tab,
+            title_key="settings.section.ene_profile.title",
+            description_key="settings.section.ene_profile.description",
+        )
+        self._add_lazy_tab(
             "prompt",
             "프롬프트 설정",
             "프롬프트와 감정 규칙",
@@ -2076,6 +2088,11 @@ class SettingsDialog(QDialog):
             self.content_header_title.setText(title)
         if hasattr(self, "content_header_meta"):
             self.content_header_meta.setText(description)
+
+    def focus_section(self, tab_id: str) -> None:
+        index = next((idx for idx, current_tab_id in self._lazy_tab_index_to_id.items() if current_tab_id == tab_id), -1)
+        if index >= 0:
+            self._set_section_index(index)
 
     def _add_lazy_tab(
         self,
@@ -4714,6 +4731,77 @@ class SettingsDialog(QDialog):
 
         scroll.setWidget(widget)
         self._load_user_profile_data()
+        return scroll
+
+    def _create_ene_profile_tab(self):
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setSpacing(12)
+        layout.setContentsMargins(10, 10, 10, 10)
+
+        header = QFrame()
+        header.setObjectName("FooterCard")
+        header_layout = QVBoxLayout(header)
+        header_layout.setContentsMargins(20, 18, 20, 18)
+        header_layout.setSpacing(6)
+
+        title = QLabel()
+        self._bind_widget_text(title, "settings.ene_profile.header.title", "ENE 기억 관리")
+        title.setObjectName("FooterTitle")
+        header_layout.addWidget(title)
+
+        body = QLabel()
+        self._bind_widget_text(
+            body,
+            "settings.ene_profile.header.body",
+            "에네의 기본 설정과 대화에서 학습된 자기 정보를 분리해서 관리합니다. 자동 추출 정보와 수동 보강 정보를 같은 화면에서 정리할 수 있습니다.",
+        )
+        body.setObjectName("FooterBody")
+        body.setWordWrap(True)
+        header_layout.addWidget(body)
+        layout.addWidget(header)
+
+        ene_profile = getattr(self._bridge, "ene_profile", None) if self._bridge else None
+        if ene_profile is not None:
+            panel = EneProfileEditorPanel(
+                ene_profile,
+                widget,
+                translate=self._translated_text,
+                translate_format=self._translated_text_format,
+                show_close_button=False,
+            )
+            self._embedded_ene_profile_panel = panel
+            layout.addWidget(panel)
+        else:
+            card = QFrame()
+            card.setObjectName("FooterCard")
+            card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(20, 18, 20, 18)
+            card_layout.setSpacing(8)
+
+            empty_title = QLabel()
+            self._bind_widget_text(empty_title, "settings.ene_profile.empty.title", "ENE 기억 관리")
+            empty_title.setObjectName("FooterTitle")
+            card_layout.addWidget(empty_title)
+
+            empty_body = QLabel()
+            self._bind_widget_text(
+                empty_body,
+                "settings.ene_profile.empty.body",
+                "에네 프로필이 아직 초기화되지 않아 편집 패널을 열 수 없습니다.",
+            )
+            empty_body.setObjectName("FooterBody")
+            empty_body.setWordWrap(True)
+            card_layout.addWidget(empty_body)
+            layout.addWidget(card)
+
+        layout.addStretch()
+        scroll.setWidget(widget)
         return scroll
 
     def _create_prompt_tab(self):

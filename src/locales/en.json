@@ -7,6 +7,7 @@
   "ui.language.ja": "Japanese",
   "tray.tooltip": "ENE - AI Desktop Partner",
   "tray.settings": "Settings",
+  "tray.ene_profile": "ENE Profile",
   "tray.calendar": "Calendar",
   "tray.drag_bar.hide": "Hide drag bar",
   "tray.drag_bar.show": "Show drag bar",
@@ -362,6 +363,10 @@
       "profile": {
         "title": "Profile",
         "description": "Edit the user_profile.json structure."
+      },
+      "ene_profile": {
+        "title": "ENE Memory Manager",
+        "description": "Edit ENE self-profile structure."
       },
       "prompt": {
         "title": "Prompt",
@@ -1037,6 +1042,16 @@
           "title": "Save failed",
           "body": "Could not save user_profile.json.\n{error}"
         }
+      }
+    },
+    "ene_profile": {
+      "header": {
+        "title": "ENE Memory Manager",
+        "body": "Manage ENE's core settings separately from self-information learned through conversation. Auto-extracted facts and manual edits can be reviewed together in one place."
+      },
+      "empty": {
+        "title": "ENE Memory Manager",
+        "body": "The ENE profile is not initialized yet, so the editor panel cannot be opened."
       }
     }
   }
