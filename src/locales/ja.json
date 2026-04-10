@@ -7,6 +7,7 @@
   "ui.language.ja": "日本語",
   "tray.tooltip": "ENE - AIデスクトップパートナー",
   "tray.settings": "設定",
+  "tray.ene_profile": "エネ情報",
   "tray.calendar": "カレンダー",
   "tray.drag_bar.hide": "ドラッグバーを隠す",
   "tray.drag_bar.show": "ドラッグバーを表示",
@@ -360,6 +361,10 @@
       "profile": {
         "title": "ユーザーメモリ管理",
         "description": "user_profile.json 構造の編集"
+      },
+      "ene_profile": {
+        "title": "ENE記憶管理",
+        "description": "エネ自己情報の構造を編集"
       },
       "prompt": {
         "title": "プロンプト設定",
@@ -985,6 +990,16 @@
           "title": "保存失敗",
           "body": "user_profile.json を保存できませんでした。\n{error}"
         }
+      }
+    },
+    "ene_profile": {
+      "header": {
+        "title": "ENE記憶管理",
+        "body": "エネの基本設定と会話から学習した自己情報を分けて管理します。自動抽出情報と手動補強情報を同じ画面で整理できます。"
+      },
+      "empty": {
+        "title": "ENE記憶管理",
+        "body": "エネプロフィールがまだ初期化されていないため、編集パネルを開けません。"
       }
     }
   }

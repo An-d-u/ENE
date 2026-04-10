@@ -15,6 +15,7 @@ class TrayIcon(QObject):
     
     # 시그널 정의
     settings_requested = pyqtSignal()
+    ene_profile_requested = pyqtSignal()
     calendar_requested = pyqtSignal()  # 캘린더
     toggle_drag_bar_requested = pyqtSignal()
     toggle_mouse_tracking_requested = pyqtSignal()
@@ -68,6 +69,11 @@ class TrayIcon(QObject):
         self.settings_action = QAction("", self)
         self.settings_action.triggered.connect(self.settings_requested.emit)
         menu.addAction(self.settings_action)
+
+        # 에네 정보 액션
+        self.ene_profile_action = QAction("", self)
+        self.ene_profile_action.triggered.connect(self.ene_profile_requested.emit)
+        menu.addAction(self.ene_profile_action)
         
         # 캘린더 액션
         self.calendar_action = QAction("", self)
@@ -109,6 +115,7 @@ class TrayIcon(QObject):
         """현재 언어 카탈로그로 트레이 UI를 다시 번역한다."""
         self.tray_icon.setToolTip(tr("tray.tooltip"))
         self.settings_action.setText(tr("tray.settings"))
+        self.ene_profile_action.setText(tr("tray.ene_profile"))
         self.calendar_action.setText(tr("tray.calendar"))
         self.toggle_bar_action.setText(self._drag_bar_label())
         self.toggle_mouse_tracking_action.setText(self._mouse_tracking_label())

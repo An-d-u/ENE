@@ -558,18 +558,19 @@ class MemoryDialog(QDialog):
         note.setWordWrap(True)
         layout.addWidget(note)
 
-        profile_actions = QHBoxLayout()
-        profile_actions.setSpacing(8)
+        if not self._embedded:
+            profile_actions = QHBoxLayout()
+            profile_actions.setSpacing(8)
 
-        self.user_profile_btn = QPushButton(t("memory.profile.button"))
-        self.user_profile_btn.clicked.connect(self._show_profile_dialog)
-        profile_actions.addWidget(self.user_profile_btn)
+            self.user_profile_btn = QPushButton(t("memory.profile.button"))
+            self.user_profile_btn.clicked.connect(self._show_profile_dialog)
+            profile_actions.addWidget(self.user_profile_btn)
 
-        self.ene_profile_btn = QPushButton(t("memory.ene_profile.button"))
-        self.ene_profile_btn.clicked.connect(self._show_ene_profile_dialog)
-        profile_actions.addWidget(self.ene_profile_btn)
+            self.ene_profile_btn = QPushButton(t("memory.ene_profile.button"))
+            self.ene_profile_btn.clicked.connect(self._show_ene_profile_dialog)
+            profile_actions.addWidget(self.ene_profile_btn)
 
-        layout.addLayout(profile_actions)
+            layout.addLayout(profile_actions)
         layout.addStretch(1)
         return card
 

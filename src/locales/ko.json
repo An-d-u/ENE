@@ -7,6 +7,7 @@
   "ui.language.ja": "일본어",
   "tray.tooltip": "ENE - AI 데스크톱 파트너",
   "tray.settings": "설정",
+  "tray.ene_profile": "에네 정보",
   "tray.calendar": "캘린더",
   "tray.drag_bar.hide": "드래그 바 숨기기",
   "tray.drag_bar.show": "드래그 바 표시",
@@ -362,6 +363,10 @@
       "profile": {
         "title": "사용자 기억 관리",
         "description": "user_profile.json 구조 편집"
+      },
+      "ene_profile": {
+        "title": "ENE 기억 관리",
+        "description": "에네 자기 정보 구조 편집"
       },
       "prompt": {
         "title": "프롬프트 설정",
@@ -1037,6 +1042,16 @@
           "title": "저장 실패",
           "body": "user_profile.json을 저장하지 못했습니다.\n{error}"
         }
+      }
+    },
+    "ene_profile": {
+      "header": {
+        "title": "ENE 기억 관리",
+        "body": "에네의 기본 설정과 대화에서 학습된 자기 정보를 분리해서 관리합니다. 자동 추출 정보와 수동 보강 정보를 같은 화면에서 정리할 수 있습니다."
+      },
+      "empty": {
+        "title": "ENE 기억 관리",
+        "body": "에네 프로필이 아직 초기화되지 않아 편집 패널을 열 수 없습니다."
       }
     }
   }

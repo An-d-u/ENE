@@ -340,7 +340,8 @@ def test_settings_dialog_uses_wider_default_size():
                 "llm_provider": "gemini",
                 "tts_provider": "gpt_sovits_http",
                 "enable_tts": True,
-            }
+            },
+            bridge=SimpleNamespace(ene_profile=_DummyEneProfile(), parent=lambda: None),
         )
 
         assert dialog.minimumWidth() >= 1280
@@ -574,7 +575,8 @@ def test_settings_dialog_language_preview_restores_original_runtime_on_cancel():
                 "llm_provider": "gemini",
                 "tts_provider": "gpt_sovits_http",
                 "enable_tts": True,
-            }
+            },
+            bridge=SimpleNamespace(ene_profile=_DummyEneProfile(), parent=lambda: None),
         )
 
         assert dialog.content_header_title.text() == "창 설정"
@@ -612,10 +614,12 @@ def test_settings_dialog_retranslates_prompt_and_profile_lazy_tabs_in_japanese_p
                 "llm_provider": "gemini",
                 "tts_provider": "gpt_sovits_http",
                 "enable_tts": True,
-            }
+            },
+            bridge=SimpleNamespace(ene_profile=_DummyEneProfile(), parent=lambda: None),
         )
 
         dialog._ensure_lazy_tab_loaded("profile")
+        dialog._ensure_lazy_tab_loaded("ene_profile")
         dialog._ensure_lazy_tab_loaded("prompt")
         dialog._ensure_lazy_tab_loaded("memory")
 
@@ -624,11 +628,20 @@ def test_settings_dialog_retranslates_prompt_and_profile_lazy_tabs_in_japanese_p
         assert dialog._prompt_status_label.text() == "로드 대기"
         assert dialog._profile_status_label.text() == "user_profile.json 로드 완료"
         assert dialog.fact_timestamp_label.text() == "신규 항목"
+        assert dialog._embedded_ene_profile_panel is not None
+        assert dialog._embedded_ene_profile_panel.core_group.title() == "기본 설정"
+        assert dialog._embedded_ene_profile_panel.fact_group.title() == "학습 정보"
+        assert not hasattr(dialog._embedded_memory_panel, "ene_profile_btn")
         assert tr("settings.window.title") == "ENE 설정"
 
         dialog.ui_language_combo.setCurrentIndex(dialog.ui_language_combo.findData("ja"))
 
-        assert dialog.content_header_title.text() == "ウィンドウ設定"
+        ene_profile_index = next(
+            index for index, tab_id in dialog._lazy_tab_index_to_id.items() if tab_id == "ene_profile"
+        )
+        dialog._set_section_index(ene_profile_index)
+
+        assert dialog.content_header_title.text() == "ENE記憶管理"
         assert dialog.ui_language_combo.itemText(0) == "システムの既定値"
         assert dialog.basic_info_key_input.placeholderText() == "項目名"
         assert dialog.emotion_name_input.placeholderText() == "感情キー (例: shy)"
@@ -636,9 +649,11 @@ def test_settings_dialog_retranslates_prompt_and_profile_lazy_tabs_in_japanese_p
         assert dialog._profile_status_label.text() == "user_profile.json 読み込み完了"
         assert dialog.fact_timestamp_label.text() == "新しい項目"
         assert dialog.fact_category_combo.itemText(0) == "基本情報"
+        assert dialog._embedded_ene_profile_panel.core_group.title() == "基本設定"
+        assert dialog._embedded_ene_profile_panel.fact_group.title() == "学習情報"
         assert dialog.memory_search_recent_turns_spin.suffix() == " ターン"
         assert dialog.memory_search_recent_turns_spin.specialValueText() == "現在のメッセージのみ"
-        assert {"基本情報", "好みと苦手", "感情一覧と使用ガイド"}.issubset(
+        assert {"基本情報", "好みと苦手", "感情一覧と使用ガイド", "基本設定", "学習情報"}.issubset(
             {group.title() for group in dialog.findChildren(QGroupBox)}
         )
         assert "メモリ検索範囲" in {label.text() for label in dialog.findChildren(QLabel)}
@@ -1502,6 +1517,7 @@ def test_tray_icon_retranslates_menu_text_without_showing_system_tray(tmp_path):
         {
           "tray.tooltip": "ENE - AI Desktop Partner",
           "tray.settings": "Settings",
+          "tray.ene_profile": "ENE Profile",
           "tray.calendar": "Calendar",
           "tray.drag_bar.hide": "Hide drag bar",
           "tray.drag_bar.show": "Show drag bar",
@@ -1517,6 +1533,7 @@ def test_tray_icon_retranslates_menu_text_without_showing_system_tray(tmp_path):
         {
           "tray.tooltip": "ENE - AIデスクトップパートナー",
           "tray.settings": "設定",
+          "tray.ene_profile": "エネ情報",
           "tray.calendar": "カレンダー",
           "tray.drag_bar.hide": "ドラッグバーを隠す",
           "tray.drag_bar.show": "ドラッグバーを表示",
@@ -1534,6 +1551,7 @@ def test_tray_icon_retranslates_menu_text_without_showing_system_tray(tmp_path):
 
     assert tray.tray_icon.toolTip() == "ENE - AIデスクトップパートナー"
     assert tray.settings_action.text() == "設定"
+    assert tray.ene_profile_action.text() == "エネ情報"
     assert tray.calendar_action.text() == "カレンダー"
     assert tray.toggle_bar_action.text() == "ドラッグバーを隠す"
     assert tray.toggle_mouse_tracking_action.text() == "マウストラッキングを無効化"
@@ -1556,6 +1574,7 @@ def test_tray_icon_uses_non_default_startup_state_for_initial_labels(tmp_path):
         {
           "tray.tooltip": "ENE - AI Desktop Partner",
           "tray.settings": "Settings",
+          "tray.ene_profile": "ENE Profile",
           "tray.calendar": "Calendar",
           "tray.drag_bar.hide": "Hide drag bar",
           "tray.drag_bar.show": "Show drag bar",
@@ -1571,6 +1590,7 @@ def test_tray_icon_uses_non_default_startup_state_for_initial_labels(tmp_path):
         {
           "tray.tooltip": "ENE - AIデスクトップパートナー",
           "tray.settings": "設定",
+          "tray.ene_profile": "エネ情報",
           "tray.calendar": "カレンダー",
           "tray.drag_bar.hide": "ドラッグバーを隠す",
           "tray.drag_bar.show": "ドラッグバーを表示",
@@ -1665,6 +1685,17 @@ def test_show_memory_dialog_warns_with_translated_text(tmp_path, monkeypatch):
     assert warnings == [
         (None, "メモリを利用できません", "メモリマネージャーが初期化されていません。")
     ]
+
+
+def test_show_ene_profile_dialog_routes_to_settings_tab():
+    ENEApplication = _load_app_class()
+    app = ENEApplication.__new__(ENEApplication)
+    routed = []
+    app._show_settings_dialog = lambda section_id=None: routed.append(section_id)
+
+    ENEApplication._show_ene_profile_dialog(app)
+
+    assert routed == ["ene_profile"]
 
 
 def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):

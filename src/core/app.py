@@ -408,6 +408,7 @@ class ENEApplication(QObject):
         
         # 트레이 아이콘 시그널
         self.tray_icon.settings_requested.connect(self._show_settings_dialog)
+        self.tray_icon.ene_profile_requested.connect(self._show_ene_profile_dialog)
         self.tray_icon.calendar_requested.connect(self._show_calendar_dialog)
         self.tray_icon.toggle_drag_bar_requested.connect(self._toggle_drag_bar)
         self.tray_icon.toggle_mouse_tracking_requested.connect(self._toggle_mouse_tracking)
@@ -499,10 +500,12 @@ class ENEApplication(QObject):
         if hasattr(self, "overlay_window") and self.overlay_window and hasattr(self.overlay_window, "bridge"):
             self.overlay_window.bridge.interrupt_tts_for_ptt()
     
-    def _show_settings_dialog(self):
+    def _show_settings_dialog(self, section_id: str | None = None):
         """설정 다이얼로그 표시 (비모달)"""
         # 이미 열려있으면 포커스
         if hasattr(self, '_settings_dialog') and self._settings_dialog and self._settings_dialog.isVisible():
+            if section_id and hasattr(self._settings_dialog, "focus_section"):
+                self._settings_dialog.focus_section(section_id)
             self._settings_dialog.raise_()
             self._settings_dialog.activateWindow()
             return
@@ -532,6 +535,8 @@ class ENEApplication(QObject):
         
         # 비모달로 표시
         dialog.show()
+        if section_id and hasattr(dialog, "focus_section"):
+            dialog.focus_section(section_id)
     
     def _show_memory_dialog(self):
         """기억 관리 다이얼로그 표시"""
@@ -550,6 +555,10 @@ class ENEApplication(QObject):
         bridge = self.overlay_window.bridge if hasattr(self.overlay_window, 'bridge') else None
         dialog = MemoryDialog(self.memory_manager, bridge)
         dialog.exec()
+
+    def _show_ene_profile_dialog(self):
+        """에네 기억 관리 탭으로 이동한다."""
+        self._show_settings_dialog("ene_profile")
     
     def _show_calendar_dialog(self):
         """캘린더 다이얼로그 표시"""
