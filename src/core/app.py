@@ -117,6 +117,7 @@ class ENEApplication(QObject):
             
             # 사용자 프로필 초기화
             self._init_user_profile()
+            self._init_ene_profile()
             self._init_mood_manager()
             
             # LLM 클라이언트 초기화 (공급자 추상화 + 메모리 매니저 + 프로필 전달)
@@ -131,6 +132,7 @@ class ENEApplication(QObject):
                 llm_config,
                 memory_manager=self.memory_manager,
                 user_profile=self.user_profile if hasattr(self, 'user_profile') else None,
+                ene_profile=self.ene_profile if hasattr(self, 'ene_profile') else None,
                 settings=self.settings,
                 calendar_manager=self.calendar_manager if hasattr(self, 'calendar_manager') else None,
                 mood_manager=self.mood_manager if hasattr(self, "mood_manager") else None,
@@ -206,6 +208,21 @@ class ENEApplication(QObject):
             import traceback
             traceback.print_exc()
             self.user_profile = None
+
+    def _init_ene_profile(self):
+        """에네 프로필 초기화"""
+        try:
+            from src.ai.ene_profile import EneProfile
+
+            user_profile = self.user_profile if hasattr(self, "user_profile") else None
+            self.ene_profile = EneProfile(profile_file="ene_profile.json", user_profile=user_profile)
+            print("OK: 에네 프로필 초기화 성공")
+
+        except Exception as e:
+            print(f"ERROR: 에네 프로필 초기화 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            self.ene_profile = None
     
     def _init_calendar_manager(self):
         """캘린더 매니저 초기화"""
@@ -279,12 +296,15 @@ class ENEApplication(QObject):
         self._init_memory_manager()
         if hasattr(self, "llm_client") and self.llm_client:
             self.llm_client.memory_manager = self.memory_manager
+            self.llm_client.ene_profile = self.ene_profile if hasattr(self, "ene_profile") else None
         if hasattr(self, "overlay_window") and self.overlay_window and hasattr(self.overlay_window, "bridge"):
             user_profile = self.user_profile if hasattr(self, "user_profile") else None
+            ene_profile = self.ene_profile if hasattr(self, "ene_profile") else None
             self.overlay_window.bridge.set_memory_manager(
                 self.memory_manager,
                 self.llm_client if hasattr(self, "llm_client") else None,
                 user_profile,
+                ene_profile,
             )
     
     def _init_tts(self):
@@ -371,10 +391,12 @@ class ENEApplication(QObject):
             self.overlay_window.bridge.set_mood_manager(self.mood_manager)
         if hasattr(self, 'memory_manager'):
             user_profile = self.user_profile if hasattr(self, 'user_profile') else None
+            ene_profile = self.ene_profile if hasattr(self, 'ene_profile') else None
             self.overlay_window.bridge.set_memory_manager(
                 self.memory_manager,
                 self.llm_client,
-                user_profile
+                user_profile,
+                ene_profile,
             )
         
         # TTS 클라이언트 및 오디오 플레이어 연결
