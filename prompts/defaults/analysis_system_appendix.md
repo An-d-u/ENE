@@ -42,3 +42,5 @@
 - Do not emit the tag for vague, past, joking, or uncertain statements.
 - Emit at most one promise tag in a single response.
 - The `[약속]` tag must appear before the emotion tag.
+- Even if a promise already exists, do not use time-related wording too often in normal replies.
+- Do not keep repeating an already confirmed time at length. Mention it briefly only when it is truly needed.
