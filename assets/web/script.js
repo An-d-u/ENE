@@ -124,6 +124,15 @@ let currentAvailableEmotions = new Set(['normal']);
 let currentModelLoadToken = 0;
 let currentModelErrorText = null;
 let currentThemeAccent = DEFAULT_THEME.accentColor;
+const BUILTIN_IDLE_GROUP_DISABLED = '__ENE_DISABLED_BUILTIN_IDLE__';
+const builtinAutoMotionState = {
+    enabled: true,
+    running: false,
+    idleGroupName: 'Idle',
+    breath: null,
+    eyeBlink: null,
+    physics: null
+};
 
 function resolveModelPathFromConfig() {
     return window.eneModelConfig.modelPath || DEFAULT_MODEL_PATH;
@@ -392,6 +401,164 @@ function removeCurrentModelArtifacts() {
     patDirection = 0;
     patBlend = 0;
     patBlendMode = 'idle';
+    builtinAutoMotionState.running = false;
+    builtinAutoMotionState.breath = null;
+    builtinAutoMotionState.eyeBlink = null;
+    builtinAutoMotionState.physics = null;
+}
+
+function getBuiltinInternalModel(model) {
+    if (!model || !model.internalModel) {
+        return null;
+    }
+    return model.internalModel;
+}
+
+function getBuiltinIdleMotionManager(model) {
+    const internalModel = getBuiltinInternalModel(model);
+    if (!internalModel) {
+        return null;
+    }
+    return internalModel.motionManager || null;
+}
+
+function syncBuiltinAutoMotionComponent(internalModel, propertyName, enabled) {
+    if (!internalModel) {
+        return false;
+    }
+
+    if (enabled) {
+        if (builtinAutoMotionState[propertyName]) {
+            internalModel[propertyName] = builtinAutoMotionState[propertyName];
+        }
+        return true;
+    }
+
+    if (internalModel[propertyName]) {
+        builtinAutoMotionState[propertyName] = internalModel[propertyName];
+    }
+    internalModel[propertyName] = null;
+    return true;
+}
+
+// Cubism 런타임이 기본으로 넣는 breath 움직임을 보관하거나 복원한다.
+function syncBuiltinNaturalBreath(enabled, internalModel = getBuiltinInternalModel(window.live2dModel)) {
+    return syncBuiltinAutoMotionComponent(internalModel, 'breath', enabled);
+}
+
+// 기본 자동 움직임 구성요소(숨쉬기, 눈깜빡임, 물리)를 보관하거나 복원한다.
+function syncBuiltinAutoMotionComponents(enabled) {
+    const internalModel = getBuiltinInternalModel(window.live2dModel);
+    if (!internalModel) {
+        return false;
+    }
+
+    syncBuiltinNaturalBreath(enabled, internalModel);
+    syncBuiltinAutoMotionComponent(internalModel, 'eyeBlink', enabled);
+    syncBuiltinAutoMotionComponent(internalModel, 'physics', enabled);
+    return true;
+}
+
+// 런타임이 자동으로 기본 Idle을 다시 예약하지 못하도록 idle 그룹 자체를 제어한다.
+function syncBuiltinIdleMotionGroup(enabled) {
+    const model = window.live2dModel;
+    const motionManager = getBuiltinIdleMotionManager(model);
+    if (!motionManager || !motionManager.groups) {
+        return false;
+    }
+
+    const currentIdleGroup = motionManager.groups.idle;
+    if (
+        enabled &&
+        currentIdleGroup &&
+        currentIdleGroup !== BUILTIN_IDLE_GROUP_DISABLED &&
+        typeof currentIdleGroup === 'string'
+    ) {
+        builtinAutoMotionState.idleGroupName = currentIdleGroup;
+    }
+
+    if (enabled) {
+        motionManager.groups.idle = builtinAutoMotionState.idleGroupName;
+        return true;
+    }
+
+    if (
+        currentIdleGroup &&
+        currentIdleGroup !== BUILTIN_IDLE_GROUP_DISABLED &&
+        typeof currentIdleGroup === 'string'
+    ) {
+        builtinAutoMotionState.idleGroupName = currentIdleGroup;
+    }
+    motionManager.groups.idle = BUILTIN_IDLE_GROUP_DISABLED;
+    return true;
+}
+
+function applyBuiltinAutoMotionState(enabled) {
+    syncBuiltinIdleMotionGroup(enabled);
+    syncBuiltinAutoMotionComponents(enabled);
+}
+
+function stopBuiltinIdleMotion() {
+    const model = window.live2dModel;
+    const motionManager = getBuiltinIdleMotionManager(model);
+    builtinAutoMotionState.running = false;
+
+    applyBuiltinAutoMotionState(false);
+
+    if (!motionManager) {
+        return true;
+    }
+
+    const stopCandidates = [
+        () => motionManager.stopAllMotions?.(),
+        () => motionManager._stopAllMotions?.(),
+        () => motionManager.queueManager?.stopAllMotions?.()
+    ];
+
+    for (const stop of stopCandidates) {
+        try {
+            stop();
+            console.log('Built-in Live2D idle motion stopped');
+            return true;
+        } catch (error) {
+            console.warn('Failed to stop built-in idle motion via candidate:', error);
+        }
+    }
+
+    return false;
+}
+
+function startBuiltinIdleMotion() {
+    const model = window.live2dModel;
+    if (!builtinAutoMotionState.enabled || !model) {
+        builtinAutoMotionState.running = false;
+        return false;
+    }
+
+    const motionManager = getBuiltinIdleMotionManager(model);
+    if (!motionManager) {
+        syncBuiltinAutoMotionComponents(true);
+        builtinAutoMotionState.running = false;
+        return false;
+    }
+
+    applyBuiltinAutoMotionState(true);
+
+    if (builtinAutoMotionState.running) {
+        stopBuiltinIdleMotion();
+        applyBuiltinAutoMotionState(true);
+    }
+
+    try {
+        model.motion('Idle');
+        builtinAutoMotionState.running = true;
+        console.log('Built-in Live2D idle motion started');
+        return true;
+    } catch (error) {
+        builtinAutoMotionState.running = false;
+        console.warn('Failed to start built-in idle motion:', error);
+        return false;
+    }
 }
 
 function applyCurrentModelPlacement() {
@@ -458,14 +625,16 @@ async function loadModel() {
         console.log(`Model positioned at (${model.x}, ${model.y}) with scale ${model.scale.x}`);
         if (model.internalModel && model.internalModel.motionManager) {
             console.log("Motion manager available");
-            try {
-                model.motion('Idle');
-                console.log("Idle motion started");
-            } catch (e) {
-                console.warn("Failed to start Idle motion:", e);
+            if (builtinAutoMotionState.enabled) {
+                startBuiltinIdleMotion();
+            } else {
+                applyBuiltinAutoMotionState(false);
             }
         } else {
             console.log("No motion manager found");
+            if (!builtinAutoMotionState.enabled) {
+                syncBuiltinAutoMotionComponents(false);
+            }
         }
         if (model.internalModel && model.internalModel.eyeBlink) {
             console.log("Eye blink enabled");
@@ -687,6 +856,17 @@ window.setIdleMotionEnabled = function (enabled) {
         idleMotionPhase = 0;
     }
     console.log("Idle motion:", idleMotionEnabled ? "enabled" : "disabled");
+};
+
+// Live2D 모델이 기본 제공하는 Idle 모션의 활성 상태를 제어한다.
+window.setBuiltinIdleMotionEnabled = function (enabled) {
+    builtinAutoMotionState.enabled = Boolean(enabled);
+    if (builtinAutoMotionState.enabled) {
+        startBuiltinIdleMotion();
+    } else {
+        stopBuiltinIdleMotion();
+    }
+    console.log("Built-in Live2D idle motion:", builtinAutoMotionState.enabled ? "enabled" : "disabled");
 };
 
 // idle 모션 강도/속도 설정을 JS 쪽 상태값으로 반영한다.

@@ -791,6 +791,7 @@
       "idle": {
         "title": "Idle motion",
         "enable": "Enable idle motion (automatic movement while ENE is not speaking)",
+        "builtin_enable": "Live2D標準idleモーションを有効化",
         "dynamic": "Enable dynamic idle motion mode",
         "strength": "Idle motion strength:",
         "speed": "Idle motion speed:"
