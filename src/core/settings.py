@@ -60,6 +60,7 @@ class Settings:
         "ui_language": "auto",
         "follow_system_theme": False,
         "mouse_tracking_enabled": True,
+        "enable_builtin_idle_motion": True,
         "enable_idle_motion": True,
         "idle_motion_strength": 1.0,  # 0.2 ~ 2.0
         "idle_motion_speed": 1.0,  # 0.5 ~ 2.0

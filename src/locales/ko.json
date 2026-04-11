@@ -843,6 +843,7 @@
       "idle": {
         "title": "유휴 모션",
         "enable": "유휴 모션 활성화 (말하지 않을 때 자동 움직임)",
+        "builtin_enable": "Live2D 기본 idle 모션 활성화",
         "dynamic": "유휴 모션 다이나믹 모드",
         "strength": "유휴 모션 강도:",
         "speed": "유휴 모션 속도:"

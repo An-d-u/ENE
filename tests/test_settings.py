@@ -60,6 +60,14 @@ def test_load_missing_file_includes_streaming_tts_defaults(tmp_path):
     assert settings.get("tts_streaming_emit_message_on_first_chunk", True) is True
 
 
+def test_load_missing_file_uses_builtin_idle_motion_default(tmp_path):
+    config_path = tmp_path / "config.json"
+    secret_path = tmp_path / "api_keys.json"
+    settings = Settings(config_path=str(config_path), secret_path=str(secret_path))
+
+    assert settings.get("enable_builtin_idle_motion") is True
+
+
 def test_settings_roundtrip_preserves_genie_tts_config(tmp_path):
     config_path = tmp_path / "config.json"
     secret_path = tmp_path / "api_keys.json"
@@ -109,6 +117,17 @@ def test_save_and_reload_roundtrip(tmp_path):
     assert reloaded.get("typing_effect_speed") == "slow"
     assert reloaded.get("message_split_enabled") is True
     assert reloaded.get("chat_panel_height") == 388
+
+
+def test_save_and_reload_roundtrip_preserves_builtin_idle_motion(tmp_path):
+    config_path = tmp_path / "config.json"
+    secret_path = tmp_path / "api_keys.json"
+    settings = Settings(config_path=str(config_path), secret_path=str(secret_path))
+    settings.set("enable_builtin_idle_motion", False)
+    settings.save()
+
+    reloaded = Settings(config_path=str(config_path), secret_path=str(secret_path))
+    assert reloaded.get("enable_builtin_idle_motion") is False
 
 
 def test_load_invalid_json_falls_back_to_default(tmp_path):
