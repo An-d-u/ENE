@@ -180,6 +180,12 @@ def test_chat_script_exposes_builtin_idle_runtime_hook():
     assert "builtinAutoMotionState.enabled" in script
 
 
+def test_chat_script_exposes_auto_eye_blink_runtime_hook():
+    script = _script_text()
+    assert "window.setAutoEyeBlinkEnabled = function" in script
+    assert "autoEyeBlinkState.enabled" in script
+
+
 def test_chat_script_starts_builtin_idle_only_when_enabled():
     script = _script_text()
     assert "if (builtinAutoMotionState.enabled)" in script
@@ -206,16 +212,122 @@ def test_chat_script_disables_and_restores_builtin_breath_when_builtin_idle_togg
     assert "syncBuiltinAutoMotionComponent(internalModel, 'breath', enabled)" in script
 
 
-def test_chat_script_disables_and_restores_builtin_eye_blink_and_physics_when_builtin_idle_toggles():
+def test_chat_script_runs_idle_motion_without_dynamic_mode_toggle():
     script = _script_text()
-    assert "builtinAutoMotionState.eyeBlink = null;" in script
+    assert "window.setIdleMotionDynamic = function" not in script
+    assert "idleMotionDynamicMode" not in script
+    assert "const breathWave = Math.sin(idleMotionPhase * 1.1 + 0.35);" in script
+    assert "breath: Math.max(-1, Math.min(1, breathWave * idleMotionBreath))" in script
+    assert "const IDLE_MOTION_BASE_BREATH = 1.0;" in script
+
+
+def test_chat_script_disables_and_restores_builtin_physics_when_builtin_idle_toggles():
+    script = _script_text()
     assert "builtinAutoMotionState.physics = null;" in script
     assert "function syncBuiltinAutoMotionComponent(" in script
     assert "function syncBuiltinAutoMotionComponents(" in script
     assert "internalModel[propertyName] = null;" in script
     assert "internalModel[propertyName] = builtinAutoMotionState[propertyName];" in script
-    assert "syncBuiltinAutoMotionComponent(internalModel, 'eyeBlink', enabled)" in script
     assert "syncBuiltinAutoMotionComponent(internalModel, 'physics', enabled)" in script
+
+
+def test_chat_script_captures_and_toggles_builtin_eye_blink_separately():
+    script = _script_text()
+    assert "builtinInstance: null," in script
+    assert "function captureBuiltinEyeBlinkInstance(" in script
+    assert "function syncAutoEyeBlinkMode(" in script
+    assert "internalModel.eyeBlink = autoEyeBlinkState.builtinInstance;" in script
+    assert "internalModel.eyeBlink = null;" in script
+
+
+def test_chat_script_defines_fallback_auto_eye_blink_runtime():
+    script = _script_text()
+    assert "function createAutoEyeBlinkRuntimeState()" in script
+    assert "function scheduleNextAutoEyeBlink(" in script
+    assert "function updateAutoEyeBlinkRuntime(" in script
+    assert "function applyAutoEyeBlinkToCoreModel(" in script
+    assert "setParameterValueById('ParamEyeLOpen', openValue)" in script
+    assert "setParameterValueById('ParamEyeROpen', openValue)" in script
+
+
+def test_chat_script_applies_idle_breath_param_when_model_supports_it():
+    script = _script_text()
+    assert "breath: hasParam('ParamBreath')" in script
+    assert "function applyIdleBreathParam(coreModel, idleOffsets = null)" in script
+    assert "coreModel.setParameterValueById('ParamBreath', idleBreath);" in script
+    assert "applyIdleBreathParam(coreModel, patOffsetsApplied);" in script
+    assert "applyIdleBreathParam(coreModel, idleOffsets);" in script
+
+
+def test_chat_script_blocks_fallback_eye_blink_when_eye_closing_state_is_active():
+    script = _script_text()
+    assert "function isEyeCloseExpressionActive(sample)" in script
+    assert "function shouldSuspendAutoEyeBlink(sample, hasHeadPatEffect)" in script
+    assert "sample.fromWeight > 0.001 && resolveExpressionEmotion(sample.fromExpression.emotion) === 'eyeclose';" in script
+    assert "return sample.toWeight > 0.001 && resolveExpressionEmotion(sample.toExpression.emotion) === 'eyeclose';" in script
+
+
+def test_chat_script_allows_expression_transition_duration_override():
+    script = _script_text()
+    assert "async function changeExpression(emotion, options = {})" in script
+    assert "const durationMs = Number.isFinite(options.durationMs)" in script
+
+
+def test_chat_script_uses_head_pat_fade_durations_for_expression_transitions():
+    script = _script_text()
+    assert "changeExpression(activeEmotion, { durationMs: headPatFadeInMs })" in script
+    assert "changeExpression(endEmotion, { durationMs: headPatFadeOutMs })" in script
+
+
+def test_chat_script_applies_expression_layers_inside_model_update_cycle():
+    script = _script_text()
+    assert "function applyExpressionLayer(coreModel, expression, weight)" in script
+    assert "coreModel.addParameterValueById(param.id, param.value, weight);" in script
+    assert "coreModel.multiplyParameterValueById(param.id, param.value, weight);" in script
+    assert "coreModel.setParameterValueById(param.id, param.value, weight);" in script
+    assert "function attachExpressionUpdateHook(model)" in script
+    assert "internalModel.on('beforeModelUpdate', expressionRuntimeState.updateHook);" in script
+
+
+def test_chat_script_loads_expression_definitions_with_blend_modes():
+    script = _script_text()
+    assert "const expressionRuntimeState = {" in script
+    assert "definitionCache: new Map()," in script
+    assert "function normalizeExpressionBlend(blend)" in script
+    assert "blend: normalizeExpressionBlend(param.Blend)" in script
+    assert "async function loadExpressionDefinition(emotion)" in script
+    assert "const cached = expressionRuntimeState.definitionCache.get(expressionPath);" in script
+
+
+def test_chat_script_overlaps_expression_fade_in_and_fade_out_weights():
+    script = _script_text()
+    assert "const fadeOutWeight = fromExpression ? (1 - Math.pow(progress, 3)) : 0;" in script
+    assert "const fadeInWeight = 1 - Math.pow(1 - progress, 3);" in script
+    assert "fromWeight: fadeOutWeight," in script
+    assert "toWeight: fadeInWeight," in script
+
+
+def test_chat_script_skips_head_pat_eye_override_when_active_expression_already_closes_eyes():
+    script = _script_text()
+    assert "function shouldUseHeadPatEyeCloseOverride()" in script
+    assert "return resolveExpressionEmotion(headPatActiveEmotion) !== 'eyeclose';" in script
+    assert "function shouldApplyHeadPatEyeOverrideNow(hasHeadPatEffect)" in script
+    assert "return hasHeadPatEffect && patBlendMode !== 'out' && shouldUseHeadPatEyeCloseOverride();" in script
+    assert "const shouldApplyHeadPatEyeOverride = shouldApplyHeadPatEyeOverrideNow(hasHeadPatEffect);" in script
+
+
+def test_chat_script_extracts_expression_transition_duration_and_state_helpers():
+    script = _script_text()
+    assert "function createEmptyExpressionTransition()" in script
+    assert "function resolveExpressionTransitionDuration(resolvedEmotion, requestedDurationMs)" in script
+    assert "function setExpressionTransition(nextExpression, durationMs)" in script
+    assert "expressionRuntimeState.transition = {" in script
+
+
+def test_chat_script_stops_head_pat_eye_override_during_fade_out_expression_transition():
+    script = _script_text()
+    assert "if (shouldApplyHeadPatEyeOverride) {" in script
+    assert "applyHeadPatEyeCloseOverride(coreModel, patBlend);" in script
 
 
 def test_message_bubble_stack_supports_visual_multi_bubble_layout():

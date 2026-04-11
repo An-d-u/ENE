@@ -130,9 +130,26 @@ const builtinAutoMotionState = {
     running: false,
     idleGroupName: 'Idle',
     breath: null,
-    eyeBlink: null,
     physics: null
 };
+const autoEyeBlinkState = {
+    enabled: true,
+    builtinInstance: null,
+    runtime: null
+};
+
+function createAutoEyeBlinkRuntimeState() {
+    return {
+        phase: 'idle',
+        phaseStartedAtMs: 0,
+        nextBlinkAtMs: 0,
+        closeDurationMs: 90,
+        closedDurationMs: 45,
+        openDurationMs: 140,
+        minIntervalMs: 2600,
+        maxIntervalMs: 5200
+    };
+}
 
 function resolveModelPathFromConfig() {
     return window.eneModelConfig.modelPath || DEFAULT_MODEL_PATH;
@@ -381,6 +398,7 @@ window.playBrowserTTS = function playBrowserTTS(payload) {
 };
 
 function removeCurrentModelArtifacts() {
+    detachExpressionUpdateHook();
     if (window.live2dModel) {
         app.stage.removeChild(window.live2dModel);
         if (typeof window.live2dModel.destroy === 'function') {
@@ -403,8 +421,10 @@ function removeCurrentModelArtifacts() {
     patBlendMode = 'idle';
     builtinAutoMotionState.running = false;
     builtinAutoMotionState.breath = null;
-    builtinAutoMotionState.eyeBlink = null;
     builtinAutoMotionState.physics = null;
+    autoEyeBlinkState.builtinInstance = null;
+    autoEyeBlinkState.runtime = null;
+    resetExpressionTransitionState();
 }
 
 function getBuiltinInternalModel(model) {
@@ -420,6 +440,18 @@ function getBuiltinIdleMotionManager(model) {
         return null;
     }
     return internalModel.motionManager || null;
+}
+
+function captureBuiltinEyeBlinkInstance(model = window.live2dModel) {
+    const internalModel = getBuiltinInternalModel(model);
+    if (!internalModel) {
+        return false;
+    }
+
+    if (internalModel.eyeBlink && !autoEyeBlinkState.builtinInstance) {
+        autoEyeBlinkState.builtinInstance = internalModel.eyeBlink;
+    }
+    return Boolean(autoEyeBlinkState.builtinInstance);
 }
 
 function syncBuiltinAutoMotionComponent(internalModel, propertyName, enabled) {
@@ -454,8 +486,45 @@ function syncBuiltinAutoMotionComponents(enabled) {
     }
 
     syncBuiltinNaturalBreath(enabled, internalModel);
-    syncBuiltinAutoMotionComponent(internalModel, 'eyeBlink', enabled);
     syncBuiltinAutoMotionComponent(internalModel, 'physics', enabled);
+    return true;
+}
+
+function resetAutoEyeBlinkRuntime(nowMs = performance.now()) {
+    autoEyeBlinkState.runtime = createAutoEyeBlinkRuntimeState();
+    autoEyeBlinkState.runtime.phaseStartedAtMs = nowMs;
+    scheduleNextAutoEyeBlink(nowMs);
+}
+
+function scheduleNextAutoEyeBlink(nowMs = performance.now()) {
+    if (!autoEyeBlinkState.runtime) {
+        autoEyeBlinkState.runtime = createAutoEyeBlinkRuntimeState();
+    }
+
+    const runtime = autoEyeBlinkState.runtime;
+    const intervalSpan = Math.max(0, runtime.maxIntervalMs - runtime.minIntervalMs);
+    runtime.nextBlinkAtMs = nowMs + runtime.minIntervalMs + (Math.random() * intervalSpan);
+}
+
+function isUsingBuiltinAutoEyeBlink() {
+    return autoEyeBlinkState.enabled && builtinAutoMotionState.enabled && Boolean(autoEyeBlinkState.builtinInstance);
+}
+
+function syncAutoEyeBlinkMode(model = window.live2dModel) {
+    const internalModel = getBuiltinInternalModel(model);
+    if (!internalModel) {
+        return false;
+    }
+
+    captureBuiltinEyeBlinkInstance(model);
+    if (isUsingBuiltinAutoEyeBlink()) {
+        internalModel.eyeBlink = autoEyeBlinkState.builtinInstance;
+        resetAutoEyeBlinkRuntime();
+        return true;
+    }
+
+    internalModel.eyeBlink = null;
+    resetAutoEyeBlinkRuntime();
     return true;
 }
 
@@ -504,6 +573,7 @@ function stopBuiltinIdleMotion() {
     builtinAutoMotionState.running = false;
 
     applyBuiltinAutoMotionState(false);
+    syncAutoEyeBlinkMode(model);
 
     if (!motionManager) {
         return true;
@@ -538,11 +608,13 @@ function startBuiltinIdleMotion() {
     const motionManager = getBuiltinIdleMotionManager(model);
     if (!motionManager) {
         syncBuiltinAutoMotionComponents(true);
+        syncAutoEyeBlinkMode(model);
         builtinAutoMotionState.running = false;
         return false;
     }
 
     applyBuiltinAutoMotionState(true);
+    syncAutoEyeBlinkMode(model);
 
     if (builtinAutoMotionState.running) {
         stopBuiltinIdleMotion();
@@ -620,6 +692,9 @@ async function loadModel() {
         console.log("Model size:", model.width, "x", model.height);
         window.live2dModel = model;
         app.stage.addChild(model);
+        captureBuiltinEyeBlinkInstance(model);
+        resetAutoEyeBlinkRuntime();
+        attachExpressionUpdateHook(model);
         applyCurrentModelPlacement();
 
         console.log(`Model positioned at (${model.x}, ${model.y}) with scale ${model.scale.x}`);
@@ -629,12 +704,14 @@ async function loadModel() {
                 startBuiltinIdleMotion();
             } else {
                 applyBuiltinAutoMotionState(false);
+                syncAutoEyeBlinkMode(model);
             }
         } else {
             console.log("No motion manager found");
             if (!builtinAutoMotionState.enabled) {
                 syncBuiltinAutoMotionComponents(false);
             }
+            syncAutoEyeBlinkMode(model);
         }
         if (model.internalModel && model.internalModel.eyeBlink) {
             console.log("Eye blink enabled");
@@ -705,7 +782,6 @@ let lastTargetUpdateAt = performance.now();
 let trackingParamSupport = null;
 let headPatEyeParamSupport = null;
 let idleMotionEnabled = true;
-let idleMotionDynamicMode = false;
 let idleMotionPhase = 0;
 let lastSpeechAt = 0;
 let headPatEnabled = true;
@@ -721,9 +797,9 @@ let patDirection = 0;
 let patBlend = 0;
 let patBlendMode = 'idle'; // idle | in | hold | out
 let patFadeElapsedMs = 0;
-let patOffsetsCurrent = { angleX: 0, angleY: 0, bodyX: 0, eyeY: 0 };
-let patOffsetsApplied = { angleX: 0, angleY: 0, bodyX: 0, eyeY: 0 };
-let lastNonPatTrackingState = { angleX: 0, angleY: 0, bodyX: 0, eyeY: 0 };
+let patOffsetsCurrent = { angleX: 0, angleY: 0, bodyX: 0, eyeY: 0, breath: 0 };
+let patOffsetsApplied = { angleX: 0, angleY: 0, bodyX: 0, eyeY: 0, breath: 0 };
+let lastNonPatTrackingState = { angleX: 0, angleY: 0, bodyX: 0, eyeY: 0, breath: 0 };
 let previousEmotionBeforePat = 'normal';
 let currentEmotionTag = 'normal';
 let baseEmotionTag = 'normal';
@@ -749,6 +825,7 @@ const IDLE_MOTION_BASE_SPEED_HZ = 0.12;
 const IDLE_MOTION_BASE_ANGLE_X = 2.5;
 const IDLE_MOTION_BASE_ANGLE_Y = 0.8;
 const IDLE_MOTION_BASE_BODY_X = 1.3;
+const IDLE_MOTION_BASE_BREATH = 1.0;
 const SPEECH_IDLE_BLOCK_MS = 450;
 const HEAD_PAT_SPEED_EMA = 0.28;
 const HEAD_PAT_INTENSITY_EMA = 0.22;
@@ -760,6 +837,7 @@ let idleMotionSpeedHz = IDLE_MOTION_BASE_SPEED_HZ;
 let idleMotionAngleX = IDLE_MOTION_BASE_ANGLE_X;
 let idleMotionAngleY = IDLE_MOTION_BASE_ANGLE_Y;
 let idleMotionBodyX = IDLE_MOTION_BASE_BODY_X;
+let idleMotionBreath = IDLE_MOTION_BASE_BREATH;
 
 // 마우스 트래킹에 사용할 Live2D coreModel 인스턴스를 가져온다.
 function getTrackingCoreModel() {
@@ -790,6 +868,7 @@ function detectTrackingParams(coreModel) {
         bodyAngleX: hasParam('ParamBodyAngleX'),
         eyeBallX: hasParam('ParamEyeBallX'),
         eyeBallY: hasParam('ParamEyeBallY'),
+        breath: hasParam('ParamBreath'),
     };
 
     return trackingParamSupport;
@@ -807,6 +886,17 @@ function applyTrackingParams(coreModel, x, y, idleOffsets = null) {
     if (support.bodyAngleX) coreModel.setParameterValueById('ParamBodyAngleX', (x * 5) + idleBodyX);
     if (support.eyeBallX) coreModel.setParameterValueById('ParamEyeBallX', x * 0.8);
     if (support.eyeBallY) coreModel.setParameterValueById('ParamEyeBallY', (-y * 0.8) + idleEyeY);
+}
+
+// 유휴 모션이 제공하는 호흡 파라미터를 모델이 지원할 때 함께 반영한다.
+function applyIdleBreathParam(coreModel, idleOffsets = null) {
+    const support = detectTrackingParams(coreModel);
+    if (!support.breath) {
+        return;
+    }
+
+    const idleBreath = idleOffsets && Number.isFinite(idleOffsets.breath) ? idleOffsets.breath : 0;
+    coreModel.setParameterValueById('ParamBreath', idleBreath);
 }
 
 // 쓰다듬기 시 눈 감기 오버라이드에 필요한 파라미터 지원 여부를 확인한다.
@@ -844,6 +934,16 @@ function applyHeadPatEyeCloseOverride(coreModel, blend) {
     if (support.eyeRSquint) coreModel.setParameterValueById('ParamEyeRSquint', closeAmount);
 }
 
+// 활성 표정이 이미 눈 감기 역할을 하는 경우에는 별도 눈 오버라이드를 중복 적용하지 않는다.
+function shouldUseHeadPatEyeCloseOverride() {
+    return resolveExpressionEmotion(headPatActiveEmotion) !== 'eyeclose';
+}
+
+// 현재 프레임에서 쓰다듬기 눈 오버라이드를 실제로 적용할지 판정한다.
+function shouldApplyHeadPatEyeOverrideNow(hasHeadPatEffect) {
+    return hasHeadPatEffect && patBlendMode !== 'out' && shouldUseHeadPatEyeCloseOverride();
+}
+
 // 립싱크 직후 구간인지 판정해 idle 모션 간섭을 줄인다.
 function isSpeakingNow(nowMs) {
     return (nowMs - lastSpeechAt) < SPEECH_IDLE_BLOCK_MS;
@@ -869,6 +969,13 @@ window.setBuiltinIdleMotionEnabled = function (enabled) {
     console.log("Built-in Live2D idle motion:", builtinAutoMotionState.enabled ? "enabled" : "disabled");
 };
 
+// ENE 자동 눈 깜빡임 기능의 활성 상태를 제어한다.
+window.setAutoEyeBlinkEnabled = function (enabled) {
+    autoEyeBlinkState.enabled = Boolean(enabled);
+    syncAutoEyeBlinkMode(window.live2dModel);
+    console.log("ENE auto eye blink:", autoEyeBlinkState.enabled ? "enabled" : "disabled");
+};
+
 // idle 모션 강도/속도 설정을 JS 쪽 상태값으로 반영한다.
 window.setIdleMotionConfig = function (strength, speed) {
     const s = Number.isFinite(strength) ? Math.min(2.0, Math.max(0.2, Number(strength))) : 1.0;
@@ -877,13 +984,8 @@ window.setIdleMotionConfig = function (strength, speed) {
     idleMotionAngleX = IDLE_MOTION_BASE_ANGLE_X * s;
     idleMotionAngleY = IDLE_MOTION_BASE_ANGLE_Y * s;
     idleMotionBodyX = IDLE_MOTION_BASE_BODY_X * s;
+    idleMotionBreath = IDLE_MOTION_BASE_BREATH * s;
     idleMotionSpeedHz = IDLE_MOTION_BASE_SPEED_HZ * v;
-};
-
-// idle 동적 모드(상황별 가감)를 켜거나 끈다.
-window.setIdleMotionDynamic = function (enabled) {
-    idleMotionDynamicMode = Boolean(enabled);
-    console.log("Idle motion dynamic mode:", idleMotionDynamicMode ? "enabled" : "disabled");
 };
 
 // 쓰다듬기 감도/페이드/동작 파라미터를 일괄 설정한다.
@@ -1098,7 +1200,7 @@ function triggerPatEndEmotion() {
     cancelPendingPatEmotionRestore();
     let endEmotion = (headPatEndEmotion || 'shy').trim();
     if (!endEmotion) endEmotion = 'shy';
-    changeExpression(endEmotion);
+    changeExpression(endEmotion, { durationMs: headPatFadeOutMs });
     pendingPatRestoreEmotion = previousEmotionBeforePat || baseEmotionTag || 'normal';
     const applyRestoreWhenPossible = () => {
         const restoreEmotion = pendingPatRestoreEmotion || 'normal';
@@ -1120,7 +1222,7 @@ function triggerPatEndEmotion() {
 function triggerPatStartEmotion() {
     let activeEmotion = (headPatActiveEmotion || 'eyeclose').trim();
     if (!activeEmotion) activeEmotion = 'eyeclose';
-    changeExpression(activeEmotion);
+    changeExpression(activeEmotion, { durationMs: headPatFadeInMs });
 }
 
 // 포인터 이벤트 리스너를 중복 없이 1회만 바인딩한다.
@@ -1191,6 +1293,7 @@ function buildHeadPatOffsets(nowMs) {
         angleY: Math.max(-8, Math.min(8, -1.8 - (6.0 * intensity))),
         bodyX: Math.max(-6, Math.min(6, patDirection * 4.2 * intensity)),
         eyeY: Math.max(-0.3, Math.min(0.3, -0.18 * intensity)),
+        breath: 0,
     };
 }
 
@@ -1219,6 +1322,101 @@ function setHeadPatEyeBlinkEnabled(enabled) {
     } catch (e) {
         console.warn("Head pat EyeBlink toggle failed:", e);
     }
+}
+
+function isEyeCloseExpressionActive(sample) {
+    if (!sample) {
+        return false;
+    }
+
+    if (sample.fromExpression) {
+        const fromEyeCloseActive =
+            sample.fromWeight > 0.001 && resolveExpressionEmotion(sample.fromExpression.emotion) === 'eyeclose';
+        if (fromEyeCloseActive) {
+            return true;
+        }
+    }
+
+    if (!sample.toExpression) {
+        return false;
+    }
+    return sample.toWeight > 0.001 && resolveExpressionEmotion(sample.toExpression.emotion) === 'eyeclose';
+}
+
+function shouldSuspendAutoEyeBlink(sample, hasHeadPatEffect) {
+    if (!autoEyeBlinkState.enabled) {
+        return true;
+    }
+    if (hasHeadPatEffect) {
+        return true;
+    }
+    return isEyeCloseExpressionActive(sample);
+}
+
+function updateAutoEyeBlinkRuntime(nowMs = performance.now()) {
+    if (!autoEyeBlinkState.runtime) {
+        resetAutoEyeBlinkRuntime(nowMs);
+    }
+
+    const runtime = autoEyeBlinkState.runtime;
+    if (runtime.phase === 'idle') {
+        if (runtime.nextBlinkAtMs <= 0) {
+            scheduleNextAutoEyeBlink(nowMs);
+        }
+        if (nowMs >= runtime.nextBlinkAtMs) {
+            runtime.phase = 'closing';
+            runtime.phaseStartedAtMs = nowMs;
+        }
+        return 1;
+    }
+
+    if (runtime.phase === 'closing') {
+        const progress = Math.min((nowMs - runtime.phaseStartedAtMs) / Math.max(1, runtime.closeDurationMs), 1.0);
+        if (progress >= 1.0) {
+            runtime.phase = 'closed';
+            runtime.phaseStartedAtMs = nowMs;
+            return 0;
+        }
+        return 1 - progress;
+    }
+
+    if (runtime.phase === 'closed') {
+        if ((nowMs - runtime.phaseStartedAtMs) >= runtime.closedDurationMs) {
+            runtime.phase = 'opening';
+            runtime.phaseStartedAtMs = nowMs;
+        }
+        return 0;
+    }
+
+    const progress = Math.min((nowMs - runtime.phaseStartedAtMs) / Math.max(1, runtime.openDurationMs), 1.0);
+    if (progress >= 1.0) {
+        runtime.phase = 'idle';
+        runtime.phaseStartedAtMs = nowMs;
+        scheduleNextAutoEyeBlink(nowMs);
+        return 1;
+    }
+    return progress;
+}
+
+function applyAutoEyeBlinkToCoreModel(coreModel, sample, hasHeadPatEffect) {
+    if (!coreModel || !autoEyeBlinkState.enabled || isUsingBuiltinAutoEyeBlink()) {
+        return;
+    }
+
+    const support = detectHeadPatEyeParams(coreModel);
+    if (!support.eyeLOpen && !support.eyeROpen) {
+        return;
+    }
+
+    const nowMs = performance.now();
+    if (shouldSuspendAutoEyeBlink(sample, hasHeadPatEffect)) {
+        resetAutoEyeBlinkRuntime(nowMs);
+        return;
+    }
+
+    const openValue = updateAutoEyeBlinkRuntime(nowMs);
+    if (support.eyeLOpen) coreModel.setParameterValueById('ParamEyeLOpen', openValue);
+    if (support.eyeROpen) coreModel.setParameterValueById('ParamEyeROpen', openValue);
 }
 
 /**
@@ -1319,38 +1517,32 @@ function updateMouseTracking(nowMs) {
     if (Math.abs(currentMouseY) < 0.0005) currentMouseY = 0;
     updateHeadPatState(dtMs);
     const hasHeadPatEffect = headPatEnabled && patBlend > 0.001;
+    const shouldApplyHeadPatEyeOverride = shouldApplyHeadPatEyeOverrideNow(hasHeadPatEffect);
 
     let idleOffsets = null;
     if (!hasHeadPatEffect && idleMotionEnabled && !isSpeakingNow(nowMs)) {
         idleMotionPhase += dtMs / 1000.0 * Math.PI * 2 * idleMotionSpeedHz;
-        if (idleMotionDynamicMode) {
-            // Dynamic mode: stronger, layered movement with occasional pulse.
-            const pulse = 0.65 + (Math.sin(idleMotionPhase * 0.21 + 0.9) * 0.35);
-            const angleXDynamic =
-                (Math.sin(idleMotionPhase * 1.6) * idleMotionAngleX * 2.8) +
-                (Math.sin(idleMotionPhase * 3.2 + 0.4) * idleMotionAngleX * 0.9 * pulse);
-            const angleYDynamic =
-                (Math.sin(idleMotionPhase * 1.2 + 1.1) * idleMotionAngleY * 2.4) +
-                (Math.sin(idleMotionPhase * 2.8 + 0.2) * idleMotionAngleY * 0.8);
-            const bodyXDynamic =
-                (Math.sin(idleMotionPhase * 1.05 + 0.6) * idleMotionBodyX * 2.6) +
-                (Math.sin(idleMotionPhase * 2.1 + 1.4) * idleMotionBodyX * 0.75);
+        const pulse = 0.65 + (Math.sin(idleMotionPhase * 0.21 + 0.9) * 0.35);
+        const angleXDynamic =
+            (Math.sin(idleMotionPhase * 1.6) * idleMotionAngleX * 2.8) +
+            (Math.sin(idleMotionPhase * 3.2 + 0.4) * idleMotionAngleX * 0.9 * pulse);
+        const angleYDynamic =
+            (Math.sin(idleMotionPhase * 1.2 + 1.1) * idleMotionAngleY * 2.4) +
+            (Math.sin(idleMotionPhase * 2.8 + 0.2) * idleMotionAngleY * 0.8);
+        const bodyXDynamic =
+            (Math.sin(idleMotionPhase * 1.05 + 0.6) * idleMotionBodyX * 2.6) +
+            (Math.sin(idleMotionPhase * 2.1 + 1.4) * idleMotionBodyX * 0.75);
+        const breathWave = Math.sin(idleMotionPhase * 1.1 + 0.35);
 
-            idleOffsets = {
-                angleX: Math.max(-18, Math.min(18, angleXDynamic)),
-                angleY: Math.max(-12, Math.min(12, angleYDynamic)),
-                bodyX: Math.max(-10, Math.min(10, bodyXDynamic))
-            };
-        } else {
-            idleOffsets = {
-                angleX: Math.sin(idleMotionPhase) * idleMotionAngleX,
-                angleY: Math.sin(idleMotionPhase * 0.7 + 1.2) * idleMotionAngleY,
-                bodyX: Math.sin(idleMotionPhase * 0.5 + 0.6) * idleMotionBodyX
-            };
-        }
+        idleOffsets = {
+            angleX: Math.max(-18, Math.min(18, angleXDynamic)),
+            angleY: Math.max(-12, Math.min(12, angleYDynamic)),
+            bodyX: Math.max(-10, Math.min(10, bodyXDynamic)),
+            breath: Math.max(-1, Math.min(1, breathWave * idleMotionBreath))
+        };
     }
 
-    const baseTrackingOffsets = idleOffsets || { angleX: 0, angleY: 0, bodyX: 0, eyeY: 0 };
+    const baseTrackingOffsets = idleOffsets || { angleX: 0, angleY: 0, bodyX: 0, eyeY: 0, breath: 0 };
     if (!hasHeadPatEffect) {
         lastNonPatTrackingState = { ...baseTrackingOffsets };
     }
@@ -1360,14 +1552,19 @@ function updateMouseTracking(nowMs) {
         angleY: lerp(lastNonPatTrackingState.angleY, patOffsetsCurrent.angleY, patBlend),
         bodyX: lerp(lastNonPatTrackingState.bodyX, patOffsetsCurrent.bodyX, patBlend),
         eyeY: lerp(lastNonPatTrackingState.eyeY, patOffsetsCurrent.eyeY, patBlend),
+        breath: lerp(lastNonPatTrackingState.breath, patOffsetsCurrent.breath, patBlend),
     };
 
     try {
         if (hasHeadPatEffect) {
             applyTrackingParams(coreModel, 0, 0, patOffsetsApplied);
-            applyHeadPatEyeCloseOverride(coreModel, patBlend);
+            applyIdleBreathParam(coreModel, patOffsetsApplied);
+            if (shouldApplyHeadPatEyeOverride) {
+                applyHeadPatEyeCloseOverride(coreModel, patBlend);
+            }
         } else {
             applyTrackingParams(coreModel, currentMouseX, currentMouseY, idleOffsets);
+            applyIdleBreathParam(coreModel, idleOffsets);
         }
     } catch (_) {
     }
@@ -1383,8 +1580,57 @@ console.log("Mouse tracking initialized");
 /**
  * 현재 표정 전환 애니메이션 상태.
  */
-let currentExpressionAnimation = null;
-let previousExpressionParams = [];
+const expressionRuntimeState = {
+    boundModel: null,
+    updateHook: null,
+    definitionCache: new Map(),
+    transition: null
+};
+
+function createEmptyExpressionDefinition(emotion = 'normal') {
+    return {
+        emotion,
+        parameters: []
+    };
+}
+
+function createEmptyExpressionTransition() {
+    return {
+        from: null,
+        to: createEmptyExpressionDefinition('normal'),
+        startedAtMs: 0,
+        durationMs: 0
+    };
+}
+
+function resetExpressionTransitionState() {
+    expressionRuntimeState.transition = createEmptyExpressionTransition();
+}
+
+function detachExpressionUpdateHook() {
+    const internalModel = expressionRuntimeState.boundModel && expressionRuntimeState.boundModel.internalModel;
+    if (internalModel && expressionRuntimeState.updateHook && typeof internalModel.off === 'function') {
+        internalModel.off('beforeModelUpdate', expressionRuntimeState.updateHook);
+    }
+    expressionRuntimeState.boundModel = null;
+    expressionRuntimeState.updateHook = null;
+}
+
+function attachExpressionUpdateHook(model) {
+    detachExpressionUpdateHook();
+
+    const internalModel = model && model.internalModel;
+    if (!internalModel || typeof internalModel.on !== 'function') {
+        return false;
+    }
+
+    expressionRuntimeState.updateHook = () => {
+        applyCurrentExpressionState();
+    };
+    internalModel.on('beforeModelUpdate', expressionRuntimeState.updateHook);
+    expressionRuntimeState.boundModel = model;
+    return true;
+}
 
 function resolveExpressionEmotion(emotion) {
     const normalized = String(emotion || '').trim().toLowerCase();
@@ -1400,8 +1646,160 @@ function resolveExpressionEmotion(emotion) {
     return '';
 }
 
+function normalizeExpressionBlend(blend) {
+    const normalized = String(blend || 'Add').trim().toLowerCase();
+    if (normalized === 'multiply') {
+        return 'multiply';
+    }
+    if (normalized === 'overwrite') {
+        return 'overwrite';
+    }
+    return 'add';
+}
+
+function normalizeExpressionDefinition(emotion, expressionData) {
+    const rawParams = Array.isArray(expressionData && expressionData.Parameters)
+        ? expressionData.Parameters
+        : [];
+
+    return {
+        emotion,
+        parameters: rawParams
+            .map((param) => ({
+                id: String(param && param.Id ? param.Id : '').trim(),
+                value: Number.isFinite(Number(param && param.Value)) ? Number(param.Value) : 0,
+                blend: normalizeExpressionBlend(param.Blend)
+            }))
+            .filter((param) => param.id)
+    };
+}
+
+async function loadExpressionDefinition(emotion) {
+    const resolvedEmotion = resolveExpressionEmotion(emotion);
+    if (!resolvedEmotion || resolvedEmotion === 'normal') {
+        return createEmptyExpressionDefinition('normal');
+    }
+
+    const expressionPath = new URL(`${resolvedEmotion}.exp3.json`, currentEmotionsBasePath).href;
+    const cached = expressionRuntimeState.definitionCache.get(expressionPath);
+    if (cached) {
+        return cached;
+    }
+
+    const response = await fetch(expressionPath);
+    if (!response.ok) {
+        throw new Error(`Expression HTTP ${response.status}: ${expressionPath}`);
+    }
+
+    const expressionData = await response.json();
+    const normalizedExpression = normalizeExpressionDefinition(resolvedEmotion, expressionData);
+    expressionRuntimeState.definitionCache.set(expressionPath, normalizedExpression);
+    return normalizedExpression;
+}
+
+function getCurrentExpressionTransition() {
+    if (!expressionRuntimeState.transition) {
+        expressionRuntimeState.transition = createEmptyExpressionTransition();
+    }
+    return expressionRuntimeState.transition;
+}
+
+function sampleExpressionTransition(nowMs = performance.now()) {
+    const transition = getCurrentExpressionTransition();
+    const fromExpression = transition.from;
+    const toExpression = transition.to || createEmptyExpressionDefinition('normal');
+    const duration = Math.max(0, Number(transition.durationMs) || 0);
+    if (duration <= 0) {
+        return {
+            fromExpression,
+            toExpression,
+            fromWeight: 0,
+            toWeight: 1,
+            complete: true
+        };
+    }
+
+    const elapsed = Math.max(0, nowMs - (transition.startedAtMs || nowMs));
+    const progress = Math.min(elapsed / duration, 1.0);
+    const fadeOutWeight = fromExpression ? (1 - Math.pow(progress, 3)) : 0;
+    const fadeInWeight = 1 - Math.pow(1 - progress, 3);
+
+    return {
+        fromExpression,
+        toExpression,
+        fromWeight: fadeOutWeight,
+        toWeight: fadeInWeight,
+        complete: progress >= 1.0
+    };
+}
+
+function settleExpressionTransition(sample = sampleExpressionTransition()) {
+    expressionRuntimeState.transition = {
+        from: null,
+        to: sample.toExpression || createEmptyExpressionDefinition('normal'),
+        startedAtMs: performance.now(),
+        durationMs: 0
+    };
+}
+
+function resolveExpressionTransitionDuration(resolvedEmotion, requestedDurationMs) {
+    if (requestedDurationMs !== null) {
+        return requestedDurationMs;
+    }
+    return resolvedEmotion === 'normal' ? 300 : 500;
+}
+
+function setExpressionTransition(nextExpression, durationMs) {
+    const sampledState = sampleExpressionTransition();
+    expressionRuntimeState.transition = {
+        from: sampledState.toExpression || createEmptyExpressionDefinition('normal'),
+        to: nextExpression,
+        startedAtMs: performance.now(),
+        durationMs: durationMs
+    };
+}
+
+function applyExpressionLayer(coreModel, expression, weight) {
+    if (!coreModel || !expression || !Array.isArray(expression.parameters) || weight <= 0.0001) {
+        return;
+    }
+
+    expression.parameters.forEach((param) => {
+        try {
+            if (param.blend === 'multiply') {
+                coreModel.multiplyParameterValueById(param.id, param.value, weight);
+                return;
+            }
+            if (param.blend === 'overwrite') {
+                coreModel.setParameterValueById(param.id, param.value, weight);
+                return;
+            }
+            coreModel.addParameterValueById(param.id, param.value, weight);
+        } catch (error) {
+            console.warn(`Failed to apply expression parameter ${param.id}:`, error);
+        }
+    });
+}
+
+function applyCurrentExpressionState() {
+    const model = window.live2dModel;
+    const coreModel = model && model.internalModel && model.internalModel.coreModel;
+    if (!coreModel) {
+        return;
+    }
+
+    const sample = sampleExpressionTransition();
+    applyExpressionLayer(coreModel, sample.fromExpression, sample.fromWeight);
+    applyExpressionLayer(coreModel, sample.toExpression, sample.toWeight);
+    applyAutoEyeBlinkToCoreModel(coreModel, sample, headPatEnabled && patBlend > 0.001);
+
+    if (sample.complete) {
+        settleExpressionTransition(sample);
+    }
+}
+
 // 감정 태그에 맞는 exp3 표정 파일을 로드/보간 적용한다.
-async function changeExpression(emotion) {
+async function changeExpression(emotion, options = {}) {
     const model = window.live2dModel;
     if (!model) {
         console.warn("Model not loaded, cannot change expression");
@@ -1415,117 +1813,18 @@ async function changeExpression(emotion) {
 
     try {
         currentEmotionTag = resolvedEmotion;
-        if (resolvedEmotion === 'normal') {
-            console.log('Resetting to normal expression');
-            if (currentExpressionAnimation) {
-                cancelAnimationFrame(currentExpressionAnimation);
-            }
-            const model = window.live2dModel;
-            if (model.internalModel && model.internalModel.coreModel) {
-                const startValues = {};
-                const targetValues = {};
-
-                previousExpressionParams.forEach(paramId => {
-                    try {
-                        const currentValue = model.internalModel.coreModel.getParameterValueById(paramId);
-                        startValues[paramId] = currentValue;
-                        targetValues[paramId] = 0;
-                    } catch (e) {
-                    }
-                });
-                const duration = 300;
-                const startTime = Date.now();
-
-                function animate() {
-                    const elapsed = Date.now() - startTime;
-                    const progress = Math.min(elapsed / duration, 1.0);
-                    const eased = 1 - Math.pow(1 - progress, 3);
-
-                    Object.keys(targetValues).forEach(paramId => {
-                        try {
-                            const start = startValues[paramId] || 0;
-                            const target = targetValues[paramId];
-                            const value = start + (target - start) * eased;
-                            model.internalModel.coreModel.setParameterValueById(paramId, value);
-                        } catch (e) {
-                            // 파라미터가 없는 모델에서는 무시
-                        }
-                    });
-
-                    if (progress < 1.0) {
-                        currentExpressionAnimation = requestAnimationFrame(animate);
-                    } else {
-                        currentExpressionAnimation = null;
-                        previousExpressionParams = [];
-                        console.log('Reset to normal complete');
-                    }
-                }
-
-                animate();
-            }
-            return;
-        }
-        const expressionPath = new URL(`${resolvedEmotion}.exp3.json`, currentEmotionsBasePath).href;
-        console.log(`Changing expression to: ${resolvedEmotion} (${expressionPath})`);
-        if (model.internalModel && model.internalModel.coreModel) {
-            const response = await fetch(expressionPath);
-            const expressionData = await response.json();
-            if (currentExpressionAnimation) {
-                cancelAnimationFrame(currentExpressionAnimation);
-            }
-            const startValues = {};
-            const targetValues = {};
-            previousExpressionParams.forEach(paramId => {
-                try {
-                    const currentValue = model.internalModel.coreModel.getParameterValueById(paramId);
-                    startValues[paramId] = currentValue;
-                    targetValues[paramId] = 0;
-                } catch (e) {
-                }
+        const durationMs = Number.isFinite(options.durationMs)
+            ? Math.max(0, Number(options.durationMs))
+            : null;
+        const nextExpression = await loadExpressionDefinition(resolvedEmotion);
+        const transitionDurationMs = resolveExpressionTransitionDuration(resolvedEmotion, durationMs);
+        setExpressionTransition(nextExpression, transitionDurationMs);
+        if (transitionDurationMs <= 0) {
+            settleExpressionTransition({
+                toExpression: nextExpression
             });
-            const newExpressionParams = [];
-            expressionData.Parameters.forEach(param => {
-                try {
-                    const currentValue = model.internalModel.coreModel.getParameterValueById(param.Id);
-                    startValues[param.Id] = currentValue;
-                    targetValues[param.Id] = param.Value;
-                    newExpressionParams.push(param.Id);
-                } catch (e) {
-                    console.warn(`Failed to get parameter ${param.Id}:`, e);
-                }
-            });
-            previousExpressionParams = newExpressionParams;
-            const duration = 500;
-            const startTime = Date.now();
-            function animate() {
-                const elapsed = Date.now() - startTime;
-                const progress = Math.min(elapsed / duration, 1.0);
-                const eased = 1 - Math.pow(1 - progress, 3);
-                Object.keys(targetValues).forEach(paramId => {
-                    try {
-                        const start = startValues[paramId] || 0;
-                        const target = targetValues[paramId];
-                        const value = start + (target - start) * eased;
-
-                        model.internalModel.coreModel.setParameterValueById(
-                            paramId,
-                            value
-                        );
-                    } catch (e) {
-                        // 파라미터가 없는 모델에서는 무시
-                    }
-                });
-                if (progress < 1.0) {
-                    currentExpressionAnimation = requestAnimationFrame(animate);
-                } else {
-                    currentExpressionAnimation = null;
-                    console.log(`Expression animation complete: ${resolvedEmotion}`);
-                }
-            }
-            animate();
-
-            console.log(`Expression changing to: ${resolvedEmotion}`);
         }
+        console.log(`Expression changing to: ${resolvedEmotion}`);
     } catch (error) {
         console.error(`Failed to load expression ${resolvedEmotion}:`, error);
     }

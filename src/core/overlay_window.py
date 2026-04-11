@@ -602,9 +602,9 @@ class OverlayWindow(QWidget):
         source = settings_override if settings_override is not None else self.settings.config
         enabled = "true" if bool(source.get("enable_idle_motion", True)) else "false"
         builtin_enabled = "true" if bool(source.get("enable_builtin_idle_motion", True)) else "false"
+        auto_eye_blink_enabled = "true" if bool(source.get("enable_auto_eye_blink", True)) else "false"
         strength = float(source.get("idle_motion_strength", 1.0))
         speed = float(source.get("idle_motion_speed", 1.0))
-        dynamic_mode = "true" if bool(source.get("idle_motion_dynamic_mode", False)) else "false"
         head_pat_enabled = "true" if bool(source.get("enable_head_pat", True)) else "false"
         head_pat_strength = float(source.get("head_pat_strength", 1.0))
         head_pat_fade_in_ms = int(source.get("head_pat_fade_in_ms", 180))
@@ -628,6 +628,13 @@ class OverlayWindow(QWidget):
         )
         self.web_view.page().runJavaScript(
             "(function(){"
+            "if (typeof window.setAutoEyeBlinkEnabled === 'function') {"
+            f"window.setAutoEyeBlinkEnabled({auto_eye_blink_enabled});"
+            "}"
+            "})();"
+        )
+        self.web_view.page().runJavaScript(
+            "(function(){"
             "if (typeof window.setIdleMotionEnabled === 'function') {"
             f"window.setIdleMotionEnabled({enabled});"
             "}"
@@ -637,13 +644,6 @@ class OverlayWindow(QWidget):
             "(function(){"
             "if (typeof window.setIdleMotionConfig === 'function') {"
             f"window.setIdleMotionConfig({strength:.3f}, {speed:.3f});"
-            "}"
-            "})();"
-        )
-        self.web_view.page().runJavaScript(
-            "(function(){"
-            "if (typeof window.setIdleMotionDynamic === 'function') {"
-            f"window.setIdleMotionDynamic({dynamic_mode});"
             "}"
             "})();"
         )
