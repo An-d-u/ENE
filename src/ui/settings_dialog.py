@@ -4245,12 +4245,12 @@ class SettingsDialog(QDialog):
         self.builtin_idle_motion_check.toggled.connect(self._on_setting_changed)
         idle_layout.addRow(self.builtin_idle_motion_check)
 
-        self.idle_motion_dynamic_check = self._create_toggle(
-            "유휴 모션 다이나믹 모드",
-            key="settings.behavior.idle.dynamic",
+        self.auto_eye_blink_check = self._create_toggle(
+            "자동 눈 깜빡임 활성화",
+            key="settings.behavior.idle.auto_eye_blink_enable",
         )
-        self.idle_motion_dynamic_check.toggled.connect(self._on_setting_changed)
-        idle_layout.addRow(self.idle_motion_dynamic_check)
+        self.auto_eye_blink_check.toggled.connect(self._on_setting_changed)
+        idle_layout.addRow(self.auto_eye_blink_check)
 
         self.idle_motion_strength_spin = QDoubleSpinBox()
         self.idle_motion_strength_spin.setRange(0.2, 2.0)
@@ -5838,7 +5838,9 @@ class SettingsDialog(QDialog):
             self.builtin_idle_motion_check.setChecked(
                 self._original_settings.get("enable_builtin_idle_motion", True)
             )
-            self.idle_motion_dynamic_check.setChecked(self._original_settings.get("idle_motion_dynamic_mode", False))
+            self.auto_eye_blink_check.setChecked(
+                self._original_settings.get("enable_auto_eye_blink", True)
+            )
             self.idle_motion_strength_spin.setValue(float(self._original_settings.get("idle_motion_strength", 1.0)))
             self.idle_motion_speed_spin.setValue(float(self._original_settings.get("idle_motion_speed", 1.0)))
 
@@ -6083,7 +6085,7 @@ class SettingsDialog(QDialog):
             "mouse_tracking_enabled": self.mouse_tracking_check.isChecked(),
             "enable_idle_motion": self.idle_motion_check.isChecked(),
             "enable_builtin_idle_motion": self.builtin_idle_motion_check.isChecked(),
-            "idle_motion_dynamic_mode": self.idle_motion_dynamic_check.isChecked(),
+            "enable_auto_eye_blink": self.auto_eye_blink_check.isChecked(),
             "idle_motion_strength": self.idle_motion_strength_spin.value(),
             "idle_motion_speed": self.idle_motion_speed_spin.value(),
             "enable_head_pat": self.head_pat_check.isChecked(),
