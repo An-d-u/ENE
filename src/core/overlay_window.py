@@ -601,6 +601,7 @@ class OverlayWindow(QWidget):
 
         source = settings_override if settings_override is not None else self.settings.config
         enabled = "true" if bool(source.get("enable_idle_motion", True)) else "false"
+        builtin_enabled = "true" if bool(source.get("enable_builtin_idle_motion", True)) else "false"
         strength = float(source.get("idle_motion_strength", 1.0))
         speed = float(source.get("idle_motion_speed", 1.0))
         dynamic_mode = "true" if bool(source.get("idle_motion_dynamic_mode", False)) else "false"
@@ -618,6 +619,13 @@ class OverlayWindow(QWidget):
         head_pat_end_emotion = end_custom or end_resolved or end_default or "shy"
         head_pat_duration_sec = int(source.get("head_pat_end_emotion_duration_sec", 5))
 
+        self.web_view.page().runJavaScript(
+            "(function(){"
+            "if (typeof window.setBuiltinIdleMotionEnabled === 'function') {"
+            f"window.setBuiltinIdleMotionEnabled({builtin_enabled});"
+            "}"
+            "})();"
+        )
         self.web_view.page().runJavaScript(
             "(function(){"
             "if (typeof window.setIdleMotionEnabled === 'function') {"

@@ -174,6 +174,50 @@ def test_chat_script_exposes_runtime_message_split_config_hook():
     assert "splitMessageIntoVisualChunks(" in script
 
 
+def test_chat_script_exposes_builtin_idle_runtime_hook():
+    script = _script_text()
+    assert "window.setBuiltinIdleMotionEnabled = function" in script
+    assert "builtinAutoMotionState.enabled" in script
+
+
+def test_chat_script_starts_builtin_idle_only_when_enabled():
+    script = _script_text()
+    assert "if (builtinAutoMotionState.enabled)" in script
+    assert "model.motion('Idle');" in script
+
+
+def test_chat_script_defines_builtin_idle_start_stop_helpers():
+    script = _script_text()
+    assert "function startBuiltinIdleMotion(" in script
+    assert "function stopBuiltinIdleMotion(" in script
+
+
+def test_chat_script_blocks_motion_manager_idle_group_when_builtin_idle_is_disabled():
+    script = _script_text()
+    assert "const BUILTIN_IDLE_GROUP_DISABLED =" in script
+    assert "motionManager.groups.idle = BUILTIN_IDLE_GROUP_DISABLED;" in script
+    assert "motionManager.groups.idle = builtinAutoMotionState.idleGroupName;" in script
+
+
+def test_chat_script_disables_and_restores_builtin_breath_when_builtin_idle_toggles():
+    script = _script_text()
+    assert "builtinAutoMotionState.breath = null;" in script
+    assert "function syncBuiltinNaturalBreath(" in script
+    assert "syncBuiltinAutoMotionComponent(internalModel, 'breath', enabled)" in script
+
+
+def test_chat_script_disables_and_restores_builtin_eye_blink_and_physics_when_builtin_idle_toggles():
+    script = _script_text()
+    assert "builtinAutoMotionState.eyeBlink = null;" in script
+    assert "builtinAutoMotionState.physics = null;" in script
+    assert "function syncBuiltinAutoMotionComponent(" in script
+    assert "function syncBuiltinAutoMotionComponents(" in script
+    assert "internalModel[propertyName] = null;" in script
+    assert "internalModel[propertyName] = builtinAutoMotionState[propertyName];" in script
+    assert "syncBuiltinAutoMotionComponent(internalModel, 'eyeBlink', enabled)" in script
+    assert "syncBuiltinAutoMotionComponent(internalModel, 'physics', enabled)" in script
+
+
 def test_message_bubble_stack_supports_visual_multi_bubble_layout():
     stack_block = _rule_block(".message-bubble-stack")
     user_stack_block = _rule_block(".message.user .message-bubble-stack")

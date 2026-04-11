@@ -4238,6 +4238,13 @@ class SettingsDialog(QDialog):
         self.idle_motion_check.toggled.connect(self._on_setting_changed)
         idle_layout.addRow(self.idle_motion_check)
 
+        self.builtin_idle_motion_check = self._create_toggle(
+            "Live2D 기본 idle 모션 활성화",
+            key="settings.behavior.idle.builtin_enable",
+        )
+        self.builtin_idle_motion_check.toggled.connect(self._on_setting_changed)
+        idle_layout.addRow(self.builtin_idle_motion_check)
+
         self.idle_motion_dynamic_check = self._create_toggle(
             "유휴 모션 다이나믹 모드",
             key="settings.behavior.idle.dynamic",
@@ -5828,6 +5835,9 @@ class SettingsDialog(QDialog):
             self.mouse_tracking_check.setChecked(self._original_settings.get("mouse_tracking_enabled", True))
 
             self.idle_motion_check.setChecked(self._original_settings.get("enable_idle_motion", True))
+            self.builtin_idle_motion_check.setChecked(
+                self._original_settings.get("enable_builtin_idle_motion", True)
+            )
             self.idle_motion_dynamic_check.setChecked(self._original_settings.get("idle_motion_dynamic_mode", False))
             self.idle_motion_strength_spin.setValue(float(self._original_settings.get("idle_motion_strength", 1.0)))
             self.idle_motion_speed_spin.setValue(float(self._original_settings.get("idle_motion_speed", 1.0)))
@@ -6072,6 +6082,7 @@ class SettingsDialog(QDialog):
             "memory_search_recent_turns": max(0, min(memory_search_recent_turns, 50)),
             "mouse_tracking_enabled": self.mouse_tracking_check.isChecked(),
             "enable_idle_motion": self.idle_motion_check.isChecked(),
+            "enable_builtin_idle_motion": self.builtin_idle_motion_check.isChecked(),
             "idle_motion_dynamic_mode": self.idle_motion_dynamic_check.isChecked(),
             "idle_motion_strength": self.idle_motion_strength_spin.value(),
             "idle_motion_speed": self.idle_motion_speed_spin.value(),
