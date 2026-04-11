@@ -68,6 +68,22 @@ def test_load_missing_file_uses_builtin_idle_motion_default(tmp_path):
     assert settings.get("enable_builtin_idle_motion") is True
 
 
+def test_load_missing_file_uses_auto_eye_blink_default(tmp_path):
+    config_path = tmp_path / "config.json"
+    secret_path = tmp_path / "api_keys.json"
+    settings = Settings(config_path=str(config_path), secret_path=str(secret_path))
+
+    assert settings.get("enable_auto_eye_blink") is True
+
+
+def test_load_missing_file_keeps_idle_motion_dynamic_mode_as_legacy_default(tmp_path):
+    config_path = tmp_path / "config.json"
+    secret_path = tmp_path / "api_keys.json"
+    settings = Settings(config_path=str(config_path), secret_path=str(secret_path))
+
+    assert settings.get("idle_motion_dynamic_mode") is False
+
+
 def test_settings_roundtrip_preserves_genie_tts_config(tmp_path):
     config_path = tmp_path / "config.json"
     secret_path = tmp_path / "api_keys.json"
@@ -128,6 +144,17 @@ def test_save_and_reload_roundtrip_preserves_builtin_idle_motion(tmp_path):
 
     reloaded = Settings(config_path=str(config_path), secret_path=str(secret_path))
     assert reloaded.get("enable_builtin_idle_motion") is False
+
+
+def test_save_and_reload_roundtrip_preserves_auto_eye_blink(tmp_path):
+    config_path = tmp_path / "config.json"
+    secret_path = tmp_path / "api_keys.json"
+    settings = Settings(config_path=str(config_path), secret_path=str(secret_path))
+    settings.set("enable_auto_eye_blink", False)
+    settings.save()
+
+    reloaded = Settings(config_path=str(config_path), secret_path=str(secret_path))
+    assert reloaded.get("enable_auto_eye_blink") is False
 
 
 def test_load_invalid_json_falls_back_to_default(tmp_path):

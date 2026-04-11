@@ -844,6 +844,7 @@
         "title": "Idle motion",
         "enable": "Enable idle motion (automatic movement while ENE is not speaking)",
         "builtin_enable": "Enable built-in Live2D idle motion",
+        "auto_eye_blink_enable": "Enable automatic eye blink",
         "dynamic": "Enable dynamic idle motion mode",
         "strength": "Idle motion strength:",
         "speed": "Idle motion speed:"
