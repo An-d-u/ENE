@@ -664,7 +664,7 @@ class WebBridge(QObject):
         
         # 설정에서 임계값 로드 (기본값: 10)
         if settings and hasattr(settings, 'config'):
-            self.summarize_threshold = settings.config.get('summarize_threshold', 10)
+            self.summarize_threshold = max(0, int(settings.config.get('summarize_threshold', 10) or 0))
             self.enable_tts = settings.config.get('enable_tts', False)
             self.tts_streaming_enabled = bool(settings.config.get("tts_streaming_enabled", False))
             self.tts_streaming_emit_message_on_first_chunk = bool(
@@ -675,7 +675,8 @@ class WebBridge(QObject):
 
         self.refresh_away_settings()
         
-        print(f"[Bridge] 자동 요약 임계값: {self.summarize_threshold}개")
+        threshold_label = "무제한" if self.summarize_threshold == 0 else f"{self.summarize_threshold}개"
+        print(f"[Bridge] 자동 요약 임계값: {threshold_label}")
         print(f"[Bridge] TTS 활성화: {self.enable_tts}")
     
     def set_llm_client(self, client):
@@ -3377,8 +3378,12 @@ class WebBridge(QObject):
         """자동 요약 확인"""
         if not self.memory_manager:
             return
-        
-        if len(self.conversation_buffer) >= self.summarize_threshold:
+
+        threshold = max(0, int(getattr(self, "summarize_threshold", 10) or 0))
+        if threshold == 0:
+            return
+
+        if len(self.conversation_buffer) >= threshold:
             print(f"[Bridge] 대화 {len(self.conversation_buffer)}개 - 자동 요약 트리거")
             
             # QThread에서 실행되므로 새 이벤트 루프 생성
