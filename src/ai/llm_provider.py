@@ -13,6 +13,8 @@ class LLMClientProtocol(Protocol):
         self,
         message: str,
         memory_search_text: str | None = None,
+        latest_user_message: str | None = None,
+        recent_memory_context: str | None = None,
     ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         ...
 
@@ -21,6 +23,8 @@ class LLMClientProtocol(Protocol):
         message: str,
         images_data: list,
         memory_search_text: str | None = None,
+        latest_user_message: str | None = None,
+        recent_memory_context: str | None = None,
     ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         ...
 

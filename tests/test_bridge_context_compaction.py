@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 import asyncio
 import sys
 import types
@@ -10,6 +11,7 @@ sys.modules.setdefault("google", google_module)
 sys.modules.setdefault("google.genai", genai_module)
 
 from src.ai.llm_client import GeminiClient
+from src.ai.memory_types import MemoryChunk
 from src.core.bridge import WebBridge
 
 
@@ -89,18 +91,38 @@ def test_auto_summarize_clears_llm_chat_context_after_persisting_summary():
 
     asyncio.run(WebBridge._auto_summarize(dummy))
 
-    assert dummy.memory_manager.calls == [
+    assert len(dummy.memory_manager.calls) == 1
+    stored = dummy.memory_manager.calls[0]
+    assert stored["summary"] == "압축된 요약"
+    assert stored["is_important"] is False
+    assert stored["tags"] == []
+    assert stored["source"] == "chat"
+    assert stored["memory_type"] == "task"
+    assert stored["importance_reason"] == "repeated_topic"
+    assert stored["confidence"] == 0.81
+    assert stored["entity_names"] == ["ENE"]
+    assert stored["original_messages"] == [
         {
-            "summary": "압축된 요약",
-            "original_messages": ["안녕", "안녕하세요", "오늘 일정 알려줘"],
-            "is_important": False,
-            "tags": [],
-            "source": "chat",
-            "memory_type": "task",
-            "importance_reason": "repeated_topic",
-            "confidence": 0.81,
-            "entity_names": ["ENE"],
-        }
+            "role": "user",
+            "text": "안녕",
+            "timestamp": "2026-03-24 10:00",
+            "conversation_id": stored["original_messages"][0]["conversation_id"],
+            "turn_index": 0,
+        },
+        {
+            "role": "assistant",
+            "text": "안녕하세요",
+            "timestamp": "2026-03-24 10:01",
+            "conversation_id": stored["original_messages"][0]["conversation_id"],
+            "turn_index": 1,
+        },
+        {
+            "role": "user",
+            "text": "오늘 일정 알려줘",
+            "timestamp": "2026-03-24 10:02",
+            "conversation_id": stored["original_messages"][0]["conversation_id"],
+            "turn_index": 2,
+        },
     ]
     assert dummy.ene_profile.calls == [
         {
@@ -243,6 +265,29 @@ def test_build_memory_search_text_uses_recent_visible_turns_with_latest_user_mes
     assert "[Message Time: 2026-03-24 10:05]" in search_text
 
 
+def test_build_memory_search_inputs_split_latest_user_message_and_recent_context():
+    dummy = type("BridgeDummy", (), {})()
+    dummy.conversation_buffer = [
+        ("user", "첫 질문", "2026-03-24 10:00"),
+        ("assistant", "첫 답변", "2026-03-24 10:01"),
+        ("user", "두 번째 질문", "2026-03-24 10:02"),
+        ("assistant", "두 번째 답변", "2026-03-24 10:03"),
+        ("user", "세 번째 질문", "2026-03-24 10:04"),
+        ("assistant", "세 번째 답변", "2026-03-24 10:05"),
+    ]
+    dummy.settings = type("SettingsDummy", (), {"get": lambda self, key, default=None: 2 if key == "memory_search_recent_turns" else default})()
+    dummy._resolve_memory_search_turns = lambda: WebBridge._resolve_memory_search_turns(dummy)
+
+    payload = WebBridge._build_memory_search_inputs(dummy, "네 번째 질문", "2026-03-24 10:06")
+
+    assert payload["latest_user_message"] == "네 번째 질문"
+    assert "첫 질문" not in payload["recent_context_text"]
+    assert "두 번째 질문" in payload["recent_context_text"]
+    assert "세 번째 답변" in payload["recent_context_text"]
+    assert "[현재 사용자 메시지] 네 번째 질문" in payload["memory_search_text"]
+    assert "[Message Time: 2026-03-24 10:06]" in payload["memory_search_text"]
+
+
 def test_build_memory_search_text_prefixes_current_message_with_message_time():
     dummy = type("BridgeDummy", (), {})()
     dummy.conversation_buffer = []
@@ -252,6 +297,110 @@ def test_build_memory_search_text_prefixes_current_message_with_message_time():
     search_text = WebBridge._build_memory_search_text(dummy, "지금 질문", "2026-03-24 10:06")
 
     assert search_text == "[Message Time: 2026-03-24 10:06]\n[현재 사용자 메시지] 지금 질문"
+
+
+class _RawChunkMemoryManager:
+    def __init__(self):
+        self.find_similar_calls = []
+        self.find_relevant_raw_chunks_calls = []
+
+    def get_important(self):
+        return []
+
+    def get_recent(self, count=5):
+        return []
+
+    async def find_similar(self, query, top_k=3, min_similarity=0.5):
+        self.find_similar_calls.append(
+            {
+                "query": query,
+                "top_k": top_k,
+                "min_similarity": min_similarity,
+            }
+        )
+        memory = type("Memory", (), {"summary": "병원 예약을 자주 확인해 달라고 말한 기억"})()
+        return [(memory, 0.91)]
+
+    async def find_relevant_raw_chunks(
+        self,
+        latest_query,
+        candidate_memories,
+        recent_context="",
+        top_k=2,
+        chunk_turns=6,
+    ):
+        self.find_relevant_raw_chunks_calls.append(
+            {
+                "latest_query": latest_query,
+                "candidate_memories": candidate_memories,
+                "recent_context": recent_context,
+                "top_k": top_k,
+                "chunk_turns": chunk_turns,
+            }
+        )
+        return [
+            (
+                MemoryChunk(
+                    memory_id="mem-1",
+                    conversation_id="conv-1",
+                    start_turn_index=4,
+                    end_turn_index=9,
+                    text="[user] 내일 병원 예약 있어\n[assistant] 오후 3시라고 다시 알려줄게",
+                    messages=[],
+                ),
+                0.88,
+                {"primary_similarity": 0.88, "support_similarity": 0.24},
+            )
+        ]
+
+
+def test_build_memory_context_uses_latest_query_for_similarity_and_includes_raw_chunks():
+    memory_manager = _RawChunkMemoryManager()
+    dummy = type("ClientDummy", (), {})()
+    dummy.memory_manager = memory_manager
+    dummy.user_profile = _DummyProfile([])
+    dummy.ene_profile = None
+    dummy.mood_manager = None
+    dummy.settings = type(
+        "SettingsDummy",
+        (),
+        {
+            "config": {
+                "max_profile_facts_in_context": 2,
+                "max_similar_memories": 3,
+                "min_similarity": 0.35,
+                "max_raw_chunks_in_context": 2,
+                "raw_chunk_turns": 6,
+            }
+        },
+    )()
+    dummy.calendar_manager = None
+
+    context = asyncio.run(
+        GeminiClient._build_memory_context(
+            dummy,
+            "지금 병원 시간이 몇 시였지?",
+            recent_context="[마스터] 내일 병원 예약 있어\n[에네] 오후 3시였어",
+        )
+    )
+
+    assert memory_manager.find_similar_calls == [
+        {
+            "query": "지금 병원 시간이 몇 시였지?",
+            "top_k": 3,
+            "min_similarity": 0.35,
+        }
+    ]
+    assert len(memory_manager.find_relevant_raw_chunks_calls) == 1
+    assert memory_manager.find_relevant_raw_chunks_calls[0]["latest_query"] == "지금 병원 시간이 몇 시였지?"
+    assert memory_manager.find_relevant_raw_chunks_calls[0]["recent_context"] == "[마스터] 내일 병원 예약 있어\n[에네] 오후 3시였어"
+    assert memory_manager.find_relevant_raw_chunks_calls[0]["top_k"] == 2
+    assert memory_manager.find_relevant_raw_chunks_calls[0]["chunk_turns"] == 6
+    assert len(memory_manager.find_relevant_raw_chunks_calls[0]["candidate_memories"]) == 1
+    assert "[관련된 과거 기억]" in context
+    assert "병원 예약을 자주 확인해 달라고 말한 기억" in context
+    assert "[회상된 원문 조각]" in context
+    assert "[user] 내일 병원 예약 있어" in context
 
 
 def test_on_response_ready_rebuilds_llm_history_from_visible_conversation_only():

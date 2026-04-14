@@ -1,13 +1,15 @@
 """
 장기기억 데이터 구조
 """
-from dataclasses import dataclass, field, asdict, fields
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import Any
 import re
 
 
-CURRENT_MEMORY_SCHEMA_VERSION = 2
+CURRENT_MEMORY_SCHEMA_VERSION = 3
 LEGACY_MIGRATION_VERSION = 1
 
 _PREFERENCE_PATTERNS = ("좋아", "선호", "편해", "익숙", "싫어", "자주")
@@ -22,7 +24,7 @@ def _now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
-def _normalize_str_list(value: Any) -> List[str]:
+def _normalize_str_list(value: Any) -> list[str]:
     if isinstance(value, list):
         return [str(item).strip() for item in value if str(item).strip()]
     if value is None:
@@ -38,11 +40,366 @@ def _clamp_confidence(value: Any) -> float:
         return 0.5
 
 
-def _extract_entity_names(summary: str, original_messages: List[str], tags: List[str]) -> List[str]:
+def _normalize_role(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    return text or "unknown"
+
+
+_ASSISTANT_STRONG_CUES = (
+    "마스터",
+    "괜찮으신",
+    "부탁드려요",
+    "도와드릴게요",
+    "알려드릴게요",
+    "죄송해요",
+)
+_ASSISTANT_POLITE_ENDINGS = (
+    "요",
+    "니다",
+    "이에요",
+    "예요",
+    "세요",
+    "군요",
+    "네요",
+    "까요",
+)
+_USER_STRONG_CUES = (
+    "에네",
+    "안녕",
+    "응",
+    "그래",
+    "고마워",
+    "미안",
+    "해줘",
+    "말이야",
+    "거든",
+)
+_USER_CASUAL_ENDINGS = (
+    "어",
+    "아",
+    "야",
+    "지",
+    "네",
+    "냐",
+    "래",
+    "까",
+    "거야",
+    "같아",
+    "없어",
+    "있어",
+)
+
+
+def _split_sentences(text: str) -> list[str]:
+    parts = re.split(r"[\n\r]+|(?<=[.!?])\s+", str(text or "").strip())
+    return [part.strip(" \"'“”‘’") for part in parts if part.strip(" \"'“”‘’")]
+
+
+def _score_legacy_message_role(text: str) -> tuple[float, float]:
+    """레거시 문자열 메시지의 화자를 존댓말/반말 경향으로 점수화한다."""
+    normalized = str(text or "").strip()
+    if not normalized:
+        return 0.0, 0.0
+
+    assistant_score = 0.0
+    user_score = 0.0
+    lowered = normalized.lower()
+
+    for cue in _ASSISTANT_STRONG_CUES:
+        if cue in normalized:
+            assistant_score += 3.0
+
+    for cue in _USER_STRONG_CUES:
+        if cue in normalized:
+            user_score += 2.0
+
+    for sentence in _split_sentences(normalized):
+        trimmed = sentence.rstrip("...~!?,. ")
+        for ending in _ASSISTANT_POLITE_ENDINGS:
+            if trimmed.endswith(ending):
+                assistant_score += 1.5
+                break
+        for ending in _USER_CASUAL_ENDINGS:
+            if trimmed.endswith(ending):
+                user_score += 1.2
+                break
+
+        if re.search(r"(할게|줄게|볼게|갈게|할까|줄래|싶어|됐어|맞아|좋아|싫어|없어|있어)$", trimmed):
+            user_score += 1.5
+        if re.search(r"(할게요|드릴게요|볼까요|주세요|있어요|없어요|맞아요|좋아요|같아요)$", trimmed):
+            assistant_score += 1.5
+
+    if "마스터" in normalized and "에네" not in normalized:
+        assistant_score += 1.0
+    if "에네" in normalized and "마스터" not in normalized:
+        user_score += 0.8
+    if "?" in normalized or "?" in lowered:
+        user_score += 0.2
+
+    return assistant_score, user_score
+
+
+def _infer_legacy_message_roles(raw_items: list[Any]) -> list[str]:
+    """레거시 문자열 메시지 리스트의 화자를 순서와 말투를 기준으로 추정한다."""
+    texts = [str(item or "").strip() for item in raw_items]
+    roles: list[str | None] = []
+
+    for text in texts:
+        assistant_score, user_score = _score_legacy_message_role(text)
+        if assistant_score > user_score:
+            roles.append("assistant")
+        elif user_score > assistant_score:
+            roles.append("user")
+        else:
+            roles.append(None)
+
+    resolved: list[str | None] = []
+    previous_role: str | None = None
+
+    for index, role in enumerate(roles):
+        next_explicit_role = next(
+            (candidate for candidate in roles[index + 1 :] if candidate is not None),
+            None,
+        )
+        if role == "user" and previous_role == "user":
+            role = "assistant"
+        elif role is None:
+            if previous_role == "user":
+                role = "assistant"
+            elif previous_role == "assistant":
+                role = "user" if next_explicit_role == "assistant" else "assistant"
+            elif index == 0:
+                role = "user"
+            elif next_explicit_role == "assistant":
+                role = "user"
+        resolved.append(role)
+        if role is not None:
+            previous_role = role
+
+    if any(role is None for role in resolved):
+        for index, role in enumerate(resolved):
+            if role is not None:
+                continue
+            if index == 0:
+                resolved[index] = "user"
+            else:
+                prev = resolved[index - 1]
+                resolved[index] = "assistant" if prev in {"user", "assistant"} else "user"
+
+    return [str(role) for role in resolved]
+
+
+def _needs_legacy_role_reinference(raw_items: list[Any], fallback_conversation_id: str) -> bool:
+    """이미 객체로 저장된 레거시 unknown 메시지들인지 판별한다."""
+    if not raw_items:
+        return False
+    if not str(fallback_conversation_id or "").startswith("legacy-"):
+        return False
+
+    saw_message_like = False
+    for item in raw_items:
+        if isinstance(item, MemoryMessage):
+            saw_message_like = True
+            if _normalize_role(item.role) != "unknown":
+                return False
+        elif isinstance(item, dict):
+            saw_message_like = True
+            if _normalize_role(item.get("role")) != "unknown":
+                return False
+        else:
+            return False
+    return saw_message_like
+
+
+@dataclass(eq=False)
+class MemoryMessage:
+    """원문 메시지 1건."""
+
+    role: str
+    text: str
+    timestamp: str
+    conversation_id: str
+    turn_index: int
+
+    @classmethod
+    def from_value(
+        cls,
+        value: Any,
+        *,
+        fallback_timestamp: str,
+        fallback_conversation_id: str,
+        fallback_turn_index: int,
+    ) -> tuple["MemoryMessage", bool]:
+        """다양한 입력을 표준 메시지 구조로 정규화한다."""
+        if isinstance(value, cls):
+            return (
+                cls(
+                    role=_normalize_role(value.role),
+                    text=str(value.text or "").strip(),
+                    timestamp=str(value.timestamp or fallback_timestamp).strip() or fallback_timestamp,
+                    conversation_id=str(value.conversation_id or fallback_conversation_id).strip() or fallback_conversation_id,
+                    turn_index=int(value.turn_index),
+                ),
+                False,
+            )
+
+        if isinstance(value, dict):
+            turn_index_value = value.get("turn_index", fallback_turn_index)
+            try:
+                turn_index = int(turn_index_value)
+            except (TypeError, ValueError):
+                turn_index = fallback_turn_index
+            return (
+                cls(
+                    role=_normalize_role(value.get("role")),
+                    text=str(value.get("text", "")).strip(),
+                    timestamp=str(value.get("timestamp") or fallback_timestamp).strip() or fallback_timestamp,
+                    conversation_id=str(value.get("conversation_id") or fallback_conversation_id).strip() or fallback_conversation_id,
+                    turn_index=turn_index,
+                ),
+                False,
+            )
+
+        return (
+            cls(
+                role="unknown",
+                text=str(value or "").strip(),
+                timestamp=fallback_timestamp,
+                conversation_id=fallback_conversation_id,
+                turn_index=fallback_turn_index,
+            ),
+            True,
+        )
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, MemoryMessage):
+            return (
+                self.role == other.role
+                and self.text == other.text
+                and self.timestamp == other.timestamp
+                and self.conversation_id == other.conversation_id
+                and self.turn_index == other.turn_index
+            )
+        if isinstance(other, str):
+            return self.text == other
+        if isinstance(other, dict):
+            return self.to_dict() == other
+        return NotImplemented
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(eq=False)
+class MemoryChunk:
+    """원문 회상에 사용하는 chunk 1건."""
+
+    memory_id: str
+    conversation_id: str
+    start_turn_index: int
+    end_turn_index: int
+    text: str
+    messages: list[MemoryMessage] = field(default_factory=list)
+    embedding: list[float] | None = None
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, MemoryChunk):
+            return (
+                self.memory_id == other.memory_id
+                and self.conversation_id == other.conversation_id
+                and self.start_turn_index == other.start_turn_index
+                and self.end_turn_index == other.end_turn_index
+                and self.text == other.text
+                and self.messages == other.messages
+                and self.embedding == other.embedding
+            )
+        return NotImplemented
+
+
+def _normalize_original_messages(
+    value: Any,
+    *,
+    fallback_timestamp: str,
+    fallback_conversation_id: str,
+) -> tuple[list[MemoryMessage], bool]:
+    raw_items = value if isinstance(value, list) else ([] if value is None else [value])
+    normalized: list[MemoryMessage] = []
+    used_legacy_strings = False
+
+    if raw_items and all(not isinstance(item, (dict, MemoryMessage)) for item in raw_items):
+        inferred_roles = _infer_legacy_message_roles(raw_items)
+        for index, item in enumerate(raw_items):
+            text = str(item or "").strip()
+            if not text:
+                continue
+            normalized.append(
+                MemoryMessage(
+                    role=inferred_roles[index],
+                    text=text,
+                    timestamp=fallback_timestamp,
+                    conversation_id=fallback_conversation_id,
+                    turn_index=index,
+                )
+            )
+        return normalized, True
+
+    if _needs_legacy_role_reinference(raw_items, fallback_conversation_id):
+        inferred_roles = _infer_legacy_message_roles(
+            [
+                item.text if isinstance(item, MemoryMessage) else item.get("text", "")
+                for item in raw_items
+            ]
+        )
+        for index, item in enumerate(raw_items):
+            if isinstance(item, MemoryMessage):
+                text = str(item.text or "").strip()
+                timestamp = str(item.timestamp or fallback_timestamp).strip() or fallback_timestamp
+                conversation_id = str(item.conversation_id or fallback_conversation_id).strip() or fallback_conversation_id
+                turn_index = int(item.turn_index)
+            else:
+                text = str(item.get("text", "")).strip()
+                timestamp = str(item.get("timestamp") or fallback_timestamp).strip() or fallback_timestamp
+                conversation_id = str(item.get("conversation_id") or fallback_conversation_id).strip() or fallback_conversation_id
+                try:
+                    turn_index = int(item.get("turn_index", index))
+                except (TypeError, ValueError):
+                    turn_index = index
+            if not text:
+                continue
+            normalized.append(
+                MemoryMessage(
+                    role=inferred_roles[index],
+                    text=text,
+                    timestamp=timestamp,
+                    conversation_id=conversation_id,
+                    turn_index=turn_index,
+                )
+            )
+        return normalized, True
+
+    for index, item in enumerate(raw_items):
+        message, is_legacy_string = MemoryMessage.from_value(
+            item,
+            fallback_timestamp=fallback_timestamp,
+            fallback_conversation_id=fallback_conversation_id,
+            fallback_turn_index=index,
+        )
+        if message.text:
+            normalized.append(message)
+        used_legacy_strings = used_legacy_strings or is_legacy_string
+
+    return normalized, used_legacy_strings
+
+
+def _message_texts(messages: list[MemoryMessage]) -> list[str]:
+    return [message.text for message in messages if str(message.text or "").strip()]
+
+
+def _extract_entity_names(summary: str, original_messages: list[MemoryMessage], tags: list[str]) -> list[str]:
     """요약/원문/태그에서 보수적으로 엔티티 이름을 추출한다."""
-    candidates: List[str] = []
+    candidates: list[str] = []
     seen: set[str] = set()
-    combined = "\n".join([summary, *original_messages, " ".join(tags)])
+    combined = "\n".join([summary, *_message_texts(original_messages), " ".join(tags)])
 
     for match in re.findall(r"[A-Z][A-Za-z0-9_.-]{1,}", combined):
         normalized = match.strip()
@@ -64,8 +421,8 @@ def _extract_entity_names(summary: str, original_messages: List[str], tags: List
     return candidates
 
 
-def _infer_memory_type(summary: str, original_messages: List[str], tags: List[str]) -> str:
-    combined = "\n".join([summary, *original_messages, " ".join(tags)]).lower()
+def _infer_memory_type(summary: str, original_messages: list[MemoryMessage], tags: list[str]) -> str:
+    combined = "\n".join([summary, *_message_texts(original_messages), " ".join(tags)]).lower()
 
     if any(pattern in combined for pattern in _PROMISE_PATTERNS):
         return "promise"
@@ -100,40 +457,72 @@ def _default_confidence(is_important: bool, memory_type: str) -> float:
 
 @dataclass
 class MemoryEntry:
-    """단일 기억 항목"""
+    """단일 기억 항목."""
+
     id: str
     summary: str
-    original_messages: List[str]
-    timestamp: str  # ISO format
+    original_messages: list[MemoryMessage]
+    timestamp: str
     is_important: bool = False
-    embedding: Optional[List[float]] = None
-    tags: List[str] = field(default_factory=list)
+    embedding: list[float] | None = None
+    tags: list[str] = field(default_factory=list)
     source: str = "legacy"
     memory_type: str = "general"
     importance_reason: str = "none"
     retrieval_count: int = 0
-    last_used_at: Optional[str] = None
+    last_used_at: str | None = None
     confidence: float = 0.5
-    user_confirmed: Optional[bool] = None
-    entity_names: List[str] = field(default_factory=list)
-    conversation_id: Optional[str] = None
-    expires_at: Optional[str] = None
+    user_confirmed: bool | None = None
+    entity_names: list[str] = field(default_factory=list)
+    conversation_id: str | None = None
+    expires_at: str | None = None
     schema_version: int = CURRENT_MEMORY_SCHEMA_VERSION
-    migration_meta: Dict[str, Any] = field(default_factory=dict)
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """딕셔너리로 변환 (JSON 저장용)"""
+    migration_meta: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self):
+        fallback_timestamp = str(self.timestamp or "").strip() or _now_iso()
+        fallback_conversation_id = str(
+            self.conversation_id or f"legacy-{self.id or 'memory'}"
+        ).strip() or f"legacy-{self.id or 'memory'}"
+        self.timestamp = fallback_timestamp
+        self.original_messages, _ = _normalize_original_messages(
+            self.original_messages,
+            fallback_timestamp=fallback_timestamp,
+            fallback_conversation_id=fallback_conversation_id,
+        )
+        self.tags = _normalize_str_list(self.tags)
+        self.entity_names = _normalize_str_list(self.entity_names)
+        self.confidence = _clamp_confidence(self.confidence)
+        self.schema_version = max(int(self.schema_version or 0), CURRENT_MEMORY_SCHEMA_VERSION)
+        self.conversation_id = (
+            str(self.conversation_id).strip()
+            if self.conversation_id is not None and str(self.conversation_id).strip()
+            else (self.original_messages[0].conversation_id if self.original_messages else None)
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """딕셔너리로 변환한다."""
         return asdict(self)
-    
+
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'MemoryEntry':
-        """딕셔너리에서 복원"""
+    def from_dict(cls, data: dict[str, Any]) -> "MemoryEntry":
+        """딕셔너리에서 복원한다."""
         normalized = dict(data or {})
-        inferred_fields: List[str] = []
+        inferred_fields: list[str] = []
         field_names = {field_def.name for field_def in fields(cls)}
 
         summary = str(normalized.get("summary", "")).strip()
-        original_messages = _normalize_str_list(normalized.get("original_messages"))
+        timestamp = str(normalized.get("timestamp", "")).strip() or _now_iso()
+        memory_id = str(normalized.get("id", "")).strip() or "legacy-memory"
+        fallback_conversation_id = str(
+            normalized.get("conversation_id") or f"legacy-{memory_id}"
+        ).strip() or f"legacy-{memory_id}"
+
+        original_messages, used_legacy_strings = _normalize_original_messages(
+            normalized.get("original_messages"),
+            fallback_timestamp=timestamp,
+            fallback_conversation_id=fallback_conversation_id,
+        )
         tags = _normalize_str_list(normalized.get("tags"))
         is_important = bool(normalized.get("is_important", False))
 
@@ -175,8 +564,13 @@ class MemoryEntry:
         else:
             normalized["entity_names"] = _normalize_str_list(normalized.get("entity_names"))
 
-        if "conversation_id" not in normalized:
-            normalized["conversation_id"] = None
+        normalized_conversation_id = str(normalized.get("conversation_id") or "").strip()
+        if not normalized_conversation_id:
+            normalized["conversation_id"] = original_messages[0].conversation_id if original_messages else None
+            if normalized["conversation_id"]:
+                inferred_fields.append("conversation_id")
+        else:
+            normalized["conversation_id"] = normalized_conversation_id
 
         if "expires_at" not in normalized:
             normalized["expires_at"] = None
@@ -191,7 +585,18 @@ class MemoryEntry:
         migration_meta = normalized.get("migration_meta")
         if not isinstance(migration_meta, dict):
             migration_meta = {}
-        if schema_version < CURRENT_MEMORY_SCHEMA_VERSION or inferred_fields:
+        if used_legacy_strings:
+            migration_meta = {
+                **migration_meta,
+                "legacy_original_messages": True,
+                "inferred_message_fields": [
+                    "role",
+                    "timestamp",
+                    "conversation_id",
+                    "turn_index",
+                ],
+            }
+        if schema_version < CURRENT_MEMORY_SCHEMA_VERSION or inferred_fields or used_legacy_strings:
             existing_inferred = migration_meta.get("inferred_fields")
             combined_inferred = _normalize_str_list(existing_inferred)
             for field_name in inferred_fields:
@@ -205,52 +610,75 @@ class MemoryEntry:
             }
         normalized["migration_meta"] = migration_meta
 
+        normalized["id"] = memory_id
         normalized["summary"] = summary
         normalized["original_messages"] = original_messages
         normalized["tags"] = tags
         normalized["embedding"] = normalized.get("embedding")
-        normalized["timestamp"] = str(normalized.get("timestamp", "")).strip() or _now_iso()
+        normalized["timestamp"] = timestamp
 
         filtered = {name: normalized.get(name) for name in field_names}
         return cls(**filtered)
-    
+
     def __repr__(self) -> str:
-        important = "⭐" if self.is_important else ""
+        important = "*" if self.is_important else ""
         return f"{important}[{self.timestamp}] {self.summary[:50]}..."
 
 
 def create_memory_entry(
     summary: str,
-    original_messages: List[str],
+    original_messages: list[Any],
     is_important: bool = False,
-    embedding: Optional[List[float]] = None,
-    tags: Optional[List[str]] = None,
+    embedding: list[float] | None = None,
+    tags: list[str] | None = None,
     source: str = "chat",
     memory_type: str = "general",
-    importance_reason: Optional[str] = None,
-    confidence: Optional[float] = None,
-    entity_names: Optional[List[str]] = None,
+    importance_reason: str | None = None,
+    confidence: float | None = None,
+    entity_names: list[str] | None = None,
 ) -> MemoryEntry:
-    """새 기억 항목 생성"""
+    """새 기억 항목을 생성한다."""
     import uuid
 
     normalized_tags = tags or []
     normalized_memory_type = str(memory_type or "general").strip() or "general"
     resolved_importance_reason = importance_reason or (
-        "user_marked" if is_important else _default_importance_reason(is_important=False, memory_type=normalized_memory_type)
+        "user_marked"
+        if is_important
+        else _default_importance_reason(is_important=False, memory_type=normalized_memory_type)
     )
     resolved_confidence = _clamp_confidence(
         confidence if confidence is not None else _default_confidence(is_important, normalized_memory_type)
     )
+    memory_id = str(uuid.uuid4())
+    timestamp = datetime.now().astimezone().isoformat(timespec="seconds")
+    fallback_conversation_id = f"legacy-{memory_id}"
+    normalized_original_messages, used_legacy_strings = _normalize_original_messages(
+        original_messages,
+        fallback_timestamp=timestamp,
+        fallback_conversation_id=fallback_conversation_id,
+    )
     resolved_entity_names = _normalize_str_list(entity_names)
     if not resolved_entity_names:
-        resolved_entity_names = _extract_entity_names(summary, original_messages, normalized_tags)
+        resolved_entity_names = _extract_entity_names(summary, normalized_original_messages, normalized_tags)
+    conversation_id = normalized_original_messages[0].conversation_id if normalized_original_messages else None
+    migration_meta: dict[str, Any] = {}
+    if used_legacy_strings:
+        migration_meta = {
+            "legacy_original_messages": True,
+            "inferred_message_fields": [
+                "role",
+                "timestamp",
+                "conversation_id",
+                "turn_index",
+            ],
+        }
 
     return MemoryEntry(
-        id=str(uuid.uuid4()),
+        id=memory_id,
         summary=summary,
-        original_messages=original_messages,
-        timestamp=datetime.now().isoformat(),
+        original_messages=normalized_original_messages,
+        timestamp=timestamp,
         is_important=is_important,
         embedding=embedding,
         tags=normalized_tags,
@@ -259,5 +687,7 @@ def create_memory_entry(
         importance_reason=resolved_importance_reason,
         confidence=resolved_confidence,
         entity_names=resolved_entity_names,
+        conversation_id=conversation_id,
         schema_version=CURRENT_MEMORY_SCHEMA_VERSION,
+        migration_meta=migration_meta,
     )

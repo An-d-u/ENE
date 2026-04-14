@@ -23,6 +23,8 @@ def test_load_missing_file_uses_default_config(tmp_path):
     assert settings.get("typing_effect_speed") == "normal"
     assert settings.get("message_split_enabled") is False
     assert settings.get("chat_panel_height") == Settings.DEFAULT_CONFIG["chat_panel_height"]
+    assert settings.get("max_raw_chunks_in_context") == 2
+    assert settings.get("raw_chunk_turns") == 6
     gpt_sovits = settings.get("tts_provider_configs")["gpt_sovits_http"]
     assert gpt_sovits["speed_factor"] == 1.0
     assert gpt_sovits["top_k"] == 15
@@ -123,6 +125,8 @@ def test_save_and_reload_roundtrip(tmp_path):
     settings.set("typing_effect_speed", "slow")
     settings.set("message_split_enabled", True)
     settings.set("chat_panel_height", 388)
+    settings.set("max_raw_chunks_in_context", 4)
+    settings.set("raw_chunk_turns", 8)
     settings.save()
 
     reloaded = Settings(config_path=str(config_path), secret_path=str(secret_path))
@@ -133,6 +137,8 @@ def test_save_and_reload_roundtrip(tmp_path):
     assert reloaded.get("typing_effect_speed") == "slow"
     assert reloaded.get("message_split_enabled") is True
     assert reloaded.get("chat_panel_height") == 388
+    assert reloaded.get("max_raw_chunks_in_context") == 4
+    assert reloaded.get("raw_chunk_turns") == 8
 
 
 def test_save_and_reload_roundtrip_preserves_builtin_idle_motion(tmp_path):
