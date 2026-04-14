@@ -65,6 +65,7 @@ class AIWorker(QThread):
         memory_search_text: str = "",
         latest_user_message: str = "",
         recent_memory_context: str = "",
+        head_pat_count_before_message: int = 0,
         diary_request: str = "",
         note_request: str = "",
         note_recent_context: str = "",
@@ -81,6 +82,7 @@ class AIWorker(QThread):
         self.memory_search_text = (memory_search_text or "").strip()
         self.latest_user_message = (latest_user_message or "").strip()
         self.recent_memory_context = (recent_memory_context or "").strip()
+        self.head_pat_count_before_message = max(0, int(head_pat_count_before_message or 0))
         self.diary_request = (diary_request or "").strip()
         self.note_request = (note_request or "").strip()
         self.note_recent_context = (note_recent_context or "").strip()
@@ -140,6 +142,7 @@ class AIWorker(QThread):
                             self.memory_search_text,
                             self.latest_user_message,
                             self.recent_memory_context,
+                            self.head_pat_count_before_message,
                         )
                     )
                 )
@@ -152,6 +155,7 @@ class AIWorker(QThread):
                             self.memory_search_text,
                             self.latest_user_message,
                             self.recent_memory_context,
+                            self.head_pat_count_before_message,
                         )
                     )
                 )
@@ -1020,6 +1024,7 @@ class WebBridge(QObject):
         memory_search_text: str = "",
         latest_user_message: str = "",
         recent_memory_context: str = "",
+        head_pat_count_before_message: int = 0,
     ):
         """Start AI worker with current payload."""
         if self.worker and self.worker.isRunning():
@@ -1033,6 +1038,7 @@ class WebBridge(QObject):
             memory_search_text=memory_search_text,
             latest_user_message=latest_user_message,
             recent_memory_context=recent_memory_context,
+            head_pat_count_before_message=head_pat_count_before_message,
         )
         self.worker.response_ready.connect(self._on_response_ready)
         self.worker.error_occurred.connect(self._on_error)
@@ -1809,6 +1815,9 @@ class WebBridge(QObject):
         message_with_time = f"[현재 시각: {timestamp}]\n{prompt}"
         memory_search_inputs = self._build_memory_search_inputs(message, timestamp)
         memory_search_text = memory_search_inputs["memory_search_text"]
+        head_pat_count_before_message = 0
+        if hasattr(self, 'calendar_manager') and self.calendar_manager:
+            head_pat_count_before_message = int(self.calendar_manager.drain_pending_head_pat_count())
         print(f"[Bridge] Message with timestamp: {message_with_time}")
 
         self._mark_user_activity()
@@ -1826,6 +1835,7 @@ class WebBridge(QObject):
             "memory_search_text": memory_search_text,
             "latest_user_message": memory_search_inputs["latest_user_message"],
             "recent_memory_context": memory_search_inputs["recent_context_text"],
+            "head_pat_count_before_message": head_pat_count_before_message,
         }
         self._is_rerolling = False
 
@@ -1834,6 +1844,7 @@ class WebBridge(QObject):
             memory_search_text=memory_search_text,
             latest_user_message=memory_search_inputs["latest_user_message"],
             recent_memory_context=memory_search_inputs["recent_context_text"],
+            head_pat_count_before_message=head_pat_count_before_message,
         )
         print("[Bridge] Worker thread started")
 
@@ -1905,6 +1916,9 @@ class WebBridge(QObject):
         message_with_time = f"[현재 시각: {timestamp}]\n{prompt}"
         memory_search_inputs = self._build_memory_search_inputs(effective_message, timestamp)
         memory_search_text = memory_search_inputs["memory_search_text"]
+        head_pat_count_before_message = 0
+        if hasattr(self, "calendar_manager") and self.calendar_manager:
+            head_pat_count_before_message = int(self.calendar_manager.drain_pending_head_pat_count())
 
         self._mark_user_activity()
         attachment_note = build_attachment_note(runtime_attachments)
@@ -1933,6 +1947,7 @@ class WebBridge(QObject):
             "memory_search_text": memory_search_text,
             "latest_user_message": memory_search_inputs["latest_user_message"],
             "recent_memory_context": memory_search_inputs["recent_context_text"],
+            "head_pat_count_before_message": head_pat_count_before_message,
         }
         self._is_rerolling = False
 
@@ -1942,6 +1957,7 @@ class WebBridge(QObject):
             memory_search_text=memory_search_text,
             latest_user_message=memory_search_inputs["latest_user_message"],
             recent_memory_context=memory_search_inputs["recent_context_text"],
+            head_pat_count_before_message=head_pat_count_before_message,
         )
         print(
             f"[Bridge] Worker thread started with "
@@ -2037,6 +2053,7 @@ class WebBridge(QObject):
             memory_search_text=str(payload.get("memory_search_text", "") or ""),
             latest_user_message=str(payload.get("latest_user_message", "") or ""),
             recent_memory_context=str(payload.get("recent_memory_context", "") or ""),
+            head_pat_count_before_message=int(payload.get("head_pat_count_before_message", 0) or 0),
         )
         print("[Bridge] Reroll started")
 
@@ -2157,6 +2174,7 @@ class WebBridge(QObject):
             "memory_search_text": memory_search_text,
             "latest_user_message": memory_search_inputs["latest_user_message"],
             "recent_memory_context": memory_search_inputs["recent_context_text"],
+            "head_pat_count_before_message": int(self._last_request_payload.get("head_pat_count_before_message", 0) or 0),
         }
 
         self._is_rerolling = True
@@ -2167,6 +2185,7 @@ class WebBridge(QObject):
             memory_search_text=memory_search_text,
             latest_user_message=memory_search_inputs["latest_user_message"],
             recent_memory_context=memory_search_inputs["recent_context_text"],
+            head_pat_count_before_message=int(self._last_request_payload.get("head_pat_count_before_message", 0) or 0),
         )
         print("[Bridge] Edit last user message started")
 

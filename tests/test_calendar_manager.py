@@ -41,3 +41,17 @@ def test_recent_or_latest_returns_empty_when_no_conversation_history_exists(tmp_
     result = manager.get_recent_or_latest_conversation_counts(days=7, exclude_today=True)
 
     assert result == {}
+
+
+def test_head_pat_pending_count_accumulates_separately_from_daily_total(tmp_path):
+    manager = CalendarManager(calendar_file=str(tmp_path / "calendar.json"))
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    manager.increment_head_pat_count(today)
+    manager.increment_head_pat_count(today)
+
+    assert manager.get_head_pat_count(today) == 2
+    assert manager.get_pending_head_pat_count() == 2
+    assert manager.drain_pending_head_pat_count() == 2
+    assert manager.get_pending_head_pat_count() == 0
+    assert manager.get_head_pat_count(today) == 2
