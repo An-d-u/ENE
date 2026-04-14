@@ -174,6 +174,7 @@ class GeminiClient:
         memory_search_text: str | None = None,
         latest_user_message: str | None = None,
         recent_memory_context: str | None = None,
+        head_pat_count_before_message: int | None = None,
     ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         """
         메모리를 활용한 메시지 전송
@@ -188,7 +189,11 @@ class GeminiClient:
         search_query = str(memory_search_text or "").strip() or message
         primary_query = str(latest_user_message or "").strip() or search_query
         support_context = str(recent_memory_context or "").strip()
-        memory_context = await self._build_memory_context(primary_query, recent_context=support_context)
+        memory_context = await self._build_memory_context(
+            primary_query,
+            recent_context=support_context,
+            head_pat_count_before_message=head_pat_count_before_message,
+        )
         
         # 메모리가 있으면 메시지 앞에 추가
         if memory_context:
@@ -207,6 +212,7 @@ class GeminiClient:
         memory_search_text: str | None = None,
         latest_user_message: str | None = None,
         recent_memory_context: str | None = None,
+        head_pat_count_before_message: int | None = None,
     ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         """
         이미지와 함께 메시지 전송 (멀티모달)
@@ -254,13 +260,18 @@ class GeminiClient:
                     memory_search_text,
                     latest_user_message,
                     recent_memory_context,
+                    head_pat_count_before_message,
                 )
             
             # 메모리 컨텍스트 추가
             search_query = str(memory_search_text or "").strip() or message
             primary_query = str(latest_user_message or "").strip() or search_query
             support_context = str(recent_memory_context or "").strip()
-            memory_context = await self._build_memory_context(primary_query, recent_context=support_context)
+            memory_context = await self._build_memory_context(
+                primary_query,
+                recent_context=support_context,
+                head_pat_count_before_message=head_pat_count_before_message,
+            )
             if memory_context:
                 enhanced_message = f"{memory_context}\n\n{message}"
             else:
@@ -298,7 +309,12 @@ class GeminiClient:
             return f"이미지를 처리하는 중에 문제가 생겼어요... ({str(e)[:50]})", "confused", None, [], {}
 
     
-    async def _build_memory_context(self, query: str, recent_context: str = "") -> str:
+    async def _build_memory_context(
+        self,
+        query: str,
+        recent_context: str = "",
+        head_pat_count_before_message: int | None = None,
+    ) -> str:
         """
         메모리 기반 컨텍스트 구성
         
@@ -567,9 +583,14 @@ class GeminiClient:
             from datetime import datetime
 
             today_str = datetime.now().strftime("%Y-%m-%d")
-            head_pat_count = self.calendar_manager.get_head_pat_count(today_str)
+            today_head_pat_count = int(self.calendar_manager.get_head_pat_count(today_str))
+            if head_pat_count_before_message is None:
+                head_pat_count = int(self.calendar_manager.get_pending_head_pat_count())
+            else:
+                head_pat_count = int(head_pat_count_before_message)
             context_parts.append("\n[오늘 상호작용]")
-            context_parts.append(f"- 쓰다듬기: {head_pat_count}회")
+            context_parts.append(f"- 오늘 쓰다듬은 횟수: {today_head_pat_count}회")
+            context_parts.append(f"- 메시지 전 쓰다듬은 횟수: {head_pat_count}회")
         
         # 컨텍스트 문자열 생성
         if context_parts:
