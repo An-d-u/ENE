@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
-from PyQt6.QtCore import QDate, Qt
+from PyQt6.QtCore import QDate, QEvent, Qt
 from PyQt6.QtWidgets import QGroupBox, QLabel, QMessageBox, QPushButton
 from PyQt6.QtWidgets import QApplication
 
@@ -1358,6 +1358,70 @@ def test_memory_dialog_does_not_overwrite_recent_memory_setting_during_load():
     assert dialog.recent_spinbox.value() == 7
 
     dialog.close()
+
+
+def test_memory_dialog_allows_zero_threshold_and_saves_it_as_unlimited():
+    _get_qapp()
+
+    bridge = SimpleNamespace(
+        summarize_threshold=0,
+        settings=_DummySettings(
+            {
+                "max_important_memories": 3,
+                "max_similar_memories": 5,
+                "min_similarity": 0.42,
+                "max_recent_memories": 2,
+            }
+        ),
+        user_profile=None,
+    )
+
+    dialog = MemoryDialog(_DummyMemoryManager([]), bridge=bridge)
+
+    assert dialog.threshold_spinbox.minimum() == 0
+    assert dialog.threshold_spinbox.value() == 0
+
+    dialog.threshold_spinbox.setValue(6)
+    bridge.settings.saved = False
+    dialog.threshold_spinbox.setValue(0)
+
+    assert bridge.summarize_threshold == 0
+    assert bridge.settings.config["summarize_threshold"] == 0
+    assert bridge.settings.saved is True
+
+    dialog.close()
+
+
+def test_settings_dialog_blocks_wheel_changes_for_spin_and_combo_inputs(monkeypatch):
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        monkeypatch.setattr(SettingsDialog, "_load_prompt_configuration", lambda self: None)
+
+        dialog = SettingsDialog(
+            {
+                "ui_language": "ko",
+                "llm_provider": "gemini",
+                "tts_provider": "gpt_sovits_http",
+                "enable_tts": True,
+            },
+            memory_manager=_DummyMemoryManager([]),
+            bridge=SimpleNamespace(ene_profile=_DummyEneProfile(), parent=lambda: None),
+        )
+        dialog._ensure_lazy_tab_loaded("memory")
+
+        assert dialog.eventFilter(dialog.window_width_spin, QEvent(QEvent.Type.Wheel)) is True
+        assert dialog.eventFilter(dialog.ui_language_combo, QEvent(QEvent.Type.Wheel)) is True
+        assert dialog._embedded_memory_panel.eventFilter(
+            dialog._embedded_memory_panel.threshold_spinbox,
+            QEvent(QEvent.Type.Wheel),
+        ) is True
+
+        dialog.close()
 
 
 def test_memory_dialog_preview_truncates_card_text_with_ellipsis_and_keeps_badges_readable():

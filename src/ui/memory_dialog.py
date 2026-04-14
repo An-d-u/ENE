@@ -4,9 +4,11 @@
 from datetime import datetime
 import re
 
-from PyQt6.QtCore import QPoint, QSize, Qt, QTimer
+from PyQt6.QtCore import QEvent, QPoint, QSize, Qt, QTimer
 from PyQt6.QtGui import QColor, QTextLayout
 from PyQt6.QtWidgets import (
+    QAbstractSpinBox,
+    QComboBox,
     QDialog,
     QFrame,
     QGraphicsDropShadowEffect,
@@ -99,8 +101,21 @@ class MemoryDialog(QDialog):
 
         self._apply_stylesheet()
         self._setup_ui()
+        self._install_no_wheel_handlers()
         self._load_settings()
         self._load_memories()
+
+    def _install_no_wheel_handlers(self) -> None:
+        for widget in self.findChildren(QAbstractSpinBox):
+            widget.installEventFilter(self)
+        for widget in self.findChildren(QComboBox):
+            widget.installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.Wheel and isinstance(obj, (QAbstractSpinBox, QComboBox)):
+            event.ignore()
+            return True
+        return super().eventFilter(obj, event)
 
     def _normalize_theme_color(self, value: str, fallback: str | None = None) -> str:
         match = re.fullmatch(r"#?([0-9A-Fa-f]{6})", str(value or "").strip())
@@ -489,7 +504,7 @@ class MemoryDialog(QDialog):
         layout.addWidget(body)
 
         self.threshold_spinbox = QSpinBox()
-        self.threshold_spinbox.setRange(2, 100)
+        self.threshold_spinbox.setRange(0, 100)
         self.threshold_spinbox.setValue(10)
         self.threshold_spinbox.setSuffix(t("memory.unit.count_suffix"))
         self.threshold_spinbox.valueChanged.connect(self._on_threshold_changed)
@@ -1145,7 +1160,8 @@ class MemoryDialog(QDialog):
             return
         if self.bridge:
             self.bridge.summarize_threshold = value
-            print(f"[Memory Dialog] 자동 요약 임계값: {value}개")
+            threshold_label = "무제한" if value == 0 else f"{value}개"
+            print(f"[Memory Dialog] 자동 요약 임계값: {threshold_label}")
             if hasattr(self.bridge, "settings") and self.bridge.settings:
                 self.bridge.settings.config["summarize_threshold"] = value
                 self.bridge.settings.save()

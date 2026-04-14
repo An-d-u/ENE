@@ -12,9 +12,10 @@ try:
     import tiktoken_ext.openai_public  # noqa: F401
 except ImportError:
     tiktoken = None
-from PyQt6.QtCore import QPoint, QRect, QSize, Qt, QEasingCurve, QTimer, QVariantAnimation, pyqtSignal
+from PyQt6.QtCore import QEvent, QPoint, QRect, QSize, Qt, QEasingCurve, QTimer, QVariantAnimation, pyqtSignal
 from PyQt6.QtGui import QColor, QIcon, QImage, QLinearGradient, QPainter, QPen
 from PyQt6.QtWidgets import (
+    QAbstractSpinBox,
     QApplication,
     QCheckBox,
     QComboBox,
@@ -697,10 +698,26 @@ class SettingsDialog(QDialog):
         self.setMouseTracking(True)
 
         self._setup_ui()
+        self._install_no_wheel_handlers()
         self._load_values()
         if hasattr(self, "ui_language_combo"):
             self._set_dialog_preview_language(self.ui_language_combo.currentData() or "auto")
         self._retranslate_ui()
+
+    def _install_no_wheel_handlers(self, root: QWidget | None = None) -> None:
+        target = root or self
+        if isinstance(target, (QAbstractSpinBox, QComboBox)):
+            target.installEventFilter(self)
+        for widget in target.findChildren(QAbstractSpinBox):
+            widget.installEventFilter(self)
+        for widget in target.findChildren(QComboBox):
+            widget.installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.Wheel and isinstance(obj, (QAbstractSpinBox, QComboBox)):
+            event.ignore()
+            return True
+        return super().eventFilter(obj, event)
 
     def _normalize_ui_language(self, value: str | None) -> str:
         normalized = str(value or "").strip().lower() or "auto"
@@ -2167,6 +2184,7 @@ class SettingsDialog(QDialog):
                 widget.deleteLater()
 
         layout.addWidget(built_widget)
+        self._install_no_wheel_handlers(built_widget)
         self._lazy_tab_loaded.add(tab_id)
 
     def _build_secret_row(self, line_edit: QLineEdit, toggle_handler, button_attr_name: str):
