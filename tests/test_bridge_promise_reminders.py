@@ -11,6 +11,7 @@ sys.modules.setdefault("google", google_module)
 sys.modules.setdefault("google.genai", genai_module)
 
 from src.core.bridge import AIWorker, WebBridge
+from src.ai.promise_reminder_manager import PromiseReminderManager
 
 
 class _DummySignal:
@@ -265,6 +266,37 @@ def test_store_scheduled_promises_upgrades_generic_title_when_llm_title_arrives(
 
     assert stored == []
     assert dummy.promise_manager.items[0]["title"] == "쓰다듬기"
+
+
+def test_store_scheduled_promises_keeps_single_item_for_same_time(tmp_path):
+    dummy = type("BridgeDummy", (), {})()
+    dummy.promise_manager = PromiseReminderManager(tmp_path / "promises.json")
+    dummy.promise_notice = _DummySignal()
+    dummy.promise_items_updated = _DummySignal()
+    dummy._emit_promise_items_updated = lambda: WebBridge._emit_promise_items_updated(dummy)
+    dummy.promise_manager.add_promise(
+        title="일기 쓰기",
+        trigger_at="2026-04-07T20:00:00+09:00",
+        source="user",
+        source_excerpt="8시에 일기 쓰자",
+    )
+
+    stored = WebBridge._store_scheduled_promises(
+        dummy,
+        [
+            {
+                "title": "기업 조사",
+                "trigger_at": "2026-04-07T20:00:30+09:00",
+                "source": "assistant",
+                "source_excerpt": "8시에 기업 조사 시작하자",
+            }
+        ],
+    )
+
+    assert stored == []
+    items = dummy.promise_manager.list_promises()
+    assert len(items) == 1
+    assert items[0].title == "일기 쓰기"
 
 
 def test_on_response_ready_stores_assistant_promise_when_user_requested_schedule():
@@ -653,13 +685,26 @@ def test_reroll_last_response_deletes_only_tracked_promises():
     dummy._emit_promise_items_updated = lambda: dummy._emit_promise_items_updated_calls.append(True)
     dummy._rollback_last_turn_pair_for_retry = lambda: WebBridge._rollback_last_turn_pair_for_retry(dummy)
     started = []
-    dummy._start_ai_worker = lambda message_with_time, images=None, memory_search_text="": started.append(
-        {
-            "message_with_time": message_with_time,
-            "images": images or [],
-            "memory_search_text": memory_search_text,
-        }
-    )
+    def _start_ai_worker_stub(
+        message_with_time,
+        images=None,
+        memory_search_text="",
+        latest_user_message="",
+        recent_memory_context="",
+        head_pat_count_before_message=0,
+    ):
+        started.append(
+            {
+                "message_with_time": message_with_time,
+                "images": images or [],
+                "memory_search_text": memory_search_text,
+                "latest_user_message": latest_user_message,
+                "recent_memory_context": recent_memory_context,
+                "head_pat_count_before_message": head_pat_count_before_message,
+            }
+        )
+
+    dummy._start_ai_worker = _start_ai_worker_stub
 
     dummy.promise_manager.add_promise(
         id="tracked-1",
@@ -689,6 +734,9 @@ def test_reroll_last_response_deletes_only_tracked_promises():
             "message_with_time": "[현재 시각: 2026-04-06 21:00]\n3분 뒤 일기 써야지",
             "images": [],
             "memory_search_text": "",
+            "latest_user_message": "",
+            "recent_memory_context": "",
+            "head_pat_count_before_message": 0,
         }
     ]
 
