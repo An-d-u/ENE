@@ -138,6 +138,28 @@ def test_auto_summarize_clears_llm_chat_context_after_persisting_summary():
     assert dummy.conversation_buffer == []
 
 
+def test_auto_summarize_does_not_run_when_threshold_is_zero():
+    dummy = type("BridgeDummy", (), {})()
+    dummy.conversation_buffer = [
+        ("user", "안녕", "2026-03-24 10:00"),
+        ("assistant", "안녕하세요", "2026-03-24 10:01"),
+        ("user", "오늘 일정 알려줘", "2026-03-24 10:02"),
+        ("assistant", "일정을 확인해볼게요", "2026-03-24 10:03"),
+    ]
+    dummy.memory_manager = object()
+    dummy.summarize_threshold = 0
+    dummy._auto_summarize_calls = 0
+
+    async def _auto_summarize():
+        dummy._auto_summarize_calls += 1
+
+    dummy._auto_summarize = _auto_summarize
+
+    WebBridge._check_auto_summarize(dummy)
+
+    assert dummy._auto_summarize_calls == 0
+
+
 class _Fact:
     def __init__(self, category, content, timestamp):
         self.category = category
