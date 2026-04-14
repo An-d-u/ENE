@@ -19,6 +19,7 @@ import json
 import numpy as np
 import re
 import time
+import uuid
 
 from ..conversation_format import prepend_message_time, role_label_for_context
 from ..ai.viseme_stream_analyzer import VisemeStreamAnalyzer
@@ -62,6 +63,8 @@ class AIWorker(QThread):
         use_memory=True,
         images=None,
         memory_search_text: str = "",
+        latest_user_message: str = "",
+        recent_memory_context: str = "",
         diary_request: str = "",
         note_request: str = "",
         note_recent_context: str = "",
@@ -76,6 +79,8 @@ class AIWorker(QThread):
         self.use_memory = use_memory
         self.images = images or []  # 이미지 데이터 리스트
         self.memory_search_text = (memory_search_text or "").strip()
+        self.latest_user_message = (latest_user_message or "").strip()
+        self.recent_memory_context = (recent_memory_context or "").strip()
         self.diary_request = (diary_request or "").strip()
         self.note_request = (note_request or "").strip()
         self.note_recent_context = (note_recent_context or "").strip()
@@ -133,6 +138,8 @@ class AIWorker(QThread):
                             self.message,
                             self.images,
                             self.memory_search_text,
+                            self.latest_user_message,
+                            self.recent_memory_context,
                         )
                     )
                 )
@@ -143,6 +150,8 @@ class AIWorker(QThread):
                         self.llm_client.send_message_with_memory(
                             self.message,
                             self.memory_search_text,
+                            self.latest_user_message,
+                            self.recent_memory_context,
                         )
                     )
                 )
@@ -992,11 +1001,25 @@ class WebBridge(QObject):
         """Append a conversation tuple to the in-memory buffer."""
         self.conversation_buffer.append((role, message, timestamp or self._now_timestamp()))
 
+    def _create_memory_conversation_id(self, messages) -> str:
+        """현재 요약 대상 대화를 식별할 안정적인 ID를 만든다."""
+        latest_timestamp = ""
+        if messages:
+            last_item = messages[-1]
+            if len(last_item) >= 3 and last_item[2]:
+                latest_timestamp = str(last_item[2]).strip()
+        if not latest_timestamp:
+            latest_timestamp = self._now_timestamp()
+        compact = re.sub(r"[^0-9]", "", latest_timestamp)[:12] or datetime.now().strftime("%Y%m%d%H%M")
+        return f"conv-{compact}-{uuid.uuid4().hex[:8]}"
+
     def _start_ai_worker(
         self,
         message_with_time: str,
         images_data: list | None = None,
         memory_search_text: str = "",
+        latest_user_message: str = "",
+        recent_memory_context: str = "",
     ):
         """Start AI worker with current payload."""
         if self.worker and self.worker.isRunning():
@@ -1008,6 +1031,8 @@ class WebBridge(QObject):
             message_with_time,
             images=images_data or [],
             memory_search_text=memory_search_text,
+            latest_user_message=latest_user_message,
+            recent_memory_context=recent_memory_context,
         )
         self.worker.response_ready.connect(self._on_response_ready)
         self.worker.error_occurred.connect(self._on_error)
@@ -1286,13 +1311,17 @@ class WebBridge(QObject):
 
     def _build_memory_search_text(self, current_message: str, current_timestamp: str | None = None) -> str:
         """최신 메시지와 최근 보이는 대화 N턴으로 검색용 문자열을 만든다."""
+        return WebBridge._build_memory_search_inputs(self, current_message, current_timestamp)["memory_search_text"]
+
+    def _build_memory_search_inputs(self, current_message: str, current_timestamp: str | None = None) -> dict[str, str]:
+        """장기기억 검색용 최신 메시지/보조 문맥/전체 텍스트를 각각 구성한다."""
         current = str(current_message or "").strip()
         turns = self._resolve_memory_search_turns()
         entries = list(self.conversation_buffer or [])
         if turns > 0:
             entries = entries[-(turns * 2):]
 
-        lines: list[str] = []
+        recent_lines: list[str] = []
         for item in entries:
             if not item or len(item) < 2:
                 continue
@@ -1302,12 +1331,17 @@ class WebBridge(QObject):
                 continue
             timestamp = str(item[2]).strip() if len(item) >= 3 and item[2] else ""
             role_label = role_label_for_context(role)
-            lines.append(prepend_message_time(f"[{role_label}] {text}", timestamp))
+            recent_lines.append(prepend_message_time(f"[{role_label}] {text}", timestamp))
 
+        memory_search_lines = list(recent_lines)
         if current:
-            lines.append(prepend_message_time(f"[현재 사용자 메시지] {current}", current_timestamp))
+            memory_search_lines.append(prepend_message_time(f"[현재 사용자 메시지] {current}", current_timestamp))
 
-        return "\n".join(lines).strip()
+        return {
+            "latest_user_message": current,
+            "recent_context_text": "\n".join(recent_lines).strip(),
+            "memory_search_text": "\n".join(memory_search_lines).strip(),
+        }
 
     def _attachment_model_name(self) -> str:
         """첨부 토큰 추정에 사용할 현재 모델명을 가져온다."""
@@ -1773,7 +1807,8 @@ class WebBridge(QObject):
         timestamp = self._now_timestamp()
         prompt = self._build_general_chat_prompt(message)
         message_with_time = f"[현재 시각: {timestamp}]\n{prompt}"
-        memory_search_text = self._build_memory_search_text(message, timestamp)
+        memory_search_inputs = self._build_memory_search_inputs(message, timestamp)
+        memory_search_text = memory_search_inputs["memory_search_text"]
         print(f"[Bridge] Message with timestamp: {message_with_time}")
 
         self._mark_user_activity()
@@ -1789,10 +1824,17 @@ class WebBridge(QObject):
             "images": [],
             "attachment_context": "",
             "memory_search_text": memory_search_text,
+            "latest_user_message": memory_search_inputs["latest_user_message"],
+            "recent_memory_context": memory_search_inputs["recent_context_text"],
         }
         self._is_rerolling = False
 
-        self._start_ai_worker(message_with_time, memory_search_text=memory_search_text)
+        self._start_ai_worker(
+            message_with_time,
+            memory_search_text=memory_search_text,
+            latest_user_message=memory_search_inputs["latest_user_message"],
+            recent_memory_context=memory_search_inputs["recent_context_text"],
+        )
         print("[Bridge] Worker thread started")
 
     @pyqtSlot(str, str)
@@ -1861,7 +1903,8 @@ class WebBridge(QObject):
         attachment_context = build_attachment_context_block(runtime_attachments)
         prompt = self._build_general_chat_prompt(effective_message, attachment_context=attachment_context)
         message_with_time = f"[현재 시각: {timestamp}]\n{prompt}"
-        memory_search_text = self._build_memory_search_text(effective_message, timestamp)
+        memory_search_inputs = self._build_memory_search_inputs(effective_message, timestamp)
+        memory_search_text = memory_search_inputs["memory_search_text"]
 
         self._mark_user_activity()
         attachment_note = build_attachment_note(runtime_attachments)
@@ -1888,6 +1931,8 @@ class WebBridge(QObject):
             "attachment_note": attachment_note,
             "attachment_context": attachment_context,
             "memory_search_text": memory_search_text,
+            "latest_user_message": memory_search_inputs["latest_user_message"],
+            "recent_memory_context": memory_search_inputs["recent_context_text"],
         }
         self._is_rerolling = False
 
@@ -1895,6 +1940,8 @@ class WebBridge(QObject):
             message_with_time,
             image_attachments,
             memory_search_text=memory_search_text,
+            latest_user_message=memory_search_inputs["latest_user_message"],
+            recent_memory_context=memory_search_inputs["recent_context_text"],
         )
         print(
             f"[Bridge] Worker thread started with "
@@ -1988,6 +2035,8 @@ class WebBridge(QObject):
             payload["message_with_time"],
             payload.get("images") or [],
             memory_search_text=str(payload.get("memory_search_text", "") or ""),
+            latest_user_message=str(payload.get("latest_user_message", "") or ""),
+            recent_memory_context=str(payload.get("recent_memory_context", "") or ""),
         )
         print("[Bridge] Reroll started")
 
@@ -2095,7 +2144,8 @@ class WebBridge(QObject):
 
         prompt = self._build_general_chat_prompt(edited_message, attachment_context=attachment_context)
         message_with_time = f"[현재 시각: {timestamp}]\n{prompt}"
-        memory_search_text = self._build_memory_search_text(edited_message, timestamp)
+        memory_search_inputs = self._build_memory_search_inputs(edited_message, timestamp)
+        memory_search_text = memory_search_inputs["memory_search_text"]
         self._last_request_payload = {
             "type": payload_type,
             "message": edited_message,
@@ -2105,11 +2155,19 @@ class WebBridge(QObject):
             "attachment_note": attachment_note,
             "attachment_context": attachment_context,
             "memory_search_text": memory_search_text,
+            "latest_user_message": memory_search_inputs["latest_user_message"],
+            "recent_memory_context": memory_search_inputs["recent_context_text"],
         }
 
         self._is_rerolling = True
         self.reroll_state_changed.emit(True)
-        self._start_ai_worker(message_with_time, images, memory_search_text=memory_search_text)
+        self._start_ai_worker(
+            message_with_time,
+            images,
+            memory_search_text=memory_search_text,
+            latest_user_message=memory_search_inputs["latest_user_message"],
+            recent_memory_context=memory_search_inputs["recent_context_text"],
+        )
         print("[Bridge] Edit last user message started")
 
     @pyqtSlot()
@@ -3327,14 +3385,6 @@ class WebBridge(QObject):
             # 대화 내용
             messages = self.conversation_buffer.copy()
             
-            # 원본 메시지 추출 (타임스탬프 제외)
-            original_messages = []
-            for item in messages:
-                if len(item) == 3:
-                    original_messages.append(item[1])  # (role, msg, time)
-                else:
-                    original_messages.append(item[1])  # (role, msg)
-            
             # LLM으로 요약 + 사용자/에네 정보 생성
             summary_result = await self.llm_client.summarize_conversation(messages)
             ene_facts = []
@@ -3356,6 +3406,31 @@ class WebBridge(QObject):
             source_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M')
             if messages and len(messages[-1]) == 3 and messages[-1][2]:
                 source_timestamp = str(messages[-1][2]).strip()
+            conversation_id_builder = getattr(self, "_create_memory_conversation_id", None)
+            if callable(conversation_id_builder):
+                conversation_id = conversation_id_builder(messages)
+            else:
+                conversation_id = WebBridge._create_memory_conversation_id(self, messages)
+
+            # 원본 메시지를 역할/시각/순서가 포함된 구조로 저장한다.
+            original_messages = []
+            for turn_index, item in enumerate(messages):
+                role = str(item[0] if len(item) >= 1 else "unknown").strip() or "unknown"
+                text = str(item[1] if len(item) >= 2 else "").strip()
+                timestamp = (
+                    str(item[2]).strip()
+                    if len(item) >= 3 and item[2]
+                    else source_timestamp
+                )
+                original_messages.append(
+                    {
+                        "role": role,
+                        "text": text,
+                        "timestamp": timestamp,
+                        "conversation_id": conversation_id,
+                        "turn_index": turn_index,
+                    }
+                )
             
             # 메모리에 요약 저장
             await self.memory_manager.add_summary(

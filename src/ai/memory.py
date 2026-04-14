@@ -2,10 +2,11 @@
 장기기억 관리 시스템
 """
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 from datetime import datetime
+import re
 
-from .memory_types import CURRENT_MEMORY_SCHEMA_VERSION, MemoryEntry, create_memory_entry
+from .memory_types import CURRENT_MEMORY_SCHEMA_VERSION, MemoryChunk, MemoryEntry, create_memory_entry
 from .embedding import EmbeddingGenerator
 from ..core.app_paths import load_json_data, resolve_user_storage_path, save_json_data
 
@@ -51,6 +52,7 @@ class MemoryManager:
         self.memory_file = resolve_user_storage_path(target_file)
         self.embedding_generator = embedding_generator
         self.memories: List[MemoryEntry] = []
+        self._raw_chunk_embedding_cache: Dict[tuple[str, int, int, str], List[float]] = {}
         
         # 파일에서 기억 로드
         self.load()
@@ -255,6 +257,258 @@ class MemoryManager:
         except Exception as e:
             print(f"[Memory] 검색 실패: {e}")
             return []
+
+    def build_raw_chunks(self, memory: MemoryEntry, chunk_turns: int = 6) -> List[MemoryChunk]:
+        """기억 원문에서 고정 길이 turn window chunk를 생성한다."""
+        messages = list(getattr(memory, "original_messages", []) or [])
+        if not messages:
+            return []
+
+        window_size = max(1, int(chunk_turns or 6))
+        if len(messages) <= window_size:
+            return [self._create_raw_chunk(memory, messages)]
+
+        stride = max(1, window_size // 2)
+        chunks: List[MemoryChunk] = []
+        start_indexes = list(range(0, len(messages) - window_size + 1, stride))
+        last_start = len(messages) - window_size
+        if start_indexes[-1] != last_start:
+            start_indexes.append(last_start)
+
+        for start_index in start_indexes:
+            chunk_messages = messages[start_index : start_index + window_size]
+            chunks.append(self._create_raw_chunk(memory, chunk_messages))
+        return chunks
+
+    def _create_raw_chunk(self, memory: MemoryEntry, messages) -> MemoryChunk:
+        """메시지 리스트를 raw chunk 객체로 변환한다."""
+        chunk_messages = list(messages or [])
+        start_turn_index = int(getattr(chunk_messages[0], "turn_index", 0)) if chunk_messages else 0
+        end_turn_index = int(getattr(chunk_messages[-1], "turn_index", start_turn_index)) if chunk_messages else start_turn_index
+        lines = []
+        for message in chunk_messages:
+            role = str(getattr(message, "role", "unknown") or "unknown").strip() or "unknown"
+            text = str(getattr(message, "text", "") or "").strip()
+            lines.append(f"[{role}] {text}")
+        conversation_id = (
+            str(getattr(chunk_messages[0], "conversation_id", "") or "").strip()
+            if chunk_messages
+            else str(getattr(memory, "conversation_id", "") or "").strip()
+        )
+        return MemoryChunk(
+            memory_id=str(getattr(memory, "id", "") or "").strip(),
+            conversation_id=conversation_id,
+            start_turn_index=start_turn_index,
+            end_turn_index=end_turn_index,
+            text="\n".join(lines),
+            messages=chunk_messages,
+        )
+
+    async def find_relevant_raw_chunks(
+        self,
+        latest_query: str,
+        candidate_memories: List[Tuple[MemoryEntry, float]],
+        recent_context: str = "",
+        top_k: int = 2,
+        chunk_turns: int = 6,
+    ) -> List[Tuple[MemoryChunk, float, dict[str, float]]]:
+        """후보 memory 안에서 최신 사용자 메시지 중심 raw chunk를 선별한다."""
+        normalized_query = str(latest_query or "").strip()
+        normalized_recent = str(recent_context or "").strip()
+        if not candidate_memories or not (normalized_query or normalized_recent):
+            return []
+
+        max_chunks = max(0, int(top_k or 0))
+        if max_chunks == 0:
+            return []
+
+        all_chunks: list[tuple[MemoryChunk, float]] = []
+        for memory, memory_score in candidate_memories:
+            for chunk in self.build_raw_chunks(memory, chunk_turns=chunk_turns):
+                all_chunks.append((chunk, float(memory_score)))
+
+        if not all_chunks:
+            return []
+
+        query_embedding = None
+        recent_embedding = None
+        if self.embedding_generator and normalized_query:
+            try:
+                query_embedding = await self.embedding_generator.embed(normalized_query)
+            except Exception as error:
+                print(f"[Memory] 최신 메시지 chunk 검색 임베딩 실패: {error}")
+        if self.embedding_generator and normalized_recent:
+            try:
+                recent_embedding = await self.embedding_generator.embed(normalized_recent)
+            except Exception as error:
+                print(f"[Memory] 최근 문맥 chunk 검색 임베딩 실패: {error}")
+
+        await self._ensure_chunk_embeddings([chunk for chunk, _ in all_chunks])
+
+        ranked: list[tuple[MemoryChunk, float, dict[str, float]]] = []
+        for chunk, memory_score in all_chunks:
+            primary_similarity = self._cosine_if_available(query_embedding, chunk.embedding)
+            support_similarity = self._cosine_if_available(recent_embedding, chunk.embedding)
+            keyword_score = self._keyword_overlap_score(normalized_query, chunk.text)
+            support_keyword_score = self._keyword_overlap_score(normalized_recent, chunk.text)
+            temporal_score = self._temporal_overlap_score(normalized_query, chunk.text)
+            memory_bonus = self._memory_score_bonus(memory_score)
+            recency_bonus = self._chunk_recency_bonus(chunk)
+            user_bonus = self._chunk_user_bonus(chunk)
+
+            final_score = (
+                (primary_similarity * 0.52)
+                + (support_similarity * 0.14)
+                + (keyword_score * 0.14)
+                + (support_keyword_score * 0.06)
+                + (temporal_score * 0.05)
+                + (memory_bonus * 0.05)
+                + (recency_bonus * 0.02)
+                + (user_bonus * 0.02)
+            )
+            ranked.append(
+                (
+                    chunk,
+                    final_score,
+                    {
+                        "primary_similarity": primary_similarity,
+                        "support_similarity": support_similarity,
+                        "keyword_score": keyword_score,
+                        "support_keyword_score": support_keyword_score,
+                        "temporal_score": temporal_score,
+                        "memory_bonus": memory_bonus,
+                        "recency_bonus": recency_bonus,
+                        "user_bonus": user_bonus,
+                    },
+                )
+            )
+
+        ranked.sort(key=lambda item: item[1], reverse=True)
+
+        selected: list[tuple[MemoryChunk, float, dict[str, float]]] = []
+        for chunk, score, meta in ranked:
+            if any(self._chunks_overlap(chunk, existing_chunk) for existing_chunk, _, _ in selected):
+                continue
+            selected.append((chunk, score, meta))
+            if len(selected) >= max_chunks:
+                break
+
+        return selected
+
+    async def _ensure_chunk_embeddings(self, chunks: List[MemoryChunk]):
+        """아직 임베딩이 없는 raw chunk만 lazy 생성해서 캐시에 저장한다."""
+        if not self.embedding_generator:
+            return
+
+        uncached_chunks: list[MemoryChunk] = []
+        uncached_texts: list[str] = []
+        for chunk in chunks:
+            cache_key = self._raw_chunk_cache_key(chunk)
+            cached_embedding = self._raw_chunk_embedding_cache.get(cache_key)
+            if cached_embedding is not None:
+                chunk.embedding = cached_embedding
+                continue
+            uncached_chunks.append(chunk)
+            uncached_texts.append(chunk.text)
+
+        if not uncached_chunks:
+            return
+
+        try:
+            if hasattr(self.embedding_generator, "embed_batch"):
+                embeddings = await self.embedding_generator.embed_batch(uncached_texts)
+            else:
+                embeddings = []
+                for text in uncached_texts:
+                    embeddings.append(await self.embedding_generator.embed(text))
+        except Exception as error:
+            print(f"[Memory] raw chunk 임베딩 생성 실패: {error}")
+            return
+
+        for chunk, embedding in zip(uncached_chunks, embeddings):
+            cache_key = self._raw_chunk_cache_key(chunk)
+            chunk.embedding = embedding
+            self._raw_chunk_embedding_cache[cache_key] = embedding
+
+    def _raw_chunk_cache_key(self, chunk: MemoryChunk) -> tuple[str, int, int, str]:
+        """raw chunk 캐시 키를 만든다."""
+        return (
+            str(chunk.memory_id or "").strip(),
+            int(chunk.start_turn_index),
+            int(chunk.end_turn_index),
+            str(chunk.text or ""),
+        )
+
+    def _cosine_if_available(self, vec1: List[float] | None, vec2: List[float] | None) -> float:
+        """벡터가 모두 있을 때만 코사인 유사도를 계산한다."""
+        if not vec1 or not vec2 or not self.embedding_generator:
+            return 0.0
+        try:
+            return float(self.embedding_generator.cosine_similarity(vec1, vec2))
+        except Exception:
+            return 0.0
+
+    def _keyword_overlap_score(self, query: str, text: str) -> float:
+        """질의와 chunk 사이의 단순 키워드 겹침 비율을 계산한다."""
+        query_tokens = self._tokenize_overlap_text(query)
+        text_tokens = self._tokenize_overlap_text(text)
+        if not query_tokens or not text_tokens:
+            return 0.0
+        overlap = query_tokens.intersection(text_tokens)
+        return len(overlap) / len(query_tokens)
+
+    def _tokenize_overlap_text(self, text: str) -> set[str]:
+        """겹침 계산용 간단 토큰화."""
+        tokens = re.findall(r"[0-9A-Za-z가-힣]+", str(text or "").lower())
+        return {token for token in tokens if len(token) >= 2}
+
+    def _temporal_overlap_score(self, query: str, text: str) -> float:
+        """날짜/시간/숫자 토큰이 겹치면 작은 보정치를 준다."""
+        query_tokens = self._extract_temporal_tokens(query)
+        text_tokens = self._extract_temporal_tokens(text)
+        if not query_tokens or not text_tokens:
+            return 0.0
+        overlap = query_tokens.intersection(text_tokens)
+        return len(overlap) / len(query_tokens)
+
+    def _extract_temporal_tokens(self, text: str) -> set[str]:
+        """시간성 토큰만 추출한다."""
+        normalized = str(text or "").lower()
+        keyword_tokens = set(
+            re.findall(
+                r"(오늘|내일|모레|어제|주말|월요일|화요일|수요일|목요일|금요일|토요일|일요일|오전|오후|새벽|밤)",
+                normalized,
+            )
+        )
+        numeric_tokens = set(re.findall(r"\b\d{1,4}\b", normalized))
+        return keyword_tokens.union(numeric_tokens)
+
+    def _memory_score_bonus(self, memory_score: float) -> float:
+        """후보 summary 검색 점수를 작은 보정치로 정규화한다."""
+        return max(0.0, min(1.0, float(memory_score) / 1.5))
+
+    def _chunk_recency_bonus(self, chunk: MemoryChunk) -> float:
+        """같은 기억 안에서는 더 뒤쪽 turn window에 약한 가산점을 준다."""
+        if not chunk.messages:
+            return 0.0
+        window_size = max(1, len(chunk.messages))
+        end_turn = int(getattr(chunk.messages[-1], "turn_index", chunk.end_turn_index))
+        return end_turn / max(1, end_turn + window_size)
+
+    def _chunk_user_bonus(self, chunk: MemoryChunk) -> float:
+        """사용자 발화가 포함된 chunk에 작은 가산점을 준다."""
+        if any(str(getattr(message, "role", "")).strip() == "user" for message in chunk.messages):
+            return 1.0
+        return 0.0
+
+    def _chunks_overlap(self, left: MemoryChunk, right: MemoryChunk) -> bool:
+        """같은 memory 안에서 turn 구간이 겹치면 중복 chunk로 본다."""
+        if left.memory_id != right.memory_id:
+            return False
+        return not (
+            left.end_turn_index < right.start_turn_index
+            or right.end_turn_index < left.start_turn_index
+        )
 
     def _infer_query_memory_type(self, query: str) -> str:
         """검색 질의에서 대략적인 기억 유형을 추정한다."""

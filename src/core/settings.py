@@ -210,6 +210,8 @@ class Settings:
         "note_include_recent_context": False,
         "note_recent_context_turns": 4,
         "memory_search_recent_turns": 2,
+        "max_raw_chunks_in_context": 2,
+        "raw_chunk_turns": 6,
         "max_profile_facts_in_context": 10,
     }
 

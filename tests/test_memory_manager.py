@@ -3,7 +3,7 @@ import json
 
 from src.ai.embedding import EmbeddingGenerator
 from src.ai.memory import MemoryManager
-from src.ai.memory_types import MemoryEntry, create_memory_entry
+from src.ai.memory_types import MemoryChunk, MemoryEntry, MemoryMessage, create_memory_entry
 
 
 class FakeEmbeddingGenerator:
@@ -26,6 +26,23 @@ class ScoreEmbeddingGenerator:
         if not vec2:
             return 0.0
         return float(vec2[0])
+
+
+class ChunkBiasEmbeddingGenerator:
+    async def embed(self, text: str):
+        normalized = str(text or "")
+        if "병원" in normalized or "3시" in normalized:
+            return [1.0, 0.0]
+        if "영화" in normalized or "10시" in normalized:
+            return [0.0, 1.0]
+        return [0.5, 0.5]
+
+    async def embed_batch(self, texts):
+        return [await self.embed(text) for text in texts]
+
+    @staticmethod
+    def cosine_similarity(vec1, vec2):
+        return EmbeddingGenerator.cosine_similarity(vec1, vec2)
 
 
 def test_load_missing_file_starts_empty(tmp_path):
@@ -118,7 +135,7 @@ def test_save_and_reload_roundtrip_preserves_extended_memory_fields(tmp_path):
             entity_names=["ENE"],
             conversation_id="conv-1",
             expires_at="2026-04-09T00:00:00",
-            schema_version=2,
+            schema_version=3,
             migration_meta={},
         )
     )
@@ -136,7 +153,7 @@ def test_save_and_reload_roundtrip_preserves_extended_memory_fields(tmp_path):
     assert restored.entity_names == ["ENE"]
     assert restored.conversation_id == "conv-1"
     assert restored.expires_at == "2026-04-09T00:00:00"
-    assert restored.schema_version == 2
+    assert restored.schema_version == 3
 
 
 def test_load_legacy_memory_file_backfills_extended_fields(tmp_path):
@@ -173,7 +190,7 @@ def test_load_legacy_memory_file_backfills_extended_fields(tmp_path):
     assert restored.importance_reason == "promise"
     assert restored.retrieval_count == 0
     assert restored.user_confirmed is None
-    assert restored.schema_version == 2
+    assert restored.schema_version == 3
 
 
 def test_load_legacy_memory_file_persists_migrated_schema(tmp_path):
@@ -202,7 +219,7 @@ def test_load_legacy_memory_file_persists_migrated_schema(tmp_path):
 
     migrated_payload = json.loads(memory_file.read_text(encoding="utf-8"))
     restored = migrated_payload["memories"][0]
-    assert restored["schema_version"] == 2
+    assert restored["schema_version"] == 3
     assert restored["source"] == "legacy"
     assert restored["memory_type"] == "preference"
 
@@ -227,6 +244,52 @@ def test_add_summary_persists_memory_metadata_fields(tmp_path):
     assert created.importance_reason == "repeated_topic"
     assert created.confidence == 0.85
     assert created.entity_names == ["ENE"]
+
+
+def test_save_and_reload_roundtrip_preserves_structured_original_messages(tmp_path):
+    memory_file = tmp_path / "memory.json"
+    manager = MemoryManager(str(memory_file))
+    manager.memories.append(
+        create_memory_entry(
+            summary="structured summary",
+            original_messages=[
+                {
+                    "role": "user",
+                    "text": "hello",
+                    "timestamp": "2026-04-14T20:00:00+09:00",
+                    "conversation_id": "conv-structured",
+                    "turn_index": 0,
+                },
+                {
+                    "role": "assistant",
+                    "text": "hi there",
+                    "timestamp": "2026-04-14T20:00:05+09:00",
+                    "conversation_id": "conv-structured",
+                    "turn_index": 1,
+                },
+            ],
+        )
+    )
+    manager.save()
+
+    reloaded = MemoryManager(str(memory_file))
+
+    assert reloaded.memories[0].original_messages == [
+        MemoryMessage(
+            role="user",
+            text="hello",
+            timestamp="2026-04-14T20:00:00+09:00",
+            conversation_id="conv-structured",
+            turn_index=0,
+        ),
+        MemoryMessage(
+            role="assistant",
+            text="hi there",
+            timestamp="2026-04-14T20:00:05+09:00",
+            conversation_id="conv-structured",
+            turn_index=1,
+        ),
+    ]
 
 
 def test_find_similar_reranks_by_metadata_bonus(tmp_path):
@@ -316,3 +379,156 @@ def test_find_similar_updates_retrieval_metadata_for_returned_results(tmp_path):
     assert isinstance(returned.last_used_at, str)
     assert untouched.retrieval_count == 5
     assert untouched.last_used_at is None
+
+
+def test_build_raw_chunks_creates_six_turn_windows_with_role_text(tmp_path):
+    manager = MemoryManager(str(tmp_path / "memory.json"))
+    memory = create_memory_entry(
+        "chunk test",
+        original_messages=[
+            {
+                "role": "user" if index % 2 == 0 else "assistant",
+                "text": f"message-{index}",
+                "timestamp": f"2026-04-14T20:0{index}:00+09:00",
+                "conversation_id": "conv-chunk",
+                "turn_index": index,
+            }
+            for index in range(8)
+        ],
+    )
+
+    chunks = manager.build_raw_chunks(memory, chunk_turns=6)
+
+    assert chunks == [
+        MemoryChunk(
+            memory_id=memory.id,
+            conversation_id="conv-chunk",
+            start_turn_index=0,
+            end_turn_index=5,
+            text="\n".join(
+                [
+                    "[user] message-0",
+                    "[assistant] message-1",
+                    "[user] message-2",
+                    "[assistant] message-3",
+                    "[user] message-4",
+                    "[assistant] message-5",
+                ]
+            ),
+            messages=memory.original_messages[:6],
+        ),
+        MemoryChunk(
+            memory_id=memory.id,
+            conversation_id="conv-chunk",
+            start_turn_index=2,
+            end_turn_index=7,
+            text="\n".join(
+                [
+                    "[user] message-2",
+                    "[assistant] message-3",
+                    "[user] message-4",
+                    "[assistant] message-5",
+                    "[user] message-6",
+                    "[assistant] message-7",
+                ]
+            ),
+            messages=memory.original_messages[2:8],
+        ),
+    ]
+
+
+def test_build_raw_chunks_returns_single_chunk_when_conversation_is_short(tmp_path):
+    manager = MemoryManager(str(tmp_path / "memory.json"))
+    memory = create_memory_entry(
+        "short chunk test",
+        original_messages=[
+            {
+                "role": "user",
+                "text": "짧은 대화",
+                "timestamp": "2026-04-14T20:00:00+09:00",
+                "conversation_id": "conv-short",
+                "turn_index": 0,
+            },
+            {
+                "role": "assistant",
+                "text": "응답",
+                "timestamp": "2026-04-14T20:01:00+09:00",
+                "conversation_id": "conv-short",
+                "turn_index": 1,
+            },
+        ],
+    )
+
+    chunks = manager.build_raw_chunks(memory, chunk_turns=6)
+
+    assert len(chunks) == 1
+    assert chunks[0].start_turn_index == 0
+    assert chunks[0].end_turn_index == 1
+    assert chunks[0].text == "[user] 짧은 대화\n[assistant] 응답"
+
+
+def test_find_relevant_raw_chunks_prefers_latest_user_query_over_older_support_context(tmp_path):
+    manager = MemoryManager(
+        str(tmp_path / "memory.json"),
+        embedding_generator=ChunkBiasEmbeddingGenerator(),
+    )
+    hospital_memory = create_memory_entry(
+        "병원 예약 기억",
+        original_messages=[
+            {
+                "role": "user" if index % 2 == 0 else "assistant",
+                "text": text,
+                "timestamp": f"2026-04-14T20:0{index}:00+09:00",
+                "conversation_id": "conv-hospital",
+                "turn_index": index,
+            }
+            for index, text in enumerate(
+                [
+                    "내일 병원 예약 있어",
+                    "응, 오후 3시였지",
+                    "맞아 3시야",
+                    "까먹지 않게 다시 말해줄게",
+                    "병원 위치도 다시 볼까",
+                    "응 필요하면 말해줘",
+                ]
+            )
+        ],
+    )
+    movie_memory = create_memory_entry(
+        "영화 약속 기억",
+        original_messages=[
+            {
+                "role": "user" if index % 2 == 0 else "assistant",
+                "text": text,
+                "timestamp": f"2026-04-14T21:0{index}:00+09:00",
+                "conversation_id": "conv-movie",
+                "turn_index": index,
+            }
+            for index, text in enumerate(
+                [
+                    "오늘 영화 보자",
+                    "응 10시 영화로 하자",
+                    "좋아 10시 맞지",
+                    "표도 예매해둘게",
+                    "좌석은 가운데가 좋아",
+                    "응 기억해둘게",
+                ]
+            )
+        ],
+    )
+
+    results = asyncio.run(
+        manager.find_relevant_raw_chunks(
+            "병원 예약 시간이 몇 시였지?",
+            [(hospital_memory, 0.75), (movie_memory, 0.9)],
+            recent_context="아까 영화 10시 얘기를 했었어",
+            top_k=1,
+            chunk_turns=6,
+        )
+    )
+
+    assert len(results) == 1
+    best_chunk, _, meta = results[0]
+    assert best_chunk.conversation_id == "conv-hospital"
+    assert "병원 예약" in best_chunk.text
+    assert meta["primary_similarity"] > meta["support_similarity"]

@@ -540,6 +540,19 @@ class MemoryDialog(QDialog):
             )
         )
 
+        self.raw_chunk_spinbox = QSpinBox()
+        self.raw_chunk_spinbox.setRange(0, 10)
+        self.raw_chunk_spinbox.setValue(2)
+        self.raw_chunk_spinbox.setSuffix(t("memory.unit.count_suffix"))
+        self.raw_chunk_spinbox.valueChanged.connect(self._on_memory_setting_changed)
+        layout.addWidget(
+            self._wrap_setting_row(
+                self.raw_chunk_spinbox,
+                t("memory.tuning.raw_chunks.title"),
+                t("memory.tuning.raw_chunks.body"),
+            )
+        )
+
         self.similarity_spinbox = QSpinBox()
         self.similarity_spinbox.setRange(1, 100)
         self.similarity_spinbox.setValue(35)
@@ -1122,6 +1135,7 @@ class MemoryDialog(QDialog):
                 self.similar_spinbox.setValue(int(config.get("max_similar_memories", 3)))
                 self.similarity_spinbox.setValue(int(config.get("min_similarity", 0.35) * 100))
                 self.recent_spinbox.setValue(int(config.get("max_recent_memories", 2)))
+                self.raw_chunk_spinbox.setValue(int(config.get("max_raw_chunks_in_context", 2)))
         finally:
             self._loading_settings = False
 
@@ -1148,6 +1162,7 @@ class MemoryDialog(QDialog):
         config["max_similar_memories"] = self.similar_spinbox.value()
         config["min_similarity"] = self.similarity_spinbox.value() / 100.0
         config["max_recent_memories"] = self.recent_spinbox.value()
+        config["max_raw_chunks_in_context"] = self.raw_chunk_spinbox.value()
         self.bridge.settings.save()
 
         print(
@@ -1155,7 +1170,8 @@ class MemoryDialog(QDialog):
             f"중요={config['max_important_memories']}, "
             f"유사={config['max_similar_memories']}, "
             f"유사도={config['min_similarity']:.2f}, "
-            f"최근={config['max_recent_memories']}"
+            f"최근={config['max_recent_memories']}, "
+            f"raw={config['max_raw_chunks_in_context']}"
         )
 
     def _show_profile_dialog(self):
