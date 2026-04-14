@@ -241,6 +241,40 @@ def test_build_memory_context_limits_profile_facts_to_recent_configured_count():
     assert "[preference] : 다크 판타지를 좋아한다" not in context
 
 
+def test_build_memory_context_includes_today_and_before_message_head_pat_counts():
+    class _CalendarManager:
+        def get_upcoming_events(self, days=3):
+            return []
+
+        def get_recent_or_latest_conversation_counts(self, days=7, exclude_today=True):
+            return {}
+
+        def get_pending_head_pat_count(self):
+            return 99
+
+        def get_head_pat_count(self, date):
+            return 7
+
+    dummy = type("ClientDummy", (), {})()
+    dummy.memory_manager = _EmptyMemoryManager()
+    dummy.user_profile = _DummyProfile([])
+    dummy.ene_profile = _DummyEneProfile()
+    dummy.mood_manager = None
+    dummy.settings = type("SettingsDummy", (), {"config": {}})()
+    dummy.calendar_manager = _CalendarManager()
+
+    context = asyncio.run(
+        GeminiClient._build_memory_context(
+            dummy,
+            "오늘 뭐 할까",
+            head_pat_count_before_message=3,
+        )
+    )
+
+    assert "- 오늘 쓰다듬은 횟수: 7회" in context
+    assert "- 메시지 전 쓰다듬은 횟수: 3회" in context
+
+
 def test_build_memory_search_text_uses_recent_visible_turns_with_latest_user_message():
     dummy = type("BridgeDummy", (), {})()
     dummy.conversation_buffer = [

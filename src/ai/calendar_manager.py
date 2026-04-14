@@ -45,6 +45,7 @@ class CalendarManager:
         self.events: List[CalendarEvent] = []
         self.conversation_counts: Dict[str, int] = {}
         self.head_pat_counts: Dict[str, int] = {}
+        self._pending_head_pat_count = 0
         self.load()
     
     def load(self):
@@ -210,11 +211,22 @@ class CalendarManager:
         if date is None:
             date = datetime.now().strftime("%Y-%m-%d")
         self.head_pat_counts[date] = self.head_pat_counts.get(date, 0) + 1
+        self._pending_head_pat_count += 1
         self.save()
 
     def get_head_pat_count(self, date: str) -> int:
         """Return head pat count for a specific date."""
         return self.head_pat_counts.get(date, 0)
+
+    def get_pending_head_pat_count(self) -> int:
+        """메시지 전까지 누적된 쓰다듬기 횟수를 반환한다."""
+        return int(self._pending_head_pat_count)
+
+    def drain_pending_head_pat_count(self) -> int:
+        """메시지 전 누적 쓰다듬기 횟수를 반환하고 0으로 초기화한다."""
+        count = int(self._pending_head_pat_count)
+        self._pending_head_pat_count = 0
+        return count
     
     def get_recent_conversation_counts(self, days: int = 7, exclude_today: bool = True) -> Dict[str, int]:
         """
