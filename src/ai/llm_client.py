@@ -172,6 +172,8 @@ class GeminiClient:
         self,
         message: str,
         memory_search_text: str | None = None,
+        latest_user_message: str | None = None,
+        recent_memory_context: str | None = None,
     ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         """
         메모리를 활용한 메시지 전송
@@ -184,7 +186,9 @@ class GeminiClient:
         """
         # 메모리 컨텍스트 구성
         search_query = str(memory_search_text or "").strip() or message
-        memory_context = await self._build_memory_context(search_query)
+        primary_query = str(latest_user_message or "").strip() or search_query
+        support_context = str(recent_memory_context or "").strip()
+        memory_context = await self._build_memory_context(primary_query, recent_context=support_context)
         
         # 메모리가 있으면 메시지 앞에 추가
         if memory_context:
@@ -201,6 +205,8 @@ class GeminiClient:
         message: str,
         images_data: list,
         memory_search_text: str | None = None,
+        latest_user_message: str | None = None,
+        recent_memory_context: str | None = None,
     ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         """
         이미지와 함께 메시지 전송 (멀티모달)
@@ -243,11 +249,18 @@ class GeminiClient:
             
             if not pil_images:
                 print("[LLM] 유효한 이미지가 없음, 텍스트만 전송")
-                return await self.send_message_with_memory(message, memory_search_text)
+                return await self.send_message_with_memory(
+                    message,
+                    memory_search_text,
+                    latest_user_message,
+                    recent_memory_context,
+                )
             
             # 메모리 컨텍스트 추가
             search_query = str(memory_search_text or "").strip() or message
-            memory_context = await self._build_memory_context(search_query)
+            primary_query = str(latest_user_message or "").strip() or search_query
+            support_context = str(recent_memory_context or "").strip()
+            memory_context = await self._build_memory_context(primary_query, recent_context=support_context)
             if memory_context:
                 enhanced_message = f"{memory_context}\n\n{message}"
             else:
@@ -285,12 +298,13 @@ class GeminiClient:
             return f"이미지를 처리하는 중에 문제가 생겼어요... ({str(e)[:50]})", "confused", None, [], {}
 
     
-    async def _build_memory_context(self, query: str) -> str:
+    async def _build_memory_context(self, query: str, recent_context: str = "") -> str:
         """
         메모리 기반 컨텍스트 구성
         
         Args:
             query: 사용자 쿼리
+            recent_context: 최근 대화 보조 문맥
             
         Returns:
             컨텍스트 문자열
@@ -300,6 +314,8 @@ class GeminiClient:
             return ""
         
         context_parts = []
+        normalized_query = str(query or "").strip()
+        normalized_recent_context = str(recent_context or "").strip()
         
         settings_config = self.settings.config if self.settings else {}
         max_profile_facts = settings_config.get("max_profile_facts_in_context", 10)
@@ -406,6 +422,20 @@ class GeminiClient:
         max_similar = settings_config.get('max_similar_memories', 3)
         min_sim = settings_config.get('min_similarity', 0.35)
         max_recent = settings_config.get('max_recent_memories', 2)
+        max_raw_chunks = GeminiClient._normalize_int_setting(
+            self,
+            settings_config.get("max_raw_chunks_in_context", 2),
+            default=2,
+            min_value=0,
+            max_value=5,
+        )
+        raw_chunk_turns = GeminiClient._normalize_int_setting(
+            self,
+            settings_config.get("raw_chunk_turns", 6),
+            default=6,
+            min_value=1,
+            max_value=12,
+        )
         
         # 1. 중요 기억 가져오기
         important_memories = self.memory_manager.get_important()
@@ -418,10 +448,11 @@ class GeminiClient:
         else:
             print("[LLM] 중요 기억 없음")
         
+        similar_memories = []
         # 2. 유사 기억 검색
         try:
             similar_memories = await self.memory_manager.find_similar(
-                query,
+                normalized_query,
                 top_k=max_similar,
                 min_similarity=min_sim
             )
@@ -439,6 +470,39 @@ class GeminiClient:
             print(f"[LLM] 유사 기억 검색 실패: {e}")
             import traceback
             traceback.print_exc()
+
+        # 2.5. 유사 기억 안에서 raw chunk 회상
+        if max_raw_chunks > 0 and similar_memories and hasattr(self.memory_manager, "find_relevant_raw_chunks"):
+            try:
+                raw_chunks = await self.memory_manager.find_relevant_raw_chunks(
+                    normalized_query,
+                    similar_memories,
+                    recent_context=normalized_recent_context,
+                    top_k=max_raw_chunks,
+                    chunk_turns=raw_chunk_turns,
+                )
+                if raw_chunks:
+                    print(f"[LLM] raw chunk {len(raw_chunks)}개 선택")
+                    context_parts.append("\n[회상된 원문 조각]")
+                    for index, (chunk, score, score_meta) in enumerate(raw_chunks, start=1):
+                        context_parts.append(
+                            f"- 조각 {index} (turn {chunk.start_turn_index}-{chunk.end_turn_index})"
+                        )
+                        for line in str(chunk.text or "").splitlines():
+                            context_parts.append(f"  {line}")
+                        print(
+                            "[LLM] raw chunk 선택 "
+                            f"{index}: score={score:.3f}, "
+                            f"primary={score_meta.get('primary_similarity', 0.0):.3f}, "
+                            f"support={score_meta.get('support_similarity', 0.0):.3f}, "
+                            f"keyword={score_meta.get('keyword_score', 0.0):.3f}"
+                        )
+                else:
+                    print("[LLM] raw chunk 없음")
+            except Exception as e:
+                print(f"[LLM] raw chunk 검색 실패: {e}")
+                import traceback
+                traceback.print_exc()
         
         # 3. 최근 기억도 추가 (임베딩 없어도 사용 가능)
         recent_memories = self.memory_manager.get_recent(count=max_recent)
@@ -515,6 +579,21 @@ class GeminiClient:
         
         print("[LLM] 사용 가능한 기억 없음")
         return ""
+
+    def _normalize_int_setting(
+        self,
+        value,
+        *,
+        default: int,
+        min_value: int,
+        max_value: int,
+    ) -> int:
+        """정수 설정값을 안전하게 정규화한다."""
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            parsed = default
+        return max(min_value, min(max_value, parsed))
     
     def _log_turn_token_usage(self, response, label: str = "텍스트"):
         """응답 메타데이터에서 1회 입력/출력 토큰 사용량을 로깅한다."""

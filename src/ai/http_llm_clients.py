@@ -482,10 +482,10 @@ class _CommonMixin:
                         break
             return count / len(text) > 0.2 if text else False
 
-    async def _build_memory_context(self, query: str) -> str:
+    async def _build_memory_context(self, query: str, recent_context: str = "") -> str:
         try:
             from .llm_client import GeminiClient
-            return await GeminiClient._build_memory_context(self, query)
+            return await GeminiClient._build_memory_context(self, query, recent_context=recent_context)
         except Exception:
             return ""
 
@@ -630,9 +630,13 @@ class OpenAICompatibleClient(_CommonMixin):
         self,
         message: str,
         memory_search_text: str | None = None,
+        latest_user_message: str | None = None,
+        recent_memory_context: str | None = None,
     ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         search_query = str(memory_search_text or "").strip() or message
-        memory_context = await self._build_memory_context(search_query)
+        primary_query = str(latest_user_message or "").strip() or search_query
+        support_context = str(recent_memory_context or "").strip()
+        memory_context = await self._build_memory_context(primary_query, recent_context=support_context)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         return self.send_message(enhanced)
 
@@ -641,9 +645,13 @@ class OpenAICompatibleClient(_CommonMixin):
         message: str,
         images_data: list,
         memory_search_text: str | None = None,
+        latest_user_message: str | None = None,
+        recent_memory_context: str | None = None,
     ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         search_query = str(memory_search_text or "").strip() or message
-        memory_context = await self._build_memory_context(search_query)
+        primary_query = str(latest_user_message or "").strip() or search_query
+        support_context = str(recent_memory_context or "").strip()
+        memory_context = await self._build_memory_context(primary_query, recent_context=support_context)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         parts = [{"type": "text", "text": enhanced}]
         for img in images_data or []:
@@ -805,9 +813,13 @@ class OpenAIResponseAPIClient(_CommonMixin):
         self,
         message: str,
         memory_search_text: str | None = None,
+        latest_user_message: str | None = None,
+        recent_memory_context: str | None = None,
     ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         search_query = str(memory_search_text or "").strip() or message
-        memory_context = await self._build_memory_context(search_query)
+        primary_query = str(latest_user_message or "").strip() or search_query
+        support_context = str(recent_memory_context or "").strip()
+        memory_context = await self._build_memory_context(primary_query, recent_context=support_context)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         return self.send_message(enhanced)
 
@@ -816,9 +828,13 @@ class OpenAIResponseAPIClient(_CommonMixin):
         message: str,
         images_data: list,
         memory_search_text: str | None = None,
+        latest_user_message: str | None = None,
+        recent_memory_context: str | None = None,
     ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         search_query = str(memory_search_text or "").strip() or message
-        memory_context = await self._build_memory_context(search_query)
+        primary_query = str(latest_user_message or "").strip() or search_query
+        support_context = str(recent_memory_context or "").strip()
+        memory_context = await self._build_memory_context(primary_query, recent_context=support_context)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         parts = [{"type": "text", "text": enhanced}]
         for img in images_data or []:
@@ -1045,9 +1061,13 @@ class GoogleCloudClient(_CommonMixin):
         self,
         message: str,
         memory_search_text: str | None = None,
+        latest_user_message: str | None = None,
+        recent_memory_context: str | None = None,
     ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         search_query = str(memory_search_text or "").strip() or message
-        memory_context = await self._build_memory_context(search_query)
+        primary_query = str(latest_user_message or "").strip() or search_query
+        support_context = str(recent_memory_context or "").strip()
+        memory_context = await self._build_memory_context(primary_query, recent_context=support_context)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         return self.send_message(enhanced)
 
@@ -1056,9 +1076,13 @@ class GoogleCloudClient(_CommonMixin):
         message: str,
         images_data: list,
         memory_search_text: str | None = None,
+        latest_user_message: str | None = None,
+        recent_memory_context: str | None = None,
     ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         search_query = str(memory_search_text or "").strip() or message
-        memory_context = await self._build_memory_context(search_query)
+        primary_query = str(latest_user_message or "").strip() or search_query
+        support_context = str(recent_memory_context or "").strip()
+        memory_context = await self._build_memory_context(primary_query, recent_context=support_context)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         user_parts = self._to_parts(enhanced, images_data)
         raw_response_text = self._request_google(enhanced, images_data=images_data)
@@ -1175,9 +1199,13 @@ class CohereClient(_CommonMixin):
         self,
         message: str,
         memory_search_text: str | None = None,
+        latest_user_message: str | None = None,
+        recent_memory_context: str | None = None,
     ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         search_query = str(memory_search_text or "").strip() or message
-        memory_context = await self._build_memory_context(search_query)
+        primary_query = str(latest_user_message or "").strip() or search_query
+        support_context = str(recent_memory_context or "").strip()
+        memory_context = await self._build_memory_context(primary_query, recent_context=support_context)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         return self.send_message(enhanced)
 
@@ -1186,9 +1214,13 @@ class CohereClient(_CommonMixin):
         message: str,
         images_data: list,
         memory_search_text: str | None = None,
+        latest_user_message: str | None = None,
+        recent_memory_context: str | None = None,
     ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         search_query = str(memory_search_text or "").strip() or message
-        memory_context = await self._build_memory_context(search_query)
+        primary_query = str(latest_user_message or "").strip() or search_query
+        support_context = str(recent_memory_context or "").strip()
+        memory_context = await self._build_memory_context(primary_query, recent_context=support_context)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         return self.send_message(enhanced)
 
@@ -1287,9 +1319,13 @@ class AnthropicClient(_CommonMixin):
         self,
         message: str,
         memory_search_text: str | None = None,
+        latest_user_message: str | None = None,
+        recent_memory_context: str | None = None,
     ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         search_query = str(memory_search_text or "").strip() or message
-        memory_context = await self._build_memory_context(search_query)
+        primary_query = str(latest_user_message or "").strip() or search_query
+        support_context = str(recent_memory_context or "").strip()
+        memory_context = await self._build_memory_context(primary_query, recent_context=support_context)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         return self.send_message(enhanced)
 
@@ -1298,9 +1334,13 @@ class AnthropicClient(_CommonMixin):
         message: str,
         images_data: list,
         memory_search_text: str | None = None,
+        latest_user_message: str | None = None,
+        recent_memory_context: str | None = None,
     ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         search_query = str(memory_search_text or "").strip() or message
-        memory_context = await self._build_memory_context(search_query)
+        primary_query = str(latest_user_message or "").strip() or search_query
+        support_context = str(recent_memory_context or "").strip()
+        memory_context = await self._build_memory_context(primary_query, recent_context=support_context)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         blocks = [{"type": "text", "text": enhanced}]
         for img in images_data or []:
@@ -1436,9 +1476,13 @@ class OllamaClient(_CommonMixin):
         self,
         message: str,
         memory_search_text: str | None = None,
+        latest_user_message: str | None = None,
+        recent_memory_context: str | None = None,
     ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         search_query = str(memory_search_text or "").strip() or message
-        memory_context = await self._build_memory_context(search_query)
+        primary_query = str(latest_user_message or "").strip() or search_query
+        support_context = str(recent_memory_context or "").strip()
+        memory_context = await self._build_memory_context(primary_query, recent_context=support_context)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         return self.send_message(enhanced)
 
@@ -1447,9 +1491,13 @@ class OllamaClient(_CommonMixin):
         message: str,
         images_data: list,
         memory_search_text: str | None = None,
+        latest_user_message: str | None = None,
+        recent_memory_context: str | None = None,
     ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         search_query = str(memory_search_text or "").strip() or message
-        memory_context = await self._build_memory_context(search_query)
+        primary_query = str(latest_user_message or "").strip() or search_query
+        support_context = str(recent_memory_context or "").strip()
+        memory_context = await self._build_memory_context(primary_query, recent_context=support_context)
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         raw_response_text = self._request_ollama(enhanced, images_data=images_data)
         clean_text, emotion, japanese_text, events, analysis, promises = self._parse_response(raw_response_text)

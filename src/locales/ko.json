@@ -127,6 +127,8 @@
   "memory.tuning.similar.body": "현재 입력과 의미가 가까운 기억을 몇 개까지 가져올지 결정합니다.",
   "memory.tuning.recent.title": "최대 최근 기억",
   "memory.tuning.recent.body": "유사도와 별개로 최근 맥락을 몇 개까지 보조로 포함할지 정합니다.",
+  "memory.tuning.raw_chunks.title": "최대 raw chunk",
+  "memory.tuning.raw_chunks.body": "요약 기억 후보 안에서 다시 꺼내 올 원문 chunk를 몇 개까지 컨텍스트에 넣을지 정합니다.",
   "memory.tuning.similarity.title": "최소 유사도",
   "memory.tuning.similarity.body": "이 값보다 낮은 기억은 유사 기억 후보에서 제외합니다.",
   "memory.tuning.note": "이 탭의 값은 변경 즉시 설정 파일에 저장됩니다.",
