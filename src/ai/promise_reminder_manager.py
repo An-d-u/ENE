@@ -325,6 +325,8 @@ class PromiseReminderManager:
             )
             if same_title or same_excerpt or same_generic_time:
                 return item
+            # 같은 시각에 잡힌 약속은 제목이 달라도 하나의 예정으로 합친다.
+            return item
         return None
 
     def list_promises(self) -> List[PromiseReminder]:

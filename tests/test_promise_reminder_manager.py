@@ -186,3 +186,23 @@ def test_find_similar_promise_matches_generic_title_by_time_only(tmp_path):
 
     assert matched is not None
     assert matched.trigger_at == "2026-04-07T20:00:00+09:00"
+
+
+def test_find_similar_promise_matches_same_time_even_with_different_title(tmp_path):
+    manager = PromiseReminderManager(tmp_path / "promises.json")
+    manager.add_promise(
+        title="일기 쓰기",
+        trigger_at="2026-04-07T20:00:00+09:00",
+        source="user",
+        source_excerpt="8시에 일기 쓰자",
+    )
+
+    matched = manager.find_similar_promise(
+        title="기업 조사",
+        trigger_at="2026-04-07T20:00:30+09:00",
+        source_excerpt="8시에 기업 조사하자",
+        include_statuses=("scheduled",),
+    )
+
+    assert matched is not None
+    assert matched.title == "일기 쓰기"
