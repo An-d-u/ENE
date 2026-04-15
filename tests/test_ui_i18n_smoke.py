@@ -410,6 +410,31 @@ def test_settings_dialog_loads_and_saves_viseme_lipsync_toggle(monkeypatch):
         dialog.close()
 
 
+def test_settings_dialog_initializes_viseme_lipsync_toggle_unchecked_when_disabled(monkeypatch):
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        monkeypatch.setattr(SettingsDialog, "_load_prompt_configuration", lambda self: None)
+
+        dialog = SettingsDialog(
+            {
+                "ui_language": "ko",
+                "llm_provider": "gemini",
+                "tts_provider": "gpt_sovits_http",
+                "enable_tts": True,
+                "viseme_lipsync_enabled": False,
+            }
+        )
+
+        assert dialog.viseme_lipsync_enabled_check.isChecked() is False
+
+        dialog.close()
+
+
 def test_settings_dialog_translates_viseme_lipsync_toggle_label_in_english(monkeypatch):
     _get_qapp()
     locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
@@ -430,6 +455,30 @@ def test_settings_dialog_translates_viseme_lipsync_toggle_label_in_english(monke
         )
 
         assert dialog.viseme_lipsync_enabled_check.text() == "Viseme Lip Sync"
+
+        dialog.close()
+
+
+def test_settings_dialog_translates_viseme_lipsync_toggle_label_in_korean(monkeypatch):
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        monkeypatch.setattr(SettingsDialog, "_load_prompt_configuration", lambda self: None)
+
+        dialog = SettingsDialog(
+            {
+                "ui_language": "ko",
+                "llm_provider": "gemini",
+                "tts_provider": "gpt_sovits_http",
+                "enable_tts": True,
+            }
+        )
+
+        assert dialog.viseme_lipsync_enabled_check.text() == "viseme 립싱크"
 
         dialog.close()
 
