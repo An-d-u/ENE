@@ -70,6 +70,62 @@ def test_load_missing_file_uses_builtin_idle_motion_default(tmp_path):
     assert settings.get("enable_builtin_idle_motion") is True
 
 
+def test_load_missing_file_uses_viseme_lipsync_default(tmp_path):
+    config_path = tmp_path / "config.json"
+    secret_path = tmp_path / "api_keys.json"
+    settings = Settings(config_path=str(config_path), secret_path=str(secret_path))
+
+    assert settings.get("viseme_lipsync_enabled") is True
+
+
+def test_load_legacy_config_without_viseme_lipsync_uses_default(tmp_path):
+    config_path = tmp_path / "config.json"
+    secret_path = tmp_path / "api_keys.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "window_width": 1280,
+                "ui_language": "ko",
+                "enable_builtin_idle_motion": False,
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    settings = Settings(config_path=str(config_path), secret_path=str(secret_path))
+
+    assert settings.get("window_width") == 1280
+    assert settings.get("ui_language") == "ko"
+    assert settings.get("enable_builtin_idle_motion") is False
+    assert settings.get("viseme_lipsync_enabled") is True
+
+
+def test_save_upgrades_legacy_config_with_viseme_lipsync_default(tmp_path):
+    config_path = tmp_path / "config.json"
+    secret_path = tmp_path / "api_keys.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "window_width": 1280,
+                "ui_language": "ko",
+                "enable_builtin_idle_motion": False,
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    settings = Settings(config_path=str(config_path), secret_path=str(secret_path))
+    settings.save()
+
+    saved_config = json.loads(config_path.read_text(encoding="utf-8-sig"))
+    assert saved_config["window_width"] == 1280
+    assert saved_config["ui_language"] == "ko"
+    assert saved_config["enable_builtin_idle_motion"] is False
+    assert saved_config["viseme_lipsync_enabled"] is True
+
+
 def test_load_missing_file_uses_auto_eye_blink_default(tmp_path):
     config_path = tmp_path / "config.json"
     secret_path = tmp_path / "api_keys.json"
@@ -161,6 +217,17 @@ def test_save_and_reload_roundtrip_preserves_auto_eye_blink(tmp_path):
 
     reloaded = Settings(config_path=str(config_path), secret_path=str(secret_path))
     assert reloaded.get("enable_auto_eye_blink") is False
+
+
+def test_save_and_reload_roundtrip_preserves_viseme_lipsync_enabled(tmp_path):
+    config_path = tmp_path / "config.json"
+    secret_path = tmp_path / "api_keys.json"
+    settings = Settings(config_path=str(config_path), secret_path=str(secret_path))
+    settings.set("viseme_lipsync_enabled", False)
+    settings.save()
+
+    reloaded = Settings(config_path=str(config_path), secret_path=str(secret_path))
+    assert reloaded.get("viseme_lipsync_enabled") is False
 
 
 def test_load_invalid_json_falls_back_to_default(tmp_path):
