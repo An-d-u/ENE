@@ -4286,6 +4286,14 @@ function setMouthOpen(value) {
     setModelParameterValue('ParamMouthOpenY', value);
 }
 
+function clearMouthShapeParameters() {
+    setModelParameterValue('ParamJawOpen', 0);
+    setModelParameterValue('ParamMouthForm', 0);
+    setModelParameterValue('ParamMouthFunnel', 0);
+    setModelParameterValue('ParamMouthPuckerWiden', 0);
+    setModelParameterValue('ParamTongue', 0);
+}
+
 function normalizeMouthPoseNumber(value) {
     return Number.isFinite(value) ? value : 0;
 }
@@ -4309,6 +4317,7 @@ function applyMouthPose(pose) {
 
     if (poseSource === 'rms') {
         setMouthOpen(open);
+        clearMouthShapeParameters();
         return;
     }
 
