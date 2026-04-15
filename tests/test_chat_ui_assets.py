@@ -427,11 +427,26 @@ def test_chat_script_uses_rms_only_legacy_path_when_pose_source_is_rms():
     assert "const poseSource = normalizeMouthPoseSource(pose.source);" in script
     assert "if (poseSource === 'rms')" in script
     assert "setMouthOpen(open);" in script
+    assert "clearMouthShapeParameters();" in script
+    assert "setModelParameterValue('ParamJawOpen', 0);" in script
+    assert "setModelParameterValue('ParamMouthForm', 0);" in script
+    assert "setModelParameterValue('ParamMouthFunnel', 0);" in script
+    assert "setModelParameterValue('ParamMouthPuckerWiden', 0);" in script
+    assert "setModelParameterValue('ParamTongue', 0);" in script
     assert "return;" in script
 
 
 def test_chat_script_blends_expression_bias_only_for_viseme_style_pose():
     script = _script_text()
+    assert "const mouthExpressionState = {" in script
+    assert "function isMouthExpressionParam(paramId)" in script
+    assert "function cacheExpressionMouthValue(paramId, value, weight, blend = 'add')" in script
+    assert "function resetExpressionMouthCache()" in script
+    assert "function shouldHoldExpressionMouthParams(nowMs = performance.now())" in script
+    assert "resetExpressionMouthCache();" in script
+    assert "if (isMouthExpressionParam(param.id)) {" in script
+    assert "cacheExpressionMouthValue(param.id, param.value, weight, param.blend);" in script
+    assert "if (shouldHoldExpressionMouthParams()) {" in script
     assert "const finalForm = normalizeMouthPoseNumber(form + (mouthExpressionState.expression.form * 0.5));" in script
     assert "const finalFunnel = normalizeMouthPoseNumber(funnel + (mouthExpressionState.expression.funnel * 0.1));" in script
     assert "const finalPuckerWiden = normalizeMouthPoseNumber(puckerWiden + (mouthExpressionState.expression.puckerWiden * 0.1));" in script
