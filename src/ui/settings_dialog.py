@@ -2622,6 +2622,9 @@ class SettingsDialog(QDialog):
         self.tts_streaming_enabled_check.setChecked(
             self._original_settings.get("tts_streaming_enabled", False)
         )
+        self.viseme_lipsync_enabled_check.setChecked(
+            bool(self._original_settings.get("viseme_lipsync_enabled", True))
+        )
         self._refresh_tts_output_devices(str(self._original_settings.get("tts_output_device_id", "")).strip())
         self.tts_output_volume_spin.setValue(
             int(round(float(self._original_settings.get("tts_output_volume", 0.8) or 0.8) * 100))
@@ -3357,6 +3360,13 @@ class SettingsDialog(QDialog):
         )
         self.tts_streaming_enabled_check.toggled.connect(self._on_setting_changed)
         overview_form.addRow(self.tts_streaming_enabled_check)
+
+        self.viseme_lipsync_enabled_check = self._create_toggle(
+            "viseme 립싱크",
+            key="settings.tts.overview.viseme_lipsync",
+        )
+        self.viseme_lipsync_enabled_check.toggled.connect(self._on_setting_changed)
+        overview_form.addRow(self.viseme_lipsync_enabled_check)
 
         self.tts_provider_combo = QComboBox()
         for provider_id, meta in self._tts_catalog.items():
@@ -6073,6 +6083,7 @@ class SettingsDialog(QDialog):
             "stt_language": str(self.ptt_language_combo.currentData() or "ko"),
             "enable_tts": self.enable_tts_check.isChecked(),
             "tts_streaming_enabled": self.tts_streaming_enabled_check.isChecked(),
+            "viseme_lipsync_enabled": self.viseme_lipsync_enabled_check.isChecked(),
             "tts_streaming_emit_message_on_first_chunk": bool(
                 self._original_settings.get("tts_streaming_emit_message_on_first_chunk", True)
             ),
