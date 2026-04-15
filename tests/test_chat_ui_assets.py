@@ -409,6 +409,35 @@ def test_script_guards_missing_model_parameters_for_mouth_pose():
     assert "ParamMouthPuckerWiden" in script
 
 
+def test_chat_script_caches_expression_mouth_bias_while_speaking():
+    script = _script_text()
+    assert "const mouthExpressionState = {" in script
+    assert "function isMouthExpressionParam(paramId)" in script
+    assert "function cacheExpressionMouthValue(paramId, value, weight, blend = 'add')" in script
+    assert "function resetExpressionMouthCache()" in script
+    assert "function shouldHoldExpressionMouthParams(nowMs = performance.now())" in script
+    assert "if (isMouthExpressionParam(param.id)) {" in script
+    assert "cacheExpressionMouthValue(param.id, param.value, weight, param.blend);" in script
+    assert "if (shouldHoldExpressionMouthParams()) {" in script
+    assert "resetExpressionMouthCache();" in script
+
+
+def test_chat_script_uses_rms_only_legacy_path_when_pose_source_is_rms():
+    script = _script_text()
+    assert "const poseSource = normalizeMouthPoseSource(pose.source);" in script
+    assert "if (poseSource === 'rms')" in script
+    assert "setMouthOpen(open);" in script
+    assert "return;" in script
+
+
+def test_chat_script_blends_expression_bias_only_for_viseme_style_pose():
+    script = _script_text()
+    assert "const finalForm = normalizeMouthPoseNumber(form + (mouthExpressionState.expression.form * 0.5));" in script
+    assert "const finalFunnel = normalizeMouthPoseNumber(funnel + (mouthExpressionState.expression.funnel * 0.1));" in script
+    assert "const finalPuckerWiden = normalizeMouthPoseNumber(puckerWiden + (mouthExpressionState.expression.puckerWiden * 0.1));" in script
+    assert "const finalTongue = Math.abs(tongue) > 0.0001 ? tongue : 0;" in script
+
+
 def test_message_attachment_image_bubble_styles_support_hover_delete_and_deleted_placeholder():
     image_block = _rule_block(".message-attachment-image")
     media_block = _rule_block(".message-attachment-media")
