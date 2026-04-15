@@ -411,11 +411,17 @@ def test_script_guards_missing_model_parameters_for_mouth_pose():
 
 def test_chat_script_caches_expression_mouth_bias_while_speaking():
     script = _script_text()
+    assert "const MOUTH_POSE_SOURCE_RMS = 'rms';" in script
+    assert "function createEmptyMouthShapeState()" in script
+    assert "function createEmptyMouthReleaseFadeState()" in script
+    assert "const MOUTH_EXPRESSION_HOLD_MS =" in script
     assert "const mouthExpressionState = {" in script
     assert "function isMouthExpressionParam(paramId)" in script
     assert "function cacheExpressionMouthValue(paramId, value, weight, blend = 'add')" in script
     assert "function resetExpressionMouthCache()" in script
+    assert "function resetMouthShapeState(shapeState)" in script
     assert "function shouldHoldExpressionMouthParams(nowMs = performance.now())" in script
+    assert "return (nowMs - lastSpeechAt) < MOUTH_EXPRESSION_HOLD_MS;" in script
     assert "if (isMouthExpressionParam(param.id)) {" in script
     assert "cacheExpressionMouthValue(param.id, param.value, weight, param.blend);" in script
     assert "if (shouldHoldExpressionMouthParams()) {" in script
@@ -425,7 +431,7 @@ def test_chat_script_caches_expression_mouth_bias_while_speaking():
 def test_chat_script_uses_rms_only_legacy_path_when_pose_source_is_rms():
     script = _script_text()
     assert "const poseSource = normalizeMouthPoseSource(pose.source);" in script
-    assert "if (poseSource === 'rms')" in script
+    assert "if (poseSource === MOUTH_POSE_SOURCE_RMS)" in script
     assert "setMouthOpen(open);" in script
     assert "clearMouthShapeParameters();" in script
     assert "setModelParameterValue('ParamJawOpen', 0);" in script
@@ -439,18 +445,34 @@ def test_chat_script_uses_rms_only_legacy_path_when_pose_source_is_rms():
 def test_chat_script_blends_expression_bias_only_for_viseme_style_pose():
     script = _script_text()
     assert "const mouthExpressionState = {" in script
+    assert "const MOUTH_SHAPE_RELEASE_FADE_MS = 180;" in script
+    assert "lastVisemeShape: createEmptyMouthShapeState()," in script
+    assert "releaseFade: createEmptyMouthReleaseFadeState()," in script
+    assert "function buildReleaseFadeShapeValues(fadeFrom, expressionState, fadeProgress)" in script
+    assert "function buildVisemeBlendedMouthPose(pose, expressionState)" in script
+    assert "function applyMouthShapeValues(shapeValues)" in script
     assert "function isMouthExpressionParam(paramId)" in script
     assert "function cacheExpressionMouthValue(paramId, value, weight, blend = 'add')" in script
     assert "function resetExpressionMouthCache()" in script
     assert "function shouldHoldExpressionMouthParams(nowMs = performance.now())" in script
+    assert "function beginMouthExpressionReleaseFade(nowMs = performance.now())" in script
+    assert "function updateMouthExpressionReleaseFade(coreModel, nowMs = performance.now())" in script
     assert "resetExpressionMouthCache();" in script
     assert "if (isMouthExpressionParam(param.id)) {" in script
     assert "cacheExpressionMouthValue(param.id, param.value, weight, param.blend);" in script
     assert "if (shouldHoldExpressionMouthParams()) {" in script
-    assert "const finalForm = normalizeMouthPoseNumber(form + (mouthExpressionState.expression.form * 0.5));" in script
-    assert "const finalFunnel = normalizeMouthPoseNumber(funnel + (mouthExpressionState.expression.funnel * 0.1));" in script
-    assert "const finalPuckerWiden = normalizeMouthPoseNumber(puckerWiden + (mouthExpressionState.expression.puckerWiden * 0.1));" in script
-    assert "const finalTongue = Math.abs(tongue) > 0.0001 ? tongue : 0;" in script
+    assert "updateMouthExpressionReleaseFade(coreModel, nowMs);" in script
+    assert "open: normalizeMouthPoseNumber(Math.max(open, expressionState.open * 0.35))," in script
+    assert "jaw: normalizeMouthPoseNumber(Math.max(jaw, expressionState.jaw * 0.25))," in script
+    assert "form: normalizeMouthPoseNumber((expressionState.form * 0.7) + (form * 0.6))," in script
+    assert "funnel: normalizeMouthPoseNumber((expressionState.funnel * 0.75) + (funnel * 0.55))," in script
+    assert "puckerWiden: normalizeMouthPoseNumber((expressionState.puckerWiden * 0.75) + (puckerWiden * 0.55))," in script
+    assert "tongue: Math.abs(tongue) > 0.0001 ? tongue : 0," in script
+    assert "mouthExpressionState.lastVisemeShape = {" in script
+    assert "const fadeProgress = Math.min((nowMs - mouthExpressionState.releaseFade.startedAt) / MOUTH_SHAPE_RELEASE_FADE_MS, 1);" in script
+    assert "const fadeWeight = 1 - fadeProgress;" in script
+    assert "mouthExpressionState.source = MOUTH_POSE_SOURCE_RMS;" in script
+    assert "applyMouthShapeValues(shapeValues);" in script
 
 
 def test_message_attachment_image_bubble_styles_support_hover_delete_and_deleted_placeholder():

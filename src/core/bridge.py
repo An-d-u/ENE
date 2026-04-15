@@ -3117,7 +3117,7 @@ class WebBridge(QObject):
             "pucker_widen": 0.0,
             "tongue": 0.0,
             "confidence": normalized_confidence,
-            "source": "rms",
+            "source": "rms_expression" if self._is_viseme_lipsync_enabled() else "rms",
         }
 
         if viseme_payload and normalized_confidence > 0.0:
