@@ -600,6 +600,7 @@
         "title": "Provider selection",
         "enable": "Enable TTS for Japanese responses",
         "streaming_enabled": "Use GPT-SoVITS streaming TTS",
+        "viseme_lipsync": "Viseme Lip Sync",
         "provider": "Provider:"
       },
       "gpt": {

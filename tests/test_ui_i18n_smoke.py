@@ -381,6 +381,83 @@ def test_settings_dialog_loads_and_saves_streaming_tts_toggle(monkeypatch):
         dialog.close()
 
 
+def test_settings_dialog_loads_and_saves_viseme_lipsync_toggle(monkeypatch):
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        monkeypatch.setattr(SettingsDialog, "_load_prompt_configuration", lambda self: None)
+
+        dialog = SettingsDialog(
+            {
+                "ui_language": "ko",
+                "llm_provider": "gemini",
+                "tts_provider": "gpt_sovits_http",
+                "enable_tts": True,
+                "viseme_lipsync_enabled": True,
+            }
+        )
+
+        assert dialog.viseme_lipsync_enabled_check.isChecked() is True
+
+        dialog.viseme_lipsync_enabled_check.setChecked(False)
+        values = dialog._get_current_values()
+        assert values["viseme_lipsync_enabled"] is False
+
+        dialog.close()
+
+
+def test_settings_dialog_translates_viseme_lipsync_toggle_label_in_english(monkeypatch):
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="en", locales_dir=locales_dir, system_locale="ko_KR")
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        monkeypatch.setattr(SettingsDialog, "_load_prompt_configuration", lambda self: None)
+
+        dialog = SettingsDialog(
+            {
+                "ui_language": "en",
+                "llm_provider": "gemini",
+                "tts_provider": "gpt_sovits_http",
+                "enable_tts": True,
+            }
+        )
+
+        assert dialog.viseme_lipsync_enabled_check.text() == "Viseme Lip Sync"
+
+        dialog.close()
+
+
+def test_settings_dialog_translates_viseme_lipsync_toggle_label_in_japanese(monkeypatch):
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="ja", locales_dir=locales_dir, system_locale="ko_KR")
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        monkeypatch.setattr(SettingsDialog, "_load_prompt_configuration", lambda self: None)
+
+        dialog = SettingsDialog(
+            {
+                "ui_language": "ja",
+                "llm_provider": "gemini",
+                "tts_provider": "gpt_sovits_http",
+                "enable_tts": True,
+            }
+        )
+
+        assert dialog.viseme_lipsync_enabled_check.text() == "ビセム リップシンク"
+
+        dialog.close()
+
+
 def test_settings_dialog_exposes_language_selector_and_translated_static_strings(monkeypatch):
     _get_qapp()
     locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
