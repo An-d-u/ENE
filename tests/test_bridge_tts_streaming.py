@@ -237,7 +237,7 @@ def test_bridge_invalidates_profile_cache_when_model_path_changes(tmp_path):
 def test_bridge_emits_mouth_pose_payload_with_stream_viseme_shape():
     _ensure_qt_app()
 
-    bridge = WebBridge()
+    bridge = WebBridge(settings={"viseme_lipsync_enabled": True})
     bridge._model_lip_sync_profile = build_model_lip_sync_profile_from_params(
         {
             "ParamMouthOpenY",
@@ -252,10 +252,48 @@ def test_bridge_emits_mouth_pose_payload_with_stream_viseme_shape():
     )
 
     emitted = []
+    lip_sync_values = []
     bridge.mouth_pose_update.connect(lambda payload: emitted.append(json.loads(payload)))
+    bridge.lip_sync_update.connect(lambda value: lip_sync_values.append(float(value)))
 
     bridge._emit_mouth_signals(0.3, timestamp_sec=0.05)
 
     assert emitted
+    assert lip_sync_values == [0.3]
     assert emitted[-1]["open"] >= 0.3
     assert emitted[-1]["funnel"] > 0.0
+    assert emitted[-1]["source"] == "viseme_blend"
+
+
+def test_bridge_emits_rms_only_mouth_pose_when_viseme_lipsync_is_disabled():
+    _ensure_qt_app()
+
+    bridge = WebBridge(settings={"viseme_lipsync_enabled": False})
+    bridge._model_lip_sync_profile = build_model_lip_sync_profile_from_params(
+        {
+            "ParamMouthOpenY",
+            "ParamMouthForm",
+            "ParamMouthFunnel",
+            "ParamMouthPuckerWiden",
+            "ParamJawOpen",
+        }
+    )
+    bridge._sync_controller.push_viseme_frames(
+        [VisemeFrame(timestamp=0.05, viseme="U", confidence=0.9)]
+    )
+
+    emitted = []
+    lip_sync_values = []
+    bridge.mouth_pose_update.connect(lambda payload: emitted.append(json.loads(payload)))
+    bridge.lip_sync_update.connect(lambda value: lip_sync_values.append(float(value)))
+
+    bridge._emit_mouth_signals(0.3, timestamp_sec=0.05)
+
+    assert lip_sync_values == [0.3]
+    assert emitted
+    assert emitted[-1]["open"] == 0.3
+    assert emitted[-1]["source"] == "rms"
+    assert emitted[-1]["jaw"] == 0.0
+    assert emitted[-1]["form"] == 0.0
+    assert emitted[-1]["funnel"] == 0.0
+    assert emitted[-1]["pucker_widen"] == 0.0
