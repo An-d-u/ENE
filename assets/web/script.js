@@ -784,6 +784,18 @@ let headPatEyeParamSupport = null;
 let idleMotionEnabled = true;
 let idleMotionPhase = 0;
 let lastSpeechAt = 0;
+const mouthExpressionState = {
+    expression: {
+        open: 0,
+        jaw: 0,
+        form: 0,
+        funnel: 0,
+        puckerWiden: 0,
+        tongue: 0,
+    },
+    source: 'rms',
+    lastPoseAt: 0,
+};
 let headPatEnabled = true;
 let headPatStrength = 1.0;
 let headPatEventsBound = false;
@@ -947,6 +959,67 @@ function shouldApplyHeadPatEyeOverrideNow(hasHeadPatEffect) {
 // 립싱크 직후 구간인지 판정해 idle 모션 간섭을 줄인다.
 function isSpeakingNow(nowMs) {
     return (nowMs - lastSpeechAt) < SPEECH_IDLE_BLOCK_MS;
+}
+
+const MOUTH_EXPRESSION_PARAM_IDS = new Set([
+    'ParamMouthOpenY',
+    'ParamJawOpen',
+    'ParamMouthForm',
+    'ParamMouthFunnel',
+    'ParamMouthPuckerWiden',
+    'ParamTongue',
+]);
+
+function normalizeMouthPoseSource(source) {
+    return (typeof source === 'string' && source.trim().toLowerCase() === 'rms') ? 'rms' : 'viseme';
+}
+
+function isMouthExpressionParam(paramId) {
+    return MOUTH_EXPRESSION_PARAM_IDS.has(paramId);
+}
+
+// 말하는 동안 입 관련 표현식 값은 캐시만 하고, 실제 반영은 합성 단계에서 한다.
+function cacheExpressionMouthValue(paramId, value, weight, blend = 'add') {
+    const numericValue = normalizeMouthPoseNumber(Number(value));
+    const weightedValue = numericValue * (Number.isFinite(weight) ? weight : 0);
+    const expression = mouthExpressionState.expression;
+
+    if (paramId === 'ParamMouthOpenY') {
+        expression.open = weightedValue;
+        return;
+    }
+    if (paramId === 'ParamJawOpen') {
+        expression.jaw = weightedValue;
+        return;
+    }
+    if (paramId === 'ParamMouthForm') {
+        expression.form = blend === 'overwrite' ? weightedValue : expression.form + weightedValue;
+        return;
+    }
+    if (paramId === 'ParamMouthFunnel') {
+        expression.funnel = blend === 'overwrite' ? weightedValue : expression.funnel + weightedValue;
+        return;
+    }
+    if (paramId === 'ParamMouthPuckerWiden') {
+        expression.puckerWiden = blend === 'overwrite' ? weightedValue : expression.puckerWiden + weightedValue;
+        return;
+    }
+    if (paramId === 'ParamTongue') {
+        expression.tongue = weightedValue;
+    }
+}
+
+function resetExpressionMouthCache() {
+    mouthExpressionState.expression.open = 0;
+    mouthExpressionState.expression.jaw = 0;
+    mouthExpressionState.expression.form = 0;
+    mouthExpressionState.expression.funnel = 0;
+    mouthExpressionState.expression.puckerWiden = 0;
+    mouthExpressionState.expression.tongue = 0;
+}
+
+function shouldHoldExpressionMouthParams(nowMs = performance.now()) {
+    return isSpeakingNow(nowMs);
 }
 
 // idle 모션 전체 활성/비활성 토글.
@@ -1766,6 +1839,12 @@ function applyExpressionLayer(coreModel, expression, weight) {
 
     expression.parameters.forEach((param) => {
         try {
+            if (isMouthExpressionParam(param.id)) {
+                cacheExpressionMouthValue(param.id, param.value, weight, param.blend);
+                if (shouldHoldExpressionMouthParams()) {
+                    return;
+                }
+            }
             if (param.blend === 'multiply') {
                 coreModel.multiplyParameterValueById(param.id, param.value, weight);
                 return;
@@ -1788,6 +1867,7 @@ function applyCurrentExpressionState() {
         return;
     }
 
+    resetExpressionMouthCache();
     const sample = sampleExpressionTransition();
     applyExpressionLayer(coreModel, sample.fromExpression, sample.fromWeight);
     applyExpressionLayer(coreModel, sample.toExpression, sample.toWeight);
@@ -4206,6 +4286,14 @@ function setMouthOpen(value) {
     setModelParameterValue('ParamMouthOpenY', value);
 }
 
+function clearMouthShapeParameters() {
+    setModelParameterValue('ParamJawOpen', 0);
+    setModelParameterValue('ParamMouthForm', 0);
+    setModelParameterValue('ParamMouthFunnel', 0);
+    setModelParameterValue('ParamMouthPuckerWiden', 0);
+    setModelParameterValue('ParamTongue', 0);
+}
+
 function normalizeMouthPoseNumber(value) {
     return Number.isFinite(value) ? value : 0;
 }
@@ -4215,6 +4303,7 @@ function applyMouthPose(pose) {
         return;
     }
 
+    const poseSource = normalizeMouthPoseSource(pose.source);
     const open = normalizeMouthPoseNumber(Number(pose.open));
     const jaw = normalizeMouthPoseNumber(Number(pose.jaw));
     const form = normalizeMouthPoseNumber(Number(pose.form));
@@ -4222,12 +4311,30 @@ function applyMouthPose(pose) {
     const puckerWiden = normalizeMouthPoseNumber(Number(pose.pucker_widen));
     const tongue = normalizeMouthPoseNumber(Number(pose.tongue));
 
+    lastSpeechAt = performance.now();
+    mouthExpressionState.source = poseSource;
+    mouthExpressionState.lastPoseAt = lastSpeechAt;
+
+    if (poseSource === 'rms') {
+        setMouthOpen(open);
+        clearMouthShapeParameters();
+        return;
+    }
+
+    const finalForm = normalizeMouthPoseNumber(form + (mouthExpressionState.expression.form * 0.5));
+    const finalFunnel = normalizeMouthPoseNumber(funnel + (mouthExpressionState.expression.funnel * 0.1));
+    const finalPuckerWiden = normalizeMouthPoseNumber(puckerWiden + (mouthExpressionState.expression.puckerWiden * 0.1));
+    const finalTongue = Math.abs(tongue) > 0.0001 ? tongue : 0;
+
+    mouthExpressionState.expression.open = normalizeMouthPoseNumber(mouthExpressionState.expression.open);
+    mouthExpressionState.expression.jaw = normalizeMouthPoseNumber(mouthExpressionState.expression.jaw);
+
     setModelParameterValue('ParamMouthOpenY', open);
     setModelParameterValue('ParamJawOpen', jaw);
-    setModelParameterValue('ParamMouthForm', form);
-    setModelParameterValue('ParamMouthFunnel', funnel);
-    setModelParameterValue('ParamMouthPuckerWiden', puckerWiden);
-    setModelParameterValue('ParamTongue', tongue);
+    setModelParameterValue('ParamMouthForm', finalForm);
+    setModelParameterValue('ParamMouthFunnel', finalFunnel);
+    setModelParameterValue('ParamMouthPuckerWiden', finalPuckerWiden);
+    setModelParameterValue('ParamTongue', finalTongue);
 }
 // Python에서 직접 입 모양을 갱신할 수 있도록 전역에 노출한다.
 window.setMouthOpen = setMouthOpen;

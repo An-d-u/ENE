@@ -2898,9 +2898,19 @@ class WebBridge(QObject):
         if self._sync_started or not self._should_use_sync_buffer():
             return
         now_ms = self._get_stream_sync_elapsed_ms()
-        if not self._sync_controller.should_start(now_ms):
-            return
-        self._sync_using_rms_fallback = self._sync_controller.should_use_rms_fallback(now_ms)
+        if self._is_viseme_lipsync_enabled():
+            if not self._sync_controller.should_start(now_ms):
+                return
+            self._sync_using_rms_fallback = self._sync_controller.should_use_rms_fallback(now_ms)
+        else:
+            min_buffer_ms = self._sync_controller.min_buffer_ms
+            max_buffer_ms = self._sync_controller.max_buffer_ms
+            if not (
+                (int(now_ms) >= min_buffer_ms and self._sync_controller.buffered_audio_ms >= min_buffer_ms)
+                or int(now_ms) >= max_buffer_ms
+            ):
+                return
+            self._sync_using_rms_fallback = int(now_ms) >= max_buffer_ms
         self._start_stream_sync_playback()
 
     def _stop_streaming_lip_sync(self, reset_mouth: bool = True):
@@ -3061,6 +3071,17 @@ class WebBridge(QObject):
                 return getter(key)
         return default
 
+    def _is_viseme_lipsync_enabled(self) -> bool:
+        """설정값을 읽어 viseme 립싱크 적용 여부를 반환한다."""
+        raw_value = self._get_settings_value("viseme_lipsync_enabled", True)
+        if isinstance(raw_value, str):
+            normalized = raw_value.strip().lower()
+            if normalized in {"0", "false", "no", "off"}:
+                return False
+            if normalized in {"1", "true", "yes", "on"}:
+                return True
+        return bool(raw_value)
+
     def _get_model_lip_sync_profile(self):
         """현재 모델 경로 기준 립싱크 프로파일을 캐시해 반환한다."""
         model_json_path = str(self._get_settings_value("model_json_path", "") or "").strip()
@@ -3099,7 +3120,7 @@ class WebBridge(QObject):
             "source": "rms",
         }
 
-        if viseme_payload:
+        if viseme_payload and normalized_confidence > 0.0:
             viseme_open = float(viseme_payload.get("mouth_open", open_value))
             pose["open"] = max(open_value, viseme_open * normalized_confidence)
             pose["source"] = "viseme_blend" if normalized_confidence >= threshold else "rms_blend"
@@ -3139,7 +3160,7 @@ class WebBridge(QObject):
 
         viseme = None
         confidence = 0.0
-        if timestamp_sec is not None and not self._sync_using_rms_fallback:
+        if self._is_viseme_lipsync_enabled() and timestamp_sec is not None and not self._sync_using_rms_fallback:
             frame = self._dequeue_stream_viseme_frame(timestamp_sec)
             if frame is not None:
                 viseme = frame.viseme
