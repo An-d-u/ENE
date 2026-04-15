@@ -78,6 +78,29 @@ def test_load_missing_file_uses_viseme_lipsync_default(tmp_path):
     assert settings.get("viseme_lipsync_enabled") is True
 
 
+def test_load_legacy_config_without_viseme_lipsync_uses_default(tmp_path):
+    config_path = tmp_path / "config.json"
+    secret_path = tmp_path / "api_keys.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "window_width": 1280,
+                "ui_language": "ko",
+                "enable_builtin_idle_motion": False,
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    settings = Settings(config_path=str(config_path), secret_path=str(secret_path))
+
+    assert settings.get("window_width") == 1280
+    assert settings.get("ui_language") == "ko"
+    assert settings.get("enable_builtin_idle_motion") is False
+    assert settings.get("viseme_lipsync_enabled") is True
+
+
 def test_load_missing_file_uses_auto_eye_blink_default(tmp_path):
     config_path = tmp_path / "config.json"
     secret_path = tmp_path / "api_keys.json"
