@@ -2898,9 +2898,19 @@ class WebBridge(QObject):
         if self._sync_started or not self._should_use_sync_buffer():
             return
         now_ms = self._get_stream_sync_elapsed_ms()
-        if not self._sync_controller.should_start(now_ms):
-            return
-        self._sync_using_rms_fallback = self._sync_controller.should_use_rms_fallback(now_ms)
+        if self._is_viseme_lipsync_enabled():
+            if not self._sync_controller.should_start(now_ms):
+                return
+            self._sync_using_rms_fallback = self._sync_controller.should_use_rms_fallback(now_ms)
+        else:
+            min_buffer_ms = self._sync_controller.min_buffer_ms
+            max_buffer_ms = self._sync_controller.max_buffer_ms
+            if not (
+                (int(now_ms) >= min_buffer_ms and self._sync_controller.buffered_audio_ms >= min_buffer_ms)
+                or int(now_ms) >= max_buffer_ms
+            ):
+                return
+            self._sync_using_rms_fallback = int(now_ms) >= max_buffer_ms
         self._start_stream_sync_playback()
 
     def _stop_streaming_lip_sync(self, reset_mouth: bool = True):
