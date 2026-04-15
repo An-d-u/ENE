@@ -189,9 +189,18 @@ The settings window already covers most of what you will want to change in norma
 - embedding model configuration
 - global PTT behavior
 - Obsidian CLI integration settings
+- `viseme 립싱크` toggle for speech-time mouth shaping
 - Live2D model placement and scale
 
 You can use ENE without touching most internals, but if something does not behave the way you expect, the settings window is the first place to check before editing the raw configuration files.
+
+### `viseme 립싱크`
+
+The `viseme 립싱크` setting controls how ENE shapes the mouth while voice output is playing.
+
+- When enabled, ENE uses viseme-style mouth poses and blends them with expression mouth bias during speech.
+- When disabled, ENE falls back to the legacy RMS-only open path, so the mouth behaves like a simple open/close lip-sync signal.
+- This applies to supported in-app audio TTS providers; `browser_speech` keeps its existing browser `speechSynthesis` path.
 
 ### TTS 동기화 버퍼와 립싱크 시작 시점
 
