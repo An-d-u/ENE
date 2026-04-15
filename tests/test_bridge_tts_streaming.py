@@ -233,6 +233,26 @@ def test_bridge_keeps_rms_open_when_viseme_confidence_is_low():
     assert abs(pose["form"]) < 0.2
 
 
+def test_bridge_marks_rms_expression_source_when_viseme_lipsync_is_enabled_without_frame():
+    _ensure_qt_app()
+
+    bridge = WebBridge(settings={"viseme_lipsync_enabled": True})
+    bridge._model_lip_sync_profile = build_model_lip_sync_profile_from_params(
+        {
+            "ParamMouthOpenY",
+            "ParamMouthForm",
+            "ParamMouthFunnel",
+            "ParamMouthPuckerWiden",
+            "ParamJawOpen",
+        }
+    )
+
+    pose = bridge._build_mouth_pose(rms_open=0.4, viseme=None, confidence=0.0)
+
+    assert pose["open"] == 0.4
+    assert pose["source"] == "rms_expression"
+
+
 def test_bridge_invalidates_profile_cache_when_model_path_changes(tmp_path):
     _ensure_qt_app()
 

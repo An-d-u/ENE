@@ -784,17 +784,37 @@ let headPatEyeParamSupport = null;
 let idleMotionEnabled = true;
 let idleMotionPhase = 0;
 let lastSpeechAt = 0;
-const mouthExpressionState = {
-    expression: {
+
+const MOUTH_POSE_SOURCE_RMS = 'rms';
+const MOUTH_POSE_SOURCE_VISEME = 'viseme';
+
+function createEmptyMouthShapeState() {
+    return {
         open: 0,
         jaw: 0,
         form: 0,
         funnel: 0,
         puckerWiden: 0,
         tongue: 0,
-    },
-    source: 'rms',
+    };
+}
+
+function createEmptyMouthReleaseFadeState() {
+    return {
+        active: false,
+        startedAt: 0,
+        activePoseAt: 0,
+        completedPoseAt: 0,
+        from: createEmptyMouthShapeState(),
+    };
+}
+
+const mouthExpressionState = {
+    expression: createEmptyMouthShapeState(),
+    source: MOUTH_POSE_SOURCE_RMS,
     lastPoseAt: 0,
+    lastVisemeShape: createEmptyMouthShapeState(),
+    releaseFade: createEmptyMouthReleaseFadeState(),
 };
 let headPatEnabled = true;
 let headPatStrength = 1.0;
@@ -839,6 +859,8 @@ const IDLE_MOTION_BASE_ANGLE_Y = 0.8;
 const IDLE_MOTION_BASE_BODY_X = 1.3;
 const IDLE_MOTION_BASE_BREATH = 1.0;
 const SPEECH_IDLE_BLOCK_MS = 450;
+const MOUTH_EXPRESSION_HOLD_MS = 90;
+const MOUTH_SHAPE_RELEASE_FADE_MS = 180;
 const HEAD_PAT_SPEED_EMA = 0.28;
 const HEAD_PAT_INTENSITY_EMA = 0.22;
 const HEAD_PAT_DIRECTION_EMA = 0.35;
@@ -971,7 +993,7 @@ const MOUTH_EXPRESSION_PARAM_IDS = new Set([
 ]);
 
 function normalizeMouthPoseSource(source) {
-    return (typeof source === 'string' && source.trim().toLowerCase() === 'rms') ? 'rms' : 'viseme';
+    return (typeof source === 'string' && source.trim().toLowerCase() === MOUTH_POSE_SOURCE_RMS) ? MOUTH_POSE_SOURCE_RMS : MOUTH_POSE_SOURCE_VISEME;
 }
 
 function isMouthExpressionParam(paramId) {
@@ -1009,17 +1031,86 @@ function cacheExpressionMouthValue(paramId, value, weight, blend = 'add') {
     }
 }
 
+function resetMouthShapeState(shapeState) {
+    shapeState.open = 0;
+    shapeState.jaw = 0;
+    shapeState.form = 0;
+    shapeState.funnel = 0;
+    shapeState.puckerWiden = 0;
+    shapeState.tongue = 0;
+}
+
 function resetExpressionMouthCache() {
-    mouthExpressionState.expression.open = 0;
-    mouthExpressionState.expression.jaw = 0;
-    mouthExpressionState.expression.form = 0;
-    mouthExpressionState.expression.funnel = 0;
-    mouthExpressionState.expression.puckerWiden = 0;
-    mouthExpressionState.expression.tongue = 0;
+    resetMouthShapeState(mouthExpressionState.expression);
 }
 
 function shouldHoldExpressionMouthParams(nowMs = performance.now()) {
-    return isSpeakingNow(nowMs);
+    return (nowMs - lastSpeechAt) < MOUTH_EXPRESSION_HOLD_MS;
+}
+
+function beginMouthExpressionReleaseFade(nowMs = performance.now()) {
+    const releaseFade = mouthExpressionState.releaseFade;
+    releaseFade.active = true;
+    releaseFade.startedAt = nowMs;
+    releaseFade.activePoseAt = mouthExpressionState.lastPoseAt;
+    releaseFade.from.form = mouthExpressionState.lastVisemeShape.form;
+    releaseFade.from.funnel = mouthExpressionState.lastVisemeShape.funnel;
+    releaseFade.from.puckerWiden = mouthExpressionState.lastVisemeShape.puckerWiden;
+    releaseFade.from.tongue = mouthExpressionState.lastVisemeShape.tongue;
+}
+
+function buildReleaseFadeShapeValues(fadeFrom, expressionState, fadeProgress) {
+    const fadeWeight = 1 - fadeProgress;
+    return {
+        form: normalizeMouthPoseNumber((fadeFrom.form * fadeWeight) + (expressionState.form * fadeProgress)),
+        funnel: normalizeMouthPoseNumber((fadeFrom.funnel * fadeWeight) + (expressionState.funnel * fadeProgress)),
+        puckerWiden: normalizeMouthPoseNumber((fadeFrom.puckerWiden * fadeWeight) + (expressionState.puckerWiden * fadeProgress)),
+        tongue: normalizeMouthPoseNumber((fadeFrom.tongue * fadeWeight) + (expressionState.tongue * fadeProgress)),
+    };
+}
+
+function applyMouthShapeValues(shapeValues) {
+    setModelParameterValue('ParamMouthOpenY', shapeValues.open);
+    setModelParameterValue('ParamJawOpen', shapeValues.jaw);
+    setModelParameterValue('ParamMouthForm', shapeValues.form);
+    setModelParameterValue('ParamMouthFunnel', shapeValues.funnel);
+    setModelParameterValue('ParamMouthPuckerWiden', shapeValues.puckerWiden);
+    setModelParameterValue('ParamTongue', shapeValues.tongue);
+}
+
+// 발화가 끝난 직후에는 viseme 모양에서 표정 기본값으로 짧게 복귀시킨다.
+function updateMouthExpressionReleaseFade(coreModel, nowMs = performance.now()) {
+    if (!coreModel || shouldHoldExpressionMouthParams(nowMs) || mouthExpressionState.source === MOUTH_POSE_SOURCE_RMS) {
+        mouthExpressionState.releaseFade.active = false;
+        return;
+    }
+
+    const releaseFade = mouthExpressionState.releaseFade;
+    if (releaseFade.active && releaseFade.activePoseAt !== mouthExpressionState.lastPoseAt) {
+        releaseFade.active = false;
+    }
+    if (!releaseFade.active) {
+        if (releaseFade.completedPoseAt === mouthExpressionState.lastPoseAt) {
+            return;
+        }
+        beginMouthExpressionReleaseFade(nowMs);
+    }
+
+    const fadeFrom = mouthExpressionState.releaseFade.from;
+    const fadeProgress = Math.min((nowMs - mouthExpressionState.releaseFade.startedAt) / MOUTH_SHAPE_RELEASE_FADE_MS, 1);
+    const fadeWeight = 1 - fadeProgress;
+    const shapeValues = buildReleaseFadeShapeValues(fadeFrom, mouthExpressionState.expression, fadeProgress);
+
+    coreModel.setParameterValueById('ParamMouthForm', shapeValues.form);
+    coreModel.setParameterValueById('ParamMouthFunnel', shapeValues.funnel);
+    coreModel.setParameterValueById('ParamMouthPuckerWiden', shapeValues.puckerWiden);
+    coreModel.setParameterValueById('ParamTongue', shapeValues.tongue);
+
+    if (fadeProgress >= 1) {
+        releaseFade.active = false;
+        releaseFade.completedPoseAt = mouthExpressionState.lastPoseAt;
+        mouthExpressionState.source = MOUTH_POSE_SOURCE_RMS;
+    }
 }
 
 // idle 모션 전체 활성/비활성 토글.
@@ -1867,10 +1958,12 @@ function applyCurrentExpressionState() {
         return;
     }
 
+    const nowMs = performance.now();
     resetExpressionMouthCache();
-    const sample = sampleExpressionTransition();
+    const sample = sampleExpressionTransition(nowMs);
     applyExpressionLayer(coreModel, sample.fromExpression, sample.fromWeight);
     applyExpressionLayer(coreModel, sample.toExpression, sample.toWeight);
+    updateMouthExpressionReleaseFade(coreModel, nowMs);
     applyAutoEyeBlinkToCoreModel(coreModel, sample, headPatEnabled && patBlend > 0.001);
 
     if (sample.complete) {
@@ -4298,12 +4391,7 @@ function normalizeMouthPoseNumber(value) {
     return Number.isFinite(value) ? value : 0;
 }
 
-function applyMouthPose(pose) {
-    if (!pose || typeof pose !== 'object') {
-        return;
-    }
-
-    const poseSource = normalizeMouthPoseSource(pose.source);
+function buildVisemeBlendedMouthPose(pose, expressionState) {
     const open = normalizeMouthPoseNumber(Number(pose.open));
     const jaw = normalizeMouthPoseNumber(Number(pose.jaw));
     const form = normalizeMouthPoseNumber(Number(pose.form));
@@ -4311,30 +4399,46 @@ function applyMouthPose(pose) {
     const puckerWiden = normalizeMouthPoseNumber(Number(pose.pucker_widen));
     const tongue = normalizeMouthPoseNumber(Number(pose.tongue));
 
+    return {
+        open: normalizeMouthPoseNumber(Math.max(open, expressionState.open * 0.35)),
+        jaw: normalizeMouthPoseNumber(Math.max(jaw, expressionState.jaw * 0.25)),
+        form: normalizeMouthPoseNumber((expressionState.form * 0.7) + (form * 0.6)),
+        funnel: normalizeMouthPoseNumber((expressionState.funnel * 0.75) + (funnel * 0.55)),
+        puckerWiden: normalizeMouthPoseNumber((expressionState.puckerWiden * 0.75) + (puckerWiden * 0.55)),
+        tongue: Math.abs(tongue) > 0.0001 ? tongue : 0,
+    };
+}
+
+function applyMouthPose(pose) {
+    if (!pose || typeof pose !== 'object') {
+        return;
+    }
+
+    const poseSource = normalizeMouthPoseSource(pose.source);
+    const open = normalizeMouthPoseNumber(Number(pose.open));
+
     lastSpeechAt = performance.now();
     mouthExpressionState.source = poseSource;
     mouthExpressionState.lastPoseAt = lastSpeechAt;
+    mouthExpressionState.releaseFade.active = false;
 
-    if (poseSource === 'rms') {
+    if (poseSource === MOUTH_POSE_SOURCE_RMS) {
         setMouthOpen(open);
         clearMouthShapeParameters();
         return;
     }
 
-    const finalForm = normalizeMouthPoseNumber(form + (mouthExpressionState.expression.form * 0.5));
-    const finalFunnel = normalizeMouthPoseNumber(funnel + (mouthExpressionState.expression.funnel * 0.1));
-    const finalPuckerWiden = normalizeMouthPoseNumber(puckerWiden + (mouthExpressionState.expression.puckerWiden * 0.1));
-    const finalTongue = Math.abs(tongue) > 0.0001 ? tongue : 0;
+    const shapeValues = buildVisemeBlendedMouthPose(pose, mouthExpressionState.expression);
 
-    mouthExpressionState.expression.open = normalizeMouthPoseNumber(mouthExpressionState.expression.open);
-    mouthExpressionState.expression.jaw = normalizeMouthPoseNumber(mouthExpressionState.expression.jaw);
+    mouthExpressionState.lastVisemeShape = {
+        ...mouthExpressionState.lastVisemeShape,
+        form: shapeValues.form,
+        funnel: shapeValues.funnel,
+        puckerWiden: shapeValues.puckerWiden,
+        tongue: shapeValues.tongue,
+    };
 
-    setModelParameterValue('ParamMouthOpenY', open);
-    setModelParameterValue('ParamJawOpen', jaw);
-    setModelParameterValue('ParamMouthForm', finalForm);
-    setModelParameterValue('ParamMouthFunnel', finalFunnel);
-    setModelParameterValue('ParamMouthPuckerWiden', finalPuckerWiden);
-    setModelParameterValue('ParamTongue', finalTongue);
+    applyMouthShapeValues(shapeValues);
 }
 // Python에서 직접 입 모양을 갱신할 수 있도록 전역에 노출한다.
 window.setMouthOpen = setMouthOpen;
