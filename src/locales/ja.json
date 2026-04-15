@@ -598,6 +598,7 @@
         "title": "Provider selection",
         "enable": "Enable TTS for Japanese responses",
         "streaming_enabled": "GPT-SoVITS ストリーミング TTS を使う",
+        "viseme_lipsync": "ビセム リップシンク",
         "provider": "Provider:"
       },
       "gpt": {

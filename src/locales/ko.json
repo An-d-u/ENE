@@ -602,6 +602,7 @@
         "title": "공급자 선택",
         "enable": "일본어 응답 TTS 활성화",
         "streaming_enabled": "GPT-SoVITS 스트리밍 TTS 사용",
+        "viseme_lipsync": "viseme 립싱크",
         "provider": "공급자:"
       },
       "gpt": {
