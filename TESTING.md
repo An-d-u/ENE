@@ -39,6 +39,23 @@ python -m ruff check . --select E9,F63,F7,F82
 - `tests/test_settings.py`
   - 설정 로드/저장/복구 로직 검증
 
+## `viseme 립싱크` 회귀 테스트
+
+이 기능을 검증할 때는 아래 회귀 묶음을 함께 돌린다.
+
+```powershell
+python -m pytest tests/test_settings.py tests/test_ui_i18n_smoke.py tests/test_bridge_tts_streaming.py tests/test_chat_ui_assets.py tests/test_viseme_stream_analyzer.py tests/test_tts_sync_controller.py -q
+```
+
+이 묶음은 다음을 함께 잠근다.
+
+- `viseme 립싱크` 설정의 기본값, 저장/로드, 레거시 설정 업그레이드
+- 설정 창 체크박스와 로케일 바인딩
+- 브리지의 런타임 게이트와 `mouth_pose` 생성
+- 웹 자산의 expression mouth bias 합성 및 RMS 폴백
+- viseme 스트림 분석기 계약
+- 적응형 `80~120ms` TTS 동기화 버퍼 규칙
+
 ## CI 동작
 
 - 파일: `.github/workflows/ci.yml`
