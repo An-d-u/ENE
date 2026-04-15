@@ -483,6 +483,13 @@ def test_settings_dialog_translates_viseme_lipsync_toggle_label_in_korean(monkey
         dialog.close()
 
 
+def test_korean_locale_includes_viseme_lipsync_key():
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    ko_locale = json.loads((locales_dir / "ko.json").read_text(encoding="utf-8-sig"))
+
+    assert ko_locale["settings"]["tts"]["overview"]["viseme_lipsync"] == "viseme 립싱크"
+
+
 def test_settings_dialog_translates_viseme_lipsync_toggle_label_in_japanese(monkeypatch):
     _get_qapp()
     locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
