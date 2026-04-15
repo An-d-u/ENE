@@ -143,6 +143,41 @@ def test_streaming_path_starts_with_rms_fallback_after_max_buffer_timeout():
     assert bridge.audio_player.chunks == [b"\x02" * 140]
 
 
+def test_streaming_path_disabled_viseme_lipsync_starts_without_viseme_ready():
+    _ensure_qt_app()
+
+    class DummyAudioPlayer:
+        def __init__(self):
+            self.started = None
+            self.chunks = []
+
+        def start_stream(self, sample_rate: int, channels: int, sample_width: int):
+            self.started = (sample_rate, channels, sample_width)
+
+        def append_stream_pcm(self, pcm_data: bytes):
+            self.chunks.append(pcm_data)
+
+        def finish_stream(self):
+            pass
+
+    bridge = WebBridge(settings={"viseme_lipsync_enabled": False})
+    bridge.tts_streaming_enabled = True
+    bridge.audio_player = DummyAudioPlayer()
+    bridge.pending_response = ("비시메 응답", "normal")
+    bridge._on_tts_stream_format(1000, 1, 2)
+    bridge._get_stream_sync_elapsed_ms = lambda: 80
+
+    received = []
+    bridge.message_received.connect(lambda text, emotion: received.append((text, emotion)))
+
+    bridge._on_tts_stream_chunk(b"\x03" * 160, [0.4])
+
+    assert bridge._sync_started is True
+    assert bridge.audio_player.started == (1000, 1, 2)
+    assert bridge.audio_player.chunks == [b"\x03" * 160]
+    assert received == [("비시메 응답", "normal")]
+
+
 def test_interrupt_tts_for_ptt_resets_sync_buffer_state():
     _ensure_qt_app()
 
