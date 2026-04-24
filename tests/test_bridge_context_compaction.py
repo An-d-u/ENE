@@ -1,4 +1,4 @@
-# ruff: noqa: E402
+﻿# ruff: noqa: E402
 import asyncio
 import sys
 import types
@@ -294,7 +294,7 @@ def test_build_memory_context_includes_today_and_before_message_head_pat_counts(
     )
 
     assert "- 오늘 쓰다듬은 횟수: 7회" in context
-    assert "- 메시지 전 쓰다듬은 횟수: 3회" in context
+    assert "- 지금 쓰다듬은 횟수: 3회" in context
 
 
 def test_build_memory_search_text_uses_recent_visible_turns_with_latest_user_message():
