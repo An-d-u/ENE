@@ -11,6 +11,7 @@ import requests
 
 from ..conversation_format import prepend_message_time
 from .prompt import build_runtime_system_prompt, get_available_emotions
+from .summary_prompt import build_summary_prompt, build_summary_prompt_from_text
 
 
 DEFAULT_GENERATION_PARAMS = {
@@ -79,40 +80,7 @@ def _parse_summary_memory_meta_lines(meta_lines: list[str]) -> dict:
 
 def _build_summary_prompt(conversation_text: str) -> str:
     """HTTP 공급자 공통 요약 프롬프트를 생성한다."""
-    return f"""아래 대화를 요약하고 사용자 정보와 에네 정보를 추출하세요.
-[CONVERSATION]
-{conversation_text}
-
-[OUTPUT_FORMAT]
-[SUMMARY]
-- 대화 핵심 요약 1~3문장
-
-[MASTER_INFO]
-- 없으면 none
-- 있으면 아래 형식:
-- [basic] ...
-- [preference] ...
-- [goal] ...
-- [habit] ...
-
-[ENE_INFO]
-- 없으면 none
-- 있으면 아래 형식:
-- [basic] ...
-- [preference] ...
-- [goal] ...
-- [habit] ...
-- [speaking_style] ...
-- [relationship_tone] ...
-
-[MEMORY_META]
-- 없으면 none
-- 있으면 아래 형식:
-- memory_type: fact | preference | promise | event | relationship | task | general
-- importance_reason: user_marked | promise | repeated_topic | long_term_preference | none
-- confidence: 0.0~1.0 사이 숫자
-- entity_names: 이름1, 이름2
-"""
+    return build_summary_prompt_from_text(conversation_text).prompt
 
 
 def _extract_error_detail(response) -> str:
@@ -171,6 +139,12 @@ def _normalize_generation_params(params: dict | None) -> dict:
 
 
 class _CommonMixin:
+    def _build_summary_prompt_for_messages(self, messages: list) -> str:
+        return build_summary_prompt(
+            messages,
+            user_profile=getattr(self, "user_profile", None),
+        ).prompt
+
     def _remember_turn(self, user_content, assistant_content) -> None:
         self._history.append({"role": "user", "content": user_content})
         self._history.append({"role": "assistant", "content": assistant_content})
@@ -691,10 +665,7 @@ class OpenAICompatibleClient(_CommonMixin):
         return clean_text, emotion, japanese_text, events, analysis, promises
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
-        conversation_text = "\n".join(
-            [f"{item[0]}: {item[1]}" if len(item) >= 2 else str(item) for item in messages]
-        )
-        prompt = _build_summary_prompt(conversation_text)
+        prompt = self._build_summary_prompt_for_messages(messages)
         response_text = self._request_openai(prompt)
         return self._parse_summary_response(response_text)
 
@@ -885,10 +856,7 @@ class OpenAIResponseAPIClient(_CommonMixin):
         return clean_text, emotion, japanese_text, events, analysis, promises
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
-        conversation_text = "\n".join(
-            [f"{item[0]}: {item[1]}" if len(item) >= 2 else str(item) for item in messages]
-        )
-        prompt = _build_summary_prompt(conversation_text)
+        prompt = self._build_summary_prompt_for_messages(messages)
         response_text = self._request_responses(prompt)
         return self._parse_summary_response(response_text)
 
@@ -1137,10 +1105,7 @@ class GoogleCloudClient(_CommonMixin):
         return clean_text, emotion, japanese_text, events, analysis, promises
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
-        conversation_text = "\n".join(
-            [f"{item[0]}: {item[1]}" if len(item) >= 2 else str(item) for item in messages]
-        )
-        prompt = _build_summary_prompt(conversation_text)
+        prompt = self._build_summary_prompt_for_messages(messages)
         response_text = self._request_google(prompt)
         return self._parse_summary_response(response_text)
 
@@ -1281,10 +1246,7 @@ class CohereClient(_CommonMixin):
         return clean_text, emotion, japanese_text, events, analysis, promises
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
-        conversation_text = "\n".join(
-            [f"{item[0]}: {item[1]}" if len(item) >= 2 else str(item) for item in messages]
-        )
-        prompt = _build_summary_prompt(conversation_text)
+        prompt = self._build_summary_prompt_for_messages(messages)
         response_text = self._request_cohere(prompt)
         return self._parse_summary_response(response_text)
 
@@ -1429,10 +1391,7 @@ class AnthropicClient(_CommonMixin):
         return clean_text, emotion, japanese_text, events, analysis, promises
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
-        conversation_text = "\n".join(
-            [f"{item[0]}: {item[1]}" if len(item) >= 2 else str(item) for item in messages]
-        )
-        prompt = _build_summary_prompt(conversation_text)
+        prompt = self._build_summary_prompt_for_messages(messages)
         response_text = self._request_anthropic([{"type": "text", "text": prompt}])
         return self._parse_summary_response(response_text)
 
@@ -1590,9 +1549,6 @@ class OllamaClient(_CommonMixin):
         return clean_text, emotion, japanese_text, events, analysis, promises
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
-        conversation_text = "\n".join(
-            [f"{item[0]}: {item[1]}" if len(item) >= 2 else str(item) for item in messages]
-        )
-        prompt = _build_summary_prompt(conversation_text)
+        prompt = self._build_summary_prompt_for_messages(messages)
         response_text = self._request_ollama(prompt)
         return self._parse_summary_response(response_text)
