@@ -11,7 +11,8 @@ import requests
 
 from ..conversation_format import prepend_message_time
 from .prompt import build_runtime_system_prompt, get_available_emotions
-from .summary_prompt import build_summary_prompt, build_summary_prompt_from_text
+from .prompt_language import resolve_prompt_language
+from .summary_prompt import build_markdown_document_prompt, build_summary_prompt, build_summary_prompt_from_text
 
 
 DEFAULT_GENERATION_PARAMS = {
@@ -139,10 +140,14 @@ def _normalize_generation_params(params: dict | None) -> dict:
 
 
 class _CommonMixin:
+    def _prompt_language(self) -> str:
+        return resolve_prompt_language(settings_source=getattr(self, "settings", None))
+
     def _build_summary_prompt_for_messages(self, messages: list) -> str:
         return build_summary_prompt(
             messages,
             user_profile=getattr(self, "user_profile", None),
+            language=self._prompt_language(),
         ).prompt
 
     def _remember_turn(self, user_content, assistant_content) -> None:
@@ -313,13 +318,10 @@ class _CommonMixin:
         return clean_text, japanese_text
 
     def _build_diary_markdown_prompt(self, message: str, memory_context: str) -> str:
-        enhanced = f"{memory_context}\n\n{message}" if memory_context else message
-        return (
-            "아래 요청에 맞춰 마크다운 문서를 작성하세요.\n"
-            "- 출력은 마크다운 본문만 작성하세요.\n"
-            "- 감정 태그, 일본어 번역, 부가 설명은 절대 포함하지 마세요.\n"
-            "- 요청의 목적에 맞는 제목/본문 구조를 자연스럽게 구성하세요.\n\n"
-            f"{enhanced}"
+        return build_markdown_document_prompt(
+            message,
+            memory_context=memory_context,
+            language=self._prompt_language(),
         )
 
     async def generate_markdown_document(self, message: str) -> str:
@@ -479,6 +481,7 @@ class _CommonMixin:
             "content": build_runtime_system_prompt(
                 include_sub_prompt=include_sub_prompt,
                 include_analysis_appendix=True,
+                settings_source=self.settings,
             ),
         }]
         messages.extend(self._history)
@@ -592,6 +595,7 @@ class OpenAICompatibleClient(_CommonMixin):
                     "content": build_runtime_system_prompt(
                         include_sub_prompt=include_sub_prompt,
                         include_analysis_appendix=True,
+                        settings_source=self.settings,
                     ),
                 },
                 {"role": "user", "content": user_content},
@@ -753,6 +757,7 @@ class OpenAIResponseAPIClient(_CommonMixin):
             "instructions": build_runtime_system_prompt(
                 include_sub_prompt=True,
                 include_analysis_appendix=True,
+                settings_source=self.settings,
             ),
             "input": self._input_items(user_content),
             "store": False,
@@ -787,6 +792,7 @@ class OpenAIResponseAPIClient(_CommonMixin):
             "instructions": build_runtime_system_prompt(
                 include_sub_prompt=include_sub_prompt,
                 include_analysis_appendix=True,
+                settings_source=self.settings,
             ),
             "input": [user_item],
             "store": False,
@@ -1007,6 +1013,7 @@ class GoogleCloudClient(_CommonMixin):
                     "text": build_runtime_system_prompt(
                         include_sub_prompt=include_sub_prompt,
                         include_analysis_appendix=True,
+                        settings_source=self.settings,
                     )
                 }]
             },
@@ -1037,6 +1044,7 @@ class GoogleCloudClient(_CommonMixin):
                     "text": build_runtime_system_prompt(
                         include_sub_prompt=include_sub_prompt,
                         include_analysis_appendix=True,
+                        settings_source=self.settings,
                     )
                 }]
             },
@@ -1148,6 +1156,7 @@ class CohereClient(_CommonMixin):
         preamble = build_runtime_system_prompt(
             include_sub_prompt=include_sub_prompt,
             include_analysis_appendix=True,
+            settings_source=self.settings,
         )
         for h in self._history:
             role = str(h.get("role", "user"))
@@ -1186,6 +1195,7 @@ class CohereClient(_CommonMixin):
             "preamble": build_runtime_system_prompt(
                 include_sub_prompt=include_sub_prompt,
                 include_analysis_appendix=True,
+                settings_source=self.settings,
             ),
             "temperature": self.generation_params["temperature"],
             "p": self.generation_params["top_p"],
@@ -1300,6 +1310,7 @@ class AnthropicClient(_CommonMixin):
             "system": build_runtime_system_prompt(
                 include_sub_prompt=include_sub_prompt,
                 include_analysis_appendix=True,
+                settings_source=self.settings,
             ),
             "messages": messages,
         }
@@ -1318,6 +1329,7 @@ class AnthropicClient(_CommonMixin):
             "system": build_runtime_system_prompt(
                 include_sub_prompt=include_sub_prompt,
                 include_analysis_appendix=True,
+                settings_source=self.settings,
             ),
             "messages": [{"role": "user", "content": [{"type": "text", "text": str(message)}]}],
         }
@@ -1434,6 +1446,7 @@ class OllamaClient(_CommonMixin):
             "content": build_runtime_system_prompt(
                 include_sub_prompt=include_sub_prompt,
                 include_analysis_appendix=True,
+                settings_source=self.settings,
             ),
         }]
         for item in self._history:
@@ -1474,6 +1487,7 @@ class OllamaClient(_CommonMixin):
                     "content": build_runtime_system_prompt(
                         include_sub_prompt=include_sub_prompt,
                         include_analysis_appendix=True,
+                        settings_source=self.settings,
                     ),
                 },
                 {"role": "user", "content": str(message)},

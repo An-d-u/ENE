@@ -10,6 +10,8 @@ from pathlib import Path
 import re
 import shlex
 
+from .prompt_language import resolve_prompt_language
+
 
 @dataclass(frozen=True)
 class NoteCommand:
@@ -142,8 +144,13 @@ class NoteService:
         "daily:prepend",
     }
 
-    def __init__(self, logs_dir: str | Path = "note_runs"):
+    def __init__(self, logs_dir: str | Path = "note_runs", ui_language: str | None = None, settings=None):
         self.logs_dir = Path(logs_dir)
+        self.ui_language = ui_language
+        self.settings = settings
+
+    def _language(self, language: str | None = None) -> str:
+        return resolve_prompt_language(language or self.ui_language, settings_source=self.settings)
 
     def load_cli_reference_text(self) -> str:
         """옵션: Obsidian CLI 명령 레퍼런스 md를 로드한다."""
@@ -168,47 +175,106 @@ class NoteService:
         obs_tree_lines: list[str],
         checked_files: list[tuple[str, str]],
         recent_context: str = "",
+        language: str | None = None,
     ) -> str:
+        resolved_language = self._language(language)
         tree_block = "\n".join(f"- {line}" for line in (obs_tree_lines or []))
         checked_block_lines: list[str] = []
         for rel, content in checked_files or []:
-            checked_block_lines.append(f"[파일:{rel}]")
+            file_label = {"ko": "파일", "en": "File", "ja": "ファイル"}[resolved_language]
+            checked_block_lines.append(f"[{file_label}:{rel}]")
             checked_block_lines.append(content)
         checked_block = "\n".join(checked_block_lines)
         recent_block = (recent_context or "").strip()
 
         cli_ref = self.load_cli_reference_text()
-        ref_block = f"\n[Obsidian CLI 레퍼런스]\n{cli_ref}\n" if cli_ref else ""
+        labels = {
+            "ko": {
+                "ref": "Obsidian CLI 레퍼런스",
+                "recent": "최근 대화 맥락",
+                "tree": "Obsidian 트리 구조",
+                "checked": "체크된 파일 본문",
+                "request": "사용자 요청",
+                "summary": "한 줄 요약",
+                "reason1": "첫 명령 이유",
+                "reason2": "둘째 명령 이유",
+                "rules": "규칙:",
+                "intro": "너의 작업은 /note 요청을 Obsidian CLI 실행 계획(Markdown)으로 만드는 것이다.",
+                "strict": "반드시 아래 형식으로만 출력해라. 코드블록/부가 설명 금지.",
+                "format": "형식:",
+                "allowed": "- 허용 명령만 사용.",
+                "danger": "- 위험 토큰/외부 도구/파이프/리다이렉션 금지.",
+                "path": "- 경로는 Vault 상대경로만 사용.",
+                "minimal": "- 최소 명령 수로 정확하게 수행.",
+            },
+            "en": {
+                "ref": "Obsidian CLI Reference",
+                "recent": "Recent Conversation Context",
+                "tree": "Obsidian Tree Structure",
+                "checked": "Checked File Contents",
+                "request": "User Request",
+                "summary": "one-line summary",
+                "reason1": "reason for the first command",
+                "reason2": "reason for the second command",
+                "rules": "Rules:",
+                "intro": "Your task is to turn the /note request into an Obsidian CLI execution plan (Markdown).",
+                "strict": "Output only the format below. No code blocks or extra explanation.",
+                "format": "Format:",
+                "allowed": "- Use only allowed commands.",
+                "danger": "- Do not use dangerous tokens, external tools, pipes, or redirects.",
+                "path": "- Use Vault-relative paths only.",
+                "minimal": "- Use the fewest commands needed to perform the request accurately.",
+            },
+            "ja": {
+                "ref": "Obsidian CLIリファレンス",
+                "recent": "最近の会話コンテキスト",
+                "tree": "Obsidianツリー構造",
+                "checked": "チェック済みファイル本文",
+                "request": "ユーザー依頼",
+                "summary": "1行要約",
+                "reason1": "1つ目のコマンド理由",
+                "reason2": "2つ目のコマンド理由",
+                "rules": "ルール:",
+                "intro": "/note依頼をObsidian CLI実行計画（Markdown）に変換することがあなたの作業です。",
+                "strict": "必ず以下の形式だけで出力してください。コードブロックや追加説明は禁止です。",
+                "format": "形式:",
+                "allowed": "- 許可されたコマンドだけを使うこと。",
+                "danger": "- 危険なトークン、外部ツール、パイプ、リダイレクトは禁止。",
+                "path": "- パスはVault相対パスだけを使うこと。",
+                "minimal": "- 最小限のコマンドで正確に実行すること。",
+            },
+        }[resolved_language]
+        ref_block = f"\n[{labels['ref']}]\n{cli_ref}\n" if cli_ref else ""
 
         recent_context_section = ""
         if recent_block:
-            recent_context_section = f"[최근 대화 맥락]\n{recent_block}\n\n"
+            recent_context_section = f"[{labels['recent']}]\n{recent_block}\n\n"
 
         return (
-            "너의 작업은 /note 요청을 Obsidian CLI 실행 계획(Markdown)으로 만드는 것이다.\n"
-            "반드시 아래 형식으로만 출력해라. 코드블록/부가 설명 금지.\n"
-            "형식:\n"
+            f"{labels['intro']}\n"
+            f"{labels['strict']}\n"
+            f"{labels['format']}\n"
             "# NOTE PLAN\n"
-            "- summary: 한 줄 요약\n"
+            f"- summary: {labels['summary']}\n"
             "- stop_on_error: true\n"
             "## COMMANDS\n"
             "1. obsidian <command> <arg...>\n"
             "2. obsidian <command> <arg...>\n"
             "## REASONS\n"
-            "1. 첫 명령 이유\n"
-            "2. 둘째 명령 이유\n"
-            "규칙:\n"
-            "- 허용 명령만 사용.\n"
-            "- 위험 토큰/외부 도구/파이프/리다이렉션 금지.\n"
-            "- 경로는 Vault 상대경로만 사용.\n"
-            "- 최소 명령 수로 정확하게 수행.\n"
+            f"1. {labels['reason1']}\n"
+            f"2. {labels['reason2']}\n"
+            f"{labels['rules']}\n"
+            f"{labels['allowed']}\n"
+            f"{labels['danger']}\n"
+            f"{labels['path']}\n"
+            f"{labels['minimal']}\n"
             f"{ref_block}\n"
-            "[Obsidian 트리 구조]\n"
+            f"[{labels['tree']}]\n"
             f"{tree_block}\n\n"
-            "[체크된 파일 본문]\n"
+            f"[{labels['checked']}]\n"
             f"{checked_block}\n\n"
             f"{recent_context_section}"
-            "[사용자 요청]\n"
+            f"[{labels['request']}]\n"
             f"{user_instruction}\n"
         ).strip()
 
@@ -633,27 +699,64 @@ class NoteService:
                 break
         return results
 
-    def build_report_context(self, user_instruction: str, plan: NotePlan, results: list[NoteCommandResult], planner_error: str = "") -> str:
+    def build_report_context(
+        self,
+        user_instruction: str,
+        plan: NotePlan,
+        results: list[NoteCommandResult],
+        planner_error: str = "",
+        language: str | None = None,
+    ) -> str:
+        resolved_language = self._language(language)
+        labels = {
+            "ko": {
+                "intro": "아래 실행 정보를 바탕으로 /note 실행 결과를 사용자에게 보고하세요.",
+                "request": "사용자 요청",
+                "error": "계획 오류",
+                "summary": "실행 계획 요약",
+                "commands": "실행 명령",
+                "reason": "이유",
+                "results": "실행 결과",
+            },
+            "en": {
+                "intro": "Report the /note execution result to the user based on the execution information below.",
+                "request": "User Request",
+                "error": "Planning Error",
+                "summary": "Execution Plan Summary",
+                "commands": "Executed Commands",
+                "reason": "Reason",
+                "results": "Execution Results",
+            },
+            "ja": {
+                "intro": "以下の実行情報をもとに、/noteの実行結果をユーザーへ報告してください。",
+                "request": "ユーザー依頼",
+                "error": "計画エラー",
+                "summary": "実行計画の要約",
+                "commands": "実行コマンド",
+                "reason": "理由",
+                "results": "実行結果",
+            },
+        }[resolved_language]
         lines = [
-            "아래 실행 정보를 바탕으로 /note 실행 결과를 사용자에게 보고하세요.",
-            "[사용자 요청]",
+            labels["intro"],
+            f"[{labels['request']}]",
             user_instruction,
         ]
         if planner_error:
             lines.extend([
-                "[계획 오류]",
+                f"[{labels['error']}]",
                 planner_error,
             ])
         lines.extend([
-            "[실행 계획 요약]",
+            f"[{labels['summary']}]",
             plan.summary,
-            "[실행 명령]",
+            f"[{labels['commands']}]",
         ])
         for i, cmd in enumerate(plan.commands, start=1):
             lines.append(f"{i}. {' '.join(cmd.args)}")
             if cmd.reason:
-                lines.append(f"   - 이유: {cmd.reason}")
-        lines.append("[실행 결과]")
+                lines.append(f"   - {labels['reason']}: {cmd.reason}")
+        lines.append(f"[{labels['results']}]")
         for i, item in enumerate(results, start=1):
             lines.append(f"{i}. rc={item.returncode} ok={item.ok} cmd={' '.join(item.args)}")
             if item.stdout:
