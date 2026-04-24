@@ -26,6 +26,7 @@ from ..ai.viseme_stream_analyzer import VisemeStreamAnalyzer
 from ..ai.diary_service import DiaryService
 from ..ai.note_service import NoteService, NoteCommand, NoteCommandResult, NotePlan
 from ..ai.obsidian_manager import ObsidianManager
+from ..ai.prompt_language import resolve_prompt_language
 from ..ai.promise_reminder_manager import GENERIC_PROMISE_TITLE, extract_promise_candidates
 from .chat_attachments import (
     build_attachment_context_block,
@@ -36,6 +37,55 @@ from .chat_attachments import (
 from .obs_settings import ObsSettings
 from .model_lip_sync_profile import load_model_lip_sync_profile_for_model_json
 from .tts_sync_controller import TTSSyncController
+
+
+def _prompt_time_header(timestamp: str, language: str) -> str:
+    labels = {
+        "ko": "현재 시각",
+        "en": "Current Time",
+        "ja": "現在時刻",
+    }
+    return f"[{labels.get(language, labels['ko'])}: {timestamp}]"
+
+
+def _prompt_role_label(role: str, language: str) -> str:
+    normalized = str(role or "").strip().lower()
+    if language == "en":
+        return "Master" if normalized == "user" else "ENE" if normalized == "assistant" else normalized
+    if language == "ja":
+        return "マスター" if normalized == "user" else "エネ" if normalized == "assistant" else normalized
+    return role_label_for_context(normalized)
+
+
+def _obsidian_checked_context_labels(language: str) -> dict[str, str]:
+    return {
+        "ko": {
+            "checked": "[Obsidian 체크된 파일 본문]",
+            "file": "파일",
+        },
+        "en": {
+            "checked": "[Checked Obsidian File Contents]",
+            "file": "File",
+        },
+        "ja": {
+            "checked": "[Obsidianのチェック済みファイル本文]",
+            "file": "ファイル",
+        },
+    }.get(language, {
+        "checked": "[Obsidian 체크된 파일 본문]",
+        "file": "파일",
+    })
+
+
+def _build_obsidian_checked_context(checked_contents: list[tuple[str, str]], language: str) -> str:
+    labels = _obsidian_checked_context_labels(language)
+    parts: list[str] = []
+    if checked_contents:
+        parts.append(labels["checked"])
+        for rel, content in checked_contents:
+            parts.append(f"[{labels['file']}:{rel}]")
+            parts.append(content)
+    return "\n".join(parts)
 
 VISIBLE_RESPONSE_ANALYSIS_KEYS = (
     "user_emotion",
@@ -90,6 +140,9 @@ class AIWorker(QThread):
         self.note_service = note_service
         self.obsidian_manager = obsidian_manager
         self.use_obsidian_priority = bool(use_obsidian_priority)
+
+    def _prompt_language(self) -> str:
+        return resolve_prompt_language(settings_source=getattr(self.llm_client, "settings", None))
 
     def _normalize_response_payload(self, payload):
         """신구 응답 형식을 모두 6개 값으로 정규화한다."""
@@ -224,28 +277,66 @@ class AIWorker(QThread):
         else:
             result = self.diary_service.save_markdown(self.diary_request, markdown_text)
 
-        completion_context = (
-            "아래 정보를 바탕으로 마스터에게 파일 작성 완료를 알려주세요.\n"
-            "- 문장 안에 반드시 다음 문구를 포함하세요: 성공적으로 파일 작성에 완료되었습니다.\n"
-            f"- 작성된 md 파일: {result.relative_path}\n"
-            "[작성된 md 파일 본문]\n"
-            f"{result.content}"
-        )
-        completion_context += (
-            "\n[저장 결과]\n"
-            f"- 대상: {result.storage_target}\n"
-            f"- 경로: {result.absolute_path}"
-        )
+        language = self._prompt_language()
+        required = {
+            "ko": "성공적으로 파일 작성에 완료되었습니다.",
+            "en": "The file has been written successfully.",
+            "ja": "ファイルの作成が正常に完了しました。",
+        }.get(language, "성공적으로 파일 작성에 완료되었습니다.")
+        if language == "en":
+            completion_context = (
+                "Use the information below to tell Master that the file has been written.\n"
+                f"- The sentence must include this exact phrase: {required}\n"
+                f"- Written Markdown file: {result.relative_path}\n"
+                "[Written Markdown Body]\n"
+                f"{result.content}"
+            )
+            completion_context += (
+                "\n[Save Result]\n"
+                f"- Target: {result.storage_target}\n"
+                f"- Path: {result.absolute_path}"
+            )
+            obsidian_path_label = "Obsidian Path"
+            note_label = "Note"
+        elif language == "ja":
+            completion_context = (
+                "次の情報をもとに、マスターへファイル作成完了を伝えてください。\n"
+                f"- 文中に必ず次の文言を含めてください: {required}\n"
+                f"- 作成されたmdファイル: {result.relative_path}\n"
+                "[作成されたmdファイル本文]\n"
+                f"{result.content}"
+            )
+            completion_context += (
+                "\n[保存結果]\n"
+                f"- 対象: {result.storage_target}\n"
+                f"- パス: {result.absolute_path}"
+            )
+            obsidian_path_label = "Obsidianパス"
+            note_label = "備考"
+        else:
+            completion_context = (
+                "아래 정보를 바탕으로 마스터에게 파일 작성 완료를 알려주세요.\n"
+                f"- 문장 안에 반드시 다음 문구를 포함하세요: {required}\n"
+                f"- 작성된 md 파일: {result.relative_path}\n"
+                "[작성된 md 파일 본문]\n"
+                f"{result.content}"
+            )
+            completion_context += (
+                "\n[저장 결과]\n"
+                f"- 대상: {result.storage_target}\n"
+                f"- 경로: {result.absolute_path}"
+            )
+            obsidian_path_label = "Obsidian 경로"
+            note_label = "비고"
         if result.obsidian_output_path and result.obsidian_output_path != result.absolute_path:
-            completion_context += f"\n- Obsidian 경로: {result.obsidian_output_path}"
+            completion_context += f"\n- {obsidian_path_label}: {result.obsidian_output_path}"
         if result.obsidian_cli_error:
-            completion_context += f"\n- 비고: {result.obsidian_cli_error}"
+            completion_context += f"\n- {note_label}: {result.obsidian_cli_error}"
 
         if hasattr(self.llm_client, "generate_diary_completion_reply"):
             text, emotion, japanese_text, events, analysis, promises = self._normalize_response_payload(
                 await self.llm_client.generate_diary_completion_reply(completion_context)
             )
-            required = "성공적으로 파일 작성에 완료되었습니다."
             if required not in text:
                 text = f"{required}\n{text}".strip()
             return text, emotion, japanese_text, events, analysis, promises
@@ -270,6 +361,7 @@ class AIWorker(QThread):
             obs_tree_lines=obs_tree_lines,
             checked_files=checked_files,
             recent_context=self.note_recent_context,
+            language=self._prompt_language(),
         )
         plan_raw = await self.llm_client.generate_note_command_plan(plan_prompt)
         planner_error = ""
@@ -338,6 +430,7 @@ class AIWorker(QThread):
             plan=plan,
             results=results,
             planner_error=planner_error,
+            language=self._prompt_language(),
         )
         return await self.llm_client.generate_note_execution_report(report_context)
 
@@ -509,10 +602,11 @@ class ObsidianCheckedFilesWorker(QThread):
     context_ready = pyqtSignal(str, str)
     error_occurred = pyqtSignal(str, str)
 
-    def __init__(self, obsidian_manager, checked_files: list[str]):
+    def __init__(self, obsidian_manager, checked_files: list[str], language: str = "ko"):
         super().__init__()
         self.obsidian_manager = obsidian_manager
         self.checked_files = [str(path) for path in (checked_files or []) if str(path).strip()]
+        self.language = resolve_prompt_language(language)
 
     def _build_signature_payload(self) -> str:
         """현재 워커가 읽는 체크 파일 목록을 직렬화한다."""
@@ -529,13 +623,8 @@ class ObsidianCheckedFilesWorker(QThread):
                 max_files=8,
                 allow_retry=False,
             )
-            parts: list[str] = []
-            if checked_contents:
-                parts.append("[Obsidian 체크된 파일 본문]")
-                for rel, content in checked_contents:
-                    parts.append(f"[파일:{rel}]")
-                    parts.append(content)
-            self.context_ready.emit("\n".join(parts), signature_payload)
+            context = _build_obsidian_checked_context(checked_contents, self.language)
+            self.context_ready.emit(context, signature_payload)
         except Exception as e:
             self.error_occurred.emit(str(e), signature_payload)
 
@@ -565,7 +654,7 @@ class WebBridge(QObject):
         self.settings = settings
         self.mood_manager = None
         self.diary_service = DiaryService("diary", settings=settings)
-        self.note_service = NoteService("note_runs")
+        self.note_service = NoteService("note_runs", settings=self.settings)
         self.obs_settings = ObsSettings("obs_config.json")
         self.obsidian_manager = ObsidianManager(settings=self.settings, obs_settings=self.obs_settings)
         self.obs_panel_window = None
@@ -678,6 +767,12 @@ class WebBridge(QObject):
         threshold_label = "무제한" if self.summarize_threshold == 0 else f"{self.summarize_threshold}개"
         print(f"[Bridge] 자동 요약 임계값: {threshold_label}")
         print(f"[Bridge] TTS 활성화: {self.enable_tts}")
+
+    def _prompt_language(self) -> str:
+        return resolve_prompt_language(settings_source=self.settings)
+
+    def _with_prompt_time(self, timestamp: str, prompt: str) -> str:
+        return f"{_prompt_time_header(timestamp, self._prompt_language())}\n{prompt}"
     
     def set_llm_client(self, client):
         """LLM 클라이언트 설정"""
@@ -865,29 +960,78 @@ class WebBridge(QObject):
             print(f"[Bridge] 화면 비교 실패, 기능2로 폴백: {e}")
             use_feature_1 = False
 
-        idle_text = f"{self.away_idle_minutes}분"
+        language = self._prompt_language()
+        idle_text = (
+            f"{self.away_idle_minutes} minutes"
+            if language == "en"
+            else f"{self.away_idle_minutes}分"
+            if language == "ja"
+            else f"{self.away_idle_minutes}분"
+        )
         if use_feature_1:
-            prompt = (
-                f"상태 알림: 마스터가 현재 자리 비움 상태야. "
-                f"참고로 최근 {idle_text} 동안 너에게 새 메시지를 보내지 않았고, "
-                f"30초 간격 화면 비교에서 변화가 거의 없었어(차이율 {diff_percent:.2f}%). "
-                f"방금 첨부한 최신 전체 화면 1장을 보고, 혼잣말처럼 자연스럽게 한 마디 하거나 "
-                f"자리 비운 마스터에게 남길 말을 짧게 해줘."
-            )
+            if language == "en":
+                prompt = (
+                    f"Status notice: Master appears to be away. "
+                    f"They have not sent you a new message for the last {idle_text}, and "
+                    f"the 30-second screen comparison barely changed (difference {diff_percent:.2f}%). "
+                    f"Look at the latest full-screen image just attached and say one short, natural line, "
+                    f"like a quiet aside or a note left for Master."
+                )
+            elif language == "ja":
+                prompt = (
+                    f"状態通知: マスターはいま席を外しているようです。"
+                    f"直近{idle_text}、あなたへ新しいメッセージを送っておらず、"
+                    f"30秒間隔の画面比較でもほとんど変化がありませんでした(差分 {diff_percent:.2f}%)。"
+                    f"添付された最新の全画面画像を見て、独り言のような自然な一言か、"
+                    f"席を外したマスターへ残す短い言葉を返してください。"
+                )
+            else:
+                prompt = (
+                    f"상태 알림: 마스터가 현재 자리 비움 상태야. "
+                    f"참고로 최근 {idle_text} 동안 너에게 새 메시지를 보내지 않았고, "
+                    f"30초 간격 화면 비교에서 변화가 거의 없었어(차이율 {diff_percent:.2f}%). "
+                    f"방금 첨부한 최신 전체 화면 1장을 보고, 혼잣말처럼 자연스럽게 한 마디 하거나 "
+                    f"자리 비운 마스터에게 남길 말을 짧게 해줘."
+                )
         else:
             if diff_percent is None:
-                diff_note = "비교 실패로 보수적으로"
+                diff_note = {
+                    "ko": "비교 실패로 보수적으로",
+                    "en": "conservatively because comparison failed,",
+                    "ja": "比較に失敗したため保守的に",
+                }.get(language, "비교 실패로 보수적으로")
             else:
-                diff_note = f"차이율 {diff_percent:.2f}%로"
-            prompt = (
-                f"상태 알림: 마스터가 최근 {idle_text} 동안 너에게 말을 걸지 않았어. "
-                f"{diff_note} 화면 변화가 있는 상태로 판단했어. "
-                f"방금 첨부한 최신 전체 화면 1장을 보고, 마스터가 너에게 말을 조금 걸어줬으면 좋겠다는 "
-                f"티가 나는 짧은 한마디를 해줘."
-            )
+                diff_note = (
+                    f"with a {diff_percent:.2f}% difference,"
+                    if language == "en"
+                    else f"差分 {diff_percent:.2f}% のため"
+                    if language == "ja"
+                    else f"차이율 {diff_percent:.2f}%로"
+                )
+            if language == "en":
+                prompt = (
+                    f"Status notice: Master has not talked to you for the last {idle_text}. "
+                    f"{diff_note} the screen appears to have changed. "
+                    f"Look at the latest full-screen image just attached and reply with one short line "
+                    f"that gently shows you would like Master to talk to you a little."
+                )
+            elif language == "ja":
+                prompt = (
+                    f"状態通知: マスターは直近{idle_text}、あなたに話しかけていません。"
+                    f"{diff_note}、画面には変化がある状態だと判断しました。"
+                    f"添付された最新の全画面画像を見て、マスターに少し話しかけてほしい気持ちが"
+                    f"伝わる短い一言を返してください。"
+                )
+            else:
+                prompt = (
+                    f"상태 알림: 마스터가 최근 {idle_text} 동안 너에게 말을 걸지 않았어. "
+                    f"{diff_note} 화면 변화가 있는 상태로 판단했어. "
+                    f"방금 첨부한 최신 전체 화면 1장을 보고, 마스터가 너에게 말을 조금 걸어줬으면 좋겠다는 "
+                    f"티가 나는 짧은 한마디를 해줘."
+                )
 
         timestamp = self._now_timestamp()
-        message_with_time = f"[현재 시각: {timestamp}]\n{prompt}"
+        message_with_time = self._with_prompt_time(timestamp, prompt)
         images_data = [{
             "dataUrl": second_data_url,
             "name": "away_latest_screen.png",
@@ -1135,7 +1279,7 @@ class WebBridge(QObject):
             return True
 
         timestamp = self._now_timestamp()
-        message_with_time = f"[현재 시각: {timestamp}]\n{diary_body}"
+        message_with_time = self._with_prompt_time(timestamp, diary_body)
 
         # /diary는 일반 리롤/수정 payload에서 제외해 원문/본문 누적을 막는다.
         self._last_request_payload = None
@@ -1162,7 +1306,7 @@ class WebBridge(QObject):
 
         self._activate_obsidian_integration()
         timestamp = self._now_timestamp()
-        message_with_time = f"[현재 시각: {timestamp}]\n{note_body}"
+        message_with_time = self._with_prompt_time(timestamp, note_body)
         self._last_request_payload = None
         self._is_rerolling = False
 
@@ -1175,9 +1319,21 @@ class WebBridge(QObject):
 
     def _build_obsidian_context_block(self, include_tree: bool = True, include_checked_files: bool = True) -> str:
         """Obsidian 트리/체크 파일 컨텍스트 블록을 생성한다."""
+        language = self._prompt_language()
+        labels = {
+            "ko": {
+                "tree": "[Obsidian 트리 구조]",
+            },
+            "en": {
+                "tree": "[Obsidian Tree]",
+            },
+            "ja": {
+                "tree": "[Obsidianツリー構造]",
+            },
+        }.get(language, {"tree": "[Obsidian 트리 구조]"})
         parts: list[str] = []
         if include_tree:
-            parts.append("[Obsidian 트리 구조]")
+            parts.append(labels["tree"])
             for line in self.obsidian_manager.get_tree_lines(max_lines=120):
                 parts.append(f"- {line}")
 
@@ -1190,10 +1346,7 @@ class WebBridge(QObject):
                 allow_retry=False,
             )
             if checked_contents:
-                parts.append("[Obsidian 체크된 파일 본문]")
-                for rel, content in checked_contents:
-                    parts.append(f"[파일:{rel}]")
-                    parts.append(content)
+                parts.append(_build_obsidian_checked_context(checked_contents, language))
         return "\n".join(parts)
 
     def _resolve_obsidian_checked_file_limits(self) -> dict[str, int]:
@@ -1250,6 +1403,7 @@ class WebBridge(QObject):
         self.obs_checked_files_worker = ObsidianCheckedFilesWorker(
             self.obsidian_manager,
             list(signature),
+            language=self._prompt_language(),
         )
         self.obs_checked_files_worker.context_ready.connect(self._on_checked_files_context_ready)
         self.obs_checked_files_worker.error_occurred.connect(self._on_checked_files_context_error)
@@ -1304,6 +1458,7 @@ class WebBridge(QObject):
             message,
             obsidian_context=obs_context,
             attachment_context=str(attachment_context or "").strip(),
+            language=self._prompt_language(),
         )
 
     def _resolve_memory_search_turns(self) -> int:
@@ -1328,6 +1483,7 @@ class WebBridge(QObject):
         if turns > 0:
             entries = entries[-(turns * 2):]
 
+        language = resolve_prompt_language(settings_source=getattr(self, "settings", None))
         recent_lines: list[str] = []
         for item in entries:
             if not item or len(item) < 2:
@@ -1337,12 +1493,17 @@ class WebBridge(QObject):
             if not text:
                 continue
             timestamp = str(item[2]).strip() if len(item) >= 3 and item[2] else ""
-            role_label = role_label_for_context(role)
+            role_label = _prompt_role_label(role, language)
             recent_lines.append(prepend_message_time(f"[{role_label}] {text}", timestamp))
 
         memory_search_lines = list(recent_lines)
         if current:
-            memory_search_lines.append(prepend_message_time(f"[현재 사용자 메시지] {current}", current_timestamp))
+            current_label = {
+                "ko": "현재 사용자 메시지",
+                "en": "Current User Message",
+                "ja": "現在のユーザーメッセージ",
+            }.get(language, "현재 사용자 메시지")
+            memory_search_lines.append(prepend_message_time(f"[{current_label}] {current}", current_timestamp))
 
         return {
             "latest_user_message": current,
@@ -1606,6 +1767,7 @@ class WebBridge(QObject):
 
         # summarize/ask: Obsidian 컨텍스트 포함하여 LLM 질의
         timestamp = self._now_timestamp()
+        language = self._prompt_language()
         obs_context = self._build_obsidian_context_block(include_tree=True, include_checked_files=True)
         if command == "summarize":
             try:
@@ -1613,15 +1775,33 @@ class WebBridge(QObject):
             except Exception as e:
                 self.message_received.emit(f"요약 대상 파일 읽기 실패: {e}", "confused")
                 return True
-            prompt = (
-                f"{obs_context}\n\n"
-                f"[요약 대상 파일: {payload['path']}]\n{target}\n\n"
-                "위 파일을 핵심만 간결히 요약해 주세요."
-            )
+            if language == "en":
+                prompt = (
+                    f"{obs_context}\n\n"
+                    f"[File To Summarize: {payload['path']}]\n{target}\n\n"
+                    "Summarize the file above concisely, focusing only on the key points."
+                )
+            elif language == "ja":
+                prompt = (
+                    f"{obs_context}\n\n"
+                    f"[要約対象ファイル: {payload['path']}]\n{target}\n\n"
+                    "上のファイルを、要点だけに絞って簡潔に要約してください。"
+                )
+            else:
+                prompt = (
+                    f"{obs_context}\n\n"
+                    f"[요약 대상 파일: {payload['path']}]\n{target}\n\n"
+                    "위 파일을 핵심만 간결히 요약해 주세요."
+                )
         else:
-            prompt = f"{obs_context}\n\n[OBS 지시사항]\n{payload.get('instruction', obs_body)}"
+            instruction_label = {
+                "ko": "[OBS 지시사항]",
+                "en": "[OBS Instruction]",
+                "ja": "[OBS指示]",
+            }.get(language, "[OBS 지시사항]")
+            prompt = f"{obs_context}\n\n{instruction_label}\n{payload.get('instruction', obs_body)}"
 
-        message_with_time = f"[현재 시각: {timestamp}]\n{prompt}"
+        message_with_time = self._with_prompt_time(timestamp, prompt)
         self._start_ai_worker(message_with_time)
         print("[Bridge] /obs AI worker thread started")
         return True
@@ -1813,7 +1993,10 @@ class WebBridge(QObject):
 
         timestamp = self._now_timestamp()
         prompt = self._build_general_chat_prompt(message)
-        message_with_time = f"[현재 시각: {timestamp}]\n{prompt}"
+        message_with_time = _prompt_time_header(
+            timestamp,
+            resolve_prompt_language(settings_source=getattr(self, "settings", None)),
+        ) + f"\n{prompt}"
         memory_search_inputs = self._build_memory_search_inputs(message, timestamp)
         memory_search_text = memory_search_inputs["memory_search_text"]
         head_pat_count_before_message = 0
@@ -1912,9 +2095,9 @@ class WebBridge(QObject):
         if not message_id:
             message_id = f"attachment-message-{timestamp}"
         effective_message = (message or "").strip() or "첨부한 자료를 확인해 줘."
-        attachment_context = build_attachment_context_block(runtime_attachments)
+        attachment_context = build_attachment_context_block(runtime_attachments, language=self._prompt_language())
         prompt = self._build_general_chat_prompt(effective_message, attachment_context=attachment_context)
-        message_with_time = f"[현재 시각: {timestamp}]\n{prompt}"
+        message_with_time = self._with_prompt_time(timestamp, prompt)
         memory_search_inputs = self._build_memory_search_inputs(effective_message, timestamp)
         memory_search_text = memory_search_inputs["memory_search_text"]
         head_pat_count_before_message = 0
@@ -1996,7 +2179,10 @@ class WebBridge(QObject):
             return
 
         attachment_note = build_attachment_note(attachments)
-        attachment_context = build_attachment_context_block(attachments)
+        attachment_context = build_attachment_context_block(
+            attachments,
+            language=resolve_prompt_language(settings_source=getattr(self, "settings", None)),
+        )
         history_message = self._compose_attachment_history_message(record.get("message", ""), attachments)
         conversation_index = self._find_attachment_conversation_index(record)
         if 0 <= conversation_index < len(self.conversation_buffer):
@@ -2151,7 +2337,10 @@ class WebBridge(QObject):
             record["timestamp"] = timestamp
             record["conversation_index"] = len(self.conversation_buffer) - 1
             attachment_note = build_attachment_note(record.get("attachments") or [])
-            attachment_context = build_attachment_context_block(record.get("attachments") or [])
+            attachment_context = build_attachment_context_block(
+                record.get("attachments") or [],
+                language=self._prompt_language(),
+            )
             self.conversation_buffer[-1] = (
                 self.conversation_buffer[-1][0],
                 self._compose_attachment_history_message(edited_message, record.get("attachments") or []),
@@ -2161,7 +2350,7 @@ class WebBridge(QObject):
             record["attachment_context"] = attachment_context
 
         prompt = self._build_general_chat_prompt(edited_message, attachment_context=attachment_context)
-        message_with_time = f"[현재 시각: {timestamp}]\n{prompt}"
+        message_with_time = self._with_prompt_time(timestamp, prompt)
         memory_search_inputs = self._build_memory_search_inputs(edited_message, timestamp)
         memory_search_text = memory_search_inputs["memory_search_text"]
         self._last_request_payload = {
@@ -2723,15 +2912,33 @@ class WebBridge(QObject):
         self._mark_promise_fire_started(payload)
         self._active_promise_id = reminder_id or None
         self._emit_promise_items_updated()
-        title = str((payload or {}).get("title", "") or "").strip() or "약속"
+        language = self._prompt_language()
+        title = str((payload or {}).get("title", "") or "").strip() or {
+            "ko": "약속",
+            "en": "promise",
+            "ja": "約束",
+        }.get(language, "약속")
         source_excerpt = str((payload or {}).get("source_excerpt", "") or "").strip()
-        prompt = (
-            f"상태 알림: 마스터와의 대화 약속 시간이 되었어. "
-            f"약속 제목은 '{title}'이고, 원래 맥락은 '{source_excerpt}' 이야. "
-            f"이전 대화를 이어주는 짧고 자연스러운 한마디를 해줘."
-        )
+        if language == "en":
+            prompt = (
+                f"Status notice: it is time for a conversation promise with Master. "
+                f"The promise title is '{title}', and the original context is '{source_excerpt}'. "
+                f"Give one short, natural line that continues the earlier conversation."
+            )
+        elif language == "ja":
+            prompt = (
+                f"状態通知: マスターとの会話の約束の時間になりました。"
+                f"約束のタイトルは「{title}」、元の文脈は「{source_excerpt}」です。"
+                f"前の会話につながる短く自然な一言を返してください。"
+            )
+        else:
+            prompt = (
+                f"상태 알림: 마스터와의 대화 약속 시간이 되었어. "
+                f"약속 제목은 '{title}'이고, 원래 맥락은 '{source_excerpt}' 이야. "
+                f"이전 대화를 이어주는 짧고 자연스러운 한마디를 해줘."
+            )
         timestamp = self._now_timestamp()
-        self._start_ai_worker(f"[현재 시각: {timestamp}]\n{prompt}")
+        self._start_ai_worker(self._with_prompt_time(timestamp, prompt))
 
     def _emit_promise_items_updated(self) -> None:
         """현재 예정 목록을 JSON으로 UI에 전달한다."""

@@ -18,6 +18,8 @@ except ImportError:
     tiktoken = None
 from PIL import Image
 
+from ..ai.prompt_language import resolve_prompt_language
+
 
 지원_문서_확장자 = {".txt", ".md", ".pdf", ".docx"}
 지원_DOCX_MIME = {
@@ -199,7 +201,7 @@ def prepare_attachments(raw_attachments: Iterable[dict], model_name: str = "") -
     return prepared
 
 
-def build_attachment_context_block(documents: Iterable[dict]) -> str:
+def build_attachment_context_block(documents: Iterable[dict], language: str | None = None) -> str:
     """
     현재 세션에서 유지할 문서 첨부 컨텍스트를 구성한다.
     """
@@ -222,38 +224,81 @@ def build_attachment_context_block(documents: Iterable[dict]) -> str:
     if not items and not deleted_images:
         return ""
 
-    parts = ["[현재 세션 첨부 자료]"]
+    resolved_language = resolve_prompt_language(language)
+    labels = {
+        "ko": {
+            "section": "현재 세션 첨부 자료",
+            "deleted": "- 삭제된 이미지는 실제 이미지 대신 아래 문구만 참고해 주세요.",
+            "docs": [
+                "- 아래 문서들은 현재 대화 세션에서 계속 참고할 수 있는 자료입니다.",
+                "- 파일명을 기준으로 구분해서 질문해 주세요.",
+            ],
+            "unnamed": "이름 없는 문서",
+            "file": "파일",
+            "type": "형식",
+            "tokens": "추정 토큰",
+            "empty": "문서에서 읽을 수 있는 텍스트를 찾지 못했습니다.",
+        },
+        "en": {
+            "section": "Current Session Attachments",
+            "deleted": "- Use the note below instead of the deleted image.",
+            "docs": [
+                "- The documents below remain available as reference material in the current conversation.",
+                "- Ask by file name when distinguishing between them.",
+            ],
+            "unnamed": "Untitled document",
+            "file": "File",
+            "type": "Type",
+            "tokens": "Estimated tokens",
+            "empty": "No readable text was found in the document.",
+        },
+        "ja": {
+            "section": "現在のセッション添付資料",
+            "deleted": "- 削除された画像は実画像の代わりに以下の文言だけを参考にしてください。",
+            "docs": [
+                "- 以下の文書は現在の会話セッションで引き続き参照できる資料です。",
+                "- ファイル名で区別して質問してください。",
+            ],
+            "unnamed": "名前のない文書",
+            "file": "ファイル",
+            "type": "形式",
+            "tokens": "推定トークン",
+            "empty": "文書から読めるテキストが見つかりませんでした。",
+        },
+    }[resolved_language]
+
+    parts = [f"[{labels['section']}]"]
 
     if deleted_images:
-        parts.append("- 삭제된 이미지는 실제 이미지 대신 아래 문구만 참고해 주세요.")
+        parts.append(labels["deleted"])
         for _ in deleted_images:
             parts.append(삭제된_이미지_문구)
 
     if items:
-        parts.extend(
-            [
-                "- 아래 문서들은 현재 대화 세션에서 계속 참고할 수 있는 자료입니다.",
-                "- 파일명을 기준으로 구분해서 질문해 주세요.",
-            ]
-        )
+        parts.extend(labels["docs"])
 
     for item in items:
-        name = str(item.get("name", "")).strip() or "이름 없는 문서"
+        name = str(item.get("name", "")).strip() or labels["unnamed"]
         mime_type = str(item.get("type", "")).strip() or "application/octet-stream"
         token_estimate = int(item.get("tokenEstimate", 0) or 0)
         extracted_text = str(item.get("extractedText", "") or "").strip()
-        parts.append(f"[파일:{name}]")
-        parts.append(f"- 형식: {mime_type}")
-        parts.append(f"- 추정 토큰: {token_estimate}")
+        parts.append(f"[{labels['file']}:{name}]")
+        parts.append(f"- {labels['type']}: {mime_type}")
+        parts.append(f"- {labels['tokens']}: {token_estimate}")
         if extracted_text:
             parts.append(extracted_text)
         else:
-            parts.append("문서에서 읽을 수 있는 텍스트를 찾지 못했습니다.")
+            parts.append(labels["empty"])
 
     return "\n".join(parts).strip()
 
 
-def build_general_chat_prompt(message: str, obsidian_context: str = "", attachment_context: str = "") -> str:
+def build_general_chat_prompt(
+    message: str,
+    obsidian_context: str = "",
+    attachment_context: str = "",
+    language: str | None = None,
+) -> str:
     """
     Obsidian 컨텍스트와 세션 첨부 자료를 함께 포함한 일반 채팅 프롬프트를 만든다.
     """
@@ -264,7 +309,9 @@ def build_general_chat_prompt(message: str, obsidian_context: str = "", attachme
         sections.append(obs_context)
     if attach_context:
         sections.append(attach_context)
-    sections.append(f"[사용자 메시지]\n{str(message or '').strip()}")
+    resolved_language = resolve_prompt_language(language)
+    message_label = {"ko": "사용자 메시지", "en": "User Message", "ja": "ユーザーメッセージ"}[resolved_language]
+    sections.append(f"[{message_label}]\n{str(message or '').strip()}")
     return "\n\n".join(section for section in sections if section).strip()
 
 

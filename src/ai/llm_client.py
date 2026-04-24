@@ -7,7 +7,8 @@ from google import genai
 
 from ..conversation_format import prepend_message_time
 from .prompt import build_runtime_system_prompt, get_available_emotions
-from .summary_prompt import build_summary_prompt
+from .prompt_language import resolve_prompt_language
+from .summary_prompt import build_markdown_document_prompt, build_summary_prompt
 
 ANALYSIS_KEYS = {
     "user_emotion",
@@ -115,6 +116,7 @@ class GeminiClient:
         system_instruction = build_runtime_system_prompt(
             include_sub_prompt=include_sub_prompt,
             include_analysis_appendix=True,
+            settings_source=self.settings,
         )
         config = {
             "system_instruction": system_instruction,
@@ -134,16 +136,93 @@ class GeminiClient:
         )
         return (response.text or "").strip()
 
+    def _prompt_language(self) -> str:
+        return resolve_prompt_language(settings_source=self.settings)
+
+    def _memory_context_labels(self) -> dict[str, str]:
+        language = resolve_prompt_language(settings_source=getattr(self, "settings", None))
+        return {
+            "ko": {
+                "master_basic": "마스터 기본 정보",
+                "master_facts": "마스터에 대한 정보",
+                "ene_basic": "에네 기본 설정",
+                "ene_facts": "에네에 대한 누적 정보",
+                "important": "중요한 기억",
+                "related": "관련된 과거 기억",
+                "raw_chunks": "회상된 원문 조각",
+                "chunk": "조각",
+                "recent": "최근 대화 기록",
+                "upcoming": "다가오는 일정",
+                "activity": "최근 대화 활동",
+                "interaction": "오늘 상호작용",
+                "name": "이름",
+                "gender": "성별",
+                "birthday": "생일",
+                "occupation": "직업",
+                "major": "전공",
+                "likes": "좋아하는 것",
+                "done": "완료",
+                "times": "회",
+                "head_pat_today": "오늘 쓰다듬은 횟수",
+                "head_pat_before": "메시지 전 쓰다듬은 횟수",
+            },
+            "en": {
+                "master_basic": "Master Basic Information",
+                "master_facts": "Information About Master",
+                "ene_basic": "ENE Basic Settings",
+                "ene_facts": "Accumulated Information About ENE",
+                "important": "Important Memories",
+                "related": "Related Past Memories",
+                "raw_chunks": "Recalled Raw Text Chunks",
+                "chunk": "Chunk",
+                "recent": "Recent Conversation Records",
+                "upcoming": "Upcoming Schedule",
+                "activity": "Recent Conversation Activity",
+                "interaction": "Today's Interaction",
+                "name": "Name",
+                "gender": "Gender",
+                "birthday": "Birthday",
+                "occupation": "Occupation",
+                "major": "Major",
+                "likes": "Likes",
+                "done": "done",
+                "times": "times",
+                "head_pat_today": "Head pats today",
+                "head_pat_before": "Head pats before this message",
+            },
+            "ja": {
+                "master_basic": "マスター基本情報",
+                "master_facts": "マスターに関する情報",
+                "ene_basic": "エネ基本設定",
+                "ene_facts": "エネに関する蓄積情報",
+                "important": "重要な記憶",
+                "related": "関連する過去の記憶",
+                "raw_chunks": "思い出した原文断片",
+                "chunk": "断片",
+                "recent": "最近の会話記録",
+                "upcoming": "今後の予定",
+                "activity": "最近の会話活動",
+                "interaction": "今日のやり取り",
+                "name": "名前",
+                "gender": "性別",
+                "birthday": "誕生日",
+                "occupation": "職業",
+                "major": "専攻",
+                "likes": "好きなもの",
+                "done": "完了",
+                "times": "回",
+                "head_pat_today": "今日なでた回数",
+                "head_pat_before": "メッセージ前になでた回数",
+            },
+        }[language]
+
     async def generate_markdown_document(self, message: str) -> str:
         """sub prompt 없이 마크다운 문서를 생성한다."""
         memory_context = await self._build_memory_context(message)
-        enhanced = f"{memory_context}\n\n{message}" if memory_context else message
-        diary_prompt = (
-            "아래 요청에 맞춰 마크다운 문서를 작성하세요.\n"
-            "- 출력은 마크다운 본문만 작성하세요.\n"
-            "- 감정 태그, 일본어 번역, 부가 설명은 절대 포함하지 마세요.\n"
-            "- 요청의 목적에 맞는 제목/본문 구조를 자연스럽게 구성하세요.\n\n"
-            f"{enhanced}"
+        diary_prompt = build_markdown_document_prompt(
+            message,
+            memory_context=memory_context,
+            language=self._prompt_language(),
         )
         return self._generate_one_shot_text(diary_prompt, include_sub_prompt=False)
 
@@ -331,6 +410,7 @@ class GeminiClient:
             return ""
         
         context_parts = []
+        labels = GeminiClient._memory_context_labels(self)
         normalized_query = str(query or "").strip()
         normalized_recent_context = str(recent_context or "").strip()
         
@@ -343,24 +423,24 @@ class GeminiClient:
 
         # 0. 사용자 프로필 정보 (최우선)
         if self.user_profile:
-            profile_lines = ["[마스터 기본 정보]"]
+            profile_lines = [f"[{labels['master_basic']}]"]
             
             basic = getattr(self.user_profile, "basic_info", {}) or {}
             if basic.get('name'):
-                profile_lines.append(f"- 이름: {basic['name']}")
+                profile_lines.append(f"- {labels['name']}: {basic['name']}")
             if basic.get('gender'):
-                profile_lines.append(f"- 성별: {basic['gender']}")
+                profile_lines.append(f"- {labels['gender']}: {basic['gender']}")
             if basic.get('birthday'):
-                profile_lines.append(f"- 생일: {basic['birthday']}")
+                profile_lines.append(f"- {labels['birthday']}: {basic['birthday']}")
             if basic.get('occupation'):
-                profile_lines.append(f"- 직업: {basic['occupation']}")
+                profile_lines.append(f"- {labels['occupation']}: {basic['occupation']}")
             if basic.get('major'):
-                profile_lines.append(f"- 전공: {basic['major']}")
+                profile_lines.append(f"- {labels['major']}: {basic['major']}")
             
             # 취미/선호도
             prefs = getattr(self.user_profile, "preferences", {}) or {}
             if prefs.get('likes'):
-                profile_lines.append(f"- 좋아하는 것: {', '.join(prefs['likes'])}")
+                profile_lines.append(f"- {labels['likes']}: {', '.join(prefs['likes'])}")
             
             if len(profile_lines) > 1:  # 정보가 있으면
                 context_parts.append("\n".join(profile_lines))
@@ -380,7 +460,7 @@ class GeminiClient:
                         facts = list(facts)
                     if max_profile_facts > 0:
                         facts = facts[:max_profile_facts]
-                    fact_lines = ["[마스터에 대한 정보]"]
+                    fact_lines = [f"[{labels['master_facts']}]"]
                     for fact in facts:
                         fact_lines.append(f"- [{fact.category}] : {fact.content}")
                     context_parts.append("\n".join(fact_lines))
@@ -389,7 +469,7 @@ class GeminiClient:
         ene_profile = getattr(self, "ene_profile", None)
         if ene_profile:
             core_profile = getattr(ene_profile, "core_profile", {}) or {}
-            ene_core_lines = ["[에네 기본 설정]"]
+            ene_core_lines = [f"[{labels['ene_basic']}]"]
             for group_name in ("identity", "speaking_style", "relationship_tone"):
                 values = core_profile.get(group_name, []) or []
                 for value in values:
@@ -411,7 +491,7 @@ class GeminiClient:
                         str(getattr(fact, "timestamp", "") or ""),
                     ),
                 )
-                ene_fact_lines = ["[에네에 대한 누적 정보]"]
+                ene_fact_lines = [f"[{labels['ene_facts']}]"]
                 for fact in sorted_ene_facts[:max_profile_facts]:
                     category = str(getattr(fact, "category", "") or "").strip()
                     content = str(getattr(fact, "content", "") or "").strip()
@@ -428,7 +508,9 @@ class GeminiClient:
         # 설정값 가져오기
         if self.mood_manager and hasattr(self.mood_manager, "build_context_block"):
             try:
-                mood_block = self.mood_manager.build_context_block()
+                mood_block = self.mood_manager.build_context_block(
+                    language=resolve_prompt_language(settings_source=getattr(self, "settings", None))
+                )
                 if mood_block:
                     context_parts.append("\n" + mood_block)
                     print("[LLM] Mood context included")
@@ -458,7 +540,7 @@ class GeminiClient:
         important_memories = self.memory_manager.get_important()
         if important_memories:
             print(f"[LLM] 중요 기억 {len(important_memories)}개 발견")
-            context_parts.append("\n[중요한 기억]")
+            context_parts.append(f"\n[{labels['important']}]")
             for memory in important_memories[:max_important]:
                 context_parts.append(f"- {memory.summary}")
                 print(f"  ⭐ {memory.summary[:50]}...")
@@ -476,7 +558,7 @@ class GeminiClient:
             
             if similar_memories:
                 print(f"[LLM] 유사 기억 {len(similar_memories)}개 발견")
-                context_parts.append("\n[관련된 과거 기억]")
+                context_parts.append(f"\n[{labels['related']}]")
                 for memory, similarity in similar_memories:
                     context_parts.append(f"- {memory.summary}")
                     print(f"  [{similarity:.2f}] {memory.summary[:50]}...")
@@ -500,10 +582,10 @@ class GeminiClient:
                 )
                 if raw_chunks:
                     print(f"[LLM] raw chunk {len(raw_chunks)}개 선택")
-                    context_parts.append("\n[회상된 원문 조각]")
+                    context_parts.append(f"\n[{labels['raw_chunks']}]")
                     for index, (chunk, score, score_meta) in enumerate(raw_chunks, start=1):
                         context_parts.append(
-                            f"- 조각 {index} (turn {chunk.start_turn_index}-{chunk.end_turn_index})"
+                            f"- {labels['chunk']} {index} (turn {chunk.start_turn_index}-{chunk.end_turn_index})"
                         )
                         for line in str(chunk.text or "").splitlines():
                             context_parts.append(f"  {line}")
@@ -525,7 +607,7 @@ class GeminiClient:
         recent_memories = self.memory_manager.get_recent(count=max_recent)
         if recent_memories:
             print(f"[LLM] 최근 기억 {len(recent_memories)}개 사용")
-            context_parts.append("[최근 대화 기록]")
+            context_parts.append(f"[{labels['recent']}]")
             for memory in recent_memories:
                 # 날짜 포맷 (예: 2026-02-03 21:15)
                 try:
@@ -543,7 +625,7 @@ class GeminiClient:
             upcoming = self.calendar_manager.get_upcoming_events(days=3)
             if upcoming:
                 print(f"[LLM] 다가오는 일정 {len(upcoming)}개 발견")
-                context_parts.append("\n[다가오는 일정]")
+                context_parts.append(f"\n[{labels['upcoming']}]")
                 for event in upcoming:
                     try:
                         from datetime import datetime
@@ -551,7 +633,7 @@ class GeminiClient:
                         date_str = event_date.strftime("%m월 %d일")
                         
                         # 완료 여부 표시
-                        status = " ✓ 완료" if event.completed else ""
+                        status = f" ✓ {labels['done']}" if event.completed else ""
                         
                         # 제목과 상세설명, 완료 상태를 한 줄로 표시
                         if event.description:
@@ -568,13 +650,13 @@ class GeminiClient:
         if self.calendar_manager:
             recent_counts = self.calendar_manager.get_recent_or_latest_conversation_counts(days=7, exclude_today=True)
             if recent_counts:
-                context_parts.append("\n[최근 대화 활동]")
+                context_parts.append(f"\n[{labels['activity']}]")
                 for date_str, count in recent_counts.items():
                     try:
                         from datetime import datetime
                         date_obj = datetime.fromisoformat(date_str)
                         date_display = date_obj.strftime("%m월 %d일")
-                        context_parts.append(f"- {date_display}: {count}회")
+                        context_parts.append(f"- {date_display}: {count}{labels['times']}")
                     except:
                         pass
                 print(f"[LLM] 최근 대화 횟수 {len(recent_counts)}일 포함")
@@ -589,9 +671,9 @@ class GeminiClient:
                 head_pat_count = int(self.calendar_manager.get_pending_head_pat_count())
             else:
                 head_pat_count = int(head_pat_count_before_message)
-            context_parts.append("\n[오늘 상호작용]")
-            context_parts.append(f"- 오늘 쓰다듬은 횟수: {today_head_pat_count}회")
-            context_parts.append(f"- 메시지 전 쓰다듬은 횟수: {head_pat_count}회")
+            context_parts.append(f"\n[{labels['interaction']}]")
+            context_parts.append(f"- {labels['head_pat_today']}: {today_head_pat_count}{labels['times']}")
+            context_parts.append(f"- {labels['head_pat_before']}: {head_pat_count}{labels['times']}")
         
         # 컨텍스트 문자열 생성
         if context_parts:
@@ -739,7 +821,11 @@ class GeminiClient:
             (요약 텍스트, 사용자 정보 목록, 에네 정보 목록, 메모리 메타데이터) 튜플
         """
         try:
-            summary_prompt = build_summary_prompt(messages, user_profile=self.user_profile)
+            summary_prompt = build_summary_prompt(
+                messages,
+                user_profile=self.user_profile,
+                language=self._prompt_language(),
+            )
             summarize_prompt = summary_prompt.prompt
             time_range = summary_prompt.time_range
 
