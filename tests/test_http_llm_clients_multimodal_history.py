@@ -131,7 +131,7 @@ def _build_ollama_client():
 def test_multimodal_turn_is_preserved_in_history(monkeypatch, factory, request_method, assert_history):
     client = factory()
 
-    async def fake_memory_context(_message):
+    async def fake_memory_context(_message, recent_context: str = "", head_pat_count_before_message: int | None = None):
         return ""
 
     monkeypatch.setattr(client, "_build_memory_context", fake_memory_context)
