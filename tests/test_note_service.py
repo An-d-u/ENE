@@ -192,6 +192,21 @@ def test_build_plan_prompt_includes_recent_context_block():
     assert "가쿠치카 보강해줘" in prompt
 
 
+def test_build_plan_prompt_uses_selected_language_but_keeps_plan_contract():
+    service = NoteService(ui_language="en")
+    prompt = service.build_plan_prompt(
+        user_instruction="Update launch checklist",
+        obs_tree_lines=["launch.md"],
+        checked_files=[],
+    )
+
+    assert "Your task is to turn the /note request into an Obsidian CLI execution plan" in prompt
+    assert "# NOTE PLAN" in prompt
+    assert "## COMMANDS" in prompt
+    assert "obsidian <command> <arg...>" in prompt
+    assert "[User Request]" in prompt
+
+
 def test_build_generated_markdown_path_returns_md_file():
     service = NoteService()
     path = service.build_generated_markdown_path("오늘의 일기를 작성해줘")

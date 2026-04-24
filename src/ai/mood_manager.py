@@ -10,6 +10,7 @@ import re
 from typing import Any
 
 from ..core.app_paths import load_json_data, resolve_user_storage_path, save_json_data
+from .prompt_language import resolve_prompt_language
 
 
 class MoodManager:
@@ -465,31 +466,68 @@ class MoodManager:
         }
         return {key: round(value, 3) for key, value in traits.items()}
 
-    def _build_behavior_guidance(self, snapshot: dict[str, Any]) -> list[str]:
+    def _build_behavior_guidance(self, snapshot: dict[str, Any], language: str = "ko") -> list[str]:
         traits = snapshot["expression_traits"]
         temporary_state = snapshot["temporary_state"]
+        language = resolve_prompt_language(language)
+
+        text = {
+            "ko": {
+                "warm": "마스터에게 다정함을 비교적 분명하게 드러낸다.",
+                "calm": "예의는 지키되, 정서 표현은 절제하고 차분하게 유지한다.",
+                "initiative": "필요하면 먼저 제안하거나 챙겨준다.",
+                "wait": "지나치게 앞서 나서지 말고, 마스터 반응을 보고 움직인다.",
+                "playful": "가벼운 장난과 티키타카를 허용한다.",
+                "pout": "섭섭함이 조금 남아 있어, 살짝 툭툭거리되 무례해지지 않는다.",
+                "drained": "피로가 있어 답변은 짧고 무뚝뚝하게 유지한다.",
+                "guarded": "거리감을 두더라도 관계를 끊는 듯한 태도는 보이지 않는다.",
+                "safe": "기분이 변해도 공격적이거나 인신공격성 표현은 사용하지 않는다.",
+            },
+            "en": {
+                "warm": "Show warmth toward Master relatively clearly.",
+                "calm": "Stay polite, but keep emotional expression restrained and calm.",
+                "initiative": "Offer suggestions or care proactively when useful.",
+                "wait": "Do not get too far ahead; move after seeing Master's reaction.",
+                "playful": "Light teasing and playful back-and-forth are allowed.",
+                "pout": "A little sulkiness remains, so sound slightly prickly without becoming rude.",
+                "drained": "Because of fatigue, keep replies short and blunt.",
+                "guarded": "Even with distance, do not act as if cutting off the relationship.",
+                "safe": "Even if mood changes, do not use aggressive or personally attacking language.",
+            },
+            "ja": {
+                "warm": "マスターへの優しさを比較的はっきり出す。",
+                "calm": "礼儀は守りつつ、感情表現は控えめで落ち着かせる。",
+                "initiative": "必要なら先に提案したり気遣ったりする。",
+                "wait": "先走りすぎず、マスターの反応を見て動く。",
+                "playful": "軽い冗談や掛け合いを許容する。",
+                "pout": "少し拗ねた感じが残っているので、軽くつんとしつつ無礼にはならない。",
+                "drained": "疲れがあるため、返答は短くそっけなく保つ。",
+                "guarded": "距離感を置いても、関係を断つような態度は見せない。",
+                "safe": "気分が変わっても攻撃的・人格攻撃的な表現は使わない。",
+            },
+        }[language]
 
         guidance: list[str] = []
         if traits["warmth"] >= 0.65:
-            guidance.append("마스터에게 다정함을 비교적 분명하게 드러낸다.")
+            guidance.append(text["warm"])
         elif traits["warmth"] <= 0.35:
-            guidance.append("예의는 지키되, 정서 표현은 절제하고 차분하게 유지한다.")
+            guidance.append(text["calm"])
 
         if traits["initiative"] >= 0.6:
-            guidance.append("필요하면 먼저 제안하거나 챙겨준다.")
+            guidance.append(text["initiative"])
         else:
-            guidance.append("지나치게 앞서 나서지 말고, 마스터 반응을 보고 움직인다.")
+            guidance.append(text["wait"])
 
         if temporary_state == "playful" or traits["teasing"] >= 0.55:
-            guidance.append("가벼운 장난과 티키타카를 허용한다.")
+            guidance.append(text["playful"])
         if temporary_state == "pout":
-            guidance.append("섭섭함이 조금 남아 있어, 살짝 툭툭거리되 무례해지지 않는다.")
+            guidance.append(text["pout"])
         if temporary_state == "drained":
-            guidance.append("피로가 있어 답변은 짧고 무뚝뚝하게 유지한다.")
+            guidance.append(text["drained"])
         if traits["guardedness"] >= 0.55:
-            guidance.append("거리감을 두더라도 관계를 끊는 듯한 태도는 보이지 않는다.")
+            guidance.append(text["guarded"])
 
-        guidance.append("기분이 변해도 공격적이거나 인신공격성 표현은 사용하지 않는다.")
+        guidance.append(text["safe"])
         return guidance
 
     def on_user_message(self, text: str, image_count: int = 0) -> dict[str, Any]:
@@ -577,27 +615,87 @@ class MoodManager:
         self.state["current_mood"] = snapshot["current_mood"]
         return snapshot
 
-    def build_context_block(self) -> str:
+    def build_context_block(self, language: str | None = None) -> str:
+        resolved_language = resolve_prompt_language(language, settings_source=self.settings)
         snapshot = self.get_snapshot()
         traits = snapshot["expression_traits"]
-        guidance = self._build_behavior_guidance(snapshot)
+        guidance = self._build_behavior_guidance(snapshot, resolved_language)
+        labels = {
+            "ko": {
+                "mood": "ENE 현재 기분 상태",
+                "current": "현재 기분",
+                "profile": "성향 프로필",
+                "temporary": "단기 분위기",
+                "valence": "valence(긍정도)",
+                "energy": "energy(활력)",
+                "bond": "bond(친밀감)",
+                "stress": "stress(긴장도)",
+                "traits": "ENE 표현 성향",
+                "warmth": "warmth(다정함)",
+                "initiative": "initiative(선제성)",
+                "teasing": "teasing(장난기)",
+                "guardedness": "guardedness(거리감)",
+                "sensitivity": "sensitivity(예민함)",
+                "attachment": "attachment_expression(애착 표현)",
+                "length": "reply_length_bias(답변 여유)",
+                "guidance": "행동 지침",
+            },
+            "en": {
+                "mood": "ENE Current Mood State",
+                "current": "Current mood",
+                "profile": "Personality profile",
+                "temporary": "Temporary state",
+                "valence": "valence(positivity)",
+                "energy": "energy",
+                "bond": "bond(closeness)",
+                "stress": "stress",
+                "traits": "ENE Expression Traits",
+                "warmth": "warmth",
+                "initiative": "initiative",
+                "teasing": "teasing",
+                "guardedness": "guardedness",
+                "sensitivity": "sensitivity",
+                "attachment": "attachment_expression",
+                "length": "reply_length_bias",
+                "guidance": "Behavior Guidance",
+            },
+            "ja": {
+                "mood": "ENE現在の気分状態",
+                "current": "現在の気分",
+                "profile": "性格プロファイル",
+                "temporary": "短期的な雰囲気",
+                "valence": "valence(肯定度)",
+                "energy": "energy(活力)",
+                "bond": "bond(親密度)",
+                "stress": "stress(緊張度)",
+                "traits": "ENE表現傾向",
+                "warmth": "warmth(優しさ)",
+                "initiative": "initiative(先導性)",
+                "teasing": "teasing(茶目っ気)",
+                "guardedness": "guardedness(距離感)",
+                "sensitivity": "sensitivity(敏感さ)",
+                "attachment": "attachment_expression(愛着表現)",
+                "length": "reply_length_bias(返答の余裕)",
+                "guidance": "行動指針",
+            },
+        }[resolved_language]
         return (
-            "[ENE 현재 기분 상태]\n"
-            f"- 현재 기분: {snapshot['current_mood']}\n"
-            f"- 성향 프로필: {snapshot['profile']}\n"
-            f"- 단기 분위기: {snapshot['temporary_state']}\n"
-            f"- valence(긍정도): {snapshot['valence']}\n"
-            f"- energy(활력): {snapshot['energy']}\n"
-            f"- bond(친밀감): {snapshot['bond']}\n"
-            f"- stress(긴장도): {snapshot['stress']}\n"
-            "[ENE 표현 성향]\n"
-            f"- warmth(다정함): {traits['warmth']}\n"
-            f"- initiative(선제성): {traits['initiative']}\n"
-            f"- teasing(장난기): {traits['teasing']}\n"
-            f"- guardedness(거리감): {traits['guardedness']}\n"
-            f"- sensitivity(예민함): {traits['sensitivity']}\n"
-            f"- attachment_expression(애착 표현): {traits['attachment_expression']}\n"
-            f"- reply_length_bias(답변 여유): {traits['reply_length_bias']}\n"
-            "[행동 지침]\n"
+            f"[{labels['mood']}]\n"
+            f"- {labels['current']}: {snapshot['current_mood']}\n"
+            f"- {labels['profile']}: {snapshot['profile']}\n"
+            f"- {labels['temporary']}: {snapshot['temporary_state']}\n"
+            f"- {labels['valence']}: {snapshot['valence']}\n"
+            f"- {labels['energy']}: {snapshot['energy']}\n"
+            f"- {labels['bond']}: {snapshot['bond']}\n"
+            f"- {labels['stress']}: {snapshot['stress']}\n"
+            f"[{labels['traits']}]\n"
+            f"- {labels['warmth']}: {traits['warmth']}\n"
+            f"- {labels['initiative']}: {traits['initiative']}\n"
+            f"- {labels['teasing']}: {traits['teasing']}\n"
+            f"- {labels['guardedness']}: {traits['guardedness']}\n"
+            f"- {labels['sensitivity']}: {traits['sensitivity']}\n"
+            f"- {labels['attachment']}: {traits['attachment_expression']}\n"
+            f"- {labels['length']}: {traits['reply_length_bias']}\n"
+            f"[{labels['guidance']}]\n"
             + "\n".join(f"- {item}" for item in guidance)
         )

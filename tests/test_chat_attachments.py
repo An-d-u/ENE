@@ -94,6 +94,36 @@ def test_build_general_chat_prompt_combines_obsidian_and_attachment_contexts():
     assert "[사용자 메시지]\n이 자료들 기준으로 일정만 정리해줘." in prompt
 
 
+def test_general_chat_prompt_uses_selected_language():
+    prompt = build_general_chat_prompt(
+        "Use these notes.",
+        attachment_context="[Current Session Attachments]\n[File:notes.pdf]\nBody",
+        language="en",
+    )
+
+    assert "[User Message]\nUse these notes." in prompt
+
+
+def test_attachment_context_block_uses_selected_language():
+    context = build_attachment_context_block(
+        [
+            {
+                "name": "memo.pdf",
+                "type": "application/pdf",
+                "category": "document",
+                "status": "ready",
+                "tokenEstimate": 10,
+                "extractedText": "",
+            },
+        ],
+        language="en",
+    )
+
+    assert "[Current Session Attachments]" in context
+    assert "[File:memo.pdf]" in context
+    assert "No readable text was found in the document." in context
+
+
 def test_build_attachment_note_lists_file_names_and_image_count():
     note = build_attachment_note(
         [

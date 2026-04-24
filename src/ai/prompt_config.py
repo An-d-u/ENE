@@ -1,4 +1,4 @@
-"""
+﻿"""
 ENE 프롬프트 설정 Markdown 로더
 """
 
@@ -14,6 +14,7 @@ from pathlib import Path
 
 from ..core.model_emotions import get_available_model_emotions
 from ..core.app_paths import get_bundle_prompts_defaults_dir, get_bundle_root, get_user_prompts_dir
+from .prompt_language import resolve_prompt_language
 
 
 PROJECT_ROOT = get_bundle_root()
@@ -40,8 +41,10 @@ PROMPT_MARKDOWN_FILENAMES = (
 GENERATED_SUB_PROMPT_SECTION_TITLES = {
     "감정 표현 규칙",
     "Emotion Expression Rules",
+    "感情表現ルール",
     "감정 사용 가이드",
     "Emotion Usage Guide",
+    "感情使用ガイド",
 }
 
 SUB_PROMPT_SECTION_TITLE_ALIASES = {
@@ -383,22 +386,54 @@ def save_prompt_config(config: dict) -> dict:
     return normalized
 
 
-def build_sub_prompt_text(body_text: str, emotions: list[str], emotion_guides: dict[str, str]) -> str:
+def build_sub_prompt_text(
+    body_text: str,
+    emotions: list[str],
+    emotion_guides: dict[str, str],
+    language: str | None = None,
+) -> str:
+    resolved_language = resolve_prompt_language(language)
     emotion_names = ", ".join(emotions)
+    text = {
+        "ko": {
+            "rules": "감정 표현 규칙",
+            "tag": "- 답변 말 마지막에 반드시 감정 태그를 추가하세요.",
+            "format": "- 형식: `[emotion]`",
+            "available": "- 사용 가능한 감정",
+            "guide": "감정 사용 가이드",
+            "fallback": "이 감정을 어떤 상황에서 쓰는지 설명하세요.",
+        },
+        "en": {
+            "rules": "Emotion Expression Rules",
+            "tag": "- Always add an emotion tag at the end of the reply.",
+            "format": "- Format: `[emotion]`",
+            "available": "- Available emotions",
+            "guide": "Emotion Usage Guide",
+            "fallback": "Describe when to use this emotion.",
+        },
+        "ja": {
+            "rules": "感情表現ルール",
+            "tag": "- 返答の最後に必ず感情タグを追加してください。",
+            "format": "- 形式: `[emotion]`",
+            "available": "- 使用可能な感情",
+            "guide": "感情使用ガイド",
+            "fallback": "この感情をどのような状況で使うか説明してください。",
+        },
+    }[resolved_language]
     rules_section = "\n".join(
         [
-            "### [감정 표현 규칙]",
-            "- 답변 말 마지막에 반드시 감정 태그를 추가하세요.",
-            "- 형식: `[emotion]`",
-            f"- 사용 가능한 감정: `{emotion_names}`",
+            f"### [{text['rules']}]",
+            text["tag"],
+            text["format"],
+            f"{text['available']}: `{emotion_names}`",
         ]
     )
 
-    guide_lines = ["### [감정 사용 가이드]"]
+    guide_lines = [f"### [{text['guide']}]"]
     for emotion in emotions:
         guide = str(emotion_guides.get(emotion, "") or "").strip()
         if not guide:
-            guide = "이 감정을 어떤 상황에서 쓰는지 설명하세요."
+            guide = text["fallback"]
         guide_lines.append(f"- {emotion}: {guide}")
 
     parts = [rules_section]
@@ -418,4 +453,5 @@ def get_sub_prompt_text(
         config.get("sub_prompt_body", ""),
         list(config.get("emotions", [])),
         dict(config.get("emotion_guides", {})),
+        language=resolve_prompt_language(settings_source=settings_source),
     )
