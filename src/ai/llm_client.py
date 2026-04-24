@@ -164,7 +164,7 @@ class GeminiClient:
                 "done": "완료",
                 "times": "회",
                 "head_pat_today": "오늘 쓰다듬은 횟수",
-                "head_pat_before": "메시지 전 쓰다듬은 횟수",
+                "head_pat_before": "지금 쓰다듬은 횟수",
             },
             "en": {
                 "master_basic": "Master Basic Information",
@@ -188,7 +188,7 @@ class GeminiClient:
                 "done": "done",
                 "times": "times",
                 "head_pat_today": "Head pats today",
-                "head_pat_before": "Head pats before this message",
+                "head_pat_before": "Current head pats",
             },
             "ja": {
                 "master_basic": "マスター基本情報",
@@ -212,7 +212,7 @@ class GeminiClient:
                 "done": "完了",
                 "times": "回",
                 "head_pat_today": "今日なでた回数",
-                "head_pat_before": "メッセージ前になでた回数",
+                "head_pat_before": "今なでた回数",
             },
         }[language]
 
