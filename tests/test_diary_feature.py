@@ -451,7 +451,14 @@ def test_bridge_general_chat_includes_checked_obsidian_context(monkeypatch):
     def fake_diary(message: str) -> bool:
         return False
 
-    def fake_start(message_with_time: str, images_data=None, memory_search_text: str = ""):
+    def fake_start(
+        message_with_time: str,
+        images_data=None,
+        memory_search_text: str = "",
+        latest_user_message: str = "",
+        recent_memory_context: str = "",
+        head_pat_count_before_message: int = 0,
+    ):
         captured["message_with_time"] = message_with_time
 
     monkeypatch.setattr(bridge, "_handle_note_command", fake_note)
@@ -484,7 +491,14 @@ def test_bridge_general_chat_skips_obsidian_context_when_disconnected(monkeypatc
     def fake_diary(message: str) -> bool:
         return False
 
-    def fake_start(message_with_time: str, images_data=None, memory_search_text: str = ""):
+    def fake_start(
+        message_with_time: str,
+        images_data=None,
+        memory_search_text: str = "",
+        latest_user_message: str = "",
+        recent_memory_context: str = "",
+        head_pat_count_before_message: int = 0,
+    ):
         captured["message_with_time"] = message_with_time
 
     monkeypatch.setattr(bridge, "_handle_note_command", fake_note)
@@ -510,7 +524,14 @@ def test_bridge_general_chat_cache_miss_before_obsidian_activation_skips_backgro
     def fake_refresh(force: bool = False):
         captured["refresh_called"] += 1
 
-    def fake_start(message_with_time: str, images_data=None, memory_search_text: str = ""):
+    def fake_start(
+        message_with_time: str,
+        images_data=None,
+        memory_search_text: str = "",
+        latest_user_message: str = "",
+        recent_memory_context: str = "",
+        head_pat_count_before_message: int = 0,
+    ):
         captured["message_with_time"] = message_with_time
 
     monkeypatch.setattr(bridge, "_schedule_checked_files_context_refresh", fake_refresh)
@@ -538,7 +559,14 @@ def test_bridge_general_chat_cache_miss_after_obsidian_activation_schedules_back
     def fake_refresh(force: bool = False):
         captured["refresh_called"] += 1
 
-    def fake_start(message_with_time: str, images_data=None, memory_search_text: str = ""):
+    def fake_start(
+        message_with_time: str,
+        images_data=None,
+        memory_search_text: str = "",
+        latest_user_message: str = "",
+        recent_memory_context: str = "",
+        head_pat_count_before_message: int = 0,
+    ):
         captured["message_with_time"] = message_with_time
 
     monkeypatch.setattr(bridge, "_schedule_checked_files_context_refresh", fake_refresh)
