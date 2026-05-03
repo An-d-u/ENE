@@ -28,6 +28,7 @@ from ..ai.note_service import NoteService, NoteCommand, NoteCommandResult, NoteP
 from ..ai.obsidian_manager import ObsidianManager
 from ..ai.prompt_language import resolve_prompt_language
 from ..ai.promise_reminder_manager import GENERIC_PROMISE_TITLE, extract_promise_candidates
+from ..ai.response_cleanup import extract_thought_metadata, strip_thinking_markers
 from .chat_attachments import (
     build_attachment_context_block,
     build_attachment_note,
@@ -103,7 +104,7 @@ VISIBLE_RESPONSE_ANALYSIS_KEYS = (
 class AIWorker(QThread):
     """AI 응답을 비동기로 처리하는 워커 스레드"""
     
-    response_ready = pyqtSignal(str, str, str, list, str, str, list)  # (텍스트, 감정, 일본어, 이벤트, analysis JSON, 토큰 JSON, 약속 리스트)
+    response_ready = pyqtSignal(str, str, str, list, str, str, list, str)  # (텍스트, 감정, 일본어, 이벤트, analysis JSON, 토큰 JSON, 약속 리스트, 생각)
     error_occurred = pyqtSignal(str)  # 오류 메시지
     
     def __init__(
@@ -145,16 +146,19 @@ class AIWorker(QThread):
         return resolve_prompt_language(settings_source=getattr(self.llm_client, "settings", None))
 
     def _normalize_response_payload(self, payload):
-        """신구 응답 형식을 모두 6개 값으로 정규화한다."""
+        """신구 응답 형식을 모두 7개 값으로 정규화한다."""
         if isinstance(payload, tuple):
-            if len(payload) == 6:
+            if len(payload) == 7:
                 return payload
+            if len(payload) == 6:
+                text, emotion, japanese_text, events, analysis, promises = payload
+                return text, emotion, japanese_text, events, analysis, promises, ""
             if len(payload) == 5:
                 text, emotion, japanese_text, events, analysis = payload
-                return text, emotion, japanese_text, events, analysis, []
+                return text, emotion, japanese_text, events, analysis, [], ""
             if len(payload) == 4:
                 text, emotion, japanese_text, events = payload
-                return text, emotion, japanese_text, events, {}, []
+                return text, emotion, japanese_text, events, {}, [], ""
         raise ValueError("지원하지 않는 응답 형식입니다.")
     
     def run(self):
@@ -176,18 +180,18 @@ class AIWorker(QThread):
 
             if self.note_request and self.note_service and self.obsidian_manager:
                 print("[AI Worker] /note 모드")
-                response_text, emotion, japanese_text, events, analysis, promises = self._normalize_response_payload(
+                response_text, emotion, japanese_text, events, analysis, promises, thought = self._normalize_response_payload(
                     loop.run_until_complete(self._run_note_flow())
                 )
             elif self.diary_request and self.diary_service:
                 print("[AI Worker] /diary 모드")
-                response_text, emotion, japanese_text, events, analysis, promises = self._normalize_response_payload(
+                response_text, emotion, japanese_text, events, analysis, promises, thought = self._normalize_response_payload(
                     loop.run_until_complete(self._run_diary_flow())
                 )
             # 이미지가 있으면 멀티모달로 처리
             elif self.images:
                 print(f"[AI Worker] 이미지 {len(self.images)}개 포함 - 멀티모달 모드")
-                response_text, emotion, japanese_text, events, analysis, promises = self._normalize_response_payload(
+                response_text, emotion, japanese_text, events, analysis, promises, thought = self._normalize_response_payload(
                     loop.run_until_complete(
                         self.llm_client.send_message_with_images(
                             self.message,
@@ -201,7 +205,7 @@ class AIWorker(QThread):
                 )
             elif self.use_memory and hasattr(self.llm_client, 'send_message_with_memory'):
                 print(f"[AI Worker] 메모리 활용 모드")
-                response_text, emotion, japanese_text, events, analysis, promises = self._normalize_response_payload(
+                response_text, emotion, japanese_text, events, analysis, promises, thought = self._normalize_response_payload(
                     loop.run_until_complete(
                         self.llm_client.send_message_with_memory(
                             self.message,
@@ -214,7 +218,7 @@ class AIWorker(QThread):
                 )
             else:
                 print(f"[AI Worker] 일반 모드 (메모리 없음)")
-                response_text, emotion, japanese_text, events, analysis, promises = self._normalize_response_payload(
+                response_text, emotion, japanese_text, events, analysis, promises, thought = self._normalize_response_payload(
                     self.llm_client.send_message(self.message)
                 )
             
@@ -235,6 +239,7 @@ class AIWorker(QThread):
                 json.dumps(analysis, ensure_ascii=False),
                 token_usage_payload,
                 promises,
+                thought,
             )
         except Exception as e:
             print(f"[AI Worker] Error: {e}")
@@ -334,12 +339,12 @@ class AIWorker(QThread):
             completion_context += f"\n- {note_label}: {result.obsidian_cli_error}"
 
         if hasattr(self.llm_client, "generate_diary_completion_reply"):
-            text, emotion, japanese_text, events, analysis, promises = self._normalize_response_payload(
+            text, emotion, japanese_text, events, analysis, promises, thought = self._normalize_response_payload(
                 await self.llm_client.generate_diary_completion_reply(completion_context)
             )
             if required not in text:
                 text = f"{required}\n{text}".strip()
-            return text, emotion, japanese_text, events, analysis, promises
+            return text, emotion, japanese_text, events, analysis, promises, thought
 
         # 하위 호환 폴백 (기존 클라이언트 경로)
         return self._normalize_response_payload(self.llm_client.send_message(completion_context))
@@ -633,7 +638,7 @@ class WebBridge(QObject):
     """Python과 JavaScript 간 통신 브릿지"""
     
     # Python -> JavaScript 시그널
-    message_received = pyqtSignal(str, str)  # (텍스트, 감정)
+    message_received = pyqtSignal(str, str, str)  # (텍스트, 감정, 생각)
     expression_changed = pyqtSignal(str)     # 표정 변경
     lip_sync_update = pyqtSignal(float)      # 립싱크 업데이트 (mouth_value)
     mouth_pose_update = pyqtSignal(str)      # 모델 적응형 입모양 JSON
@@ -707,12 +712,13 @@ class WebBridge(QObject):
         self.lip_sync_start_time = None
         
         # 보류 중인 응답 (TTS 대기)
-        self.pending_response = None  # (text, emotion)
+        self.pending_response = None  # (text, emotion, thought)
         self.pending_token_usage_payload = ""
         self._tts_interrupted_for_ptt = False
         
         # 대화 추적
         self.conversation_buffer = []  # [(role, message, timestamp), ...]
+        self._ene_thought_context_buffer = []
         self._last_request_payload = None
         self._last_assistant_response = None
         self._is_rerolling = False
@@ -1176,9 +1182,10 @@ class WebBridge(QObject):
             print("[Bridge] Worker still running, waiting...")
             self.worker.wait()
 
+        message_with_context = self._with_ene_thought_context(message_with_time)
         self.worker = AIWorker(
             self.llm_client,
-            message_with_time,
+            message_with_context,
             images=images_data or [],
             memory_search_text=memory_search_text,
             latest_user_message=latest_user_message,
@@ -1275,7 +1282,7 @@ class WebBridge(QObject):
             self._emit_mood_changed(snapshot)
 
         if not diary_body:
-            self.message_received.emit("`/diary` 뒤에 작성할 내용을 함께 입력해 주세요.", "confused")
+            self.message_received.emit("`/diary` 뒤에 작성할 내용을 함께 입력해 주세요.", "confused", "")
             return True
 
         timestamp = self._now_timestamp()
@@ -1301,7 +1308,7 @@ class WebBridge(QObject):
             self._emit_mood_changed(snapshot)
 
         if not note_body:
-            self.message_received.emit("`/note` 뒤에 실행할 내용을 함께 입력해 주세요.", "confused")
+            self.message_received.emit("`/note` 뒤에 실행할 내용을 함께 입력해 주세요.", "confused", "")
             return True
 
         self._activate_obsidian_integration()
@@ -1727,7 +1734,7 @@ class WebBridge(QObject):
             self._emit_mood_changed(snapshot)
 
         if not obs_body:
-            self.message_received.emit("`/obs` 뒤에 작성할 내용을 함께 입력해 주세요.", "confused")
+            self.message_received.emit("`/obs` 뒤에 작성할 내용을 함께 입력해 주세요.", "confused", "")
             return True
 
         self._activate_obsidian_integration()
@@ -1742,27 +1749,27 @@ class WebBridge(QObject):
                 preview = text[:4000]
                 if len(text) > len(preview):
                     preview += "\n...(생략)"
-                self.message_received.emit(preview, "normal")
+                self.message_received.emit(preview, "normal", "")
             except Exception as e:
-                self.message_received.emit(f"파일 읽기 실패: {e}", "confused")
+                self.message_received.emit(f"파일 읽기 실패: {e}", "confused", "")
             return True
 
         if command == "append":
             result = self.obsidian_manager.append_file(payload["path"], payload["content"], create_if_missing=True)
             if result.ok:
                 self._invalidate_checked_files_context_cache()
-                self.message_received.emit(f"추가 완료: {result.path}", "smile")
+                self.message_received.emit(f"추가 완료: {result.path}", "smile", "")
             else:
-                self.message_received.emit(f"추가 실패: {result.message}", "confused")
+                self.message_received.emit(f"추가 실패: {result.message}", "confused", "")
             return True
 
         if command == "replace":
             result = self.obsidian_manager.replace_in_file(payload["path"], payload["before"], payload["after"])
             if result.ok:
                 self._invalidate_checked_files_context_cache()
-                self.message_received.emit(f"교체 완료: {result.path}", "smile")
+                self.message_received.emit(f"교체 완료: {result.path}", "smile", "")
             else:
-                self.message_received.emit(f"교체 실패: {result.message}", "confused")
+                self.message_received.emit(f"교체 실패: {result.message}", "confused", "")
             return True
 
         # summarize/ask: Obsidian 컨텍스트 포함하여 LLM 질의
@@ -1773,7 +1780,7 @@ class WebBridge(QObject):
             try:
                 target = self.obsidian_manager.read_file(payload["path"])
             except Exception as e:
-                self.message_received.emit(f"요약 대상 파일 읽기 실패: {e}", "confused")
+                self.message_received.emit(f"요약 대상 파일 읽기 실패: {e}", "confused", "")
                 return True
             if language == "en":
                 prompt = (
@@ -1979,7 +1986,7 @@ class WebBridge(QObject):
 
         if not self.llm_client:
             print("[Bridge] LLM client not initialized")
-            self.message_received.emit("AI가 초기화되지 않았어요.", "sad")
+            self.message_received.emit("AI가 초기화되지 않았어요.", "sad", "")
             return
 
         if self._handle_note_command(message):
@@ -2073,7 +2080,7 @@ class WebBridge(QObject):
 
         if not self.llm_client:
             print("[Bridge] LLM client not initialized")
-            self.message_received.emit("AI가 초기화되지 않았어요.", "sad")
+            self.message_received.emit("AI가 초기화되지 않았어요.", "sad", "")
             return
 
         try:
@@ -2229,6 +2236,10 @@ class WebBridge(QObject):
 
         # 교체 의미를 지키기 위해 최근 assistant 응답 하나를 버퍼에서 제거
         if self.conversation_buffer and self.conversation_buffer[-1][0] == "assistant":
+            discard_thoughts = getattr(self, "_discard_ene_thought_context_from_index", None)
+            if not callable(discard_thoughts):
+                discard_thoughts = lambda index: WebBridge._discard_ene_thought_context_from_index(self, index)
+            discard_thoughts(len(self.conversation_buffer) - 1)
             self.conversation_buffer.pop()
 
         payload = self._last_request_payload
@@ -2305,6 +2316,10 @@ class WebBridge(QObject):
 
         # 대화 버퍼의 최근 assistant/user 턴 제거
         if self.conversation_buffer and self.conversation_buffer[-1][0] == "assistant":
+            discard_thoughts = getattr(self, "_discard_ene_thought_context_from_index", None)
+            if not callable(discard_thoughts):
+                discard_thoughts = lambda index: WebBridge._discard_ene_thought_context_from_index(self, index)
+            discard_thoughts(len(self.conversation_buffer) - 1)
             self.conversation_buffer.pop()
         if self.conversation_buffer and self.conversation_buffer[-1][0] == "user":
             self.conversation_buffer.pop()
@@ -2423,10 +2438,18 @@ class WebBridge(QObject):
         analysis_payload: str = "",
         token_usage_payload: str = "",
         scheduled_promises: list | None = None,
+        thought: str = "",
     ):
         """AI 응답 준비 완료"""
         completed_promise_id = str(getattr(self, "_active_promise_id", "") or "").strip()
         text = self._sanitize_visible_response_text(text)
+        sanitize_thought = getattr(self, "_sanitize_visible_thought_text", None)
+        thought = sanitize_thought(thought) if callable(sanitize_thought) else str(thought or "").strip()
+        thoughts_enabled = getattr(self, "_are_ene_thoughts_enabled", None)
+        if not callable(thoughts_enabled):
+            thoughts_enabled = lambda: WebBridge._are_ene_thoughts_enabled(self)
+        if not thoughts_enabled():
+            thought = ""
         print(f"[Bridge] Response ready: {text[:50]}... [{emotion}]")
         self._last_assistant_response = {"text": text, "emotion": emotion}
         analysis = {}
@@ -2448,6 +2471,10 @@ class WebBridge(QObject):
         
         # 대화 버퍼에 응답 추가 (+ 타임스탬프)
         self._append_conversation("assistant", text)
+        remember_thought = getattr(self, "_remember_ene_thought_for_context", None)
+        if not callable(remember_thought):
+            remember_thought = lambda value: WebBridge._remember_ene_thought_for_context(self, value)
+        remember_thought(thought)
         self._refresh_llm_history_from_visible_conversation()
         
         # 일정 저장 (CalendarManager가 있으면)
@@ -2484,13 +2511,13 @@ class WebBridge(QObject):
         if japanese_text and self.enable_tts and self.tts_client and self.audio_player:
             print(f"[Bridge] TTS 활성화 - 텍스트 보류 중, TTS 생성 시작")
             # 텍스트를 보류하고 TTS 완료 대기
-            self.pending_response = (text, emotion)
+            self.pending_response = (text, emotion, thought)
             self.pending_token_usage_payload = resolved_token_usage_payload
             self._play_tts(japanese_text)
         else:
             # TTS 비활성화 또는 일본어 없음 - 즉시 텍스트 전송
             print(f"[Bridge] TTS 비활성화 - 텍스트 즉시 전송")
-            self.message_received.emit(text, emotion)
+            self.message_received.emit(text, emotion, thought)
             self.token_usage_ready.emit(resolved_token_usage_payload)
             if self._is_rerolling:
                 self._is_rerolling = False
@@ -2983,8 +3010,9 @@ class WebBridge(QObject):
 
     def _sanitize_visible_response_text(self, text: str) -> str:
         """표시 직전 응답에서 내부 메타데이터와 잔여 감정 태그를 제거한다."""
-        sanitized = str(text or "")
+        sanitized = strip_thinking_markers(text)
         sanitized = re.sub(r"\[analysis\]\s*.*?\s*\[/analysis\]\s*", "", sanitized, flags=re.IGNORECASE | re.DOTALL)
+        sanitized, _ = extract_thought_metadata(sanitized)
 
         key_pattern = "|".join(re.escape(key) for key in VISIBLE_RESPONSE_ANALYSIS_KEYS)
         leading_meta_pattern = rf"^\s*(?:(?:{key_pattern})\s*=\s*.*(?:\r?\n|$))+"
@@ -2993,6 +3021,219 @@ class WebBridge(QObject):
 
         sanitized = re.sub(r"\[(\w+)\]", "", sanitized)
         return sanitized.strip()
+
+    def _sanitize_visible_thought_text(self, thought: str) -> str:
+        """표시용 속마음에서 블록 태그와 과도한 공백을 제거한다."""
+        sanitized = strip_thinking_markers(thought)
+        _, extracted = extract_thought_metadata(sanitized)
+        if extracted:
+            sanitized = extracted
+        sanitized = re.sub(r"\[/?(?:thought|ene_thought|inner_thought|생각|속마음|에네\s*생각|에네생각)\]", "", sanitized, flags=re.IGNORECASE)
+        sanitized = re.sub(r"\s+", " ", sanitized)
+        return sanitized.strip()
+
+    def _are_ene_thoughts_enabled(self) -> bool:
+        """설정에서 에네 생각 표시 기능 활성화 여부를 확인한다."""
+        settings_source = getattr(self, "settings", None)
+        if isinstance(settings_source, dict):
+            return bool(settings_source.get("enable_ene_thoughts", True))
+        getter = getattr(settings_source, "get", None)
+        if callable(getter):
+            try:
+                return bool(getter("enable_ene_thoughts", True))
+            except TypeError:
+                pass
+        config = getattr(settings_source, "config", None)
+        if isinstance(config, dict):
+            return bool(config.get("enable_ene_thoughts", True))
+        return True
+
+    def _read_bool_setting(self, key: str, default: bool = False) -> bool:
+        """dict/Settings 객체 양쪽에서 bool 설정을 안전하게 읽는다."""
+        settings_source = getattr(self, "settings", None)
+        if isinstance(settings_source, dict):
+            return bool(settings_source.get(key, default))
+        getter = getattr(settings_source, "get", None)
+        if callable(getter):
+            try:
+                return bool(getter(key, default))
+            except TypeError:
+                pass
+        config = getattr(settings_source, "config", None)
+        if isinstance(config, dict):
+            return bool(config.get(key, default))
+        return bool(default)
+
+    def _read_int_setting(self, key: str, default: int = 0, minimum: int = 0, maximum: int = 50) -> int:
+        """dict/Settings 객체 양쪽에서 int 설정을 범위 안으로 읽는다."""
+        settings_source = getattr(self, "settings", None)
+        raw_value = default
+        if isinstance(settings_source, dict):
+            raw_value = settings_source.get(key, default)
+        else:
+            getter = getattr(settings_source, "get", None)
+            if callable(getter):
+                try:
+                    raw_value = getter(key, default)
+                except TypeError:
+                    raw_value = default
+            else:
+                config = getattr(settings_source, "config", None)
+                if isinstance(config, dict):
+                    raw_value = config.get(key, default)
+        try:
+            value = int(raw_value)
+        except (TypeError, ValueError):
+            value = default
+        return max(minimum, min(value, maximum))
+
+    def _is_ene_thought_context_enabled(self) -> bool:
+        """생각 표시와 컨텍스트 반영 설정이 모두 켜져 있는지 확인한다."""
+        thoughts_enabled = getattr(self, "_are_ene_thoughts_enabled", None)
+        if not callable(thoughts_enabled):
+            thoughts_enabled = lambda: WebBridge._are_ene_thoughts_enabled(self)
+        read_bool = getattr(self, "_read_bool_setting", None)
+        if not callable(read_bool):
+            read_bool = lambda key, default=False: WebBridge._read_bool_setting(self, key, default)
+        return thoughts_enabled() and read_bool(
+            "include_ene_thoughts_in_context",
+            False,
+        )
+
+    def _resolve_ene_thought_context_limit(self) -> int:
+        """다음 턴에 반영할 최근 에네 생각 개수를 읽는다."""
+        read_int = getattr(self, "_read_int_setting", None)
+        if not callable(read_int):
+            read_int = lambda key, default=0, minimum=0, maximum=50: WebBridge._read_int_setting(
+                self,
+                key,
+                default,
+                minimum,
+                maximum,
+            )
+        return read_int("ene_thought_context_limit", 2, minimum=0, maximum=20)
+
+    def _remember_ene_thought_for_context(self, thought: str) -> None:
+        """표시용 생각을 다음 턴 선택 컨텍스트용 메타 버퍼에 보관한다."""
+        thoughts_enabled = getattr(self, "_are_ene_thoughts_enabled", None)
+        if not callable(thoughts_enabled):
+            thoughts_enabled = lambda: WebBridge._are_ene_thoughts_enabled(self)
+        if not thoughts_enabled():
+            return
+        sanitize_thought = getattr(self, "_sanitize_visible_thought_text", None)
+        if not callable(sanitize_thought):
+            sanitize_thought = lambda value: WebBridge._sanitize_visible_thought_text(self, value)
+        sanitized = sanitize_thought(thought)
+        if not sanitized:
+            return
+        entries = getattr(self, "_ene_thought_context_buffer", None)
+        if not isinstance(entries, list):
+            entries = []
+            self._ene_thought_context_buffer = entries
+
+        conversation = getattr(self, "conversation_buffer", []) or []
+        conversation_index = len(conversation) - 1 if conversation else -1
+        timestamp = ""
+        if conversation_index >= 0:
+            item = conversation[conversation_index]
+            if item and len(item) >= 3:
+                timestamp = str(item[2] or "").strip()
+
+        entries.append(
+            {
+                "conversation_index": conversation_index,
+                "timestamp": timestamp,
+                "thought": sanitized,
+            }
+        )
+        del entries[:-50]
+
+    def _discard_ene_thought_context_from_index(self, conversation_index: int) -> None:
+        """리롤/수정으로 제거되는 assistant 턴 이후의 생각 메타를 버린다."""
+        entries = getattr(self, "_ene_thought_context_buffer", None)
+        if not isinstance(entries, list):
+            return
+        kept = []
+        for entry in entries:
+            try:
+                entry_index = int(entry.get("conversation_index", -1))
+            except Exception:
+                entry_index = -1
+            if entry_index < 0 or entry_index < conversation_index:
+                kept.append(entry)
+        self._ene_thought_context_buffer = kept
+
+    def _ene_thought_context_labels(self) -> dict[str, str]:
+        """프롬프트 언어에 맞는 에네 생각 컨텍스트 라벨을 반환한다."""
+        language = resolve_prompt_language(settings_source=getattr(self, "settings", None))
+        if language == "ko":
+            return {
+                "open": "[에네의 이전 내심 메모]",
+                "close": "[/에네의 이전 내심 메모]",
+                "latest": "직전 생각",
+                "previous": "이전 생각 {index}",
+            }
+        if language == "ja":
+            return {
+                "open": "[エネの以前の内心メモ]",
+                "close": "[/エネの以前の内心メモ]",
+                "latest": "直前の内心メモ",
+                "previous": "以前の内心メモ {index}",
+            }
+        return {
+            "open": "[ENE Previous Inner Notes]",
+            "close": "[/ENE Previous Inner Notes]",
+            "latest": "Previous thought",
+            "previous": "Earlier thought {index}",
+        }
+
+    def _build_ene_thought_context(self) -> str:
+        """설정이 켜져 있으면 최근 에네 생각을 다음 턴 내부 컨텍스트로 만든다."""
+        context_enabled = getattr(self, "_is_ene_thought_context_enabled", None)
+        if not callable(context_enabled):
+            context_enabled = lambda: WebBridge._is_ene_thought_context_enabled(self)
+        if not context_enabled():
+            return ""
+        resolve_limit = getattr(self, "_resolve_ene_thought_context_limit", None)
+        if not callable(resolve_limit):
+            resolve_limit = lambda: WebBridge._resolve_ene_thought_context_limit(self)
+        limit = resolve_limit()
+        if limit <= 0:
+            return ""
+        entries = getattr(self, "_ene_thought_context_buffer", []) or []
+        thoughts = []
+        for entry in entries:
+            text = ""
+            if isinstance(entry, dict):
+                text = str(entry.get("thought", "") or "").strip()
+            else:
+                text = str(entry or "").strip()
+            text = re.sub(r"\s+", " ", text)
+            if text:
+                thoughts.append(text)
+        if not thoughts:
+            return ""
+
+        label_builder = getattr(self, "_ene_thought_context_labels", None)
+        if not callable(label_builder):
+            label_builder = lambda: WebBridge._ene_thought_context_labels(self)
+        labels = label_builder()
+        lines = [labels["open"]]
+        for index, thought in enumerate(reversed(thoughts[-limit:]), start=1):
+            label = labels["latest"] if index == 1 else labels["previous"].format(index=index)
+            lines.append(f"- {label}: {thought}")
+        lines.append(labels["close"])
+        return "\n".join(lines)
+
+    def _with_ene_thought_context(self, message: str) -> str:
+        """현재 사용자 메시지 앞에 선택형 에네 생각 컨텍스트를 붙인다."""
+        build_context = getattr(self, "_build_ene_thought_context", None)
+        if not callable(build_context):
+            build_context = lambda: WebBridge._build_ene_thought_context(self)
+        context = build_context()
+        if not context:
+            return message
+        return f"{context}\n\n{message}"
 
     def _refresh_llm_history_from_visible_conversation(self):
         """현재 보이는 대화 버퍼만 남도록 LLM 히스토리를 재구성한다."""
@@ -3220,9 +3461,13 @@ class WebBridge(QObject):
         """TTS 대기 중 응답이 있으면 즉시 채팅으로 복구 전송한다."""
         if not self.pending_response:
             return
-        text, emotion = self.pending_response
+        if len(self.pending_response) >= 3:
+            text, emotion, thought = self.pending_response[:3]
+        else:
+            text, emotion = self.pending_response
+            thought = ""
         print(f"[Bridge] 보류된 응답 즉시 전송: {text[:50]}... [{emotion}]")
-        self.message_received.emit(text, emotion)
+        self.message_received.emit(text, emotion, thought)
         self.token_usage_ready.emit(self._resolve_token_usage_payload(self.pending_token_usage_payload))
         if self._is_rerolling:
             self._is_rerolling = False
@@ -3724,6 +3969,7 @@ class WebBridge(QObject):
             
             # 버퍼 클리어
             self.conversation_buffer = []
+            self._ene_thought_context_buffer = []
             
             print(f"[Bridge] 대화 요약 완료: {summary[:50]}...")
             if user_facts:
@@ -3751,7 +3997,7 @@ class WebBridge(QObject):
         if self._is_rerolling:
             self._is_rerolling = False
             self.reroll_state_changed.emit(False)
-        self.message_received.emit("음... 무슨 일이 있었나봐요.", "confused")
+        self.message_received.emit("음... 무슨 일이 있었나봐요.", "confused", "")
         drain_queue = getattr(self, "_drain_promise_queue_if_idle", None)
         if callable(drain_queue):
             drain_queue()
@@ -3775,6 +4021,7 @@ class WebBridge(QObject):
         
         # 대화 버퍼 클리어
         self.conversation_buffer = []
+        self._ene_thought_context_buffer = []
         self._last_request_payload = None
         self._last_assistant_response = None
         self._is_rerolling = False

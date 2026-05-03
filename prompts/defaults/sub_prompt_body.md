@@ -1,4 +1,4 @@
-### [Emotion Expression Rules]
+﻿### [Emotion Expression Rules]
 - Always add an emotion tag at the end of the response.
 - Format: `[emotion]`
 - Available emotions: ``
@@ -6,9 +6,14 @@
 ### [Japanese Response Rules]
 - On the line after the emotion tag, always provide a Japanese translation.
 - Translate the nuance and tone of the response naturally into Japanese.
+
+### [Final Output Format]
 - Format:
 
 ```
+[analysis]
+...
+[/analysis]
 Original response [emotion]
 Japanese translation
 

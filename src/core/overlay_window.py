@@ -104,6 +104,7 @@ class OverlayWindow(QWidget):
         self._sync_token_usage_bubble_visibility_to_js()
         self._sync_typing_effect_settings_to_js()
         self._sync_message_split_settings_to_js()
+        self._sync_thought_feature_settings_to_js()
         self._sync_chat_panel_height_to_js()
         print("Web page loaded")
 
@@ -272,6 +273,16 @@ class OverlayWindow(QWidget):
                 "no": i18n.t("chat.summary.confirm.no"),
                 "yes": i18n.t("chat.summary.confirm.yes"),
             },
+            "thoughts": {
+                "button": i18n.t("chat.thoughts.button"),
+                "buttonTitle": i18n.t("chat.thoughts.button.title"),
+                "panelTitle": i18n.t("chat.thoughts.panel.title"),
+                "close": i18n.t("chat.thoughts.close"),
+                "empty": i18n.t("chat.thoughts.empty"),
+                "show": i18n.t("chat.thoughts.show"),
+                "hide": i18n.t("chat.thoughts.hide"),
+                "speaker": i18n.t("chat.thoughts.speaker"),
+            },
         }
 
     def _resolve_typing_effect_payload(self, settings_override: dict | None = None) -> dict:
@@ -288,6 +299,12 @@ class OverlayWindow(QWidget):
         source = settings_override if isinstance(settings_override, dict) else self.settings.config
         return {
             "enabled": bool(source.get("message_split_enabled", False)),
+        }
+
+    def _resolve_thought_feature_payload(self, settings_override: dict | None = None) -> dict:
+        source = settings_override if isinstance(settings_override, dict) else self.settings.config
+        return {
+            "enabled": bool(source.get("enable_ene_thoughts", True)),
         }
 
     def _resolve_chat_panel_height_payload(self, settings_override: dict | None = None) -> dict:
@@ -341,6 +358,21 @@ class OverlayWindow(QWidget):
             window.eneMessageSplitConfig = {json.dumps(payload)};
             if (typeof window.setMessageSplitConfig === 'function') {{
                 window.setMessageSplitConfig(window.eneMessageSplitConfig);
+            }}
+        }})();
+        """
+        self.web_view.page().runJavaScript(js_code)
+
+    def _sync_thought_feature_settings_to_js(self, settings_override: dict | None = None) -> None:
+        if not self._page_loaded:
+            return
+
+        payload = self._resolve_thought_feature_payload(settings_override)
+        js_code = f"""
+        (function() {{
+            window.eneThoughtFeatureConfig = {json.dumps(payload)};
+            if (typeof window.setThoughtFeatureEnabled === 'function') {{
+                window.setThoughtFeatureEnabled(window.eneThoughtFeatureConfig.enabled);
             }}
         }})();
         """
@@ -441,6 +473,7 @@ class OverlayWindow(QWidget):
         self._sync_token_usage_bubble_visibility_to_js()
         self._sync_typing_effect_settings_to_js()
         self._sync_message_split_settings_to_js()
+        self._sync_thought_feature_settings_to_js()
         self._sync_chat_panel_height_to_js()
         if hasattr(self, "bridge") and self.bridge:
             self.bridge.refresh_away_settings()
@@ -489,6 +522,7 @@ class OverlayWindow(QWidget):
             self._sync_token_usage_bubble_visibility_to_js(new_settings)
             self._sync_typing_effect_settings_to_js(new_settings)
             self._sync_message_split_settings_to_js(new_settings)
+            self._sync_thought_feature_settings_to_js(new_settings)
             self._sync_chat_panel_height_to_js(new_settings)
 
     def restore_settings(self):
@@ -506,6 +540,7 @@ class OverlayWindow(QWidget):
         self._sync_token_usage_bubble_visibility_to_js()
         self._sync_typing_effect_settings_to_js()
         self._sync_message_split_settings_to_js()
+        self._sync_thought_feature_settings_to_js()
         self._sync_chat_panel_height_to_js()
 
     def toggle_drag_bar(self):

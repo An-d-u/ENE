@@ -617,6 +617,8 @@ class SettingsDialog(QDialog):
         self._embedded_memory_panel = None
         self._embedded_ene_profile_panel = None
         self.memory_search_recent_turns_spin: QSpinBox | None = None
+        self.include_ene_thoughts_in_context_check: ToggleSwitch | None = None
+        self.ene_thought_context_limit_spin: QSpinBox | None = None
         self.obsidian_checked_max_chars_per_file_spin: QSpinBox | None = None
         self.obsidian_checked_total_max_chars_spin: QSpinBox | None = None
         self._lazy_tab_hosts: dict[str, QWidget] = {}
@@ -4056,6 +4058,50 @@ class SettingsDialog(QDialog):
         self.message_split_check.toggled.connect(self._on_setting_changed)
         display_layout.addWidget(self.message_split_check)
 
+        self.enable_ene_thoughts_check = self._create_toggle(
+            "에네 생각 표시",
+            key="settings.behavior.display.ene_thoughts",
+        )
+        self.enable_ene_thoughts_check.toggled.connect(self._on_ene_thoughts_toggle)
+        display_layout.addWidget(self.enable_ene_thoughts_check)
+
+        self.include_ene_thoughts_in_context_check = self._create_toggle(
+            "에네 생각을 다음 대화에 반영",
+            key="settings.behavior.display.ene_thought_context",
+        )
+        self.include_ene_thoughts_in_context_check.toggled.connect(self._on_ene_thought_context_toggle)
+        display_layout.addWidget(self.include_ene_thoughts_in_context_check)
+
+        thought_context_layout = QFormLayout()
+        thought_context_layout.setContentsMargins(0, 0, 0, 0)
+        thought_context_layout.setSpacing(8)
+        self.ene_thought_context_limit_spin = QSpinBox()
+        self.ene_thought_context_limit_spin.setRange(0, 20)
+        self.ene_thought_context_limit_spin.setSuffix(
+            self._translated_text("settings.behavior.display.ene_thought_context_limit.suffix", " 개")
+        )
+        self._register_text_binding(
+            self.ene_thought_context_limit_spin.setSuffix,
+            "settings.behavior.display.ene_thought_context_limit.suffix",
+            " 개",
+        )
+        self.ene_thought_context_limit_spin.setSpecialValueText(
+            self._translated_text("settings.behavior.display.ene_thought_context_limit.zero", "포함 안 함")
+        )
+        self._register_text_binding(
+            self.ene_thought_context_limit_spin.setSpecialValueText,
+            "settings.behavior.display.ene_thought_context_limit.zero",
+            "포함 안 함",
+        )
+        self.ene_thought_context_limit_spin.valueChanged.connect(self._on_setting_changed)
+        self._add_form_row(
+            thought_context_layout,
+            "settings.behavior.display.ene_thought_context_limit.label",
+            "생각 반영 개수:",
+            self.ene_thought_context_limit_spin,
+        )
+        display_layout.addLayout(thought_context_layout)
+
         typing_speed_layout = QFormLayout()
         typing_speed_layout.setContentsMargins(0, 0, 0, 0)
         typing_speed_layout.setSpacing(8)
@@ -5747,6 +5793,25 @@ class SettingsDialog(QDialog):
         self._refresh_typing_effect_controls(bool(checked))
         self._on_setting_changed()
 
+    def _refresh_ene_thought_context_controls(self):
+        thoughts_enabled = bool(self.enable_ene_thoughts_check.isChecked())
+        context_enabled = bool(
+            self.include_ene_thoughts_in_context_check
+            and self.include_ene_thoughts_in_context_check.isChecked()
+        )
+        if self.include_ene_thoughts_in_context_check is not None:
+            self.include_ene_thoughts_in_context_check.setEnabled(thoughts_enabled)
+        if self.ene_thought_context_limit_spin is not None:
+            self.ene_thought_context_limit_spin.setEnabled(thoughts_enabled and context_enabled)
+
+    def _on_ene_thoughts_toggle(self, checked: bool):
+        self._refresh_ene_thought_context_controls()
+        self._on_setting_changed()
+
+    def _on_ene_thought_context_toggle(self, checked: bool):
+        self._refresh_ene_thought_context_controls()
+        self._on_setting_changed()
+
     def _on_note_context_toggle(self, checked: bool):
         self.note_recent_context_turns_spin.setEnabled(bool(checked))
         self._on_setting_changed()
@@ -5799,12 +5864,24 @@ class SettingsDialog(QDialog):
             self.message_split_check.setChecked(
                 self._original_settings.get("message_split_enabled", False)
             )
+            self.enable_ene_thoughts_check.setChecked(
+                self._original_settings.get("enable_ene_thoughts", True)
+            )
+            self.include_ene_thoughts_in_context_check.setChecked(
+                self._original_settings.get("include_ene_thoughts_in_context", False)
+            )
+            try:
+                thought_context_limit = int(self._original_settings.get("ene_thought_context_limit", 2) or 0)
+            except Exception:
+                thought_context_limit = 2
+            self.ene_thought_context_limit_spin.setValue(max(0, min(thought_context_limit, 20)))
             typing_effect_speed = str(self._original_settings.get("typing_effect_speed", "normal")).strip().lower()
             if typing_effect_speed not in {"fast", "normal", "slow"}:
                 typing_effect_speed = "normal"
             typing_speed_index = self.typing_effect_speed_combo.findData(typing_effect_speed)
             self.typing_effect_speed_combo.setCurrentIndex(typing_speed_index if typing_speed_index >= 0 else 1)
             self._refresh_typing_effect_controls(bool(self.typing_effect_check.isChecked()))
+            self._refresh_ene_thought_context_controls()
             self.show_manual_summary_button_check.setChecked(
                 self._original_settings.get("show_manual_summary_button", True)
             )
@@ -6075,6 +6152,9 @@ class SettingsDialog(QDialog):
             "typing_effect_enabled": self.typing_effect_check.isChecked(),
             "typing_effect_speed": str(self.typing_effect_speed_combo.currentData() or "normal"),
             "message_split_enabled": self.message_split_check.isChecked(),
+            "enable_ene_thoughts": self.enable_ene_thoughts_check.isChecked(),
+            "include_ene_thoughts_in_context": self.include_ene_thoughts_in_context_check.isChecked(),
+            "ene_thought_context_limit": self.ene_thought_context_limit_spin.value(),
             "show_manual_summary_button": self.show_manual_summary_button_check.isChecked(),
             "show_obsidian_note_button": self.show_obsidian_note_button_check.isChecked(),
             "show_mood_toggle_button": self.show_mood_toggle_button_check.isChecked(),

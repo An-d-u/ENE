@@ -115,9 +115,228 @@ def test_on_response_ready_sanitizes_leaked_analysis_lines_before_emitting():
     WebBridge._on_response_ready(dummy, leaked_text, "smile", "", [])
 
     assert dummy.message_received.emitted == [
-        ("좋은 저녁이에요. 오늘 하루는 어떻게 보내셨나요?", "smile")
+        ("좋은 저녁이에요. 오늘 하루는 어떻게 보내셨나요?", "smile", "")
     ]
     assert dummy.appended == ("assistant", "좋은 저녁이에요. 오늘 하루는 어떻게 보내셨나요?")
+
+
+def test_on_response_ready_sanitizes_leaked_thought_block_alias_before_emitting():
+    dummy = type("BridgeDummy", (), {})()
+    dummy._last_assistant_response = None
+    dummy.mood_manager = None
+    dummy._emit_mood_changed = lambda snapshot: None
+    dummy._append_conversation = lambda role, text: setattr(dummy, "appended", (role, text))
+    dummy.enable_tts = False
+    dummy.tts_client = None
+    dummy.audio_player = None
+    dummy.pending_response = None
+    dummy.pending_token_usage_payload = ""
+    dummy.message_received = _DummySignal()
+    dummy.token_usage_ready = _DummySignal()
+    dummy._is_rerolling = False
+    dummy.reroll_state_changed = _DummySignal()
+    dummy._check_auto_summarize = lambda: None
+    dummy._resolve_token_usage_payload = lambda payload="": payload or "{}"
+    dummy._sanitize_visible_response_text = lambda text: WebBridge._sanitize_visible_response_text(dummy, text)
+    dummy._refresh_llm_history_from_visible_conversation = lambda: None
+    dummy._remember_tracked_promise_ids = lambda ids=None: None
+    dummy._collect_promise_ids = lambda items=None: []
+    dummy._clear_active_promise_tracking = lambda promise_id="": None
+    dummy._mark_promise_completed = lambda promise_id="": None
+
+    leaked_text = (
+        "[생각]\n"
+        "마스터가 조금 답답해하는 것 같다. 먼저 안심시켜야겠다.\n"
+        "[/생각]\n"
+        "네, 그 부분부터 다시 잡아볼게요. [smile]"
+    )
+
+    WebBridge._on_response_ready(dummy, leaked_text, "smile", "", [])
+
+    assert dummy.message_received.emitted == [
+        ("네, 그 부분부터 다시 잡아볼게요.", "smile", "")
+    ]
+    assert dummy.appended == ("assistant", "네, 그 부분부터 다시 잡아볼게요.")
+
+
+def test_on_response_ready_emits_thought_without_adding_it_to_context():
+    dummy = type("BridgeDummy", (), {})()
+    dummy._last_assistant_response = None
+    dummy.mood_manager = None
+    dummy._emit_mood_changed = lambda snapshot: None
+    dummy._append_conversation = lambda role, text: setattr(dummy, "appended", (role, text))
+    dummy.enable_tts = False
+    dummy.tts_client = None
+    dummy.audio_player = None
+    dummy.pending_response = None
+    dummy.pending_token_usage_payload = ""
+    dummy.message_received = _DummySignal()
+    dummy.token_usage_ready = _DummySignal()
+    dummy._is_rerolling = False
+    dummy.reroll_state_changed = _DummySignal()
+    dummy._check_auto_summarize = lambda: None
+    dummy._resolve_token_usage_payload = lambda payload="": payload or "{}"
+    dummy._sanitize_visible_response_text = lambda text: WebBridge._sanitize_visible_response_text(dummy, text)
+    dummy._refresh_llm_history_from_visible_conversation = lambda: None
+    dummy._remember_tracked_promise_ids = lambda ids=None: None
+    dummy._collect_promise_ids = lambda items=None: []
+    dummy._clear_active_promise_tracking = lambda promise_id="": None
+    dummy._mark_promise_completed = lambda promise_id="": None
+
+    WebBridge._on_response_ready(
+        dummy,
+        "오늘은 짧게 쉬어도 괜찮아요.",
+        "smile",
+        "",
+        [],
+        "",
+        "",
+        [],
+        "무리시키고 싶지는 않다. 그래도 곁에 있어야겠다.",
+    )
+
+    assert dummy.message_received.emitted == [
+        (
+            "오늘은 짧게 쉬어도 괜찮아요.",
+            "smile",
+            "무리시키고 싶지는 않다. 그래도 곁에 있어야겠다.",
+        )
+    ]
+    assert dummy.appended == ("assistant", "오늘은 짧게 쉬어도 괜찮아요.")
+
+
+def test_on_response_ready_remembers_thought_for_optional_context_without_visible_leak():
+    dummy = type("BridgeDummy", (), {})()
+    dummy.settings = {
+        "enable_ene_thoughts": True,
+        "include_ene_thoughts_in_context": True,
+        "ene_thought_context_limit": 2,
+    }
+    dummy._last_assistant_response = None
+    dummy.mood_manager = None
+    dummy._emit_mood_changed = lambda snapshot: None
+    dummy.conversation_buffer = [("user", "조금 피곤해", "2026-03-24 10:00")]
+    dummy._append_conversation = lambda role, text: dummy.conversation_buffer.append((role, text, "2026-03-24 10:01"))
+    dummy.enable_tts = False
+    dummy.tts_client = None
+    dummy.audio_player = None
+    dummy.pending_response = None
+    dummy.pending_token_usage_payload = ""
+    dummy.message_received = _DummySignal()
+    dummy.token_usage_ready = _DummySignal()
+    dummy._is_rerolling = False
+    dummy.reroll_state_changed = _DummySignal()
+    dummy._check_auto_summarize = lambda: None
+    dummy._resolve_token_usage_payload = lambda payload="": payload or "{}"
+    dummy._sanitize_visible_response_text = lambda text: WebBridge._sanitize_visible_response_text(dummy, text)
+    dummy._sanitize_visible_thought_text = lambda thought: WebBridge._sanitize_visible_thought_text(dummy, thought)
+    dummy._refresh_llm_history_from_visible_conversation = lambda: None
+    dummy._remember_tracked_promise_ids = lambda ids=None: None
+    dummy._collect_promise_ids = lambda items=None: []
+    dummy._clear_active_promise_tracking = lambda promise_id="": None
+    dummy._mark_promise_completed = lambda promise_id="": None
+
+    WebBridge._on_response_ready(
+        dummy,
+        "오늘은 짧게 쉬어도 괜찮아요.",
+        "smile",
+        "",
+        [],
+        "",
+        "",
+        [],
+        "무리시키고 싶지는 않다. 그래도 곁에 있어야겠다.",
+    )
+
+    assert dummy.message_received.emitted == [
+        (
+            "오늘은 짧게 쉬어도 괜찮아요.",
+            "smile",
+            "무리시키고 싶지는 않다. 그래도 곁에 있어야겠다.",
+        )
+    ]
+    assert dummy.conversation_buffer[-1] == ("assistant", "오늘은 짧게 쉬어도 괜찮아요.", "2026-03-24 10:01")
+    assert dummy._ene_thought_context_buffer == [
+        {
+            "conversation_index": 1,
+            "timestamp": "2026-03-24 10:01",
+            "thought": "무리시키고 싶지는 않다. 그래도 곁에 있어야겠다.",
+        }
+    ]
+
+
+def test_build_ene_thought_context_uses_recent_limit_and_requires_both_settings():
+    dummy = type("BridgeDummy", (), {})()
+    dummy.settings = {
+        "enable_ene_thoughts": True,
+        "include_ene_thoughts_in_context": True,
+        "ene_thought_context_limit": 2,
+        "ui_language": "ko",
+    }
+    dummy._ene_thought_context_buffer = [
+        {"thought": "첫 생각"},
+        {"thought": "두 번째 생각"},
+        {"thought": "세 번째 생각"},
+    ]
+
+    context = WebBridge._build_ene_thought_context(dummy)
+
+    assert "첫 생각" not in context
+    assert "[에네의 이전 내심 메모]" in context
+    assert "- 직전 생각: 세 번째 생각" in context
+    assert "- 이전 생각 2: 두 번째 생각" in context
+    assert "[/에네의 이전 내심 메모]" in context
+
+    dummy.settings["include_ene_thoughts_in_context"] = False
+    assert WebBridge._build_ene_thought_context(dummy) == ""
+
+    dummy.settings["include_ene_thoughts_in_context"] = True
+    dummy.settings["enable_ene_thoughts"] = False
+    assert WebBridge._build_ene_thought_context(dummy) == ""
+
+
+def test_on_response_ready_hides_thought_when_setting_is_disabled():
+    dummy = type("BridgeDummy", (), {})()
+    dummy.settings = {"enable_ene_thoughts": False}
+    dummy._last_assistant_response = None
+    dummy.mood_manager = None
+    dummy._emit_mood_changed = lambda snapshot: None
+    dummy._append_conversation = lambda role, text: setattr(dummy, "appended", (role, text))
+    dummy.enable_tts = False
+    dummy.tts_client = None
+    dummy.audio_player = None
+    dummy.pending_response = None
+    dummy.pending_token_usage_payload = ""
+    dummy.message_received = _DummySignal()
+    dummy.token_usage_ready = _DummySignal()
+    dummy._is_rerolling = False
+    dummy.reroll_state_changed = _DummySignal()
+    dummy._check_auto_summarize = lambda: None
+    dummy._resolve_token_usage_payload = lambda payload="": payload or "{}"
+    dummy._sanitize_visible_response_text = lambda text: WebBridge._sanitize_visible_response_text(dummy, text)
+    dummy._sanitize_visible_thought_text = lambda thought: WebBridge._sanitize_visible_thought_text(dummy, thought)
+    dummy._refresh_llm_history_from_visible_conversation = lambda: None
+    dummy._remember_tracked_promise_ids = lambda ids=None: None
+    dummy._collect_promise_ids = lambda items=None: []
+    dummy._clear_active_promise_tracking = lambda promise_id="": None
+    dummy._mark_promise_completed = lambda promise_id="": None
+
+    WebBridge._on_response_ready(
+        dummy,
+        "생각은 숨기고 답변만 보여줄게요.",
+        "normal",
+        "",
+        [],
+        "",
+        "",
+        [],
+        "이건 설정이 꺼져 있으면 보여주면 안 된다.",
+    )
+
+    assert dummy.message_received.emitted == [
+        ("생각은 숨기고 답변만 보여줄게요.", "normal", "")
+    ]
+    assert dummy.appended == ("assistant", "생각은 숨기고 답변만 보여줄게요.")
 
 
 def test_send_to_ai_captures_pending_head_pat_count_and_resets_it():

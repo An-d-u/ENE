@@ -12,6 +12,7 @@ import requests
 from ..conversation_format import prepend_message_time
 from .prompt import build_runtime_system_prompt, get_available_emotions
 from .prompt_language import resolve_prompt_language
+from .response_cleanup import extract_thought_metadata, strip_thinking_markers
 from .summary_prompt import build_markdown_document_prompt, build_summary_prompt, build_summary_prompt_from_text
 
 
@@ -296,6 +297,10 @@ class _CommonMixin:
         cleaned = "\n".join(lines[consumed:]).strip()
         return cleaned, analysis
 
+    def _extract_thought_block(self, response_text: str) -> Tuple[str, str]:
+        """응답 본문에서 에네의 짧은 속마음 블록을 분리한다."""
+        return extract_thought_metadata(response_text)
+
     def _extract_japanese_lines(self, text: str) -> Tuple[str, str | None]:
         """본문 어디에 있든 일본어 전용 줄을 분리한다."""
         visible_lines = []
@@ -351,7 +356,9 @@ class _CommonMixin:
         return self._parse_response(response_text)
 
     def _parse_response(self, response_text: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
+        response_text = strip_thinking_markers(response_text)
         response_text, analysis = self._extract_analysis_block(response_text)
+        response_text, thought = self._extract_thought_block(response_text)
 
         events = []
         event_pattern = r"\[이벤트:([^\]]+)\]"
@@ -397,7 +404,7 @@ class _CommonMixin:
                 break
 
         clean_text, japanese_text = self._extract_japanese_lines(clean_text)
-        return clean_text, emotion, japanese_text, events, analysis, promises
+        return clean_text, emotion, japanese_text, events, analysis, promises, thought
 
     def _parse_summary_response(self, response_text: str) -> tuple[str, list[str], list[str], dict]:
         try:
@@ -658,15 +665,15 @@ class OpenAICompatibleClient(_CommonMixin):
                 parts.append({"type": "image_url", "image_url": {"url": data_url}})
 
         raw_response_text = self._request_openai(parts)
-        clean_text, emotion, japanese_text, events, analysis, promises = self._parse_response(raw_response_text)
+        clean_text, emotion, japanese_text, events, analysis, promises, thought = self._parse_response(raw_response_text)
         self._remember_turn(parts, raw_response_text)
-        return clean_text, emotion, japanese_text, events, analysis, promises
+        return clean_text, emotion, japanese_text, events, analysis, promises, thought
 
     def send_message(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         raw_response_text = self._request_openai(message)
-        clean_text, emotion, japanese_text, events, analysis, promises = self._parse_response(raw_response_text)
+        clean_text, emotion, japanese_text, events, analysis, promises, thought = self._parse_response(raw_response_text)
         self._remember_turn(message, raw_response_text)
-        return clean_text, emotion, japanese_text, events, analysis, promises
+        return clean_text, emotion, japanese_text, events, analysis, promises, thought
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
         prompt = self._build_summary_prompt_for_messages(messages)
@@ -850,16 +857,16 @@ class OpenAIResponseAPIClient(_CommonMixin):
                 parts.append({"type": "image_url", "image_url": {"url": data_url}})
 
         raw_response_text = self._request_responses(parts)
-        clean_text, emotion, japanese_text, events, analysis, promises = self._parse_response(raw_response_text)
+        clean_text, emotion, japanese_text, events, analysis, promises, thought = self._parse_response(raw_response_text)
         self._remember_turn(parts, raw_response_text)
-        return clean_text, emotion, japanese_text, events, analysis, promises
+        return clean_text, emotion, japanese_text, events, analysis, promises, thought
 
     def send_message(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         raw_response_text = self._request_responses(message)
-        clean_text, emotion, japanese_text, events, analysis, promises = self._parse_response(raw_response_text)
+        clean_text, emotion, japanese_text, events, analysis, promises, thought = self._parse_response(raw_response_text)
         self._history.append({"role": "user", "content": message})
         self._history.append({"role": "assistant", "content": raw_response_text})
-        return clean_text, emotion, japanese_text, events, analysis, promises
+        return clean_text, emotion, japanese_text, events, analysis, promises, thought
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
         prompt = self._build_summary_prompt_for_messages(messages)
@@ -1102,15 +1109,15 @@ class GoogleCloudClient(_CommonMixin):
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         user_parts = self._to_parts(enhanced, images_data)
         raw_response_text = self._request_google(enhanced, images_data=images_data)
-        clean_text, emotion, japanese_text, events, analysis, promises = self._parse_response(raw_response_text)
+        clean_text, emotion, japanese_text, events, analysis, promises, thought = self._parse_response(raw_response_text)
         self._remember_turn(user_parts, raw_response_text)
-        return clean_text, emotion, japanese_text, events, analysis, promises
+        return clean_text, emotion, japanese_text, events, analysis, promises, thought
 
     def send_message(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         raw_response_text = self._request_google(message)
-        clean_text, emotion, japanese_text, events, analysis, promises = self._parse_response(raw_response_text)
+        clean_text, emotion, japanese_text, events, analysis, promises, thought = self._parse_response(raw_response_text)
         self._remember_turn(message, raw_response_text)
-        return clean_text, emotion, japanese_text, events, analysis, promises
+        return clean_text, emotion, japanese_text, events, analysis, promises, thought
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
         prompt = self._build_summary_prompt_for_messages(messages)
@@ -1251,9 +1258,9 @@ class CohereClient(_CommonMixin):
 
     def send_message(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         raw_response_text = self._request_cohere(message)
-        clean_text, emotion, japanese_text, events, analysis, promises = self._parse_response(raw_response_text)
+        clean_text, emotion, japanese_text, events, analysis, promises, thought = self._parse_response(raw_response_text)
         self._remember_turn(message, raw_response_text)
-        return clean_text, emotion, japanese_text, events, analysis, promises
+        return clean_text, emotion, japanese_text, events, analysis, promises, thought
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
         prompt = self._build_summary_prompt_for_messages(messages)
@@ -1392,15 +1399,15 @@ class AnthropicClient(_CommonMixin):
                 }
             )
         raw_response_text = self._request_anthropic(blocks)
-        clean_text, emotion, japanese_text, events, analysis, promises = self._parse_response(raw_response_text)
+        clean_text, emotion, japanese_text, events, analysis, promises, thought = self._parse_response(raw_response_text)
         self._remember_turn(blocks, raw_response_text)
-        return clean_text, emotion, japanese_text, events, analysis, promises
+        return clean_text, emotion, japanese_text, events, analysis, promises, thought
 
     def send_message(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         raw_response_text = self._request_anthropic([{"type": "text", "text": message}])
-        clean_text, emotion, japanese_text, events, analysis, promises = self._parse_response(raw_response_text)
+        clean_text, emotion, japanese_text, events, analysis, promises, thought = self._parse_response(raw_response_text)
         self._remember_turn(message, raw_response_text)
-        return clean_text, emotion, japanese_text, events, analysis, promises
+        return clean_text, emotion, japanese_text, events, analysis, promises, thought
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
         prompt = self._build_summary_prompt_for_messages(messages)
@@ -1543,7 +1550,7 @@ class OllamaClient(_CommonMixin):
         )
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         raw_response_text = self._request_ollama(enhanced, images_data=images_data)
-        clean_text, emotion, japanese_text, events, analysis, promises = self._parse_response(raw_response_text)
+        clean_text, emotion, japanese_text, events, analysis, promises, thought = self._parse_response(raw_response_text)
         user_content = {"content": enhanced}
         images = []
         for img in images_data or []:
@@ -1554,13 +1561,13 @@ class OllamaClient(_CommonMixin):
         if images:
             user_content["images"] = images
         self._remember_turn(user_content, raw_response_text)
-        return clean_text, emotion, japanese_text, events, analysis, promises
+        return clean_text, emotion, japanese_text, events, analysis, promises, thought
 
     def send_message(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         raw_response_text = self._request_ollama(message)
-        clean_text, emotion, japanese_text, events, analysis, promises = self._parse_response(raw_response_text)
+        clean_text, emotion, japanese_text, events, analysis, promises, thought = self._parse_response(raw_response_text)
         self._remember_turn(message, raw_response_text)
-        return clean_text, emotion, japanese_text, events, analysis, promises
+        return clean_text, emotion, japanese_text, events, analysis, promises, thought
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
         prompt = self._build_summary_prompt_for_messages(messages)

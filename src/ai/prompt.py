@@ -3,6 +3,7 @@ ENE AI 시스템 프롬프트 로더
 """
 
 from .prompt_config import load_runtime_prompt_config
+from .thought_prompt import build_thought_system_appendix
 
 
 def get_system_prompt(include_sub_prompt: bool = True, settings_source: dict | None = None) -> str:
@@ -33,9 +34,14 @@ def build_runtime_system_prompt(
     config = load_runtime_prompt_config(settings_source=settings_source)
     system_prompt = get_system_prompt(include_sub_prompt=include_sub_prompt, settings_source=settings_source)
     analysis_system_appendix = str(config.get("analysis_system_appendix", "") or "").strip()
+    parts = [system_prompt]
     if include_analysis_appendix and include_sub_prompt and analysis_system_appendix:
-        return f"{system_prompt}\n\n{analysis_system_appendix}"
-    return system_prompt
+        parts.append(analysis_system_appendix)
+    if include_sub_prompt:
+        thought_system_appendix = build_thought_system_appendix(settings_source=settings_source).strip()
+        if thought_system_appendix:
+            parts.append(thought_system_appendix)
+    return "\n\n".join(part for part in parts if part)
 
 
 def get_available_emotions() -> list[str]:

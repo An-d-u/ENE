@@ -1,4 +1,4 @@
-import requests
+﻿import requests
 
 import pytest
 
@@ -86,7 +86,7 @@ flags=greeting
 こんばんは。
 """.strip()
 
-    text, emotion, japanese_text, events, analysis, promises = client._parse_response(response_text)
+    text, emotion, japanese_text, events, analysis, promises, thought = client._parse_response(response_text)
 
     assert text == "좋은 저녁이에요. 오늘도 고생 많으셨어요."
     assert emotion == "smile"
@@ -95,6 +95,7 @@ flags=greeting
     assert analysis["user_emotion"] == "calm, tired"
     assert analysis["flags"] == "greeting"
     assert promises == []
+    assert thought == ""
 
 
 def test_openai_send_message_keeps_raw_assistant_output_in_history(monkeypatch):
@@ -119,7 +120,7 @@ confidence=0.8
         endpoint="https://api.openai.com/v1/responses",
     )
 
-    text, emotion, japanese_text, events, analysis, promises = client.send_message("테스트")
+    text, emotion, japanese_text, events, analysis, promises, thought = client.send_message("테스트")
     history = client.get_conversation_history()
 
     assert text == "좋은 저녁이에요."
@@ -128,5 +129,6 @@ confidence=0.8
     assert events == []
     assert analysis["user_intent"] == "greeting"
     assert promises == []
+    assert thought == ""
     assert history[-1]["role"] == "assistant"
     assert history[-1]["content"] == raw_output

@@ -1,4 +1,4 @@
-import sys
+﻿import sys
 import types
 import json
 
@@ -112,6 +112,7 @@ def test_ai_worker_normalize_response_payload_supports_promises():
         [],
         {"user_intent": "plan"},
         [{"title": "쉬는 시간"}],
+        "",
     )
 
 

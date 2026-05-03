@@ -1,4 +1,4 @@
-import pytest
+﻿import pytest
 
 from src.ai.http_llm_clients import (
     AnthropicClient,
@@ -157,7 +157,7 @@ def test_provider_send_message_keeps_raw_assistant_output_in_history(monkeypatch
     client = factory()
     monkeypatch.setattr(client, request_method, lambda *args, **kwargs: RAW_OUTPUT)
 
-    text, emotion, japanese_text, events, analysis, promises = client.send_message("테스트")
+    text, emotion, japanese_text, events, analysis, promises, thought = client.send_message("테스트")
     history = client.get_conversation_history()
 
     assert text == "좋은 저녁이에요."
@@ -173,5 +173,68 @@ def test_provider_send_message_keeps_raw_assistant_output_in_history(monkeypatch
             "source_excerpt": "10분만 쉬고 다시 할게",
         }
     ]
+    assert thought == ""
     assert history[-1]["role"] == "assistant"
     assert history[-1]["content"] == RAW_OUTPUT
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [
+        _build_openai_compatible_client,
+        _build_google_client,
+        _build_cohere_client,
+        _build_anthropic_client,
+        _build_ollama_client,
+    ],
+    ids=["openai_compatible", "google_cloud", "cohere", "anthropic", "ollama"],
+)
+def test_provider_parse_response_removes_thinking_tags_before_extracting_tts_text(factory):
+    client = factory()
+    response_text = """
+<think>
+내부 추론은 사용자에게 보이면 안 된다.
+</think>
+좋은 저녁이에요. [smile]
+こんばんは。
+""".strip()
+
+    text, emotion, japanese_text, events, analysis, promises, thought = client._parse_response(response_text)
+
+    assert text == "좋은 저녁이에요."
+    assert emotion == "smile"
+    assert japanese_text == "こんばんは。"
+    assert events == []
+    assert analysis == {}
+    assert promises == []
+    assert thought == ""
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [
+        _build_openai_compatible_client,
+        _build_google_client,
+        _build_cohere_client,
+        _build_anthropic_client,
+        _build_ollama_client,
+    ],
+    ids=["openai_compatible", "google_cloud", "cohere", "anthropic", "ollama"],
+)
+def test_provider_parse_response_removes_leading_orphan_thinking_close_tag(factory):
+    client = factory()
+    response_text = """
+</think>
+좋은 저녁이에요. [smile]
+こんばんは。
+""".strip()
+
+    text, emotion, japanese_text, events, analysis, promises, thought = client._parse_response(response_text)
+
+    assert text == "좋은 저녁이에요."
+    assert emotion == "smile"
+    assert japanese_text == "こんばんは。"
+    assert events == []
+    assert analysis == {}
+    assert promises == []
+    assert thought == ""
