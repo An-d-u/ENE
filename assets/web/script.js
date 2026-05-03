@@ -112,6 +112,16 @@ const DEFAULT_UI_STRINGS = {
         body: 'Would you like to start a manual summary?',
         no: 'No',
         yes: 'Yes'
+    },
+    thoughts: {
+        button: 'Thoughts',
+        buttonTitle: 'Show ENE thoughts',
+        panelTitle: 'Thoughts',
+        close: 'Close',
+        empty: 'No thoughts to show yet.',
+        show: 'Show thought',
+        hide: 'Hide thought',
+        speaker: 'ENE'
     }
 };
 const ATTACHMENT_DELETE_CONFIRM_BODY = '지운 사진은 컨텍스트에 포함되지 않습니다.\n정말 지우시겠습니까?';
@@ -2222,12 +2232,14 @@ function createLucideIcon(name) {
         paperclip: '<svg class="lucide-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551" /></svg>',
         pencil: '<svg class="lucide-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" /><path d="m15 5 4 4" /></svg>',
         'rotate-ccw': '<svg class="lucide-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg>',
-        settings: '<svg class="lucide-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" /><circle cx="12" cy="12" r="3" /></svg>'
+        settings: '<svg class="lucide-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" /><circle cx="12" cy="12" r="3" /></svg>',
+        brain: '<svg class="lucide-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5a3 3 0 1 0-5.993.2A4 4 0 0 0 4 8.5a4 4 0 0 0 1.5 3.122A4 4 0 0 0 8 18.5a4 4 0 0 0 4-4.5Z" /><path d="M12 5a3 3 0 1 1 5.993.2A4 4 0 0 1 20 8.5a4 4 0 0 1-1.5 3.122A4 4 0 0 1 16 18.5a4 4 0 0 1-4-4.5Z" /><path d="M15 13a4.5 4.5 0 0 1-3-1 4.5 4.5 0 0 1-3 1" /><path d="M17.599 6.5A3 3 0 0 0 15 5" /><path d="M6.401 6.5A3 3 0 0 1 9 5" /></svg>'
     };
     return icons[name] || '';
 }
 
 let floatingActionsOpen = false;
+let thoughtFeatureEnabled = true;
 
 function setFloatingActionsOpen(open) {
     floatingActionsOpen = Boolean(open);
@@ -2253,6 +2265,7 @@ function mergeUiStrings(config) {
     const summaryConfirm = source.summaryConfirm || {};
     const promiseNotice = source.promiseNotice || {};
     const promisePanel = source.promisePanel || {};
+    const thoughts = source.thoughts || {};
 
     return {
         loading: source.loading || DEFAULT_UI_STRINGS.loading,
@@ -2323,6 +2336,16 @@ function mergeUiStrings(config) {
             body: summaryConfirm.body || DEFAULT_UI_STRINGS.summaryConfirm.body,
             no: summaryConfirm.no || DEFAULT_UI_STRINGS.summaryConfirm.no,
             yes: summaryConfirm.yes || DEFAULT_UI_STRINGS.summaryConfirm.yes
+        },
+        thoughts: {
+            button: thoughts.button || DEFAULT_UI_STRINGS.thoughts.button,
+            buttonTitle: thoughts.buttonTitle || DEFAULT_UI_STRINGS.thoughts.buttonTitle,
+            panelTitle: thoughts.panelTitle || DEFAULT_UI_STRINGS.thoughts.panelTitle,
+            close: thoughts.close || DEFAULT_UI_STRINGS.thoughts.close,
+            empty: thoughts.empty || DEFAULT_UI_STRINGS.thoughts.empty,
+            show: thoughts.show || DEFAULT_UI_STRINGS.thoughts.show,
+            hide: thoughts.hide || DEFAULT_UI_STRINGS.thoughts.hide,
+            speaker: thoughts.speaker || DEFAULT_UI_STRINGS.thoughts.speaker
         }
     };
 }
@@ -2384,6 +2407,7 @@ function applyUiStringsToStaticNodes() {
     if (summaryConfirmBody) summaryConfirmBody.textContent = currentUiStrings.summaryConfirm.body;
     if (summaryConfirmNoButton) summaryConfirmNoButton.textContent = currentUiStrings.summaryConfirm.no;
     if (summaryConfirmYesButton) summaryConfirmYesButton.textContent = currentUiStrings.summaryConfirm.yes;
+    updateMessageThoughtButtons();
 }
 
 window.applyENEUiStrings = function applyENEUiStrings(config) {
@@ -2835,34 +2859,33 @@ function updateRerollButtonState() {
     const oldEditButtons = chatMessages.querySelectorAll('.message-edit-btn');
     oldEditButtons.forEach(btn => btn.remove());
 
-    if (!rerollButtonVisibleBySetting || !hasAssistantMessage || !lastAssistantMessageEl) {
-        return;
+    if (rerollButtonVisibleBySetting && hasAssistantMessage && lastAssistantMessageEl) {
+        const btn = document.createElement('button');
+        btn.className = 'message-reroll-btn';
+        btn.type = 'button';
+        btn.innerHTML = createLucideIcon('rotate-ccw');
+        btn.title = '최근 ENE 답변 다시 생성';
+        btn.setAttribute('aria-label', '최근 ENE 답변 다시 생성');
+        btn.disabled = isRequestPending || !window.pyBridge || !window.pyBridge.reroll_last_response;
+        btn.addEventListener('click', () => {
+            if (!window.pyBridge || !window.pyBridge.reroll_last_response) return;
+            if (isRequestPending) return;
+            isRequestPending = true;
+            showLoadingIndicator(true);
+            updateRerollButtonState();
+            window.pyBridge.reroll_last_response();
+        });
+        const assistantRail = ensureMessageMetaRail(
+            lastAssistantMessageEl,
+            'assistant',
+            lastAssistantMessageEl.dataset.messageTimestamp,
+        );
+        if (assistantRail) {
+            assistantRail.appendChild(btn);
+        }
     }
 
-    const btn = document.createElement('button');
-    btn.className = 'message-reroll-btn';
-    btn.type = 'button';
-    btn.innerHTML = createLucideIcon('rotate-ccw');
-    btn.title = '최근 ENE 답변 다시 생성';
-    btn.setAttribute('aria-label', '최근 ENE 답변 다시 생성');
-    btn.disabled = isRequestPending || !window.pyBridge || !window.pyBridge.reroll_last_response;
-    btn.addEventListener('click', () => {
-        if (!window.pyBridge || !window.pyBridge.reroll_last_response) return;
-        if (isRequestPending) return;
-        isRequestPending = true;
-        showLoadingIndicator(true);
-        updateRerollButtonState();
-        window.pyBridge.reroll_last_response();
-    });
-    const assistantRail = ensureMessageMetaRail(
-        lastAssistantMessageEl,
-        'assistant',
-        lastAssistantMessageEl.dataset.messageTimestamp,
-    );
-    if (!assistantRail) {
-        return;
-    }
-    assistantRail.appendChild(btn);
+    updateMessageThoughtButtons();
 
     if (!recentEditButtonVisibleBySetting || !hasUserMessage || !lastUserMessageEl) {
         return;
@@ -3256,6 +3279,91 @@ function getMessageLogicalText(messageDiv) {
     return normalizeLogicalMessageText(messageDiv.dataset.logicalMessageText || '');
 }
 
+function normalizeMessageThoughtText(thought) {
+    return String(thought || '').replace(/\r\n?/g, '\n').trim();
+}
+
+function setMessageThoughtText(messageDiv, thought) {
+    if (!messageDiv) return '';
+    const normalizedThought = normalizeMessageThoughtText(thought);
+    messageDiv.dataset.messageThought = normalizedThought;
+    return normalizedThought;
+}
+
+function getMessageThoughtText(messageDiv) {
+    if (!messageDiv) return '';
+    return normalizeMessageThoughtText(messageDiv.dataset.messageThought || '');
+}
+
+function getMessageThoughtBody(messageDiv) {
+    return messageDiv ? messageDiv.querySelector('.message-thought-body') : null;
+}
+
+function toggleMessageThought(messageDiv) {
+    const body = getMessageThoughtBody(messageDiv);
+    if (!body) {
+        return;
+    }
+    const shouldExpand = body.hidden;
+    body.hidden = !shouldExpand;
+    const button = messageDiv.querySelector('.message-thought-btn');
+    if (button) {
+        button.classList.toggle('is-active', shouldExpand);
+        button.setAttribute('aria-expanded', String(shouldExpand));
+        button.title = shouldExpand ? currentUiStrings.thoughts.hide : currentUiStrings.thoughts.show;
+        button.setAttribute('aria-label', shouldExpand ? currentUiStrings.thoughts.hide : currentUiStrings.thoughts.show);
+    }
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function createMessageThoughtButton(messageDiv) {
+    const normalizedThought = getMessageThoughtText(messageDiv);
+    if (!thoughtFeatureEnabled || !normalizedThought) {
+        return null;
+    }
+
+    const body = getMessageThoughtBody(messageDiv);
+    const isExpanded = Boolean(body && !body.hidden);
+    const btn = document.createElement('button');
+    btn.className = 'message-thought-btn';
+    btn.type = 'button';
+    btn.innerHTML = createLucideIcon('brain');
+    btn.title = isExpanded ? currentUiStrings.thoughts.hide : currentUiStrings.thoughts.show;
+    btn.setAttribute('aria-label', isExpanded ? currentUiStrings.thoughts.hide : currentUiStrings.thoughts.show);
+    btn.setAttribute('aria-expanded', String(isExpanded));
+    btn.classList.toggle('is-active', isExpanded);
+    btn.addEventListener('click', () => toggleMessageThought(messageDiv));
+    return btn;
+}
+
+function updateMessageThoughtButtons() {
+    if (!chatMessages) {
+        return;
+    }
+
+    chatMessages.querySelectorAll('.message-thought-btn').forEach((button) => button.remove());
+    if (!thoughtFeatureEnabled) {
+        return;
+    }
+
+    chatMessages.querySelectorAll('.message.assistant').forEach((messageDiv) => {
+        const thoughtButton = createMessageThoughtButton(messageDiv);
+        if (!thoughtButton) {
+            return;
+        }
+        const assistantRail = ensureMessageMetaRail(
+            messageDiv,
+            'assistant',
+            messageDiv.dataset.messageTimestamp,
+        );
+        if (!assistantRail) {
+            return;
+        }
+        const rerollAnchor = assistantRail.querySelector('.message-reroll-btn');
+        assistantRail.insertBefore(thoughtButton, rerollAnchor);
+    });
+}
+
 function getMessageBubbleStack(messageDiv) {
     if (!messageDiv) return null;
     let stack = messageDiv.querySelector('.message-bubble-stack');
@@ -3426,13 +3534,49 @@ function createTextMessageBubble() {
     return { bubble, textSpan };
 }
 
-function renderMessageBubbleSegments(messageDiv, text, { attachments = null, immediate = false } = {}) {
+function createMessageThoughtDisclosure(thought) {
+    const normalizedThought = normalizeMessageThoughtText(thought);
+    if (!thoughtFeatureEnabled || !normalizedThought) {
+        return null;
+    }
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'message-thought';
+
+    const body = document.createElement('div');
+    body.className = 'message-thought-body';
+    body.textContent = normalizedThought;
+    body.hidden = true;
+
+    wrapper.appendChild(body);
+    return wrapper;
+}
+
+function renderMessageThoughtDisclosure(messageDiv, stack, thought) {
+    if (!messageDiv || !stack || !messageDiv.classList.contains('assistant')) {
+        return;
+    }
+
+    const previousDisclosure = stack.querySelector('.message-thought');
+    if (previousDisclosure) {
+        previousDisclosure.remove();
+    }
+    const thoughtDisclosure = createMessageThoughtDisclosure(thought);
+    if (thoughtDisclosure) {
+        stack.appendChild(thoughtDisclosure);
+    }
+}
+
+function renderMessageBubbleSegments(messageDiv, text, { attachments = null, immediate = false, thought = null } = {}) {
     if (!messageDiv) {
         return Promise.resolve();
     }
 
     const stack = getMessageBubbleStack(messageDiv);
     const normalizedText = setMessageLogicalText(messageDiv, text);
+    const resolvedThought = thought === null
+        ? getMessageThoughtText(messageDiv)
+        : setMessageThoughtText(messageDiv, thought);
     const resolvedAttachments = attachments === null
         ? getMessageVisualAttachments(messageDiv)
         : normalizeMessageAttachments(attachments);
@@ -3468,7 +3612,11 @@ function renderMessageBubbleSegments(messageDiv, text, { attachments = null, imm
     });
 
     chatMessages.scrollTop = chatMessages.scrollHeight;
-    return animationQueue;
+    return animationQueue.then(() => {
+        renderMessageThoughtDisclosure(messageDiv, stack, resolvedThought);
+        updateMessageThoughtButtons();
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    });
 }
 
 // 인라인 수정 UI를 닫고 표시 상태를 정리한다.
@@ -3671,8 +3819,17 @@ window.setMessageSplitConfig = function (config) {
     };
 };
 
+window.setThoughtFeatureEnabled = function (enabled) {
+    thoughtFeatureEnabled = enabled !== false;
+    window.eneThoughtFeatureConfig = {
+        enabled: thoughtFeatureEnabled
+    };
+    document.body.classList.toggle('thought-feature-disabled', !thoughtFeatureEnabled);
+    updateMessageThoughtButtons();
+};
+
 // 리롤/수정 응답 수신 시 마지막 assistant 버블 내용을 교체한다.
-function replaceLastAssistantMessage(text, timestamp = new Date()) {
+function replaceLastAssistantMessage(text, timestamp = new Date(), thought = '') {
     if (!lastAssistantMessageEl || !chatMessages.contains(lastAssistantMessageEl)) {
         syncLastAssistantMessageRef();
     }
@@ -3687,7 +3844,8 @@ function replaceLastAssistantMessage(text, timestamp = new Date()) {
     }
     renderMessageBubbleSegments(lastAssistantMessageEl, text, {
         attachments: getMessageVisualAttachments(lastAssistantMessageEl),
-        immediate: false
+        immediate: false,
+        thought
     });
     return true;
 }
@@ -3704,6 +3862,7 @@ function addMessage(text, role, attachments = [], timestamp = new Date(), option
         ? options.messageId.trim()
         : `message-${createAttachmentId()}`;
     setMessageLogicalText(messageDiv, text);
+    setMessageThoughtText(messageDiv, role === 'assistant' ? (options.thought || '') : '');
     messageDiv._messageAttachments = normalizeMessageAttachments(attachments);
     const bubbleStack = getMessageBubbleStack(messageDiv);
 
@@ -3730,7 +3889,8 @@ function addMessage(text, role, attachments = [], timestamp = new Date(), option
     }
     renderMessageBubbleSegments(messageDiv, text, {
         attachments: messageDiv._messageAttachments,
-        immediate: false
+        immediate: false,
+        thought: role === 'assistant' ? (options.thought || '') : ''
     });
     updateRerollButtonState();
     return messageDiv;
@@ -4218,18 +4378,18 @@ if (typeof QWebChannel !== 'undefined') {
         if (window.pyBridge.request_promise_items) {
             window.pyBridge.request_promise_items();
         }
-        window.pyBridge.message_received.connect(function (text, emotion) {
+        window.pyBridge.message_received.connect(function (text, emotion, thought) {
             console.log(`Received from Python: "${text}" [${emotion}]`);
             showLoadingIndicator(false);
             isRequestPending = false;
             const receivedAt = new Date();
             if (shouldReplaceNextAssistant) {
-                const replaced = replaceLastAssistantMessage(text, receivedAt);
+                const replaced = replaceLastAssistantMessage(text, receivedAt, thought || '');
                 if (!replaced) {
-                    addMessage(text, 'assistant', [], receivedAt);
+                    addMessage(text, 'assistant', [], receivedAt, { thought: thought || '' });
                 }
             } else {
-                addMessage(text, 'assistant', [], receivedAt);
+                addMessage(text, 'assistant', [], receivedAt, { thought: thought || '' });
             }
             shouldReplaceNextAssistant = false;
             updateRerollButtonState();

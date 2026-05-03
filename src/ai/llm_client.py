@@ -8,6 +8,7 @@ from google import genai
 from ..conversation_format import prepend_message_time
 from .prompt import build_runtime_system_prompt, get_available_emotions
 from .prompt_language import resolve_prompt_language
+from .response_cleanup import extract_thought_metadata, strip_thinking_markers
 from .summary_prompt import build_markdown_document_prompt, build_summary_prompt
 
 ANALYSIS_KEYS = {
@@ -369,7 +370,7 @@ class GeminiClient:
             print(f"[LLM] 멀티모달 응답: {response_text[:100]}...")
             
             # 응답에서 텍스트, 감정, 일정 분리 (기존 메서드 활용)
-            clean_text, emotion, japanese_text, events, analysis, promises = self._parse_response(response_text)
+            clean_text, emotion, japanese_text, events, analysis, promises, thought = self._parse_response(response_text)
             
             # 일본어가 있으면 로깅
             if japanese_text:
@@ -379,14 +380,14 @@ class GeminiClient:
             if events:
                 print(f"[LLM] {len(events)}개 일정 추출됨")
             
-            return clean_text, emotion, japanese_text, events, analysis, promises
+            return clean_text, emotion, japanese_text, events, analysis, promises, thought
 
             
         except Exception as e:
             print(f"[LLM] 멀티모달 처리 실패: {e}")
             import traceback
             traceback.print_exc()
-            return f"이미지를 처리하는 중에 문제가 생겼어요... ({str(e)[:50]})", "confused", None, [], {}
+            return f"이미지를 처리하는 중에 문제가 생겼어요... ({str(e)[:50]})", "confused", None, [], {}, [], ""
 
     
     async def _build_memory_context(
@@ -792,7 +793,7 @@ class GeminiClient:
             print(f"[LLM] Received response: {response_text[:50]}...")
             
             # 응답에서 텍스트와 감정 분리
-            text, emotion, japanese_text, events, analysis, promises = self._parse_response(response_text)
+            text, emotion, japanese_text, events, analysis, promises, thought = self._parse_response(response_text)
             
             # 일본어가 있으면 로깅
             if japanese_text:
@@ -802,7 +803,7 @@ class GeminiClient:
             if events:
                 print(f"[LLM] {len(events)}개 일정 추출됨")
             
-            return text, emotion, japanese_text, events, analysis, promises
+            return text, emotion, japanese_text, events, analysis, promises, thought
             
         except Exception as e:
             print(f"[LLM] Error: {e}")
@@ -1091,6 +1092,10 @@ class GeminiClient:
         cleaned = "\n".join(lines[consumed:]).strip()
         return cleaned, analysis
 
+    def _extract_thought_block(self, response_text: str) -> tuple[str, str]:
+        """응답 본문에서 에네의 짧은 속마음 블록을 분리한다."""
+        return extract_thought_metadata(response_text)
+
     def _extract_japanese_lines(self, text: str) -> tuple[str, str | None]:
         """본문 어디에 있든 일본어 전용 줄을 분리해 표시용 텍스트에서 제거한다."""
         visible_lines = []
@@ -1122,7 +1127,9 @@ class GeminiClient:
         Returns:
             (텍스트, 감정, 일본어, 이벤트 리스트, analysis 메타, 약속 리스트) 튜플
         """
+        response_text = strip_thinking_markers(response_text)
         response_text, analysis = self._extract_analysis_block(response_text)
+        response_text, thought = self._extract_thought_block(response_text)
 
         # [이벤트] 태그 추출 및 제거
         events = []
@@ -1177,7 +1184,7 @@ class GeminiClient:
         # 일본어 추출 및 제거
         clean_text, japanese_text = self._extract_japanese_lines(clean_text)
 
-        return clean_text, emotion, japanese_text, events, analysis, promises
+        return clean_text, emotion, japanese_text, events, analysis, promises, thought
     
     def _is_japanese(self, text: str) -> bool:
         """일본어 텍스트인지 확인"""

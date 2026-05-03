@@ -200,6 +200,49 @@ body.is-chat-resizing {
     color: var(--ene-chat-assistant-bubble-text);
 }
 
+.message-thought {
+    max-width: 100%;
+    width: fit-content;
+}
+
+.message-thought-body {
+    margin-top: 6px;
+    max-width: min(100%, 360px);
+    padding: 9px 11px;
+    border-left: 2px solid rgba(255, 255, 255, 0.28);
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.16);
+    color: rgba(255, 255, 255, 0.72);
+    font-size: 12px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.message-thought-btn {
+    border: none;
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.72);
+    width: 16px;
+    height: 16px;
+    line-height: 1;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    transition: color 0.2s ease, transform 0.2s ease, background 0.2s ease;
+}
+
+.message-thought-btn:hover:not(:disabled),
+.message-thought-btn:focus-visible,
+.message-thought-btn.is-active {
+    background: rgba(255, 255, 255, 0.14);
+    color: rgba(255, 255, 255, 0.95);
+    outline: none;
+    transform: translateY(-1px);
+}
+
 .message-bubble.is-typing::after {
     content: '';
     display: inline-block;
@@ -364,6 +407,10 @@ body.is-chat-resizing {
 #chat-input:focus {
     background: var(--ene-chat-input-focus-bg);
     border-color: var(--ene-accent-border);
+}
+
+body.thought-feature-disabled .message-thought {
+    display: none;
 }
 
 #send-button {

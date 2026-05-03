@@ -1,4 +1,4 @@
-import shutil
+﻿import shutil
 from pathlib import Path
 
 from PyQt6.QtWidgets import QMessageBox
@@ -167,6 +167,130 @@ def test_default_prompt_templates_produce_korean_japanese_rules(tmp_path, monkey
     assert "[감정 표현 규칙]" in prompt_with_sub
     assert "[일본어 응답 규칙]" in prompt_with_sub
     assert "normal, smile" in prompt_with_sub
+
+
+def test_default_sub_prompt_body_does_not_embed_thought_rules():
+    from src.ai import prompt_config
+
+    default_body = prompt_config.DEFAULT_SUB_PROMPT_BODY_PATH.read_text(encoding="utf-8-sig")
+
+    assert "[ene_thought]" not in default_body
+    assert "[/ene_thought]" not in default_body
+    assert "[thought]" not in default_body
+    assert "[/thought]" not in default_body
+    assert "생각 출력 규칙" not in default_body
+
+
+def test_runtime_prompt_adds_korean_thought_rules_from_code_when_enabled(tmp_path, monkeypatch):
+    from src.ai import prompt as prompt_module
+    from src.ai import prompt_config
+
+    default_dir = tmp_path / "prompts" / "defaults"
+    local_dir = tmp_path / "prompts"
+    payload = _sample_prompt_payload()
+    _write_prompt_markdown_files(default_dir, payload)
+
+    monkeypatch.setattr(prompt_config, "PROMPT_CONFIG_DIR", local_dir)
+    monkeypatch.setattr(prompt_config, "DEFAULT_PROMPT_CONFIG_DIR", default_dir)
+    monkeypatch.setattr(prompt_config, "BASE_SYSTEM_PROMPT_PATH", local_dir / "base_system_prompt.md")
+    monkeypatch.setattr(prompt_config, "SUB_PROMPT_BODY_PATH", local_dir / "sub_prompt_body.md")
+    monkeypatch.setattr(prompt_config, "ANALYSIS_SYSTEM_APPENDIX_PATH", local_dir / "analysis_system_appendix.md")
+    monkeypatch.setattr(prompt_config, "EMOTION_GUIDES_PATH", local_dir / "emotion_guides.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_BASE_SYSTEM_PROMPT_PATH", default_dir / "base_system_prompt.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_SUB_PROMPT_BODY_PATH", default_dir / "sub_prompt_body.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH", default_dir / "analysis_system_appendix.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_EMOTION_GUIDES_PATH", default_dir / "emotion_guides.md")
+    monkeypatch.setattr(prompt_config, "get_runtime_emotions", lambda **kwargs: ["normal", "smile"])
+
+    runtime_prompt = prompt_module.build_runtime_system_prompt(
+        include_sub_prompt=True,
+        include_analysis_appendix=True,
+        settings_source={"ui_language": "ko", "enable_ene_thoughts": True},
+    )
+
+    assert "### [생각 출력 규칙]" in runtime_prompt
+    assert "[ene_thought]" in runtime_prompt
+    assert "[/ene_thought]" in runtime_prompt
+    assert "[thought]" not in runtime_prompt
+    assert "[/thought]" not in runtime_prompt
+    assert "단계별 추론" in runtime_prompt
+    assert "[/ene_thought]\n한국어 답변 [emotion]\n일본어 번역" in runtime_prompt
+    assert "생각 블록을 닫은 뒤" in runtime_prompt
+    assert runtime_prompt.index("### [분석 규칙]") < runtime_prompt.index("### [생각 출력 규칙]")
+
+
+def test_runtime_prompt_omits_thought_rules_when_setting_is_disabled(tmp_path, monkeypatch):
+    from src.ai import prompt as prompt_module
+    from src.ai import prompt_config
+
+    default_dir = tmp_path / "prompts" / "defaults"
+    local_dir = tmp_path / "prompts"
+    payload = _sample_prompt_payload()
+    _write_prompt_markdown_files(default_dir, payload)
+
+    monkeypatch.setattr(prompt_config, "PROMPT_CONFIG_DIR", local_dir)
+    monkeypatch.setattr(prompt_config, "DEFAULT_PROMPT_CONFIG_DIR", default_dir)
+    monkeypatch.setattr(prompt_config, "BASE_SYSTEM_PROMPT_PATH", local_dir / "base_system_prompt.md")
+    monkeypatch.setattr(prompt_config, "SUB_PROMPT_BODY_PATH", local_dir / "sub_prompt_body.md")
+    monkeypatch.setattr(prompt_config, "ANALYSIS_SYSTEM_APPENDIX_PATH", local_dir / "analysis_system_appendix.md")
+    monkeypatch.setattr(prompt_config, "EMOTION_GUIDES_PATH", local_dir / "emotion_guides.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_BASE_SYSTEM_PROMPT_PATH", default_dir / "base_system_prompt.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_SUB_PROMPT_BODY_PATH", default_dir / "sub_prompt_body.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH", default_dir / "analysis_system_appendix.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_EMOTION_GUIDES_PATH", default_dir / "emotion_guides.md")
+    monkeypatch.setattr(prompt_config, "get_runtime_emotions", lambda **kwargs: ["normal", "smile"])
+
+    runtime_prompt = prompt_module.build_runtime_system_prompt(
+        include_sub_prompt=True,
+        include_analysis_appendix=True,
+        settings_source={"ui_language": "ko", "enable_ene_thoughts": False},
+    )
+
+    assert "### [생각 출력 규칙]" not in runtime_prompt
+    assert "[ene_thought]" not in runtime_prompt
+    assert "[/ene_thought]" not in runtime_prompt
+    assert "[thought]" not in runtime_prompt
+    assert "[/thought]" not in runtime_prompt
+
+
+def test_runtime_thought_rules_are_localized(tmp_path, monkeypatch):
+    from src.ai import prompt as prompt_module
+    from src.ai import prompt_config
+
+    default_dir = tmp_path / "prompts" / "defaults"
+    local_dir = tmp_path / "prompts"
+    payload = _sample_prompt_payload()
+    _write_prompt_markdown_files(default_dir, payload)
+
+    monkeypatch.setattr(prompt_config, "PROMPT_CONFIG_DIR", local_dir)
+    monkeypatch.setattr(prompt_config, "DEFAULT_PROMPT_CONFIG_DIR", default_dir)
+    monkeypatch.setattr(prompt_config, "BASE_SYSTEM_PROMPT_PATH", local_dir / "base_system_prompt.md")
+    monkeypatch.setattr(prompt_config, "SUB_PROMPT_BODY_PATH", local_dir / "sub_prompt_body.md")
+    monkeypatch.setattr(prompt_config, "ANALYSIS_SYSTEM_APPENDIX_PATH", local_dir / "analysis_system_appendix.md")
+    monkeypatch.setattr(prompt_config, "EMOTION_GUIDES_PATH", local_dir / "emotion_guides.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_BASE_SYSTEM_PROMPT_PATH", default_dir / "base_system_prompt.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_SUB_PROMPT_BODY_PATH", default_dir / "sub_prompt_body.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH", default_dir / "analysis_system_appendix.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_EMOTION_GUIDES_PATH", default_dir / "emotion_guides.md")
+    monkeypatch.setattr(prompt_config, "get_runtime_emotions", lambda **kwargs: ["normal", "smile"])
+
+    english_prompt = prompt_module.build_runtime_system_prompt(
+        include_sub_prompt=True,
+        include_analysis_appendix=True,
+        settings_source={"ui_language": "en", "enable_ene_thoughts": True},
+    )
+    japanese_prompt = prompt_module.build_runtime_system_prompt(
+        include_sub_prompt=True,
+        include_analysis_appendix=True,
+        settings_source={"ui_language": "ja", "enable_ene_thoughts": True},
+    )
+
+    assert "### [ENE Inner Note Rules]" in english_prompt
+    assert "[ene_thought]" in english_prompt
+    assert "step-by-step reasoning" in english_prompt
+    assert "### [エネ内心メモ出力ルール]" in japanese_prompt
+    assert "[ene_thought]" in japanese_prompt
+    assert "段階的な推論" in japanese_prompt
 
 
 def test_get_system_prompt_reads_from_markdown_files(tmp_path, monkeypatch):

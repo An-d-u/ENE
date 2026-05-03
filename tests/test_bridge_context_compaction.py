@@ -501,6 +501,21 @@ def test_on_response_ready_rebuilds_llm_history_from_visible_conversation_only()
     ]
 
 
+def test_refresh_llm_history_rebuilds_visible_history_even_when_thoughts_enabled():
+    dummy = type("BridgeDummy", (), {})()
+    dummy.llm_client = _DummyLLMClient()
+    dummy.llm_client.preserve_native_chat_history_for_thoughts = True
+    dummy.settings = {"enable_ene_thoughts": True}
+    dummy.conversation_buffer = [
+        ("user", "순수 사용자 메시지", "2026-03-24 10:00"),
+        ("assistant", "실제 응답 본문", "2026-03-24 10:01"),
+    ]
+
+    WebBridge._refresh_llm_history_from_visible_conversation(dummy)
+
+    assert dummy.llm_client.rebuild_calls == [dummy.conversation_buffer]
+
+
 def test_gemini_rebuild_context_from_conversation_prefixes_message_time():
     captured = {}
     dummy = type("ClientDummy", (), {})()

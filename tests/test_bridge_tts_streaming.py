@@ -1,4 +1,4 @@
-import json
+﻿import json
 
 from PyQt6.QtCore import QCoreApplication
 
@@ -24,12 +24,12 @@ def test_bridge_tts_error_restores_pending_response():
 
     received = []
     reroll_states = []
-    bridge.message_received.connect(lambda text, emotion: received.append((text, emotion)))
+    bridge.message_received.connect(lambda text, emotion, thought: received.append((text, emotion, thought)))
     bridge.reroll_state_changed.connect(lambda state: reroll_states.append(bool(state)))
 
     bridge._on_tts_error("mock error")
 
-    assert received == [("복구할 응답", "normal")]
+    assert received == [("복구할 응답", "normal", "")]
     assert bridge.pending_response is None
     assert bridge._is_rerolling is False
     assert reroll_states and reroll_states[-1] is False
@@ -81,7 +81,7 @@ def test_streaming_path_flushes_message_only_when_playback_really_starts():
 
     bridge = WebBridge()
     bridge.audio_player = DummyAudioPlayer()
-    bridge.pending_response = ("실시간 응답", "happy")
+    bridge.pending_response = ("실시간 응답", "happy", "곧 보여줄 생각")
     bridge.pending_token_usage_payload = json.dumps(
         {"input_tokens": 3, "output_tokens": 5, "total_tokens": 8},
         ensure_ascii=False,
@@ -90,7 +90,7 @@ def test_streaming_path_flushes_message_only_when_playback_really_starts():
 
     received = []
     token_payloads = []
-    bridge.message_received.connect(lambda text, emotion: received.append((text, emotion)))
+    bridge.message_received.connect(lambda text, emotion, thought: received.append((text, emotion, thought)))
     bridge.token_usage_ready.connect(lambda payload: token_payloads.append(json.loads(payload)))
 
     bridge._on_tts_stream_format(1000, 1, 2)
@@ -107,7 +107,7 @@ def test_streaming_path_flushes_message_only_when_playback_really_starts():
     bridge._on_tts_stream_chunk(b"", [])
 
     assert bridge.audio_player.chunks == [b"\x01" * 160]
-    assert received == [("실시간 응답", "happy")]
+    assert received == [("실시간 응답", "happy", "곧 보여줄 생각")]
     assert token_payloads == [{"input_tokens": 3, "output_tokens": 5, "total_tokens": 8}]
     assert bridge.pending_response is None
 
@@ -168,14 +168,14 @@ def test_streaming_path_disabled_viseme_lipsync_starts_without_viseme_ready():
     bridge._get_stream_sync_elapsed_ms = lambda: 80
 
     received = []
-    bridge.message_received.connect(lambda text, emotion: received.append((text, emotion)))
+    bridge.message_received.connect(lambda text, emotion, thought: received.append((text, emotion, thought)))
 
     bridge._on_tts_stream_chunk(b"\x03" * 160, [0.4])
 
     assert bridge._sync_started is True
     assert bridge.audio_player.started == (1000, 1, 2)
     assert bridge.audio_player.chunks == [b"\x03" * 160]
-    assert received == [("비시메 응답", "normal")]
+    assert received == [("비시메 응답", "normal", "")]
 
 
 def test_interrupt_tts_for_ptt_resets_sync_buffer_state():

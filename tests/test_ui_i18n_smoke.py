@@ -692,6 +692,45 @@ def test_settings_dialog_exposes_message_split_toggle_and_saves_value():
         dialog.close()
 
 
+def test_settings_dialog_exposes_ene_thought_context_controls_and_saves_values():
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        dialog = SettingsDialog(
+            {
+                "ui_language": "ko",
+                "llm_provider": "gemini",
+                "tts_provider": "gpt_sovits_http",
+                "enable_tts": True,
+                "enable_ene_thoughts": True,
+                "include_ene_thoughts_in_context": False,
+                "ene_thought_context_limit": 2,
+            }
+        )
+
+        assert dialog.enable_ene_thoughts_check.isChecked() is True
+        assert dialog.include_ene_thoughts_in_context_check.isEnabled() is True
+        assert dialog.include_ene_thoughts_in_context_check.isChecked() is False
+        assert dialog.ene_thought_context_limit_spin.value() == 2
+        assert dialog.ene_thought_context_limit_spin.isEnabled() is False
+
+        dialog.include_ene_thoughts_in_context_check.setChecked(True)
+        dialog.ene_thought_context_limit_spin.setValue(5)
+        current_values = dialog._get_current_values()
+        assert current_values["include_ene_thoughts_in_context"] is True
+        assert current_values["ene_thought_context_limit"] == 5
+
+        dialog.enable_ene_thoughts_check.setChecked(False)
+        assert dialog.include_ene_thoughts_in_context_check.isEnabled() is False
+        assert dialog.ene_thought_context_limit_spin.isEnabled() is False
+
+        dialog.close()
+
+
 def test_settings_dialog_language_preview_restores_original_runtime_on_cancel():
     _get_qapp()
     locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"

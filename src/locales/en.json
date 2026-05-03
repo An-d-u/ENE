@@ -236,6 +236,14 @@
   "chat.actions.mood.title": "Mood status",
   "chat.actions.promises": "Scheduled",
   "chat.actions.promises.title": "Scheduled conversation promises",
+  "chat.thoughts.button": "Thoughts",
+  "chat.thoughts.button.title": "Show ENE thoughts",
+  "chat.thoughts.panel.title": "Thoughts",
+  "chat.thoughts.close": "Close",
+  "chat.thoughts.empty": "No thoughts to show yet.",
+  "chat.thoughts.show": "Show thought",
+  "chat.thoughts.hide": "Hide thought",
+  "chat.thoughts.speaker": "ENE",
   "chat.promise.notice.saved": "Conversation promise saved.",
   "chat.promise.panel.title": "Scheduled",
   "chat.promise.panel.close": "Close",
@@ -797,6 +805,13 @@
         "token_usage": "Show conversation token usage",
         "typing_effect": "Enable typing effect",
         "message_split": "Split long messages into bubbles",
+        "ene_thoughts": "Show ENE thoughts",
+        "ene_thought_context": "Reflect ENE thoughts in the next reply",
+        "ene_thought_context_limit": {
+          "label": "Thoughts to reflect:",
+          "suffix": " thoughts",
+          "zero": "Do not include"
+        },
         "typing_speed": {
           "label": "Typing speed:",
           "fast": "Fast",

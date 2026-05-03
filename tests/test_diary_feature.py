@@ -223,7 +223,7 @@ def test_bridge_diary_empty_body_emits_error_message():
     bridge.llm_client = DummyLLM()
 
     received = []
-    bridge.message_received.connect(lambda text, emotion: received.append((text, emotion)))
+    bridge.message_received.connect(lambda text, emotion, thought: received.append((text, emotion, thought)))
 
     handled = bridge._handle_diary_command("/diary")
     assert handled is True
@@ -672,7 +672,7 @@ def test_bridge_obs_append_command_emits_success():
     bridge.obsidian_manager = DummyObsManager()
 
     received = []
-    bridge.message_received.connect(lambda text, emotion: received.append((text, emotion)))
+    bridge.message_received.connect(lambda text, emotion, thought: received.append((text, emotion, thought)))
 
     handled = bridge._handle_obs_command("/obs append test.md :: 추가 텍스트")
     assert handled is True

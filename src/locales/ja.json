@@ -236,6 +236,14 @@
   "chat.actions.mood.title": "気分の状態",
   "chat.actions.promises": "予定",
   "chat.actions.promises.title": "予定された会話の約束",
+  "chat.thoughts.button": "思考",
+  "chat.thoughts.button.title": "エネの思考を見る",
+  "chat.thoughts.panel.title": "思考",
+  "chat.thoughts.close": "閉じる",
+  "chat.thoughts.empty": "まだ表示できる思考はありません。",
+  "chat.thoughts.show": "思考を見る",
+  "chat.thoughts.hide": "思考を閉じる",
+  "chat.thoughts.speaker": "エネ",
   "chat.promise.notice.saved": "会話の約束を保存しました。",
   "chat.promise.panel.title": "予定",
   "chat.promise.panel.close": "閉じる",
@@ -745,6 +753,13 @@
         "token_usage": "Show conversation token usage",
         "typing_effect": "タイピング効果",
         "message_split": "メッセージ分割表示",
+        "ene_thoughts": "エネの思考を表示",
+        "ene_thought_context": "エネの内心メモを次の会話に反映",
+        "ene_thought_context_limit": {
+          "label": "反映する数:",
+          "suffix": " 個",
+          "zero": "含めない"
+        },
         "typing_speed": {
           "label": "タイピング速度:",
           "fast": "速い",

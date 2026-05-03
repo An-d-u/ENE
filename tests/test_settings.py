@@ -22,6 +22,9 @@ def test_load_missing_file_uses_default_config(tmp_path):
     assert settings.get("typing_effect_enabled") is True
     assert settings.get("typing_effect_speed") == "normal"
     assert settings.get("message_split_enabled") is False
+    assert settings.get("enable_ene_thoughts") is True
+    assert settings.get("include_ene_thoughts_in_context") is False
+    assert settings.get("ene_thought_context_limit") == 2
     assert settings.get("chat_panel_height") == Settings.DEFAULT_CONFIG["chat_panel_height"]
     assert settings.get("max_raw_chunks_in_context") == 2
     assert settings.get("raw_chunk_turns") == 6
@@ -180,6 +183,9 @@ def test_save_and_reload_roundtrip(tmp_path):
     settings.set("typing_effect_enabled", False)
     settings.set("typing_effect_speed", "slow")
     settings.set("message_split_enabled", True)
+    settings.set("enable_ene_thoughts", False)
+    settings.set("include_ene_thoughts_in_context", True)
+    settings.set("ene_thought_context_limit", 4)
     settings.set("chat_panel_height", 388)
     settings.set("max_raw_chunks_in_context", 4)
     settings.set("raw_chunk_turns", 8)
@@ -192,6 +198,9 @@ def test_save_and_reload_roundtrip(tmp_path):
     assert reloaded.get("typing_effect_enabled") is False
     assert reloaded.get("typing_effect_speed") == "slow"
     assert reloaded.get("message_split_enabled") is True
+    assert reloaded.get("enable_ene_thoughts") is False
+    assert reloaded.get("include_ene_thoughts_in_context") is True
+    assert reloaded.get("ene_thought_context_limit") == 4
     assert reloaded.get("chat_panel_height") == 388
     assert reloaded.get("max_raw_chunks_in_context") == 4
     assert reloaded.get("raw_chunk_turns") == 8

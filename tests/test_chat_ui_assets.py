@@ -132,6 +132,41 @@ def test_scheduled_promises_menu_markup_exists():
     assert 'id="promise-reminders-close-btn"' in html
 
 
+def test_chat_thought_history_input_button_is_removed():
+    html = (WEB_DIR / "index.html").read_text(encoding="utf-8-sig")
+    assert 'id="thought-history-button"' not in html
+    assert 'id="thought-history-panel"' not in html
+    assert 'id="thought-history-close-btn"' not in html
+    assert '생각</button>' not in html
+
+
+def test_chat_script_renders_thought_action_in_message_meta_rail():
+    script = _script_text()
+    assert "function createMessageThoughtButton(messageDiv)" in script
+    assert "btn.className = 'message-thought-btn';" in script
+    assert "btn.innerHTML = createLucideIcon('brain');" in script
+    assert "assistantRail.insertBefore(thoughtButton, rerollAnchor);" in script
+    assert "const rerollAnchor = assistantRail.querySelector('.message-reroll-btn');" in script
+
+
+def test_chat_script_exposes_runtime_thought_feature_config_hook():
+    script = _script_text()
+    assert "window.setThoughtFeatureEnabled = function" in script
+    assert "thoughtFeatureEnabled" in script
+    assert "updateMessageThoughtButtons()" in script
+
+
+def test_chat_thought_action_uses_compact_icon_button_styles():
+    button_block = _rule_block(".message-thought-btn")
+    thought_body_block = _rule_block(".message-thought-body")
+
+    assert "width: 16px;" in button_block
+    assert "height: 16px;" in button_block
+    assert "border-radius: 999px;" in button_block
+    assert "cursor: pointer;" in button_block
+    assert "word-break: break-word;" in thought_body_block
+
+
 def test_chat_resize_handle_uses_vertical_drag_styles():
     block = _rule_block("#chat-resize-handle")
     assert "cursor: ns-resize;" in block

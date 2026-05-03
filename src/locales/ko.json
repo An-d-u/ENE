@@ -238,6 +238,14 @@
   "chat.actions.mood.title": "기분 상태",
   "chat.actions.promises": "예정",
   "chat.actions.promises.title": "예정된 대화 약속",
+  "chat.thoughts.button": "생각",
+  "chat.thoughts.button.title": "에네 생각 보기",
+  "chat.thoughts.panel.title": "생각",
+  "chat.thoughts.close": "닫기",
+  "chat.thoughts.empty": "아직 볼 생각이 없어요.",
+  "chat.thoughts.show": "생각 보기",
+  "chat.thoughts.hide": "생각 접기",
+  "chat.thoughts.speaker": "에네",
   "chat.promise.notice.saved": "대화 약속이 저장되었습니다.",
   "chat.promise.panel.title": "예정",
   "chat.promise.panel.close": "닫기",
@@ -799,6 +807,13 @@
         "token_usage": "대화 토큰 확인",
         "typing_effect": "타이핑 효과",
         "message_split": "메시지 분할 표시",
+        "ene_thoughts": "에네 생각 표시",
+        "ene_thought_context": "에네 생각을 다음 대화에 반영",
+        "ene_thought_context_limit": {
+          "label": "생각 반영 개수:",
+          "suffix": " 개",
+          "zero": "포함 안 함"
+        },
         "typing_speed": {
           "label": "타이핑 속도:",
           "fast": "빠름",
