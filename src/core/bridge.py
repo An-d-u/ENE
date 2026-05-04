@@ -3994,10 +3994,10 @@ class WebBridge(QObject):
                 emit_items()
             self._active_promise_id = None
             self._active_promise_signature = None
+        self.message_received.emit("음... 무슨 일이 있었나봐요.", "confused", "")
         if self._is_rerolling:
             self._is_rerolling = False
             self.reroll_state_changed.emit(False)
-        self.message_received.emit("음... 무슨 일이 있었나봐요.", "confused", "")
         drain_queue = getattr(self, "_drain_promise_queue_if_idle", None)
         if callable(drain_queue):
             drain_queue()

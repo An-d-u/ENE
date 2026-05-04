@@ -501,6 +501,30 @@ def test_on_response_ready_rebuilds_llm_history_from_visible_conversation_only()
     ]
 
 
+def test_reroll_error_emits_message_before_disabling_replace_state():
+    events = []
+
+    class RecordingSignal:
+        def __init__(self, name):
+            self.name = name
+
+        def emit(self, *args):
+            events.append((self.name, args))
+
+    dummy = type("BridgeDummy", (), {})()
+    dummy._is_rerolling = True
+    dummy.message_received = RecordingSignal("message")
+    dummy.reroll_state_changed = RecordingSignal("reroll")
+
+    WebBridge._on_error(dummy, "API timeout")
+
+    assert events == [
+        ("message", ("음... 무슨 일이 있었나봐요.", "confused", "")),
+        ("reroll", (False,)),
+    ]
+    assert dummy._is_rerolling is False
+
+
 def test_refresh_llm_history_rebuilds_visible_history_even_when_thoughts_enabled():
     dummy = type("BridgeDummy", (), {})()
     dummy.llm_client = _DummyLLMClient()
