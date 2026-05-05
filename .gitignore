@@ -39,6 +39,7 @@ obs_config.json
 docs/prototypes/
 docs/preview/
 docs/superpowers/
+.superpowers/
 diary/
 note_runs/
 *.log
