@@ -135,7 +135,98 @@ class GeminiClient:
             contents=message,
             config=self._build_chat_config(include_sub_prompt=include_sub_prompt),
         )
-        return (response.text or "").strip()
+        return self._extract_response_text_or_empty(response, label="one-shot")
+
+    def _empty_text_fallback_response(self) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict], str]:
+        """LLM이 텍스트 없는 응답을 반환했을 때 사용자에게 보여줄 안전한 fallback."""
+        return "음... 무슨 일이 있었나봐요.", "confused", None, [], {}, [], ""
+
+    def _read_runtime_setting_for_log(self, key: str, default=None):
+        """진단 로그용으로 dict/Settings 객체에서 설정값을 읽는다."""
+        settings_source = getattr(self, "settings", None)
+        if isinstance(settings_source, dict):
+            return settings_source.get(key, default)
+        getter = getattr(settings_source, "get", None)
+        if callable(getter):
+            try:
+                return getter(key, default)
+            except TypeError:
+                pass
+        config = getattr(settings_source, "config", None)
+        if isinstance(config, dict):
+            return config.get(key, default)
+        return default
+
+    def _debug_field(self, value, field: str, default=None):
+        """dict와 SDK 객체 양쪽에서 진단 필드를 읽는다."""
+        if isinstance(value, dict):
+            return value.get(field, default)
+        return getattr(value, field, default)
+
+    def _summarize_debug_value(self, value, max_length: int = 500) -> str:
+        """응답 객체 일부를 로그에 과도하게 길지 않게 남긴다."""
+        if value is None:
+            return "None"
+        try:
+            text = repr(value)
+        except Exception as exc:
+            text = f"<unrepresentable {type(value).__name__}: {exc}>"
+        if len(text) > max_length:
+            return text[:max_length] + "...(truncated)"
+        return text
+
+    def _log_empty_response_diagnostics(self, response, label: str):
+        """Gemini가 텍스트 없는 응답을 준 원인 추적에 필요한 정보를 남긴다."""
+        print(f"[LLM] 빈 텍스트 응답 감지 ({label})")
+        print(
+            "[LLM] Empty response settings | "
+            f"enable_ene_thoughts={self._read_runtime_setting_for_log('enable_ene_thoughts', True)}, "
+            f"include_ene_thoughts_in_context={self._read_runtime_setting_for_log('include_ene_thoughts_in_context', False)}"
+        )
+
+        prompt_feedback = getattr(response, "prompt_feedback", None)
+        if prompt_feedback is not None:
+            print(f"[LLM] Empty response prompt_feedback: {self._summarize_debug_value(prompt_feedback)}")
+
+        candidates = getattr(response, "candidates", None)
+        if candidates is None:
+            print("[LLM] Empty response candidates: None")
+            return
+
+        try:
+            candidate_count = len(candidates)
+        except Exception:
+            candidate_count = "unknown"
+        print(f"[LLM] Empty response candidates_count: {candidate_count}")
+
+        try:
+            iterable = list(candidates[:3])
+        except Exception:
+            try:
+                iterable = list(candidates)[:3]
+            except Exception:
+                print(f"[LLM] Empty response candidates_repr: {self._summarize_debug_value(candidates)}")
+                return
+
+        for index, candidate in enumerate(iterable):
+            finish_reason = self._debug_field(candidate, "finish_reason")
+            finish_message = self._debug_field(candidate, "finish_message")
+            safety_ratings = self._debug_field(candidate, "safety_ratings")
+            print(
+                f"[LLM] Empty response candidate[{index}] | "
+                f"finish_reason={self._summarize_debug_value(finish_reason, 120)}, "
+                f"finish_message={self._summarize_debug_value(finish_message, 200)}, "
+                f"safety_ratings={self._summarize_debug_value(safety_ratings, 300)}"
+            )
+
+    def _extract_response_text_or_empty(self, response, label: str) -> str:
+        """Gemini 응답에서 텍스트를 안전하게 꺼내고, 비어 있으면 진단 로그를 남긴다."""
+        raw_text = getattr(response, "text", None)
+        response_text = str(raw_text).strip() if raw_text is not None else ""
+        if response_text:
+            return response_text
+        self._log_empty_response_diagnostics(response, label)
+        return ""
 
     def _prompt_language(self) -> str:
         return resolve_prompt_language(settings_source=self.settings)
@@ -366,7 +457,9 @@ class GeminiClient:
             response = self.chat.send_message(contents)
             self._log_turn_token_usage(response, label="멀티모달")
             
-            response_text = response.text.strip()
+            response_text = self._extract_response_text_or_empty(response, label="멀티모달")
+            if not response_text:
+                return self._empty_text_fallback_response()
             print(f"[LLM] 멀티모달 응답: {response_text[:100]}...")
             
             # 응답에서 텍스트, 감정, 일정 분리 (기존 메서드 활용)
@@ -789,7 +882,9 @@ class GeminiClient:
             self._log_turn_token_usage(response, label="텍스트")
             
             # 응답 텍스트 추출
-            response_text = response.text
+            response_text = self._extract_response_text_or_empty(response, label="텍스트")
+            if not response_text:
+                return self._empty_text_fallback_response()
             print(f"[LLM] Received response: {response_text[:50]}...")
             
             # 응답에서 텍스트와 감정 분리
@@ -839,7 +934,14 @@ class GeminiClient:
                 config={'temperature': 0.5}  # 요약은 더 일관성 있게
             )
             
-            response_text = response.text.strip()
+            response_text = self._extract_response_text_or_empty(response, label="요약")
+            if not response_text:
+                return "대화 내용을 요약하지 못했어요.", [], [], {
+                    "memory_type": "general",
+                    "importance_reason": "empty_llm_response",
+                    "confidence": 0.0,
+                    "entity_names": [],
+                }
             
             # 응답 파싱
             summary, user_facts, ene_facts, memory_meta = self._parse_summary_response(response_text)
