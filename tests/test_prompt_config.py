@@ -174,6 +174,8 @@ def test_default_sub_prompt_body_does_not_embed_thought_rules():
 
     default_body = prompt_config.DEFAULT_SUB_PROMPT_BODY_PATH.read_text(encoding="utf-8-sig")
 
+    assert "[subconscious]" not in default_body
+    assert "[/subconscious]" not in default_body
     assert "[ene_thought]" not in default_body
     assert "[/ene_thought]" not in default_body
     assert "[thought]" not in default_body
@@ -208,15 +210,17 @@ def test_runtime_prompt_adds_korean_thought_rules_from_code_when_enabled(tmp_pat
         settings_source={"ui_language": "ko", "enable_ene_thoughts": True},
     )
 
-    assert "### [생각 출력 규칙]" in runtime_prompt
-    assert "[ene_thought]" in runtime_prompt
-    assert "[/ene_thought]" in runtime_prompt
+    assert "### [최종 응답 형식]" in runtime_prompt
+    assert "[subconscious]" in runtime_prompt
+    assert "[/subconscious]" in runtime_prompt
+    assert "[ene_thought]" not in runtime_prompt
+    assert "[/ene_thought]" not in runtime_prompt
     assert "[thought]" not in runtime_prompt
     assert "[/thought]" not in runtime_prompt
     assert "단계별 추론" in runtime_prompt
-    assert "[/ene_thought]\n한국어 답변 [emotion]\n일본어 번역" in runtime_prompt
-    assert "생각 블록을 닫은 뒤" in runtime_prompt
-    assert runtime_prompt.index("### [분석 규칙]") < runtime_prompt.index("### [생각 출력 규칙]")
+    assert "[/subconscious]\n한국어 답변 [emotion]\n일본어 번역" in runtime_prompt
+    assert "본문을 subconscious 블록 안에 넣지 마세요" in runtime_prompt
+    assert runtime_prompt.index("### [분석 규칙]") < runtime_prompt.index("### [최종 응답 형식]")
 
 
 def test_runtime_prompt_omits_thought_rules_when_setting_is_disabled(tmp_path, monkeypatch):
@@ -246,11 +250,14 @@ def test_runtime_prompt_omits_thought_rules_when_setting_is_disabled(tmp_path, m
         settings_source={"ui_language": "ko", "enable_ene_thoughts": False},
     )
 
-    assert "### [생각 출력 규칙]" not in runtime_prompt
+    assert "### [최종 응답 형식]" in runtime_prompt
+    assert "[subconscious]" not in runtime_prompt
+    assert "[/subconscious]" not in runtime_prompt
     assert "[ene_thought]" not in runtime_prompt
     assert "[/ene_thought]" not in runtime_prompt
     assert "[thought]" not in runtime_prompt
     assert "[/thought]" not in runtime_prompt
+    assert "한국어 답변 [emotion]\n일본어 번역" in runtime_prompt
 
 
 def test_runtime_thought_rules_are_localized(tmp_path, monkeypatch):
@@ -285,11 +292,11 @@ def test_runtime_thought_rules_are_localized(tmp_path, monkeypatch):
         settings_source={"ui_language": "ja", "enable_ene_thoughts": True},
     )
 
-    assert "### [ENE Inner Note Rules]" in english_prompt
-    assert "[ene_thought]" in english_prompt
+    assert "### [Final Response Format]" in english_prompt
+    assert "[subconscious]" in english_prompt
     assert "step-by-step reasoning" in english_prompt
-    assert "### [エネ内心メモ出力ルール]" in japanese_prompt
-    assert "[ene_thought]" in japanese_prompt
+    assert "### [最終応答形式]" in japanese_prompt
+    assert "[subconscious]" in japanese_prompt
     assert "段階的な推論" in japanese_prompt
 
 
