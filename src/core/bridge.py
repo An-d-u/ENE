@@ -3028,7 +3028,7 @@ class WebBridge(QObject):
         _, extracted = extract_thought_metadata(sanitized)
         if extracted:
             sanitized = extracted
-        sanitized = re.sub(r"\[/?(?:thought|ene_thought|inner_thought|생각|속마음|에네\s*생각|에네생각)\]", "", sanitized, flags=re.IGNORECASE)
+        sanitized = re.sub(r"\[/?(?:subconscious|thought|ene_thought|inner_thought|생각|속마음|에네\s*생각|에네생각)\]", "", sanitized, flags=re.IGNORECASE)
         sanitized = re.sub(r"\s+", " ", sanitized)
         return sanitized.strip()
 

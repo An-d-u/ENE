@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 THOUGHT_TAG_ALIASES = (
+    "subconscious",
     "thought",
     "ene_thought",
     "inner_thought",
@@ -15,6 +16,7 @@ THOUGHT_TAG_ALIASES = (
 )
 
 THOUGHT_LABEL_ALIASES = (
+    "subconscious",
     "thought",
     "ene_thought",
     "inner_thought",

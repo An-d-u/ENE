@@ -103,6 +103,32 @@ confidence=0.8
     assert thought == "마스터가 조금 지쳐 보인다. 부담 주지 말고 짧게 받아주자."
 
 
+def test_parse_response_extracts_subconscious_block_without_leaking_to_text_or_tts():
+    client = GeminiClient.__new__(GeminiClient)
+    response_text = """
+[analysis]
+user_emotion=calm
+user_intent=greeting
+confidence=0.8
+[/analysis]
+[subconscious]
+마스터가 조금 지쳐 보인다. 부담 주지 말고 짧게 받아주자.
+[/subconscious]
+괜찮아요. 천천히 해도 돼요. [smile]
+大丈夫です。ゆっくりでいいですよ。
+""".strip()
+
+    text, emotion, japanese_text, events, analysis, promises, thought = client._parse_response(response_text)
+
+    assert text == "괜찮아요. 천천히 해도 돼요."
+    assert emotion == "smile"
+    assert japanese_text == "大丈夫です。ゆっくりでいいですよ。"
+    assert events == []
+    assert analysis["user_intent"] == "greeting"
+    assert promises == []
+    assert thought == "마스터가 조금 지쳐 보인다. 부담 주지 말고 짧게 받아주자."
+
+
 def test_parse_response_extracts_korean_thought_block_alias():
     client = GeminiClient.__new__(GeminiClient)
     response_text = """
