@@ -606,7 +606,14 @@
     "tts": {
       "overview": {
         "title": "Provider selection",
-        "enable": "Enable TTS for Japanese responses",
+        "enable": "Enable TTS",
+        "language": {
+          "label": "Read-aloud language:",
+          "ja": "Japanese",
+          "ko": "Korean",
+          "en": "English",
+          "same_as_response": "Same as response"
+        },
         "streaming_enabled": "Use GPT-SoVITS streaming TTS",
         "viseme_lipsync": "Viseme Lip Sync",
         "provider": "Provider:"

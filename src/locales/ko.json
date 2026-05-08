@@ -609,6 +609,13 @@
       "overview": {
         "title": "공급자 선택",
         "enable": "일본어 응답 TTS 활성화",
+        "language": {
+          "label": "읽기 언어:",
+          "ja": "일본어",
+          "ko": "한국어",
+          "en": "영어",
+          "same_as_response": "응답 언어와 같게"
+        },
         "streaming_enabled": "GPT-SoVITS 스트리밍 TTS 사용",
         "viseme_lipsync": "viseme 립싱크",
         "provider": "공급자:"

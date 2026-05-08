@@ -617,6 +617,7 @@ class SettingsDialog(QDialog):
         self._embedded_memory_panel = None
         self._embedded_ene_profile_panel = None
         self.memory_search_recent_turns_spin: QSpinBox | None = None
+        self.tts_language_combo: QComboBox | None = None
         self.include_ene_thoughts_in_context_check: ToggleSwitch | None = None
         self.ene_thought_context_limit_spin: QSpinBox | None = None
         self.obsidian_checked_max_chars_per_file_spin: QSpinBox | None = None
@@ -2621,6 +2622,11 @@ class SettingsDialog(QDialog):
         browser = {**get_tts_provider_defaults("browser_speech"), **configs.get("browser_speech", {})}
 
         self.enable_tts_check.setChecked(self._original_settings.get("enable_tts", True))
+        tts_language = str(self._original_settings.get("tts_language", "ja") or "ja").strip()
+        tts_language_index = self.tts_language_combo.findData(tts_language)
+        if tts_language_index < 0:
+            tts_language_index = self.tts_language_combo.findData("ja")
+        self.tts_language_combo.setCurrentIndex(max(0, tts_language_index))
         self.tts_streaming_enabled_check.setChecked(
             self._original_settings.get("tts_streaming_enabled", False)
         )
@@ -3350,11 +3356,23 @@ class SettingsDialog(QDialog):
         overview_form.setContentsMargins(10, 15, 10, 10)
 
         self.enable_tts_check = self._create_toggle(
-            "일본어 응답 TTS 활성화",
+            "TTS 활성화",
             key="settings.tts.overview.enable",
         )
         self.enable_tts_check.toggled.connect(self._on_setting_changed)
         overview_form.addRow(self.enable_tts_check)
+
+        self.tts_language_combo = QComboBox()
+        for value, key, fallback in (
+            ("ja", "settings.tts.overview.language.ja", "일본어"),
+            ("ko", "settings.tts.overview.language.ko", "한국어"),
+            ("en", "settings.tts.overview.language.en", "영어"),
+            ("same_as_response", "settings.tts.overview.language.same_as_response", "응답 언어와 같게"),
+        ):
+            self.tts_language_combo.addItem(self._translated_text(key, fallback), value)
+            self._bind_combo_item(self.tts_language_combo, self.tts_language_combo.count() - 1, key, fallback)
+        self.tts_language_combo.currentIndexChanged.connect(self._on_setting_changed)
+        self._add_form_row(overview_form, "settings.tts.overview.language.label", "읽기 언어:", self.tts_language_combo)
 
         self.tts_streaming_enabled_check = self._create_toggle(
             "GPT-SoVITS 스트리밍 TTS 사용",
@@ -6162,6 +6180,7 @@ class SettingsDialog(QDialog):
             "interrupt_tts_on_ptt": self.interrupt_tts_on_ptt_check.isChecked(),
             "stt_language": str(self.ptt_language_combo.currentData() or "ko"),
             "enable_tts": self.enable_tts_check.isChecked(),
+            "tts_language": str(self.tts_language_combo.currentData() or "ja"),
             "tts_streaming_enabled": self.tts_streaming_enabled_check.isChecked(),
             "viseme_lipsync_enabled": self.viseme_lipsync_enabled_check.isChecked(),
             "tts_streaming_emit_message_on_first_chunk": bool(

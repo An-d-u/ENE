@@ -130,7 +130,7 @@ def test_parse_emotion_guides_accepts_backtick_wrapped_names():
     }
 
 
-def test_default_prompt_templates_produce_korean_japanese_rules(tmp_path, monkeypatch):
+def test_default_prompt_templates_keep_output_format_in_runtime_contract(tmp_path, monkeypatch):
     from src.ai import prompt as prompt_module
     from src.ai import prompt_config
 
@@ -165,7 +165,10 @@ def test_default_prompt_templates_produce_korean_japanese_rules(tmp_path, monkey
     prompt_with_sub = prompt_module.get_system_prompt()
 
     assert "[감정 표현 규칙]" in prompt_with_sub
-    assert "[일본어 응답 규칙]" in prompt_with_sub
+    assert "Response Style Rules" in prompt_with_sub
+    assert "[Japanese Response Rules]" not in prompt_with_sub
+    assert "[Final Output Format]" not in prompt_with_sub
+    assert "Japanese translation" not in prompt_with_sub
     assert "normal, smile" in prompt_with_sub
 
 
@@ -174,6 +177,9 @@ def test_default_sub_prompt_body_does_not_embed_thought_rules():
 
     default_body = prompt_config.DEFAULT_SUB_PROMPT_BODY_PATH.read_text(encoding="utf-8-sig")
 
+    assert "Japanese translation" not in default_body
+    assert "Final Output Format" not in default_body
+    assert "Original response [emotion]" not in default_body
     assert "[subconscious]" not in default_body
     assert "[/subconscious]" not in default_body
     assert "[ene_thought]" not in default_body
@@ -218,7 +224,7 @@ def test_runtime_prompt_adds_korean_thought_rules_from_code_when_enabled(tmp_pat
     assert "[thought]" not in runtime_prompt
     assert "[/thought]" not in runtime_prompt
     assert "단계별 추론" in runtime_prompt
-    assert "[/subconscious]\n한국어 답변 [emotion]\n일본어 번역" in runtime_prompt
+    assert "[/subconscious]\n한국어 답변 [emotion]\n[tts]\n일본어 TTS 문장\n[/tts]" in runtime_prompt
     assert "본문을 subconscious 블록 안에 넣지 마세요" in runtime_prompt
     assert runtime_prompt.index("### [분석 규칙]") < runtime_prompt.index("### [최종 응답 형식]")
 
@@ -257,7 +263,7 @@ def test_runtime_prompt_omits_thought_rules_when_setting_is_disabled(tmp_path, m
     assert "[/ene_thought]" not in runtime_prompt
     assert "[thought]" not in runtime_prompt
     assert "[/thought]" not in runtime_prompt
-    assert "한국어 답변 [emotion]\n일본어 번역" in runtime_prompt
+    assert "한국어 답변 [emotion]\n[tts]\n일본어 TTS 문장\n[/tts]" in runtime_prompt
 
 
 def test_runtime_thought_rules_are_localized(tmp_path, monkeypatch):
@@ -294,10 +300,47 @@ def test_runtime_thought_rules_are_localized(tmp_path, monkeypatch):
 
     assert "### [Final Response Format]" in english_prompt
     assert "[subconscious]" in english_prompt
+    assert "English reply [emotion]" in english_prompt
+    assert "Japanese TTS text" in english_prompt
+    assert "Korean reply [emotion]" not in english_prompt
     assert "step-by-step reasoning" in english_prompt
     assert "### [最終応答形式]" in japanese_prompt
     assert "[subconscious]" in japanese_prompt
+    assert "日本語返答 [emotion]" in japanese_prompt
+    assert "韓国語返答 [emotion]" not in japanese_prompt
     assert "段階的な推論" in japanese_prompt
+
+
+def test_runtime_prompt_omits_tts_block_when_tts_language_matches_response_language(tmp_path, monkeypatch):
+    from src.ai import prompt as prompt_module
+    from src.ai import prompt_config
+
+    default_dir = tmp_path / "prompts" / "defaults"
+    local_dir = tmp_path / "prompts"
+    payload = _sample_prompt_payload()
+    _write_prompt_markdown_files(default_dir, payload)
+
+    monkeypatch.setattr(prompt_config, "PROMPT_CONFIG_DIR", local_dir)
+    monkeypatch.setattr(prompt_config, "DEFAULT_PROMPT_CONFIG_DIR", default_dir)
+    monkeypatch.setattr(prompt_config, "BASE_SYSTEM_PROMPT_PATH", local_dir / "base_system_prompt.md")
+    monkeypatch.setattr(prompt_config, "SUB_PROMPT_BODY_PATH", local_dir / "sub_prompt_body.md")
+    monkeypatch.setattr(prompt_config, "ANALYSIS_SYSTEM_APPENDIX_PATH", local_dir / "analysis_system_appendix.md")
+    monkeypatch.setattr(prompt_config, "EMOTION_GUIDES_PATH", local_dir / "emotion_guides.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_BASE_SYSTEM_PROMPT_PATH", default_dir / "base_system_prompt.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_SUB_PROMPT_BODY_PATH", default_dir / "sub_prompt_body.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH", default_dir / "analysis_system_appendix.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_EMOTION_GUIDES_PATH", default_dir / "emotion_guides.md")
+    monkeypatch.setattr(prompt_config, "get_runtime_emotions", lambda **kwargs: ["normal", "smile"])
+
+    runtime_prompt = prompt_module.build_runtime_system_prompt(
+        include_sub_prompt=True,
+        include_analysis_appendix=True,
+        settings_source={"ui_language": "ja", "tts_language": "ja", "enable_ene_thoughts": False},
+    )
+
+    assert "日本語返答 [emotion]" in runtime_prompt
+    assert "[tts]" not in runtime_prompt
+    assert "[/tts]" not in runtime_prompt
 
 
 def test_get_system_prompt_reads_from_markdown_files(tmp_path, monkeypatch):

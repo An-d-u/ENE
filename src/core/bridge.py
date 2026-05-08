@@ -225,7 +225,7 @@ class AIWorker(QThread):
             
             print(f"[AI Worker] Response: {response_text[:50]}... [{emotion}]")
             if japanese_text:
-                print(f"[AI Worker] Japanese: {japanese_text[:30]}...")
+                print(f"[AI Worker] TTS text: {japanese_text[:30]}...")
             if events:
                 print(f"[AI Worker] {len(events)}개 일정 추출")
             token_usage_payload = self._build_token_usage_payload()
@@ -2507,7 +2507,7 @@ class WebBridge(QObject):
             stored_promise_ids.extend(self._collect_promise_ids(stored))
         self._remember_tracked_promise_ids(stored_promise_ids)
         
-        # TTS 재생 (일본어가 있고 TTS가 활성화되어 있으면)
+        # TTS 재생 (읽어줄 텍스트가 있고 TTS가 활성화되어 있으면)
         if japanese_text and self.enable_tts and self.tts_client and self.audio_player:
             print(f"[Bridge] TTS 활성화 - 텍스트 보류 중, TTS 생성 시작")
             # 텍스트를 보류하고 TTS 완료 대기
@@ -2515,7 +2515,7 @@ class WebBridge(QObject):
             self.pending_token_usage_payload = resolved_token_usage_payload
             self._play_tts(japanese_text)
         else:
-            # TTS 비활성화 또는 일본어 없음 - 즉시 텍스트 전송
+            # TTS 비활성화 또는 읽어줄 텍스트 없음 - 즉시 텍스트 전송
             print(f"[Bridge] TTS 비활성화 - 텍스트 즉시 전송")
             self.message_received.emit(text, emotion, thought)
             self.token_usage_ready.emit(resolved_token_usage_payload)
@@ -2523,7 +2523,7 @@ class WebBridge(QObject):
                 self._is_rerolling = False
                 self.reroll_state_changed.emit(False)
             if japanese_text:
-                print(f"[Bridge] TTS 비활성화 또는 클라이언트 없음 (일본어: {japanese_text[:20]}...)")
+                print(f"[Bridge] TTS 비활성화 또는 클라이언트 없음 (TTS 텍스트: {japanese_text[:20]}...)")
         
         # 자동 요약 확인
         self._check_auto_summarize()

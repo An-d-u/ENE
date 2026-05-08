@@ -144,7 +144,8 @@ def test_chat_script_renders_thought_action_in_message_meta_rail():
     script = _script_text()
     assert "function createMessageThoughtButton(messageDiv)" in script
     assert "btn.className = 'message-thought-btn';" in script
-    assert "btn.innerHTML = createLucideIcon('brain');" in script
+    assert "btn.innerHTML = createLucideIcon('sparkles');" in script
+    assert "createLucideIcon('brain')" not in script
     assert "assistantRail.insertBefore(thoughtButton, rerollAnchor);" in script
     assert "const rerollAnchor = assistantRail.querySelector('.message-reroll-btn');" in script
 

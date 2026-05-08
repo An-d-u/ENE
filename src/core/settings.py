@@ -129,6 +129,7 @@ class Settings:
         "tts_streaming_emit_message_on_first_chunk": True,
         "tts_output_device_id": "",
         "tts_output_volume": 0.8,
+        "tts_language": "ja",
         "tts_provider": "gpt_sovits_http",
         "tts_api_url": "http://127.0.0.1:9880",
         "tts_ref_audio_path": "assets/ref_audio/refvoice.wav",
