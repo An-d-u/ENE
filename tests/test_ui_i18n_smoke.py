@@ -366,17 +366,21 @@ def test_settings_dialog_loads_and_saves_streaming_tts_toggle(monkeypatch):
                 "llm_provider": "gemini",
                 "tts_provider": "gpt_sovits_http",
                 "enable_tts": True,
+                "tts_language": "ko",
                 "tts_streaming_enabled": True,
             }
         )
 
         assert dialog.tts_streaming_enabled_check.isChecked() is True
+        assert dialog.tts_language_combo.currentData() == "ko"
 
         dialog.tts_streaming_enabled_check.setChecked(False)
+        dialog.tts_language_combo.setCurrentIndex(dialog.tts_language_combo.findData("same_as_response"))
 
         values = dialog._get_current_values()
 
         assert values["tts_streaming_enabled"] is False
+        assert values["tts_language"] == "same_as_response"
 
         dialog.close()
 

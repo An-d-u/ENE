@@ -28,6 +28,7 @@ THOUGHT_LABEL_ALIASES = (
 _THOUGHT_TAG_PATTERN = "|".join(re.escape(alias).replace("\\ ", r"\s+") for alias in THOUGHT_TAG_ALIASES)
 _THOUGHT_BLOCK_PATTERN = rf"\[\s*(?:{_THOUGHT_TAG_PATTERN})\s*\]\s*(.*?)\s*\[\s*/\s*(?:{_THOUGHT_TAG_PATTERN})\s*\]"
 _THOUGHT_LABEL_PATTERN = rf"^\s*(?:{'|'.join(THOUGHT_LABEL_ALIASES)})\s*[:=：]\s*(.+?)\s*$"
+_TTS_BLOCK_PATTERN = r"\[\s*tts\s*\]\s*(.*?)\s*\[\s*/\s*tts\s*\]"
 
 
 def strip_thinking_markers(text: str) -> str:
@@ -80,3 +81,14 @@ def extract_thought_metadata(text: str) -> tuple[str, str]:
     if not cleaned:
         return source, ""
     return cleaned, thought
+
+
+def extract_tts_metadata(text: str) -> tuple[str, str]:
+    """응답 본문에서 명시적인 TTS 블록을 분리한다."""
+    source = str(text or "")
+    match = re.search(_TTS_BLOCK_PATTERN, source, re.IGNORECASE | re.DOTALL)
+    if not match:
+        return source, ""
+    tts_text = match.group(1).strip()
+    cleaned = re.sub(_TTS_BLOCK_PATTERN, "", source, flags=re.IGNORECASE | re.DOTALL).strip()
+    return cleaned, tts_text

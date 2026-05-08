@@ -219,8 +219,62 @@ flags=greeting
     assert thought == ""
 
 
+def test_parse_response_extracts_explicit_tts_block_without_leaking_to_text():
+    client = GeminiClient.__new__(GeminiClient)
+    client.settings = {"ui_language": "ko", "tts_language": "ja"}
+    response_text = """
+좋은 저녁이에요. [smile]
+[tts]
+こんばんは。
+[/tts]
+""".strip()
+
+    text, emotion, japanese_text, events, analysis, promises, thought = client._parse_response(response_text)
+
+    assert text == "좋은 저녁이에요."
+    assert emotion == "smile"
+    assert japanese_text == "こんばんは。"
+    assert events == []
+    assert analysis == {}
+    assert promises == []
+    assert thought == ""
+
+
+def test_parse_response_keeps_japanese_visible_when_tts_language_matches_response_language():
+    client = GeminiClient.__new__(GeminiClient)
+    client.settings = {"ui_language": "ja", "tts_language": "ja"}
+    response_text = "こんばんは。もう少しだけ確認します。 [smile]"
+
+    text, emotion, japanese_text, events, analysis, promises, thought = client._parse_response(response_text)
+
+    assert text == "こんばんは。もう少しだけ確認します。"
+    assert emotion == "smile"
+    assert japanese_text == "こんばんは。もう少しだけ確認します。"
+    assert events == []
+    assert analysis == {}
+    assert promises == []
+    assert thought == ""
+
+
+def test_parse_response_uses_visible_text_for_tts_when_korean_tts_matches_response_language():
+    client = GeminiClient.__new__(GeminiClient)
+    client.settings = {"ui_language": "ko", "tts_language": "ko"}
+    response_text = "좋은 저녁이에요. [smile]"
+
+    text, emotion, japanese_text, events, analysis, promises, thought = client._parse_response(response_text)
+
+    assert text == "좋은 저녁이에요."
+    assert emotion == "smile"
+    assert japanese_text == "좋은 저녁이에요."
+    assert events == []
+    assert analysis == {}
+    assert promises == []
+    assert thought == ""
+
+
 def test_parse_response_removes_japanese_lines_even_when_not_at_end():
     client = GeminiClient.__new__(GeminiClient)
+    client.settings = {"ui_language": "ko", "tts_language": "ja"}
     response_text = """
 좋은 저녁이에요. [smile]
 こんばんは。

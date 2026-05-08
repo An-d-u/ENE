@@ -19,6 +19,7 @@ def test_load_missing_file_uses_default_config(tmp_path):
     assert settings.get("obsidian_checked_total_max_chars") == 12000
     assert settings.get("tts_output_device_id") == ""
     assert settings.get("tts_output_volume") == 0.8
+    assert settings.get("tts_language") == "ja"
     assert settings.get("typing_effect_enabled") is True
     assert settings.get("typing_effect_speed") == "normal"
     assert settings.get("message_split_enabled") is False
@@ -180,6 +181,7 @@ def test_save_and_reload_roundtrip(tmp_path):
     settings.set("window_width", 777)
     settings.set("zoom_level", 1.25)
     settings.set("ui_language", "ja")
+    settings.set("tts_language", "same_as_response")
     settings.set("typing_effect_enabled", False)
     settings.set("typing_effect_speed", "slow")
     settings.set("message_split_enabled", True)
@@ -195,6 +197,7 @@ def test_save_and_reload_roundtrip(tmp_path):
     assert reloaded.get("window_width") == 777
     assert reloaded.get("zoom_level") == 1.25
     assert reloaded.get("ui_language") == "ja"
+    assert reloaded.get("tts_language") == "same_as_response"
     assert reloaded.get("typing_effect_enabled") is False
     assert reloaded.get("typing_effect_speed") == "slow"
     assert reloaded.get("message_split_enabled") is True

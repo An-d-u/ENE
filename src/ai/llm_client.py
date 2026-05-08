@@ -7,8 +7,8 @@ from google import genai
 
 from ..conversation_format import prepend_message_time
 from .prompt import build_runtime_system_prompt, get_available_emotions
-from .prompt_language import resolve_prompt_language
-from .response_cleanup import extract_thought_metadata, strip_thinking_markers
+from .prompt_language import resolve_prompt_language, resolve_tts_language
+from .response_cleanup import extract_thought_metadata, extract_tts_metadata, strip_thinking_markers
 from .summary_prompt import build_markdown_document_prompt, build_summary_prompt
 
 ANALYSIS_KEYS = {
@@ -465,9 +465,9 @@ class GeminiClient:
             # 응답에서 텍스트, 감정, 일정 분리 (기존 메서드 활용)
             clean_text, emotion, japanese_text, events, analysis, promises, thought = self._parse_response(response_text)
             
-            # 일본어가 있으면 로깅
+            # TTS 텍스트가 있으면 로깅
             if japanese_text:
-                print(f"[LLM] 일본어 번역: {japanese_text[:30]}...")
+                print(f"[LLM] TTS 텍스트: {japanese_text[:30]}...")
             
             # 일정이 있으면 로깅
             if events:
@@ -890,9 +890,9 @@ class GeminiClient:
             # 응답에서 텍스트와 감정 분리
             text, emotion, japanese_text, events, analysis, promises, thought = self._parse_response(response_text)
             
-            # 일본어가 있으면 로깅
+            # TTS 텍스트가 있으면 로깅
             if japanese_text:
-                print(f"[LLM] 일본어 번역: {japanese_text[:30]}...")
+                print(f"[LLM] TTS 텍스트: {japanese_text[:30]}...")
             
             # 일정이 있으면 로깅
             if events:
@@ -1219,6 +1219,24 @@ class GeminiClient:
         japanese_text = "\n".join(japanese_lines).strip() if japanese_lines else None
         return clean_text, japanese_text
 
+    def _extract_tts_text(self, text: str) -> tuple[str, str | None]:
+        """명시적 TTS 블록 또는 설정 언어에 따라 TTS용 텍스트를 분리한다."""
+        clean_text, tts_text = extract_tts_metadata(text)
+        if tts_text:
+            return clean_text, tts_text
+
+        response_language = resolve_prompt_language(settings_source=getattr(self, "settings", None))
+        tts_language = resolve_tts_language(
+            settings_source=getattr(self, "settings", None),
+            response_language=response_language,
+        )
+        if tts_language == response_language:
+            normalized = clean_text.strip()
+            return normalized, normalized or None
+        if tts_language == "ja":
+            return self._extract_japanese_lines(clean_text)
+        return clean_text.strip(), None
+
     def _parse_response(self, response_text: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
         """
         응답 텍스트에서 감정 태그, 일본어, 일정 추출
@@ -1266,6 +1284,8 @@ class GeminiClient:
                 })
 
         response_text = re.sub(promise_pattern, '', response_text)
+
+        response_text, explicit_tts_text = extract_tts_metadata(response_text)
         
         # [emotion] 패턴 찾기
         emotion_pattern = r'\[(\w+)\]'
@@ -1283,8 +1303,11 @@ class GeminiClient:
                 emotion = match.lower()
                 break
         
-        # 일본어 추출 및 제거
-        clean_text, japanese_text = self._extract_japanese_lines(clean_text)
+        # TTS 텍스트 추출 및 제거
+        if explicit_tts_text:
+            japanese_text = explicit_tts_text
+        else:
+            clean_text, japanese_text = self._extract_tts_text(clean_text)
 
         return clean_text, emotion, japanese_text, events, analysis, promises, thought
     

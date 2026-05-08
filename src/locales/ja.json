@@ -604,7 +604,14 @@
     "tts": {
       "overview": {
         "title": "Provider selection",
-        "enable": "Enable TTS for Japanese responses",
+        "enable": "TTSを有効にする",
+        "language": {
+          "label": "読み上げ言語:",
+          "ja": "日本語",
+          "ko": "韓国語",
+          "en": "英語",
+          "same_as_response": "返答言語と同じ"
+        },
         "streaming_enabled": "GPT-SoVITS ストリーミング TTS を使う",
         "viseme_lipsync": "ビセム リップシンク",
         "provider": "Provider:"
