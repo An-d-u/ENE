@@ -17,14 +17,18 @@ def _ensure_qt_app():
     return app
 
 
+def _contains_any_section(text: str, *section_titles: str) -> bool:
+    return any(f"### [{title}]" in text for title in section_titles)
+
+
 def test_prompt_includes_sub_prompt_by_default():
     prompt_with_sub = get_system_prompt()
     prompt_without_sub = get_system_prompt(include_sub_prompt=False)
 
-    assert "[감정 표현 규칙]" in prompt_with_sub
-    assert "[응답 스타일 규칙]" in prompt_with_sub
-    assert "[감정 표현 규칙]" not in prompt_without_sub
-    assert "[응답 스타일 규칙]" not in prompt_without_sub
+    assert _contains_any_section(prompt_with_sub, "감정 표현 규칙", "Emotion Expression Rules")
+    assert _contains_any_section(prompt_with_sub, "응답 스타일 규칙", "Response Style Rules")
+    assert not _contains_any_section(prompt_without_sub, "감정 표현 규칙", "Emotion Expression Rules")
+    assert not _contains_any_section(prompt_without_sub, "응답 스타일 규칙", "Response Style Rules")
 
 
 def test_prompt_falls_back_when_sub_prompt_is_missing(monkeypatch):
@@ -39,8 +43,8 @@ def test_prompt_falls_back_when_sub_prompt_is_missing(monkeypatch):
     monkeypatch.setattr(builtins, "__import__", fake_import)
 
     prompt = get_system_prompt(include_sub_prompt=True)
-    assert "[감정 표현 규칙]" not in prompt
-    assert "[응답 스타일 규칙]" not in prompt
+    assert not _contains_any_section(prompt, "감정 표현 규칙", "Emotion Expression Rules")
+    assert not _contains_any_section(prompt, "응답 스타일 규칙", "Response Style Rules")
 
 
 def test_diary_command_parse():
