@@ -1,4 +1,8 @@
-﻿from src.ai.summary_prompt import build_markdown_document_prompt, build_summary_prompt_from_text
+﻿from src.ai.summary_prompt import (
+    _format_now_for_language,
+    build_markdown_document_prompt,
+    build_summary_prompt_from_text,
+)
 from src.ai.http_llm_clients import _build_summary_prompt
 
 
@@ -30,6 +34,29 @@ def test_summary_prompt_localizes_human_instructions_but_keeps_parser_tokens():
     assert "[ENE_INFO]" in prompt
     assert "[MEMORY_META]" in prompt
     assert "memory_type: fact | preference | promise | event | relationship | task | general" in prompt
+
+
+def test_summary_prompt_formats_non_english_time_without_locale_sensitive_strftime():
+    class LocaleSensitiveNow:
+        year = 2026
+        month = 5
+        day = 12
+        hour = 9
+        minute = 7
+
+        def strftime(self, format_text: str) -> str:
+            for index, char in enumerate(format_text):
+                if ord(char) > 127:
+                    raise UnicodeEncodeError("locale", format_text, index, index + 1, "encoding error")
+            return "May 12, 2026 09:07"
+
+    _, ko_time = _format_now_for_language("ko", LocaleSensitiveNow())
+    _, ja_time = _format_now_for_language("ja", LocaleSensitiveNow())
+    _, en_time = _format_now_for_language("en", LocaleSensitiveNow())
+
+    assert ko_time == "2026년 05월 12일 09시 07분"
+    assert ja_time == "2026年05月12日 09時07分"
+    assert en_time == "May 12, 2026 09:07"
 
 
 def test_markdown_document_prompt_uses_selected_language():

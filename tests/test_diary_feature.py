@@ -22,9 +22,9 @@ def test_prompt_includes_sub_prompt_by_default():
     prompt_without_sub = get_system_prompt(include_sub_prompt=False)
 
     assert "[감정 표현 규칙]" in prompt_with_sub
-    assert "[일본어 응답 규칙]" in prompt_with_sub
+    assert "[응답 스타일 규칙]" in prompt_with_sub
     assert "[감정 표현 규칙]" not in prompt_without_sub
-    assert "[일본어 응답 규칙]" not in prompt_without_sub
+    assert "[응답 스타일 규칙]" not in prompt_without_sub
 
 
 def test_prompt_falls_back_when_sub_prompt_is_missing(monkeypatch):
@@ -40,7 +40,7 @@ def test_prompt_falls_back_when_sub_prompt_is_missing(monkeypatch):
 
     prompt = get_system_prompt(include_sub_prompt=True)
     assert "[감정 표현 규칙]" not in prompt
-    assert "[일본어 응답 규칙]" not in prompt
+    assert "[응답 스타일 규칙]" not in prompt
 
 
 def test_diary_command_parse():
