@@ -180,6 +180,12 @@ Prompt content is arranged into the runtime context in this order during normal 
 4. generated emotion usage section based on `emotion_guides.md`
 5. `analysis_system_appendix.md` when that appendix is enabled for the current prompt path
 
+The core prompt files have the following roles:
+
+- `base_system_prompt.md` = character and core identity
+- `sub_prompt_body.md` = speaking style and response style
+- `analysis_system_appendix.md` = internal mood analysis
+
 - `prompts/base_system_prompt.md`
   Write ENE's core identity here: who ENE is, how it should generally speak, what kind of relationship it should have with the user, and what attitude or tone it should maintain consistently.
 
