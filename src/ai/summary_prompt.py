@@ -18,7 +18,7 @@ class SummaryPrompt:
 
 def _format_now(now: datetime | None = None) -> tuple[datetime, str]:
     current = now or datetime.now()
-    return current, current.strftime("%Y년 %m월 %d일 %H시 %M분")
+    return current, f"{current.year:04d}년 {current.month:02d}월 {current.day:02d}일 {current.hour:02d}시 {current.minute:02d}분"
 
 
 def _format_now_for_language(language: str, now: datetime | None = None) -> tuple[datetime, str]:
@@ -26,8 +26,8 @@ def _format_now_for_language(language: str, now: datetime | None = None) -> tupl
     if language == "en":
         return current, current.strftime("%B %d, %Y %H:%M")
     if language == "ja":
-        return current, current.strftime("%Y年%m月%d日 %H時%M分")
-    return current, current.strftime("%Y년 %m월 %d일 %H시 %M분")
+        return current, f"{current.year:04d}年{current.month:02d}月{current.day:02d}日 {current.hour:02d}時{current.minute:02d}分"
+    return current, f"{current.year:04d}년 {current.month:02d}월 {current.day:02d}일 {current.hour:02d}시 {current.minute:02d}분"
 
 
 def _build_conversation_text(messages: list) -> tuple[str, str | None, str | None]:
