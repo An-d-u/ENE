@@ -26,7 +26,7 @@ from ..ai.viseme_stream_analyzer import VisemeStreamAnalyzer
 from ..ai.diary_service import DiaryService
 from ..ai.note_service import NoteService, NoteCommand, NoteCommandResult, NotePlan
 from ..ai.obsidian_manager import ObsidianManager
-from ..ai.prompt_language import resolve_prompt_language
+from ..ai.prompt_language import resolve_prompt_language, resolve_tts_language
 from ..ai.promise_reminder_manager import GENERIC_PROMISE_TITLE, extract_promise_candidates
 from ..ai.response_cleanup import extract_thought_metadata, strip_thinking_markers
 from .chat_attachments import (
@@ -1183,6 +1183,7 @@ class WebBridge(QObject):
             self.worker.wait()
 
         message_with_context = self._with_ene_thought_context(message_with_time)
+        message_with_context = self._with_tts_output_reminder(message_with_context)
         self.worker = AIWorker(
             self.llm_client,
             message_with_context,
@@ -2236,10 +2237,11 @@ class WebBridge(QObject):
 
         # 교체 의미를 지키기 위해 최근 assistant 응답 하나를 버퍼에서 제거
         if self.conversation_buffer and self.conversation_buffer[-1][0] == "assistant":
+            assistant_index = len(self.conversation_buffer) - 1
             discard_thoughts = getattr(self, "_discard_ene_thought_context_from_index", None)
             if not callable(discard_thoughts):
                 discard_thoughts = lambda index: WebBridge._discard_ene_thought_context_from_index(self, index)
-            discard_thoughts(len(self.conversation_buffer) - 1)
+            discard_thoughts(assistant_index)
             self.conversation_buffer.pop()
 
         payload = self._last_request_payload
@@ -2316,10 +2318,11 @@ class WebBridge(QObject):
 
         # 대화 버퍼의 최근 assistant/user 턴 제거
         if self.conversation_buffer and self.conversation_buffer[-1][0] == "assistant":
+            assistant_index = len(self.conversation_buffer) - 1
             discard_thoughts = getattr(self, "_discard_ene_thought_context_from_index", None)
             if not callable(discard_thoughts):
                 discard_thoughts = lambda index: WebBridge._discard_ene_thought_context_from_index(self, index)
-            discard_thoughts(len(self.conversation_buffer) - 1)
+            discard_thoughts(assistant_index)
             self.conversation_buffer.pop()
         if self.conversation_buffer and self.conversation_buffer[-1][0] == "user":
             self.conversation_buffer.pop()
@@ -3234,6 +3237,65 @@ class WebBridge(QObject):
         if not context:
             return message
         return f"{context}\n\n{message}"
+
+    def _tts_output_language_names(self, language: str) -> dict[str, str]:
+        """프롬프트 언어별 TTS/응답 언어 이름을 반환한다."""
+        if language == "en":
+            return {"ko": "Korean", "en": "English", "ja": "Japanese"}
+        if language == "ja":
+            return {"ko": "韓国語", "en": "英語", "ja": "日本語"}
+        return {"ko": "한국어", "en": "영어", "ja": "일본어"}
+
+    def _build_tts_output_reminder(self) -> str:
+        """현재 턴에만 붙이는 TTS 출력 형식 리마인더를 만든다."""
+        read_bool = getattr(self, "_read_bool_setting", None)
+        if not callable(read_bool):
+            read_bool = lambda key, default=False: WebBridge._read_bool_setting(self, key, default)
+        if not read_bool("enable_tts", bool(getattr(self, "enable_tts", False))):
+            return ""
+
+        settings_source = getattr(self, "settings", None)
+        response_language = resolve_prompt_language(settings_source=settings_source)
+        tts_language = resolve_tts_language(
+            settings_source=settings_source,
+            response_language=response_language,
+        )
+        if tts_language == response_language:
+            return ""
+
+        names = self._tts_output_language_names(response_language)
+        response_name = names.get(response_language, response_language)
+        tts_name = names.get(tts_language, tts_language)
+        if response_language == "en":
+            return (
+                "[TTS Output Reminder]\n"
+                f"TTS is enabled. In this response, keep the visible reply in {response_name}, "
+                f"then always add a [tts]...[/tts] block containing only the {tts_name} text to read aloud.\n"
+                "[/TTS Output Reminder]"
+            )
+        if response_language == "ja":
+            return (
+                "[TTS出力リマインダー]\n"
+                f"TTSが有効です。今回の返答では、表示される返答本文は{response_name}のままにし、"
+                f"本文の後に必ず [tts]...[/tts] ブロックを追加して、その中には読み上げ用の{tts_name}文だけを書いてください。\n"
+                "[/TTS出力リマインダー]"
+            )
+        return (
+            "[TTS 출력 리마인더]\n"
+            f"TTS가 켜져 있습니다. 이번 응답에서는 화면에 보이는 답변 본문은 {response_name}로 유지하고, "
+            f"본문 뒤에 반드시 [tts]...[/tts] 블록을 추가해 그 안에는 읽기용 {tts_name} 문장만 작성하세요.\n"
+            "[/TTS 출력 리마인더]"
+        )
+
+    def _with_tts_output_reminder(self, message: str) -> str:
+        """TTS 언어가 응답 언어와 다를 때 현재 요청에만 형식 리마인더를 붙인다."""
+        reminder_builder = getattr(self, "_build_tts_output_reminder", None)
+        if not callable(reminder_builder):
+            reminder_builder = lambda: WebBridge._build_tts_output_reminder(self)
+        reminder = reminder_builder()
+        if not reminder:
+            return message
+        return f"{reminder}\n\n{message}"
 
     def _refresh_llm_history_from_visible_conversation(self):
         """현재 보이는 대화 버퍼만 남도록 LLM 히스토리를 재구성한다."""
