@@ -192,6 +192,66 @@ def test_interrupt_tts_for_ptt_resets_sync_buffer_state():
     assert bridge.lip_sync_data is None
 
 
+def test_bridge_keeps_tts_block_out_of_rebuilt_visible_llm_history():
+    _ensure_qt_app()
+
+    class DummyLLMClient:
+        def __init__(self):
+            self.rebuilt_conversation = None
+
+        def rebuild_context_from_conversation(self, conversation_buffer):
+            self.rebuilt_conversation = list(conversation_buffer)
+            return True
+
+    llm_client = DummyLLMClient()
+    bridge = WebBridge(settings={"ui_language": "ko", "tts_language": "ja", "enable_ene_thoughts": False})
+    bridge.llm_client = llm_client
+
+    bridge._on_response_ready(
+        "좋은 저녁이에요.",
+        "smile",
+        "こんばんは。",
+        [],
+        "",
+        "",
+        [],
+        "",
+    )
+
+    assert llm_client.rebuilt_conversation is not None
+    assistant_entry = llm_client.rebuilt_conversation[-1]
+    assert assistant_entry[0] == "assistant"
+    assert assistant_entry[1] == "좋은 저녁이에요."
+    assert "[tts]" not in assistant_entry[1]
+    assert "[/tts]" not in assistant_entry[1]
+    assert "[subconscious]" not in assistant_entry[1]
+    assert "[analysis]" not in assistant_entry[1]
+
+
+def test_bridge_adds_current_turn_tts_format_reminder_when_tts_language_differs():
+    _ensure_qt_app()
+
+    bridge = WebBridge(settings={"ui_language": "ko", "tts_language": "ja", "enable_tts": True})
+    message = "[현재 시각: 2026-05-18 12:00]\n안녕"
+
+    with_reminder = bridge._with_tts_output_reminder(message)
+
+    assert message in with_reminder
+    assert "[tts]" in with_reminder
+    assert "[/tts]" in with_reminder
+    assert "일본어" in with_reminder
+    assert "한국어" in with_reminder
+
+
+def test_bridge_does_not_add_tts_format_reminder_when_tts_language_matches_response():
+    _ensure_qt_app()
+
+    bridge = WebBridge(settings={"ui_language": "ko", "tts_language": "ko", "enable_tts": True})
+    message = "[현재 시각: 2026-05-18 12:00]\n안녕"
+
+    assert bridge._with_tts_output_reminder(message) == message
+
+
 def test_bridge_builds_mouth_pose_from_rms_and_viseme():
     _ensure_qt_app()
 
