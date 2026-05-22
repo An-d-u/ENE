@@ -2112,6 +2112,8 @@ def test_chat_web_script_has_runtime_i18n_hooks():
     assert "window.setGoalButtonEnabled = function setGoalButtonEnabled(enabled)" in content
     assert "window.setGoalItems = function setGoalItems(value)" in content
     assert "renderGoalPanel();" in content
+    assert "setGoalPanelOpen(false);\n        setPromiseRemindersPanelOpen(nextOpen);" in content
+    assert "setPromiseRemindersPanelOpen(false);\n        setGoalPanelOpen(!goalPanelOpen);" in content
     assert "renderPromiseReminderPanel();" in content
 
 
