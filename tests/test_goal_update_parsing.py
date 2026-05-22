@@ -89,6 +89,21 @@ title=두 번째 목표
     assert update["title"] == "첫 번째 목표"
 
 
+def test_extract_goal_update_metadata_removes_unclosed_block_to_end():
+    text = """좋아요.
+[ene_goal_update]
+action=create
+type=short_term
+title=노출되면 안 되는 목표
+reason=태그가 닫히지 않음"""
+
+    cleaned, update = extract_goal_update_metadata(text)
+
+    assert cleaned == "좋아요."
+    assert update == {}
+    assert "노출되면 안 되는 목표" not in cleaned
+
+
 def test_extract_goal_update_metadata_ignores_unknown_keys():
     text = """[ene_goal_update]
 action=update

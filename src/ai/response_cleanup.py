@@ -31,6 +31,7 @@ _THOUGHT_LABEL_PATTERN = rf"^\s*(?:{'|'.join(THOUGHT_LABEL_ALIASES)})\s*[:=：]\
 _TTS_BLOCK_PATTERN = r"\[\s*tts\s*\]\s*(.*?)\s*\[\s*/\s*tts\s*\]"
 GOAL_UPDATE_KEYS = ("action", "type", "id", "title", "reason", "completion_reason")
 _GOAL_UPDATE_BLOCK_PATTERN = r"\[\s*ene_goal_update\s*\]\s*(.*?)\s*\[\s*/\s*ene_goal_update\s*\]"
+_UNCLOSED_GOAL_UPDATE_BLOCK_PATTERN = r"\[\s*ene_goal_update\s*\].*$"
 
 
 def strip_thinking_markers(text: str) -> str:
@@ -90,6 +91,9 @@ def extract_goal_update_metadata(text: str) -> tuple[str, dict[str, str]]:
     source = str(text or "")
     match = re.search(_GOAL_UPDATE_BLOCK_PATTERN, source, re.IGNORECASE | re.DOTALL)
     if not match:
+        cleaned = re.sub(_UNCLOSED_GOAL_UPDATE_BLOCK_PATTERN, "", source, flags=re.IGNORECASE | re.DOTALL).strip()
+        if cleaned != source.strip():
+            return cleaned, {}
         return source, {}
 
     parsed: dict[str, str] = {}

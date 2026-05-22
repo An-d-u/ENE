@@ -2342,13 +2342,25 @@ def test_overlay_window_syncs_goal_button_visibility_to_webview(tmp_path):
             return self._page
 
     overlay = OverlayWindow.__new__(OverlayWindow)
-    overlay.settings = _DummySettings({"show_ene_goal_button": True})
+    overlay.settings = _DummySettings({"enable_ene_goals": True, "show_ene_goal_button": True})
     overlay.web_view = _FakeWebView()
     overlay._page_loaded = True
 
     OverlayWindow._sync_goal_button_visibility_to_js(overlay, {"show_ene_goal_button": False})
+    OverlayWindow._sync_goal_button_visibility_to_js(
+        overlay,
+        {"enable_ene_goals": False, "show_ene_goal_button": True},
+    )
+    OverlayWindow._sync_goal_button_visibility_to_js(
+        overlay,
+        {"enable_ene_goals": True, "show_ene_goal_button": True},
+    )
 
-    assert captured == ["window.setGoalButtonEnabled(false);"]
+    assert captured == [
+        "window.setGoalButtonEnabled(false);",
+        "window.setGoalButtonEnabled(false);",
+        "window.setGoalButtonEnabled(true);",
+    ]
 
 
 def test_chat_web_assets_translate_mood_axis_labels_and_center_floating_buttons():

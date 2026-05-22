@@ -281,6 +281,53 @@ def test_send_message_with_memory_adds_goal_context_to_enhanced_prompt():
     assert "goal_20260522_001" in enhanced_prompt
 
 
+def test_build_memory_context_includes_goal_context_without_memory_manager():
+    dummy = type("ClientDummy", (), {})()
+    dummy.memory_manager = None
+    dummy.goal_manager = _DummyGoalManager()
+    dummy.settings = type("SettingsDummy", (), {"config": {}})()
+
+    context = asyncio.run(GeminiClient._build_memory_context(dummy, "오늘 무엇을 할까?"))
+
+    assert "[ENE 현재 목표]" in context
+    assert "goal_20260522_001" in context
+
+
+def test_http_common_memory_context_includes_goal_context_without_memory_manager():
+    from src.ai.http_llm_clients import OpenAICompatibleClient
+
+    client = object.__new__(OpenAICompatibleClient)
+    client.memory_manager = None
+    client.goal_manager = _DummyGoalManager()
+    client.settings = type("SettingsDummy", (), {"config": {}})()
+
+    context = asyncio.run(client._build_memory_context("오늘 무엇을 할까?"))
+
+    assert "[ENE 현재 목표]" in context
+    assert "goal_20260522_001" in context
+
+
+def test_build_memory_context_goal_context_excludes_history_without_memory_manager(tmp_path):
+    from src.ai.ene_goal_manager import EneGoalManager
+
+    manager = EneGoalManager(state_file=str(tmp_path / "goals.json"), settings={"enable_ene_goals": True})
+    active = manager.add_manual_goal("short_term", "완료된 옛 목표", "지금 집중")
+    manager.complete_goal(active["active"]["short_term"][0]["id"], "완료 기록")
+
+    manager.add_manual_goal("short_term", "새 활성 목표", "보여야 함")
+
+    dummy = type("ClientDummy", (), {})()
+    dummy.memory_manager = None
+    dummy.goal_manager = manager
+    dummy.settings = type("SettingsDummy", (), {"config": {}})()
+
+    context = asyncio.run(GeminiClient._build_memory_context(dummy, "오늘 무엇을 할까?"))
+
+    assert "새 활성 목표" in context
+    assert "완료된 옛 목표" not in context
+    assert "완료 기록" not in context
+
+
 class _PromiseManagerForContext:
     def __init__(self, items):
         self._items = items
