@@ -4353,6 +4353,7 @@ if (promiseRemindersButton) {
             window.pyBridge.request_promise_items();
         }
         const nextOpen = promiseRemindersPanel ? promiseRemindersPanel.classList.contains('hidden') : false;
+        setGoalPanelOpen(false);
         setPromiseRemindersPanelOpen(nextOpen);
         setFloatingActionsOpen(false);
     });
@@ -4363,6 +4364,7 @@ if (goalButton) {
         if (window.pyBridge && window.pyBridge.request_goal_items) {
             window.pyBridge.request_goal_items();
         }
+        setPromiseRemindersPanelOpen(false);
         setGoalPanelOpen(!goalPanelOpen);
         setFloatingActionsOpen(false);
     });
