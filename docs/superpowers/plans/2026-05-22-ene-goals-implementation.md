@@ -88,6 +88,10 @@ def test_response_contract_includes_goals_and_thoughts_when_enabled():
         {"ui_language": "ko", "enable_ene_goals": True, "enable_ene_thoughts": True}
     )
     assert "[ene_goal_update]" in text
+    assert "create" in text
+    assert "update" in text
+    assert "complete" in text
+    assert "cancel" in text
     assert "[subconscious]" in text
     assert "[analysis]" in text
 
@@ -383,10 +387,13 @@ def test_apply_create_and_complete_moves_goal_to_history(tmp_path, monkeypatch):
 Also test:
 
 - `action=none` changes nothing.
+- `action=update` with an existing `id` updates `title` and/or `reason`, refreshes `updated_at`, and keeps the goal active.
+- `action=update` with a missing `id` or no editable fields returns an unchanged snapshot.
 - duplicate same normalized title does not create another active goal.
 - `cancel` moves to history with `status=cancelled`.
 - disabled settings ignore updates.
 - `build_context_block()` includes `id`, `type`, `title`, `reason`.
+- corrupted `ene_goals.json` falls back to the default structure and does not crash manager initialization.
 
 - [ ] **Step 2: Run tests to verify failure**
 
@@ -418,6 +425,8 @@ Default structure:
 
 Read `ene_goal_state_file` from settings when no explicit `state_file` is passed.
 
+Wrap load failures. If `load_json_data()` raises because the file is missing, malformed, or not a dict, log a short `[Goals] 상태 로드 실패: ...` message when a file existed and use the default structure. Manager construction must not raise for a corrupted JSON file.
+
 - [ ] **Step 4: Implement validation helpers**
 
 Rules:
@@ -442,6 +451,8 @@ cancel_goal(goal_id: str, reason: str = "") -> dict
 ```
 
 Use `source="llm"` for LLM updates and `source="manual"` for manual adds.
+
+`apply_llm_update({"action": "update", ...})` must find the active goal by `id`, apply only provided `title` and `reason`, trim them to the configured limits, refresh `updated_at`, set `source` to the existing goal source, save, and return the fresh snapshot. It must not move the goal to history.
 
 - [ ] **Step 6: Implement duplicate detection**
 
@@ -668,6 +679,7 @@ In `AIWorker`:
   - len 8 returns as-is
   - len 7 treats old 7th value as `thought` and appends `{}`
   - older lengths continue to work
+  - every branch must return the new goal-update value, even if it is `{}` for legacy payloads
 
 Emit:
 
@@ -944,20 +956,20 @@ Keep the UI simple: `QListWidget` for active/history, `QLineEdit` for title, `QP
 
 - [ ] **Step 5: Connect to bridge slots**
 
-When the settings dialog has `self.bridge`, connect:
+`SettingsDialog` stores the injected bridge as `self._bridge`, not `self.bridge`. When the settings dialog has `self._bridge`, connect:
 
 ```python
-self.bridge.goal_items_updated.connect(self._on_goal_items_updated)
+self._bridge.goal_items_updated.connect(self._on_goal_items_updated)
 ```
 
-On panel open/load, call `self.bridge.request_goal_items()`.
+On panel open/load, call `self._bridge.request_goal_items()`.
 
 Buttons call:
 
-- add: `bridge.add_manual_goal(type, title, reason)`
-- update: `bridge.update_goal_item(id, title, reason)`
-- complete: `bridge.complete_goal_item(id, reason)`
-- cancel: `bridge.cancel_goal_item(id, reason)`
+- add: `self._bridge.add_manual_goal(type, title, reason)`
+- update: `self._bridge.update_goal_item(id, title, reason)`
+- complete: `self._bridge.complete_goal_item(id, reason)`
+- cancel: `self._bridge.cancel_goal_item(id, reason)`
 
 After each call, bridge emits fresh items.
 
@@ -969,7 +981,7 @@ Implement:
 def _refresh_ene_goal_controls(self):
     enabled = self.enable_ene_goals_check.isChecked()
     self.show_ene_goal_button_check.setEnabled(enabled)
-    goal edit widgets.setEnabled(enabled and self.bridge is not None)
+    goal edit widgets.setEnabled(enabled and self._bridge is not None)
 ```
 
 Call from `_on_ene_goals_toggle()` and `_load_values()`.
@@ -1032,7 +1044,7 @@ Use the in-app browser against the local app URL. Verify:
 
 - [ ] **Step 4: File encoding verification**
 
-Verify new/modified Python, JSON, HTML, CSS, JS, and docs files remain UTF-8 with BOM where project policy requires it. For files already without BOM in assets, preserve existing convention unless the repository has explicit BOM usage for that file family.
+Verify every new or modified file is UTF-8 with BOM, including Python, JSON, HTML, CSS, JS, and docs files. This follows the repository AGENTS.md policy even when an existing asset file previously used plain UTF-8.
 
 - [ ] **Step 5: Inspect git diff**
 
@@ -1065,4 +1077,3 @@ If no fixes were needed, do not create an empty commit.
 - Keep long-term goals conservative in prompt wording.
 - The settings dialog is large. Add focused helper methods instead of unrelated refactors.
 - Keep UI text compact; the chat panel is an operational overlay, not a landing page.
-
