@@ -821,6 +821,7 @@
         "typing_effect": "Enable typing effect",
         "message_split": "Split long messages into bubbles",
         "ene_thoughts": "Show ENE thoughts",
+        "ene_goals": "Enable ENE goals",
         "ene_thought_context": "Reflect ENE thoughts in the next reply",
         "ene_thought_context_limit": {
           "label": "Thoughts to reflect:",
@@ -841,7 +842,23 @@
         "manual_summary": "Show manual summary button",
         "note_button": "Show note button",
         "mood_button": "Show mood button",
+        "goal_button": "Show goal button",
         "hint": "Turning on only the buttons you use often keeps the screen simpler."
+      },
+      "goals": {
+        "title": "ENE goals",
+        "active": "Active goals",
+        "history": "History preview",
+        "type": "Type:",
+        "short_term": "Short-term",
+        "long_term": "Long-term",
+        "title_label": "Title:",
+        "reason": "Reason / memo:",
+        "add": "Add",
+        "update": "Update",
+        "complete": "Complete",
+        "cancel": "Cancel",
+        "empty": "No goals to show yet."
       },
       "ptt": {
         "title": "Voice input (global PTT)",

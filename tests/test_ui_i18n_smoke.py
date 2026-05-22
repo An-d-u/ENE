@@ -157,6 +157,45 @@ class _DummyMemoryManager:
         self.memories = [memory for memory in self.memories if memory.id != memory_id]
 
 
+class _DummySignal:
+    def __init__(self):
+        self.callbacks = []
+
+    def connect(self, callback):
+        self.callbacks.append(callback)
+
+    def emit(self, payload):
+        for callback in list(self.callbacks):
+            callback(payload)
+
+
+class _DummyGoalBridge:
+    def __init__(self, snapshot=None):
+        self.ene_profile = _DummyEneProfile()
+        self.goal_items_updated = _DummySignal()
+        self.snapshot = snapshot or {"active_goals": [], "history": []}
+        self.calls = []
+
+    def parent(self):
+        return None
+
+    def request_goal_items(self):
+        self.calls.append(("request_goal_items",))
+        self.goal_items_updated.emit(json.dumps(self.snapshot, ensure_ascii=False))
+
+    def add_manual_goal(self, goal_type, title, reason):
+        self.calls.append(("add_manual_goal", goal_type, title, reason))
+
+    def update_goal_item(self, goal_id, title, reason):
+        self.calls.append(("update_goal_item", goal_id, title, reason))
+
+    def complete_goal_item(self, goal_id, reason):
+        self.calls.append(("complete_goal_item", goal_id, reason))
+
+    def cancel_goal_item(self, goal_id, reason):
+        self.calls.append(("cancel_goal_item", goal_id, reason))
+
+
 def _write_locales(locales_dir, en_data, ja_data, ko_data=None):
     (locales_dir / "en.json").write_text(json.dumps(en_data, ensure_ascii=False), encoding="utf-8-sig")
     (locales_dir / "ja.json").write_text(json.dumps(ja_data, ensure_ascii=False), encoding="utf-8-sig")
@@ -435,6 +474,119 @@ def test_settings_dialog_initializes_viseme_lipsync_toggle_unchecked_when_disabl
         )
 
         assert dialog.viseme_lipsync_enabled_check.isChecked() is False
+
+        dialog.close()
+
+
+def test_settings_dialog_loads_saves_and_disables_goal_controls(monkeypatch):
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        monkeypatch.setattr(SettingsDialog, "_load_prompt_configuration", lambda self: None)
+
+        dialog = SettingsDialog(
+            {
+                "ui_language": "ko",
+                "llm_provider": "gemini",
+                "tts_provider": "gpt_sovits_http",
+                "enable_tts": True,
+                "enable_ene_goals": False,
+                "show_ene_goal_button": True,
+            },
+            bridge=_DummyGoalBridge(),
+        )
+
+        assert dialog.enable_ene_goals_check.isChecked() is False
+        assert dialog.show_ene_goal_button_check.isChecked() is True
+        assert dialog.show_ene_goal_button_check.isEnabled() is False
+        assert dialog._goal_title_edit.isEnabled() is False
+        assert dialog._goal_add_button.isEnabled() is False
+
+        values = dialog._get_current_values()
+        assert values["enable_ene_goals"] is False
+        assert values["show_ene_goal_button"] is True
+
+        dialog.enable_ene_goals_check.setChecked(True)
+        assert dialog.show_ene_goal_button_check.isEnabled() is True
+        assert dialog._goal_title_edit.isEnabled() is True
+        assert dialog._get_current_values()["enable_ene_goals"] is True
+
+        dialog.close()
+
+
+def test_settings_dialog_renders_goal_items_and_calls_bridge_handlers(monkeypatch):
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+
+    snapshot = {
+        "active_goals": [
+            {
+                "id": "goal_1",
+                "type": "short_term",
+                "title": "물 마시기",
+                "reason": "컨디션 관리",
+            }
+        ],
+        "history": [
+            {
+                "id": "goal_2",
+                "type": "long_term",
+                "title": "루틴 정리",
+                "reason": "완료됨",
+                "status": "completed",
+            }
+        ],
+    }
+    bridge = _DummyGoalBridge(snapshot)
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        monkeypatch.setattr(SettingsDialog, "_load_prompt_configuration", lambda self: None)
+
+        dialog = SettingsDialog(
+            {
+                "ui_language": "ko",
+                "llm_provider": "gemini",
+                "tts_provider": "gpt_sovits_http",
+                "enable_tts": True,
+                "enable_ene_goals": True,
+                "show_ene_goal_button": True,
+            },
+            bridge=bridge,
+        )
+
+        assert bridge.calls[0] == ("request_goal_items",)
+        assert dialog._goal_items["goal_1"]["title"] == "물 마시기"
+        assert dialog._goal_active_list.count() == 1
+        assert dialog._goal_history_list.count() == 1
+
+        dialog._goal_active_list.setCurrentRow(0)
+        assert dialog._goal_title_edit.text() == "물 마시기"
+        assert dialog._goal_reason_edit.toPlainText() == "컨디션 관리"
+        assert dialog._goal_type_combo.isEnabled() is False
+
+        dialog._goal_title_edit.setText("물 챙겨 마시기")
+        dialog._goal_reason_edit.setPlainText("수정 이유")
+        dialog._goal_update_button.click()
+        dialog._goal_complete_button.click()
+        dialog._goal_cancel_button.click()
+
+        dialog._goal_active_list.clearSelection()
+        dialog._goal_type_combo.setCurrentIndex(dialog._goal_type_combo.findData("long_term"))
+        dialog._goal_title_edit.setText("장기 방향 잡기")
+        dialog._goal_reason_edit.setPlainText("직접 추가")
+        dialog._goal_add_button.click()
+
+        assert ("update_goal_item", "goal_1", "물 챙겨 마시기", "수정 이유") in bridge.calls
+        assert ("complete_goal_item", "goal_1", "수정 이유") in bridge.calls
+        assert ("cancel_goal_item", "goal_1", "수정 이유") in bridge.calls
+        assert ("add_manual_goal", "long_term", "장기 방향 잡기", "직접 추가") in bridge.calls
 
         dialog.close()
 
