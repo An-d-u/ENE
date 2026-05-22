@@ -101,6 +101,7 @@ class OverlayWindow(QWidget):
         self._sync_manual_summary_button_visibility_to_js()
         self._sync_obsidian_note_button_visibility_to_js()
         self._sync_mood_toggle_button_visibility_to_js()
+        self._sync_goal_button_visibility_to_js()
         self._sync_token_usage_bubble_visibility_to_js()
         self._sync_typing_effect_settings_to_js()
         self._sync_message_split_settings_to_js()
@@ -228,6 +229,10 @@ class OverlayWindow(QWidget):
                     "label": i18n.t("chat.actions.promises"),
                     "title": i18n.t("chat.actions.promises.title"),
                 },
+                "goals": {
+                    "label": i18n.t("chat.actions.goals"),
+                    "title": i18n.t("chat.actions.goals.title"),
+                },
             },
             "promiseNotice": {
                 "saved": i18n.t("chat.promise.notice.saved"),
@@ -238,6 +243,13 @@ class OverlayWindow(QWidget):
                 "queued": i18n.t("chat.promise.panel.queued"),
                 "inMinutes": i18n.t("chat.promise.panel.in_minutes"),
                 "overdueMinutes": i18n.t("chat.promise.panel.overdue_minutes"),
+            },
+            "goalPanel": {
+                "title": i18n.t("chat.goals.title"),
+                "empty": i18n.t("chat.goals.empty"),
+                "shortTerm": i18n.t("chat.goals.short_term"),
+                "longTerm": i18n.t("chat.goals.long_term"),
+                "close": i18n.t("chat.goals.close"),
             },
             "mood": {
                 "label": i18n.t("chat.mood.label"),
@@ -470,6 +482,7 @@ class OverlayWindow(QWidget):
         self._sync_manual_summary_button_visibility_to_js()
         self._sync_obsidian_note_button_visibility_to_js()
         self._sync_mood_toggle_button_visibility_to_js()
+        self._sync_goal_button_visibility_to_js()
         self._sync_token_usage_bubble_visibility_to_js()
         self._sync_typing_effect_settings_to_js()
         self._sync_message_split_settings_to_js()
@@ -519,6 +532,7 @@ class OverlayWindow(QWidget):
             self._sync_manual_summary_button_visibility_to_js(new_settings)
             self._sync_obsidian_note_button_visibility_to_js(new_settings)
             self._sync_mood_toggle_button_visibility_to_js(new_settings)
+            self._sync_goal_button_visibility_to_js(new_settings)
             self._sync_token_usage_bubble_visibility_to_js(new_settings)
             self._sync_typing_effect_settings_to_js(new_settings)
             self._sync_message_split_settings_to_js(new_settings)
@@ -537,6 +551,7 @@ class OverlayWindow(QWidget):
         self._sync_manual_summary_button_visibility_to_js()
         self._sync_obsidian_note_button_visibility_to_js()
         self._sync_mood_toggle_button_visibility_to_js()
+        self._sync_goal_button_visibility_to_js()
         self._sync_token_usage_bubble_visibility_to_js()
         self._sync_typing_effect_settings_to_js()
         self._sync_message_split_settings_to_js()
@@ -732,6 +747,13 @@ class OverlayWindow(QWidget):
         source = settings_override if settings_override is not None else self.settings.config
         enabled = "true" if bool(source.get("show_mood_toggle_button", True)) else "false"
         self.web_view.page().runJavaScript(f"window.setMoodToggleButtonEnabled({enabled});")
+
+    def _sync_goal_button_visibility_to_js(self, settings_override: dict | None = None):
+        if not self._page_loaded:
+            return
+        source = settings_override if settings_override is not None else self.settings.config
+        enabled = "true" if bool(source.get("show_ene_goal_button", True)) else "false"
+        self.web_view.page().runJavaScript(f"window.setGoalButtonEnabled({enabled});")
 
     def _sync_token_usage_bubble_visibility_to_js(self, settings_override: dict | None = None):
         if not self._page_loaded:
