@@ -28,7 +28,7 @@ from ..ai.note_service import NoteService, NoteCommand, NoteCommandResult, NoteP
 from ..ai.obsidian_manager import ObsidianManager
 from ..ai.prompt_language import resolve_prompt_language, resolve_tts_language
 from ..ai.promise_reminder_manager import GENERIC_PROMISE_TITLE, extract_promise_candidates
-from ..ai.response_cleanup import extract_thought_metadata, strip_thinking_markers
+from ..ai.response_cleanup import extract_goal_update_metadata, extract_thought_metadata, strip_thinking_markers
 from .chat_attachments import (
     build_attachment_context_block,
     build_attachment_note,
@@ -104,7 +104,7 @@ VISIBLE_RESPONSE_ANALYSIS_KEYS = (
 class AIWorker(QThread):
     """AI 응답을 비동기로 처리하는 워커 스레드"""
     
-    response_ready = pyqtSignal(str, str, str, list, str, str, list, str)  # (텍스트, 감정, 일본어, 이벤트, analysis JSON, 토큰 JSON, 약속 리스트, 생각)
+    response_ready = pyqtSignal(str, str, str, list, str, str, list, str, str)  # (텍스트, 감정, 일본어, 이벤트, analysis JSON, 토큰 JSON, 약속 리스트, 생각, 목표 업데이트 JSON)
     error_occurred = pyqtSignal(str)  # 오류 메시지
     
     def __init__(
@@ -146,22 +146,22 @@ class AIWorker(QThread):
         return resolve_prompt_language(settings_source=getattr(self.llm_client, "settings", None))
 
     def _normalize_response_payload(self, payload):
-        """신구 응답 형식을 모두 7개 값으로 정규화한다."""
+        """신구 응답 형식을 모두 8개 값으로 정규화한다."""
         if isinstance(payload, tuple):
             if len(payload) == 8:
-                text, emotion, japanese_text, events, analysis, promises, thought, _goal_update = payload
-                return text, emotion, japanese_text, events, analysis, promises, thought
-            if len(payload) == 7:
                 return payload
+            if len(payload) == 7:
+                text, emotion, japanese_text, events, analysis, promises, thought = payload
+                return text, emotion, japanese_text, events, analysis, promises, thought, {}
             if len(payload) == 6:
                 text, emotion, japanese_text, events, analysis, promises = payload
-                return text, emotion, japanese_text, events, analysis, promises, ""
+                return text, emotion, japanese_text, events, analysis, promises, "", {}
             if len(payload) == 5:
                 text, emotion, japanese_text, events, analysis = payload
-                return text, emotion, japanese_text, events, analysis, [], ""
+                return text, emotion, japanese_text, events, analysis, [], "", {}
             if len(payload) == 4:
                 text, emotion, japanese_text, events = payload
-                return text, emotion, japanese_text, events, {}, [], ""
+                return text, emotion, japanese_text, events, {}, [], "", {}
         raise ValueError("지원하지 않는 응답 형식입니다.")
     
     def run(self):
@@ -183,18 +183,18 @@ class AIWorker(QThread):
 
             if self.note_request and self.note_service and self.obsidian_manager:
                 print("[AI Worker] /note 모드")
-                response_text, emotion, japanese_text, events, analysis, promises, thought = self._normalize_response_payload(
+                response_text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._normalize_response_payload(
                     loop.run_until_complete(self._run_note_flow())
                 )
             elif self.diary_request and self.diary_service:
                 print("[AI Worker] /diary 모드")
-                response_text, emotion, japanese_text, events, analysis, promises, thought = self._normalize_response_payload(
+                response_text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._normalize_response_payload(
                     loop.run_until_complete(self._run_diary_flow())
                 )
             # 이미지가 있으면 멀티모달로 처리
             elif self.images:
                 print(f"[AI Worker] 이미지 {len(self.images)}개 포함 - 멀티모달 모드")
-                response_text, emotion, japanese_text, events, analysis, promises, thought = self._normalize_response_payload(
+                response_text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._normalize_response_payload(
                     loop.run_until_complete(
                         self.llm_client.send_message_with_images(
                             self.message,
@@ -208,7 +208,7 @@ class AIWorker(QThread):
                 )
             elif self.use_memory and hasattr(self.llm_client, 'send_message_with_memory'):
                 print(f"[AI Worker] 메모리 활용 모드")
-                response_text, emotion, japanese_text, events, analysis, promises, thought = self._normalize_response_payload(
+                response_text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._normalize_response_payload(
                     loop.run_until_complete(
                         self.llm_client.send_message_with_memory(
                             self.message,
@@ -221,7 +221,7 @@ class AIWorker(QThread):
                 )
             else:
                 print(f"[AI Worker] 일반 모드 (메모리 없음)")
-                response_text, emotion, japanese_text, events, analysis, promises, thought = self._normalize_response_payload(
+                response_text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._normalize_response_payload(
                     self.llm_client.send_message(self.message)
                 )
             
@@ -243,6 +243,7 @@ class AIWorker(QThread):
                 token_usage_payload,
                 promises,
                 thought,
+                json.dumps(goal_update or {}, ensure_ascii=False),
             )
         except Exception as e:
             print(f"[AI Worker] Error: {e}")
@@ -342,12 +343,12 @@ class AIWorker(QThread):
             completion_context += f"\n- {note_label}: {result.obsidian_cli_error}"
 
         if hasattr(self.llm_client, "generate_diary_completion_reply"):
-            text, emotion, japanese_text, events, analysis, promises, thought = self._normalize_response_payload(
+            text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._normalize_response_payload(
                 await self.llm_client.generate_diary_completion_reply(completion_context)
             )
             if required not in text:
                 text = f"{required}\n{text}".strip()
-            return text, emotion, japanese_text, events, analysis, promises, thought
+            return text, emotion, japanese_text, events, analysis, promises, thought, goal_update
 
         # 하위 호환 폴백 (기존 클라이언트 경로)
         return self._normalize_response_payload(self.llm_client.send_message(completion_context))
@@ -653,6 +654,8 @@ class WebBridge(QObject):
     token_usage_ready = pyqtSignal(str)  # 토큰 사용량 JSON
     promise_notice = pyqtSignal(str, str)  # (메시지, 레벨)
     promise_items_updated = pyqtSignal(str)  # 예정 목록 JSON
+    goal_items_updated = pyqtSignal(str)  # 목표 목록 JSON
+    goal_notice = pyqtSignal(str, str)  # (메시지, 레벨)
     
     def __init__(self, settings=None, parent=None):
         super().__init__(parent)
@@ -810,15 +813,30 @@ class WebBridge(QObject):
         self._emit_goal_items_updated()
 
     def _emit_goal_items_updated(self, snapshot=None):
-        """Task 5 UI 시그널이 생기면 목표 목록을 안전하게 전달한다."""
+        """목표 목록을 JSON으로 UI에 안전하게 전달한다."""
         signal = getattr(self, "goal_items_updated", None)
         emit = getattr(signal, "emit", None)
         if not callable(emit):
             return
         try:
+            goal_manager = getattr(self, "goal_manager", None)
+            if snapshot is None and goal_manager and hasattr(goal_manager, "get_snapshot"):
+                snapshot = goal_manager.get_snapshot()
             emit(json.dumps(snapshot or {}, ensure_ascii=False))
         except Exception as e:
             print(f"[Bridge] 목표 목록 갱신 신호 전송 실패: {e}")
+
+    def _emit_goal_notice(self, message: str, level: str = "info"):
+        """목표 UI 알림을 안전하게 전달한다."""
+        signal = getattr(self, "goal_notice", None)
+        emit = getattr(signal, "emit", None)
+        if callable(emit):
+            try:
+                emit(str(message or ""), str(level or "info"))
+                return
+            except Exception as e:
+                print(f"[Bridge] 목표 알림 신호 전송 실패: {e}")
+        print(f"[Bridge] Goal notice({level}): {message}")
 
     def _emit_mood_changed(self, snapshot: dict):
         """기분 상태 변경 시 UI로 전달"""
@@ -2466,6 +2484,7 @@ class WebBridge(QObject):
         token_usage_payload: str = "",
         scheduled_promises: list | None = None,
         thought: str = "",
+        goal_update_payload: str = "",
     ):
         """AI 응답 준비 완료"""
         completed_promise_id = str(getattr(self, "_active_promise_id", "") or "").strip()
@@ -2495,6 +2514,8 @@ class WebBridge(QObject):
         if self.mood_manager:
             snapshot = self.mood_manager.on_assistant_emotion(emotion)
             self._emit_mood_changed(snapshot)
+
+        WebBridge._apply_goal_update_payload(self, goal_update_payload)
         
         # 대화 버퍼에 응답 추가 (+ 타임스탬프)
         self._append_conversation("assistant", text)
@@ -2565,6 +2586,27 @@ class WebBridge(QObject):
         drain_queue = getattr(self, "_drain_promise_queue_if_idle", None)
         if callable(drain_queue):
             drain_queue()
+
+    def _apply_goal_update_payload(self, goal_update_payload: str):
+        """LLM이 보낸 목표 업데이트를 적용하고 최신 목표 스냅샷을 UI로 보낸다."""
+        goal_manager = getattr(self, "goal_manager", None)
+        if not goal_manager or not goal_update_payload:
+            return
+        try:
+            parsed = json.loads(goal_update_payload)
+        except Exception as e:
+            print(f"[Bridge] 목표 업데이트 JSON 파싱 실패: {e}")
+            return
+        if not isinstance(parsed, dict):
+            return
+        action = str(parsed.get("action") or "").strip().lower()
+        if not parsed or not action or action == "none":
+            return
+        try:
+            snapshot = goal_manager.apply_llm_update(parsed)
+            WebBridge._emit_goal_items_updated(self, snapshot)
+        except Exception as e:
+            print(f"[Bridge] 목표 업데이트 적용 실패: {e}")
 
     def _store_scheduled_promises(self, scheduled_promises: list | None) -> list:
         """응답 메타에 포함된 대화 약속을 저장하고 알림을 보낸다."""
@@ -3035,11 +3077,74 @@ class WebBridge(QObject):
         if removed:
             self._emit_promise_items_updated()
 
+    @pyqtSlot()
+    def request_goal_items(self):
+        """웹 UI에서 목표 목록 새로고침을 요청한다."""
+        if not self.goal_manager:
+            WebBridge._emit_goal_notice(self, "목표 관리자가 아직 준비되지 않았어요.", "warning")
+            return
+        WebBridge._emit_goal_items_updated(self)
+
+    @pyqtSlot(str, str, str)
+    def add_manual_goal(self, goal_type: str, title: str, reason: str):
+        """웹 UI에서 수동 목표를 추가한다."""
+        if not self.goal_manager:
+            WebBridge._emit_goal_notice(self, "목표를 추가할 수 없어요. 목표 관리자가 준비되지 않았어요.", "warning")
+            return
+        try:
+            snapshot = self.goal_manager.add_manual_goal(goal_type, title, reason)
+            WebBridge._emit_goal_items_updated(self, snapshot)
+        except Exception as e:
+            print(f"[Bridge] 수동 목표 추가 실패: {e}")
+            WebBridge._emit_goal_notice(self, "목표 추가 중 오류가 발생했어요.", "error")
+
+    @pyqtSlot(str, str, str)
+    def update_goal_item(self, goal_id: str, title: str, reason: str):
+        """웹 UI에서 수동 목표를 수정한다."""
+        if not self.goal_manager:
+            WebBridge._emit_goal_notice(self, "목표를 수정할 수 없어요. 목표 관리자가 준비되지 않았어요.", "warning")
+            return
+        try:
+            snapshot = self.goal_manager.update_goal(goal_id, {"title": title, "reason": reason})
+            WebBridge._emit_goal_items_updated(self, snapshot)
+        except Exception as e:
+            print(f"[Bridge] 목표 수정 실패: {e}")
+            WebBridge._emit_goal_notice(self, "목표 수정 중 오류가 발생했어요.", "error")
+
+    @pyqtSlot(str, str)
+    def complete_goal_item(self, goal_id: str, reason: str):
+        """웹 UI에서 목표를 완료 처리한다."""
+        if not self.goal_manager:
+            WebBridge._emit_goal_notice(self, "목표를 완료할 수 없어요. 목표 관리자가 준비되지 않았어요.", "warning")
+            return
+        try:
+            snapshot = self.goal_manager.complete_goal(goal_id, reason)
+            WebBridge._emit_goal_items_updated(self, snapshot)
+        except Exception as e:
+            print(f"[Bridge] 목표 완료 실패: {e}")
+            WebBridge._emit_goal_notice(self, "목표 완료 중 오류가 발생했어요.", "error")
+
+    @pyqtSlot(str, str)
+    def cancel_goal_item(self, goal_id: str, reason: str):
+        """웹 UI에서 목표를 취소 처리한다."""
+        if not self.goal_manager:
+            WebBridge._emit_goal_notice(self, "목표를 취소할 수 없어요. 목표 관리자가 준비되지 않았어요.", "warning")
+            return
+        try:
+            snapshot = self.goal_manager.cancel_goal(goal_id, reason)
+            WebBridge._emit_goal_items_updated(self, snapshot)
+        except Exception as e:
+            print(f"[Bridge] 목표 취소 실패: {e}")
+            WebBridge._emit_goal_notice(self, "목표 취소 중 오류가 발생했어요.", "error")
+
     def _sanitize_visible_response_text(self, text: str) -> str:
         """표시 직전 응답에서 내부 메타데이터와 잔여 감정 태그를 제거한다."""
         sanitized = strip_thinking_markers(text)
         sanitized = re.sub(r"\[analysis\]\s*.*?\s*\[/analysis\]\s*", "", sanitized, flags=re.IGNORECASE | re.DOTALL)
         sanitized, _ = extract_thought_metadata(sanitized)
+        sanitized, goal_update = extract_goal_update_metadata(sanitized)
+        if goal_update:
+            sanitized = re.sub(r"\n{2,}", "\n", sanitized)
 
         key_pattern = "|".join(re.escape(key) for key in VISIBLE_RESPONSE_ANALYSIS_KEYS)
         leading_meta_pattern = rf"^\s*(?:(?:{key_pattern})\s*=\s*.*(?:\r?\n|$))+"
