@@ -50,6 +50,30 @@ def test_create_truncates_long_title_and_reason(tmp_path):
     assert goal["reason"] == long_reason[:300]
 
 
+def test_llm_create_requires_non_empty_reason(tmp_path):
+    manager = EneGoalManager(state_file=str(tmp_path / "ene_goals.json"))
+    before = manager.get_snapshot()
+
+    missing_reason = manager.apply_llm_update(
+        {
+            "action": "create",
+            "type": "short_term",
+            "title": "이유 없는 목표",
+        }
+    )
+    empty_reason = manager.apply_llm_update(
+        {
+            "action": "create",
+            "type": "short_term",
+            "title": "빈 이유 목표",
+            "reason": "   ",
+        }
+    )
+
+    assert missing_reason == before
+    assert empty_reason == before
+
+
 def test_apply_complete_moves_goal_to_history(tmp_path):
     manager = EneGoalManager(state_file=str(tmp_path / "ene_goals.json"))
     created = manager.apply_llm_update(
@@ -87,6 +111,55 @@ def test_complete_and_cancel_truncate_long_completion_reason(tmp_path):
     history_by_id = {goal["id"]: goal for goal in snapshot["history"]}
     assert history_by_id[completed_id]["completion_reason"] == long_reason[:300]
     assert history_by_id[cancelled_id]["completion_reason"] == long_reason[:300]
+
+
+def test_llm_complete_validates_provided_goal_type(tmp_path):
+    manager = EneGoalManager(state_file=str(tmp_path / "ene_goals.json"))
+    created = manager.add_manual_goal("short_term", "완료할 단기 목표", "")
+    goal_id = created["active"]["short_term"][0]["id"]
+
+    invalid_type = manager.apply_llm_update(
+        {"action": "complete", "id": goal_id, "type": "daily", "completion_reason": "무시"}
+    )
+    mismatched_type = manager.apply_llm_update(
+        {"action": "complete", "id": goal_id, "type": "long_term", "completion_reason": "무시"}
+    )
+    completed = manager.apply_llm_update(
+        {"action": "complete", "id": goal_id, "type": "short_term", "completion_reason": "완료"}
+    )
+
+    assert invalid_type == created
+    assert mismatched_type == created
+    assert completed["active"]["short_term"] == []
+    assert completed["history"][0]["id"] == goal_id
+    assert completed["history"][0]["status"] == "completed"
+
+
+def test_llm_cancel_validates_provided_goal_type_and_allows_empty_type(tmp_path):
+    manager = EneGoalManager(state_file=str(tmp_path / "ene_goals.json"))
+    first = manager.add_manual_goal("long_term", "취소할 장기 목표", "")
+    first_id = first["active"]["long_term"][0]["id"]
+
+    invalid_type = manager.apply_llm_update(
+        {"action": "cancel", "id": first_id, "type": "daily", "completion_reason": "무시"}
+    )
+    mismatched_type = manager.apply_llm_update(
+        {"action": "cancel", "id": first_id, "type": "short_term", "completion_reason": "무시"}
+    )
+    matching_type = manager.apply_llm_update(
+        {"action": "cancel", "id": first_id, "type": "long_term", "completion_reason": "취소"}
+    )
+
+    second = manager.add_manual_goal("short_term", "타입 없이 취소할 목표", "")
+    second_id = second["active"]["short_term"][0]["id"]
+    cancelled = manager.apply_llm_update(
+        {"action": "cancel", "id": second_id, "type": "", "completion_reason": "취소"}
+    )
+
+    assert invalid_type == first
+    assert mismatched_type == first
+    assert any(goal["id"] == first_id and goal["status"] == "cancelled" for goal in matching_type["history"])
+    assert any(goal["id"] == second_id and goal["status"] == "cancelled" for goal in cancelled["history"])
 
 
 def test_apply_none_changes_nothing(tmp_path):
