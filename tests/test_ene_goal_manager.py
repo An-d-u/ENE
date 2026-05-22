@@ -1,0 +1,229 @@
+﻿import json
+
+from src.ai.ene_goal_manager import EneGoalManager
+
+
+class _Settings:
+    def __init__(self, **config):
+        self.config = config
+
+
+def test_apply_create_adds_active_short_term_goal(tmp_path):
+    manager = EneGoalManager(state_file=str(tmp_path / "ene_goals.json"))
+
+    snapshot = manager.apply_llm_update(
+        {
+            "action": "create",
+            "type": "short_term",
+            "title": "릴리즈 체크리스트 정리",
+            "reason": "사용자가 이번 작업을 마무리하려고 함",
+        }
+    )
+
+    goals = snapshot["active"]["short_term"]
+    assert len(goals) == 1
+    assert goals[0]["id"].startswith("goal_")
+    assert goals[0]["type"] == "short_term"
+    assert goals[0]["title"] == "릴리즈 체크리스트 정리"
+    assert goals[0]["reason"] == "사용자가 이번 작업을 마무리하려고 함"
+    assert goals[0]["source"] == "llm"
+    assert snapshot["active"]["long_term"] == []
+    assert snapshot["history"] == []
+
+
+def test_apply_complete_moves_goal_to_history(tmp_path):
+    manager = EneGoalManager(state_file=str(tmp_path / "ene_goals.json"))
+    created = manager.apply_llm_update(
+        {
+            "action": "create",
+            "type": "short_term",
+            "title": "테스트 통과 확인",
+            "reason": "작업 완료 조건",
+        }
+    )
+    goal_id = created["active"]["short_term"][0]["id"]
+
+    snapshot = manager.apply_llm_update(
+        {"action": "complete", "id": goal_id, "completion_reason": "검증 완료"}
+    )
+
+    assert snapshot["active"]["short_term"] == []
+    assert len(snapshot["history"]) == 1
+    assert snapshot["history"][0]["id"] == goal_id
+    assert snapshot["history"][0]["status"] == "completed"
+    assert snapshot["history"][0]["completion_reason"] == "검증 완료"
+
+
+def test_apply_none_changes_nothing(tmp_path):
+    manager = EneGoalManager(state_file=str(tmp_path / "ene_goals.json"))
+    before = manager.add_manual_goal("short_term", "기존 목표", "유지")
+
+    after = manager.apply_llm_update({"action": "none", "type": "bad"})
+
+    assert after == before
+
+
+def test_apply_update_existing_goal_edits_fields_and_keeps_active(tmp_path):
+    manager = EneGoalManager(state_file=str(tmp_path / "ene_goals.json"))
+    created = manager.apply_llm_update(
+        {
+            "action": "create",
+            "type": "short_term",
+            "title": "초안 작성",
+            "reason": "처음 이유",
+        }
+    )
+    goal = created["active"]["short_term"][0]
+    manager._now_iso = lambda: "2099-01-01T00:00:00"
+
+    snapshot = manager.apply_llm_update(
+        {
+            "action": "update",
+            "id": goal["id"],
+            "title": "초안 다듬기",
+            "reason": "범위가 더 명확해짐",
+        }
+    )
+
+    updated = snapshot["active"]["short_term"][0]
+    assert updated["id"] == goal["id"]
+    assert updated["title"] == "초안 다듬기"
+    assert updated["reason"] == "범위가 더 명확해짐"
+    assert updated["updated_at"] == "2099-01-01T00:00:00"
+    assert updated["source"] == "llm"
+    assert snapshot["history"] == []
+
+
+def test_apply_update_missing_id_or_fields_returns_unchanged_snapshot(tmp_path):
+    manager = EneGoalManager(state_file=str(tmp_path / "ene_goals.json"))
+    before = manager.add_manual_goal("short_term", "수정하지 않을 목표", "그대로")
+
+    assert manager.apply_llm_update({"action": "update", "title": "무시"}) == before
+    assert manager.apply_llm_update({"action": "update", "id": "missing"}) == before
+
+
+def test_duplicate_normalized_title_does_not_create_second_active_goal(tmp_path):
+    manager = EneGoalManager(state_file=str(tmp_path / "ene_goals.json"))
+    first = manager.apply_llm_update(
+        {
+            "action": "create",
+            "type": "short_term",
+            "title": "  릴리즈, 체크리스트! 정리  ",
+            "reason": "처음 이유",
+        }
+    )
+    goal = first["active"]["short_term"][0]
+    manager._now_iso = lambda: "2099-01-01T00:00:00"
+
+    snapshot = manager.apply_llm_update(
+        {
+            "action": "create",
+            "type": "short_term",
+            "title": "릴리즈 체크리스트 정리",
+            "reason": "새 이유",
+        }
+    )
+
+    goals = snapshot["active"]["short_term"]
+    assert len(goals) == 1
+    assert goals[0]["id"] == goal["id"]
+    assert goals[0]["title"] == goal["title"]
+    assert goals[0]["reason"] == "새 이유"
+    assert goals[0]["updated_at"] == "2099-01-01T00:00:00"
+
+
+def test_cancel_moves_goal_to_history_with_cancelled_status(tmp_path):
+    manager = EneGoalManager(state_file=str(tmp_path / "ene_goals.json"))
+    created = manager.add_manual_goal("long_term", "장기 방향 유지", "사용자 선호")
+    goal_id = created["active"]["long_term"][0]["id"]
+
+    snapshot = manager.cancel_goal(goal_id, "더 이상 필요 없음")
+
+    assert snapshot["active"]["long_term"] == []
+    assert snapshot["history"][0]["id"] == goal_id
+    assert snapshot["history"][0]["status"] == "cancelled"
+    assert snapshot["history"][0]["completion_reason"] == "더 이상 필요 없음"
+
+
+def test_disabled_settings_ignore_llm_updates_and_context(tmp_path):
+    manager = EneGoalManager(
+        state_file=str(tmp_path / "ene_goals.json"),
+        settings=_Settings(enable_ene_goals=False),
+    )
+
+    snapshot = manager.apply_llm_update(
+        {
+            "action": "create",
+            "type": "short_term",
+            "title": "무시될 목표",
+            "reason": "기능 꺼짐",
+        }
+    )
+
+    assert snapshot == {
+        "version": 1,
+        "active": {"long_term": [], "short_term": []},
+        "history": [],
+    }
+    assert manager.build_context_block() == ""
+
+
+def test_build_context_block_includes_active_goal_fields(tmp_path):
+    manager = EneGoalManager(state_file=str(tmp_path / "ene_goals.json"))
+    snapshot = manager.add_manual_goal("short_term", "컨텍스트에 넣기", "LLM에게 알려야 함")
+    goal_id = snapshot["active"]["short_term"][0]["id"]
+
+    block = manager.build_context_block()
+
+    assert "[ENE 현재 목표]" in block
+    assert f"id={goal_id}" in block
+    assert "type=short_term" in block
+    assert "title=컨텍스트에 넣기" in block
+    assert "reason=LLM에게 알려야 함" in block
+    assert "[/ENE 현재 목표]" in block
+
+
+def test_corrupted_state_file_falls_back_to_default_structure(tmp_path):
+    state_file = tmp_path / "ene_goals.json"
+    state_file.write_text("{ broken", encoding="utf-8-sig")
+
+    manager = EneGoalManager(state_file=str(state_file))
+
+    assert manager.get_snapshot() == {
+        "version": 1,
+        "active": {"long_term": [], "short_term": []},
+        "history": [],
+    }
+
+
+def test_settings_state_file_is_used_when_explicit_file_is_missing(tmp_path, monkeypatch):
+    monkeypatch.setenv("ENE_USER_DATA_DIR", str(tmp_path))
+    manager = EneGoalManager(settings=_Settings(ene_goal_state_file="custom_goals.json"))
+
+    manager.add_manual_goal("short_term", "설정 경로 사용", "")
+
+    saved = json.loads((tmp_path / "custom_goals.json").read_text(encoding="utf-8-sig"))
+    assert saved["active"]["short_term"][0]["title"] == "설정 경로 사용"
+
+
+def test_invalid_update_inputs_return_unchanged_snapshot(tmp_path):
+    manager = EneGoalManager(state_file=str(tmp_path / "ene_goals.json"))
+    before = manager.get_snapshot()
+
+    assert manager.apply_llm_update({"action": "unknown"}) == before
+    assert manager.apply_llm_update({"action": "create", "type": "short_term"}) == before
+    assert manager.apply_llm_update({"action": "create", "type": "bad", "title": "x"}) == before
+    assert manager.apply_llm_update({"action": "complete"}) == before
+
+
+def test_list_history_returns_most_recent_limited_items(tmp_path):
+    manager = EneGoalManager(state_file=str(tmp_path / "ene_goals.json"))
+    first = manager.add_manual_goal("short_term", "첫 번째", "")
+    manager.complete_goal(first["active"]["short_term"][0]["id"], "")
+    second = manager.add_manual_goal("short_term", "두 번째", "")
+    manager.cancel_goal(second["active"]["short_term"][0]["id"], "")
+
+    history = manager.list_history(limit=1)
+
+    assert len(history) == 1
+    assert history[0]["title"] == "두 번째"
