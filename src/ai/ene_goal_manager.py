@@ -163,9 +163,10 @@ class EneGoalManager:
         if action == "create":
             goal_type = str(update.get("type") or "").strip()
             title = self._trim_text(update.get("title"), self.TITLE_MAX)
-            if goal_type not in self.ALLOWED_TYPES or not title:
+            reason = self._trim_text(update.get("reason"), self.REASON_MAX)
+            if goal_type not in self.ALLOWED_TYPES or not title or not reason:
                 return self.get_snapshot()
-            return self._create_goal(goal_type, title, update.get("reason", ""), source="llm")
+            return self._create_goal(goal_type, title, reason, source="llm")
 
         if action == "update":
             goal_id = str(update.get("id") or "").strip()
@@ -177,6 +178,11 @@ class EneGoalManager:
         goal_id = str(update.get("id") or "").strip()
         if not goal_id:
             return self.get_snapshot()
+        goal_type = str(update.get("type") or "").strip()
+        if goal_type:
+            found = self._find_active_goal(goal_id)
+            if goal_type not in self.ALLOWED_TYPES or found is None or found[0] != goal_type:
+                return self.get_snapshot()
         reason = update.get("completion_reason", "")
         if action == "complete":
             return self.complete_goal(goal_id, reason)
