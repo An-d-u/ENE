@@ -86,7 +86,7 @@ flags=greeting
 こんばんは。
 """.strip()
 
-    text, emotion, japanese_text, events, analysis, promises, thought = client._parse_response(response_text)
+    text, emotion, japanese_text, events, analysis, promises, thought, _goal_update = client._parse_response(response_text)
 
     assert text == "좋은 저녁이에요. 오늘도 고생 많으셨어요."
     assert emotion == "smile"
@@ -120,7 +120,7 @@ confidence=0.8
         endpoint="https://api.openai.com/v1/responses",
     )
 
-    text, emotion, japanese_text, events, analysis, promises, thought = client.send_message("테스트")
+    text, emotion, japanese_text, events, analysis, promises, thought, _goal_update = client.send_message("테스트")
     history = client.get_conversation_history()
 
     assert text == "좋은 저녁이에요."
