@@ -66,6 +66,49 @@ completion_reason=
     }
 
 
+def test_extract_goal_update_metadata_removes_all_blocks_and_parses_only_first():
+    text = """[ene_goal_update]
+action=create
+type=short_term
+title=첫 번째 목표
+[/ene_goal_update]
+보이는 본문
+[ene_goal_update]
+action=complete
+type=long_term
+title=두 번째 목표
+[/ene_goal_update]"""
+
+    cleaned, update = extract_goal_update_metadata(text)
+
+    assert "[ene_goal_update]" not in cleaned
+    assert "[/ene_goal_update]" not in cleaned
+    assert cleaned == "보이는 본문"
+    assert update["action"] == "create"
+    assert update["type"] == "short_term"
+    assert update["title"] == "첫 번째 목표"
+
+
+def test_extract_goal_update_metadata_ignores_unknown_keys():
+    text = """[ene_goal_update]
+action=update
+type=short_term
+scope=long_term
+unexpected=value
+id=goal-1
+[/ene_goal_update]
+좋아요."""
+
+    cleaned, update = extract_goal_update_metadata(text)
+
+    assert cleaned == "좋아요."
+    assert update == {
+        "action": "update",
+        "type": "short_term",
+        "id": "goal-1",
+    }
+
+
 def test_gemini_parse_response_returns_goal_update_metadata():
     client = object.__new__(GeminiClient)
     client.settings = {"ui_language": "ko"}
