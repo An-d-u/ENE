@@ -545,7 +545,8 @@ body.thought-feature-disabled .message-thought {
 #manual-summarize-floating-btn,
 #obs-note-floating-btn,
 #mood-toggle-floating-btn,
-#promise-reminders-floating-btn {
+#promise-reminders-floating-btn,
+#goal-toggle-floating-btn {
     z-index: 1200;
     padding: 8px 12px;
     border: 1px solid var(--ene-floating-panel-border);
@@ -624,12 +625,24 @@ body.thought-feature-disabled .message-thought {
     transform: translateY(-1px);
 }
 
-#promise-reminders-panel {
+#goal-toggle-floating-btn {
+    transition: background 0.2s ease, transform 0.2s ease;
+}
+
+#goal-toggle-floating-btn:hover {
+    background: var(--ene-floating-panel-button-hover);
+    transform: translateY(-1px);
+}
+
+#promise-reminders-panel,
+#goal-status-panel {
     position: fixed;
     right: 12px;
     top: 112px;
     width: 220px;
     min-height: 52px;
+    max-height: min(360px, calc(100vh - 132px));
+    overflow: hidden;
     z-index: 1200;
     border: 1px solid var(--ene-floating-panel-border);
     border-radius: 14px;
@@ -640,11 +653,13 @@ body.thought-feature-disabled .message-thought {
     padding: 12px;
 }
 
-#promise-reminders-panel.hidden {
+#promise-reminders-panel.hidden,
+#goal-status-panel.hidden {
     display: none;
 }
 
-#promise-reminders-panel-header {
+#promise-reminders-panel-header,
+#goal-status-panel-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -652,12 +667,14 @@ body.thought-feature-disabled .message-thought {
     margin-bottom: 8px;
 }
 
-#promise-reminders-panel-title {
+#promise-reminders-panel-title,
+#goal-status-panel-title {
     font-size: 13px;
     font-weight: 700;
 }
 
-#promise-reminders-close-btn {
+#promise-reminders-close-btn,
+#goal-status-close-btn {
     width: 22px;
     height: 22px;
     border: 1px solid var(--ene-floating-panel-border);
@@ -674,13 +691,17 @@ body.thought-feature-disabled .message-thought {
     flex-shrink: 0;
 }
 
-#promise-reminders-close-btn:hover {
+#promise-reminders-close-btn:hover,
+#goal-status-close-btn:hover {
     background: var(--ene-floating-panel-button-hover);
 }
 
-#promise-reminders-list {
+#promise-reminders-list,
+#goal-status-list {
     display: flex;
     flex-direction: column;
+    max-height: min(292px, calc(100vh - 196px));
+    overflow-y: auto;
 }
 
 .promise-reminder-item {
@@ -720,6 +741,60 @@ body.thought-feature-disabled .message-thought {
     background: var(--ene-floating-panel-button-bg);
     color: var(--ene-floating-panel-text);
     cursor: pointer;
+}
+
+.goal-status-section {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+
+.goal-status-section + .goal-status-section {
+    margin-top: 10px;
+    padding-top: 9px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.goal-status-section-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--ene-floating-panel-muted-text);
+}
+
+.goal-status-item {
+    padding: 8px;
+    border-radius: 8px;
+    background: var(--ene-floating-panel-button-bg);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.goal-status-title {
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.35;
+}
+
+.goal-status-reason {
+    margin-top: 4px;
+    font-size: 12px;
+    line-height: 1.35;
+    color: var(--ene-floating-panel-muted-text);
+}
+
+.goal-status-meta,
+.goal-status-empty {
+    margin-top: 5px;
+    font-size: 11px;
+    line-height: 1.35;
+    color: var(--ene-floating-panel-muted-text);
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.goal-status-empty {
+    margin-top: 0;
 }
 
 #obs-panel {

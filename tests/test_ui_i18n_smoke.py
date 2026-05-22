@@ -1955,12 +1955,19 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
           "chat.actions.mood.title": "Mood status",
           "chat.actions.promises": "Scheduled",
           "chat.actions.promises.title": "Scheduled conversation promises",
+          "chat.actions.goals": "Goals",
+          "chat.actions.goals.title": "ENE goals",
           "chat.promise.notice.saved": "Conversation promise saved.",
           "chat.promise.panel.empty": "No scheduled conversation promises.",
           "chat.promise.panel.soon": "Soon",
           "chat.promise.panel.queued": "Right after the current reply",
           "chat.promise.panel.in_minutes": "In {minutes} min",
           "chat.promise.panel.overdue_minutes": "{minutes} min late",
+          "chat.goals.title": "ENE goals",
+          "chat.goals.empty": "No active goals yet.",
+          "chat.goals.short_term": "Short-term",
+          "chat.goals.long_term": "Long-term",
+          "chat.goals.close": "Close",
           "chat.mood.label": "Mood: {label}",
           "chat.mood.loading": "Loading",
           "chat.mood.collapse": "Collapse",
@@ -2003,12 +2010,19 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
           "chat.actions.mood.title": "気分の状態",
           "chat.actions.promises": "予定",
           "chat.actions.promises.title": "予定された会話の約束",
+          "chat.actions.goals": "目標",
+          "chat.actions.goals.title": "エネの目標",
           "chat.promise.notice.saved": "会話の約束を保存しました。",
           "chat.promise.panel.empty": "予定された会話の約束はありません。",
           "chat.promise.panel.soon": "まもなく",
           "chat.promise.panel.queued": "現在の応答の直後",
           "chat.promise.panel.in_minutes": "{minutes}分後",
           "chat.promise.panel.overdue_minutes": "{minutes}分経過",
+          "chat.goals.title": "エネの目標",
+          "chat.goals.empty": "進行中の目標はまだありません。",
+          "chat.goals.short_term": "短期",
+          "chat.goals.long_term": "長期",
+          "chat.goals.close": "閉じる",
           "chat.mood.label": "気分: {label}",
           "chat.mood.loading": "読み込み中",
           "chat.mood.collapse": "折りたたむ",
@@ -2067,7 +2081,10 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
     assert "送信" in captured[-1]
     assert "考え中..." in captured[-1]
     assert '"promises": {' in captured[-1]
+    assert '"goals": {' in captured[-1]
     assert '"label": "予定"' in captured[-1]
+    assert '"title": "エネの目標"' in captured[-1]
+    assert '"shortTerm": "短期"' in captured[-1]
     assert '"saved": "会話の約束を保存しました。"' in captured[-1]
     assert '"empty": "予定された会話の約束はありません。"' in captured[-1]
     assert '"sensitive": "敏感"' in captured[-1]
@@ -2085,6 +2102,11 @@ def test_chat_web_script_has_runtime_i18n_hooks():
     assert "sendButton.textContent = currentUiStrings.send;" in content
     assert "moodStatusLabel.textContent = formatMoodStatusText(label, temporaryState);" in content
     assert "promiseRemindersButton.textContent = currentUiStrings.actions.promises.label;" in content
+    assert "goalButton.textContent = currentUiStrings.actions.goals.label;" in content
+    assert "goalButton.setAttribute('aria-label', currentUiStrings.actions.goals.title);" in content
+    assert "window.setGoalButtonEnabled = function setGoalButtonEnabled(enabled)" in content
+    assert "window.setGoalItems = function setGoalItems(value)" in content
+    assert "renderGoalPanel();" in content
     assert "renderPromiseReminderPanel();" in content
 
 
@@ -2124,6 +2146,40 @@ def test_overlay_window_syncs_message_split_settings_to_webview(tmp_path):
     assert "window.setMessageSplitConfig(window.eneMessageSplitConfig);" in captured[-1]
 
 
+def test_overlay_window_syncs_goal_button_visibility_to_webview(tmp_path):
+    _get_qapp()
+    locales_dir = tmp_path / "locales"
+    locales_dir.mkdir(parents=True, exist_ok=True)
+    (locales_dir / "en.json").write_text("{}", encoding="utf-8-sig")
+    (locales_dir / "ja.json").write_text("{}", encoding="utf-8-sig")
+    (locales_dir / "ko.json").write_text("{}", encoding="utf-8-sig")
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+
+    from src.core.overlay_window import OverlayWindow
+
+    captured = []
+
+    class _FakePage:
+        def runJavaScript(self, code):
+            captured.append(code)
+
+    class _FakeWebView:
+        def __init__(self):
+            self._page = _FakePage()
+
+        def page(self):
+            return self._page
+
+    overlay = OverlayWindow.__new__(OverlayWindow)
+    overlay.settings = _DummySettings({"show_ene_goal_button": True})
+    overlay.web_view = _FakeWebView()
+    overlay._page_loaded = True
+
+    OverlayWindow._sync_goal_button_visibility_to_js(overlay, {"show_ene_goal_button": False})
+
+    assert captured == ["window.setGoalButtonEnabled(false);"]
+
+
 def test_chat_web_assets_translate_mood_axis_labels_and_center_floating_buttons():
     assets_root = Path(__file__).resolve().parents[1] / "assets" / "web"
     script_content = (assets_root / "script.js").read_text(encoding="utf-8")
@@ -2134,9 +2190,13 @@ def test_chat_web_assets_translate_mood_axis_labels_and_center_floating_buttons(
     assert 'id="mood-meter-name-bond"' in html_content
     assert 'id="mood-meter-name-energy"' in html_content
     assert 'id="mood-meter-name-stress"' in html_content
+    assert 'id="goal-toggle-floating-btn"' in html_content
+    assert 'id="goal-status-panel"' in html_content
+    assert 'id="goal-status-list"' in html_content
     assert "moodMeterNameValence.textContent = currentUiStrings.mood.axis.valence;" in script_content
     assert "moodMeterNameBond.textContent = currentUiStrings.mood.axis.bond;" in script_content
     assert "moodMeterNameEnergy.textContent = currentUiStrings.mood.axis.energy;" in script_content
     assert "moodMeterNameStress.textContent = currentUiStrings.mood.axis.stress;" in script_content
+    assert "goal-status-item" in css_content
     assert "justify-content: center;" in css_content
     assert "text-align: center;" in css_content
