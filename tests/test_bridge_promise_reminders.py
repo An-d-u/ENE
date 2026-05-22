@@ -113,10 +113,11 @@ def test_ai_worker_normalize_response_payload_supports_promises():
         {"user_intent": "plan"},
         [{"title": "쉬는 시간"}],
         "",
+        {},
     )
 
 
-def test_ai_worker_normalize_response_payload_ignores_goal_update_for_runtime_compatibility():
+def test_ai_worker_normalize_response_payload_keeps_goal_update_for_runtime_flow():
     worker = AIWorker.__new__(AIWorker)
 
     normalized = AIWorker._normalize_response_payload(
@@ -141,6 +142,7 @@ def test_ai_worker_normalize_response_payload_ignores_goal_update_for_runtime_co
         {"user_intent": "plan"},
         [{"title": "쉬는 시간"}],
         "속마음",
+        {"action": "none"},
     )
 
 
