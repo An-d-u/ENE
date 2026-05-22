@@ -1,6 +1,7 @@
 ﻿"""
 Gemini LLM 클라이언트 (google-genai SDK 사용)
 """
+from datetime import datetime, timedelta
 import re
 from typing import Tuple, List, Dict
 from google import genai
@@ -245,8 +246,10 @@ class GeminiClient:
                 "chunk": "조각",
                 "recent": "최근 대화 기록",
                 "upcoming": "다가오는 일정",
+                "past_due_events": "지나간 일정",
                 "activity": "최근 대화 활동",
                 "interaction": "오늘 상호작용",
+                "overdue_promises": "지나간 대화 약속",
                 "name": "이름",
                 "gender": "성별",
                 "birthday": "생일",
@@ -257,6 +260,9 @@ class GeminiClient:
                 "times": "회",
                 "head_pat_today": "오늘 쓰다듬은 횟수",
                 "head_pat_before": "지금 쓰다듬은 횟수",
+                "missed": "놓침",
+                "expired": "만료",
+                "incomplete": "미완료",
             },
             "en": {
                 "master_basic": "Master Basic Information",
@@ -269,8 +275,10 @@ class GeminiClient:
                 "chunk": "Chunk",
                 "recent": "Recent Conversation Records",
                 "upcoming": "Upcoming Schedule",
+                "past_due_events": "Past Due Schedule",
                 "activity": "Recent Conversation Activity",
                 "interaction": "Today's Interaction",
+                "overdue_promises": "Overdue Conversation Promises",
                 "name": "Name",
                 "gender": "Gender",
                 "birthday": "Birthday",
@@ -281,6 +289,9 @@ class GeminiClient:
                 "times": "times",
                 "head_pat_today": "Head pats today",
                 "head_pat_before": "Current head pats",
+                "missed": "Missed",
+                "expired": "Expired",
+                "incomplete": "Incomplete",
             },
             "ja": {
                 "master_basic": "マスター基本情報",
@@ -293,8 +304,10 @@ class GeminiClient:
                 "chunk": "断片",
                 "recent": "最近の会話記録",
                 "upcoming": "今後の予定",
+                "past_due_events": "過ぎた予定",
                 "activity": "最近の会話活動",
                 "interaction": "今日のやり取り",
+                "overdue_promises": "過ぎた会話の約束",
                 "name": "名前",
                 "gender": "性別",
                 "birthday": "誕生日",
@@ -305,8 +318,105 @@ class GeminiClient:
                 "times": "回",
                 "head_pat_today": "今日なでた回数",
                 "head_pat_before": "今なでた回数",
+                "missed": "見逃し",
+                "expired": "期限切れ",
+                "incomplete": "未完了",
             },
         }[language]
+
+    def _now_for_context(self) -> datetime:
+        return datetime.now().astimezone()
+
+    def _build_overdue_promise_context(self, labels: dict[str, str]) -> str:
+        promise_manager = getattr(self, "promise_manager", None)
+        if not promise_manager or not hasattr(promise_manager, "list_promises"):
+            return ""
+
+        now_provider = getattr(self, "_now_for_context", None)
+        if callable(now_provider):
+            now_dt = now_provider()
+        else:
+            now_dt = datetime.now().astimezone()
+        recent_expired_cutoff = now_dt - timedelta(hours=24)
+        selected: list[tuple[datetime, str, str]] = []
+
+        for item in list(promise_manager.list_promises() or []):
+            try:
+                trigger_at = datetime.fromisoformat(str(getattr(item, "trigger_at", "") or "").strip())
+            except Exception:
+                continue
+
+            overdue_minutes = (now_dt - trigger_at).total_seconds() / 60.0
+            if overdue_minutes <= 10:
+                continue
+
+            if overdue_minutes <= 60:
+                status = "missed"
+            elif trigger_at >= recent_expired_cutoff:
+                status = "expired"
+            else:
+                continue
+
+            title = str(getattr(item, "title", "") or "").strip()
+            if not title:
+                continue
+            selected.append((trigger_at, status, title))
+
+        if not selected:
+            return ""
+
+        selected.sort(key=lambda item: item[0], reverse=True)
+        lines = [f"[{labels['overdue_promises']}]"]
+        for trigger_at, status, title in selected[:3]:
+            time_label = trigger_at.strftime("%m월 %d일 %H:%M")
+            status_label = labels.get(status, status)
+            lines.append(f"- [{status_label}] {time_label}: {title}")
+        return "\n".join(lines)
+
+    def _build_recent_incomplete_past_event_context(self, labels: dict[str, str]) -> str:
+        calendar_manager = getattr(self, "calendar_manager", None)
+        if not calendar_manager or not hasattr(calendar_manager, "get_all_events"):
+            return ""
+
+        now_provider = getattr(self, "_now_for_context", None)
+        if callable(now_provider):
+            now_dt = now_provider()
+        else:
+            now_dt = datetime.now().astimezone()
+        today = now_dt.date()
+        recent_cutoff = today - timedelta(days=7)
+        selected: list[tuple[datetime, str, str]] = []
+
+        for event in list(calendar_manager.get_all_events() or []):
+            if bool(getattr(event, "completed", False)):
+                continue
+            try:
+                event_date = datetime.fromisoformat(str(getattr(event, "date", "") or "").strip())
+            except Exception:
+                continue
+
+            event_day = event_date.date()
+            if not (recent_cutoff <= event_day < today):
+                continue
+
+            title = str(getattr(event, "title", "") or "").strip()
+            if not title:
+                continue
+            description = str(getattr(event, "description", "") or "").strip()
+            selected.append((event_date, title, description))
+
+        if not selected:
+            return ""
+
+        selected.sort(key=lambda item: item[0], reverse=True)
+        lines = [f"[{labels['past_due_events']}]"]
+        for event_date, title, description in selected[:3]:
+            date_label = event_date.strftime("%m월 %d일")
+            line = f"- [{labels['incomplete']}] {date_label}: {title}"
+            if description:
+                line += f" ({description})"
+            lines.append(line)
+        return "\n".join(lines)
 
     async def generate_markdown_document(self, message: str) -> str:
         """sub prompt 없이 마크다운 문서를 생성한다."""
@@ -610,6 +720,16 @@ class GeminiClient:
                     print("[LLM] Mood context included")
             except Exception as e:
                 print(f"[LLM] Mood context append failed: {e}")
+
+        overdue_promise_block = GeminiClient._build_overdue_promise_context(self, labels)
+        if overdue_promise_block:
+            context_parts.append("\n" + overdue_promise_block)
+            print("[LLM] 지난 약속 컨텍스트 포함")
+
+        past_due_event_block = GeminiClient._build_recent_incomplete_past_event_context(self, labels)
+        if past_due_event_block:
+            context_parts.append("\n" + past_due_event_block)
+            print("[LLM] 지난 일정 컨텍스트 포함")
 
         max_important = settings_config.get('max_important_memories', 3)
         max_similar = settings_config.get('max_similar_memories', 3)

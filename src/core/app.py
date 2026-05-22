@@ -137,6 +137,8 @@ class ENEApplication(QObject):
                 calendar_manager=self.calendar_manager if hasattr(self, 'calendar_manager') else None,
                 mood_manager=self.mood_manager if hasattr(self, "mood_manager") else None,
             )
+            if hasattr(self, "promise_manager") and self.promise_manager:
+                self.llm_client.promise_manager = self.promise_manager
             print(f"OK: LLM 클라이언트 초기화 성공 (provider={llm_provider}, model={llm_model or 'default'})")
             
             # TTS 및 오디오 플레이어 초기화
@@ -243,6 +245,8 @@ class ENEApplication(QObject):
 
         try:
             self.promise_manager = PromiseReminderManager()
+            if hasattr(self, "llm_client") and self.llm_client:
+                self.llm_client.promise_manager = self.promise_manager
             print("OK: 대화 약속 매니저 초기화 성공")
         except Exception as e:
             print(f"ERROR: 대화 약속 매니저 초기화 실패: {e}")
