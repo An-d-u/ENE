@@ -107,7 +107,8 @@ def extract_goal_update_metadata(text: str) -> tuple[str, dict[str, str]]:
         if normalized_key in allowed_keys:
             parsed[normalized_key] = value.strip()
 
-    cleaned = re.sub(_GOAL_UPDATE_BLOCK_PATTERN, "", source, flags=re.IGNORECASE | re.DOTALL).strip()
+    cleaned = re.sub(_GOAL_UPDATE_BLOCK_PATTERN, "", source, flags=re.IGNORECASE | re.DOTALL)
+    cleaned = re.sub(_UNCLOSED_GOAL_UPDATE_BLOCK_PATTERN, "", cleaned, flags=re.IGNORECASE | re.DOTALL).strip()
     return cleaned, parsed
 
 
