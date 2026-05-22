@@ -116,6 +116,7 @@ def _build_gemini_client(
     settings=None,
     calendar_manager=None,
     mood_manager=None,
+    goal_manager=None,
 ) -> LLMClientProtocol:
     # 순환 의존성과 불필요한 import 비용을 피하기 위해 지연 import를 사용한다.
     from .llm_client import GeminiClient
@@ -131,6 +132,7 @@ def _build_gemini_client(
         settings=settings,
         calendar_manager=calendar_manager,
         mood_manager=mood_manager,
+        goal_manager=goal_manager,
     )
 
 
@@ -145,6 +147,7 @@ def _build_openai_client(
     settings=None,
     calendar_manager=None,
     mood_manager=None,
+    goal_manager=None,
 ) -> LLMClientProtocol:
     from .http_llm_clients import OpenAIResponseAPIClient
 
@@ -159,6 +162,7 @@ def _build_openai_client(
         settings=settings,
         calendar_manager=calendar_manager,
         mood_manager=mood_manager,
+        goal_manager=goal_manager,
     )
 
 
@@ -173,6 +177,7 @@ def _build_openrouter_client(
     settings=None,
     calendar_manager=None,
     mood_manager=None,
+    goal_manager=None,
 ) -> LLMClientProtocol:
     from .http_llm_clients import OpenAICompatibleClient
 
@@ -188,6 +193,7 @@ def _build_openrouter_client(
         settings=settings,
         calendar_manager=calendar_manager,
         mood_manager=mood_manager,
+        goal_manager=goal_manager,
     )
 
 
@@ -202,6 +208,7 @@ def _build_deepseek_client(
     settings=None,
     calendar_manager=None,
     mood_manager=None,
+    goal_manager=None,
 ) -> LLMClientProtocol:
     from .http_llm_clients import OpenAICompatibleClient
 
@@ -217,6 +224,7 @@ def _build_deepseek_client(
         settings=settings,
         calendar_manager=calendar_manager,
         mood_manager=mood_manager,
+        goal_manager=goal_manager,
     )
 
 
@@ -231,6 +239,7 @@ def _build_anthropic_client(
     settings=None,
     calendar_manager=None,
     mood_manager=None,
+    goal_manager=None,
 ) -> LLMClientProtocol:
     from .http_llm_clients import AnthropicClient
 
@@ -245,6 +254,7 @@ def _build_anthropic_client(
         settings=settings,
         calendar_manager=calendar_manager,
         mood_manager=mood_manager,
+        goal_manager=goal_manager,
     )
 
 
@@ -259,6 +269,7 @@ def _build_ollama_client(
     settings=None,
     calendar_manager=None,
     mood_manager=None,
+    goal_manager=None,
 ) -> LLMClientProtocol:
     from .http_llm_clients import OllamaClient
 
@@ -276,6 +287,7 @@ def _build_ollama_client(
         settings=settings,
         calendar_manager=calendar_manager,
         mood_manager=mood_manager,
+        goal_manager=goal_manager,
     )
 
 
@@ -290,6 +302,7 @@ def _build_custom_api_client(
     settings=None,
     calendar_manager=None,
     mood_manager=None,
+    goal_manager=None,
 ) -> LLMClientProtocol:
     from .http_llm_clients import (
         AnthropicClient,
@@ -331,6 +344,7 @@ def _build_custom_api_client(
             settings=settings,
             calendar_manager=calendar_manager,
             mood_manager=mood_manager,
+            goal_manager=goal_manager,
         )
     if format_value == LLMFormat.OPENAI_RESPONSE_API.value:
         return OpenAIResponseAPIClient(
@@ -344,6 +358,7 @@ def _build_custom_api_client(
             settings=settings,
             calendar_manager=calendar_manager,
             mood_manager=mood_manager,
+            goal_manager=goal_manager,
         )
     if format_value == LLMFormat.MISTRAL.value:
         return MistralClient(
@@ -357,6 +372,7 @@ def _build_custom_api_client(
             settings=settings,
             calendar_manager=calendar_manager,
             mood_manager=mood_manager,
+            goal_manager=goal_manager,
         )
     if format_value == LLMFormat.GOOGLE_CLOUD.value:
         return GoogleCloudClient(
@@ -370,6 +386,7 @@ def _build_custom_api_client(
             settings=settings,
             calendar_manager=calendar_manager,
             mood_manager=mood_manager,
+            goal_manager=goal_manager,
         )
     if format_value == LLMFormat.COHERE.value:
         return CohereClient(
@@ -383,6 +400,7 @@ def _build_custom_api_client(
             settings=settings,
             calendar_manager=calendar_manager,
             mood_manager=mood_manager,
+            goal_manager=goal_manager,
         )
     if format_value == LLMFormat.OLLAMA.value:
         return OllamaClient(
@@ -396,6 +414,7 @@ def _build_custom_api_client(
             settings=settings,
             calendar_manager=calendar_manager,
             mood_manager=mood_manager,
+            goal_manager=goal_manager,
         )
     return OpenAICompatibleClient(
         api_key=api_key,
@@ -409,6 +428,7 @@ def _build_custom_api_client(
         settings=settings,
         calendar_manager=calendar_manager,
         mood_manager=mood_manager,
+        goal_manager=goal_manager,
     )
 
 
@@ -522,6 +542,7 @@ def create_llm_client(
     settings=None,
     calendar_manager=None,
     mood_manager=None,
+    goal_manager=None,
 ) -> LLMClientProtocol:
     provider = (config.provider or "").strip().lower() or "gemini"
     builder = PROVIDER_BUILDERS.get(provider)
@@ -539,4 +560,5 @@ def create_llm_client(
         settings=settings,
         calendar_manager=calendar_manager,
         mood_manager=mood_manager,
+        goal_manager=goal_manager,
     )

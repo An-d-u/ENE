@@ -53,6 +53,7 @@ class GeminiClient:
         settings=None,
         calendar_manager=None,
         mood_manager=None,
+        goal_manager=None,
     ):
         """
         Gemini API 클라이언트 초기화
@@ -74,6 +75,7 @@ class GeminiClient:
         self.settings = settings
         self.calendar_manager = calendar_manager
         self.mood_manager = mood_manager
+        self.goal_manager = goal_manager
         self._last_token_usage = {
             "input_tokens": None,
             "output_tokens": None,
@@ -716,17 +718,32 @@ class GeminiClient:
                     context_parts.append("\n".join(ene_fact_lines))
                     print(f"[LLM] 에네 facts 포함: {len(ene_fact_lines) - 1}개 항목")
         
-        # 설정값 가져오기
-        if self.mood_manager and hasattr(self.mood_manager, "build_context_block"):
+        # 에네 상태 컨텍스트를 한곳에 모아 모델이 현재 상태를 함께 보게 한다.
+        prompt_language_getter = getattr(self, "_prompt_language", None)
+        prompt_language = (
+            prompt_language_getter()
+            if callable(prompt_language_getter)
+            else resolve_prompt_language(settings_source=getattr(self, "settings", None))
+        )
+        mood_manager = getattr(self, "mood_manager", None)
+        if mood_manager and hasattr(mood_manager, "build_context_block"):
             try:
-                mood_block = self.mood_manager.build_context_block(
-                    language=resolve_prompt_language(settings_source=getattr(self, "settings", None))
-                )
+                mood_block = mood_manager.build_context_block(language=prompt_language)
                 if mood_block:
                     context_parts.append("\n" + mood_block)
                     print("[LLM] Mood context included")
             except Exception as e:
                 print(f"[LLM] Mood context append failed: {e}")
+
+        goal_manager = getattr(self, "goal_manager", None)
+        if goal_manager and hasattr(goal_manager, "build_context_block"):
+            try:
+                goal_block = goal_manager.build_context_block(language=prompt_language)
+                if goal_block:
+                    context_parts.append("\n" + goal_block)
+                    print("[LLM] Goal context included")
+            except Exception as e:
+                print(f"[LLM] Goal context append failed: {e}")
 
         overdue_promise_block = GeminiClient._build_overdue_promise_context(self, labels)
         if overdue_promise_block:

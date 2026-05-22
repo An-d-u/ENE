@@ -585,6 +585,7 @@ class OpenAICompatibleClient(_CommonMixin):
         settings=None,
         calendar_manager=None,
         mood_manager=None,
+        goal_manager=None,
         extra_headers: dict | None = None,
         generation_params: dict | None = None,
     ):
@@ -598,6 +599,7 @@ class OpenAICompatibleClient(_CommonMixin):
         self.settings = settings
         self.calendar_manager = calendar_manager
         self.mood_manager = mood_manager
+        self.goal_manager = goal_manager
         self.extra_headers = extra_headers or {}
         self.generation_params = _normalize_generation_params(generation_params)
         self._history = []
@@ -729,6 +731,7 @@ class OpenAIResponseAPIClient(_CommonMixin):
         settings=None,
         calendar_manager=None,
         mood_manager=None,
+        goal_manager=None,
         generation_params: dict | None = None,
     ):
         self.api_key = api_key
@@ -740,6 +743,7 @@ class OpenAIResponseAPIClient(_CommonMixin):
         self.settings = settings
         self.calendar_manager = calendar_manager
         self.mood_manager = mood_manager
+        self.goal_manager = goal_manager
         self.generation_params = _normalize_generation_params(generation_params)
         self._history = []
         self.provider_name = "openai"
@@ -991,6 +995,7 @@ class GoogleCloudClient(_CommonMixin):
         settings=None,
         calendar_manager=None,
         mood_manager=None,
+        goal_manager=None,
         generation_params: dict | None = None,
     ):
         self.api_key = api_key
@@ -1002,6 +1007,7 @@ class GoogleCloudClient(_CommonMixin):
         self.settings = settings
         self.calendar_manager = calendar_manager
         self.mood_manager = mood_manager
+        self.goal_manager = goal_manager
         self.generation_params = _normalize_generation_params(generation_params)
         self._history = []
 
@@ -1173,6 +1179,7 @@ class CohereClient(_CommonMixin):
         settings=None,
         calendar_manager=None,
         mood_manager=None,
+        goal_manager=None,
         generation_params: dict | None = None,
     ):
         self.api_key = api_key
@@ -1184,6 +1191,7 @@ class CohereClient(_CommonMixin):
         self.settings = settings
         self.calendar_manager = calendar_manager
         self.mood_manager = mood_manager
+        self.goal_manager = goal_manager
         self.generation_params = _normalize_generation_params(generation_params)
         self._history = []
 
@@ -1316,6 +1324,7 @@ class AnthropicClient(_CommonMixin):
         settings=None,
         calendar_manager=None,
         mood_manager=None,
+        goal_manager=None,
         generation_params: dict | None = None,
     ):
         self.api_key = api_key
@@ -1327,6 +1336,7 @@ class AnthropicClient(_CommonMixin):
         self.settings = settings
         self.calendar_manager = calendar_manager
         self.mood_manager = mood_manager
+        self.goal_manager = goal_manager
         self.generation_params = _normalize_generation_params(generation_params)
         self._history = []
 
@@ -1463,6 +1473,7 @@ class OllamaClient(_CommonMixin):
         settings=None,
         calendar_manager=None,
         mood_manager=None,
+        goal_manager=None,
         generation_params: dict | None = None,
     ):
         self.api_key = api_key
@@ -1474,6 +1485,7 @@ class OllamaClient(_CommonMixin):
         self.settings = settings
         self.calendar_manager = calendar_manager
         self.mood_manager = mood_manager
+        self.goal_manager = goal_manager
         self.generation_params = _normalize_generation_params(generation_params)
         self._history = []
 

@@ -17,6 +17,7 @@ from ..ui.obsidian_panel_window import ObsidianPanelWindow
 from ..ui.settings_dialog import SettingsDialog
 from ..ai.llm_provider import LLMProviderConfig, create_llm_client
 from ..ai.mood_manager import MoodManager
+from ..ai.ene_goal_manager import EneGoalManager
 
 
 class ENEApplication(QObject):
@@ -42,6 +43,8 @@ class ENEApplication(QObject):
         # 오버레이 윈도우 생성
         self.overlay_window = OverlayWindow(self.settings)
         self.overlay_window.set_llm_client(self.llm_client)  # LLM 클라이언트 연결
+        if hasattr(self, "goal_manager") and self.goal_manager and hasattr(self.overlay_window.bridge, "set_goal_manager"):
+            self.overlay_window.bridge.set_goal_manager(self.goal_manager)
         
         # 캘린더 매니저 연결
         if hasattr(self, 'calendar_manager') and self.calendar_manager:
@@ -119,6 +122,7 @@ class ENEApplication(QObject):
             self._init_user_profile()
             self._init_ene_profile()
             self._init_mood_manager()
+            self._init_goal_manager()
             
             # LLM 클라이언트 초기화 (공급자 추상화 + 메모리 매니저 + 프로필 전달)
             llm_config = LLMProviderConfig(
@@ -136,6 +140,7 @@ class ENEApplication(QObject):
                 settings=self.settings,
                 calendar_manager=self.calendar_manager if hasattr(self, 'calendar_manager') else None,
                 mood_manager=self.mood_manager if hasattr(self, "mood_manager") else None,
+                goal_manager=self.goal_manager if hasattr(self, "goal_manager") else None,
             )
             if hasattr(self, "promise_manager") and self.promise_manager:
                 self.llm_client.promise_manager = self.promise_manager
@@ -196,6 +201,20 @@ class ENEApplication(QObject):
             import traceback
             traceback.print_exc()
             self.mood_manager = None
+
+    def _init_goal_manager(self):
+        """에네 목표 매니저 초기화"""
+        try:
+            state_file = "ene_goals.json"
+            if self.settings and hasattr(self.settings, "config"):
+                state_file = str(self.settings.config.get("ene_goal_state_file", state_file))
+            self.goal_manager = EneGoalManager(state_file=state_file, settings=self.settings)
+            print("OK: 에네 목표 매니저 초기화 성공")
+        except Exception as e:
+            print(f"ERROR: 에네 목표 매니저 초기화 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            self.goal_manager = None
 
     def _init_user_profile(self):
         """사용자 프로필 초기화"""
@@ -393,6 +412,8 @@ class ENEApplication(QObject):
         self.overlay_window.bridge.set_settings_dialog_opener(self._show_settings_dialog)
         if hasattr(self, "mood_manager") and self.mood_manager:
             self.overlay_window.bridge.set_mood_manager(self.mood_manager)
+        if hasattr(self, "goal_manager") and self.goal_manager and hasattr(self.overlay_window.bridge, "set_goal_manager"):
+            self.overlay_window.bridge.set_goal_manager(self.goal_manager)
         if hasattr(self, 'memory_manager'):
             user_profile = self.user_profile if hasattr(self, 'user_profile') else None
             ene_profile = self.ene_profile if hasattr(self, 'ene_profile') else None
