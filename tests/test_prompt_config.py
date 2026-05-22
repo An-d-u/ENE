@@ -189,7 +189,7 @@ def test_default_sub_prompt_body_does_not_embed_thought_rules():
     assert "생각 출력 규칙" not in default_body
 
 
-def test_runtime_prompt_adds_korean_thought_rules_from_code_when_enabled(tmp_path, monkeypatch):
+def test_runtime_prompt_adds_korean_response_contract_from_code_when_enabled(tmp_path, monkeypatch):
     from src.ai import prompt as prompt_module
     from src.ai import prompt_config
 
@@ -213,10 +213,14 @@ def test_runtime_prompt_adds_korean_thought_rules_from_code_when_enabled(tmp_pat
     runtime_prompt = prompt_module.build_runtime_system_prompt(
         include_sub_prompt=True,
         include_analysis_appendix=True,
-        settings_source={"ui_language": "ko", "enable_ene_thoughts": True},
+        settings_source={"ui_language": "ko", "enable_ene_goals": True, "enable_ene_thoughts": True},
     )
 
     assert "### [최종 응답 형식]" in runtime_prompt
+    assert "[ene_goal_update]" in runtime_prompt
+    assert "action=none" in runtime_prompt
+    assert "short_term" in runtime_prompt
+    assert "long_term" in runtime_prompt
     assert "[subconscious]" in runtime_prompt
     assert "[/subconscious]" in runtime_prompt
     assert "[ene_thought]" not in runtime_prompt
@@ -229,7 +233,7 @@ def test_runtime_prompt_adds_korean_thought_rules_from_code_when_enabled(tmp_pat
     assert runtime_prompt.index("### [분석 규칙]") < runtime_prompt.index("### [최종 응답 형식]")
 
 
-def test_runtime_prompt_omits_thought_rules_when_setting_is_disabled(tmp_path, monkeypatch):
+def test_runtime_prompt_omits_optional_response_contract_sections_when_settings_are_disabled(tmp_path, monkeypatch):
     from src.ai import prompt as prompt_module
     from src.ai import prompt_config
 
@@ -253,10 +257,12 @@ def test_runtime_prompt_omits_thought_rules_when_setting_is_disabled(tmp_path, m
     runtime_prompt = prompt_module.build_runtime_system_prompt(
         include_sub_prompt=True,
         include_analysis_appendix=True,
-        settings_source={"ui_language": "ko", "enable_ene_thoughts": False},
+        settings_source={"ui_language": "ko", "enable_ene_goals": False, "enable_ene_thoughts": False},
     )
 
     assert "### [최종 응답 형식]" in runtime_prompt
+    assert "[analysis]" in runtime_prompt
+    assert "[ene_goal_update]" not in runtime_prompt
     assert "[subconscious]" not in runtime_prompt
     assert "[/subconscious]" not in runtime_prompt
     assert "[ene_thought]" not in runtime_prompt
