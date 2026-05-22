@@ -539,6 +539,12 @@ def test_settings_dialog_renders_goal_items_and_calls_bridge_handlers(monkeypatc
                 "title": "루틴 정리",
                 "reason": "완료됨",
                 "status": "completed",
+            },
+            {
+                "type": "short_term",
+                "title": "아이디 없는 기록",
+                "reason": "레거시 데이터",
+                "status": "cancelled",
             }
         ],
     }
@@ -564,12 +570,17 @@ def test_settings_dialog_renders_goal_items_and_calls_bridge_handlers(monkeypatc
         assert bridge.calls[0] == ("request_goal_items",)
         assert dialog._goal_items["goal_1"]["title"] == "물 마시기"
         assert dialog._goal_active_list.count() == 1
-        assert dialog._goal_history_list.count() == 1
+        assert dialog._goal_history_list.count() == 2
+
+        dialog._retranslate_ui()
+        assert dialog._goal_history_list.count() == 2
+        assert "아이디 없는 기록" in dialog._goal_history_list.item(1).text()
 
         dialog._goal_active_list.setCurrentRow(0)
         assert dialog._goal_title_edit.text() == "물 마시기"
         assert dialog._goal_reason_edit.toPlainText() == "컨디션 관리"
         assert dialog._goal_type_combo.isEnabled() is False
+        assert dialog._goal_add_button.isEnabled() is False
 
         dialog._goal_title_edit.setText("물 챙겨 마시기")
         dialog._goal_reason_edit.setPlainText("수정 이유")
@@ -578,6 +589,7 @@ def test_settings_dialog_renders_goal_items_and_calls_bridge_handlers(monkeypatc
         dialog._goal_cancel_button.click()
 
         dialog._goal_active_list.clearSelection()
+        assert dialog._goal_add_button.isEnabled() is True
         dialog._goal_type_combo.setCurrentIndex(dialog._goal_type_combo.findData("long_term"))
         dialog._goal_title_edit.setText("장기 방향 잡기")
         dialog._goal_reason_edit.setPlainText("직접 추가")
