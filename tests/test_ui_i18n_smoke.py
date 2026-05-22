@@ -1963,6 +1963,7 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
           "chat.promise.panel.queued": "Right after the current reply",
           "chat.promise.panel.in_minutes": "In {minutes} min",
           "chat.promise.panel.overdue_minutes": "{minutes} min late",
+          "chat.goals.label": "Goals",
           "chat.goals.title": "ENE goals",
           "chat.goals.empty": "No active goals yet.",
           "chat.goals.short_term": "Short-term",
@@ -2018,6 +2019,7 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
           "chat.promise.panel.queued": "現在の応答の直後",
           "chat.promise.panel.in_minutes": "{minutes}分後",
           "chat.promise.panel.overdue_minutes": "{minutes}分経過",
+          "chat.goals.label": "目標",
           "chat.goals.title": "エネの目標",
           "chat.goals.empty": "進行中の目標はまだありません。",
           "chat.goals.short_term": "短期",
@@ -2083,6 +2085,8 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
     assert '"promises": {' in captured[-1]
     assert '"goals": {' in captured[-1]
     assert '"label": "予定"' in captured[-1]
+    assert '"goalPanel": {' in captured[-1]
+    assert '"goalPanel": {"label": "目標", "title": "エネの目標"' in captured[-1]
     assert '"title": "エネの目標"' in captured[-1]
     assert '"shortTerm": "短期"' in captured[-1]
     assert '"saved": "会話の約束を保存しました。"' in captured[-1]
@@ -2104,6 +2108,7 @@ def test_chat_web_script_has_runtime_i18n_hooks():
     assert "promiseRemindersButton.textContent = currentUiStrings.actions.promises.label;" in content
     assert "goalButton.textContent = currentUiStrings.actions.goals.label;" in content
     assert "goalButton.setAttribute('aria-label', currentUiStrings.actions.goals.title);" in content
+    assert "label: goalPanel.label || DEFAULT_UI_STRINGS.goalPanel.label" in content
     assert "window.setGoalButtonEnabled = function setGoalButtonEnabled(enabled)" in content
     assert "window.setGoalItems = function setGoalItems(value)" in content
     assert "renderGoalPanel();" in content

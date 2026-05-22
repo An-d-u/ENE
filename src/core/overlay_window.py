@@ -245,6 +245,7 @@ class OverlayWindow(QWidget):
                 "overdueMinutes": i18n.t("chat.promise.panel.overdue_minutes"),
             },
             "goalPanel": {
+                "label": i18n.t("chat.goals.label"),
                 "title": i18n.t("chat.goals.title"),
                 "empty": i18n.t("chat.goals.empty"),
                 "shortTerm": i18n.t("chat.goals.short_term"),

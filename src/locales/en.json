@@ -254,6 +254,7 @@
   "chat.promise.panel.queued": "Right after the current reply",
   "chat.promise.panel.in_minutes": "In {minutes} min",
   "chat.promise.panel.overdue_minutes": "{minutes} min late",
+  "chat.goals.label": "Goals",
   "chat.goals.title": "ENE goals",
   "chat.goals.empty": "No active goals yet.",
   "chat.goals.short_term": "Short-term",
