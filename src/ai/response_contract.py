@@ -69,8 +69,13 @@ def _build_format_block(
     if goal_enabled:
         lines.extend(
             [
-                "[ene_goal_update action=none scope=short_term]",
-                "...",
+                "[ene_goal_update]",
+                "action=none",
+                "type=short_term",
+                "id=",
+                "title=",
+                "reason=",
+                "completion_reason=",
                 "[/ene_goal_update]",
             ]
         )

@@ -148,6 +148,9 @@ class AIWorker(QThread):
     def _normalize_response_payload(self, payload):
         """신구 응답 형식을 모두 7개 값으로 정규화한다."""
         if isinstance(payload, tuple):
+            if len(payload) == 8:
+                text, emotion, japanese_text, events, analysis, promises, thought, _goal_update = payload
+                return text, emotion, japanese_text, events, analysis, promises, thought
             if len(payload) == 7:
                 return payload
             if len(payload) == 6:
@@ -4126,4 +4129,3 @@ class WebBridge(QObject):
         except Exception as e:
             print(f"[Bridge] 기분 스냅샷 반환 실패: {e}")
             return ""
-

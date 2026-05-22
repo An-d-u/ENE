@@ -116,6 +116,34 @@ def test_ai_worker_normalize_response_payload_supports_promises():
     )
 
 
+def test_ai_worker_normalize_response_payload_ignores_goal_update_for_runtime_compatibility():
+    worker = AIWorker.__new__(AIWorker)
+
+    normalized = AIWorker._normalize_response_payload(
+        worker,
+        (
+            "본문",
+            "smile",
+            "TTS",
+            [],
+            {"user_intent": "plan"},
+            [{"title": "쉬는 시간"}],
+            "속마음",
+            {"action": "none"},
+        ),
+    )
+
+    assert normalized == (
+        "본문",
+        "smile",
+        "TTS",
+        [],
+        {"user_intent": "plan"},
+        [{"title": "쉬는 시간"}],
+        "속마음",
+    )
+
+
 def test_store_scheduled_promises_persists_items_and_emits_notice():
     dummy = type("BridgeDummy", (), {})()
     dummy.promise_manager = _DummyPromiseManager()

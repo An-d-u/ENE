@@ -43,6 +43,15 @@ def test_response_contract_includes_goal_and_thought_sections_when_enabled():
     assert "[subconscious]" in appendix
 
 
+def test_response_contract_goal_format_uses_canonical_key_value_block():
+    appendix = build_response_contract_appendix(
+        {"ui_language": "ko", "enable_ene_goals": True, "enable_ene_thoughts": False}
+    )
+
+    assert "[ene_goal_update]\naction=none\ntype=short_term\nid=\ntitle=\nreason=\ncompletion_reason=\n[/ene_goal_update]" in appendix
+    assert "scope=" not in appendix
+
+
 def test_response_contract_keeps_analysis_when_goal_and_thought_sections_are_disabled():
     appendix = build_response_contract_appendix(
         {"ui_language": "ko", "enable_ene_goals": False, "enable_ene_thoughts": False}

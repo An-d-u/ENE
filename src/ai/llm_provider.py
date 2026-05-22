@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable, Dict, List, Protocol, Tuple, runtime_checkable
 
+LLM_RESPONSE_TUPLE = Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict], str, Dict[str, str]]
+
 
 @runtime_checkable
 class LLMClientProtocol(Protocol):
@@ -16,7 +18,7 @@ class LLMClientProtocol(Protocol):
         latest_user_message: str | None = None,
         recent_memory_context: str | None = None,
         head_pat_count_before_message: int | None = None,
-    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
+    ) -> LLM_RESPONSE_TUPLE:
         ...
 
     async def send_message_with_images(
@@ -27,10 +29,10 @@ class LLMClientProtocol(Protocol):
         latest_user_message: str | None = None,
         recent_memory_context: str | None = None,
         head_pat_count_before_message: int | None = None,
-    ) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
+    ) -> LLM_RESPONSE_TUPLE:
         ...
 
-    def send_message(self, message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
+    def send_message(self, message: str) -> LLM_RESPONSE_TUPLE:
         ...
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
@@ -39,13 +41,13 @@ class LLMClientProtocol(Protocol):
     async def generate_markdown_document(self, message: str) -> str:
         ...
 
-    async def generate_diary_completion_reply(self, context_message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
+    async def generate_diary_completion_reply(self, context_message: str) -> LLM_RESPONSE_TUPLE:
         ...
 
     async def generate_note_command_plan(self, context_message: str) -> str:
         ...
 
-    async def generate_note_execution_report(self, context_message: str) -> Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict]]:
+    async def generate_note_execution_report(self, context_message: str) -> LLM_RESPONSE_TUPLE:
         ...
 
     def clear_context(self):
