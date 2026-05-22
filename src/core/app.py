@@ -32,6 +32,7 @@ class ENEApplication(QObject):
         self._last_system_theme_mode = None
         self._apply_followed_system_theme(save=True)
         self.interrupt_tts_on_ptt = bool(self.settings.get("interrupt_tts_on_ptt", True))
+        self._init_goal_manager()
         
         # LLM 클라이언트 초기화
         self._init_llm_client()
@@ -122,7 +123,6 @@ class ENEApplication(QObject):
             self._init_user_profile()
             self._init_ene_profile()
             self._init_mood_manager()
-            self._init_goal_manager()
             
             # LLM 클라이언트 초기화 (공급자 추상화 + 메모리 매니저 + 프로필 전달)
             llm_config = LLMProviderConfig(
