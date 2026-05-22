@@ -43,6 +43,7 @@ ENE에게 사용자 목표가 아니라 ENE 자신의 캐릭터성, 관계성, �
 - 목표 달성 판단을 별도 LLM 호출로 분리하는 구조
 - 장기 목표 자동 압축이나 임베딩 검색
 - 목표별 알림, 일정, 자동 실행 기능
+- 목표 항목의 물리적 삭제
 
 ## 설계 원칙
 
@@ -116,10 +117,12 @@ completion_reason=
 저장 검증 규칙은 다음과 같다.
 
 - `action=none`은 상태를 변경하지 않는다.
+- `action=none`에서는 `type`, `id`, `title`, `reason`, `completion_reason` 값을 검증하지 않는다. 값이 비어 있어도 정상이다.
 - `create`는 `type`, `title`, `reason`이 모두 있어야 저장한다.
-- `update`, `complete`, `cancel`은 기존 목표 `id`가 있어야 반영한다.
-- `type`은 `short_term`, `long_term`만 허용한다.
-- 너무 긴 `title`, `reason`, `completion_reason`은 저장 전에 제한 길이로 자른다.
+- `update`는 기존 목표 `id`와 `title` 또는 `reason` 중 하나가 있어야 반영한다.
+- `complete`, `cancel`은 기존 목표 `id`가 있어야 반영한다. `type`은 있으면 검증하되, 비어 있으면 기존 목표에서 추론한다.
+- `type`은 `create`와 값이 있는 경우에만 검증하며 `short_term`, `long_term`만 허용한다.
+- `title`은 최대 120자, `reason`과 `completion_reason`은 각각 최대 300자로 자른다.
 - 필수값 누락, 알 수 없는 액션, 파싱 실패는 목표 업데이트만 무시한다.
 - 사용자에게 보이는 답변에서는 `[ene_goal_update]` 블록을 제거한다.
 
@@ -208,6 +211,8 @@ long_term: ENE가 장난스럽지만 믿을 수 있는 동반자로 자리 잡�
 - 중복 목표 생성 방지
 - UI에 전달할 공개 딕셔너리 생성
 
+중복 목표 생성 방지는 V1에서 보수적으로 처리한다. 같은 `type`의 활성 목표 중 제목을 정규화한 값이 같은 경우만 중복으로 본다. 정규화는 앞뒤 공백 제거, 연속 공백 축약, 영문 소문자화, 흔한 문장부호 제거까지로 제한한다. 의미가 비슷하지만 문장이 다른 목표를 LLM으로 추론해 병합하지 않는다. 중복 `create`가 들어오면 새 목표를 만들지 않고 기존 목표의 `updated_at`과 `reason`만 필요한 경우 갱신한다.
+
 주요 메서드는 다음 형태를 기준으로 한다.
 
 ```text
@@ -245,9 +250,17 @@ list_history(limit=None)
 
 ```text
 [ENE 현재 목표]
-- short_term: ...
-- long_term: ...
+- id=goal_20260522_001
+  type=short_term
+  title=마스터가 조금 안정될 때까지 곁에서 부드럽게 위로해주기
+  reason=사용자가 우울하거나 지친 상태를 보였고, 지금은 해결보다 정서적 안정이 우선이기 때문
+- id=goal_20260522_002
+  type=long_term
+  title=마스터가 ENE와 있을 때 감정을 편하게 말할 수 있게 만들기
+  reason=반복 대화에서 감정을 조심스럽게 꺼내는 패턴이 보였기 때문
 ```
+
+활성 목표 컨텍스트에는 반드시 `id`, `type`, `title`을 포함한다. `reason`은 가능하면 포함한다. 그래야 LLM이 이후 `update`, `complete`, `cancel` 액션에서 기존 목표 `id`를 정확히 지정할 수 있다.
 
 ## 파싱 위치
 
@@ -318,11 +331,13 @@ core/bridge.py
 목표 추가
 목표 수정
 목표 완료 처리
-목표 취소/삭제
+목표 취소 처리
 history 보기
 ```
 
 수동 편집으로 만든 목표는 `source=manual`로 저장한다. LLM이 만든 목표는 `source=llm`로 저장한다.
+
+V1에서 "취소"는 물리적 삭제가 아니다. 활성 목표를 `status=cancelled`로 바꾸고 `history`로 이동한다. 기록 자체를 완전히 지우는 hard delete는 V1 범위에서 제외한다.
 
 ## 오류 처리
 
