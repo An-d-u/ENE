@@ -1,5 +1,6 @@
 ﻿from src.ai.goal_prompt import build_goal_update_rules, is_goal_prompt_enabled
 from src.ai.response_contract import build_response_contract_appendix
+from src.ai.thought_prompt import is_thought_prompt_enabled
 
 
 class _GetSettings:
@@ -15,6 +16,17 @@ class _GetSettings:
 class _ConfigSettings:
     def __init__(self, value: bool):
         self.config = {"enable_ene_goals": value}
+
+
+class _RaisingGetSettings:
+    def __init__(self):
+        self.config = {
+            "enable_ene_goals": False,
+            "enable_ene_thoughts": False,
+        }
+
+    def get(self, key: str, default=None):
+        raise RuntimeError("설정 저장소를 읽을 수 없음")
 
 
 def test_response_contract_includes_goal_and_thought_sections_when_enabled():
@@ -46,6 +58,13 @@ def test_goal_prompt_enabled_reads_supported_settings_sources():
     assert is_goal_prompt_enabled({"enable_ene_goals": False}) is False
     assert is_goal_prompt_enabled(_GetSettings(False)) is False
     assert is_goal_prompt_enabled(_ConfigSettings(False)) is False
+
+
+def test_prompt_feature_flags_fall_back_to_config_when_get_raises():
+    settings = _RaisingGetSettings()
+
+    assert is_goal_prompt_enabled(settings) is False
+    assert is_thought_prompt_enabled(settings) is False
 
 
 def test_goal_update_rules_describe_actions_and_goal_scopes():
