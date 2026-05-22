@@ -1,5 +1,6 @@
 ﻿# ruff: noqa: E402
 import asyncio
+from datetime import datetime
 import sys
 import types
 
@@ -242,6 +243,34 @@ class _EmptyMemoryManager:
         return []
 
 
+class _PromiseManagerForContext:
+    def __init__(self, items):
+        self._items = items
+
+    def list_promises(self):
+        return list(self._items)
+
+
+class _CalendarManagerForContext:
+    def __init__(self, events):
+        self._events = events
+
+    def get_upcoming_events(self, days=3):
+        return []
+
+    def get_recent_or_latest_conversation_counts(self, days=7, exclude_today=True):
+        return {}
+
+    def get_pending_head_pat_count(self):
+        return 0
+
+    def get_head_pat_count(self, date):
+        return 0
+
+    def get_all_events(self):
+        return list(self._events)
+
+
 def test_build_memory_context_limits_profile_facts_to_recent_configured_count():
     dummy = type("ClientDummy", (), {})()
     dummy.memory_manager = _EmptyMemoryManager()
@@ -295,6 +324,131 @@ def test_build_memory_context_includes_today_and_before_message_head_pat_counts(
 
     assert "- 오늘 쓰다듬은 횟수: 7회" in context
     assert "- 지금 쓰다듬은 횟수: 3회" in context
+
+
+def test_build_memory_context_includes_missed_and_recent_expired_promises():
+    promise_items = [
+        type(
+            "PromiseItem",
+            (),
+            {
+                "title": "일기 쓰기",
+                "trigger_at": "2026-05-22T20:00:00+09:00",
+                "status": "missed",
+            },
+        )(),
+        type(
+            "PromiseItem",
+            (),
+            {
+                "title": "스트레칭",
+                "trigger_at": "2026-05-22T18:00:00+09:00",
+                "status": "expired",
+            },
+        )(),
+        type(
+            "PromiseItem",
+            (),
+            {
+                "title": "오래 지난 약속",
+                "trigger_at": "2026-05-20T18:00:00+09:00",
+                "status": "expired",
+            },
+        )(),
+    ]
+
+    class _CalendarManager:
+        def get_upcoming_events(self, days=3):
+            return []
+
+        def get_recent_or_latest_conversation_counts(self, days=7, exclude_today=True):
+            return {}
+
+        def get_pending_head_pat_count(self):
+            return 0
+
+        def get_head_pat_count(self, date):
+            return 0
+
+    dummy = type("ClientDummy", (), {})()
+    dummy.memory_manager = _EmptyMemoryManager()
+    dummy.promise_manager = _PromiseManagerForContext(promise_items)
+    dummy.user_profile = _DummyProfile([])
+    dummy.ene_profile = _DummyEneProfile()
+    dummy.mood_manager = None
+    dummy.settings = type("SettingsDummy", (), {"config": {}})()
+    dummy.calendar_manager = _CalendarManager()
+    dummy._now_for_context = lambda: datetime.fromisoformat("2026-05-22T20:30:00+09:00")
+
+    context = asyncio.run(GeminiClient._build_memory_context(dummy, "오늘 뭐 하지"))
+
+    assert "[지나간 대화 약속]" in context
+    assert "- [놓침] 05월 22일 20:00: 일기 쓰기" in context
+    assert "- [만료] 05월 22일 18:00: 스트레칭" in context
+    assert "오래 지난 약속" not in context
+
+
+def test_build_memory_context_includes_recent_incomplete_past_calendar_events():
+    calendar_events = [
+        type(
+            "CalendarEvent",
+            (),
+            {
+                "title": "포트폴리오 정리",
+                "description": "",
+                "date": "2026-05-21",
+                "completed": False,
+            },
+        )(),
+        type(
+            "CalendarEvent",
+            (),
+            {
+                "title": "병원 예약",
+                "description": "치과",
+                "date": "2026-05-18",
+                "completed": False,
+            },
+        )(),
+        type(
+            "CalendarEvent",
+            (),
+            {
+                "title": "이미 완료한 일정",
+                "description": "",
+                "date": "2026-05-20",
+                "completed": True,
+            },
+        )(),
+        type(
+            "CalendarEvent",
+            (),
+            {
+                "title": "너무 오래된 일정",
+                "description": "",
+                "date": "2026-05-10",
+                "completed": False,
+            },
+        )(),
+    ]
+
+    dummy = type("ClientDummy", (), {})()
+    dummy.memory_manager = _EmptyMemoryManager()
+    dummy.promise_manager = None
+    dummy.user_profile = _DummyProfile([])
+    dummy.ene_profile = _DummyEneProfile()
+    dummy.mood_manager = None
+    dummy.settings = type("SettingsDummy", (), {"config": {}})()
+    dummy.calendar_manager = _CalendarManagerForContext(calendar_events)
+    dummy._now_for_context = lambda: datetime.fromisoformat("2026-05-22T20:30:00+09:00")
+
+    context = asyncio.run(GeminiClient._build_memory_context(dummy, "오늘 뭐 하지"))
+
+    assert "[지나간 일정]" in context
+    assert "- [미완료] 05월 21일: 포트폴리오 정리" in context
+    assert "- [미완료] 05월 18일: 병원 예약 (치과)" in context
+    assert "이미 완료한 일정" not in context
+    assert "너무 오래된 일정" not in context
 
 
 def test_build_memory_search_text_uses_recent_visible_turns_with_latest_user_message():
