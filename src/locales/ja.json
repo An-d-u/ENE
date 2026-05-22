@@ -769,6 +769,7 @@
         "typing_effect": "タイピング効果",
         "message_split": "メッセージ分割表示",
         "ene_thoughts": "エネの思考を表示",
+        "ene_goals": "エネの目標を有効化",
         "ene_thought_context": "エネの内心メモを次の会話に反映",
         "ene_thought_context_limit": {
           "label": "反映する数:",
@@ -789,7 +790,23 @@
         "manual_summary": "Show manual summary button",
         "note_button": "Show note button",
         "mood_button": "Show mood button",
+        "goal_button": "目標ボタンを表示",
         "hint": "Turning on only the buttons you use often keeps the screen simpler."
+      },
+      "goals": {
+        "title": "エネの目標",
+        "active": "有効な目標",
+        "history": "履歴プレビュー",
+        "type": "種類:",
+        "short_term": "短期",
+        "long_term": "長期",
+        "title_label": "タイトル:",
+        "reason": "理由 / メモ:",
+        "add": "追加",
+        "update": "更新",
+        "complete": "完了",
+        "cancel": "キャンセル",
+        "empty": "表示する目標はまだありません。"
       },
       "ptt": {
         "title": "Voice input (global PTT)",
