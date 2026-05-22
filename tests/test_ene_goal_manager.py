@@ -31,6 +31,25 @@ def test_apply_create_adds_active_short_term_goal(tmp_path):
     assert snapshot["history"] == []
 
 
+def test_create_truncates_long_title_and_reason(tmp_path):
+    manager = EneGoalManager(state_file=str(tmp_path / "ene_goals.json"))
+    long_title = "제목" * 80
+    long_reason = "이유" * 180
+
+    snapshot = manager.apply_llm_update(
+        {
+            "action": "create",
+            "type": "short_term",
+            "title": long_title,
+            "reason": long_reason,
+        }
+    )
+
+    goal = snapshot["active"]["short_term"][0]
+    assert goal["title"] == long_title[:120]
+    assert goal["reason"] == long_reason[:300]
+
+
 def test_apply_complete_moves_goal_to_history(tmp_path):
     manager = EneGoalManager(state_file=str(tmp_path / "ene_goals.json"))
     created = manager.apply_llm_update(
@@ -52,6 +71,22 @@ def test_apply_complete_moves_goal_to_history(tmp_path):
     assert snapshot["history"][0]["id"] == goal_id
     assert snapshot["history"][0]["status"] == "completed"
     assert snapshot["history"][0]["completion_reason"] == "검증 완료"
+
+
+def test_complete_and_cancel_truncate_long_completion_reason(tmp_path):
+    manager = EneGoalManager(state_file=str(tmp_path / "ene_goals.json"))
+    long_reason = "완료사유" * 100
+    completed = manager.add_manual_goal("short_term", "완료할 목표", "")
+    completed_id = completed["active"]["short_term"][0]["id"]
+    cancelled = manager.add_manual_goal("long_term", "취소할 목표", "")
+    cancelled_id = cancelled["active"]["long_term"][0]["id"]
+
+    manager.complete_goal(completed_id, long_reason)
+    snapshot = manager.cancel_goal(cancelled_id, long_reason)
+
+    history_by_id = {goal["id"]: goal for goal in snapshot["history"]}
+    assert history_by_id[completed_id]["completion_reason"] == long_reason[:300]
+    assert history_by_id[cancelled_id]["completion_reason"] == long_reason[:300]
 
 
 def test_apply_none_changes_nothing(tmp_path):
@@ -91,6 +126,30 @@ def test_apply_update_existing_goal_edits_fields_and_keeps_active(tmp_path):
     assert updated["reason"] == "범위가 더 명확해짐"
     assert updated["updated_at"] == "2099-01-01T00:00:00"
     assert updated["source"] == "llm"
+    assert snapshot["history"] == []
+
+
+def test_apply_update_truncates_long_fields_and_keeps_goal_active(tmp_path):
+    manager = EneGoalManager(state_file=str(tmp_path / "ene_goals.json"))
+    created = manager.add_manual_goal("short_term", "초기 제목", "초기 이유")
+    goal_id = created["active"]["short_term"][0]["id"]
+    long_title = "수정제목" * 40
+    long_reason = "수정이유" * 100
+
+    snapshot = manager.apply_llm_update(
+        {
+            "action": "update",
+            "id": goal_id,
+            "title": long_title,
+            "reason": long_reason,
+        }
+    )
+
+    active_goals = snapshot["active"]["short_term"]
+    assert len(active_goals) == 1
+    assert active_goals[0]["id"] == goal_id
+    assert active_goals[0]["title"] == long_title[:120]
+    assert active_goals[0]["reason"] == long_reason[:300]
     assert snapshot["history"] == []
 
 
