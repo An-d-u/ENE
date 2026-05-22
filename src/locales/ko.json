@@ -256,6 +256,7 @@
   "chat.promise.panel.queued": "현재 응답 직후",
   "chat.promise.panel.in_minutes": "{minutes}분 후",
   "chat.promise.panel.overdue_minutes": "{minutes}분 지남",
+  "chat.goals.label": "목표",
   "chat.goals.title": "에네 목표",
   "chat.goals.empty": "진행 중인 목표가 없습니다.",
   "chat.goals.short_term": "단기",

@@ -254,6 +254,7 @@
   "chat.promise.panel.queued": "現在の応答の直後",
   "chat.promise.panel.in_minutes": "{minutes}分後",
   "chat.promise.panel.overdue_minutes": "{minutes}分経過",
+  "chat.goals.label": "目標",
   "chat.goals.title": "エネの目標",
   "chat.goals.empty": "進行中の目標はまだありません。",
   "chat.goals.short_term": "短期",

@@ -84,6 +84,7 @@ const DEFAULT_UI_STRINGS = {
         overdueMinutes: '{minutes} min late'
     },
     goalPanel: {
+        label: 'Goals',
         title: 'ENE goals',
         close: 'Close',
         empty: 'No active goals yet.',
@@ -2329,7 +2330,8 @@ function mergeUiStrings(config) {
             overdueMinutes: promisePanel.overdueMinutes || DEFAULT_UI_STRINGS.promisePanel.overdueMinutes
         },
         goalPanel: {
-            title: goalPanel.title || DEFAULT_UI_STRINGS.goalPanel.title,
+            label: goalPanel.label || DEFAULT_UI_STRINGS.goalPanel.label,
+            title: goalPanel.title || goalPanel.label || DEFAULT_UI_STRINGS.goalPanel.title,
             close: goalPanel.close || DEFAULT_UI_STRINGS.goalPanel.close,
             empty: goalPanel.empty || DEFAULT_UI_STRINGS.goalPanel.empty,
             shortTerm: goalPanel.shortTerm || DEFAULT_UI_STRINGS.goalPanel.shortTerm,
