@@ -14,7 +14,7 @@ def _read_setting(settings_source: object | None, key: str, default):
     if callable(getter):
         try:
             return getter(key, default)
-        except TypeError:
+        except Exception:
             pass
     config = getattr(settings_source, "config", None)
     if isinstance(config, dict):
