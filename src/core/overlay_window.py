@@ -753,7 +753,10 @@ class OverlayWindow(QWidget):
         if not self._page_loaded:
             return
         source = settings_override if settings_override is not None else self.settings.config
-        enabled = "true" if bool(source.get("show_ene_goal_button", True)) else "false"
+        enabled = "true" if (
+            bool(source.get("enable_ene_goals", True))
+            and bool(source.get("show_ene_goal_button", True))
+        ) else "false"
         self.web_view.page().runJavaScript(f"window.setGoalButtonEnabled({enabled});")
 
     def _sync_token_usage_bubble_visibility_to_js(self, settings_override: dict | None = None):

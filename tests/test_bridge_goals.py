@@ -123,6 +123,18 @@ def test_sanitize_visible_response_text_removes_leaked_goal_update_block():
     assert sanitized == "좋아요.\n계속 갈게요."
 
 
+def test_sanitize_visible_response_text_removes_unclosed_goal_update_block_to_end():
+    dummy = type("BridgeDummy", (), {})()
+
+    sanitized = WebBridge._sanitize_visible_response_text(
+        dummy,
+        "좋아요.\n[ene_goal_update]\naction=create\ntitle=보이면 안 됨\nreason=닫는 태그 없음",
+    )
+
+    assert sanitized == "좋아요."
+    assert "보이면 안 됨" not in sanitized
+
+
 def test_manual_goal_slots_call_manager_and_emit_snapshots():
     manager = _DummyGoalManager()
     dummy = type("BridgeDummy", (), {})()

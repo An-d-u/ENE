@@ -601,6 +601,17 @@ class GeminiClient:
             traceback.print_exc()
             return f"이미지를 처리하는 중에 문제가 생겼어요... ({str(e)[:50]})", "confused", None, [], {}, [], "", {}
 
+    def _build_goal_context_block(self, prompt_language: str | None = None) -> str:
+        """메모리 매니저와 독립적으로 활성 목표 컨텍스트를 만든다."""
+        goal_manager = getattr(self, "goal_manager", None)
+        if not goal_manager or not hasattr(goal_manager, "build_context_block"):
+            return ""
+        try:
+            return str(goal_manager.build_context_block(language=prompt_language) or "").strip()
+        except Exception as e:
+            print(f"[LLM] Goal context append failed: {e}")
+            return ""
+
     
     async def _build_memory_context(
         self,
@@ -618,9 +629,16 @@ class GeminiClient:
         Returns:
             컨텍스트 문자열
         """
+        prompt_language_getter = getattr(self, "_prompt_language", None)
+        prompt_language = (
+            prompt_language_getter()
+            if callable(prompt_language_getter)
+            else resolve_prompt_language(settings_source=getattr(self, "settings", None))
+        )
+        goal_block = GeminiClient._build_goal_context_block(self, prompt_language)
         if not self.memory_manager:
             print("[LLM] 메모리 매니저 없음")
-            return ""
+            return goal_block
         
         context_parts = []
         labels = GeminiClient._memory_context_labels(self)
@@ -719,12 +737,6 @@ class GeminiClient:
                     print(f"[LLM] 에네 facts 포함: {len(ene_fact_lines) - 1}개 항목")
         
         # 에네 상태 컨텍스트를 한곳에 모아 모델이 현재 상태를 함께 보게 한다.
-        prompt_language_getter = getattr(self, "_prompt_language", None)
-        prompt_language = (
-            prompt_language_getter()
-            if callable(prompt_language_getter)
-            else resolve_prompt_language(settings_source=getattr(self, "settings", None))
-        )
         mood_manager = getattr(self, "mood_manager", None)
         if mood_manager and hasattr(mood_manager, "build_context_block"):
             try:
@@ -735,15 +747,9 @@ class GeminiClient:
             except Exception as e:
                 print(f"[LLM] Mood context append failed: {e}")
 
-        goal_manager = getattr(self, "goal_manager", None)
-        if goal_manager and hasattr(goal_manager, "build_context_block"):
-            try:
-                goal_block = goal_manager.build_context_block(language=prompt_language)
-                if goal_block:
-                    context_parts.append("\n" + goal_block)
-                    print("[LLM] Goal context included")
-            except Exception as e:
-                print(f"[LLM] Goal context append failed: {e}")
+        if goal_block:
+            context_parts.append("\n" + goal_block)
+            print("[LLM] Goal context included")
 
         overdue_promise_block = GeminiClient._build_overdue_promise_context(self, labels)
         if overdue_promise_block:
