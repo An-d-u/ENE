@@ -638,6 +638,8 @@ class SettingsDialog(QDialog):
         self._goal_empty_label: QLabel | None = None
         self._goal_form_labels: list[QLabel] = []
         self._goal_bridge_connected = False
+        self._goal_active_snapshot: list[dict] = []
+        self._goal_history_snapshot: list[dict] = []
         self._lazy_tab_hosts: dict[str, QWidget] = {}
         self._lazy_tab_builders: dict[str, callable] = {}
         self._lazy_tab_loaded: set[str] = set()
@@ -984,17 +986,7 @@ class SettingsDialog(QDialog):
         self._update_ptt_hotkey_ui()
         self._sync_tts_provider_ui()
         if self._goal_active_list is not None and self._goal_history_list is not None:
-            active_goals = []
-            history_items = []
-            for index in range(self._goal_active_list.count()):
-                goal_id = str(self._goal_active_list.item(index).data(Qt.ItemDataRole.UserRole) or "")
-                if goal_id in self._goal_items:
-                    active_goals.append(self._goal_items[goal_id])
-            for index in range(self._goal_history_list.count()):
-                goal_id = str(self._goal_history_list.item(index).data(Qt.ItemDataRole.UserRole) or "")
-                if goal_id in self._goal_items:
-                    history_items.append(self._goal_items[goal_id])
-            self._render_goal_items(active_goals, history_items)
+            self._render_goal_items(self._goal_active_snapshot, self._goal_history_snapshot)
         if self._browser_tts_voices:
             self._populate_browser_tts_language_filter(self._browser_tts_voices)
             self._populate_browser_tts_voice_combo()
@@ -6048,10 +6040,12 @@ class SettingsDialog(QDialog):
         return active, history_items
 
     def _render_goal_items(self, active_goals: list[dict], history_items: list[dict]) -> None:
+        self._goal_active_snapshot = [dict(goal) for goal in active_goals if isinstance(goal, dict)]
+        self._goal_history_snapshot = [dict(goal) for goal in history_items if isinstance(goal, dict)]
         self._goal_items = {}
         if self._goal_active_list is not None:
             self._goal_active_list.clear()
-            for goal in active_goals:
+            for goal in self._goal_active_snapshot:
                 goal_id = str(goal.get("id") or "").strip()
                 if not goal_id:
                     continue
@@ -6062,7 +6056,7 @@ class SettingsDialog(QDialog):
 
         if self._goal_history_list is not None:
             self._goal_history_list.clear()
-            for goal in history_items[-20:]:
+            for goal in self._goal_history_snapshot[-20:]:
                 goal_id = str(goal.get("id") or "").strip()
                 if goal_id:
                     self._goal_items[goal_id] = dict(goal)
@@ -6070,7 +6064,7 @@ class SettingsDialog(QDialog):
                 item.setData(Qt.ItemDataRole.UserRole, goal_id)
                 self._goal_history_list.addItem(item)
 
-        has_items = bool(active_goals or history_items)
+        has_items = bool(self._goal_active_snapshot or self._goal_history_snapshot)
         if self._goal_empty_label is not None:
             self._goal_empty_label.setVisible(not has_items)
         self._refresh_ene_goal_controls()
@@ -6135,7 +6129,7 @@ class SettingsDialog(QDialog):
             self._goal_type_combo.setEnabled(goals_enabled and not has_selection)
 
         button_rules = (
-            (self._goal_add_button, "add_manual_goal", True),
+            (self._goal_add_button, "add_manual_goal", not has_selection),
             (self._goal_update_button, "update_goal_item", has_selection),
             (self._goal_complete_button, "complete_goal_item", has_selection),
             (self._goal_cancel_button, "cancel_goal_item", has_selection),
