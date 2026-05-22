@@ -661,6 +661,7 @@ class WebBridge(QObject):
         self.worker = None
         self.settings = settings
         self.mood_manager = None
+        self.goal_manager = None
         self.diary_service = DiaryService("diary", settings=settings)
         self.note_service = NoteService("note_runs", settings=self.settings)
         self.obs_settings = ObsSettings("obs_config.json")
@@ -788,6 +789,8 @@ class WebBridge(QObject):
         self.llm_client = client
         if self.llm_client and self.mood_manager:
             self.llm_client.mood_manager = self.mood_manager
+        if self.llm_client and self.goal_manager:
+            self.llm_client.goal_manager = self.goal_manager
         print(f"[Bridge] LLM client set: {client is not None}")
 
     def set_mood_manager(self, mood_manager):
@@ -798,6 +801,24 @@ class WebBridge(QObject):
         if self.mood_manager:
             snapshot = self.mood_manager.get_snapshot()
             self._emit_mood_changed(snapshot)
+
+    def set_goal_manager(self, goal_manager):
+        """에네 목표 매니저 설정"""
+        self.goal_manager = goal_manager
+        if self.llm_client and self.goal_manager:
+            self.llm_client.goal_manager = self.goal_manager
+        self._emit_goal_items_updated()
+
+    def _emit_goal_items_updated(self, snapshot=None):
+        """Task 5 UI 시그널이 생기면 목표 목록을 안전하게 전달한다."""
+        signal = getattr(self, "goal_items_updated", None)
+        emit = getattr(signal, "emit", None)
+        if not callable(emit):
+            return
+        try:
+            emit(json.dumps(snapshot or {}, ensure_ascii=False))
+        except Exception as e:
+            print(f"[Bridge] 목표 목록 갱신 신호 전송 실패: {e}")
 
     def _emit_mood_changed(self, snapshot: dict):
         """기분 상태 변경 시 UI로 전달"""

@@ -82,6 +82,28 @@ def test_generation_params_are_forwarded_to_builder():
         PROVIDER_BUILDERS.pop(provider_name, None)
 
 
+def test_goal_manager_is_forwarded_to_builder():
+    class DummyClient:
+        pass
+
+    captured = {}
+
+    def dummy_builder(**kwargs):
+        captured.update(kwargs)
+        return DummyClient()
+
+    provider_name = "dummy-goal-manager"
+    goal_manager = object()
+    register_llm_provider(provider_name, dummy_builder)
+    try:
+        config = LLMProviderConfig(provider=provider_name, api_key="k", model_name="m")
+        client = create_llm_client(config, goal_manager=goal_manager)
+        assert isinstance(client, DummyClient)
+        assert captured.get("goal_manager") is goal_manager
+    finally:
+        PROVIDER_BUILDERS.pop(provider_name, None)
+
+
 def test_provider_catalog_contains_major_providers():
     catalog = get_llm_provider_catalog()
     for provider in ["gemini", "openai", "anthropic", "openrouter", "deepseek", "ollama"]:

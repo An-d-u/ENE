@@ -243,6 +243,44 @@ class _EmptyMemoryManager:
         return []
 
 
+class _DummyGoalManager:
+    def build_context_block(self, language=None):
+        return "[ENE 현재 목표]\n- id: goal_20260522_001\n- title: 출시 준비"
+
+
+def test_send_message_with_memory_adds_goal_context_to_enhanced_prompt():
+    captured = {}
+    dummy = type("ClientDummy", (), {})()
+    dummy.memory_manager = _EmptyMemoryManager()
+    dummy.user_profile = _DummyProfile([])
+    dummy.ene_profile = None
+    dummy.mood_manager = None
+    dummy.goal_manager = _DummyGoalManager()
+    dummy.settings = type("SettingsDummy", (), {"config": {}})()
+    dummy.calendar_manager = None
+
+    async def _build_memory_context(query, recent_context="", head_pat_count_before_message=None):
+        return await GeminiClient._build_memory_context(
+            dummy,
+            query,
+            recent_context=recent_context,
+            head_pat_count_before_message=head_pat_count_before_message,
+        )
+
+    def _send_message(enhanced_prompt):
+        captured["enhanced_prompt"] = enhanced_prompt
+        return "좋아요", "normal", None, [], {}, [], "", {}
+
+    dummy._build_memory_context = _build_memory_context
+    dummy.send_message = _send_message
+
+    asyncio.run(GeminiClient.send_message_with_memory(dummy, "오늘 무엇을 할까?"))
+
+    enhanced_prompt = captured["enhanced_prompt"]
+    assert "[ENE 현재 목표]" in enhanced_prompt
+    assert "goal_20260522_001" in enhanced_prompt
+
+
 class _PromiseManagerForContext:
     def __init__(self, items):
         self._items = items
