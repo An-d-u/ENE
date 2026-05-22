@@ -365,6 +365,7 @@ def _build_custom_api_client(
             api_key=api_key,
             model_name=request_model,
             endpoint=endpoint,
+            provider_name="custom_api",
             generation_params=generation_params,
             memory_manager=memory_manager,
             user_profile=user_profile,

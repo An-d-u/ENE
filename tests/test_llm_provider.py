@@ -2,7 +2,15 @@
 
 import pytest
 
-from src.ai.http_llm_clients import OpenAIResponseAPIClient
+from src.ai.http_llm_clients import (
+    AnthropicClient,
+    CohereClient,
+    GoogleCloudClient,
+    MistralClient,
+    OllamaClient,
+    OpenAICompatibleClient,
+    OpenAIResponseAPIClient,
+)
 from src.ai.llm_provider import (
     LLMClientProtocol,
     LLMProviderConfig,
@@ -119,6 +127,39 @@ def test_create_openai_client_uses_responses_api():
     client = create_llm_client(config)
     assert isinstance(client, OpenAIResponseAPIClient)
     assert client.endpoint == "https://api.openai.com/v1/responses"
+
+
+@pytest.mark.parametrize(
+    ("format_value", "expected_type"),
+    [
+        ("openai_compatible", OpenAICompatibleClient),
+        ("openai_response_api", OpenAIResponseAPIClient),
+        ("anthropic", AnthropicClient),
+        ("mistral", MistralClient),
+        ("google_cloud", GoogleCloudClient),
+        ("cohere", CohereClient),
+        ("ollama", OllamaClient),
+    ],
+)
+def test_custom_api_format_clients_forward_goal_manager(format_value, expected_type):
+    class SettingsDummy:
+        def get(self, key, default=None):
+            values = {
+                "custom_api_format": format_value,
+                "custom_api_url": "",
+                "custom_api_request_model": "custom-model",
+            }
+            return values.get(key, default)
+
+    goal_manager = object()
+    config = LLMProviderConfig(provider="custom_api", api_key="k", model_name="")
+
+    client = create_llm_client(config, settings=SettingsDummy(), goal_manager=goal_manager)
+
+    assert isinstance(client, expected_type)
+    assert client.goal_manager is goal_manager
+    if isinstance(client, OpenAICompatibleClient):
+        assert client.provider_name == "custom_api"
 
 
 def test_create_llm_client_for_supported_providers():
