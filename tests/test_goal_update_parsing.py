@@ -104,6 +104,26 @@ reason=태그가 닫히지 않음"""
     assert "노출되면 안 되는 목표" not in cleaned
 
 
+def test_extract_goal_update_metadata_removes_trailing_unclosed_block_after_closed_block():
+    text = """[ene_goal_update]
+action=create
+type=short_term
+title=첫 번째 목표
+[/ene_goal_update]
+보이는 본문
+[ene_goal_update]
+action=update
+title=노출되면 안 되는 목표"""
+
+    cleaned, update = extract_goal_update_metadata(text)
+
+    assert cleaned == "보이는 본문"
+    assert update["action"] == "create"
+    assert update["type"] == "short_term"
+    assert update["title"] == "첫 번째 목표"
+    assert "노출되면 안 되는 목표" not in cleaned
+
+
 def test_extract_goal_update_metadata_ignores_unknown_keys():
     text = """[ene_goal_update]
 action=update
