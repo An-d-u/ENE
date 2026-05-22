@@ -29,6 +29,8 @@ _THOUGHT_TAG_PATTERN = "|".join(re.escape(alias).replace("\\ ", r"\s+") for alia
 _THOUGHT_BLOCK_PATTERN = rf"\[\s*(?:{_THOUGHT_TAG_PATTERN})\s*\]\s*(.*?)\s*\[\s*/\s*(?:{_THOUGHT_TAG_PATTERN})\s*\]"
 _THOUGHT_LABEL_PATTERN = rf"^\s*(?:{'|'.join(THOUGHT_LABEL_ALIASES)})\s*[:=：]\s*(.+?)\s*$"
 _TTS_BLOCK_PATTERN = r"\[\s*tts\s*\]\s*(.*?)\s*\[\s*/\s*tts\s*\]"
+GOAL_UPDATE_KEYS = ("action", "type", "id", "title", "reason", "completion_reason")
+_GOAL_UPDATE_BLOCK_PATTERN = r"\[\s*ene_goal_update\s*\]\s*(.*?)\s*\[\s*/\s*ene_goal_update\s*\]"
 
 
 def strip_thinking_markers(text: str) -> str:
@@ -81,6 +83,28 @@ def extract_thought_metadata(text: str) -> tuple[str, str]:
     if not cleaned:
         return source, ""
     return cleaned, thought
+
+
+def extract_goal_update_metadata(text: str) -> tuple[str, dict[str, str]]:
+    """응답 본문에서 목표 업데이트 메타데이터를 분리한다."""
+    source = str(text or "")
+    match = re.search(_GOAL_UPDATE_BLOCK_PATTERN, source, re.IGNORECASE | re.DOTALL)
+    if not match:
+        return source, {}
+
+    parsed: dict[str, str] = {}
+    allowed_keys = set(GOAL_UPDATE_KEYS)
+    for raw_line in match.group(1).splitlines():
+        line = raw_line.strip()
+        if not line or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        normalized_key = key.strip().lower()
+        if normalized_key in allowed_keys:
+            parsed[normalized_key] = value.strip()
+
+    cleaned = re.sub(_GOAL_UPDATE_BLOCK_PATTERN, "", source, flags=re.IGNORECASE | re.DOTALL).strip()
+    return cleaned, parsed
 
 
 def extract_tts_metadata(text: str) -> tuple[str, str]:
