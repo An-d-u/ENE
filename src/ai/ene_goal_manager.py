@@ -214,7 +214,12 @@ class EneGoalManager:
         if not editable:
             return self.get_snapshot()
 
-        _goal_type, _index, goal = found
+        goal_type, _index, goal = found
+        if "title" in editable:
+            duplicate = self._find_duplicate_goal(goal_type, editable["title"])
+            if duplicate is not None and duplicate.get("id") != goal_id:
+                return self.get_snapshot()
+
         goal.update(editable)
         goal["updated_at"] = self._now_iso()
         self._save_state()

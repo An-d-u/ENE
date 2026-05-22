@@ -226,6 +226,63 @@ def test_apply_update_truncates_long_fields_and_keeps_goal_active(tmp_path):
     assert snapshot["history"] == []
 
 
+def test_update_to_duplicate_same_type_title_is_ignored(tmp_path):
+    manager = EneGoalManager(state_file=str(tmp_path / "ene_goals.json"))
+    first = manager.add_manual_goal("short_term", "기존, 목표!", "첫 번째")
+    first_id = first["active"]["short_term"][0]["id"]
+    second = manager.add_manual_goal("short_term", "다른 목표", "두 번째")
+    second_id = second["active"]["short_term"][1]["id"]
+
+    snapshot = manager.update_goal(second_id, {"title": "기존 목표", "reason": "바꾸면 안 됨"})
+
+    assert snapshot == second
+    goals_by_id = {goal["id"]: goal for goal in snapshot["active"]["short_term"]}
+    assert goals_by_id[first_id]["title"] == "기존, 목표!"
+    assert goals_by_id[second_id]["title"] == "다른 목표"
+    assert goals_by_id[second_id]["reason"] == "두 번째"
+
+
+def test_update_to_same_normalized_title_of_itself_is_allowed(tmp_path):
+    manager = EneGoalManager(state_file=str(tmp_path / "ene_goals.json"))
+    created = manager.add_manual_goal("short_term", "자기 목표!", "처음")
+    goal_id = created["active"]["short_term"][0]["id"]
+    manager._now_iso = lambda: "2099-01-01T00:00:00"
+
+    snapshot = manager.update_goal(goal_id, {"title": "자기 목표", "reason": "수정"})
+
+    goal = snapshot["active"]["short_term"][0]
+    assert goal["id"] == goal_id
+    assert goal["title"] == "자기 목표"
+    assert goal["reason"] == "수정"
+    assert goal["updated_at"] == "2099-01-01T00:00:00"
+
+
+def test_update_allows_duplicate_title_in_different_goal_type(tmp_path):
+    manager = EneGoalManager(state_file=str(tmp_path / "ene_goals.json"))
+    manager.add_manual_goal("short_term", "공유 목표", "단기")
+    long_term = manager.add_manual_goal("long_term", "장기 목표", "장기")
+    long_id = long_term["active"]["long_term"][0]["id"]
+
+    snapshot = manager.update_goal(long_id, {"title": "공유 목표"})
+
+    assert snapshot["active"]["short_term"][0]["title"] == "공유 목표"
+    assert snapshot["active"]["long_term"][0]["title"] == "공유 목표"
+
+
+def test_returned_snapshot_mutation_does_not_mutate_goal_manager_state(tmp_path):
+    manager = EneGoalManager(state_file=str(tmp_path / "ene_goals.json"))
+    snapshot = manager.add_manual_goal("short_term", "스냅샷 보호", "원본")
+    goal_id = snapshot["active"]["short_term"][0]["id"]
+
+    snapshot["active"]["short_term"][0]["title"] = "외부 변경"
+    snapshot["history"].append({"id": "fake"})
+
+    fresh = manager.get_snapshot()
+    assert fresh["active"]["short_term"][0]["id"] == goal_id
+    assert fresh["active"]["short_term"][0]["title"] == "스냅샷 보호"
+    assert fresh["history"] == []
+
+
 def test_apply_update_missing_id_or_fields_returns_unchanged_snapshot(tmp_path):
     manager = EneGoalManager(state_file=str(tmp_path / "ene_goals.json"))
     before = manager.add_manual_goal("short_term", "수정하지 않을 목표", "그대로")
