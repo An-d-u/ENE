@@ -11,7 +11,12 @@ google_module.genai = genai_module
 sys.modules.setdefault("google", google_module)
 sys.modules.setdefault("google.genai", genai_module)
 
-from src.ai.llm_client import GeminiClient
+from src.ai.llm_client import (
+    GeminiClient,
+    _format_ko_full_date,
+    _format_ko_month_day,
+    _format_ko_month_day_time,
+)
 from src.ai.memory_types import MemoryChunk
 from src.core.bridge import WebBridge
 
@@ -53,6 +58,27 @@ class _DummyMemoryManager:
                 "entity_names": list(entity_names or []),
             }
         )
+
+
+def test_memory_context_korean_date_formatters_do_not_use_locale_sensitive_strftime():
+    class LocaleSensitiveDate:
+        year = 2026
+        month = 5
+        day = 22
+        hour = 20
+        minute = 30
+
+        def strftime(self, format_text: str) -> str:
+            for index, char in enumerate(format_text):
+                if ord(char) > 127:
+                    raise UnicodeEncodeError("locale", format_text, index, index + 1, "encoding error")
+            return "unused"
+
+    value = LocaleSensitiveDate()
+
+    assert _format_ko_full_date(value) == "2026년 05월 22일"
+    assert _format_ko_month_day(value) == "05월 22일"
+    assert _format_ko_month_day_time(value) == "05월 22일 20:30"
 
 
 class _DummyLLMClient:

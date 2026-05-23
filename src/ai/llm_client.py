@@ -39,6 +39,21 @@ SUMMARY_MEMORY_META_KEYS = {
 LLM_RESPONSE_TUPLE = Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict], str, Dict[str, str]]
 
 
+def _format_ko_full_date(value: datetime) -> str:
+    """로케일 인코딩에 의존하지 않고 한국어 날짜를 만든다."""
+    return f"{value.year:04d}년 {value.month:02d}월 {value.day:02d}일"
+
+
+def _format_ko_month_day(value: datetime) -> str:
+    """로케일 인코딩에 의존하지 않고 월/일 라벨을 만든다."""
+    return f"{value.month:02d}월 {value.day:02d}일"
+
+
+def _format_ko_month_day_time(value: datetime) -> str:
+    """로케일 인코딩에 의존하지 않고 월/일/시각 라벨을 만든다."""
+    return f"{value.month:02d}월 {value.day:02d}일 {value.hour:02d}:{value.minute:02d}"
+
+
 class GeminiClient:
     """Gemini API 클라이언트"""
     
@@ -377,7 +392,7 @@ class GeminiClient:
         selected.sort(key=lambda item: item[0], reverse=True)
         lines = [f"[{labels['overdue_promises']}]"]
         for trigger_at, status, title in selected[:3]:
-            time_label = trigger_at.strftime("%m월 %d일 %H:%M")
+            time_label = _format_ko_month_day_time(trigger_at)
             status_label = labels.get(status, status)
             lines.append(f"- [{status_label}] {time_label}: {title}")
         return "\n".join(lines)
@@ -420,7 +435,7 @@ class GeminiClient:
         selected.sort(key=lambda item: item[0], reverse=True)
         lines = [f"[{labels['past_due_events']}]"]
         for event_date, title, description in selected[:3]:
-            date_label = event_date.strftime("%m월 %d일")
+            date_label = _format_ko_month_day(event_date)
             line = f"- [{labels['incomplete']}] {date_label}: {title}"
             if description:
                 line += f" ({description})"
@@ -857,7 +872,7 @@ class GeminiClient:
                 try:
                     from datetime import datetime
                     dt = datetime.fromisoformat(memory.timestamp)
-                    date_str = dt.strftime("%Y년 %m월 %d일")
+                    date_str = _format_ko_full_date(dt)
                     context_parts.append(f"- [{date_str}] {memory.summary}")
                     print(f"  📝 [{date_str}] {memory.summary[:40]}...")
                 except:
@@ -874,7 +889,7 @@ class GeminiClient:
                     try:
                         from datetime import datetime
                         event_date = datetime.fromisoformat(event.date)
-                        date_str = event_date.strftime("%m월 %d일")
+                        date_str = _format_ko_month_day(event_date)
                         
                         # 완료 여부 표시
                         status = f" ✓ {labels['done']}" if event.completed else ""
@@ -899,7 +914,7 @@ class GeminiClient:
                     try:
                         from datetime import datetime
                         date_obj = datetime.fromisoformat(date_str)
-                        date_display = date_obj.strftime("%m월 %d일")
+                        date_display = _format_ko_month_day(date_obj)
                         context_parts.append(f"- {date_display}: {count}{labels['times']}")
                     except:
                         pass
