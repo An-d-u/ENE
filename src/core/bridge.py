@@ -8,15 +8,12 @@ from PyQt6.QtCore import (
     QTimer,
 )
 from datetime import datetime
-import json
 
 from ..ai.diary_service import DiaryService
 from ..ai.note_service import NoteService
 from ..ai.obsidian_manager import ObsidianManager
 from ..ai.prompt_language import resolve_prompt_language
-from .attachment_session import (
-    AttachmentSession,
-)
+from .bridge_state import BridgeStateAliasMixin
 from .bridge_workers import AIWorker  # 기존 import 경로 호환용 재노출
 from .bridge_mixins.attachments import AttachmentBridgeMixin
 from .bridge_mixins.away import AwayNudgeBridgeMixin
@@ -29,7 +26,6 @@ from .bridge_mixins.promise import PromiseBridgeMixin
 from .bridge_mixins.thoughts import ThoughtBridgeMixin
 from .bridge_mixins.tts import TTSBridgeMixin
 from .obs_settings import ObsSettings
-from .tts_sync_controller import TTSSyncController
 
 
 def _prompt_time_header(timestamp: str, language: str) -> str:
@@ -52,6 +48,7 @@ class WebBridge(
     PromiseBridgeMixin,
     ThoughtBridgeMixin,
     TTSBridgeMixin,
+    BridgeStateAliasMixin,
     QObject,
 ):
     """Python과 JavaScript 간 통신 브릿지"""
@@ -84,92 +81,18 @@ class WebBridge(
         self.note_service = NoteService("note_runs", settings=self.settings)
         self.obs_settings = ObsSettings("obs_config.json")
         self.obsidian_manager = ObsidianManager(settings=self.settings, obs_settings=self.obs_settings)
-        self.obs_panel_window = None
         self._settings_dialog_opener = None
-        self.obs_tree_worker = None
+        self._init_bridge_states(checked_files=self.obs_settings.get_checked_files())
         self.obs_tree_retry_timer = QTimer(self)
         self.obs_tree_retry_timer.setSingleShot(True)
         self.obs_tree_retry_timer.timeout.connect(self._retry_obs_tree_refresh)
-        self._obs_tree_retry_remaining = 0
-        self._cached_obs_tree_json = json.dumps(
-            {"ok": True, "nodes": [], "checked_files": self.obs_settings.get_checked_files()},
-            ensure_ascii=False
-        )
-        self._cached_checked_files_context = ""
-        self._cached_checked_files_signature: tuple[str, ...] = tuple()
-        self.obs_checked_files_worker = None
-        self._obsidian_integration_activated = False
-        self._attachment_session = AttachmentSession()
         self._sync_attachment_session_aliases()
         
-        # TTS 및 오디오 재생
-        self.tts_client = None
-        self.audio_player = None
-        self.enable_tts = False  # TTS 활성화 여부
-        self.tts_worker = None  # TTS 워커 스레드
-        self.tts_streaming_enabled = False
-        self.tts_streaming_emit_message_on_first_chunk = True
-        self._streaming_tts_started = False
-        self._stream_lip_sync_next_timestamp = 0.0
-        self._stream_lip_sync_values = []
-        self._stream_lip_sync_timer = None
-        self._stream_lip_sync_finished = False
-        self._stream_audio_format = None
-        self._stream_audio_output_started = False
-        self._stream_sync_started_at = None
-        self._stream_pending_pcm_chunks = []
-        self._stream_pending_lip_sync_data = []
-        self._stream_viseme_analyzer = None
-        self._sync_controller = TTSSyncController()
-        self._sync_started = False
-        self._sync_using_rms_fallback = False
-        self._stream_future_viseme_frames = []
-        self._model_lip_sync_profile = None
-        self._model_lip_sync_profile_key = None
-        
-        # 립싱크 데이터 및 타이머
-        self.lip_sync_data = None
-        self.lip_sync_timer = None
-        self.lip_sync_start_time = None
-        
-        # 보류 중인 응답 (TTS 대기)
-        self.pending_response = None  # (text, emotion, thought)
-        self.pending_token_usage_payload = ""
-        self._tts_interrupted_for_ptt = False
-        
-        # 대화 추적
-        self.conversation_buffer = []  # [(role, message, timestamp), ...]
-        self._ene_thought_context_buffer = []
-        self._last_request_payload = None
-        self._last_assistant_response = None
-        self._is_rerolling = False
-        self.promise_manager = None
-        self.promise_run_queue = []
-        self._active_promise_id = None
-        self._active_promise_signature = None
-        self._recent_promise_fire_signatures = {}
-
         self.promise_timer = QTimer(self)
         self.promise_timer.setInterval(10_000)
         self.promise_timer.timeout.connect(self._poll_promise_reminders)
         self.promise_timer.start()
 
-        # 자리 비움/유휴 감지 상태
-        self.last_user_message_at = None
-        self.user_message_count = 0
-        self.away_check_in_progress = False
-        self.away_already_triggered_since_last_user_msg = False
-        self.away_trigger_count_since_last_user_msg = 0
-        self.last_away_trigger_at = None
-        self.away_first_capture_data_url = None
-        self.away_first_capture_image = None
-        self.away_idle_minutes = 60
-        self.away_compare_delay_seconds = 30
-        self.away_diff_threshold_percent = 3.0
-        self.away_additional_retry_limit = 0
-        self.enable_away_nudge = True
-
-        # 유휴 감지 타이머
         self.away_timer = QTimer(self)
         self.away_timer.setInterval(10_000)
         self.away_timer.timeout.connect(self._check_away_nudge_condition)
