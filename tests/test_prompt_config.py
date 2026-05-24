@@ -504,6 +504,194 @@ def test_settings_dialog_saves_prompt_configuration_to_markdown_files(tmp_path, 
     assert "- spark: 아이디어가 번뜩일 때" in emotion_guides_text
 
 
+def test_settings_dialog_tabs_use_external_builders(monkeypatch):
+    from src.ui.settings_dialog import SettingsDialog
+    from src.ui.settings_tabs import (
+        behavior_tab,
+        ene_profile_tab,
+        llm_tab,
+        memory_tab,
+        model_tab,
+        prompt_tab,
+        theme_tab,
+        tts_tab,
+        user_profile_tab,
+        window_tab,
+    )
+
+    builder_cases = [
+        (window_tab, "build_window_tab", SettingsDialog._create_window_tab),
+        (theme_tab, "build_theme_tab", SettingsDialog._create_theme_tab),
+        (model_tab, "build_model_tab", SettingsDialog._create_model_tab),
+        (llm_tab, "build_llm_tab", SettingsDialog._create_llm_tab),
+        (tts_tab, "build_tts_tab", SettingsDialog._create_tts_tab),
+        (behavior_tab, "build_behavior_tab", SettingsDialog._create_behavior_tab),
+        (memory_tab, "build_memory_tab", SettingsDialog._create_memory_tab),
+        (user_profile_tab, "build_user_profile_tab", SettingsDialog._create_user_profile_tab),
+        (ene_profile_tab, "build_ene_profile_tab", SettingsDialog._create_ene_profile_tab),
+        (prompt_tab, "build_prompt_tab", SettingsDialog._create_prompt_tab),
+    ]
+
+    dialog = object()
+
+    for module, builder_name, method in builder_cases:
+        sentinel = object()
+        calls = []
+
+        def fake_builder(received_dialog, *, _sentinel=sentinel, _calls=calls):
+            _calls.append(received_dialog)
+            return _sentinel
+
+        monkeypatch.setattr(module, builder_name, fake_builder)
+
+        result = method(dialog)
+
+        assert result is sentinel
+        assert calls == [dialog]
+
+
+def test_settings_dialog_uses_extracted_widget_module():
+    root = Path(__file__).resolve().parents[1]
+    dialog_source = (root / "src" / "ui" / "settings_dialog.py").read_text(encoding="utf-8-sig")
+    widget_source = (root / "src" / "ui" / "settings_dialog_widgets.py").read_text(encoding="utf-8-sig")
+
+    assert "from .settings_dialog_widgets import (" in dialog_source
+    for symbol in (
+        "ClickableFrame",
+        "ToggleSwitch",
+        "ColorPlaneWidget",
+        "HueSliderWidget",
+        "ThemeColorPickerPopup",
+        "apply_soft_shadow",
+    ):
+        assert f"class {symbol}" not in dialog_source
+        assert symbol in widget_source
+
+
+def test_settings_dialog_uses_extracted_theme_mixin():
+    root = Path(__file__).resolve().parents[1]
+    dialog_source = (root / "src" / "ui" / "settings_dialog.py").read_text(encoding="utf-8-sig")
+    theme_source = (root / "src" / "ui" / "settings_dialog_theme.py").read_text(encoding="utf-8-sig")
+
+    assert "from .settings_dialog_theme import SettingsDialogThemeMixin" in dialog_source
+    settings_dialog_bases = dialog_source.split("class SettingsDialog(", 1)[1].split("):", 1)[0]
+    assert "SettingsDialogThemeMixin" in settings_dialog_bases
+    for method_name in (
+        "_apply_theme_mode",
+        "_build_theme_color_editor",
+        "_build_theme_mode_preview",
+        "_build_theme_variant_preview",
+        "_refresh_theme_editor_state",
+        "_flush_theme_live_update",
+    ):
+        assert f"def {method_name}" not in dialog_source
+        assert f"def {method_name}" in theme_source
+
+
+def test_settings_dialog_uses_extracted_prompt_mixin():
+    root = Path(__file__).resolve().parents[1]
+    dialog_source = (root / "src" / "ui" / "settings_dialog.py").read_text(encoding="utf-8-sig")
+    prompt_source = (root / "src" / "ui" / "settings_dialog_prompt.py").read_text(encoding="utf-8-sig")
+
+    assert "from .settings_dialog_prompt import SettingsDialogPromptMixin" in dialog_source
+    assert "SettingsDialogPromptMixin" in dialog_source.split("class SettingsDialog(", 1)[1].split("):", 1)[0]
+    for method_name in (
+        "_count_prompt_tokens",
+        "_refresh_prompt_token_counts",
+        "_split_sub_prompt_content",
+        "_build_sub_prompt_text",
+        "_load_prompt_configuration",
+        "_save_prompt_configuration",
+    ):
+        assert f"def {method_name}" not in dialog_source
+        assert f"def {method_name}" in prompt_source
+
+
+def test_settings_dialog_uses_extracted_tts_mixin():
+    root = Path(__file__).resolve().parents[1]
+    dialog_source = (root / "src" / "ui" / "settings_dialog.py").read_text(encoding="utf-8-sig")
+    tts_source = (root / "src" / "ui" / "settings_dialog_tts.py").read_text(encoding="utf-8-sig")
+
+    assert "from .settings_dialog_tts import SettingsDialogTtsMixin" in dialog_source
+    assert "SettingsDialogTtsMixin" in dialog_source.split("class SettingsDialog(", 1)[1].split("):", 1)[0]
+    for method_name in (
+        "_browse_tts_audio_path_into",
+        "_build_tts_output_device_items",
+        "_refresh_tts_output_devices",
+        "_request_browser_tts_voices",
+        "_collect_tts_provider_configs",
+        "_load_tts_values",
+    ):
+        assert f"def {method_name}" not in dialog_source
+        assert f"def {method_name}" in tts_source
+
+
+def test_settings_dialog_uses_remaining_extracted_mixins():
+    root = Path(__file__).resolve().parents[1]
+    dialog_source = (root / "src" / "ui" / "settings_dialog.py").read_text(encoding="utf-8-sig")
+    mixin_cases = [
+        (
+            "settings_dialog_ui.py",
+            "SettingsDialogUiMixin",
+            (
+                "_setup_ui",
+                "_apply_stylesheet",
+                "_add_section",
+                "_ensure_lazy_tab_loaded",
+                "_build_secret_row",
+            ),
+        ),
+        (
+            "settings_dialog_profile.py",
+            "SettingsDialogProfileMixin",
+            (
+                "_refresh_basic_info_list",
+                "_load_user_profile_data",
+                "_save_user_profile_data",
+            ),
+        ),
+        (
+            "settings_dialog_goals.py",
+            "SettingsDialogGoalsMixin",
+            (
+                "_create_ene_goals_group",
+                "_connect_goal_bridge",
+                "_render_goal_items",
+                "_on_goal_add_clicked",
+            ),
+        ),
+        (
+            "settings_dialog_hotkeys.py",
+            "SettingsDialogHotkeyMixin",
+            (
+                "_qt_key_to_hotkey_token",
+                "_build_hotkey_from_event",
+                "_start_ptt_hotkey_capture",
+            ),
+        ),
+        (
+            "settings_dialog_values.py",
+            "SettingsDialogValuesMixin",
+            (
+                "_load_values",
+                "_get_current_values",
+                "_preview_settings",
+                "_save_settings",
+                "_cancel_settings",
+            ),
+        ),
+    ]
+
+    settings_dialog_bases = dialog_source.split("class SettingsDialog(", 1)[1].split("):", 1)[0]
+    for filename, mixin_name, method_names in mixin_cases:
+        mixin_source = (root / "src" / "ui" / filename).read_text(encoding="utf-8-sig")
+        assert f"from .{filename.removesuffix('.py')} import {mixin_name}" in dialog_source
+        assert mixin_name in settings_dialog_bases
+        for method_name in method_names:
+            assert f"def {method_name}" not in dialog_source
+            assert f"def {method_name}" in mixin_source
+
+
 def test_save_prompt_config_writes_readable_markdown_files(tmp_path, monkeypatch):
     from src.ai import prompt_config
 

@@ -4,7 +4,7 @@
 ROOT = Path(__file__).resolve().parents[1]
 INDEX_PATH = ROOT / "assets" / "web" / "index.html"
 SCRIPT_PATH = ROOT / "assets" / "web" / "script.js"
-SETTINGS_DIALOG_PATH = ROOT / "src" / "ui" / "settings_dialog.py"
+SETTINGS_BEHAVIOR_TAB_PATH = ROOT / "src" / "ui" / "settings_tabs" / "behavior_tab.py"
 
 
 def test_attachment_input_accepts_documents_and_images():
@@ -75,10 +75,10 @@ def test_script_persists_message_timestamp_for_meta_rail_refresh():
 
 def test_html_and_settings_include_token_usage_ui():
     html = INDEX_PATH.read_text(encoding="utf-8-sig")
-    settings_dialog = SETTINGS_DIALOG_PATH.read_text(encoding="utf-8-sig")
+    settings_behavior_tab = SETTINGS_BEHAVIOR_TAB_PATH.read_text(encoding="utf-8-sig")
 
     assert 'id="token-usage-bubble"' in html
-    assert "대화 토큰 확인" in settings_dialog
+    assert "대화 토큰 확인" in settings_behavior_tab
 
 
 def test_loading_indicator_uses_plain_typing_row_and_reparents_only_while_pending():
