@@ -105,6 +105,11 @@ class AIWorker(QThread):
                 return text, emotion, japanese_text, events, {}, [], "", {}
         raise ValueError("지원하지 않는 응답 형식입니다.")
 
+    def _ensure_image_input_supported(self):
+        """이미지 입력 미지원 공급자에서 첨부 이미지를 조용히 버리지 않도록 막는다."""
+        if getattr(self.llm_client, "supports_image_input", None) is False:
+            raise RuntimeError("현재 LLM 공급자는 이미지 입력을 지원하지 않습니다. 이미지 지원 공급자나 모델로 변경해 주세요.")
+
     def run(self):
         loop = None
         """스레드 실행"""
@@ -134,6 +139,7 @@ class AIWorker(QThread):
                 )
             # 이미지가 있으면 멀티모달로 처리
             elif self.images:
+                self._ensure_image_input_supported()
                 print(f"[AI Worker] 이미지 {len(self.images)}개 포함 - 멀티모달 모드")
                 response_text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._normalize_response_payload(
                     loop.run_until_complete(
