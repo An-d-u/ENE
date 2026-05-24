@@ -5,6 +5,27 @@ import re
 WEB_DIR = Path(__file__).resolve().parents[1] / "assets" / "web"
 STYLE_PATH = WEB_DIR / "style.css"
 SCRIPT_PATH = WEB_DIR / "script.js"
+EXPECTED_RUNTIME_SCRIPTS = [
+    "runtime_bootstrap.js",
+    "runtime_live2d_model.js",
+    "runtime_motion_state.js",
+    "runtime_head_pat.js",
+    "runtime_auto_blink_tracking.js",
+    "runtime_expression.js",
+    "runtime_chat_state.js",
+    "runtime_ui_strings.js",
+    "runtime_attachments.js",
+    "runtime_mood_obsidian.js",
+    "runtime_chat_panel_controls.js",
+    "runtime_promise_panel.js",
+    "runtime_goal_panel.js",
+    "runtime_message_helpers.js",
+    "runtime_message_rendering.js",
+    "runtime_chat_flow.js",
+    "runtime_bridge.js",
+    "runtime_lipsync.js",
+    "script.js",
+]
 
 
 def _rule_block(selector: str) -> str:
@@ -16,7 +37,28 @@ def _rule_block(selector: str) -> str:
 
 
 def _script_text() -> str:
+    html = (WEB_DIR / "index.html").read_text(encoding="utf-8-sig")
+    script_paths = re.findall(r'<script src="([^"]+\.js)"></script>', html)
+    runtime_paths = [
+        path for path in script_paths
+        if not path.startswith("lib/") and not path.startswith("qrc:")
+    ]
+    if runtime_paths:
+        return "\n".join((WEB_DIR / path).read_text(encoding="utf-8-sig") for path in runtime_paths)
     return SCRIPT_PATH.read_text(encoding="utf-8-sig")
+
+
+def test_web_runtime_is_split_into_ordered_scripts():
+    html = (WEB_DIR / "index.html").read_text(encoding="utf-8-sig")
+    runtime_scripts = [
+        path for path in re.findall(r'<script src="([^"]+\.js)"></script>', html)
+        if not path.startswith("lib/") and not path.startswith("qrc:")
+    ]
+
+    assert runtime_scripts == EXPECTED_RUNTIME_SCRIPTS
+    assert len(SCRIPT_PATH.read_text(encoding="utf-8-sig").splitlines()) <= 80
+    for script_name in EXPECTED_RUNTIME_SCRIPTS[:-1]:
+        assert (WEB_DIR / script_name).exists()
 
 
 def test_chat_container_uses_roomier_bounded_height():
