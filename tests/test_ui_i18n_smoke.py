@@ -1,4 +1,5 @@
 ﻿import json
+import re
 import sys
 import types
 from contextlib import contextmanager
@@ -226,6 +227,18 @@ def _load_app_class():
             else:
                 sys.modules[module_name] = previous
     return ENEApplication
+
+
+def _read_web_runtime_script_text(assets_root: Path) -> str:
+    html = (assets_root / "index.html").read_text(encoding="utf-8-sig")
+    script_paths = re.findall(r'<script src="([^"]+\.js)"></script>', html)
+    runtime_paths = [
+        path for path in script_paths
+        if not path.startswith("lib/") and not path.startswith("qrc:")
+    ]
+    if runtime_paths:
+        return "\n".join((assets_root / path).read_text(encoding="utf-8-sig") for path in runtime_paths)
+    return (assets_root / "script.js").read_text(encoding="utf-8-sig")
 
 
 @contextmanager
@@ -2376,8 +2389,8 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
 
 
 def test_chat_web_script_has_runtime_i18n_hooks():
-    script_path = Path(__file__).resolve().parents[1] / "assets" / "web" / "script.js"
-    content = script_path.read_text(encoding="utf-8")
+    assets_root = Path(__file__).resolve().parents[1] / "assets" / "web"
+    content = _read_web_runtime_script_text(assets_root)
 
     assert "window.applyENEUiStrings = function applyENEUiStrings(config)" in content
     assert "chatInput.placeholder = currentUiStrings.input.placeholder;" in content
@@ -2479,7 +2492,7 @@ def test_overlay_window_syncs_goal_button_visibility_to_webview(tmp_path):
 
 def test_chat_web_assets_translate_mood_axis_labels_and_center_floating_buttons():
     assets_root = Path(__file__).resolve().parents[1] / "assets" / "web"
-    script_content = (assets_root / "script.js").read_text(encoding="utf-8")
+    script_content = _read_web_runtime_script_text(assets_root)
     html_content = (assets_root / "index.html").read_text(encoding="utf-8")
     css_content = (assets_root / "style.css").read_text(encoding="utf-8")
 

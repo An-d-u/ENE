@@ -1,10 +1,23 @@
 ﻿from pathlib import Path
+import re
 
 
 ROOT = Path(__file__).resolve().parents[1]
 INDEX_PATH = ROOT / "assets" / "web" / "index.html"
 SCRIPT_PATH = ROOT / "assets" / "web" / "script.js"
 SETTINGS_BEHAVIOR_TAB_PATH = ROOT / "src" / "ui" / "settings_tabs" / "behavior_tab.py"
+
+
+def _script_text() -> str:
+    html = INDEX_PATH.read_text(encoding="utf-8-sig")
+    script_paths = re.findall(r'<script src="([^"]+\.js)"></script>', html)
+    runtime_paths = [
+        path for path in script_paths
+        if not path.startswith("lib/") and not path.startswith("qrc:")
+    ]
+    if runtime_paths:
+        return "\n".join((INDEX_PATH.parent / path).read_text(encoding="utf-8-sig") for path in runtime_paths)
+    return SCRIPT_PATH.read_text(encoding="utf-8-sig")
 
 
 def test_attachment_input_accepts_documents_and_images():
@@ -21,7 +34,7 @@ def test_attachment_button_uses_svg_icon_instead_of_emoji():
 
 
 def test_script_uses_attachment_preview_bridge_and_generic_send_route():
-    script = SCRIPT_PATH.read_text(encoding="utf-8-sig")
+    script = _script_text()
     assert "window.pyBridge.preview_attachments" in script
     assert "window.pyBridge.send_to_ai_with_attachments" in script
     assert "typeof window.pyBridge.send_to_ai_with_attachments === 'function'" in script
@@ -50,27 +63,27 @@ def test_image_lightbox_markup_exists():
 
 
 def test_script_uses_svg_reroll_icon_instead_of_unicode():
-    script = SCRIPT_PATH.read_text(encoding="utf-8-sig")
+    script = _script_text()
     assert "createLucideIcon('rotate-ccw')" in script
     assert "textContent = '⟲'" not in script
 
 
 def test_script_contains_token_usage_bubble_hooks():
-    script = SCRIPT_PATH.read_text(encoding="utf-8-sig")
+    script = _script_text()
     assert "window.setTokenUsageBubbleEnabled" in script
     assert "showTokenUsageBubble" in script
     assert "window.pyBridge.token_usage_ready.connect" in script
 
 
 def test_script_contains_message_time_helpers_and_meta_rail():
-    script = SCRIPT_PATH.read_text(encoding="utf-8-sig")
+    script = _script_text()
     assert "function formatMessageTime" in script
     assert "function ensureMessageMetaRail" in script
     assert "className = 'message-time'" in script
 
 
 def test_script_persists_message_timestamp_for_meta_rail_refresh():
-    script = SCRIPT_PATH.read_text(encoding="utf-8-sig")
+    script = _script_text()
     assert "messageDiv.dataset.messageTimestamp" in script
     assert "rail.dataset.timestamp" in script
     assert "lastAssistantMessageEl.dataset.messageTimestamp" in script
@@ -87,7 +100,7 @@ def test_html_and_settings_include_token_usage_ui():
 
 def test_loading_indicator_uses_plain_typing_row_and_reparents_only_while_pending():
     html = INDEX_PATH.read_text(encoding="utf-8-sig")
-    script = SCRIPT_PATH.read_text(encoding="utf-8-sig")
+    script = _script_text()
 
     assert 'id="loading-indicator" class="message assistant"' in html
     assert 'class="message-bubble typing-bubble"' not in html
