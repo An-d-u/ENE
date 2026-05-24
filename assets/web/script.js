@@ -2778,7 +2778,7 @@ function showLoadingIndicator(show) {
 
 // 최근 assistant 메시지 DOM 참조를 재동기화한다.
 function syncLastAssistantMessageRef() {
-    const nodes = chatMessages.querySelectorAll('.message.assistant');
+    const nodes = chatMessages.querySelectorAll('.message.assistant:not([data-reroll-excluded="true"])');
     if (!nodes || nodes.length === 0) {
         lastAssistantMessageEl = null;
         hasAssistantMessage = false;
@@ -2889,14 +2889,18 @@ function ensureMessageMetaRail(messageDiv, role, timestamp = null) {
 }
 
 // 리롤/수정/수동요약 버튼의 표시 및 활성 상태를 재평가한다.
+function isManualSummaryBridgeAvailable() {
+    return !!window.pyBridge && typeof window.pyBridge.summarize_now === 'function';
+}
+
 function updateRerollButtonState() {
     if (manualSummarizeButton) {
-        const enabledByBridge = !!window.pyBridge && !!window.pyBridge.summarize_now;
+        const enabledByBridge = isManualSummaryBridgeAvailable();
         manualSummarizeButton.style.display = manualSummaryButtonVisibleBySetting ? 'inline-flex' : 'none';
         manualSummarizeButton.disabled = isRequestPending || !enabledByBridge;
     }
     if (summaryConfirmYesButton) {
-        summaryConfirmYesButton.disabled = isRequestPending || !window.pyBridge || !window.pyBridge.summarize_now;
+        summaryConfirmYesButton.disabled = isRequestPending || !isManualSummaryBridgeAvailable();
     }
 
     syncLastAssistantMessageRef();
@@ -3880,7 +3884,7 @@ function openInlineEdit(messageDiv) {
 
 // 수동 요약 버튼 클릭 시 확인 모달을 띄운다.
 function requestManualSummary() {
-    if (!window.pyBridge || !window.pyBridge.summarize_now) return;
+    if (!isManualSummaryBridgeAvailable()) return;
     if (isRequestPending) return;
     showSummaryConfirm();
 }
@@ -4028,6 +4032,9 @@ function addMessage(text, role, attachments = [], timestamp = new Date(), option
     messageDiv.dataset.messageId = (options && typeof options.messageId === 'string' && options.messageId.trim())
         ? options.messageId.trim()
         : `message-${createAttachmentId()}`;
+    if (role === 'assistant' && options && options.excludeFromReroll) {
+        messageDiv.dataset.rerollExcluded = 'true';
+    }
     setMessageLogicalText(messageDiv, text);
     setMessageThoughtText(messageDiv, role === 'assistant' ? (options.thought || '') : '');
     messageDiv._messageAttachments = normalizeMessageAttachments(attachments);
@@ -4227,36 +4234,44 @@ function sendMessage() {
         category: attachment.category,
         messageId: clientMessageId
     }));
-    addMessage(message || '(첨부)', 'user', pendingAttachments, new Date(), { messageId: clientMessageId });
-    chatInput.value = '';
-    autoResizeTextarea();
-    if (window.pyBridge) {
-        isRequestPending = true;
-        shouldReplaceNextAssistant = false;
-        updateRerollButtonState();
-        showLoadingIndicator(true);
 
-        dispatchBridgeCall(() => {
-            if (pendingAttachments.length > 0) {
-                window.pyBridge.send_to_ai_with_attachments(message, JSON.stringify(pendingAttachments));
-            } else {
-                window.pyBridge.send_to_ai(message);
-            }
-        }, (error) => {
-            console.error("Python bridge dispatch failed", error);
-            addMessage("연결 오류가 발생했어요.", 'assistant', [], new Date());
-            isRequestPending = false;
-            shouldReplaceNextAssistant = false;
-            updateRerollButtonState();
-            showLoadingIndicator(false);
-        });
-    } else {
-        console.error("Python bridge not connected");
-        addMessage("연결 오류가 발생했어요.", 'assistant', [], new Date());
+    const hasBridge = !!window.pyBridge;
+    const canSendWithAttachments = hasBridge && typeof window.pyBridge.send_to_ai_with_attachments === 'function';
+    const canSendText = hasBridge && typeof window.pyBridge.send_to_ai === 'function';
+    const canDispatchMessage = pendingAttachments.length > 0 ? canSendWithAttachments : canSendText;
+    if (!canDispatchMessage) {
+        console.error("Python bridge send route is not available");
+        addMessage("연결 오류가 발생했어요.", 'assistant', [], new Date(), { excludeFromReroll: true });
         isRequestPending = false;
         shouldReplaceNextAssistant = false;
         updateRerollButtonState();
+        showLoadingIndicator(false);
+        return;
     }
+
+    addMessage(message || '(첨부)', 'user', pendingAttachments, new Date(), { messageId: clientMessageId });
+    chatInput.value = '';
+    autoResizeTextarea();
+
+    isRequestPending = true;
+    shouldReplaceNextAssistant = false;
+    updateRerollButtonState();
+    showLoadingIndicator(true);
+
+    dispatchBridgeCall(() => {
+        if (pendingAttachments.length > 0) {
+            window.pyBridge.send_to_ai_with_attachments(message, JSON.stringify(pendingAttachments));
+        } else {
+            window.pyBridge.send_to_ai(message);
+        }
+    }, (error) => {
+        console.error("Python bridge dispatch failed", error);
+        addMessage("연결 오류가 발생했어요.", 'assistant', [], new Date(), { excludeFromReroll: true });
+        isRequestPending = false;
+        shouldReplaceNextAssistant = false;
+        updateRerollButtonState();
+        showLoadingIndicator(false);
+    });
     attachedAttachments = [];
     updateAttachmentPreview();
 }
@@ -4276,7 +4291,7 @@ function submitVoiceText(text) {
             window.pyBridge.send_to_ai(message);
         }, (error) => {
             console.error("Python bridge dispatch failed", error);
-            addMessage("연결 오류가 발생했어요.", 'assistant', [], new Date());
+            addMessage("연결 오류가 발생했어요.", 'assistant', [], new Date(), { excludeFromReroll: true });
             isRequestPending = false;
             shouldReplaceNextAssistant = false;
             updateRerollButtonState();
@@ -4286,7 +4301,7 @@ function submitVoiceText(text) {
     }
 
     console.error("Python bridge not connected");
-    addMessage("연결 오류가 발생했어요.", 'assistant', [], new Date());
+    addMessage("연결 오류가 발생했어요.", 'assistant', [], new Date(), { excludeFromReroll: true });
     isRequestPending = false;
     shouldReplaceNextAssistant = false;
     updateRerollButtonState();
@@ -4412,7 +4427,7 @@ if (summaryConfirmNoButton) {
 if (summaryConfirmYesButton) {
     summaryConfirmYesButton.addEventListener('click', () => {
         hideSummaryConfirm();
-        if (!window.pyBridge || !window.pyBridge.summarize_now) return;
+        if (!isManualSummaryBridgeAvailable()) return;
         if (isRequestPending) return;
         window.pyBridge.summarize_now();
     });

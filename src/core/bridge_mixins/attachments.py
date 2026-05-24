@@ -95,6 +95,7 @@ class AttachmentBridgeMixin:
         self._get_attachment_session().upsert_session_documents(prepared_attachments)
         self._sync_attachment_session_aliases()
 
+    @pyqtSlot(str, str)
     def send_to_ai_with_images(self, message: str, images_json: str):
         """기존 이미지 전송 진입점을 일반 첨부 전송 경로로 연결한다."""
         try:
@@ -128,6 +129,7 @@ class AttachmentBridgeMixin:
         self._cache_prepared_attachments(prepared)
         self.attachment_preview_ready.emit(self._build_attachment_preview_payload(prepared))
 
+    @pyqtSlot(str, str)
     def send_to_ai_with_attachments(self, message: str, attachments_json: str):
         """JavaScript에서 호출: 이미지/문서 첨부를 포함한 메시지를 AI로 전송."""
         print("[Bridge] Received message with attachments from JS")

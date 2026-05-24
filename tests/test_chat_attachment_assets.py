@@ -24,6 +24,10 @@ def test_script_uses_attachment_preview_bridge_and_generic_send_route():
     script = SCRIPT_PATH.read_text(encoding="utf-8-sig")
     assert "window.pyBridge.preview_attachments" in script
     assert "window.pyBridge.send_to_ai_with_attachments" in script
+    assert "typeof window.pyBridge.send_to_ai_with_attachments === 'function'" in script
+    assert "typeof window.pyBridge.summarize_now === 'function'" in script
+    assert 'message.assistant:not([data-reroll-excluded="true"])' in script
+    assert "excludeFromReroll: true" in script
     assert "window.pyBridge.delete_message_attachment" in script
     assert "window.pyBridge.attachment_preview_ready.connect" in script
     assert "createLucideIcon('pencil')" in script

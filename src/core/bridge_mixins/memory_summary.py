@@ -21,6 +21,7 @@ class MemorySummaryBridgeMixin:
         compact = re.sub(r"[^0-9]", "", latest_timestamp)[:12] or datetime.now().strftime("%Y%m%d%H%M")
         return f"conv-{compact}-{uuid.uuid4().hex[:8]}"
 
+    @pyqtSlot()
     def summarize_now(self):
         """UI에서 호출: 현재 대화를 즉시 요약해 메모리에 저장."""
         if self.worker and self.worker.isRunning():

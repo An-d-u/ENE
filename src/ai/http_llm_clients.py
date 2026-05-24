@@ -477,7 +477,7 @@ class OpenAICompatibleClient(_CommonMixin):
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
         prompt = self._build_summary_prompt_for_messages(messages)
-        response_text = self._request_openai(prompt)
+        response_text = self._request_one_shot_raw(prompt)
         return self._parse_summary_response(response_text)
 
 
@@ -672,7 +672,7 @@ class OpenAIResponseAPIClient(_CommonMixin):
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
         prompt = self._build_summary_prompt_for_messages(messages)
-        response_text = self._request_responses(prompt)
+        response_text = self._request_one_shot_raw(prompt)
         return self._parse_summary_response(response_text)
 
 
@@ -728,9 +728,20 @@ class MistralClient(OpenAICompatibleClient):
         return str(content).strip()
 
     def _request_one_shot_raw(self, user_content, include_sub_prompt: bool = True) -> str:
+        content = str(user_content)
         payload = {
             "model": self.model_name,
-            "messages": self._mistral_messages(user_content, include_sub_prompt=include_sub_prompt)[:2],
+            "messages": [
+                {
+                    "role": "system",
+                    "content": build_runtime_system_prompt(
+                        include_sub_prompt=include_sub_prompt,
+                        include_analysis_appendix=True,
+                        settings_source=self.settings,
+                    ),
+                },
+                {"role": "user", "content": content},
+            ],
             "safe_prompt": False,
             "temperature": self.generation_params["temperature"],
             "top_p": self.generation_params["top_p"],
@@ -925,7 +936,7 @@ class GoogleCloudClient(_CommonMixin):
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
         prompt = self._build_summary_prompt_for_messages(messages)
-        response_text = self._request_google(prompt)
+        response_text = self._request_one_shot_raw(prompt)
         return self._parse_summary_response(response_text)
 
 
@@ -1070,7 +1081,7 @@ class CohereClient(_CommonMixin):
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
         prompt = self._build_summary_prompt_for_messages(messages)
-        response_text = self._request_cohere(prompt)
+        response_text = self._request_one_shot_raw(prompt)
         return self._parse_summary_response(response_text)
 
 
@@ -1219,7 +1230,7 @@ class AnthropicClient(_CommonMixin):
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
         prompt = self._build_summary_prompt_for_messages(messages)
-        response_text = self._request_anthropic([{"type": "text", "text": prompt}])
+        response_text = self._request_one_shot_raw(prompt)
         return self._parse_summary_response(response_text)
 
 
@@ -1381,5 +1392,5 @@ class OllamaClient(_CommonMixin):
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
         prompt = self._build_summary_prompt_for_messages(messages)
-        response_text = self._request_ollama(prompt)
+        response_text = self._request_one_shot_raw(prompt)
         return self._parse_summary_response(response_text)
