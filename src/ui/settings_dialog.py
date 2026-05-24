@@ -528,6 +528,9 @@ class SettingsDialog(
                 0,
                 self._translated_text("settings.tts.browser.filter.all", "전체 언어"),
             )
+        if hasattr(self, "tts_output_device_combo"):
+            current_device_id = str(self.tts_output_device_combo.currentData() or "").strip()
+            self._refresh_tts_output_devices(current_device_id)
         prompt_key, prompt_fallback, prompt_kwargs = self._prompt_status_state
         self._set_prompt_status(prompt_key, prompt_fallback, **prompt_kwargs)
         profile_key, profile_fallback, profile_kwargs = self._profile_status_state

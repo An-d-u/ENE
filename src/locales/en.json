@@ -635,6 +635,19 @@
         "viseme_lipsync": "Viseme Lip Sync",
         "provider": "Provider:"
       },
+      "playback": {
+        "title": "Playback",
+        "output_device": {
+          "label": "Output device:",
+          "system_default": "System default device",
+          "current_suffix": "current",
+          "default_suffix": "default",
+          "unnamed": "Unnamed device",
+          "missing_saved": "Saved device (currently missing, current): {device_id}"
+        },
+        "volume": "Volume:",
+        "hint": "Applies to TTS providers that use ENE's internal audio player, such as GPT-SoVITS, OpenAI Speech, compatible APIs, and ElevenLabs. Browser fallback TTS is not affected."
+      },
       "gpt": {
         "connection": {
           "title": "Connection",
@@ -666,6 +679,23 @@
             "placeholder": "e.g. ja"
           },
           "hint": "This uses reference-voice synthesis, so you can point directly at a local or remote GPT-SoVITS endpoint."
+        },
+        "sampling": {
+          "title": "Synthesis parameters",
+          "speed_factor": "Speed:",
+          "top_k": "Top K:",
+          "top_p": "Top P:",
+          "temperature": "Temperature:",
+          "text_split_method": "Split:",
+          "text_split": {
+            "cut0": "cut0 - No split",
+            "cut1": "cut1 - Every four sentences",
+            "cut2": "cut2 - Every 50 characters",
+            "cut3": "cut3 - Chinese period",
+            "cut4": "cut4 - English period",
+            "cut5": "cut5 - Punctuation"
+          },
+          "hint": "Control common WebUI options directly in ENE, including speed, sampling, and sentence splitting."
         }
       },
       "genie": {
@@ -895,6 +925,14 @@
           "label": "Injected turns (0 = whole session):",
           "all": "Whole session",
           "suffix": " turns"
+        },
+        "checked_max_chars_per_file": {
+          "label": "Max characters per checked file:",
+          "suffix": " chars"
+        },
+        "checked_total_max_chars": {
+          "label": "Max total checked-file characters:",
+          "suffix": " chars"
         }
       },
       "idle": {
@@ -980,9 +1018,9 @@
       "save": "Save",
       "status": {
         "idle": "Waiting to load",
-        "load_done": "prompt.py / sub_prompt.py loaded",
+        "load_done": "Prompt Markdown loaded",
         "load_failed": "Load failed: {error}",
-        "save_done": "prompt.py / sub_prompt.py saved",
+        "save_done": "Prompt Markdown saved",
         "save_failed": "Save failed: {error}"
       },
       "message": {

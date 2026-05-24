@@ -633,6 +633,19 @@
         "viseme_lipsync": "ビセム リップシンク",
         "provider": "Provider:"
       },
+      "playback": {
+        "title": "再生",
+        "output_device": {
+          "label": "出力デバイス:",
+          "system_default": "システム既定のデバイス",
+          "current_suffix": "使用中",
+          "default_suffix": "既定",
+          "unnamed": "名前のないデバイス",
+          "missing_saved": "保存済みデバイス (現在なし、使用中): {device_id}"
+        },
+        "volume": "音量:",
+        "hint": "GPT-SoVITS、OpenAI Speech、互換 API、ElevenLabs など、ENE 内部のオーディオプレイヤーを使う TTS に共通で適用されます。ブラウザ標準 TTS には適用されません。"
+      },
       "gpt": {
         "connection": {
           "title": "Connection",
@@ -664,6 +677,23 @@
             "placeholder": "e.g. ja"
           },
           "hint": "This uses reference-voice synthesis, so you can point directly at a local or remote GPT-SoVITS endpoint."
+        },
+        "sampling": {
+          "title": "合成パラメータ",
+          "speed_factor": "速度:",
+          "top_k": "Top K:",
+          "top_p": "Top P:",
+          "temperature": "Temperature:",
+          "text_split_method": "分割:",
+          "text_split": {
+            "cut0": "cut0 - 分割しない",
+            "cut1": "cut1 - 4文ごと",
+            "cut2": "cut2 - 50文字ごと",
+            "cut3": "cut3 - 中国語の句点",
+            "cut4": "cut4 - 英語のピリオド",
+            "cut5": "cut5 - 句読点基準"
+          },
+          "hint": "WebUI でよく使う速度、サンプリング、文章分割のオプションを ENE でも直接調整します。"
         }
       },
       "openai": {
@@ -843,6 +873,14 @@
           "label": "Injected turns (0 = whole session):",
           "all": "Whole session",
           "suffix": " turns"
+        },
+        "checked_max_chars_per_file": {
+          "label": "チェック済みファイルごとの最大文字数:",
+          "suffix": " 文字"
+        },
+        "checked_total_max_chars": {
+          "label": "チェック済みファイル全体の最大文字数:",
+          "suffix": " 文字"
         }
       },
       "idle": {
@@ -928,9 +966,9 @@
       "save": "保存",
       "status": {
         "idle": "読み込み待機",
-        "load_done": "prompt.py / sub_prompt.py 読み込み完了",
+        "load_done": "プロンプト Markdown 読み込み完了",
         "load_failed": "読み込み失敗: {error}",
-        "save_done": "prompt.py / sub_prompt.py 保存完了",
+        "save_done": "プロンプト Markdown 保存完了",
         "save_failed": "保存失敗: {error}"
       },
       "message": {

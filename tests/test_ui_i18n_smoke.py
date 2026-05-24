@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from PyQt6.QtCore import QDate, QEvent, Qt
-from PyQt6.QtWidgets import QGroupBox, QLabel, QMessageBox, QPushButton
+from PyQt6.QtWidgets import QCheckBox, QComboBox, QDoubleSpinBox, QGroupBox, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QSpinBox
 from PyQt6.QtWidgets import QApplication
 
 from src.core.i18n import configure_i18n
@@ -363,6 +363,87 @@ def test_settings_dialog_translates_metadata_in_english():
         assert dialog.tts_provider_hint_label.text() == "Local or remote GPT-SoVITS server that uses reference audio and prompt text."
 
         dialog.close()
+
+
+def _collect_widget_texts(root):
+    texts = []
+    for label in root.findChildren(QLabel):
+        texts.append(label.text())
+    for button in root.findChildren(QPushButton):
+        texts.extend([button.text(), button.toolTip()])
+    for group in root.findChildren(QGroupBox):
+        texts.append(group.title())
+    for check in root.findChildren(QCheckBox):
+        texts.append(check.text())
+    for combo in root.findChildren(QComboBox):
+        texts.append(combo.placeholderText())
+        for index in range(combo.count()):
+            texts.append(combo.itemText(index))
+    for line_edit in root.findChildren(QLineEdit):
+        texts.append(line_edit.placeholderText())
+        texts.append(line_edit.text())
+    for plain_text in root.findChildren(QPlainTextEdit):
+        texts.append(plain_text.placeholderText())
+    for spin_box in root.findChildren(QSpinBox):
+        texts.extend([spin_box.text(), spin_box.suffix(), spin_box.specialValueText()])
+    for double_spin_box in root.findChildren(QDoubleSpinBox):
+        texts.extend([double_spin_box.text(), double_spin_box.suffix(), double_spin_box.specialValueText()])
+    return [text for text in texts if text]
+
+
+def test_settings_dialog_translates_known_korean_leftovers_in_english_and_japanese(monkeypatch):
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    leftover_texts = [
+        "재생",
+        "합성 파라미터",
+        "출력 장치:",
+        "볼륨:",
+        "속도:",
+        "자르기:",
+        "시스템 기본 장치",
+        "현재 사용 중",
+        "기본)",
+        "cut0 - 자르지 않음",
+        "cut1 - 네 문장씩",
+        "cut2 - 50자씩",
+        "cut3 - 중국어 마침표",
+        "cut4 - 영어 마침표",
+        "cut5 - 문장부호 기준",
+        "체크 파일당 최대 글자 수:",
+        "체크 파일 전체 최대 글자 수:",
+        " 자",
+        "프롬프트 Markdown 로드 완료",
+        "프롬프트 Markdown 저장 완료",
+    ]
+
+    monkeypatch.setattr(
+        "src.ui.settings_dialog_tts.AudioPlayer.list_output_devices",
+        lambda: [{"id": "speaker", "name": "Speakers", "is_default": True}],
+    )
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        for language in ("en", "ja"):
+            configure_i18n(language=language, locales_dir=locales_dir, system_locale="ko_KR")
+            dialog = SettingsDialog(
+                {
+                    "ui_language": language,
+                    "llm_provider": "gemini",
+                    "tts_provider": "gpt_sovits_http",
+                    "enable_tts": True,
+                }
+            )
+            for index in range(dialog.content_stack.count()):
+                dialog.content_stack.setCurrentIndex(index)
+            dialog._refresh_tts_output_devices("")
+
+            text_blob = "\n".join(_collect_widget_texts(dialog))
+            for leftover in leftover_texts:
+                assert leftover not in text_blob
+
+            dialog.close()
 
 
 def test_settings_dialog_uses_wider_default_size():

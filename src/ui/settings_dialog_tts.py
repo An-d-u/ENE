@@ -35,11 +35,50 @@ class SettingsDialogTtsMixin:
             "참조 오디오 선택",
         )
 
+    def _tts_output_device_labels(self) -> dict[str, str]:
+        return {
+            "system_default": self._translated_text(
+                "settings.tts.playback.output_device.system_default",
+                "시스템 기본 장치",
+            ),
+            "current": self._translated_text(
+                "settings.tts.playback.output_device.current_suffix",
+                "현재 사용 중",
+            ),
+            "default": self._translated_text(
+                "settings.tts.playback.output_device.default_suffix",
+                "기본",
+            ),
+            "unnamed": self._translated_text(
+                "settings.tts.playback.output_device.unnamed",
+                "이름 없는 장치",
+            ),
+            "missing_saved": self._translated_text(
+                "settings.tts.playback.output_device.missing_saved",
+                "저장된 장치 (현재 없음, 현재 사용 중): {device_id}",
+            ),
+        }
+
     @staticmethod
-    def _build_tts_output_device_items(devices: list[dict], selected_device_id: str | None) -> list[tuple[str, str]]:
+    def _build_tts_output_device_items(
+        devices: list[dict],
+        selected_device_id: str | None,
+        labels: dict[str, str] | None = None,
+    ) -> list[tuple[str, str]]:
+        label_map = {
+            "system_default": "시스템 기본 장치",
+            "current": "현재 사용 중",
+            "default": "기본",
+            "unnamed": "이름 없는 장치",
+            "missing_saved": "저장된 장치 (현재 없음, 현재 사용 중): {device_id}",
+        }
+        if labels:
+            label_map.update({key: str(value) for key, value in labels.items() if value})
         selected = str(selected_device_id or "").strip()
+        system_default_label = label_map["system_default"]
+        current_label = label_map["current"]
         items: list[tuple[str, str]] = [
-            ("시스템 기본 장치 (현재 사용 중)" if not selected else "시스템 기본 장치", ""),
+            (f"{system_default_label} ({current_label})" if not selected else system_default_label, ""),
         ]
 
         normalized_devices = []
@@ -49,7 +88,7 @@ class SettingsDialogTtsMixin:
             normalized_devices.append(
                 {
                     "id": str(device.get("id", "")).strip(),
-                    "name": str(device.get("name", "")).strip() or "이름 없는 장치",
+                    "name": str(device.get("name", "")).strip() or label_map["unnamed"],
                     "is_default": bool(device.get("is_default", False)),
                 }
             )
@@ -66,15 +105,15 @@ class SettingsDialogTtsMixin:
         for device in normalized_devices:
             tags = []
             if device["is_default"]:
-                tags.append("기본")
+                tags.append(label_map["default"])
             if device["id"] == selected:
-                tags.append("현재 사용 중")
+                tags.append(current_label)
                 found_selected = True
             suffix = f" ({', '.join(tags)})" if tags else ""
             items.append((f"{device['name']}{suffix}", device["id"]))
 
         if selected and not found_selected:
-            items.append((f"저장된 장치 (현재 없음, 현재 사용 중): {selected}", selected))
+            items.append((label_map["missing_saved"].format(device_id=selected), selected))
 
         return items
 
@@ -92,7 +131,7 @@ class SettingsDialogTtsMixin:
         combo = self.tts_output_device_combo
         combo.blockSignals(True)
         combo.clear()
-        for label, device_id in self._build_tts_output_device_items(devices, selected):
+        for label, device_id in self._build_tts_output_device_items(devices, selected, self._tts_output_device_labels()):
             combo.addItem(label, device_id)
         selected_index = combo.findData(selected) if selected else 0
         if selected_index < 0:

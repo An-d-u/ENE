@@ -12,6 +12,30 @@ from ..ai import prompt_config
 
 
 class SettingsDialogPromptMixin:
+    def _prompt_text(self, key: str, fallback: str) -> str:
+        translator = getattr(self, "_translated_text", None)
+        if callable(translator):
+            return translator(key, fallback)
+        return fallback
+
+    def _prompt_text_format(self, key: str, fallback: str, **kwargs) -> str:
+        translator = getattr(self, "_translated_text_format", None)
+        if callable(translator):
+            return translator(key, fallback, **kwargs)
+        try:
+            return fallback.format(**kwargs) if kwargs else fallback
+        except Exception:
+            return fallback
+
+    def _set_prompt_status_text(self, key: str, fallback: str, **kwargs) -> None:
+        setter = getattr(self, "_set_prompt_status", None)
+        if callable(setter):
+            setter(key, fallback, **kwargs)
+            return
+        status_label = getattr(self, "_prompt_status_label", None)
+        if status_label is not None:
+            status_label.setText(SettingsDialogPromptMixin._prompt_text_format(self, key, fallback, **kwargs))
+
     def _count_prompt_tokens(self, text: str) -> int:
         normalized = str(text or "")
         if self._prompt_tokenizer is None:
@@ -216,12 +240,32 @@ class SettingsDialogPromptMixin:
             self._sync_emotion_combo_options()
             self._new_emotion_item()
 
-            if self._prompt_status_label:
-                self._prompt_status_label.setText("프롬프트 Markdown 로드 완료")
+            SettingsDialogPromptMixin._set_prompt_status_text(
+                self,
+                "settings.prompt.status.load_done",
+                "프롬프트 Markdown 로드 완료",
+            )
         except Exception as e:
-            if self._prompt_status_label:
-                self._prompt_status_label.setText(f"로드 실패: {e}")
-            QMessageBox.warning(self, "불러오기 실패", f"프롬프트 설정을 불러오지 못했습니다.\n{e}")
+            SettingsDialogPromptMixin._set_prompt_status_text(
+                self,
+                "settings.prompt.status.load_failed",
+                "로드 실패: {error}",
+                error=e,
+            )
+            QMessageBox.warning(
+                self,
+                SettingsDialogPromptMixin._prompt_text(
+                    self,
+                    "settings.prompt.message.load_failed.title",
+                    "불러오기 실패",
+                ),
+                SettingsDialogPromptMixin._prompt_text_format(
+                    self,
+                    "settings.prompt.message.load_failed.body",
+                    "프롬프트 설정을 불러오지 못했습니다.\n{error}",
+                    error=e,
+                ),
+            )
 
     def _save_prompt_configuration(self):
         try:
@@ -243,10 +287,42 @@ class SettingsDialogPromptMixin:
             )
             self._sync_emotion_combo_options()
 
-            if self._prompt_status_label:
-                self._prompt_status_label.setText("프롬프트 Markdown 저장 완료")
-            QMessageBox.information(self, "저장 완료", "프롬프트 설정을 저장했습니다.")
+            SettingsDialogPromptMixin._set_prompt_status_text(
+                self,
+                "settings.prompt.status.save_done",
+                "프롬프트 Markdown 저장 완료",
+            )
+            QMessageBox.information(
+                self,
+                SettingsDialogPromptMixin._prompt_text(
+                    self,
+                    "settings.prompt.message.save_done.title",
+                    "저장 완료",
+                ),
+                SettingsDialogPromptMixin._prompt_text(
+                    self,
+                    "settings.prompt.message.save_done.body",
+                    "프롬프트 설정을 저장했습니다.",
+                ),
+            )
         except Exception as e:
-            if self._prompt_status_label:
-                self._prompt_status_label.setText(f"저장 실패: {e}")
-            QMessageBox.warning(self, "저장 실패", f"프롬프트 설정을 저장하지 못했습니다.\n{e}")
+            SettingsDialogPromptMixin._set_prompt_status_text(
+                self,
+                "settings.prompt.status.save_failed",
+                "저장 실패: {error}",
+                error=e,
+            )
+            QMessageBox.warning(
+                self,
+                SettingsDialogPromptMixin._prompt_text(
+                    self,
+                    "settings.prompt.message.save_failed.title",
+                    "저장 실패",
+                ),
+                SettingsDialogPromptMixin._prompt_text_format(
+                    self,
+                    "settings.prompt.message.save_failed.body",
+                    "프롬프트 설정을 저장하지 못했습니다.\n{error}",
+                    error=e,
+                ),
+            )
