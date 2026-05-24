@@ -551,7 +551,7 @@ def create_llm_client(
         supported = ", ".join(get_supported_llm_providers())
         raise ValueError(f"지원하지 않는 LLM 공급자입니다: {provider} (지원: {supported})")
 
-    return builder(
+    client = builder(
         api_key=config.api_key,
         model_name=config.model_name,
         generation_params=config.generation_params or {},
@@ -563,3 +563,15 @@ def create_llm_client(
         mood_manager=mood_manager,
         goal_manager=goal_manager,
     )
+    meta = PROVIDER_CATALOG.get(provider)
+    if meta is not None:
+        capability_values = {capability.value for capability in meta.capabilities}
+        try:
+            client.llm_capabilities = {
+                capability.value: capability.value in capability_values
+                for capability in LLMCapability
+            }
+            client.supports_image_input = bool(client.llm_capabilities[LLMCapability.IMAGE_INPUT.value])
+        except Exception:
+            pass
+    return client

@@ -12,6 +12,7 @@ from src.ai.http_llm_clients import (
     OpenAIResponseAPIClient,
 )
 from src.ai.llm_provider import (
+    LLMCapability,
     LLMClientProtocol,
     LLMProviderConfig,
     PROVIDER_BUILDERS,
@@ -167,3 +168,29 @@ def test_create_llm_client_for_supported_providers():
         config = LLMProviderConfig(provider=provider, api_key="k", model_name="m")
         client = create_llm_client(config)
         assert client is not None
+
+
+@pytest.mark.parametrize(
+    ("provider", "expected"),
+    [
+        ("gemini", True),
+        ("openai", True),
+        ("openrouter", True),
+        ("anthropic", True),
+        ("deepseek", False),
+        ("ollama", False),
+        ("custom_api", False),
+    ],
+)
+def test_create_llm_client_sets_image_input_capability(monkeypatch, provider, expected):
+    if provider == "gemini":
+        class DummyGeminiClient:
+            pass
+
+        monkeypatch.setitem(PROVIDER_BUILDERS, "gemini", lambda **_kwargs: DummyGeminiClient())
+
+    config = LLMProviderConfig(provider=provider, api_key="k", model_name="m")
+    client = create_llm_client(config)
+
+    assert client.supports_image_input is expected
+    assert client.llm_capabilities[LLMCapability.IMAGE_INPUT.value] is expected
