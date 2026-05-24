@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 
 import pytest
 
@@ -142,6 +142,42 @@ def test_multimodal_turn_is_preserved_in_history(monkeypatch, factory, request_m
     history = client.get_conversation_history()
     assert history[0]["role"] == "user"
     assert assert_history(history)
+
+
+@pytest.mark.parametrize(
+    ("factory", "request_method"),
+    [
+        (_build_openai_compatible_client, "_request_openai"),
+        (_build_openai_response_client, "_request_responses"),
+        (_build_google_client, "_request_google"),
+        (_build_anthropic_client, "_request_anthropic"),
+        (_build_ollama_client, "_request_ollama"),
+    ],
+    ids=["openai_compatible", "openai_response", "google_cloud", "anthropic", "ollama"],
+)
+def test_multimodal_send_returns_fallback_when_response_is_empty(monkeypatch, factory, request_method):
+    client = factory()
+
+    async def fake_memory_context(_message, recent_context: str = "", head_pat_count_before_message: int | None = None):
+        return ""
+
+    monkeypatch.setattr(client, "_build_memory_context", fake_memory_context)
+    monkeypatch.setattr(client, request_method, lambda *args, **kwargs: "")
+
+    text, emotion, japanese_text, events, analysis, promises, thought, _goal_update = asyncio.run(
+        client.send_message_with_images("설명", [{"dataUrl": IMAGE_DATA_URL}])
+    )
+    history = client.get_conversation_history()
+
+    assert text == "음... 무슨 일이 있었나봐요."
+    assert emotion == "confused"
+    assert japanese_text is None
+    assert events == []
+    assert analysis == {}
+    assert promises == []
+    assert thought == ""
+    assert history[-1]["role"] == "assistant"
+    assert history[-1]["content"] == "음... 무슨 일이 있었나봐요."
 
 
 def test_openai_response_history_rehydrates_prior_image_turn():
