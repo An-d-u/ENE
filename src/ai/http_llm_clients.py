@@ -4,21 +4,25 @@ OpenAI 호환, Anthropic, Ollama 경로를 제공한다.
 """
 from __future__ import annotations
 
-import re
 from typing import Dict, List, Tuple
 
 import requests
 
 from ..conversation_format import prepend_message_time
+from .memory_context_builder import build_memory_context as build_common_memory_context
 from .persona_names import resolve_prompt_persona_names
 from .prompt import build_runtime_system_prompt, get_available_emotions
-from .prompt_language import resolve_prompt_language, resolve_tts_language
-from .response_cleanup import (
-    extract_goal_update_metadata,
-    extract_thought_metadata,
-    extract_tts_metadata,
-    strip_thinking_markers,
+from .prompt_language import resolve_prompt_language
+from .response_cleanup import extract_goal_update_metadata, extract_thought_metadata
+from .response_parser import (
+    extract_analysis_block,
+    extract_japanese_lines,
+    extract_tts_text,
+    is_japanese,
+    parse_analysis_lines,
+    parse_llm_response,
 )
+from .summary_parser import parse_summary_memory_meta, parse_summary_response
 from .summary_prompt import build_markdown_document_prompt, build_summary_prompt, build_summary_prompt_from_text
 
 
@@ -28,64 +32,12 @@ DEFAULT_GENERATION_PARAMS = {
     "max_tokens": 2048,
 }
 
-ANALYSIS_KEYS = {
-    "user_emotion",
-    "user_intent",
-    "interaction_effect",
-    "bond_delta_hint",
-    "stress_delta_hint",
-    "energy_delta_hint",
-    "valence_delta_hint",
-    "confidence",
-    "flags",
-}
-
 LLM_RESPONSE_TUPLE = Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict], str, Dict[str, str]]
 
 
 def _parse_summary_memory_meta_lines(meta_lines: list[str]) -> dict:
     """요약 응답의 MEMORY_META 줄을 정규화된 딕셔너리로 변환한다."""
-    memory_meta: dict = {}
-
-    for raw_line in meta_lines:
-        line = str(raw_line).strip()
-        if not line:
-            continue
-        if line.startswith("-"):
-            line = line[1:].strip()
-        if not line or line.lower() in {"none", "none.", "없음"}:
-            continue
-        if ":" not in line:
-            continue
-
-        key, value = line.split(":", 1)
-        normalized_key = key.strip().lower()
-        normalized_value = value.strip()
-        if not normalized_value:
-            continue
-
-        if normalized_key == "confidence":
-            try:
-                memory_meta[normalized_key] = max(0.0, min(1.0, float(normalized_value)))
-            except ValueError:
-                continue
-            continue
-
-        if normalized_key == "entity_names":
-            cleaned_value = normalized_value.strip("[]")
-            entity_names = [
-                item.strip().strip("'\"")
-                for item in cleaned_value.split(",")
-                if item.strip().strip("'\"")
-            ]
-            if entity_names:
-                memory_meta[normalized_key] = entity_names
-            continue
-
-        if normalized_key in {"memory_type", "importance_reason"}:
-            memory_meta[normalized_key] = normalized_value
-
-    return memory_meta
+    return parse_summary_memory_meta(meta_lines)
 
 
 def _build_summary_prompt(conversation_text: str) -> str:
@@ -247,67 +199,11 @@ class _CommonMixin:
 
     def _parse_analysis_lines(self, raw_block: str) -> Dict[str, str]:
         """analysis 메타 블록의 key=value 줄을 파싱한다."""
-        analysis: Dict[str, str] = {}
-        for raw_line in raw_block.splitlines():
-            line = raw_line.strip()
-            if not line or "=" not in line:
-                continue
-            key, value = line.split("=", 1)
-            key = key.strip()
-            value = value.strip()
-            if key in ANALYSIS_KEYS and value:
-                analysis[key] = value
-        return analysis
+        return parse_analysis_lines(raw_block)
 
     def _extract_analysis_block(self, response_text: str) -> Tuple[str, Dict[str, str]]:
         """응답의 analysis 블록 또는 상단 메타 줄을 분리한다."""
-        pattern = r"\[analysis\]\s*(.*?)\s*\[/analysis\]"
-        match = re.search(pattern, response_text, re.IGNORECASE | re.DOTALL)
-        if match:
-            analysis = self._parse_analysis_lines(match.group(1))
-            cleaned = re.sub(pattern, "", response_text, flags=re.IGNORECASE | re.DOTALL).strip()
-            return cleaned, analysis
-
-        lines = response_text.splitlines()
-        prefix_lines = []
-        consumed = 0
-        seen_analysis_key = False
-        started = False
-
-        for index, raw_line in enumerate(lines):
-            stripped = raw_line.strip()
-
-            if not started and not stripped:
-                consumed = index + 1
-                continue
-
-            if not stripped:
-                if started and prefix_lines:
-                    consumed = index + 1
-                    break
-                consumed = index + 1
-                continue
-
-            if "=" not in stripped:
-                break
-
-            key, value = stripped.split("=", 1)
-            key = key.strip()
-            value = value.strip()
-            if key not in ANALYSIS_KEYS or not value:
-                break
-
-            started = True
-            seen_analysis_key = True
-            prefix_lines.append(f"{key}={value}")
-            consumed = index + 1
-
-        if not seen_analysis_key:
-            return response_text, {}
-
-        analysis = self._parse_analysis_lines("\n".join(prefix_lines))
-        cleaned = "\n".join(lines[consumed:]).strip()
-        return cleaned, analysis
+        return extract_analysis_block(response_text)
 
     def _extract_thought_block(self, response_text: str) -> Tuple[str, str]:
         """응답 본문에서 에네의 짧은 속마음 블록을 분리한다."""
@@ -319,42 +215,11 @@ class _CommonMixin:
 
     def _extract_japanese_lines(self, text: str) -> Tuple[str, str | None]:
         """본문 어디에 있든 일본어 전용 줄을 분리한다."""
-        visible_lines = []
-        japanese_lines = []
-
-        for raw_line in text.split("\n"):
-            stripped = raw_line.strip()
-            if not stripped:
-                visible_lines.append("")
-                continue
-
-            if self._is_japanese(stripped):
-                japanese_lines.append(stripped)
-                continue
-
-            visible_lines.append(raw_line.rstrip())
-
-        clean_text = "\n".join(visible_lines).strip()
-        japanese_text = "\n".join(japanese_lines).strip() if japanese_lines else None
-        return clean_text, japanese_text
+        return extract_japanese_lines(text)
 
     def _extract_tts_text(self, text: str) -> Tuple[str, str | None]:
         """명시적 TTS 블록 또는 설정 언어에 따라 TTS용 텍스트를 분리한다."""
-        clean_text, tts_text = extract_tts_metadata(text)
-        if tts_text:
-            return clean_text, tts_text
-
-        response_language = resolve_prompt_language(settings_source=getattr(self, "settings", None))
-        tts_language = resolve_tts_language(
-            settings_source=getattr(self, "settings", None),
-            response_language=response_language,
-        )
-        if tts_language == response_language:
-            normalized = clean_text.strip()
-            return normalized, normalized or None
-        if tts_language == "ja":
-            return self._extract_japanese_lines(clean_text)
-        return clean_text.strip(), None
+        return extract_tts_text(text, settings_source=getattr(self, "settings", None))
 
     def _build_diary_markdown_prompt(self, message: str, memory_context: str) -> str:
         return build_markdown_document_prompt(
@@ -390,120 +255,17 @@ class _CommonMixin:
         return self._parse_response(response_text)
 
     def _parse_response(self, response_text: str) -> LLM_RESPONSE_TUPLE:
-        response_text = strip_thinking_markers(response_text)
-        response_text, analysis = self._extract_analysis_block(response_text)
-        response_text, goal_update = self._extract_goal_update_block(response_text)
-        response_text, thought = self._extract_thought_block(response_text)
-
-        events = []
-        event_pattern = r"\[이벤트:([^\]]+)\]"
-        event_matches = re.findall(event_pattern, response_text)
-        for match in event_matches:
-            parts = [p.strip() for p in match.split("|")]
-            if len(parts) >= 2:
-                events.append(
-                    {
-                        "date": parts[0],
-                        "title": parts[1],
-                        "description": parts[2] if len(parts) > 2 else "",
-                    }
-                )
-        response_text = re.sub(event_pattern, "", response_text)
-
-        promises = []
-        promise_pattern = r"\[약속:([^\]]+)\]"
-        promise_matches = re.findall(promise_pattern, response_text)
-        for match in promise_matches:
-            parts = [p.strip() for p in match.split("|")]
-            if len(parts) >= 2:
-                promises.append(
-                    {
-                        "trigger_at": parts[0],
-                        "title": parts[1],
-                        "source": parts[2] if len(parts) > 2 else "user",
-                        "source_excerpt": parts[3] if len(parts) > 3 else "",
-                    }
-                )
-        response_text = re.sub(promise_pattern, "", response_text)
-
-        response_text, explicit_tts_text = extract_tts_metadata(response_text)
-
-        emotion_pattern = r"\[(\w+)\]"
-        matches = re.findall(emotion_pattern, response_text)
-        clean_text = re.sub(emotion_pattern, "", response_text).strip()
-
-        emotion = "normal"
-        available_emotions = get_available_emotions()
-        for match in matches:
-            low = match.lower()
-            if low in available_emotions:
-                emotion = low
-                break
-
-        if explicit_tts_text:
-            japanese_text = explicit_tts_text
-        else:
-            clean_text, japanese_text = self._extract_tts_text(clean_text)
-        return clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update
+        return parse_llm_response(
+            response_text,
+            settings_source=getattr(self, "settings", None),
+            available_emotions=get_available_emotions(),
+        )
 
     def _parse_summary_response(self, response_text: str) -> tuple[str, list[str], list[str], dict]:
-        try:
-            from .llm_client import GeminiClient
-            return GeminiClient._parse_summary_response(self, response_text)
-        except Exception:
-            summary_lines = []
-            user_facts = []
-            ene_facts = []
-            memory_meta_lines = []
-            section = None
-            for raw in response_text.split("\n"):
-                line = raw.strip()
-                if not line:
-                    continue
-                up = line.upper()
-                if up in {"[SUMMARY]", "SUMMARY"}:
-                    section = "summary"
-                    continue
-                if up in {"[MASTER_INFO]", "MASTER_INFO"}:
-                    section = "facts"
-                    continue
-                if up in {"[ENE_INFO]", "ENE_INFO"}:
-                    section = "ene_facts"
-                    continue
-                if up in {"[MEMORY_META]", "MEMORY_META"}:
-                    section = "memory_meta"
-                    continue
-                if section == "summary":
-                    summary_lines.append(line.lstrip("- ").strip())
-                elif section == "facts" and line.startswith("-"):
-                    fact = line.lstrip("- ").strip()
-                    if fact.lower() not in {"none", "none."}:
-                        user_facts.append(fact)
-                elif section == "ene_facts" and line.startswith("-"):
-                    fact = line.lstrip("- ").strip()
-                    if fact.lower() not in {"none", "none."}:
-                        ene_facts.append(fact)
-                elif section == "memory_meta":
-                    memory_meta_lines.append(line)
-            summary = " ".join(summary_lines).strip()
-            if not summary:
-                summary = response_text.strip().split("\n")[0].strip()
-            return summary, user_facts, ene_facts, _parse_summary_memory_meta_lines(memory_meta_lines)
+        return parse_summary_response(response_text)
 
     def _is_japanese(self, text: str) -> bool:
-        try:
-            from .llm_client import GeminiClient
-            return GeminiClient._is_japanese(self, text)
-        except Exception:
-            ranges = [(0x3040, 0x309F), (0x30A0, 0x30FF), (0x4E00, 0x9FFF)]
-            count = 0
-            for char in text:
-                code = ord(char)
-                for start, end in ranges:
-                    if start <= code <= end:
-                        count += 1
-                        break
-            return count / len(text) > 0.2 if text else False
+        return is_japanese(text)
 
     async def _build_memory_context(
         self,
@@ -511,16 +273,12 @@ class _CommonMixin:
         recent_context: str = "",
         head_pat_count_before_message: int | None = None,
     ) -> str:
-        try:
-            from .llm_client import GeminiClient
-            return await GeminiClient._build_memory_context(
-                self,
-                query,
-                recent_context=recent_context,
-                head_pat_count_before_message=head_pat_count_before_message,
-            )
-        except Exception:
-            return ""
+        return await build_common_memory_context(
+            self,
+            query,
+            recent_context=recent_context,
+            head_pat_count_before_message=head_pat_count_before_message,
+        )
 
     def _messages_for_openai(self, user_content, include_sub_prompt: bool = True):
         messages = [{
