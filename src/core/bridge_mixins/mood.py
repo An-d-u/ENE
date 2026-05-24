@@ -30,6 +30,7 @@ class MoodBridgeMixin:
         except Exception as e:
             print(f"[Bridge] mood_changed emit 실패: {e}")
 
+    @pyqtSlot()
     def increment_head_pat_count_from_js(self):
         """JavaScript에서 호출: 머리 쓰다듬기 횟수 증가."""
         if hasattr(self, "calendar_manager") and self.calendar_manager:
