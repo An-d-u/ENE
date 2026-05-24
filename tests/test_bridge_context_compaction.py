@@ -13,9 +13,9 @@ sys.modules.setdefault("google.genai", genai_module)
 
 from src.ai.llm_client import (
     GeminiClient,
-    _format_ko_full_date,
-    _format_ko_month_day,
-    _format_ko_month_day_time,
+    _format_context_full_date,
+    _format_context_month_day,
+    _format_context_month_day_time,
 )
 from src.ai.memory_types import MemoryChunk
 from src.core.bridge import WebBridge
@@ -60,7 +60,7 @@ class _DummyMemoryManager:
         )
 
 
-def test_memory_context_korean_date_formatters_do_not_use_locale_sensitive_strftime():
+def test_memory_context_date_formatters_use_prompt_language_without_locale_sensitive_strftime():
     class LocaleSensitiveDate:
         year = 2026
         month = 5
@@ -76,9 +76,15 @@ def test_memory_context_korean_date_formatters_do_not_use_locale_sensitive_strft
 
     value = LocaleSensitiveDate()
 
-    assert _format_ko_full_date(value) == "2026년 05월 22일"
-    assert _format_ko_month_day(value) == "05월 22일"
-    assert _format_ko_month_day_time(value) == "05월 22일 20:30"
+    assert _format_context_full_date(value, "ko") == "2026년 05월 22일"
+    assert _format_context_month_day(value, "ko") == "05월 22일"
+    assert _format_context_month_day_time(value, "ko") == "05월 22일 20:30"
+    assert _format_context_full_date(value, "en") == "May 22, 2026"
+    assert _format_context_month_day(value, "en") == "May 22"
+    assert _format_context_month_day_time(value, "en") == "May 22, 20:30"
+    assert _format_context_full_date(value, "ja") == "2026年05月22日"
+    assert _format_context_month_day(value, "ja") == "05月22日"
+    assert _format_context_month_day_time(value, "ja") == "05月22日 20:30"
 
 
 class _DummyLLMClient:
@@ -560,6 +566,94 @@ def test_build_memory_context_includes_recent_incomplete_past_calendar_events():
     assert "- [미완료] 05월 18일: 병원 예약 (치과)" in context
     assert "이미 완료한 일정" not in context
     assert "너무 오래된 일정" not in context
+
+
+def test_build_memory_context_uses_english_date_labels_for_past_items():
+    promise_items = [
+        type(
+            "PromiseItem",
+            (),
+            {
+                "title": "Write journal",
+                "trigger_at": "2026-05-22T20:00:00+09:00",
+                "status": "missed",
+            },
+        )(),
+    ]
+    calendar_events = [
+        type(
+            "CalendarEvent",
+            (),
+            {
+                "title": "Portfolio cleanup",
+                "description": "",
+                "date": "2026-05-21",
+                "completed": False,
+            },
+        )(),
+    ]
+
+    dummy = type("ClientDummy", (), {})()
+    dummy.memory_manager = _EmptyMemoryManager()
+    dummy.promise_manager = _PromiseManagerForContext(promise_items)
+    dummy.user_profile = _DummyProfile([])
+    dummy.ene_profile = _DummyEneProfile()
+    dummy.mood_manager = None
+    dummy.settings = type("SettingsDummy", (), {"config": {"ui_language": "en"}})()
+    dummy.calendar_manager = _CalendarManagerForContext(calendar_events)
+    dummy._now_for_context = lambda: datetime.fromisoformat("2026-05-22T20:30:00+09:00")
+
+    context = asyncio.run(GeminiClient._build_memory_context(dummy, "What should I do today?"))
+
+    assert "[Overdue Conversation Promises]" in context
+    assert "- [Missed] May 22, 20:00: Write journal" in context
+    assert "[Past Due Schedule]" in context
+    assert "- [Incomplete] May 21: Portfolio cleanup" in context
+    assert "월" not in context
+
+
+def test_build_memory_context_uses_japanese_date_labels_for_past_items():
+    promise_items = [
+        type(
+            "PromiseItem",
+            (),
+            {
+                "title": "日記を書く",
+                "trigger_at": "2026-05-22T20:00:00+09:00",
+                "status": "missed",
+            },
+        )(),
+    ]
+    calendar_events = [
+        type(
+            "CalendarEvent",
+            (),
+            {
+                "title": "ポートフォリオ整理",
+                "description": "",
+                "date": "2026-05-21",
+                "completed": False,
+            },
+        )(),
+    ]
+
+    dummy = type("ClientDummy", (), {})()
+    dummy.memory_manager = _EmptyMemoryManager()
+    dummy.promise_manager = _PromiseManagerForContext(promise_items)
+    dummy.user_profile = _DummyProfile([])
+    dummy.ene_profile = _DummyEneProfile()
+    dummy.mood_manager = None
+    dummy.settings = type("SettingsDummy", (), {"config": {"ui_language": "ja"}})()
+    dummy.calendar_manager = _CalendarManagerForContext(calendar_events)
+    dummy._now_for_context = lambda: datetime.fromisoformat("2026-05-22T20:30:00+09:00")
+
+    context = asyncio.run(GeminiClient._build_memory_context(dummy, "今日は何をしよう？"))
+
+    assert "[過ぎた会話の約束]" in context
+    assert "- [見逃し] 05月22日 20:00: 日記を書く" in context
+    assert "[過ぎた予定]" in context
+    assert "- [未完了] 05月21日: ポートフォリオ整理" in context
+    assert "월" not in context
 
 
 def test_build_memory_search_text_uses_recent_visible_turns_with_latest_user_message():

@@ -39,18 +39,54 @@ SUMMARY_MEMORY_META_KEYS = {
 LLM_RESPONSE_TUPLE = Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict], str, Dict[str, str]]
 
 
-def _format_ko_full_date(value: datetime) -> str:
-    """로케일 인코딩에 의존하지 않고 한국어 날짜를 만든다."""
+ENGLISH_MONTH_NAMES = (
+    "",
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+)
+
+
+def _english_month_name(value: datetime) -> str:
+    month = int(getattr(value, "month", 0) or 0)
+    if 1 <= month <= 12:
+        return ENGLISH_MONTH_NAMES[month]
+    return f"{month:02d}"
+
+
+def _format_context_full_date(value: datetime, language: str = "ko") -> str:
+    """로케일 인코딩에 의존하지 않고 컨텍스트용 전체 날짜를 만든다."""
+    if language == "en":
+        return f"{_english_month_name(value)} {value.day:02d}, {value.year:04d}"
+    if language == "ja":
+        return f"{value.year:04d}年{value.month:02d}月{value.day:02d}日"
     return f"{value.year:04d}년 {value.month:02d}월 {value.day:02d}일"
 
 
-def _format_ko_month_day(value: datetime) -> str:
-    """로케일 인코딩에 의존하지 않고 월/일 라벨을 만든다."""
+def _format_context_month_day(value: datetime, language: str = "ko") -> str:
+    """로케일 인코딩에 의존하지 않고 컨텍스트용 월/일 라벨을 만든다."""
+    if language == "en":
+        return f"{_english_month_name(value)} {value.day:02d}"
+    if language == "ja":
+        return f"{value.month:02d}月{value.day:02d}日"
     return f"{value.month:02d}월 {value.day:02d}일"
 
 
-def _format_ko_month_day_time(value: datetime) -> str:
-    """로케일 인코딩에 의존하지 않고 월/일/시각 라벨을 만든다."""
+def _format_context_month_day_time(value: datetime, language: str = "ko") -> str:
+    """로케일 인코딩에 의존하지 않고 컨텍스트용 월/일/시각 라벨을 만든다."""
+    if language == "en":
+        return f"{_english_month_name(value)} {value.day:02d}, {value.hour:02d}:{value.minute:02d}"
+    if language == "ja":
+        return f"{value.month:02d}月{value.day:02d}日 {value.hour:02d}:{value.minute:02d}"
     return f"{value.month:02d}월 {value.day:02d}일 {value.hour:02d}:{value.minute:02d}"
 
 
@@ -351,7 +387,7 @@ class GeminiClient:
     def _now_for_context(self) -> datetime:
         return datetime.now().astimezone()
 
-    def _build_overdue_promise_context(self, labels: dict[str, str]) -> str:
+    def _build_overdue_promise_context(self, labels: dict[str, str], language: str = "ko") -> str:
         promise_manager = getattr(self, "promise_manager", None)
         if not promise_manager or not hasattr(promise_manager, "list_promises"):
             return ""
@@ -392,12 +428,12 @@ class GeminiClient:
         selected.sort(key=lambda item: item[0], reverse=True)
         lines = [f"[{labels['overdue_promises']}]"]
         for trigger_at, status, title in selected[:3]:
-            time_label = _format_ko_month_day_time(trigger_at)
+            time_label = _format_context_month_day_time(trigger_at, language)
             status_label = labels.get(status, status)
             lines.append(f"- [{status_label}] {time_label}: {title}")
         return "\n".join(lines)
 
-    def _build_recent_incomplete_past_event_context(self, labels: dict[str, str]) -> str:
+    def _build_recent_incomplete_past_event_context(self, labels: dict[str, str], language: str = "ko") -> str:
         calendar_manager = getattr(self, "calendar_manager", None)
         if not calendar_manager or not hasattr(calendar_manager, "get_all_events"):
             return ""
@@ -435,7 +471,7 @@ class GeminiClient:
         selected.sort(key=lambda item: item[0], reverse=True)
         lines = [f"[{labels['past_due_events']}]"]
         for event_date, title, description in selected[:3]:
-            date_label = _format_ko_month_day(event_date)
+            date_label = _format_context_month_day(event_date, language)
             line = f"- [{labels['incomplete']}] {date_label}: {title}"
             if description:
                 line += f" ({description})"
@@ -766,12 +802,12 @@ class GeminiClient:
             context_parts.append("\n" + goal_block)
             print("[LLM] Goal context included")
 
-        overdue_promise_block = GeminiClient._build_overdue_promise_context(self, labels)
+        overdue_promise_block = GeminiClient._build_overdue_promise_context(self, labels, prompt_language)
         if overdue_promise_block:
             context_parts.append("\n" + overdue_promise_block)
             print("[LLM] 지난 약속 컨텍스트 포함")
 
-        past_due_event_block = GeminiClient._build_recent_incomplete_past_event_context(self, labels)
+        past_due_event_block = GeminiClient._build_recent_incomplete_past_event_context(self, labels, prompt_language)
         if past_due_event_block:
             context_parts.append("\n" + past_due_event_block)
             print("[LLM] 지난 일정 컨텍스트 포함")
@@ -872,7 +908,7 @@ class GeminiClient:
                 try:
                     from datetime import datetime
                     dt = datetime.fromisoformat(memory.timestamp)
-                    date_str = _format_ko_full_date(dt)
+                    date_str = _format_context_full_date(dt, prompt_language)
                     context_parts.append(f"- [{date_str}] {memory.summary}")
                     print(f"  📝 [{date_str}] {memory.summary[:40]}...")
                 except:
@@ -889,7 +925,7 @@ class GeminiClient:
                     try:
                         from datetime import datetime
                         event_date = datetime.fromisoformat(event.date)
-                        date_str = _format_ko_month_day(event_date)
+                        date_str = _format_context_month_day(event_date, prompt_language)
                         
                         # 완료 여부 표시
                         status = f" ✓ {labels['done']}" if event.completed else ""
@@ -914,7 +950,7 @@ class GeminiClient:
                     try:
                         from datetime import datetime
                         date_obj = datetime.fromisoformat(date_str)
-                        date_display = _format_ko_month_day(date_obj)
+                        date_display = _format_context_month_day(date_obj, prompt_language)
                         context_parts.append(f"- {date_display}: {count}{labels['times']}")
                     except:
                         pass
