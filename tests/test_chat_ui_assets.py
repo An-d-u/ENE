@@ -15,11 +15,11 @@ EXPECTED_RUNTIME_SCRIPTS = [
     "runtime_chat_state.js",
     "runtime_ui_strings.js",
     "runtime_attachments.js",
-    "runtime_mood_obsidian.js",
     "runtime_chat_panel_controls.js",
     "runtime_promise_panel.js",
     "runtime_goal_panel.js",
     "runtime_message_helpers.js",
+    "runtime_mood_obsidian.js",
     "runtime_message_rendering.js",
     "runtime_chat_flow.js",
     "runtime_bridge.js",
@@ -59,6 +59,18 @@ def test_web_runtime_is_split_into_ordered_scripts():
     assert len(SCRIPT_PATH.read_text(encoding="utf-8-sig").splitlines()) <= 80
     for script_name in EXPECTED_RUNTIME_SCRIPTS[:-1]:
         assert (WEB_DIR / script_name).exists()
+
+
+def test_web_runtime_initializers_load_after_called_dependencies():
+    script_order = {script_name: index for index, script_name in enumerate(EXPECTED_RUNTIME_SCRIPTS)}
+
+    mood_initializer_index = script_order["runtime_mood_obsidian.js"]
+    for dependency in [
+        "runtime_message_helpers.js",
+        "runtime_promise_panel.js",
+        "runtime_goal_panel.js",
+    ]:
+        assert script_order[dependency] < mood_initializer_index
 
 
 def test_chat_container_uses_roomier_bounded_height():
