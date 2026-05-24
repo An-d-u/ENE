@@ -310,13 +310,13 @@ def build_behavior_tab(dialog):
     self.obsidian_checked_max_chars_per_file_spin.setRange(100, 200000)
     self._bind_suffix(
         self.obsidian_checked_max_chars_per_file_spin,
-        "settings.behavior.obsidian.checked_max_chars_per_file.suffix",
+        "settings.behavior.note.checked_max_chars_per_file.suffix",
         " 자",
     )
     self.obsidian_checked_max_chars_per_file_spin.valueChanged.connect(self._on_setting_changed)
     self._add_form_row(
         note_layout,
-        "settings.behavior.obsidian.checked_max_chars_per_file.label",
+        "settings.behavior.note.checked_max_chars_per_file.label",
         "체크 파일당 최대 글자 수:",
         self.obsidian_checked_max_chars_per_file_spin,
     )
@@ -325,13 +325,13 @@ def build_behavior_tab(dialog):
     self.obsidian_checked_total_max_chars_spin.setRange(100, 1000000)
     self._bind_suffix(
         self.obsidian_checked_total_max_chars_spin,
-        "settings.behavior.obsidian.checked_total_max_chars.suffix",
+        "settings.behavior.note.checked_total_max_chars.suffix",
         " 자",
     )
     self.obsidian_checked_total_max_chars_spin.valueChanged.connect(self._on_setting_changed)
     self._add_form_row(
         note_layout,
-        "settings.behavior.obsidian.checked_total_max_chars.label",
+        "settings.behavior.note.checked_total_max_chars.label",
         "체크 파일 전체 최대 글자 수:",
         self.obsidian_checked_total_max_chars_spin,
     )

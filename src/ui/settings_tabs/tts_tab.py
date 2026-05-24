@@ -87,6 +87,7 @@ def build_tts_tab(dialog):
     layout.addWidget(overview_group)
 
     playback_group = QGroupBox("재생")
+    self._bind_group_title(playback_group, "settings.tts.playback.title", "재생")
     playback_form = QFormLayout(playback_group)
     playback_form.setSpacing(8)
     playback_form.setContentsMargins(10, 15, 10, 10)
@@ -100,7 +101,7 @@ def build_tts_tab(dialog):
     self._bind_widget_text(self.tts_output_device_refresh_button, "settings.common.refresh", "새로고침")
     self.tts_output_device_refresh_button.clicked.connect(self._on_tts_output_device_refresh_clicked)
     output_device_row.addWidget(self.tts_output_device_refresh_button)
-    self._add_form_row(playback_form, "settings.tts.playback.output_device", "출력 장치:", output_device_row)
+    self._add_form_row(playback_form, "settings.tts.playback.output_device.label", "출력 장치:", output_device_row)
 
     self.tts_output_volume_spin = QSpinBox()
     self.tts_output_volume_spin.setRange(0, 100)
@@ -180,6 +181,7 @@ def build_tts_tab(dialog):
     gpt_layout.addWidget(gpt_reference_group)
 
     gpt_sampling_group = QGroupBox("합성 파라미터")
+    self._bind_group_title(gpt_sampling_group, "settings.tts.gpt.sampling.title", "합성 파라미터")
     gpt_sampling_form = QFormLayout(gpt_sampling_group)
     gpt_sampling_form.setSpacing(8)
     gpt_sampling_form.setContentsMargins(10, 15, 10, 10)
@@ -215,16 +217,17 @@ def build_tts_tab(dialog):
     self._add_form_row(gpt_sampling_form, "settings.tts.gpt.sampling.temperature", "Temperature:", self.tts_gpt_temperature_spin)
 
     self.tts_gpt_text_split_combo = QComboBox()
-    for method_name, label in (
-        ("cut0", "cut0 - 자르지 않음"),
-        ("cut1", "cut1 - 네 문장씩"),
-        ("cut2", "cut2 - 50자씩"),
-        ("cut3", "cut3 - 중국어 마침표"),
-        ("cut4", "cut4 - 영어 마침표"),
-        ("cut5", "cut5 - 문장부호 기준"),
+    for method_name, key, fallback in (
+        ("cut0", "settings.tts.gpt.sampling.text_split.cut0", "cut0 - 자르지 않음"),
+        ("cut1", "settings.tts.gpt.sampling.text_split.cut1", "cut1 - 네 문장씩"),
+        ("cut2", "settings.tts.gpt.sampling.text_split.cut2", "cut2 - 50자씩"),
+        ("cut3", "settings.tts.gpt.sampling.text_split.cut3", "cut3 - 중국어 마침표"),
+        ("cut4", "settings.tts.gpt.sampling.text_split.cut4", "cut4 - 영어 마침표"),
+        ("cut5", "settings.tts.gpt.sampling.text_split.cut5", "cut5 - 문장부호 기준"),
     ):
         if method_name in self._gpt_sovits_text_split_methods:
-            self.tts_gpt_text_split_combo.addItem(label, method_name)
+            self.tts_gpt_text_split_combo.addItem(self._translated_text(key, fallback), method_name)
+            self._bind_combo_item(self.tts_gpt_text_split_combo, self.tts_gpt_text_split_combo.count() - 1, key, fallback)
     self.tts_gpt_text_split_combo.currentIndexChanged.connect(self._on_setting_changed)
     self._add_form_row(gpt_sampling_form, "settings.tts.gpt.sampling.text_split_method", "자르기:", self.tts_gpt_text_split_combo)
     gpt_reference_form.addRow(
