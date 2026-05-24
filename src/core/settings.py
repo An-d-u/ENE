@@ -64,6 +64,8 @@ class Settings:
         "chat_user_bubble_color": "#0071E3",
         "theme_mode": "light",
         "ui_language": "auto",
+        "assistant_display_name": "",
+        "user_address_name": "",
         "follow_system_theme": False,
         "mouse_tracking_enabled": True,
         "enable_builtin_idle_motion": True,

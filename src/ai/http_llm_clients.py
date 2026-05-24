@@ -10,6 +10,7 @@ from typing import Dict, List, Tuple
 import requests
 
 from ..conversation_format import prepend_message_time
+from .persona_names import resolve_prompt_persona_names
 from .prompt import build_runtime_system_prompt, get_available_emotions
 from .prompt_language import resolve_prompt_language, resolve_tts_language
 from .response_cleanup import (
@@ -152,10 +153,14 @@ class _CommonMixin:
         return resolve_prompt_language(settings_source=getattr(self, "settings", None))
 
     def _build_summary_prompt_for_messages(self, messages: list) -> str:
+        language = self._prompt_language()
+        names = resolve_prompt_persona_names(settings_source=getattr(self, "settings", None), language=language)
         return build_summary_prompt(
             messages,
             user_profile=getattr(self, "user_profile", None),
-            language=self._prompt_language(),
+            language=language,
+            assistant_name=names.assistant,
+            user_name=names.user,
         ).prompt
 
     def _remember_turn(self, user_content, assistant_content) -> None:

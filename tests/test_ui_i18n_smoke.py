@@ -424,6 +424,39 @@ def test_settings_dialog_loads_and_saves_streaming_tts_toggle(monkeypatch):
         dialog.close()
 
 
+def test_settings_dialog_loads_and_saves_prompt_persona_names(monkeypatch):
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        monkeypatch.setattr(SettingsDialog, "_load_prompt_configuration", lambda self: None)
+
+        dialog = SettingsDialog(
+            {
+                "ui_language": "ko",
+                "llm_provider": "gemini",
+                "tts_provider": "gpt_sovits_http",
+                "assistant_display_name": "루나",
+                "user_address_name": "선장",
+            }
+        )
+
+        assert dialog.assistant_display_name_edit.text() == "루나"
+        assert dialog.user_address_name_edit.text() == "선장"
+
+        dialog.assistant_display_name_edit.setText("아리아")
+        dialog.user_address_name_edit.setText("대장")
+        values = dialog._get_current_values()
+
+        assert values["assistant_display_name"] == "아리아"
+        assert values["user_address_name"] == "대장"
+
+        dialog.close()
+
+
 def test_settings_dialog_loads_and_saves_viseme_lipsync_toggle(monkeypatch):
     _get_qapp()
     locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"

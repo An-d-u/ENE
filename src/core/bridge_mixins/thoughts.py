@@ -3,6 +3,7 @@ WebBridge? ?? ??? ??? ENE thought ???? ??.
 """
 import re
 
+from ...ai.persona_names import resolve_prompt_persona_names
 from ...ai.prompt_language import resolve_prompt_language
 from ...ai.response_cleanup import extract_goal_update_metadata, extract_thought_metadata, strip_thinking_markers
 
@@ -182,23 +183,27 @@ class ThoughtBridgeMixin:
     def _ene_thought_context_labels(self) -> dict[str, str]:
         """프롬프트 언어에 맞는 에네 생각 컨텍스트 라벨을 반환한다."""
         language = resolve_prompt_language(settings_source=getattr(self, "settings", None))
+        assistant_name = resolve_prompt_persona_names(
+            settings_source=getattr(self, "settings", None),
+            language=language,
+        ).assistant
         if language == "ko":
             return {
-                "open": "[에네의 이전 내심 메모]",
-                "close": "[/에네의 이전 내심 메모]",
+                "open": f"[{assistant_name}의 이전 내심 메모]",
+                "close": f"[/{assistant_name}의 이전 내심 메모]",
                 "latest": "직전 생각",
                 "previous": "이전 생각 {index}",
             }
         if language == "ja":
             return {
-                "open": "[エネの以前の内心メモ]",
-                "close": "[/エネの以前の内心メモ]",
+                "open": f"[{assistant_name}の以前の内心メモ]",
+                "close": f"[/{assistant_name}の以前の内心メモ]",
                 "latest": "直前の内心メモ",
                 "previous": "以前の内心メモ {index}",
             }
         return {
-            "open": "[ENE Previous Inner Notes]",
-            "close": "[/ENE Previous Inner Notes]",
+            "open": f"[{assistant_name} Previous Inner Notes]",
+            "close": f"[/{assistant_name} Previous Inner Notes]",
             "latest": "Previous thought",
             "previous": "Earlier thought {index}",
         }

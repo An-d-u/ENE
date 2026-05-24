@@ -703,6 +703,28 @@ def test_build_memory_search_inputs_split_latest_user_message_and_recent_context
     assert "[Message Time: 2026-03-24 10:06]" in payload["memory_search_text"]
 
 
+def test_build_memory_search_inputs_uses_custom_prompt_names():
+    dummy = type("BridgeDummy", (), {})()
+    dummy.conversation_buffer = [
+        ("user", "첫 질문", "2026-03-24 10:00"),
+        ("assistant", "첫 답변", "2026-03-24 10:01"),
+    ]
+    dummy.settings = {
+        "ui_language": "ko",
+        "memory_search_recent_turns": 2,
+        "assistant_display_name": "루나",
+        "user_address_name": "선장",
+    }
+    dummy._resolve_memory_search_turns = lambda: WebBridge._resolve_memory_search_turns(dummy)
+
+    payload = WebBridge._build_memory_search_inputs(dummy, "다음 질문", "2026-03-24 10:02")
+
+    assert "[선장] 첫 질문" in payload["recent_context_text"]
+    assert "[루나] 첫 답변" in payload["recent_context_text"]
+    assert "[마스터]" not in payload["recent_context_text"]
+    assert "[에네]" not in payload["recent_context_text"]
+
+
 def test_build_memory_search_text_prefixes_current_message_with_message_time():
     dummy = type("BridgeDummy", (), {})()
     dummy.conversation_buffer = []

@@ -618,6 +618,8 @@ class SettingsDialog(QDialog):
         self._embedded_memory_panel = None
         self._embedded_ene_profile_panel = None
         self.memory_search_recent_turns_spin: QSpinBox | None = None
+        self.assistant_display_name_edit: QLineEdit | None = None
+        self.user_address_name_edit: QLineEdit | None = None
         self.tts_language_combo: QComboBox | None = None
         self.enable_ene_goals_check: ToggleSwitch | None = None
         self.show_ene_goal_button_check: ToggleSwitch | None = None
@@ -2754,6 +2756,28 @@ class SettingsDialog(QDialog):
             self._build_hint_label(
                 "현재 설정창 문구를 미리보기로 바꾸고, 저장 후에는 다음 실행부터 같은 언어를 기본값으로 사용합니다.",
                 key="settings.window.general.ui_language.hint",
+            )
+        )
+        self.assistant_display_name_edit = QLineEdit()
+        self.assistant_display_name_edit.textChanged.connect(self._on_setting_changed)
+        self._add_form_row(
+            general_layout,
+            "settings.window.general.assistant_display_name.label",
+            "캐릭터 호칭:",
+            self.assistant_display_name_edit,
+        )
+        self.user_address_name_edit = QLineEdit()
+        self.user_address_name_edit.textChanged.connect(self._on_setting_changed)
+        self._add_form_row(
+            general_layout,
+            "settings.window.general.user_address_name.label",
+            "사용자 호칭:",
+            self.user_address_name_edit,
+        )
+        general_layout.addRow(
+            self._build_hint_label(
+                "프롬프트 안에서만 쓰는 이름입니다. 채팅 UI와 내부 role 값은 그대로 유지됩니다.",
+                key="settings.window.general.prompt_names.hint",
             )
         )
         layout.addWidget(general_group)
@@ -6191,6 +6215,14 @@ class SettingsDialog(QDialog):
             if hasattr(self, "ui_language_combo"):
                 language_index = self.ui_language_combo.findData(ui_language)
                 self.ui_language_combo.setCurrentIndex(language_index if language_index >= 0 else 0)
+            if self.assistant_display_name_edit is not None:
+                self.assistant_display_name_edit.setText(
+                    str(self._original_settings.get("assistant_display_name", "") or "").strip()
+                )
+            if self.user_address_name_edit is not None:
+                self.user_address_name_edit.setText(
+                    str(self._original_settings.get("user_address_name", "") or "").strip()
+                )
             self.window_x_spin.setValue(self._original_settings.get("window_x", 100))
             self.window_y_spin.setValue(self._original_settings.get("window_y", 100))
             self.window_width_spin.setValue(self._original_settings.get("window_width", 400))
@@ -6511,6 +6543,8 @@ class SettingsDialog(QDialog):
         return {
             **preserved_hidden_settings,
             "ui_language": str(self.ui_language_combo.currentData() or "auto"),
+            "assistant_display_name": self.assistant_display_name_edit.text().strip(),
+            "user_address_name": self.user_address_name_edit.text().strip(),
             "window_x": self.window_x_spin.value(),
             "window_y": self.window_y_spin.value(),
             "window_width": self.window_width_spin.value(),

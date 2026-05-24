@@ -66,8 +66,38 @@ def test_context_block_includes_expression_guidance(tmp_path):
 
     block = manager.build_context_block()
 
-    assert "[ENE 표현 성향]" in block
+    assert "[에네 표현 성향]" in block
     assert "[행동 지침]" in block
+
+
+def test_context_block_uses_custom_prompt_names(tmp_path):
+    manager = MoodManager(
+        state_file=str(tmp_path / "mood.json"),
+        settings={
+            "ui_language": "en",
+            "assistant_display_name": "Luna",
+            "user_address_name": "Captain",
+        },
+    )
+    manager.on_user_analysis(
+        {
+            "user_emotion": "calm",
+            "user_intent": "chat",
+            "bond_delta_hint": "high_positive",
+            "energy_delta_hint": "none",
+            "valence_delta_hint": "low_positive",
+            "stress_delta_hint": "none",
+            "confidence": "0.90",
+            "flags": "",
+        }
+    )
+
+    block = manager.build_context_block()
+
+    assert "[Luna Expression Traits]" in block
+    assert "Captain's reaction" in block
+    assert "ENE Expression Traits" not in block
+    assert "Master" not in block
 
 
 def test_repair_flow_recovers_from_guarded_state(tmp_path):

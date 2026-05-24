@@ -57,3 +57,27 @@ def test_build_promise_nudge_prompt_localizes_korean_message():
     assert "마스터와의 대화 약속 시간이 되었어" in prompt
     assert "약속 제목은 '기업 조사'" in prompt
     assert "원래 맥락은 '8시에 기업 조사 시작'" in prompt
+
+
+def test_build_promise_nudge_prompt_uses_custom_user_name():
+    prompt = build_promise_nudge_prompt(
+        language="en",
+        title="research",
+        source_excerpt="start research at eight",
+        user_name="Captain",
+    )
+
+    assert "conversation promise with Captain" in prompt
+    assert "Master" not in prompt
+
+
+def test_build_promise_nudge_prompt_uses_korean_particle_for_custom_user_name():
+    prompt = build_promise_nudge_prompt(
+        language="ko",
+        title="기업 조사",
+        source_excerpt="8시에 기업 조사 시작",
+        user_name="선장",
+    )
+
+    assert "선장과의 대화 약속 시간이 되었어" in prompt
+    assert "선장와의" not in prompt

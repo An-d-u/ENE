@@ -7,6 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
+from .persona_names import default_prompt_persona_names
 from .prompt_language import resolve_prompt_language
 
 
@@ -153,6 +154,8 @@ def build_summary_prompt(
     user_profile=None,
     now: datetime | None = None,
     language: str | None = None,
+    assistant_name: str | None = None,
+    user_name: str | None = None,
 ) -> SummaryPrompt:
     resolved_language = resolve_prompt_language(language)
     _, time_str = _format_now_for_language(resolved_language, now)
@@ -167,6 +170,8 @@ def build_summary_prompt(
         elapsed_hint=elapsed_hint,
         time_str=time_str,
         language=resolved_language,
+        assistant_name=assistant_name,
+        user_name=user_name,
     )
 
 
@@ -179,14 +184,19 @@ def build_summary_prompt_from_text(
     time_str: str = "",
     now: datetime | None = None,
     language: str | None = None,
+    assistant_name: str | None = None,
+    user_name: str | None = None,
 ) -> SummaryPrompt:
     resolved_language = resolve_prompt_language(language)
+    defaults = default_prompt_persona_names(resolved_language)
+    prompt_assistant_name = str(assistant_name or "").strip() or defaults.assistant
+    prompt_user_name = str(user_name or "").strip() or defaults.user
     if not time_str:
         _, time_str = _format_now_for_language(resolved_language, now)
     resolved_time_range = time_range or time_str
 
     if resolved_language == "en":
-        prompt = f"""Summarize the conversation below and extract master information and ENE information.
+        prompt = f"""Summarize the conversation below and extract {prompt_user_name} information and {prompt_assistant_name} information.
 [CURRENT_PROFILE]
 {current_profile}
 
@@ -206,7 +216,7 @@ def build_summary_prompt_from_text(
 - Do not mechanically force a sentence count; write a natural, readable length, usually 1-3 sentences.
 - [TIME_RANGE] and [ELAPSED_HINT] are references only. Do not copy them verbatim; express them in context.
 - Do not repeat the same event. Keep only the core actions.
-- Example: "Around 5 PM on February 9, 2026, the user talked with ENE about eating raw oysters and worrying about norovirus symptoms and diet. Around 6:30 PM, they shared a pixel image they had made, and from around 9:20 PM they played a game and talked about the characters."
+- Example: "Around 5 PM on February 9, 2026, the user talked with {prompt_assistant_name} about eating raw oysters and worrying about norovirus symptoms and diet. Around 6:30 PM, they shared a pixel image they had made, and from around 9:20 PM they played a game and talked about the characters."
 
 [MASTER_INFO]
 - If none: none
@@ -237,22 +247,22 @@ def build_summary_prompt_from_text(
 [ALLOW]
 - basic: stable information such as identity, job, education, environment, or relationships
 - preference: preferred methods, tastes, or styles
-- goal: goals the user or ENE wants to achieve
+- goal: goals the user or {prompt_assistant_name} wants to achieve
 - habit: repeated behaviors, routines, or tendencies
-- speaking_style: ENE's maintained tone, explanation style, and response style
+- speaking_style: {prompt_assistant_name}'s maintained tone, explanation style, and response style
 - relationship_tone: durable distance, attitude, or care style with the user
 
 [DISALLOW]
 - temporary states such as emotion, mood, fatigue, or excitement
 - simple greetings or filler
 - job or major statements that duplicate existing basic information
-- copying user information into ENE information
+- copying user information into {prompt_assistant_name} information
 - unsupported speculation
 
 [DEDUP]
 - Do not write new facts if they mean the same thing as existing information.
 - Keep only the more specific sentence when meanings overlap.
-- If user information and ENE information overlap, do not write it under ENE information.
+- If user information and {prompt_assistant_name} information overlap, do not write it under {prompt_assistant_name} information.
 
 [STYLE]
 - Keep it concise.
@@ -260,7 +270,7 @@ def build_summary_prompt_from_text(
 - Do not use emphasis marks such as "**".
 """
     elif resolved_language == "ja":
-        prompt = f"""以下の会話を要約し、マスター情報とエネ情報を抽出してください。
+        prompt = f"""以下の会話を要約し、{prompt_user_name}情報と{prompt_assistant_name}情報を抽出してください。
 [CURRENT_PROFILE]
 {current_profile}
 
@@ -280,7 +290,7 @@ def build_summary_prompt_from_text(
 - 文数を機械的に固定せず、自然で読みやすい長さ（通常1〜3文）で書いてください。
 - [TIME_RANGE]と[ELAPSED_HINT]は参考情報です。そのまま貼り付けず、文脈に合わせて表現してください。
 - 同じ出来事を繰り返さず、核心となる行動だけを要約してください。
-- 例: 「2026年2月9日17時ごろ、ユーザーは生牡蠣を食べたあとノロウイルスの症状や食事についてエネと話しました。18時30分ごろには自作のドット絵を共有し、21時20分ごろからはゲームをしながら登場人物の感想を話しました。」
+- 例: 「2026年2月9日17時ごろ、ユーザーは生牡蠣を食べたあとノロウイルスの症状や食事について{prompt_assistant_name}と話しました。18時30分ごろには自作のドット絵を共有し、21時20分ごろからはゲームをしながら登場人物の感想を話しました。」
 
 [MASTER_INFO]
 - なければ: none
@@ -313,20 +323,20 @@ def build_summary_prompt_from_text(
 - preference: 好む方法、好み、スタイル
 - goal: 達成しようとしている目標
 - habit: 繰り返される行動、ルーティン、傾向
-- speaking_style: エネが維持する話し方、説明方法、反応スタイル
+- speaking_style: {prompt_assistant_name}が維持する話し方、説明方法、反応スタイル
 - relationship_tone: ユーザーとの継続的な距離感、態度、気遣い方
 
 [DISALLOW]
 - 感情、気分、疲労、興奮などの一時的な状態
 - 単なる挨拶や相づち
 - 既存のbasic情報と重複する就職・専攻の記述
-- ユーザー情報をエネ情報として書き写すこと
+- ユーザー情報を{prompt_assistant_name}情報として書き写すこと
 - 根拠のない推測
 
 [DEDUP]
 - 既存情報と同じ意味なら新しく書かないでください。
 - 意味が重なる文は、より具体的な1つだけを残してください。
-- ユーザー情報とエネ情報が重なる場合、エネ情報には書かないでください。
+- ユーザー情報と{prompt_assistant_name}情報が重なる場合、{prompt_assistant_name}情報には書かないでください。
 
 [STYLE]
 - 簡潔に書いてください。
@@ -334,7 +344,7 @@ def build_summary_prompt_from_text(
 - "**"のような強調表記は禁止です。
 """
     else:
-        prompt = f"""아래 대화를 요약하고, 마스터 정보와 에네 정보를 추출하세요.
+        prompt = f"""아래 대화를 요약하고, {prompt_user_name} 정보와 {prompt_assistant_name} 정보를 추출하세요.
 [CURRENT_PROFILE]
 {current_profile}
 
@@ -354,7 +364,7 @@ def build_summary_prompt_from_text(
 - 문장 수를 기계적으로 고정하지 말고, 자연스럽고 읽기 좋은 길이(보통 1~3문장)로 작성하세요.
 - [TIME_RANGE]와 [ELAPSED_HINT]는 참고용이며, 그대로 복붙하지 말고 맥락에 맞게 표현하세요.
 - 같은 사건을 반복하지 말고, 핵심 행동만 요약하세요.
-- 예 : "2026년 2월 9일 오후 5시경, 사용자가 작업 일정을 정리하며 에네와 우선순위와 작업 범위에 대해 대화를 나눴습니다. 오후 6시 30분 무렵에는 참고 이미지를 공유하며 아이디어를 구체화했고, 오후 9시 20분경부터는 다음 작업 범위와 마감 기준을 정했습니다."
+- 예 : "2026년 2월 9일 오후 5시경, 사용자가 작업 일정을 정리하며 {prompt_assistant_name}와 우선순위와 작업 범위에 대해 대화를 나눴습니다. 오후 6시 30분 무렵에는 참고 이미지를 공유하며 아이디어를 구체화했고, 오후 9시 20분경부터는 다음 작업 범위와 마감 기준을 정했습니다."
 
 [MASTER_INFO]
 - 없으면: none
@@ -387,20 +397,20 @@ def build_summary_prompt_from_text(
 - preference: 선호하는 방식이나 취향/스타일
 - goal: 달성하려는 목표
 - habit: 반복되는 행동/루틴 성향
-- speaking_style: 에네가 유지하는 말투, 설명 방식, 반응 스타일
+- speaking_style: {prompt_assistant_name}가 유지하는 말투, 설명 방식, 반응 스타일
 - relationship_tone: 사용자와의 지속적인 거리감, 태도, 챙김 방식
 
 [DISALLOW]
 - 감정/기분/피곤함/흥분 등 일시적 상태
 - 단순 인사/추임새
 - 이미 basic 정보와 중복되는 취업/전공 진술
-- 사용자에 대한 정보를 에네 정보처럼 옮겨 적는 것
+- 사용자에 대한 정보를 {prompt_assistant_name} 정보처럼 옮겨 적는 것
 - 근거 없는 추측성 정보
 
 [DEDUP]
 - 기존 정보와 의미가 같으면 새로 쓰지 마세요.
 - 같은 의미의 문장은 더 구체적인 1개만 남기세요.
-- 사용자 정보와 에네 정보가 겹치면 에네 정보에는 쓰지 마세요.
+- 사용자 정보와 {prompt_assistant_name} 정보가 겹치면 {prompt_assistant_name} 정보에는 쓰지 마세요.
 
 [STYLE]
 - 너무 길지 않게 간결하게 작성하세요.

@@ -397,6 +397,15 @@
           "ko": "韓国語",
           "en": "英語",
           "ja": "日本語"
+        },
+        "assistant_display_name": {
+          "label": "キャラクター呼称:"
+        },
+        "user_address_name": {
+          "label": "ユーザー呼称:"
+        },
+        "prompt_names": {
+          "hint": "プロンプト内だけで使う名前です。チャットUIと内部role値はそのまま維持されます。"
         }
       },
       "quick": {

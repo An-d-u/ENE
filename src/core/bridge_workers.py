@@ -7,6 +7,7 @@ from PyQt6.QtCore import QThread, pyqtSignal
 
 from ..ai.diary_service import DiaryService
 from ..ai.note_service import NoteCommand, NoteCommandResult, NotePlan, NoteService
+from ..ai.persona_names import resolve_prompt_persona_names
 from ..ai.prompt_language import resolve_prompt_language
 
 
@@ -226,6 +227,10 @@ class AIWorker(QThread):
             result = self.diary_service.save_markdown(self.diary_request, markdown_text)
 
         language = self._prompt_language()
+        user_name = resolve_prompt_persona_names(
+            settings_source=getattr(self.llm_client, "settings", None),
+            language=language,
+        ).user
         required = {
             "ko": "성공적으로 파일 작성에 완료되었습니다.",
             "en": "The file has been written successfully.",
@@ -233,7 +238,7 @@ class AIWorker(QThread):
         }.get(language, "성공적으로 파일 작성에 완료되었습니다.")
         if language == "en":
             completion_context = (
-                "Use the information below to tell Master that the file has been written.\n"
+                f"Use the information below to tell {user_name} that the file has been written.\n"
                 f"- The sentence must include this exact phrase: {required}\n"
                 f"- Written Markdown file: {result.relative_path}\n"
                 "[Written Markdown Body]\n"
@@ -248,7 +253,7 @@ class AIWorker(QThread):
             note_label = "Note"
         elif language == "ja":
             completion_context = (
-                "次の情報をもとに、マスターへファイル作成完了を伝えてください。\n"
+                f"次の情報をもとに、{user_name}へファイル作成完了を伝えてください。\n"
                 f"- 文中に必ず次の文言を含めてください: {required}\n"
                 f"- 作成されたmdファイル: {result.relative_path}\n"
                 "[作成されたmdファイル本文]\n"
@@ -263,7 +268,7 @@ class AIWorker(QThread):
             note_label = "備考"
         else:
             completion_context = (
-                "아래 정보를 바탕으로 마스터에게 파일 작성 완료를 알려주세요.\n"
+                f"아래 정보를 바탕으로 {user_name}에게 파일 작성 완료를 알려주세요.\n"
                 f"- 문장 안에 반드시 다음 문구를 포함하세요: {required}\n"
                 f"- 작성된 md 파일: {result.relative_path}\n"
                 "[작성된 md 파일 본문]\n"
