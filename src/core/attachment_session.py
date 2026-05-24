@@ -4,6 +4,7 @@
 import json
 from collections.abc import Callable
 
+from ..ai.prompt_language import resolve_prompt_language
 from .chat_attachments import build_attachment_note
 
 
@@ -164,9 +165,20 @@ def build_active_image_payload(attachments: list[dict]) -> list[dict]:
     return payload
 
 
-def compose_attachment_history_message(message: str, attachments: list[dict]) -> str:
+def _attachment_history_fallback(language: str | None = None) -> str:
+    return {
+        "ko": "(첨부)",
+        "en": "(attachment)",
+        "ja": "(添付)",
+    }[resolve_prompt_language(language)]
+
+
+def compose_attachment_history_message(message: str, attachments: list[dict], language: str | None = None) -> str:
     """현재 첨부 상태를 반영한 사용자 대화 버퍼용 텍스트를 만든다."""
-    return ((message or "").strip() or "(첨부)") + build_attachment_note(attachments)
+    return ((message or "").strip() or _attachment_history_fallback(language)) + build_attachment_note(
+        attachments,
+        language=language,
+    )
 
 
 def find_attachment_conversation_index(conversation_buffer: list, record: dict) -> int:

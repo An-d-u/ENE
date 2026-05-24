@@ -83,7 +83,8 @@ class AttachmentBridgeMixin:
 
     def _compose_attachment_history_message(self, message: str, attachments: list[dict]) -> str:
         """현재 첨부 상태를 반영한 사용자 대화 버퍼용 텍스트를 만든다."""
-        return compose_attachment_history_message(message, attachments)
+        language = resolve_prompt_language(settings_source=getattr(self, "settings", None))
+        return compose_attachment_history_message(message, attachments, language=language)
 
     def _find_attachment_conversation_index(self, record: dict) -> int:
         """첨부 상태 레코드와 연결된 사용자 대화 버퍼 인덱스를 찾는다."""
@@ -165,7 +166,7 @@ class AttachmentBridgeMixin:
             head_pat_count_before_message = int(self.calendar_manager.drain_pending_head_pat_count())
 
         self._mark_user_activity()
-        attachment_note = build_attachment_note(runtime_attachments)
+        attachment_note = build_attachment_note(runtime_attachments, language=self._prompt_language())
         history_message = self._compose_attachment_history_message(effective_message, runtime_attachments)
         self._append_conversation("user", history_message, timestamp)
         self._message_attachment_records[message_id] = {
@@ -238,10 +239,11 @@ class AttachmentBridgeMixin:
         if not changed:
             return
 
-        attachment_note = build_attachment_note(attachments)
+        language = resolve_prompt_language(settings_source=getattr(self, "settings", None))
+        attachment_note = build_attachment_note(attachments, language=language)
         attachment_context = build_attachment_context_block(
             attachments,
-            language=resolve_prompt_language(settings_source=getattr(self, "settings", None)),
+            language=language,
         )
         history_message = self._compose_attachment_history_message(record.get("message", ""), attachments)
         conversation_index = self._find_attachment_conversation_index(record)

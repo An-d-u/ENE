@@ -124,6 +124,24 @@ def test_attachment_context_block_uses_selected_language():
     assert "No readable text was found in the document." in context
 
 
+def test_attachment_context_block_localizes_deleted_image_notice():
+    context = build_attachment_context_block(
+        [
+            {
+                "name": "deleted.png",
+                "type": "image/png",
+                "category": "image",
+                "status": "ready",
+                "deleted": True,
+            },
+        ],
+        language="en",
+    )
+
+    assert "[Image deleted.]" in context
+    assert "[사진이 삭제되었습니다.]" not in context
+
+
 def test_build_attachment_note_lists_file_names_and_image_count():
     note = build_attachment_note(
         [
@@ -136,6 +154,37 @@ def test_build_attachment_note_lists_file_names_and_image_count():
     assert "파일:회의록.pdf" in note
     assert "이미지:장면.png" in note
     assert "[사진이 삭제되었습니다.]" in note
+
+
+def test_build_attachment_note_uses_selected_language():
+    note = build_attachment_note(
+        [
+            {"name": "memo.pdf", "category": "document", "status": "ready"},
+            {"name": "scene.png", "category": "image", "status": "ready", "deleted": False},
+            {"name": "deleted.png", "category": "image", "status": "ready", "deleted": True},
+        ],
+        language="en",
+    )
+
+    assert "File:memo.pdf" in note
+    assert "Image:scene.png" in note
+    assert "[Image deleted.]" in note
+    assert "파일:" not in note
+
+
+def test_build_attachment_note_uses_japanese_language():
+    note = build_attachment_note(
+        [
+            {"name": "memo.pdf", "category": "document", "status": "ready"},
+            {"name": "scene.png", "category": "image", "status": "ready", "deleted": False},
+            {"name": "deleted.png", "category": "image", "status": "ready", "deleted": True},
+        ],
+        language="ja",
+    )
+
+    assert "ファイル:memo.pdf" in note
+    assert "画像:scene.png" in note
+    assert "[画像は削除されました。]" in note
 
 
 def test_build_attachment_context_block_keeps_deleted_image_notice_for_follow_up_context():
