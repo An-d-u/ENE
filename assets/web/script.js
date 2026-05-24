@@ -2733,23 +2733,20 @@ function renderObsTree(payload) {
 }
 
 function requestObsTree() {
-    if (!window.pyBridge || !window.pyBridge.get_obs_tree_json) return;
-    try {
-        const result = window.pyBridge.get_obs_tree_json();
-        const apply = (value) => {
-            if (!value) return;
-            try {
-                const parsed = typeof value === 'string' ? JSON.parse(value) : value;
-                renderObsTree(parsed);
-            } catch (e) {
-                renderObsTree({ ok: false, error: `트리 파싱 실패: ${e}` });
-            }
-        };
-        if (result && typeof result.then === 'function') {
-            result.then(apply).catch((e) => renderObsTree({ ok: false, error: String(e) }));
-        } else {
-            apply(result);
+    if (!window.pyBridge || typeof window.pyBridge.get_obs_tree_json !== 'function') return;
+    const apply = (value) => {
+        if (!value) return;
+        try {
+            const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+            renderObsTree(parsed);
+        } catch (e) {
+            renderObsTree({ ok: false, error: `트리 파싱 실패: ${e}` });
         }
+    };
+    try {
+        window.pyBridge.get_obs_tree_json(function (value) {
+            apply(value);
+        });
     } catch (e) {
         renderObsTree({ ok: false, error: String(e) });
     }
@@ -4663,7 +4660,7 @@ if (typeof QWebChannel !== 'undefined') {
             });
         }
 
-        if (window.pyBridge.get_mood_snapshot_json) {
+        if (typeof window.pyBridge.get_mood_snapshot_json === 'function') {
             const applyMoodSnapshot = (value) => {
                 if (!value) return;
                 let snapshot = null;
@@ -4692,14 +4689,9 @@ if (typeof QWebChannel !== 'undefined') {
             };
 
             try {
-                const snapshotResult = window.pyBridge.get_mood_snapshot_json();
-                if (snapshotResult && typeof snapshotResult.then === 'function') {
-                    snapshotResult
-                        .then(applyMoodSnapshot)
-                        .catch((e) => console.warn("Failed to initialize mood widget:", e));
-                } else {
-                    applyMoodSnapshot(snapshotResult);
-                }
+                window.pyBridge.get_mood_snapshot_json(function (value) {
+                    applyMoodSnapshot(value);
+                });
             } catch (e) {
                 console.warn("Failed to initialize mood widget:", e);
             }

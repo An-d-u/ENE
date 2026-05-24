@@ -548,3 +548,12 @@ def test_chat_script_opens_image_lightbox_from_image_area_only():
     assert "function closeImageLightbox()" in script
     assert "mediaButton.addEventListener('click'" in script
     assert "imgWrapper.appendChild(removeBtn);" not in script
+
+
+def test_qwebchannel_result_slots_use_callbacks_instead_of_sync_return_values():
+    script = _script_text()
+
+    assert "window.pyBridge.get_obs_tree_json(function (value)" in script
+    assert "window.pyBridge.get_mood_snapshot_json(function (value)" in script
+    assert "const result = window.pyBridge.get_obs_tree_json();" not in script
+    assert "const snapshotResult = window.pyBridge.get_mood_snapshot_json();" not in script
