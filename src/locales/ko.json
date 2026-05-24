@@ -401,6 +401,15 @@
           "ko": "한국어",
           "en": "영어",
           "ja": "일본어"
+        },
+        "assistant_display_name": {
+          "label": "캐릭터 호칭:"
+        },
+        "user_address_name": {
+          "label": "사용자 호칭:"
+        },
+        "prompt_names": {
+          "hint": "프롬프트 안에서만 쓰는 이름입니다. 채팅 UI와 내부 role 값은 그대로 유지됩니다."
         }
       },
       "quick": {

@@ -295,6 +295,23 @@ def test_build_ene_thought_context_uses_recent_limit_and_requires_both_settings(
     assert WebBridge._build_ene_thought_context(dummy) == ""
 
 
+def test_build_ene_thought_context_uses_custom_assistant_name():
+    dummy = type("BridgeDummy", (), {})()
+    dummy.settings = {
+        "ui_language": "en",
+        "enable_ene_thoughts": True,
+        "include_ene_thoughts_in_context": True,
+        "ene_thought_context_limit": 1,
+        "assistant_display_name": "Luna",
+    }
+    dummy._ene_thought_context_buffer = [{"thought": "stay concise", "conversation_index": 1}]
+
+    context = WebBridge._build_ene_thought_context(dummy)
+
+    assert "[Luna Previous Inner Notes]" in context
+    assert "[ENE Previous Inner Notes]" not in context
+
+
 def test_on_response_ready_hides_thought_when_setting_is_disabled():
     dummy = type("BridgeDummy", (), {})()
     dummy.settings = {"enable_ene_thoughts": False}

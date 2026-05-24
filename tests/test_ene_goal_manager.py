@@ -364,12 +364,29 @@ def test_build_context_block_includes_active_goal_fields(tmp_path):
 
     block = manager.build_context_block()
 
-    assert "[ENE 현재 목표]" in block
+    assert "[에네 현재 목표]" in block
     assert f"id={goal_id}" in block
     assert "type=short_term" in block
     assert "title=컨텍스트에 넣기" in block
     assert "reason=LLM에게 알려야 함" in block
-    assert "[/ENE 현재 목표]" in block
+    assert "[/에네 현재 목표]" in block
+
+
+def test_build_context_block_uses_custom_assistant_name(tmp_path):
+    manager = EneGoalManager(
+        state_file=str(tmp_path / "ene_goals.json"),
+        settings={
+            "ui_language": "en",
+            "assistant_display_name": "Luna",
+            "enable_ene_goals": True,
+        },
+    )
+    manager.add_manual_goal("short_term", "Ship", "Prepare release")
+
+    block = manager.build_context_block(language="en")
+
+    assert "[Luna Current Goals]" in block
+    assert "[ENE Current Goals]" not in block
 
 
 def test_corrupted_state_file_falls_back_to_default_structure(tmp_path):

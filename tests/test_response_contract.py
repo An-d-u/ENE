@@ -62,6 +62,40 @@ def test_response_contract_keeps_analysis_when_goal_and_thought_sections_are_dis
     assert "[subconscious]" not in appendix
 
 
+def test_response_contract_includes_custom_prompt_names_without_changing_parser_tokens():
+    appendix = build_response_contract_appendix(
+        {
+            "ui_language": "en",
+            "enable_ene_goals": True,
+            "enable_ene_thoughts": True,
+            "assistant_display_name": "Luna",
+            "user_address_name": "Captain",
+        }
+    )
+
+    assert "assistant persona as `Luna`" in appendix
+    assert "address the user as `Captain`" in appendix
+    assert "[ene_goal_update]" in appendix
+    assert "[subconscious]" in appendix
+
+
+def test_response_contract_does_not_mention_tts_token_when_tts_is_omitted():
+    appendix = build_response_contract_appendix(
+        {
+            "ui_language": "ja",
+            "tts_language": "ja",
+            "enable_ene_goals": False,
+            "enable_ene_thoughts": False,
+            "assistant_display_name": "ルナ",
+            "user_address_name": "船長",
+        }
+    )
+
+    assert "ルナ" in appendix
+    assert "船長" in appendix
+    assert "[tts]" not in appendix
+
+
 def test_goal_prompt_enabled_reads_supported_settings_sources():
     assert is_goal_prompt_enabled() is True
     assert is_goal_prompt_enabled({"enable_ene_goals": False}) is False

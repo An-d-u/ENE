@@ -847,6 +847,37 @@ def test_aiworker_diary_flow_uses_one_shot_and_does_not_need_history(tmp_path: P
     assert len(saved_files) == 1
 
 
+def test_aiworker_diary_completion_prompt_uses_custom_user_name(tmp_path: Path):
+    _ensure_qt_app()
+
+    class DummyLLM:
+        settings = {
+            "ui_language": "en",
+            "user_address_name": "Captain",
+        }
+
+        async def generate_markdown_document(self, message: str) -> str:
+            return "# Note\n\nBody"
+
+        async def generate_diary_completion_reply(self, context_message: str):
+            assert "tell Captain that the file has been written" in context_message
+            assert "tell Master" not in context_message
+            return "The file has been written successfully.", "smile", "", []
+
+    from src.core.bridge import AIWorker
+
+    worker = AIWorker(
+        llm_client=DummyLLM(),
+        message="[Current Time: 2026-02-28 20:00]\nWrite a note",
+        diary_request="Write a note",
+        diary_service=DiaryService(tmp_path / "diary"),
+    )
+
+    result = asyncio.run(worker._run_diary_flow())
+
+    assert result[0].startswith("The file has been written successfully.")
+
+
 def test_aiworker_note_flow_fallbacks_when_plan_write_content_is_empty():
     _ensure_qt_app()
 

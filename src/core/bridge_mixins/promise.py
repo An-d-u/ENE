@@ -7,6 +7,7 @@ from datetime import datetime
 
 from PyQt6.QtCore import pyqtSlot
 
+from ...ai.persona_names import resolve_prompt_persona_names
 from ...ai.prompt_language import resolve_prompt_language
 from ...ai.promise_reminder_manager import GENERIC_PROMISE_TITLE, extract_promise_candidates
 from ..i18n import I18n, get_i18n
@@ -411,6 +412,10 @@ class PromiseBridgeMixin:
             language=language,
             title=title,
             source_excerpt=source_excerpt,
+            user_name=resolve_prompt_persona_names(
+                settings_source=getattr(self, "settings", None),
+                language=language,
+            ).user,
         )
         timestamp = self._now_timestamp()
         self._start_ai_worker(self._with_prompt_time(timestamp, prompt))

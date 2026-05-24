@@ -7,6 +7,7 @@ from typing import Tuple, List, Dict
 from google import genai
 
 from ..conversation_format import prepend_message_time
+from .persona_names import resolve_prompt_persona_names
 from .prompt import build_runtime_system_prompt, get_available_emotions
 from .prompt_language import resolve_prompt_language, resolve_tts_language
 from .response_cleanup import (
@@ -294,12 +295,13 @@ class GeminiClient:
 
     def _memory_context_labels(self) -> dict[str, str]:
         language = resolve_prompt_language(settings_source=getattr(self, "settings", None))
+        names = resolve_prompt_persona_names(settings_source=getattr(self, "settings", None), language=language)
         return {
             "ko": {
-                "master_basic": "마스터 기본 정보",
-                "master_facts": "마스터에 대한 정보",
-                "ene_basic": "에네 기본 설정",
-                "ene_facts": "에네에 대한 누적 정보",
+                "master_basic": f"{names.user} 기본 정보",
+                "master_facts": f"{names.user}에 대한 정보",
+                "ene_basic": f"{names.assistant} 기본 설정",
+                "ene_facts": f"{names.assistant}에 대한 누적 정보",
                 "important": "중요한 기억",
                 "related": "관련된 과거 기억",
                 "raw_chunks": "회상된 원문 조각",
@@ -325,10 +327,10 @@ class GeminiClient:
                 "incomplete": "미완료",
             },
             "en": {
-                "master_basic": "Master Basic Information",
-                "master_facts": "Information About Master",
-                "ene_basic": "ENE Basic Settings",
-                "ene_facts": "Accumulated Information About ENE",
+                "master_basic": f"{names.user} Basic Information",
+                "master_facts": f"Information About {names.user}",
+                "ene_basic": f"{names.assistant} Basic Settings",
+                "ene_facts": f"Accumulated Information About {names.assistant}",
                 "important": "Important Memories",
                 "related": "Related Past Memories",
                 "raw_chunks": "Recalled Raw Text Chunks",
@@ -354,10 +356,10 @@ class GeminiClient:
                 "incomplete": "Incomplete",
             },
             "ja": {
-                "master_basic": "マスター基本情報",
-                "master_facts": "マスターに関する情報",
-                "ene_basic": "エネ基本設定",
-                "ene_facts": "エネに関する蓄積情報",
+                "master_basic": f"{names.user}基本情報",
+                "master_facts": f"{names.user}に関する情報",
+                "ene_basic": f"{names.assistant}基本設定",
+                "ene_facts": f"{names.assistant}に関する蓄積情報",
                 "important": "重要な記憶",
                 "related": "関連する過去の記憶",
                 "raw_chunks": "思い出した原文断片",
@@ -1118,10 +1120,17 @@ class GeminiClient:
             (요약 텍스트, 사용자 정보 목록, 에네 정보 목록, 메모리 메타데이터) 튜플
         """
         try:
+            prompt_language = self._prompt_language()
+            prompt_names = resolve_prompt_persona_names(
+                settings_source=getattr(self, "settings", None),
+                language=prompt_language,
+            )
             summary_prompt = build_summary_prompt(
                 messages,
                 user_profile=self.user_profile,
-                language=self._prompt_language(),
+                language=prompt_language,
+                assistant_name=prompt_names.assistant,
+                user_name=prompt_names.user,
             )
             summarize_prompt = summary_prompt.prompt
             time_range = summary_prompt.time_range

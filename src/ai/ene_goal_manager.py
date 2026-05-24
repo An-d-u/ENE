@@ -12,6 +12,8 @@ from typing import Any
 from uuid import uuid4
 
 from ..core.app_paths import load_json_data, resolve_user_storage_path, save_json_data
+from .persona_names import resolve_prompt_persona_names
+from .prompt_language import resolve_prompt_language
 
 
 class EneGoalManager:
@@ -280,7 +282,18 @@ class EneGoalManager:
         if not goals:
             return ""
 
-        lines = ["[ENE 현재 목표]"]
+        resolved_language = resolve_prompt_language(language, settings_source=self.settings)
+        assistant_name = resolve_prompt_persona_names(
+            settings_source=self.settings,
+            language=resolved_language,
+        ).assistant
+        labels = {
+            "ko": f"{assistant_name} 현재 목표",
+            "en": f"{assistant_name} Current Goals",
+            "ja": f"{assistant_name}現在の目標",
+        }[resolved_language]
+
+        lines = [f"[{labels}]"]
         for goal in goals:
             lines.extend(
                 [
@@ -290,5 +303,5 @@ class EneGoalManager:
                     f"  reason={goal.get('reason', '')}",
                 ]
             )
-        lines.append("[/ENE 현재 목표]")
+        lines.append(f"[/{labels}]")
         return "\n".join(lines)

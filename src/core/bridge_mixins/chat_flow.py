@@ -5,6 +5,7 @@ import json
 
 from PyQt6.QtCore import pyqtSlot
 
+from ...ai.persona_names import role_label_for_prompt
 from ...ai.prompt_language import resolve_prompt_language
 from ..bridge_workers import AIWorker
 from ..chat_attachments import (
@@ -12,7 +13,7 @@ from ..chat_attachments import (
     build_attachment_note,
     build_general_chat_prompt as compose_general_chat_prompt,
 )
-from ...conversation_format import prepend_message_time, role_label_for_context
+from ...conversation_format import prepend_message_time
 from .goals import GoalBridgeMixin
 from .thoughts import ThoughtBridgeMixin
 
@@ -26,13 +27,8 @@ def _prompt_time_header(timestamp: str, language: str) -> str:
     return f"[{labels.get(language, labels['ko'])}: {timestamp}]"
 
 
-def _prompt_role_label(role: str, language: str) -> str:
-    normalized = str(role or "").strip().lower()
-    if language == "en":
-        return "Master" if normalized == "user" else "ENE" if normalized == "assistant" else normalized
-    if language == "ja":
-        return "マスター" if normalized == "user" else "エネ" if normalized == "assistant" else normalized
-    return role_label_for_context(normalized)
+def _prompt_role_label(role: str, language: str, settings_source=None) -> str:
+    return role_label_for_prompt(role, settings_source=settings_source, language=language)
 
 
 class ChatFlowBridgeMixin:
@@ -134,7 +130,8 @@ class ChatFlowBridgeMixin:
             if not text:
                 continue
             ts = str(item[2]).strip() if len(item) >= 3 and item[2] else ""
-            role_label = "마스터" if role == "user" else "에네" if role == "assistant" else role
+            language = resolve_prompt_language(settings_source=getattr(self, "settings", None))
+            role_label = _prompt_role_label(role, language, settings_source=getattr(self, "settings", None))
             prefix = f"[{ts}][{role_label}]" if ts else f"[{role_label}]"
             lines.append(f"{prefix} {text}")
         return "\n".join(lines).strip()
@@ -238,7 +235,7 @@ class ChatFlowBridgeMixin:
             if not text:
                 continue
             timestamp = str(item[2]).strip() if len(item) >= 3 and item[2] else ""
-            role_label = _prompt_role_label(role, language)
+            role_label = _prompt_role_label(role, language, settings_source=getattr(self, "settings", None))
             recent_lines.append(prepend_message_time(f"[{role_label}] {text}", timestamp))
 
         memory_search_lines = list(recent_lines)

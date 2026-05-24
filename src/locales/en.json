@@ -399,6 +399,15 @@
           "ko": "Korean",
           "en": "English",
           "ja": "Japanese"
+        },
+        "assistant_display_name": {
+          "label": "Character name:"
+        },
+        "user_address_name": {
+          "label": "User address name:"
+        },
+        "prompt_names": {
+          "hint": "These names are used only inside prompts. Chat UI labels and internal role values stay unchanged."
         }
       },
       "quick": {

@@ -8,6 +8,7 @@ from PyQt6.QtCore import QBuffer, QByteArray, QIODevice, Qt
 from PyQt6.QtGui import QGuiApplication, QImage, QPainter
 from PyQt6.QtWidgets import QApplication
 
+from ...ai.persona_names import resolve_prompt_persona_names
 from ..away_nudge import build_away_nudge_prompt
 
 
@@ -139,6 +140,10 @@ class AwayNudgeBridgeMixin:
             idle_minutes=self.away_idle_minutes,
             use_stable_screen=use_feature_1,
             diff_percent=diff_percent,
+            user_name=resolve_prompt_persona_names(
+                settings_source=getattr(self, "settings", None),
+                language=self._prompt_language(),
+            ).user,
         )
 
         timestamp = self._now_timestamp()

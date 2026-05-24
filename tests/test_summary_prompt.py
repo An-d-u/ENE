@@ -36,6 +36,22 @@ def test_summary_prompt_localizes_human_instructions_but_keeps_parser_tokens():
     assert "memory_type: fact | preference | promise | event | relationship | task | general" in prompt
 
 
+def test_summary_prompt_uses_custom_prompt_names_but_keeps_parser_tokens():
+    prompt = build_summary_prompt_from_text(
+        "user: Please remember this.",
+        language="en",
+        time_str="April 25, 2026 10:30",
+        assistant_name="Luna",
+        user_name="Captain",
+    ).prompt
+
+    assert "extract Captain information and Luna information" in prompt
+    assert "goals the user or Luna wants to achieve" in prompt
+    assert "[MASTER_INFO]" in prompt
+    assert "[ENE_INFO]" in prompt
+    assert "Master" not in prompt
+
+
 def test_summary_prompt_formats_non_english_time_without_locale_sensitive_strftime():
     class LocaleSensitiveNow:
         year = 2026

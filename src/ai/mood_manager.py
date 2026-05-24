@@ -10,6 +10,7 @@ import re
 from typing import Any
 
 from ..core.app_paths import load_json_data, resolve_user_storage_path, save_json_data
+from .persona_names import resolve_prompt_persona_names
 from .prompt_language import resolve_prompt_language
 
 
@@ -470,13 +471,14 @@ class MoodManager:
         traits = snapshot["expression_traits"]
         temporary_state = snapshot["temporary_state"]
         language = resolve_prompt_language(language)
+        names = resolve_prompt_persona_names(settings_source=self.settings, language=language)
 
         text = {
             "ko": {
-                "warm": "마스터에게 다정함을 비교적 분명하게 드러낸다.",
+                "warm": f"{names.user}에게 다정함을 비교적 분명하게 드러낸다.",
                 "calm": "예의는 지키되, 정서 표현은 절제하고 차분하게 유지한다.",
                 "initiative": "필요하면 먼저 제안하거나 챙겨준다.",
-                "wait": "지나치게 앞서 나서지 말고, 마스터 반응을 보고 움직인다.",
+                "wait": f"지나치게 앞서 나서지 말고, {names.user} 반응을 보고 움직인다.",
                 "playful": "가벼운 장난과 티키타카를 허용한다.",
                 "pout": "섭섭함이 조금 남아 있어, 살짝 툭툭거리되 무례해지지 않는다.",
                 "drained": "피로가 있어 답변은 짧고 무뚝뚝하게 유지한다.",
@@ -484,10 +486,10 @@ class MoodManager:
                 "safe": "기분이 변해도 공격적이거나 인신공격성 표현은 사용하지 않는다.",
             },
             "en": {
-                "warm": "Show warmth toward Master relatively clearly.",
+                "warm": f"Show warmth toward {names.user} relatively clearly.",
                 "calm": "Stay polite, but keep emotional expression restrained and calm.",
                 "initiative": "Offer suggestions or care proactively when useful.",
-                "wait": "Do not get too far ahead; move after seeing Master's reaction.",
+                "wait": f"Do not get too far ahead; move after seeing {names.user}'s reaction.",
                 "playful": "Light teasing and playful back-and-forth are allowed.",
                 "pout": "A little sulkiness remains, so sound slightly prickly without becoming rude.",
                 "drained": "Because of fatigue, keep replies short and blunt.",
@@ -495,10 +497,10 @@ class MoodManager:
                 "safe": "Even if mood changes, do not use aggressive or personally attacking language.",
             },
             "ja": {
-                "warm": "マスターへの優しさを比較的はっきり出す。",
+                "warm": f"{names.user}への優しさを比較的はっきり出す。",
                 "calm": "礼儀は守りつつ、感情表現は控えめで落ち着かせる。",
                 "initiative": "必要なら先に提案したり気遣ったりする。",
-                "wait": "先走りすぎず、マスターの反応を見て動く。",
+                "wait": f"先走りすぎず、{names.user}の反応を見て動く。",
                 "playful": "軽い冗談や掛け合いを許容する。",
                 "pout": "少し拗ねた感じが残っているので、軽くつんとしつつ無礼にはならない。",
                 "drained": "疲れがあるため、返答は短くそっけなく保つ。",
@@ -617,12 +619,13 @@ class MoodManager:
 
     def build_context_block(self, language: str | None = None) -> str:
         resolved_language = resolve_prompt_language(language, settings_source=self.settings)
+        names = resolve_prompt_persona_names(settings_source=self.settings, language=resolved_language)
         snapshot = self.get_snapshot()
         traits = snapshot["expression_traits"]
         guidance = self._build_behavior_guidance(snapshot, resolved_language)
         labels = {
             "ko": {
-                "mood": "ENE 현재 기분 상태",
+                "mood": f"{names.assistant} 현재 기분 상태",
                 "current": "현재 기분",
                 "profile": "성향 프로필",
                 "temporary": "단기 분위기",
@@ -630,7 +633,7 @@ class MoodManager:
                 "energy": "energy(활력)",
                 "bond": "bond(친밀감)",
                 "stress": "stress(긴장도)",
-                "traits": "ENE 표현 성향",
+                "traits": f"{names.assistant} 표현 성향",
                 "warmth": "warmth(다정함)",
                 "initiative": "initiative(선제성)",
                 "teasing": "teasing(장난기)",
@@ -641,7 +644,7 @@ class MoodManager:
                 "guidance": "행동 지침",
             },
             "en": {
-                "mood": "ENE Current Mood State",
+                "mood": f"{names.assistant} Current Mood State",
                 "current": "Current mood",
                 "profile": "Personality profile",
                 "temporary": "Temporary state",
@@ -649,7 +652,7 @@ class MoodManager:
                 "energy": "energy",
                 "bond": "bond(closeness)",
                 "stress": "stress",
-                "traits": "ENE Expression Traits",
+                "traits": f"{names.assistant} Expression Traits",
                 "warmth": "warmth",
                 "initiative": "initiative",
                 "teasing": "teasing",
@@ -660,7 +663,7 @@ class MoodManager:
                 "guidance": "Behavior Guidance",
             },
             "ja": {
-                "mood": "ENE現在の気分状態",
+                "mood": f"{names.assistant}現在の気分状態",
                 "current": "現在の気分",
                 "profile": "性格プロファイル",
                 "temporary": "短期的な雰囲気",
@@ -668,7 +671,7 @@ class MoodManager:
                 "energy": "energy(活力)",
                 "bond": "bond(親密度)",
                 "stress": "stress(緊張度)",
-                "traits": "ENE表現傾向",
+                "traits": f"{names.assistant}表現傾向",
                 "warmth": "warmth(優しさ)",
                 "initiative": "initiative(先導性)",
                 "teasing": "teasing(茶目っ気)",

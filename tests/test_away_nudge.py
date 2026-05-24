@@ -27,3 +27,30 @@ def test_build_away_nudge_prompt_for_changed_english_screen_without_diff():
     assert "conservatively because comparison failed" in prompt
     assert "the screen appears to have changed" in prompt
     assert "would like Master to talk to you a little" in prompt
+
+
+def test_build_away_nudge_prompt_uses_custom_user_name():
+    prompt = build_away_nudge_prompt(
+        language="en",
+        idle_minutes=12,
+        use_stable_screen=False,
+        diff_percent=None,
+        user_name="Captain",
+    )
+
+    assert "Captain has not talked to you for the last 12 minutes" in prompt
+    assert "would like Captain to talk to you a little" in prompt
+    assert "Master" not in prompt
+
+
+def test_build_away_nudge_prompt_uses_korean_particle_for_custom_user_name():
+    prompt = build_away_nudge_prompt(
+        language="ko",
+        idle_minutes=7,
+        use_stable_screen=False,
+        diff_percent=2.0,
+        user_name="선장",
+    )
+
+    assert "선장이 최근 7분 동안" in prompt
+    assert "선장가" not in prompt

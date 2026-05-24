@@ -3,6 +3,8 @@
 """
 from datetime import datetime
 
+from ..ai.persona_names import korean_with_and_particle
+
 
 def collect_promise_ids(items: list | None) -> list[str]:
     """저장 결과에서 유효한 약속 id만 추출한다."""
@@ -72,9 +74,21 @@ def should_suppress_duplicate_promise_fire(
     return False
 
 
-def build_promise_nudge_prompt(*, language: str, title: str, source_excerpt: str) -> str:
+def build_promise_nudge_prompt(
+    *,
+    language: str,
+    title: str,
+    source_excerpt: str,
+    user_name: str | None = None,
+) -> str:
     """도래한 대화 약속을 ENE 응답용 프롬프트로 변환한다."""
     normalized_language = str(language or "ko").strip().lower()
+    default_user_names = {
+        "ko": "마스터",
+        "en": "Master",
+        "ja": "マスター",
+    }
+    prompt_user_name = str(user_name or "").strip() or default_user_names.get(normalized_language, "마스터")
     normalized_title = str(title or "").strip() or {
         "ko": "약속",
         "en": "promise",
@@ -84,18 +98,18 @@ def build_promise_nudge_prompt(*, language: str, title: str, source_excerpt: str
 
     if normalized_language == "en":
         return (
-            f"Status notice: it is time for a conversation promise with Master. "
+            f"Status notice: it is time for a conversation promise with {prompt_user_name}. "
             f"The promise title is '{normalized_title}', and the original context is '{normalized_excerpt}'. "
             f"Give one short, natural line that continues the earlier conversation."
         )
     if normalized_language == "ja":
         return (
-            f"状態通知: マスターとの会話の約束の時間になりました。"
+            f"状態通知: {prompt_user_name}との会話の約束の時間になりました。"
             f"約束のタイトルは「{normalized_title}」、元の文脈は「{normalized_excerpt}」です。"
             f"前の会話につながる短く自然な一言を返してください。"
         )
     return (
-        f"상태 알림: 마스터와의 대화 약속 시간이 되었어. "
+        f"상태 알림: {prompt_user_name}{korean_with_and_particle(prompt_user_name)}의 대화 약속 시간이 되었어. "
         f"약속 제목은 '{normalized_title}'이고, 원래 맥락은 '{normalized_excerpt}' 이야. "
         f"이전 대화를 이어주는 짧고 자연스러운 한마디를 해줘."
     )
