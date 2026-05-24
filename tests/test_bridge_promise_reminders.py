@@ -176,6 +176,27 @@ def test_store_scheduled_promises_persists_items_and_emits_notice():
     assert dummy.promise_notice.emitted[-1] == ("대화 약속이 저장되었습니다.", "success")
 
 
+def test_store_scheduled_promises_emits_notice_in_selected_ui_language():
+    dummy = type("BridgeDummy", (), {})()
+    dummy.promise_manager = _DummyPromiseManager()
+    dummy.promise_notice = _DummySignal()
+    dummy.settings = type("SettingsDummy", (), {"config": {"ui_language": "en"}})()
+
+    WebBridge._store_scheduled_promises(
+        dummy,
+        [
+            {
+                "title": "Break time",
+                "trigger_at": "2026-04-06T21:10:00+09:00",
+                "source": "user",
+                "source_excerpt": "Take a break in 10 minutes",
+            }
+        ],
+    )
+
+    assert dummy.promise_notice.emitted[-1] == ("Conversation promise saved.", "success")
+
+
 def test_enqueue_due_promise_queues_when_worker_is_running():
     dummy = type("BridgeDummy", (), {})()
     _attach_bridge_promise_helpers(dummy)
@@ -247,6 +268,24 @@ def test_store_local_promise_candidates_parses_user_message_and_emits_notice():
     assert dummy.promise_manager.added[0]["title"] == "대화 약속"
     assert dummy.promise_manager.added[0]["trigger_at"] == "2026-04-06T21:03:00+09:00"
     assert dummy.promise_notice.emitted[-1] == ("대화 약속이 저장되었습니다.", "success")
+
+
+def test_store_local_promise_candidates_emits_notice_in_selected_ui_language():
+    dummy = type("BridgeDummy", (), {})()
+    dummy.promise_manager = _DummyPromiseManager()
+    dummy.promise_notice = _DummySignal()
+    dummy.promise_items_updated = _DummySignal()
+    dummy.settings = type("SettingsDummy", (), {"config": {"ui_language": "ja"}})()
+    dummy._emit_promise_items_updated = lambda: WebBridge._emit_promise_items_updated(dummy)
+
+    WebBridge._store_local_promise_candidates(
+        dummy,
+        "3분 뒤 일기 써야지",
+        "2026-04-06 21:00",
+        source="user",
+    )
+
+    assert dummy.promise_notice.emitted[-1] == ("会話の約束を保存しました。", "success")
 
 
 def test_store_local_promise_candidates_ignores_plain_time_reference():

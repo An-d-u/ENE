@@ -7,7 +7,9 @@ from datetime import datetime
 
 from PyQt6.QtCore import pyqtSlot
 
+from ...ai.prompt_language import resolve_prompt_language
 from ...ai.promise_reminder_manager import GENERIC_PROMISE_TITLE, extract_promise_candidates
+from ..i18n import I18n, get_i18n
 from ..promise_runtime import (
     build_promise_nudge_prompt,
     collect_promise_ids,
@@ -18,6 +20,18 @@ from ..promise_runtime import (
 
 
 class PromiseBridgeMixin:
+    def _promise_notice_text(self, key: str) -> str:
+        """현재 UI 언어에 맞는 promise 알림 문구를 읽는다."""
+        language = resolve_prompt_language(settings_source=getattr(self, "settings", None))
+        runtime_i18n = get_i18n()
+        if runtime_i18n.language == language:
+            return runtime_i18n.t(key)
+        return I18n(language=language, locales_dir=runtime_i18n.locales_dir).t(key)
+
+    def _emit_promise_saved_notice(self) -> None:
+        """대화 약속 저장 완료 알림을 현재 UI 언어로 보낸다."""
+        self.promise_notice.emit(PromiseBridgeMixin._promise_notice_text(self, "chat.promise.notice.saved"), "success")
+
     def _store_scheduled_promises(self, scheduled_promises: list | None) -> list:
         """응답 메타에 포함된 대화 약속을 저장하고 알림을 보낸다."""
         if not scheduled_promises or not self.promise_manager:
@@ -70,7 +84,7 @@ class PromiseBridgeMixin:
             )
 
         if stored:
-            self.promise_notice.emit("대화 약속이 저장되었습니다.", "success")
+            PromiseBridgeMixin._emit_promise_saved_notice(self)
             emit_items = getattr(self, "_emit_promise_items_updated", None)
             if callable(emit_items):
                 emit_items()
@@ -110,7 +124,7 @@ class PromiseBridgeMixin:
             )
 
         if stored:
-            self.promise_notice.emit("대화 약속이 저장되었습니다.", "success")
+            PromiseBridgeMixin._emit_promise_saved_notice(self)
             self._emit_promise_items_updated()
         return stored
 
