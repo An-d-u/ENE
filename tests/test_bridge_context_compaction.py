@@ -339,6 +339,21 @@ def test_http_common_memory_context_includes_goal_context_without_memory_manager
     assert "goal_20260522_001" in context
 
 
+def test_http_common_memory_context_does_not_depend_on_gemini_client_import(monkeypatch):
+    from src.ai.http_llm_clients import OpenAICompatibleClient
+
+    client = object.__new__(OpenAICompatibleClient)
+    client.memory_manager = None
+    client.goal_manager = _DummyGoalManager()
+    client.settings = type("SettingsDummy", (), {"config": {}})()
+    monkeypatch.setitem(sys.modules, "src.ai.llm_client", None)
+
+    context = asyncio.run(client._build_memory_context("오늘 무엇을 할까?"))
+
+    assert "[ENE 현재 목표]" in context
+    assert "goal_20260522_001" in context
+
+
 def test_build_memory_context_goal_context_excludes_history_without_memory_manager(tmp_path):
     from src.ai.ene_goal_manager import EneGoalManager
 
