@@ -73,3 +73,25 @@ def test_delete_message_attachment_updates_history_and_recent_payload():
     assert "[사진이 삭제되었습니다.]" in dummy._last_request_payload["attachment_context"]
     assert dummy._message_attachment_records["msg-1"]["attachments"][1]["deleted"] is True
     assert dummy._refresh_calls == 1
+
+
+def test_compose_attachment_history_message_uses_prompt_language():
+    dummy = type("BridgeDummy", (), {})()
+    dummy.settings = type("SettingsDummy", (), {"config": {"ui_language": "en"}})()
+
+    history_message = WebBridge._compose_attachment_history_message(
+        dummy,
+        "",
+        [
+            {
+                "id": "img-1",
+                "name": "scene.png",
+                "category": "image",
+                "type": "image/png",
+                "status": "ready",
+                "deleted": False,
+            }
+        ],
+    )
+
+    assert history_message == "(attachment) [Image:scene.png]"

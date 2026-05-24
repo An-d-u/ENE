@@ -28,6 +28,33 @@ from ..ai.prompt_language import resolve_prompt_language
 삭제된_이미지_문구 = "[사진이 삭제되었습니다.]"
 
 
+def _attachment_text_labels(language: str | None = None) -> dict[str, str]:
+    resolved_language = resolve_prompt_language(language)
+    return {
+        "ko": {
+            "file": "파일",
+            "image": "이미지",
+            "unnamed_document": "이름 없는 문서",
+            "unnamed_image": "이미지",
+            "deleted_image": 삭제된_이미지_문구,
+        },
+        "en": {
+            "file": "File",
+            "image": "Image",
+            "unnamed_document": "Untitled document",
+            "unnamed_image": "Image",
+            "deleted_image": "[Image deleted.]",
+        },
+        "ja": {
+            "file": "ファイル",
+            "image": "画像",
+            "unnamed_document": "名前のない文書",
+            "unnamed_image": "画像",
+            "deleted_image": "[画像は削除されました。]",
+        },
+    }[resolved_language]
+
+
 def _parse_data_url(data_url: str, fallback_mime: str = "application/octet-stream") -> tuple[str, bytes]:
     raw = str(data_url or "").strip()
     if not raw:
@@ -225,6 +252,7 @@ def build_attachment_context_block(documents: Iterable[dict], language: str | No
         return ""
 
     resolved_language = resolve_prompt_language(language)
+    attachment_labels = _attachment_text_labels(resolved_language)
     labels = {
         "ko": {
             "section": "현재 세션 첨부 자료",
@@ -272,7 +300,7 @@ def build_attachment_context_block(documents: Iterable[dict], language: str | No
     if deleted_images:
         parts.append(labels["deleted"])
         for _ in deleted_images:
-            parts.append(삭제된_이미지_문구)
+            parts.append(attachment_labels["deleted_image"])
 
     if items:
         parts.extend(labels["docs"])
@@ -315,10 +343,11 @@ def build_general_chat_prompt(
     return "\n\n".join(section for section in sections if section).strip()
 
 
-def build_attachment_note(attachments: Iterable[dict]) -> str:
+def build_attachment_note(attachments: Iterable[dict], language: str | None = None) -> str:
     """
     대화 버퍼에 남길 첨부 요약 메모를 만든다.
     """
+    labels = _attachment_text_labels(language)
     parts: list[str] = []
     for item in attachments or []:
         if not _is_ready_attachment(item):
@@ -326,13 +355,13 @@ def build_attachment_note(attachments: Iterable[dict]) -> str:
         category = str((item or {}).get("category", "")).strip()
         name = str((item or {}).get("name", "")).strip()
         if category == "document":
-            parts.append(f"파일:{name or '이름 없는 문서'}")
+            parts.append(f"{labels['file']}:{name or labels['unnamed_document']}")
             continue
         if category == "image":
             if bool((item or {}).get("deleted")):
-                parts.append(삭제된_이미지_문구)
+                parts.append(labels["deleted_image"])
             else:
-                parts.append(f"이미지:{name or '이미지'}")
+                parts.append(f"{labels['image']}:{name or labels['unnamed_image']}")
 
     if not parts:
         return ""

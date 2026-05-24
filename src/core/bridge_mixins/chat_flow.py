@@ -468,7 +468,7 @@ class ChatFlowBridgeMixin:
             record["message"] = edited_message
             record["timestamp"] = timestamp
             record["conversation_index"] = len(self.conversation_buffer) - 1
-            attachment_note = build_attachment_note(record.get("attachments") or [])
+            attachment_note = build_attachment_note(record.get("attachments") or [], language=self._prompt_language())
             attachment_context = build_attachment_context_block(
                 record.get("attachments") or [],
                 language=self._prompt_language(),
