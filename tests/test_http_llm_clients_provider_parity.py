@@ -217,6 +217,36 @@ def test_provider_send_message_keeps_raw_assistant_output_in_history(monkeypatch
 
 
 @pytest.mark.parametrize(
+    ("factory", "request_method"),
+    [
+        (_build_openai_compatible_client, "_request_openai"),
+        (_build_openai_response_client, "_request_responses"),
+        (_build_google_client, "_request_google"),
+        (_build_cohere_client, "_request_cohere"),
+        (_build_anthropic_client, "_request_anthropic"),
+        (_build_ollama_client, "_request_ollama"),
+    ],
+    ids=["openai_compatible", "openai_responses", "google_cloud", "cohere", "anthropic", "ollama"],
+)
+def test_provider_send_message_returns_fallback_when_response_is_empty(monkeypatch, factory, request_method):
+    client = factory()
+    monkeypatch.setattr(client, request_method, lambda *args, **kwargs: "   ")
+
+    text, emotion, japanese_text, events, analysis, promises, thought, _goal_update = client.send_message("테스트")
+    history = client.get_conversation_history()
+
+    assert text == "음... 무슨 일이 있었나봐요."
+    assert emotion == "confused"
+    assert japanese_text is None
+    assert events == []
+    assert analysis == {}
+    assert promises == []
+    assert thought == ""
+    assert history[-1]["role"] == "assistant"
+    assert history[-1]["content"] == "음... 무슨 일이 있었나봐요."
+
+
+@pytest.mark.parametrize(
     ("factory", "history_request_name"),
     [
         (_build_openai_compatible_client, "_request_openai"),

@@ -101,6 +101,20 @@ def _normalize_generation_params(params: dict | None) -> dict:
 
 
 class _CommonMixin:
+    def _empty_text_fallback_response(self) -> LLM_RESPONSE_TUPLE:
+        return "음... 무슨 일이 있었나봐요.", "confused", None, [], {}, [], "", {}
+
+    def _parse_response_with_empty_fallback(self, response_text: str) -> LLM_RESPONSE_TUPLE:
+        if not str(response_text or "").strip():
+            return self._empty_text_fallback_response()
+        return self._parse_response(response_text)
+
+    def _assistant_history_content_for_response(self, response_text: str, parsed_payload: LLM_RESPONSE_TUPLE) -> str:
+        raw_text = str(response_text or "").strip()
+        if raw_text:
+            return response_text
+        return str(parsed_payload[0] or "")
+
     def _prompt_language(self) -> str:
         return resolve_prompt_language(settings_source=getattr(self, "settings", None))
 
@@ -465,14 +479,14 @@ class OpenAICompatibleClient(_CommonMixin):
                 parts.append({"type": "image_url", "image_url": {"url": data_url}})
 
         raw_response_text = self._request_openai(parts)
-        clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._parse_response(raw_response_text)
-        self._remember_turn(parts, raw_response_text)
+        clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._parse_response_with_empty_fallback(raw_response_text)
+        self._remember_turn(parts, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update)))
         return clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update
 
     def send_message(self, message: str) -> LLM_RESPONSE_TUPLE:
         raw_response_text = self._request_openai(message)
-        clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._parse_response(raw_response_text)
-        self._remember_turn(message, raw_response_text)
+        clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._parse_response_with_empty_fallback(raw_response_text)
+        self._remember_turn(message, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update)))
         return clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
@@ -659,15 +673,15 @@ class OpenAIResponseAPIClient(_CommonMixin):
                 parts.append({"type": "image_url", "image_url": {"url": data_url}})
 
         raw_response_text = self._request_responses(parts)
-        clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._parse_response(raw_response_text)
-        self._remember_turn(parts, raw_response_text)
+        clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._parse_response_with_empty_fallback(raw_response_text)
+        self._remember_turn(parts, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update)))
         return clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update
 
     def send_message(self, message: str) -> LLM_RESPONSE_TUPLE:
         raw_response_text = self._request_responses(message)
-        clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._parse_response(raw_response_text)
+        clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._parse_response_with_empty_fallback(raw_response_text)
         self._history.append({"role": "user", "content": message})
-        self._history.append({"role": "assistant", "content": raw_response_text})
+        self._history.append({"role": "assistant", "content": self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update))})
         return clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
@@ -924,14 +938,14 @@ class GoogleCloudClient(_CommonMixin):
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         user_parts = self._to_parts(enhanced, images_data)
         raw_response_text = self._request_google(enhanced, images_data=images_data)
-        clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._parse_response(raw_response_text)
-        self._remember_turn(user_parts, raw_response_text)
+        clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._parse_response_with_empty_fallback(raw_response_text)
+        self._remember_turn(user_parts, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update)))
         return clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update
 
     def send_message(self, message: str) -> LLM_RESPONSE_TUPLE:
         raw_response_text = self._request_google(message)
-        clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._parse_response(raw_response_text)
-        self._remember_turn(message, raw_response_text)
+        clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._parse_response_with_empty_fallback(raw_response_text)
+        self._remember_turn(message, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update)))
         return clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
@@ -1075,8 +1089,8 @@ class CohereClient(_CommonMixin):
 
     def send_message(self, message: str) -> LLM_RESPONSE_TUPLE:
         raw_response_text = self._request_cohere(message)
-        clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._parse_response(raw_response_text)
-        self._remember_turn(message, raw_response_text)
+        clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._parse_response_with_empty_fallback(raw_response_text)
+        self._remember_turn(message, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update)))
         return clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
@@ -1218,14 +1232,14 @@ class AnthropicClient(_CommonMixin):
                 }
             )
         raw_response_text = self._request_anthropic(blocks)
-        clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._parse_response(raw_response_text)
-        self._remember_turn(blocks, raw_response_text)
+        clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._parse_response_with_empty_fallback(raw_response_text)
+        self._remember_turn(blocks, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update)))
         return clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update
 
     def send_message(self, message: str) -> LLM_RESPONSE_TUPLE:
         raw_response_text = self._request_anthropic([{"type": "text", "text": message}])
-        clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._parse_response(raw_response_text)
-        self._remember_turn(message, raw_response_text)
+        clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._parse_response_with_empty_fallback(raw_response_text)
+        self._remember_turn(message, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update)))
         return clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
@@ -1371,7 +1385,7 @@ class OllamaClient(_CommonMixin):
         )
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         raw_response_text = self._request_ollama(enhanced, images_data=images_data)
-        clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._parse_response(raw_response_text)
+        clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._parse_response_with_empty_fallback(raw_response_text)
         user_content = {"content": enhanced}
         images = []
         for img in images_data or []:
@@ -1381,13 +1395,13 @@ class OllamaClient(_CommonMixin):
                 images.append(b64)
         if images:
             user_content["images"] = images
-        self._remember_turn(user_content, raw_response_text)
+        self._remember_turn(user_content, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update)))
         return clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update
 
     def send_message(self, message: str) -> LLM_RESPONSE_TUPLE:
         raw_response_text = self._request_ollama(message)
-        clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._parse_response(raw_response_text)
-        self._remember_turn(message, raw_response_text)
+        clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._parse_response_with_empty_fallback(raw_response_text)
+        self._remember_turn(message, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update)))
         return clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
