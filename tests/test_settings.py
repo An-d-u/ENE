@@ -29,6 +29,7 @@ def test_load_missing_file_uses_default_config(tmp_path):
     assert settings.get("enable_ene_goals") is True
     assert settings.get("show_ene_goal_button") is True
     assert settings.get("ene_goal_state_file") == "ene_goals.json"
+    assert settings.get("model_json_path") == "assets/live2d_models/hiyori/runtime/hiyori_pro_t11.model3.json"
     assert settings.get("chat_panel_height") == Settings.DEFAULT_CONFIG["chat_panel_height"]
     assert settings.get("max_raw_chunks_in_context") == 2
     assert settings.get("raw_chunk_turns") == 6

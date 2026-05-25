@@ -860,7 +860,7 @@ def test_settings_dialog_exposes_language_selector_and_translated_static_strings
             "Reload",
         }
         assert dialog.llm_api_key_edit.placeholderText() == "API key for the selected provider"
-        assert dialog.model_json_path_edit.placeholderText() == "e.g. assets/live2d_models/jksalt/jksalt.model3.json"
+        assert dialog.model_json_path_edit.placeholderText() == "e.g. assets/live2d_models/hiyori/runtime/hiyori_pro_t11.model3.json"
         assert dialog.emotion_name_input.placeholderText() == "Emotion key (e.g. shy)"
         assert dialog.memory_search_recent_turns_spin.suffix() == " turns"
         assert dialog.memory_search_recent_turns_spin.specialValueText() == "Current message only"

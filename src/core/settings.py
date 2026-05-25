@@ -53,7 +53,7 @@ class Settings:
         "model_scale": 1.0,
         "model_x_percent": 50,  # 0-100%
         "model_y_percent": 50,  # 0-100%
-        "model_json_path": "assets/live2d_models/jksalt/jksalt.model3.json",
+        "model_json_path": "assets/live2d_models/hiyori/runtime/hiyori_pro_t11.model3.json",
         "theme_accent_color": "#0071E3",
         "settings_window_bg_color": "#EEF1F5",
         "settings_card_bg_color": "#FFFFFF",

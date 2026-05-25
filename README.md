@@ -128,7 +128,7 @@ At minimum, review these before running:
 The repository already includes web assets for Live2D rendering. If you need to refresh the JavaScript runtime files, run:
 
 ```powershell
-python setup.py
+python scripts/setup_web_libs.py
 ```
 
 ### 4. Run ENE

@@ -550,7 +550,7 @@
       "path": {
         "title": "Live2D model file",
         "hint": "Point directly to a `.model3.json` file. The preview also reloads the model before saving.",
-        "placeholder": "e.g. assets/live2d_models/jksalt/jksalt.model3.json",
+        "placeholder": "e.g. assets/live2d_models/hiyori/runtime/hiyori_pro_t11.model3.json",
         "dialog": {
           "title": "Choose a Live2D model file",
           "filter": "Live2D model (*.model3.json);;JSON files (*.json);;All files (*.*)"

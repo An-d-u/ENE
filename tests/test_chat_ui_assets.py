@@ -61,6 +61,12 @@ def test_web_runtime_is_split_into_ordered_scripts():
         assert (WEB_DIR / script_name).exists()
 
 
+def test_web_runtime_default_model_path_uses_bundled_hiyori():
+    bootstrap = (WEB_DIR / "runtime_bootstrap.js").read_text(encoding="utf-8-sig")
+
+    assert "const DEFAULT_MODEL_PATH = '../live2d_models/hiyori/runtime/hiyori_pro_t11.model3.json';" in bootstrap
+
+
 def test_web_runtime_initializers_load_after_called_dependencies():
     script_order = {script_name: index for index, script_name in enumerate(EXPECTED_RUNTIME_SCRIPTS)}
 

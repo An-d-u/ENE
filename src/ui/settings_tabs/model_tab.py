@@ -172,7 +172,7 @@ def build_model_tab(dialog):
     self._bind_placeholder(
         self.model_json_path_edit,
         "settings.model.path.placeholder",
-        "예: assets/live2d_models/jksalt/jksalt.model3.json",
+        "예: assets/live2d_models/hiyori/runtime/hiyori_pro_t11.model3.json",
     )
     self.model_json_path_edit.textChanged.connect(self._on_setting_changed)
     model_path_row.addWidget(self.model_json_path_edit, 1)

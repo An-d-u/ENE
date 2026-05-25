@@ -366,7 +366,7 @@ class SettingsDialogValuesMixin:
             self.model_y_slider.setValue(int(self._original_settings.get("model_y_percent", 50)))
             self.model_json_path_edit.setText(
                 self._normalize_path_for_storage(
-                    str(self._original_settings.get("model_json_path", "assets/live2d_models/jksalt/jksalt.model3.json"))
+                    str(self._original_settings.get("model_json_path", "assets/live2d_models/hiyori/runtime/hiyori_pro_t11.model3.json"))
                 )
             )
 

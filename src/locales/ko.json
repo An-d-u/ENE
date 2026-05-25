@@ -554,7 +554,7 @@
       "path": {
         "title": "Live2D 모델 파일",
         "hint": "`.model3.json` 파일 경로를 직접 지정합니다. 저장 전에도 미리보기에서 모델이 다시 로드됩니다.",
-        "placeholder": "예: assets/live2d_models/jksalt/jksalt.model3.json",
+        "placeholder": "예: assets/live2d_models/hiyori/runtime/hiyori_pro_t11.model3.json",
         "dialog": {
           "title": "Live2D 모델 파일 선택",
           "filter": "Live2D 모델 (*.model3.json);;JSON 파일 (*.json);;모든 파일 (*.*)"
