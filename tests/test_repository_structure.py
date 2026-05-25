@@ -54,6 +54,11 @@ def test_ci_coverage_command_omits_ci_unstable_runtime_surfaces():
         "src/ui/settings_dialog_tts.py",
         "src/ui/settings_dialog_widgets.py",
         "src/ai/http_llm_clients.py",
+        "src/ai/http_llm_common.py",
+        "src/ai/http_llm_openai.py",
+        "src/ai/http_llm_custom_providers.py",
+        "src/ai/http_llm_anthropic.py",
+        "src/ai/http_llm_ollama.py",
         "src/ai/llm_client.py",
     ]
 
@@ -62,3 +67,25 @@ def test_ci_coverage_command_omits_ci_unstable_runtime_surfaces():
 
     assert "coverage run --source=src --omit=" in ci_config
     assert "coverage report --show-missing --skip-empty --fail-under=80" in ci_config
+
+
+def test_http_llm_clients_is_compatibility_facade():
+    root = Path(__file__).resolve().parents[1]
+    facade = root / "src" / "ai" / "http_llm_clients.py"
+    facade_text = facade.read_text(encoding="utf-8-sig")
+
+    assert len(facade_text.splitlines()) <= 90
+    assert "from .http_llm_common import" in facade_text
+    assert "from .http_llm_openai import" in facade_text
+    assert "from .http_llm_custom_providers import" in facade_text
+    assert "from .http_llm_anthropic import" in facade_text
+    assert "from .http_llm_ollama import" in facade_text
+
+    for module_name in [
+        "http_llm_common.py",
+        "http_llm_openai.py",
+        "http_llm_custom_providers.py",
+        "http_llm_anthropic.py",
+        "http_llm_ollama.py",
+    ]:
+        assert (root / "src" / "ai" / module_name).exists()
