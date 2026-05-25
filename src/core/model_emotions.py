@@ -1,4 +1,4 @@
-"""
+﻿"""
 현재 Live2D 모델의 표정 파일 목록을 해석하는 유틸리티.
 """
 
@@ -11,7 +11,7 @@ from .settings import Settings
 from .app_paths import get_bundle_root, resolve_runtime_resource_path
 
 
-DEFAULT_MODEL_JSON_PATH = "assets/live2d_models/jksalt/jksalt.model3.json"
+DEFAULT_MODEL_JSON_PATH = "assets/live2d_models/hiyori/runtime/hiyori_pro_t11.model3.json"
 
 
 def get_base_path() -> Path:

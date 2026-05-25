@@ -1,10 +1,15 @@
-"""
+﻿"""
 ENE 프로젝트 Setup 스크립트 - 수정 버전
 Cubism 4만 지원하는 pixi-live2d-display 버전 사용
 """
 import os
 import urllib.request
 from pathlib import Path
+
+
+def get_project_root() -> Path:
+    """스크립트 위치와 무관하게 프로젝트 루트를 반환한다."""
+    return Path(__file__).resolve().parents[1]
 
 
 def download_file(url, save_path):
@@ -36,7 +41,7 @@ def setup_libraries():
     print()
     
     # 프로젝트 루트 디렉토리
-    base_dir = Path(__file__).parent
+    base_dir = get_project_root()
     lib_dir = base_dir / "assets" / "web" / "lib"
     
     # 다운로드할 라이브러리 목록 - jsdelivr를 통해 정확한 파일 가져오기

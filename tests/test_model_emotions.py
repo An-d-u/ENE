@@ -1,4 +1,4 @@
-def test_get_available_model_emotions_reads_model_emotions_folder(tmp_path):
+﻿def test_get_available_model_emotions_reads_model_emotions_folder(tmp_path):
     from src.core.model_emotions import get_available_model_emotions
 
     model_path = tmp_path / "assets" / "live2d_models" / "sample" / "sample.model3.json"
@@ -58,3 +58,9 @@ def test_resolve_model_json_path_falls_back_to_bundle_root_when_user_copy_is_mis
     )
 
     assert resolved == model_path.resolve()
+
+
+def test_default_model_json_path_points_to_bundled_hiyori_model():
+    from src.core.model_emotions import DEFAULT_MODEL_JSON_PATH
+
+    assert DEFAULT_MODEL_JSON_PATH == "assets/live2d_models/hiyori/runtime/hiyori_pro_t11.model3.json"

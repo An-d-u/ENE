@@ -32,7 +32,7 @@ const app = new PIXI.Application({
 
 console.log("Pixi app initialized");
 console.log("Canvas size:", window.innerWidth, "x", window.innerHeight);
-const DEFAULT_MODEL_PATH = '../live2d_models/jksalt/jksalt.model3.json';
+const DEFAULT_MODEL_PATH = '../live2d_models/hiyori/runtime/hiyori_pro_t11.model3.json';
 const DEFAULT_THEME = {
     accentColor: '#0071E3',
     settingsWindowBgColor: '#EEF1F5',
