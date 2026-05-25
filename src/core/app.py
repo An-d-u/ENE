@@ -15,9 +15,13 @@ from .global_ptt import GlobalPTTController
 from .tray_icon import TrayIcon
 from ..ui.obsidian_panel_window import ObsidianPanelWindow
 from ..ui.settings_dialog import SettingsDialog
-from ..ai.llm_provider import LLMProviderConfig, create_llm_client
 from ..ai.mood_manager import MoodManager
 from ..ai.ene_goal_manager import EneGoalManager
+from .app_llm_bootstrap import (
+    LLMRuntimeDependencies,
+    create_llm_runtime_client,
+    resolve_llm_bootstrap_config,
+)
 
 
 class ENEApplication(QObject):
@@ -84,34 +88,11 @@ class ENEApplication(QObject):
     
     def _init_llm_client(self):
         """LLM 클라이언트 초기화"""
-        from pathlib import Path
-
         try:
-            llm_provider = str(self.settings.get("llm_provider", "gemini")).strip().lower()
-            llm_models = self.settings.get("llm_models", {})
-            if not isinstance(llm_models, dict):
-                llm_models = {}
-            llm_model = str(llm_models.get(llm_provider, "")).strip()
-            if not llm_model:
-                llm_model = str(self.settings.get("llm_model", "")).strip()
-            generation_params = self._resolve_generation_params(llm_provider, llm_model)
+            llm_config = resolve_llm_bootstrap_config(self.settings)
 
-            llm_api_keys = self.settings.get("llm_api_keys", {})
-            if not isinstance(llm_api_keys, dict):
-                llm_api_keys = {}
-
-            api_key = str(llm_api_keys.get(llm_provider, "")).strip()
-            if not api_key and llm_provider == "custom_api":
-                api_key = str(self.settings.get("custom_api_key_or_password", "")).strip()
-
-            # 기존 방식(api_key.txt)과의 호환: Gemini 선택 시에만 폴백
-            if not api_key and llm_provider == "gemini":
-                api_key_file = Path('api_key.txt')
-                if api_key_file.exists():
-                    api_key = api_key_file.read_text(encoding='utf-8').strip()
-
-            if not api_key:
-                print(f"WARNING: LLM API 키가 비어있습니다. provider={llm_provider}")
+            if not llm_config.api_key:
+                print(f"WARNING: LLM API 키가 비어있습니다. provider={llm_config.provider}")
                 self.llm_client = None
                 self.memory_manager = None
                 return
@@ -124,27 +105,21 @@ class ENEApplication(QObject):
             self._init_ene_profile()
             self._init_mood_manager()
             
-            # LLM 클라이언트 초기화 (공급자 추상화 + 메모리 매니저 + 프로필 전달)
-            llm_config = LLMProviderConfig(
-                provider=llm_provider,
-                api_key=api_key,
-                model_name=llm_model,
-                generation_params=generation_params,
-            )
-
-            self.llm_client = create_llm_client(
+            self.llm_client = create_llm_runtime_client(
                 llm_config,
-                memory_manager=self.memory_manager,
-                user_profile=self.user_profile if hasattr(self, 'user_profile') else None,
-                ene_profile=self.ene_profile if hasattr(self, 'ene_profile') else None,
-                settings=self.settings,
-                calendar_manager=self.calendar_manager if hasattr(self, 'calendar_manager') else None,
-                mood_manager=self.mood_manager if hasattr(self, "mood_manager") else None,
-                goal_manager=self.goal_manager if hasattr(self, "goal_manager") else None,
+                LLMRuntimeDependencies(
+                    memory_manager=self.memory_manager,
+                    user_profile=self.user_profile if hasattr(self, "user_profile") else None,
+                    ene_profile=self.ene_profile if hasattr(self, "ene_profile") else None,
+                    settings=self.settings,
+                    calendar_manager=self.calendar_manager if hasattr(self, "calendar_manager") else None,
+                    mood_manager=self.mood_manager if hasattr(self, "mood_manager") else None,
+                    goal_manager=self.goal_manager if hasattr(self, "goal_manager") else None,
+                ),
             )
             if hasattr(self, "promise_manager") and self.promise_manager:
                 self.llm_client.promise_manager = self.promise_manager
-            print(f"OK: LLM 클라이언트 초기화 성공 (provider={llm_provider}, model={llm_model or 'default'})")
+            print(f"OK: LLM 클라이언트 초기화 성공 (provider={llm_config.provider}, model={llm_config.model_name or 'default'})")
             
             # TTS 및 오디오 플레이어 초기화
             self._init_tts()
@@ -155,38 +130,6 @@ class ENEApplication(QObject):
             traceback.print_exc()
             self.llm_client = None
             self.memory_manager = None
-
-    def _resolve_generation_params(self, provider: str, model_name: str) -> dict:
-        defaults = {"temperature": 0.9, "top_p": 1.0, "max_tokens": 2048}
-        raw = self.settings.get("llm_model_params", {})
-        if not isinstance(raw, dict):
-            return defaults
-
-        provider_map = raw.get(provider, {})
-        if not isinstance(provider_map, dict):
-            return defaults
-
-        model_key = str(model_name or "").strip()
-        candidate = provider_map.get(model_key) if model_key else None
-        if not isinstance(candidate, dict):
-            candidate = provider_map.get("__default__")
-        if not isinstance(candidate, dict):
-            return defaults
-
-        resolved = dict(defaults)
-        try:
-            resolved["temperature"] = max(0.0, min(2.0, float(candidate.get("temperature", defaults["temperature"]))))
-        except (TypeError, ValueError):
-            pass
-        try:
-            resolved["top_p"] = max(0.0, min(1.0, float(candidate.get("top_p", defaults["top_p"]))))
-        except (TypeError, ValueError):
-            pass
-        try:
-            resolved["max_tokens"] = max(0, int(candidate.get("max_tokens", defaults["max_tokens"])))
-        except (TypeError, ValueError):
-            pass
-        return resolved
 
     def _init_mood_manager(self):
         """기분 매니저 초기화"""
