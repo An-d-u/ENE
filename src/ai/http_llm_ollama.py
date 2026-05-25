@@ -149,7 +149,7 @@ class OllamaClient(_CommonMixin):
         )
         enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         raw_response_text = self._request_ollama(enhanced, images_data=images_data)
-        clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._parse_response_with_empty_fallback(raw_response_text)
+        clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update = self._parse_response_with_empty_fallback(raw_response_text)
         user_content = {"content": enhanced}
         images = []
         for img in images_data or []:
@@ -159,14 +159,14 @@ class OllamaClient(_CommonMixin):
                 images.append(b64)
         if images:
             user_content["images"] = images
-        self._remember_turn(user_content, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update)))
-        return clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update
+        self._remember_turn(user_content, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update)))
+        return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update
 
     def send_message(self, message: str) -> LLM_RESPONSE_TUPLE:
         raw_response_text = self._request_ollama(message)
-        clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._parse_response_with_empty_fallback(raw_response_text)
-        self._remember_turn(message, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update)))
-        return clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update
+        clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update = self._parse_response_with_empty_fallback(raw_response_text)
+        self._remember_turn(message, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update)))
+        return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
         prompt = self._build_summary_prompt_for_messages(messages)

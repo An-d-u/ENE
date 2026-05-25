@@ -5,6 +5,7 @@ import json
 
 from PyQt6.QtCore import pyqtSlot
 
+from ...ai.chat_commands import parse_diary_command, parse_note_command
 from ...ai.persona_names import role_label_for_prompt
 from ...ai.prompt_language import resolve_prompt_language
 from ..bridge_workers import AIWorker
@@ -138,7 +139,7 @@ class ChatFlowBridgeMixin:
 
     def _handle_diary_command(self, message: str) -> bool:
         """'/diary' 명령을 감지해 로컬 저장 전용 처리한다."""
-        is_diary, diary_body = self.diary_service.parse_diary_command(message)
+        is_diary, diary_body = parse_diary_command(message)
         if not is_diary:
             return False
 
@@ -164,7 +165,7 @@ class ChatFlowBridgeMixin:
 
     def _handle_note_command(self, message: str) -> bool:
         """/note 명령을 감지해 계획-실행-보고 플로우를 처리한다."""
-        is_note, note_body = self.diary_service.parse_note_command(message)
+        is_note, note_body = parse_note_command(message)
         if not is_note:
             return False
 
@@ -512,7 +513,7 @@ class ChatFlowBridgeMixin:
         self,
         text: str,
         emotion: str,
-        japanese_text: str,
+        tts_text: str,
         events: list = None,
         analysis_payload: str = "",
         token_usage_payload: str = "",
@@ -590,12 +591,12 @@ class ChatFlowBridgeMixin:
         self._remember_tracked_promise_ids(stored_promise_ids)
         
         # TTS 재생 (읽어줄 텍스트가 있고 TTS가 활성화되어 있으면)
-        if japanese_text and self.enable_tts and self.tts_client and self.audio_player:
+        if tts_text and self.enable_tts and self.tts_client and self.audio_player:
             print(f"[Bridge] TTS 활성화 - 텍스트 보류 중, TTS 생성 시작")
             # 텍스트를 보류하고 TTS 완료 대기
             self.pending_response = (text, emotion, thought)
             self.pending_token_usage_payload = resolved_token_usage_payload
-            self._play_tts(japanese_text)
+            self._play_tts(tts_text)
         else:
             # TTS 비활성화 또는 읽어줄 텍스트 없음 - 즉시 텍스트 전송
             print(f"[Bridge] TTS 비활성화 - 텍스트 즉시 전송")
@@ -604,8 +605,8 @@ class ChatFlowBridgeMixin:
             if self._is_rerolling:
                 self._is_rerolling = False
                 self.reroll_state_changed.emit(False)
-            if japanese_text:
-                print(f"[Bridge] TTS 비활성화 또는 클라이언트 없음 (TTS 텍스트: {japanese_text[:20]}...)")
+            if tts_text:
+                print(f"[Bridge] TTS 비활성화 또는 클라이언트 없음 (TTS 텍스트: {tts_text[:20]}...)")
         
         # 자동 요약 확인
         self._check_auto_summarize()

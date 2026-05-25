@@ -141,15 +141,15 @@ class OpenAICompatibleClient(_CommonMixin):
                 parts.append({"type": "image_url", "image_url": {"url": data_url}})
 
         raw_response_text = self._request_openai(parts)
-        clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._parse_response_with_empty_fallback(raw_response_text)
-        self._remember_turn(parts, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update)))
-        return clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update
+        clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update = self._parse_response_with_empty_fallback(raw_response_text)
+        self._remember_turn(parts, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update)))
+        return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update
 
     def send_message(self, message: str) -> LLM_RESPONSE_TUPLE:
         raw_response_text = self._request_openai(message)
-        clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._parse_response_with_empty_fallback(raw_response_text)
-        self._remember_turn(message, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update)))
-        return clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update
+        clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update = self._parse_response_with_empty_fallback(raw_response_text)
+        self._remember_turn(message, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update)))
+        return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
         prompt = self._build_summary_prompt_for_messages(messages)
@@ -335,16 +335,16 @@ class OpenAIResponseAPIClient(_CommonMixin):
                 parts.append({"type": "image_url", "image_url": {"url": data_url}})
 
         raw_response_text = self._request_responses(parts)
-        clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._parse_response_with_empty_fallback(raw_response_text)
-        self._remember_turn(parts, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update)))
-        return clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update
+        clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update = self._parse_response_with_empty_fallback(raw_response_text)
+        self._remember_turn(parts, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update)))
+        return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update
 
     def send_message(self, message: str) -> LLM_RESPONSE_TUPLE:
         raw_response_text = self._request_responses(message)
-        clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._parse_response_with_empty_fallback(raw_response_text)
+        clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update = self._parse_response_with_empty_fallback(raw_response_text)
         self._history.append({"role": "user", "content": message})
-        self._history.append({"role": "assistant", "content": self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update))})
-        return clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update
+        self._history.append({"role": "assistant", "content": self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update))})
+        return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
         prompt = self._build_summary_prompt_for_messages(messages)

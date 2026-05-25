@@ -16,14 +16,15 @@ from .prompt_language import resolve_prompt_language
 from .response_cleanup import extract_goal_update_metadata, extract_thought_metadata
 from .response_parser import (
     extract_analysis_block,
-    extract_japanese_lines,
+    extract_legacy_japanese_tts_lines,
     extract_tts_text,
     is_japanese,
     parse_analysis_lines,
     parse_llm_response,
 )
 from .summary_parser import parse_summary_memory_meta, parse_summary_response
-from .summary_prompt import build_markdown_document_prompt, build_summary_prompt, build_summary_prompt_from_text
+from .markdown_document_prompt import build_markdown_document_prompt
+from .summary_prompt import build_summary_prompt, build_summary_prompt_from_text
 DEFAULT_GENERATION_PARAMS = {
     "temperature": 0.9,
     "top_p": 1.0,
@@ -225,9 +226,9 @@ class _CommonMixin:
         """응답 본문에서 목표 업데이트 메타데이터 블록을 분리한다."""
         return extract_goal_update_metadata(response_text)
 
-    def _extract_japanese_lines(self, text: str) -> Tuple[str, str | None]:
-        """본문 어디에 있든 일본어 전용 줄을 분리한다."""
-        return extract_japanese_lines(text)
+    def _extract_legacy_japanese_tts_lines(self, text: str) -> Tuple[str, str | None]:
+        """구형 일본어 TTS 줄을 표시 텍스트와 분리한다."""
+        return extract_legacy_japanese_tts_lines(text)
 
     def _extract_tts_text(self, text: str) -> Tuple[str, str | None]:
         """명시적 TTS 블록 또는 설정 언어에 따라 TTS용 텍스트를 분리한다."""

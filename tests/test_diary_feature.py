@@ -5,6 +5,7 @@ import sys
 
 from PyQt6.QtCore import QCoreApplication
 
+from src.ai.chat_commands import parse_diary_command, parse_note_command, parse_obs_command
 from src.ai.diary_service import DiaryService
 from src.ai.prompt import get_system_prompt
 from src.core.bridge import WebBridge
@@ -48,43 +49,43 @@ def test_prompt_falls_back_when_sub_prompt_is_missing(monkeypatch):
 
 
 def test_diary_command_parse():
-    is_diary, body = DiaryService.parse_diary_command("/diary 오늘 있었던 일을 일기로 써줘")
+    is_diary, body = parse_diary_command("/diary 오늘 있었던 일을 일기로 써줘")
     assert is_diary is True
     assert body == "오늘 있었던 일을 일기로 써줘"
 
-    is_diary2, body2 = DiaryService.parse_diary_command("/diary   ")
+    is_diary2, body2 = parse_diary_command("/diary   ")
     assert is_diary2 is True
     assert body2 == ""
 
-    is_diary3, body3 = DiaryService.parse_diary_command("일반 메시지")
+    is_diary3, body3 = parse_diary_command("일반 메시지")
     assert is_diary3 is False
     assert body3 == ""
 
 
 def test_obs_command_parse():
-    is_obs, body = DiaryService.parse_obs_command("/obs ENE/Projects/AI.md에 회의 요약 추가")
+    is_obs, body = parse_obs_command("/obs ENE/Projects/AI.md에 회의 요약 추가")
     assert is_obs is True
     assert body == "ENE/Projects/AI.md에 회의 요약 추가"
 
-    is_obs2, body2 = DiaryService.parse_obs_command("/obs   ")
+    is_obs2, body2 = parse_obs_command("/obs   ")
     assert is_obs2 is True
     assert body2 == ""
 
-    is_obs3, body3 = DiaryService.parse_obs_command("일반 메시지")
+    is_obs3, body3 = parse_obs_command("일반 메시지")
     assert is_obs3 is False
     assert body3 == ""
 
 
 def test_note_command_parse():
-    is_note, body = DiaryService.parse_note_command("/note test.md 요약해줘")
+    is_note, body = parse_note_command("/note test.md 요약해줘")
     assert is_note is True
     assert body == "test.md 요약해줘"
 
-    is_note2, body2 = DiaryService.parse_note_command("/note   ")
+    is_note2, body2 = parse_note_command("/note   ")
     assert is_note2 is True
     assert body2 == ""
 
-    is_note3, body3 = DiaryService.parse_note_command("일반 메시지")
+    is_note3, body3 = parse_note_command("일반 메시지")
     assert is_note3 is False
     assert body3 == ""
 

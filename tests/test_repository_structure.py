@@ -123,7 +123,7 @@ def test_http_llm_clients_facade_preserves_legacy_helper_exports():
         "resolve_prompt_language",
         "get_available_emotions",
         "extract_analysis_block",
-        "extract_japanese_lines",
+        "extract_legacy_japanese_tts_lines",
         "extract_tts_text",
         "is_japanese",
         "parse_analysis_lines",
@@ -136,6 +136,19 @@ def test_http_llm_clients_facade_preserves_legacy_helper_exports():
         "resolve_prompt_persona_names",
     ]:
         assert hasattr(http_llm_clients, name)
+
+
+def test_prompt_and_command_helpers_live_in_focused_modules():
+    root = Path(__file__).resolve().parents[1]
+    summary_prompt_text = (root / "src" / "ai" / "summary_prompt.py").read_text(encoding="utf-8-sig")
+    diary_service_text = (root / "src" / "ai" / "diary_service.py").read_text(encoding="utf-8-sig")
+
+    assert (root / "src" / "ai" / "markdown_document_prompt.py").exists()
+    assert (root / "src" / "ai" / "chat_commands.py").exists()
+    assert "def build_markdown_document_prompt" not in summary_prompt_text
+    assert "def parse_diary_command" not in diary_service_text
+    assert "def parse_obs_command" not in diary_service_text
+    assert "def parse_note_command" not in diary_service_text
 
 
 def test_app_runtime_initializers_live_outside_app_module():

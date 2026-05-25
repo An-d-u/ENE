@@ -1,5 +1,5 @@
 ﻿"""
-WebBridge? ?? ?? ??/?? ??.
+WebBridge의 약속 감지와 약속 실행 흐름을 담당한다.
 """
 import json
 import re
