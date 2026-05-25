@@ -917,6 +917,38 @@ def test_settings_dialog_ptt_language_selection_is_saved_to_stt_language():
         dialog.close()
 
 
+def test_settings_dialog_clamps_away_input_grace_to_idle_minutes():
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        dialog = SettingsDialog(
+            {
+                "ui_language": "ko",
+                "llm_provider": "gemini",
+                "tts_provider": "gpt_sovits_http",
+                "enable_tts": True,
+                "enable_away_nudge": True,
+                "away_idle_minutes": 20,
+                "away_input_grace_minutes": 30,
+            }
+        )
+
+        assert dialog.away_input_grace_minutes_spin.maximum() == 20
+        assert dialog.away_input_grace_minutes_spin.value() == 20
+
+        dialog.away_idle_minutes_spin.setValue(12)
+
+        assert dialog.away_input_grace_minutes_spin.maximum() == 12
+        assert dialog.away_input_grace_minutes_spin.value() == 12
+        assert dialog._get_current_values()["away_input_grace_minutes"] == 12
+
+        dialog.close()
+
+
 def test_settings_dialog_exposes_typing_effect_controls_and_saves_values():
     _get_qapp()
     locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"

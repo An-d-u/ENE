@@ -3,13 +3,13 @@ WebBridge의 자리 비움 감지와 화면 캡처 로직.
 """
 from datetime import datetime
 
-import numpy as np
 from PyQt6.QtCore import QBuffer, QByteArray, QIODevice, Qt
 from PyQt6.QtGui import QGuiApplication, QImage, QPainter
 from PyQt6.QtWidgets import QApplication
 
 from ...ai.persona_names import resolve_prompt_persona_names
 from ..away_nudge import build_away_nudge_prompt
+from ..system_idle import get_system_idle_seconds
 
 
 class AwayNudgeBridgeMixin:
@@ -19,19 +19,16 @@ class AwayNudgeBridgeMixin:
             config = self.settings.config
             self.enable_away_nudge = bool(config.get("enable_away_nudge", True))
             self.away_idle_minutes = int(config.get("away_idle_minutes", 60))
-            self.away_compare_delay_seconds = int(config.get("away_compare_delay_seconds", 30))
-            self.away_diff_threshold_percent = float(config.get("away_diff_threshold_percent", 3.0))
+            self.away_input_grace_minutes = int(config.get("away_input_grace_minutes", 5))
             self.away_additional_retry_limit = int(config.get("away_additional_retry_limit", 0))
         else:
             self.enable_away_nudge = True
             self.away_idle_minutes = 60
-            self.away_compare_delay_seconds = 30
-            self.away_diff_threshold_percent = 3.0
+            self.away_input_grace_minutes = 5
             self.away_additional_retry_limit = 0
 
         self.away_idle_minutes = max(1, min(self.away_idle_minutes, 1440))
-        self.away_compare_delay_seconds = max(1, min(self.away_compare_delay_seconds, 600))
-        self.away_diff_threshold_percent = max(0.1, min(self.away_diff_threshold_percent, 100.0))
+        self.away_input_grace_minutes = max(1, min(self.away_input_grace_minutes, self.away_idle_minutes))
         self.away_additional_retry_limit = max(0, min(self.away_additional_retry_limit, 20))
 
     def start_away_monitor(self):
@@ -55,12 +52,8 @@ class AwayNudgeBridgeMixin:
         self._cancel_away_pipeline()
 
     def _cancel_away_pipeline(self):
-        """진행 중인 2차 캡처 대기/임시 상태를 정리한다."""
-        if self.away_second_shot_timer.isActive():
-            self.away_second_shot_timer.stop()
+        """진행 중인 유휴 감지 임시 상태를 정리한다."""
         self.away_check_in_progress = False
-        self.away_first_capture_data_url = None
-        self.away_first_capture_image = None
 
     def _check_away_nudge_condition(self):
         """주기적으로 유휴 조건과 실행 가능 상태를 확인한다."""
@@ -91,55 +84,36 @@ class AwayNudgeBridgeMixin:
         self._start_away_capture_pipeline()
 
     def _start_away_capture_pipeline(self):
-        """1차 캡처 후 2차 캡처 타이머를 시작한다."""
+        """입력 유무를 확인하고 최신 화면 1장을 첨부해 자동 말걸기를 실행한다."""
         if self.away_check_in_progress:
             return
 
         self.away_check_in_progress = True
-        first_result = self._capture_full_desktop_hidden_overlay()
-        if first_result is None:
-            print("[Bridge] Away capture(1차) 실패")
-            self._cancel_away_pipeline()
-            return
-
-        first_image, first_data_url = first_result
-        self.away_first_capture_image = first_image
-        self.away_first_capture_data_url = first_data_url
-        self.away_second_shot_timer.start(self.away_compare_delay_seconds * 1000)
+        self._complete_away_capture_pipeline()
 
     def _complete_away_capture_pipeline(self):
-        """2차 캡처 후 차이율을 계산하고 기능 1/2로 분기한다."""
+        """시스템 입력 유휴 시간을 기준으로 프롬프트 톤을 고른다."""
         if self.worker and self.worker.isRunning():
-            self.away_second_shot_timer.start(10_000)
-            return
-
-        first_image = self.away_first_capture_image
-        if first_image is None:
             self._cancel_away_pipeline()
             return
 
-        second_result = self._capture_full_desktop_hidden_overlay()
-        if second_result is None:
-            print("[Bridge] Away capture(2차) 실패")
+        latest_result = self._capture_full_desktop_hidden_overlay()
+        if latest_result is None:
+            print("[Bridge] Away capture 실패")
             self._cancel_away_pipeline()
             return
 
-        second_image, second_data_url = second_result
-
-        use_feature_1 = False
-        diff_percent = None
-        try:
-            diff_percent = self._calculate_image_diff_percent(first_image, second_image)
-            use_feature_1 = diff_percent <= self.away_diff_threshold_percent
-        except Exception as e:
-            print(f"[Bridge] 화면 비교 실패, 기능2로 폴백: {e}")
-            use_feature_1 = False
+        _, latest_data_url = latest_result
+        system_idle_seconds = get_system_idle_seconds()
+        user_input_detected = None
+        if system_idle_seconds is not None:
+            user_input_detected = system_idle_seconds < (self.away_input_grace_minutes * 60)
 
         prompt = build_away_nudge_prompt(
             language=self._prompt_language(),
             idle_minutes=self.away_idle_minutes,
-            use_stable_screen=use_feature_1,
-            diff_percent=diff_percent,
+            input_grace_minutes=self.away_input_grace_minutes,
+            user_input_detected=user_input_detected,
             user_name=resolve_prompt_persona_names(
                 settings_source=getattr(self, "settings", None),
                 language=self._prompt_language(),
@@ -149,7 +123,7 @@ class AwayNudgeBridgeMixin:
         timestamp = self._now_timestamp()
         message_with_time = self._with_prompt_time(timestamp, prompt)
         images_data = [{
-            "dataUrl": second_data_url,
+            "dataUrl": latest_data_url,
             "name": "away_latest_screen.png",
             "type": "image/png",
         }]
@@ -170,8 +144,6 @@ class AwayNudgeBridgeMixin:
         self._start_ai_worker(message_with_time, images_data)
 
         self.away_check_in_progress = False
-        self.away_first_capture_data_url = None
-        self.away_first_capture_image = None
 
     def _capture_full_desktop_hidden_overlay(self):
         """ENE 창을 잠시 숨긴 뒤 전체 모니터를 합성 캡처한다."""
@@ -236,24 +208,3 @@ class AwayNudgeBridgeMixin:
         encoded = bytes(byte_array.toBase64()).decode("ascii")
         return f"data:image/png;base64,{encoded}"
 
-    def _calculate_image_diff_percent(self, image_a: QImage, image_b: QImage) -> float:
-        """RGBA 절대차 평균 기반 변화율(%) 계산."""
-        if image_a.size() != image_b.size():
-            raise ValueError("캡처 해상도가 서로 다릅니다.")
-
-        img_a = image_a.convertToFormat(QImage.Format.Format_RGBA8888)
-        img_b = image_b.convertToFormat(QImage.Format.Format_RGBA8888)
-
-        width = img_a.width()
-        height = img_a.height()
-        total_bytes = width * height * 4
-
-        ptr_a = img_a.bits()
-        ptr_b = img_b.bits()
-        ptr_a.setsize(total_bytes)
-        ptr_b.setsize(total_bytes)
-
-        arr_a = np.frombuffer(ptr_a, dtype=np.uint8).reshape((height, width, 4))
-        arr_b = np.frombuffer(ptr_b, dtype=np.uint8).reshape((height, width, 4))
-        diff = np.abs(arr_a.astype(np.int16) - arr_b.astype(np.int16))
-        return float((diff.mean() / 255.0) * 100.0)

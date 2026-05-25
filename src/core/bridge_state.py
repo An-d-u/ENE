@@ -98,7 +98,7 @@ class PromiseBridgeState:
 
 @dataclass
 class AwayBridgeState:
-    """자리 비움 감지와 후속 캡처 파이프라인 상태."""
+    """자리 비움 감지와 입력 유휴 상태."""
 
     last_user_message_at: Any = None
     user_message_count: int = 0
@@ -106,15 +106,11 @@ class AwayBridgeState:
     already_triggered_since_last_user_msg: bool = False
     trigger_count_since_last_user_msg: int = 0
     last_trigger_at: Any = None
-    first_capture_data_url: Any = None
-    first_capture_image: Any = None
     idle_minutes: int = 60
-    compare_delay_seconds: int = 30
-    diff_threshold_percent: float = 3.0
+    input_grace_minutes: int = 5
     additional_retry_limit: int = 0
     enabled: bool = True
     timer: Any = None
-    second_shot_timer: Any = None
 
 
 @dataclass
@@ -181,15 +177,11 @@ BRIDGE_STATE_ALIASES = {
     "away_already_triggered_since_last_user_msg": ("away_state", "already_triggered_since_last_user_msg"),
     "away_trigger_count_since_last_user_msg": ("away_state", "trigger_count_since_last_user_msg"),
     "last_away_trigger_at": ("away_state", "last_trigger_at"),
-    "away_first_capture_data_url": ("away_state", "first_capture_data_url"),
-    "away_first_capture_image": ("away_state", "first_capture_image"),
     "away_idle_minutes": ("away_state", "idle_minutes"),
-    "away_compare_delay_seconds": ("away_state", "compare_delay_seconds"),
-    "away_diff_threshold_percent": ("away_state", "diff_threshold_percent"),
+    "away_input_grace_minutes": ("away_state", "input_grace_minutes"),
     "away_additional_retry_limit": ("away_state", "additional_retry_limit"),
     "enable_away_nudge": ("away_state", "enabled"),
     "away_timer": ("away_state", "timer"),
-    "away_second_shot_timer": ("away_state", "second_shot_timer"),
     "_attachment_session": ("attachment_state", "session"),
 }
 

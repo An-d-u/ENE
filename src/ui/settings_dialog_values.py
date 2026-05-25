@@ -183,6 +183,18 @@ class SettingsDialogValuesMixin:
         self.note_recent_context_turns_spin.setEnabled(bool(checked))
         self._on_setting_changed()
 
+    def _refresh_away_input_grace_limit(self):
+        if not hasattr(self, "away_input_grace_minutes_spin"):
+            return
+        idle_minutes = max(1, int(self.away_idle_minutes_spin.value()))
+        self.away_input_grace_minutes_spin.setMaximum(idle_minutes)
+        if self.away_input_grace_minutes_spin.value() > idle_minutes:
+            self.away_input_grace_minutes_spin.setValue(idle_minutes)
+
+    def _on_away_idle_minutes_changed(self, *_):
+        self._refresh_away_input_grace_limit()
+        self._on_setting_changed()
+
     def _load_values(self):
         self._loading = True
         try:
@@ -357,8 +369,11 @@ class SettingsDialogValuesMixin:
                 int(self._original_settings.get("head_pat_end_emotion_duration_sec", 5))
             )
             self.enable_away_nudge_check.setChecked(self._original_settings.get("enable_away_nudge", True))
-            self.away_idle_minutes_spin.setValue(int(self._original_settings.get("away_idle_minutes", 60)))
-            self.away_diff_threshold_spin.setValue(float(self._original_settings.get("away_diff_threshold_percent", 3.0)))
+            away_idle_minutes = int(self._original_settings.get("away_idle_minutes", 60))
+            self.away_idle_minutes_spin.setValue(away_idle_minutes)
+            self._refresh_away_input_grace_limit()
+            away_input_grace_minutes = int(self._original_settings.get("away_input_grace_minutes", 5))
+            self.away_input_grace_minutes_spin.setValue(max(1, min(away_input_grace_minutes, away_idle_minutes)))
             self.away_retry_limit_spin.setValue(int(self._original_settings.get("away_additional_retry_limit", 0)))
 
             self.model_scale_spin.setValue(self._original_settings.get("model_scale", 1.0))
@@ -597,7 +612,10 @@ class SettingsDialogValuesMixin:
             "head_pat_end_emotion_duration_sec": self.head_pat_end_emotion_duration_spin.value(),
             "enable_away_nudge": self.enable_away_nudge_check.isChecked(),
             "away_idle_minutes": self.away_idle_minutes_spin.value(),
-            "away_diff_threshold_percent": self.away_diff_threshold_spin.value(),
+            "away_input_grace_minutes": min(
+                self.away_input_grace_minutes_spin.value(),
+                self.away_idle_minutes_spin.value(),
+            ),
             "away_additional_retry_limit": self.away_retry_limit_spin.value(),
             "model_scale": self.model_scale_spin.value(),
             "model_x_percent": self.model_x_slider.value(),

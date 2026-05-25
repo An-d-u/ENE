@@ -481,16 +481,19 @@ def build_behavior_tab(dialog):
     self.away_idle_minutes_spin = QSpinBox()
     self.away_idle_minutes_spin.setRange(5, 240)
     self._bind_suffix(self.away_idle_minutes_spin, "settings.behavior.away.idle_minutes.suffix", " 분")
-    self.away_idle_minutes_spin.valueChanged.connect(self._on_setting_changed)
+    self.away_idle_minutes_spin.valueChanged.connect(self._on_away_idle_minutes_changed)
     self._add_form_row(away_layout, "settings.behavior.away.idle_minutes.label", "유휴 시간:", self.away_idle_minutes_spin)
 
-    self.away_diff_threshold_spin = QDoubleSpinBox()
-    self.away_diff_threshold_spin.setRange(1.0, 15.0)
-    self.away_diff_threshold_spin.setSingleStep(0.5)
-    self.away_diff_threshold_spin.setDecimals(1)
-    self.away_diff_threshold_spin.setSuffix(" %")
-    self.away_diff_threshold_spin.valueChanged.connect(self._on_setting_changed)
-    self._add_form_row(away_layout, "settings.behavior.away.diff_threshold", "화면 차이 민감도:", self.away_diff_threshold_spin)
+    self.away_input_grace_minutes_spin = QSpinBox()
+    self.away_input_grace_minutes_spin.setRange(1, 240)
+    self._bind_suffix(self.away_input_grace_minutes_spin, "settings.behavior.away.input_grace_minutes.suffix", " 분")
+    self.away_input_grace_minutes_spin.valueChanged.connect(self._on_setting_changed)
+    self._add_form_row(
+        away_layout,
+        "settings.behavior.away.input_grace_minutes.label",
+        "입력 확인 구간:",
+        self.away_input_grace_minutes_spin,
+    )
 
     self.away_retry_limit_spin = QSpinBox()
     self.away_retry_limit_spin.setRange(0, 20)
