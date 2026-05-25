@@ -2,7 +2,7 @@
 ENE AI 시스템 프롬프트 로더
 """
 
-from .prompt_config import load_runtime_prompt_config
+from .prompt_config import load_prompt_config, load_runtime_prompt_config
 from .response_contract import build_response_contract_appendix
 
 
@@ -47,4 +47,10 @@ def build_runtime_system_prompt(
 def get_available_emotions() -> list[str]:
     """사용 가능한 감정 목록 반환"""
     config = load_runtime_prompt_config()
+    return list(config.get("emotions", []))
+
+
+def get_parseable_emotions() -> list[str]:
+    """응답 파서가 하위 호환으로 인식할 수 있는 감정 목록 반환."""
+    config = load_prompt_config()
     return list(config.get("emotions", []))

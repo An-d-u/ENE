@@ -83,7 +83,8 @@ def test_add_tagged_basic_facts_updates_structured_fields(tmp_path):
     profile.add_fact("[basic] 이름: 유나이고 전공은 컴퓨터공학입니다")
     profile.add_fact("[basic] 생일: 1999-02-03 입니다")
 
-    assert profile.basic_info["name"] == "유나이고 전공은 컴퓨터공학입니다"
+    assert profile.basic_info["name"] == "유나"
+    assert profile.basic_info["major"] == "컴퓨터공학"
     assert profile.basic_info["birthday"] == "1999-02-03"
     assert [fact.category for fact in profile.facts] == ["basic", "basic"]
 

@@ -337,18 +337,18 @@ class SettingsDialogValuesMixin:
             self.head_pat_fade_out_spin.setValue(int(self._original_settings.get("head_pat_fade_out_ms", 220)))
 
             active_default_emotion = str(
-                self._original_settings.get("head_pat_active_emotion_default", "eyeclose")
-            ).strip() or "eyeclose"
+                self._original_settings.get("head_pat_active_emotion_default", "normal")
+            ).strip() or "normal"
             if active_default_emotion not in self._emotion_options:
-                active_default_emotion = "eyeclose"
+                active_default_emotion = "normal"
             self.head_pat_active_emotion_combo.setCurrentText(active_default_emotion)
             self.head_pat_active_emotion_custom_edit.setText(
                 str(self._original_settings.get("head_pat_active_emotion_custom", ""))
             )
 
-            default_emotion = str(self._original_settings.get("head_pat_end_emotion_default", "shy")).strip() or "shy"
+            default_emotion = str(self._original_settings.get("head_pat_end_emotion_default", "normal")).strip() or "normal"
             if default_emotion not in self._emotion_options:
-                default_emotion = "shy"
+                default_emotion = "normal"
             self.head_pat_end_emotion_combo.setCurrentText(default_emotion)
             self.head_pat_end_emotion_custom_edit.setText(
                 str(self._original_settings.get("head_pat_end_emotion_custom", ""))
@@ -484,17 +484,17 @@ class SettingsDialogValuesMixin:
         self._set_current_model_params()
 
         active_custom_emotion = self.head_pat_active_emotion_custom_edit.text().strip()
-        active_default_emotion = self.head_pat_active_emotion_combo.currentText().strip() or "eyeclose"
+        active_default_emotion = self.head_pat_active_emotion_combo.currentText().strip() or "normal"
         resolved_active_emotion = active_custom_emotion if active_custom_emotion else active_default_emotion
 
         custom_emotion = self.head_pat_end_emotion_custom_edit.text().strip()
-        default_emotion = self.head_pat_end_emotion_combo.currentText().strip() or "shy"
+        default_emotion = self.head_pat_end_emotion_combo.currentText().strip() or "normal"
         resolved_emotion = custom_emotion if custom_emotion else default_emotion
 
         if not resolved_active_emotion:
-            resolved_active_emotion = "eyeclose"
+            resolved_active_emotion = "normal"
         if not resolved_emotion:
-            resolved_emotion = "shy"
+            resolved_emotion = "normal"
 
         preserved_hidden_settings = {
             key: self._original_settings[key]

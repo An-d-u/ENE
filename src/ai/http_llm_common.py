@@ -11,7 +11,7 @@ import requests
 from ..conversation_format import prepend_message_time
 from .memory_context_builder import build_memory_context as build_common_memory_context
 from .persona_names import resolve_prompt_persona_names
-from .prompt import build_runtime_system_prompt, get_available_emotions
+from .prompt import build_runtime_system_prompt, get_parseable_emotions
 from .prompt_language import resolve_prompt_language
 from .response_cleanup import extract_goal_update_metadata, extract_thought_metadata
 from .response_parser import (
@@ -24,8 +24,6 @@ from .response_parser import (
 )
 from .summary_parser import parse_summary_memory_meta, parse_summary_response
 from .summary_prompt import build_markdown_document_prompt, build_summary_prompt, build_summary_prompt_from_text
-
-
 DEFAULT_GENERATION_PARAMS = {
     "temperature": 0.9,
     "top_p": 1.0,
@@ -272,7 +270,7 @@ class _CommonMixin:
         return parse_llm_response(
             response_text,
             settings_source=getattr(self, "settings", None),
-            available_emotions=get_available_emotions(),
+            available_emotions=get_parseable_emotions(),
         )
 
     def _parse_summary_response(self, response_text: str) -> tuple[str, list[str], list[str], dict]:

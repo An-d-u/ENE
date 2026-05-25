@@ -19,7 +19,7 @@ from .memory_context_builder import (
     normalize_int_setting,
 )
 from .persona_names import resolve_prompt_persona_names
-from .prompt import build_runtime_system_prompt, get_available_emotions
+from .prompt import build_runtime_system_prompt, get_parseable_emotions
 from .prompt_language import resolve_prompt_language
 from .response_cleanup import extract_goal_update_metadata, extract_thought_metadata
 from .response_parser import (
@@ -684,7 +684,7 @@ class GeminiClient:
         return parse_llm_response(
             response_text,
             settings_source=getattr(self, "settings", None),
-            available_emotions=get_available_emotions(),
+            available_emotions=get_parseable_emotions(),
             log_event=print,
         )
     

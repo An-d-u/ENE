@@ -1,14 +1,18 @@
-"""
+﻿"""
 장기기억 관리 시스템
 """
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 from datetime import datetime
 import re
 
 from .memory_types import CURRENT_MEMORY_SCHEMA_VERSION, MemoryChunk, MemoryEntry, create_memory_entry
-from .embedding import EmbeddingGenerator
 from ..core.app_paths import load_json_data, resolve_user_storage_path, save_json_data
+
+if TYPE_CHECKING:
+    from .embedding import EmbeddingGenerator
 
 
 _MIGRATED_MEMORY_REQUIRED_FIELDS = (

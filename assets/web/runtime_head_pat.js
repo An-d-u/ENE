@@ -158,8 +158,8 @@ function cancelPendingPatEmotionRestore() {
 // 쓰다듬기 종료 표정을 잠시 적용한 뒤 기본 표정으로 복귀시킨다.
 function triggerPatEndEmotion() {
     cancelPendingPatEmotionRestore();
-    let endEmotion = (headPatEndEmotion || 'shy').trim();
-    if (!endEmotion) endEmotion = 'shy';
+    let endEmotion = (headPatEndEmotion || 'normal').trim();
+    if (!endEmotion) endEmotion = 'normal';
     changeExpression(endEmotion, { durationMs: headPatFadeOutMs });
     pendingPatRestoreEmotion = previousEmotionBeforePat || baseEmotionTag || 'normal';
     const applyRestoreWhenPossible = () => {
@@ -180,8 +180,8 @@ function triggerPatEndEmotion() {
 
 // 쓰다듬기 시작 시 활성 표정을 즉시 적용한다.
 function triggerPatStartEmotion() {
-    let activeEmotion = (headPatActiveEmotion || 'eyeclose').trim();
-    if (!activeEmotion) activeEmotion = 'eyeclose';
+    let activeEmotion = (headPatActiveEmotion || 'normal').trim();
+    if (!activeEmotion) activeEmotion = 'normal';
     changeExpression(activeEmotion, { durationMs: headPatFadeInMs });
 }
 

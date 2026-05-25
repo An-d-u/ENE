@@ -30,6 +30,8 @@ def test_load_missing_file_uses_default_config(tmp_path):
     assert settings.get("show_ene_goal_button") is True
     assert settings.get("ene_goal_state_file") == "ene_goals.json"
     assert settings.get("model_json_path") == "assets/live2d_models/hiyori/runtime/hiyori_pro_t11.model3.json"
+    assert settings.get("head_pat_active_emotion_default") == "normal"
+    assert settings.get("head_pat_end_emotion_default") == "normal"
     assert settings.get("chat_panel_height") == Settings.DEFAULT_CONFIG["chat_panel_height"]
     assert settings.get("max_raw_chunks_in_context") == 2
     assert settings.get("raw_chunk_turns") == 6
@@ -107,6 +109,47 @@ def test_load_legacy_config_without_viseme_lipsync_uses_default(tmp_path):
     assert settings.get("ui_language") == "ko"
     assert settings.get("enable_builtin_idle_motion") is False
     assert settings.get("viseme_lipsync_enabled") is True
+
+
+def test_load_migrates_legacy_default_model_path_to_hiyori(tmp_path):
+    config_path = tmp_path / "config.json"
+    secret_path = tmp_path / "api_keys.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "model_json_path": "assets/live2d_models/jksalt/jksalt.model3.json",
+                "head_pat_active_emotion_default": "eyeclose",
+                "head_pat_end_emotion_default": "shy",
+                "window_width": 1280,
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8-sig",
+    )
+
+    settings = Settings(config_path=str(config_path), secret_path=str(secret_path))
+
+    assert settings.get("model_json_path") == "assets/live2d_models/hiyori/runtime/hiyori_pro_t11.model3.json"
+    assert settings.get("head_pat_active_emotion_default") == "normal"
+    assert settings.get("head_pat_end_emotion_default") == "normal"
+    assert settings.get("window_width") == 1280
+
+    saved_config = json.loads(config_path.read_text(encoding="utf-8-sig"))
+    assert saved_config["model_json_path"] == "assets/live2d_models/hiyori/runtime/hiyori_pro_t11.model3.json"
+
+
+def test_load_preserves_custom_model_path(tmp_path):
+    config_path = tmp_path / "config.json"
+    secret_path = tmp_path / "api_keys.json"
+    custom_path = "assets/live2d_models/custom/custom.model3.json"
+    config_path.write_text(
+        json.dumps({"model_json_path": custom_path}, ensure_ascii=False),
+        encoding="utf-8-sig",
+    )
+
+    settings = Settings(config_path=str(config_path), secret_path=str(secret_path))
+
+    assert settings.get("model_json_path") == custom_path
 
 
 def test_save_upgrades_legacy_config_with_viseme_lipsync_default(tmp_path):

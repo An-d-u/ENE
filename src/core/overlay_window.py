@@ -661,13 +661,13 @@ class OverlayWindow(QWidget):
         head_pat_fade_in_ms = int(source.get("head_pat_fade_in_ms", 180))
         head_pat_fade_out_ms = int(source.get("head_pat_fade_out_ms", 220))
         active_custom = str(source.get("head_pat_active_emotion_custom", "")).strip()
-        active_default = str(source.get("head_pat_active_emotion_default", "eyeclose")).strip() or "eyeclose"
+        active_default = str(source.get("head_pat_active_emotion_default", "normal")).strip() or "normal"
         active_resolved = str(source.get("head_pat_active_emotion", "")).strip()
-        head_pat_active_emotion = active_custom or active_resolved or active_default or "eyeclose"
+        head_pat_active_emotion = active_custom or active_resolved or active_default or "normal"
         end_custom = str(source.get("head_pat_end_emotion_custom", "")).strip()
-        end_default = str(source.get("head_pat_end_emotion_default", "shy")).strip() or "shy"
+        end_default = str(source.get("head_pat_end_emotion_default", "normal")).strip() or "normal"
         end_resolved = str(source.get("head_pat_end_emotion", "")).strip()
-        head_pat_end_emotion = end_custom or end_resolved or end_default or "shy"
+        head_pat_end_emotion = end_custom or end_resolved or end_default or "normal"
         head_pat_duration_sec = int(source.get("head_pat_end_emotion_duration_sec", 5))
 
         self.web_view.page().runJavaScript(
