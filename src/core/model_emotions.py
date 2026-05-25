@@ -96,4 +96,6 @@ def get_available_model_emotions(
     discovered = discover_model_emotions(model_path)
     if discovered:
         return discovered
+    if model_path.exists():
+        return ["normal"]
     return _normalize_fallback_emotions(fallback_emotions)

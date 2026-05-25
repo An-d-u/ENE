@@ -69,6 +69,26 @@ def test_ci_coverage_command_omits_ci_unstable_runtime_surfaces():
     assert "coverage report --show-missing --skip-empty --fail-under=80" in ci_config
 
 
+def test_ci_coverage_steps_keep_linux_and_windows_commands_in_sync():
+    root = Path(__file__).resolve().parents[1]
+    ci_config = (root / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8-sig")
+    linux_step = _extract_ci_step(ci_config, "Run tests with coverage (Linux)")
+    windows_step = _extract_ci_step(ci_config, "Run tests with coverage (Windows)")
+
+    expected_fragments = [
+        "coverage run --source=src --omit=",
+        "coverage report --show-missing --skip-empty --fail-under=80",
+        "src/core/app.py",
+        "src/ai/http_llm_clients.py",
+        "src/ai/http_llm_openai.py",
+        "src/ai/http_llm_ollama.py",
+    ]
+
+    for fragment in expected_fragments:
+        assert fragment in linux_step
+        assert fragment in windows_step
+
+
 def test_http_llm_clients_is_compatibility_facade():
     root = Path(__file__).resolve().parents[1]
     facade = root / "src" / "ai" / "http_llm_clients.py"
@@ -91,6 +111,33 @@ def test_http_llm_clients_is_compatibility_facade():
         assert (root / "src" / "ai" / module_name).exists()
 
 
+def test_http_llm_clients_facade_preserves_legacy_helper_exports():
+    from src.ai import http_llm_clients
+
+    for name in [
+        "build_runtime_system_prompt",
+        "build_summary_prompt",
+        "build_summary_prompt_from_text",
+        "parse_summary_response",
+        "parse_summary_memory_meta",
+        "resolve_prompt_language",
+        "get_available_emotions",
+        "extract_analysis_block",
+        "extract_japanese_lines",
+        "extract_tts_text",
+        "is_japanese",
+        "parse_analysis_lines",
+        "parse_llm_response",
+        "extract_goal_update_metadata",
+        "extract_thought_metadata",
+        "build_markdown_document_prompt",
+        "prepend_message_time",
+        "build_common_memory_context",
+        "resolve_prompt_persona_names",
+    ]:
+        assert hasattr(http_llm_clients, name)
+
+
 def test_app_runtime_initializers_live_outside_app_module():
     root = Path(__file__).resolve().parents[1]
     app_text = (root / "src" / "core" / "app.py").read_text(encoding="utf-8-sig")
@@ -103,3 +150,10 @@ def test_app_runtime_initializers_live_outside_app_module():
     assert "from src.core.audio_player import AudioPlayer" not in app_text
     assert (root / "src" / "core" / "app_memory_bootstrap.py").exists()
     assert (root / "src" / "core" / "app_tts_bootstrap.py").exists()
+def _extract_ci_step(ci_config: str, step_name: str) -> str:
+    start_marker = f"      - name: {step_name}"
+    start = ci_config.index(start_marker)
+    next_step = ci_config.find("\n      - name:", start + len(start_marker))
+    if next_step == -1:
+        return ci_config[start:]
+    return ci_config[start:next_step]

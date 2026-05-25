@@ -9,6 +9,8 @@ python -m coverage run --source=src --omit="src/core/app.py,src/core/audio_playe
 python -m coverage report --show-missing --skip-empty --fail-under=80
 ```
 
+이 커버리지 게이트는 GUI, 오디오 장치, 외부 HTTP 런타임처럼 CI에서 안정적으로 재현하기 어려운 표면을 제외한 선별 대상 기준이다.
+
 ## 정적 검사
 
 ```powershell
@@ -67,7 +69,7 @@ python -m pytest tests/test_settings.py tests/test_ui_i18n_smoke.py tests/test_b
 - 실행 항목:
   1. 의존성 설치
   2. `ruff` 검사
-  3. `pytest + coverage` 실행 (`최소 80% 미만이면 실패`)
+  3. `pytest + coverage` 실행 (`선별 대상 최소 80% 미만이면 실패`)
 
 ## 기존 실행 파일 호환
 

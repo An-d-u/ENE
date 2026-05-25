@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from importlib import import_module
 from typing import Any, Callable
 import traceback
 
@@ -24,10 +25,6 @@ def build_memory_manager(
     memory_manager_factory: Callable[..., Any] | None = None,
 ):
     """설정에서 메모리 매니저와 선택적 임베딩 생성기를 만든다."""
-    if embedding_factory is None:
-        from src.ai.embedding import EmbeddingGenerator
-
-        embedding_factory = EmbeddingGenerator
     if memory_manager_factory is None:
         from src.ai.memory import MemoryManager
 
@@ -49,6 +46,10 @@ def build_memory_manager(
     elif embedding_api_key == "your-voyage-api-key-here":
         print("WARNING: Voyage AI API 키를 설정해주세요.")
     else:
+        if embedding_factory is None:
+            from src.ai.embedding import EmbeddingGenerator
+
+            embedding_factory = EmbeddingGenerator
         embedding_gen = embedding_factory(api_key=embedding_api_key, model=embedding_model)
         print(f"OK: Voyage AI 임베딩 생성기 초기화 성공 ({embedding_model})")
 
@@ -66,16 +67,9 @@ def build_profile_runtime(
     ene_profile_factory: Callable[..., Any] | None = None,
 ) -> MemoryProfileRuntime:
     """사용자 프로필을 먼저 만들고, 그 다음 에네 프로필을 연결해 만든다."""
-    if user_profile_factory is None:
-        from src.ai.user_profile import UserProfile
-
-        user_profile_factory = UserProfile
-    if ene_profile_factory is None:
-        from src.ai.ene_profile import EneProfile
-
-        ene_profile_factory = EneProfile
-
     try:
+        if user_profile_factory is None:
+            user_profile_factory = import_module("src.ai.user_profile").UserProfile
         user_profile = user_profile_factory(profile_file="user_profile.json")
         print("OK: 사용자 프로필 초기화 성공")
     except Exception as e:
@@ -84,6 +78,8 @@ def build_profile_runtime(
         user_profile = None
 
     try:
+        if ene_profile_factory is None:
+            ene_profile_factory = import_module("src.ai.ene_profile").EneProfile
         ene_profile = ene_profile_factory(profile_file="ene_profile.json", user_profile=user_profile)
         print("OK: 에네 프로필 초기화 성공")
     except Exception as e:

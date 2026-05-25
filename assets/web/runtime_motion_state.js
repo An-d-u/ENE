@@ -69,8 +69,8 @@ let pendingPatEmotionTimer = null;
 let pendingPatRestoreEmotion = null;
 let headPatFadeInMs = 180;
 let headPatFadeOutMs = 220;
-let headPatActiveEmotion = 'eyeclose';
-let headPatEndEmotion = 'shy';
+let headPatActiveEmotion = 'normal';
+let headPatEndEmotion = 'normal';
 let headPatEndEmotionDurationMs = 5000;
 let headPatSessionCounted = false;
 let headPatSavedEyeBlink = undefined;
@@ -388,16 +388,16 @@ window.setHeadPatConfig = function (
     strength,
     fadeInMs = 180,
     fadeOutMs = 220,
-    activeEmotion = 'eyeclose',
-    endEmotion = 'shy',
+    activeEmotion = 'normal',
+    endEmotion = 'normal',
     endEmotionDurationSec = 5
 ) {
     headPatEnabled = Boolean(enabled);
     headPatStrength = Number.isFinite(strength) ? Math.min(2.5, Math.max(0.5, Number(strength))) : 1.0;
     headPatFadeInMs = Number.isFinite(fadeInMs) ? Math.min(1000, Math.max(50, Number(fadeInMs))) : 180;
     headPatFadeOutMs = Number.isFinite(fadeOutMs) ? Math.min(1200, Math.max(50, Number(fadeOutMs))) : 220;
-    headPatActiveEmotion = typeof activeEmotion === 'string' && activeEmotion.trim() ? activeEmotion.trim() : 'eyeclose';
-    headPatEndEmotion = typeof endEmotion === 'string' && endEmotion.trim() ? endEmotion.trim() : 'shy';
+    headPatActiveEmotion = typeof activeEmotion === 'string' && activeEmotion.trim() ? activeEmotion.trim() : 'normal';
+    headPatEndEmotion = typeof endEmotion === 'string' && endEmotion.trim() ? endEmotion.trim() : 'normal';
     headPatEndEmotionDurationMs = Number.isFinite(endEmotionDurationSec)
         ? Math.min(30000, Math.max(1000, Number(endEmotionDurationSec) * 1000))
         : 5000;
@@ -424,9 +424,9 @@ window.setHeadPatConfig = function (
 };
 
 // 쓰다듬기 중/종료 후 표정 전환 규칙을 설정한다.
-window.setHeadPatEmotionConfig = function (activeEmotion = 'eyeclose', endEmotion = 'shy', endEmotionDurationSec = 5) {
-    headPatActiveEmotion = typeof activeEmotion === 'string' && activeEmotion.trim() ? activeEmotion.trim() : 'eyeclose';
-    headPatEndEmotion = typeof endEmotion === 'string' && endEmotion.trim() ? endEmotion.trim() : 'shy';
+window.setHeadPatEmotionConfig = function (activeEmotion = 'normal', endEmotion = 'normal', endEmotionDurationSec = 5) {
+    headPatActiveEmotion = typeof activeEmotion === 'string' && activeEmotion.trim() ? activeEmotion.trim() : 'normal';
+    headPatEndEmotion = typeof endEmotion === 'string' && endEmotion.trim() ? endEmotion.trim() : 'normal';
     headPatEndEmotionDurationMs = Number.isFinite(endEmotionDurationSec)
         ? Math.min(30000, Math.max(1000, Number(endEmotionDurationSec) * 1000))
         : 5000;

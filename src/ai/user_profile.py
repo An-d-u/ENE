@@ -234,7 +234,11 @@ class UserProfile:
         text = content.strip()
 
         if "이름" in text:
-            value = text.split(":", 1)[-1].strip() if ":" in text else text
+            value = self._extract_korean_field(
+                text,
+                "이름",
+                stop_words=("전공", "성별", "생일", "직업"),
+            )
             if value:
                 self.basic_info["name"] = value
 
@@ -254,9 +258,26 @@ class UserProfile:
                 self.basic_info["occupation"] = value
 
         if "전공" in text:
-            value = text.split(":", 1)[-1].strip() if ":" in text else text
+            value = self._extract_korean_field(
+                text,
+                "전공",
+                stop_words=("이름", "성별", "생일", "직업"),
+            )
             if value:
                 self.basic_info["major"] = value
+
+    def _extract_korean_field(self, text: str, label: str, stop_words: tuple[str, ...] = ()) -> str:
+        """한 문장에 여러 기본 정보가 섞인 경우 특정 필드 값만 잘라낸다."""
+        pattern = rf"{re.escape(label)}\s*(?:[:：]|은|는)?\s*(.+)"
+        match = re.search(pattern, text)
+        if not match:
+            return ""
+
+        value = match.group(1).strip()
+        for stop_word in stop_words:
+            value = re.split(rf"\s*{re.escape(stop_word)}\s*(?:[:：]|은|는)?", value, maxsplit=1)[0].strip()
+        value = re.split(r"(?:이고|이며|입니다|이에요|예요|,|\.|;)", value, maxsplit=1)[0].strip()
+        return value
 
     def _update_preferences(self, content: str):
         """Keep likes/dislikes arrays in sync."""

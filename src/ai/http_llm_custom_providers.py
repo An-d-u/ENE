@@ -10,8 +10,6 @@ from .http_llm_common import (
     _normalize_generation_params,
     _raise_for_status_with_detail,
 )
-
-
 class GoogleCloudClient(_CommonMixin):
     def __init__(
         self,
