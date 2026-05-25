@@ -89,3 +89,17 @@ def test_http_llm_clients_is_compatibility_facade():
         "http_llm_ollama.py",
     ]:
         assert (root / "src" / "ai" / module_name).exists()
+
+
+def test_app_runtime_initializers_live_outside_app_module():
+    root = Path(__file__).resolve().parents[1]
+    app_text = (root / "src" / "core" / "app.py").read_text(encoding="utf-8-sig")
+
+    assert "from src.ai.embedding import EmbeddingGenerator" not in app_text
+    assert "from src.ai.memory import MemoryManager" not in app_text
+    assert "from src.ai.user_profile import UserProfile" not in app_text
+    assert "from src.ai.ene_profile import EneProfile" not in app_text
+    assert "from src.ai.tts_client import create_tts_client" not in app_text
+    assert "from src.core.audio_player import AudioPlayer" not in app_text
+    assert (root / "src" / "core" / "app_memory_bootstrap.py").exists()
+    assert (root / "src" / "core" / "app_tts_bootstrap.py").exists()
