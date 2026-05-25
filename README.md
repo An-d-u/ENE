@@ -7,86 +7,77 @@
 </p>
 
 <p align="center">
+  <a href="README.md">English</a> |
+  <a href="README.ko.md">한국어</a> |
+  <a href="README.ja.md">日本語</a>
+</p>
+
+<p align="center">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white" />
   <img alt="PyQt6" src="https://img.shields.io/badge/PyQt6-Desktop-41CD52?logo=qt&logoColor=white" />
   <img alt="Live2D" src="https://img.shields.io/badge/Live2D-Overlay-FF6B81" />
+  <img alt="Coverage" src="https://img.shields.io/badge/coverage%20gate-80%25-1f883d" />
   <img alt="Status" src="https://img.shields.io/badge/status-active%20development-1f883d" />
 </p>
 
-ENE is a desktop AI partner that stays on top of your workspace, chats with you through a dedicated on-screen interface, remembers context over time, and connects everyday interaction to notes, mood tracking, calendar context, and personal memory flows.
+ENE is a desktop AI partner that stays with you on your workspace. It combines a Live2D overlay, long-term memory, personalized prompts, voice output, notes, goals, promises, mood state, and proactive context into one companion-style desktop app.
 
-It is designed as a persistent desktop companion rather than a plain chat window: something that feels present on your desktop, responds with personality, carries state across sessions, and becomes more useful as your daily context accumulates.
+It is not meant to be a generic chat window. ENE is built around presence: a character on your desktop that remembers useful context, reacts through expressions and motion, speaks when configured, and helps with daily workflows such as notes, reminders, diary entries, and follow-up conversations.
 
 > [!NOTE]
-> ENE is still a personal project under active development. It has not been tested broadly across different environments yet, so depending on your setup, you may run into instability or unexpected errors.
+> ENE is a personal project under active development. It is usable, but it has not been hardened across many machines or provider setups yet.
 
 > [!IMPORTANT]
-> The embedding workflow has only been tested with Voyage so far. If you want the most reliable setup, it is strongly recommended to issue a Voyage API key and use a Voyage embedding model.
+> The memory embedding workflow has been tested most reliably with Voyage. Other providers may be added or improved later.
 
 ## Preview
 
-| Preview | Preview |
+| Desktop companion | Chat and controls |
 | :---: | :---: |
 | ![ENE desktop preview](docs/screenshots/ene-desktop-preview.png) | ![ENE desktop preview 2](docs/screenshots/ene-desktop-preview-2.png) |
 
-<p align="center">
-  Current in-app desktop UI with quick actions, message input, settings access, and Live2D companion view.
-</p>
+## What ENE Can Do
 
-## Why ENE?
+- Show a persistent Live2D companion overlay with tray-based desktop app behavior.
+- Chat through the on-screen interface with personality, prompt, memory, profile, and mood context.
+- Use image and document attachments as part of a conversation.
+- Store long-term memory with summaries, facts, metadata, and retrieval context.
+- Maintain user and ENE profile information so conversations can become more personal over time.
+- Track ENE mood state across multiple axes and reflect that state in tone, expression guidance, and UI feedback.
+- Track ENE goals with short-term and long-term goal state.
+- Remember conversational promises and bring them back as scheduled follow-up prompts.
+- Save diary-style entries with `/diary`.
+- Run note workflows with `/note`, including Obsidian-oriented planning and execution when configured.
+- Browse checked Obsidian files and include selected context in prompts.
+- Extract calendar-like events and conversation activity signals.
+- Use TTS providers, browser speech, streaming TTS, push-to-talk interruption, and model-aware lip-sync.
+- Detect long idle periods and optionally send proactive away nudges.
+- Configure model, prompt, profile, TTS, theme, hotkeys, memory, Obsidian, goals, and behavior from the settings window.
 
-- A desktop-native companion runtime instead of a browser-only chat tool
-- Live2D overlay presence with a dedicated app lifecycle, tray flow, and persistent on-screen identity
-- Long-term memory, mood state, profile context, notes, calendar events, and promises all feeding into the same interaction loop
-- Voice-ready architecture with TTS, STT runtime preload, synchronized playback, and adaptive lip-sync support
-- Built for practical daily workflows such as notes, diary writing, Obsidian editing, and follow-up conversations
-- Proactive interaction that can respond to away and idle situations instead of waiting only for manual prompts
+## Current Status
+
+ENE is in active development with a practical local workflow:
+
+- The bundled default Live2D model is `hiyori`.
+- User-selected model paths are preserved after restart.
+- LLM provider creation is split into provider-specific modules behind a compatibility facade.
+- App startup responsibilities are separated into focused bootstrap modules.
+- CI runs on Linux and Windows with Python 3.11.
+- The selected CI coverage gate is currently `80%`.
+
+The project is still improving in first-run onboarding, packaged releases, settings import/export, and public documentation.
 
 ## Supported Languages
 
-ENE currently includes interface translations for:
+The application UI includes locale files for:
 
 - English
-- Japanese
 - Korean
+- Japanese
 
-In practice, this means the app UI and settings experience can be used in those languages. Actual conversation language, tone, and voice output can still vary depending on the model, prompt, and provider settings you choose.
+Prompt language, visible response language, and TTS language can still depend on your provider, prompt settings, and model behavior.
 
-## What You Can Do With ENE
-
-- Keep ENE visible on your desktop as a Live2D-based companion instead of opening a separate chat page every time you want to interact.
-- Chat with ENE through the main on-screen interface while using memory, master-related settings, and profile context to make conversations feel more personal over time.
-- Save notes, summaries, and diary-style content as part of your daily workflow instead of treating conversations as disposable.
-- Talk about schedules and calendar-related plans, with extracted event information being added into ENE's calendar flow.
-- Let ENE remember conversational promises and bring them back later as natural reminder-style follow-ups.
-- Use quick actions such as summary, note, mood-related controls, and calendar-related support directly from the main experience.
-- Configure your own character setup, including Live2D model path, expressions, prompt tone, and companion behavior.
-- Open the settings window from the tray icon and adjust important options without manually editing raw files.
-- Use voice-related features such as push-to-talk and TTS-ready interaction if you want ENE to feel more like a spoken desktop companion.
-- Use the `/note` command to work with connected Obsidian documents, and when Obsidian CLI integration is enabled, let ENE modify those documents through the linked workflow.
-- Work with image and document attachments as part of the conversation instead of staying limited to plain text prompts.
-- Keep attachment context in the conversation history so later replies can still reflect what was uploaded, removed, or referenced earlier.
-- Use ENE's richer memory system, which stores summaries with metadata such as memory type, confidence, entities, and retrieval history rather than acting like a simple chat log.
-- Benefit from a mood system that tracks ongoing state across multiple axes and reflects that state back into ENE's tone, expression guidance, and UI mood feedback.
-- Let ENE detect long periods of inactivity, compare screen captures for activity changes, and proactively speak first when it thinks you have been away.
-
-## Recent Improvements
-
-- Stronger attachment and multimodal conversation support for images and supported document files
-- A more structured `/note` workflow for Obsidian with plan generation, validation, execution, and run logging
-- Richer calendar integration with extracted events, conversation activity tracking, and head pat counts
-- Promise reminder handling so ENE can bring back scheduled conversational follow-ups at the right time
-- More advanced mood handling with multi-axis state tracking for behavior and UI feedback
-- Better TTS synchronization so message display, audio playback, and lip-sync start feel more aligned
-- Adaptive Live2D lip-sync behavior with model-aware detection and optional per-model profile overrides
-
-## Still Improving
-
-- First-run onboarding and simpler initial setup
-- Packaged desktop release workflow
-- More polished public-facing documentation
-
-## Getting Started
+## Quick Start
 
 ### 1. Create a virtual environment
 
@@ -98,136 +89,137 @@ pip install -r requirements.txt
 pip install -r requirements-dev.txt
 ```
 
-### 2. Prepare configuration
-
-ENE stores user-editable runtime files in the user data directory.
-
-- Windows: `%AppData%/ENE`
-
-Typical files stored there:
-
-- `config.json` for runtime settings and feature toggles
-- `api_keys.json` for secrets and provider keys
-- `user_profile.json` for user-specific profile data
-- `memory.json` for long-term memory storage
-- `calendar.json`, `mood_state.json`, `obs_config.json` for supporting state
-
-At minimum, review these before running:
-
-- LLM provider and model selection
-- API keys for the selected LLM provider
-- Embedding provider key
-- TTS provider settings if voice output is enabled
-- Live2D model path
-
-> [!WARNING]
-> Keep real secrets in `api_keys.json`, not in `config.json`, and do not commit personal keys to the repository.
-
-### 3. Verify web runtime assets if needed
-
-The repository already includes web assets for Live2D rendering. If you need to refresh the JavaScript runtime files, run:
-
-```powershell
-python scripts/setup_web_libs.py
-```
-
-### 4. Run ENE
+### 2. Run ENE
 
 ```powershell
 python main.py
 ```
 
-When launched, ENE starts as a desktop application with tray behavior and overlay-oriented UI flow.
+ENE starts as a PyQt desktop app with tray behavior. Right-click the tray icon to open the settings window.
 
-### 5. Open the settings window from the tray icon
+### 3. Configure providers and keys
 
-After ENE is running, right-click the tray icon to open the settings window. This is the easiest place to adjust the model, prompt, profile, and behavior settings without editing files by hand.
+ENE stores user-editable runtime files in the user data directory:
+
+- Windows: `%AppData%/ENE`
+
+Common files:
+
+- `config.json` - runtime settings and feature toggles
+- `api_keys.json` - provider keys and other secrets
+- `memory.json` - long-term memory storage
+- `user_profile.json` - user profile facts
+- `ene_goals.json` - ENE goal state
+- `calendar.json`, `mood_state.json`, `obs_config.json` - supporting state
+- `prompts/*.md` - editable prompt files
+
+> [!WARNING]
+> Keep real secrets in `api_keys.json`. Do not commit personal API keys, private model assets, memory files, or profile files.
 
 ## Recommended First-Time Setup
 
-If this is your first time using ENE, the following setup flow is recommended:
+1. Launch ENE with `python main.py`.
+2. Open the settings window from the tray icon.
+3. Select your LLM provider, model, and API key.
+4. Keep the bundled `hiyori` model or choose your own `.model3.json` file.
+5. Check expression names for your selected Live2D model.
+6. Fill in user profile and ENE profile settings.
+7. Configure Voyage embeddings if you want the most reliable memory setup.
+8. Enable and tune TTS only after text chat is working.
+9. Enable Obsidian CLI integration only if you want ENE to work with local notes.
 
-1. Open the settings window from the tray icon.
-2. Set your Live2D model path so ENE loads the character you want to use.
-3. Add or organize expressions that match your model so reactions feel natural.
-4. Write or refine the ENE prompt so the assistant speaks and behaves the way you want.
-5. Fill in master-related settings and profile information so ENE has a better understanding of who it is talking to.
-6. Set up your API keys, especially your Voyage embedding key if you want the most reliable memory setup.
+## Prompt Files
 
-These steps are not mandatory, but they are highly recommended if you want ENE to feel more personal and stable from the beginning.
+ENE uses Markdown prompt files so character behavior can be edited without changing Python code.
 
-## First-Time Setup Tips
-
-- `Included model`: ENE already includes the `hiyori` model, so you can start there if you just want to get the app running.
-- `Recommended model setup`: For a more personal setup, it is recommended to purchase and use another Live2D model from marketplaces such as [BOOTH](https://booth.pm/).
-- `Live2D model`: Pick the model JSON path first. It affects how ENE appears, moves, and responds on screen.
-- `Expressions`: If your purchased model already includes emotion files, organize those first. If it does not, you can create expression files through VTube Studio and use those to improve emotional feedback in ENE.
-- `ENE prompt`: Spend a little time writing the prompt that defines ENE's personality and behavior. This has a big impact on how the companion feels in daily use.
-- `Master settings`: It is a good idea to fill in your master-related information and profile details early. ENE becomes more useful when it has some stable context about you.
-- `Embedding`: Voyage is the safest choice for now because that is the provider this project has actually been tested with.
-
-## Prompt Markdown Files
-
-ENE uses Markdown files inside the user prompt folder so you can adjust personality and behavior without directly editing Python code.
+Default location:
 
 - Windows: `%AppData%/ENE/prompts`
 
-Prompt content is arranged into the runtime context in this order during normal chat:
+Core files:
 
-1. `base_system_prompt.md`
-2. generated sub-prompt wrapper
-3. `sub_prompt_body.md`
-4. generated emotion usage section based on `emotion_guides.md`
-5. `analysis_system_appendix.md` when that appendix is enabled for the current prompt path
+- `base_system_prompt.md` - ENE's identity, relationship, and core behavior
+- `sub_prompt_body.md` - speaking style and extra behavior rules
+- `emotion_guides.md` - emotion keys and usage guidance
+- `analysis_system_appendix.md` - optional internal analysis guidance
 
-The core prompt files have the following roles:
+Normal chat prompt assembly uses the base prompt, generated runtime contract, sub-prompt body, model-aware emotion guidance, and optional analysis appendix. `/note` planning uses a more constrained context and does not follow the normal sub-prompt path in the same way.
 
-- `base_system_prompt.md` = character and core identity
-- `sub_prompt_body.md` = speaking style and response style
-- `analysis_system_appendix.md` = internal mood analysis
+## Voice, TTS, and Lip-Sync
 
-- `prompts/base_system_prompt.md`
-  Write ENE's core identity here: who ENE is, how it should generally speak, what kind of relationship it should have with the user, and what attitude or tone it should maintain consistently.
+ENE supports several voice paths:
 
-- `prompts/sub_prompt_body.md`
-  Write additional behavioral instructions here: how ENE should respond in daily situations, how affectionate, playful, calm, or serious it should feel, and any extra response rules you want on top of the base prompt. This is also a good place to tune how spoken TTS replies should feel if you want them to differ from the main text reply.
+- HTTP TTS providers such as GPT-SoVITS-style endpoints
+- OpenAI-compatible audio speech
+- ElevenLabs
+- browser speech synthesis
+- streaming TTS where supported
 
-- `prompts/emotion_guides.md`
-  Write the list of emotion keys and short usage guidance here. This is where you explain what each emotion means and when ENE should choose it.
+The app can synchronize visible responses, audio playback, and Live2D mouth movement. For models with richer mouth parameters, ENE can use model-aware lip-sync profiles and viseme blending. For simpler models, it falls back to basic mouth-open behavior.
 
-- `prompts/analysis_system_appendix.md`
-  Write supporting analysis rules here if you want ENE to follow extra internal guidance for interpretation or structured reasoning. This is more of an advanced tuning file than a first-setup file. It is not loaded for `/note` planning flows that run without the normal sub-prompt path.
+Push-to-talk can interrupt active TTS playback so voice input does not compete with ENE speaking.
 
-For `/note` planning flows, ENE does not use the normal sub-prompt path, so `sub_prompt_body.md`, `emotion_guides.md`, and `analysis_system_appendix.md` are not placed into the planning context in the same way.
+## Notes and Obsidian
 
-If you are just starting, the most important files are `base_system_prompt.md`, `sub_prompt_body.md`, and `emotion_guides.md`.
+ENE includes two note-oriented command paths:
 
-## Configuration Notes
+- `/diary` for diary-style local writing
+- `/note` for plan-and-execute note workflows
 
-The settings window already covers most of what you will want to change in normal use, including:
+When Obsidian CLI integration is enabled, ENE can inspect checked files, include selected context in prompts, and run controlled note operations through the configured workflow.
 
-- model selection and provider-specific parameters
-- TTS provider switching and voice playback options
-- embedding model configuration
-- global PTT behavior
-- Obsidian CLI integration settings
-- Live2D model placement, scale, and expression-related options
+## Project Structure
 
-You can use ENE without touching most internals, but if something does not behave the way you expect, the settings window is the first place to check before editing the raw configuration files.
+```text
+main.py                     PyQt entry point and runtime preload
+src/core/app.py             application composition
+src/core/app_*_bootstrap.py app startup helpers for LLM, memory, TTS, profile
+src/core/bridge.py          QWebChannel bridge facade
+src/core/bridge_mixins/     bridge feature areas
+src/ai/                     LLM clients, memory, prompts, profiles, goals, mood
+src/ui/                     settings dialogs and desktop UI helpers
+assets/web/                 Live2D web runtime
+assets/live2d_models/       bundled release-safe model assets
+scripts/                    setup and release scripts
+tests/                      regression and unit tests
+```
 
-## Voice and TTS
+The current architecture keeps `app.py` close to composition code and moves startup responsibilities into focused bootstrap modules. `WebBridge` still acts as the QWebChannel integration point, while feature behavior is split across bridge mixins and service modules.
 
-ENE supports voice output, configurable TTS providers, and lip-sync behavior that can be tuned from the settings window.
+## Development
 
-- You can switch TTS providers, output behavior, and related voice settings without editing Python code.
-- By default, ENE is set up so spoken TTS replies can be generated separately from the main text reply, with Japanese used as the default spoken response language.
-- Lip-sync and mouth-shaping options are available for users who want a more expressive Live2D experience.
-- If you want to tune spoken reply behavior, check `prompts/sub_prompt_body.md` together with the TTS-related options in the settings window.
-- Advanced provider-specific setup is optional. Most users can start with a basic TTS configuration first and only tune deeper settings if needed.
+Install development dependencies:
+
+```powershell
+pip install -r requirements-dev.txt
+```
+
+Run the fast syntax/lint gate:
+
+```powershell
+python -m ruff check . --select E9,F63,F7,F82
+```
+
+Run the CI-style coverage gate:
+
+```powershell
+python -m coverage run --source=src --omit="src/core/app.py,src/core/audio_player.py,src/core/global_ptt.py,src/core/overlay_window.py,src/core/bridge_workers.py,src/core/bridge_mixins/attachments.py,src/core/bridge_mixins/away.py,src/core/bridge_mixins/memory_summary.py,src/core/bridge_mixins/mood.py,src/core/bridge_mixins/obsidian.py,src/ui/drag_bar.py,src/ui/settings_dialog_hotkeys.py,src/ui/settings_dialog_profile.py,src/ui/settings_dialog_prompt.py,src/ui/settings_dialog_theme.py,src/ui/settings_dialog_tts.py,src/ui/settings_dialog_widgets.py,src/ai/http_llm_clients.py,src/ai/http_llm_common.py,src/ai/http_llm_openai.py,src/ai/http_llm_custom_providers.py,src/ai/http_llm_anthropic.py,src/ai/http_llm_ollama.py,src/ai/llm_client.py" -m pytest -q
+python -m coverage report --show-missing --skip-empty --fail-under=80
+```
+
+See [TESTING.md](TESTING.md) for the maintained test guide and focused regression groups.
+
+## Web Runtime Assets
+
+The repository includes the Live2D web runtime assets needed by the desktop overlay. If you need to refresh generated web libraries:
+
+```powershell
+python scripts/setup_web_libs.py
+```
 
 ## Windows Release Build
 
-To build a portable Windows release locally:
+Build a portable Windows release locally:
 
 ```powershell
 python -m pip install --upgrade pip
@@ -235,34 +227,29 @@ pip install -r requirements-dev.txt
 python scripts/build_windows_release.py --version v0.1.0
 ```
 
-The build produces a zip file in `release/` that contains the `ENE/` folder with `ENE.exe` and its bundled runtime files.
+The build creates a zip under `release/` containing `ENE.exe` and bundled runtime files.
 
-The portable release intentionally bundles only release-safe built-in assets:
+Release-safe built-in assets include:
 
 - `assets/icons`
 - `assets/web`
 - `assets/live2d_models/hiyori`
 
-Personal Live2D purchases, private reference audio, and other user-specific assets should be provided through external paths after install, not committed into the public release bundle.
-
-GitHub Releases automation is configured so that pushing a tag such as `v0.1.0` builds the same portable zip on `windows-latest` and uploads it to the release.
+Personal Live2D purchases, private reference audio, provider keys, memory files, and profile data should stay outside the public release bundle.
 
 ## Roadmap
 
-- [ ] improve first-run setup and configuration guidance
-- [ ] improve stability
-- [ ] start conversations first with an appropriate topic when it is not already in an active conversation
-- [ ] add internet search capabilities
-- [ ] add better memory controls
-- [ ] upgrade ENE Memory 2.0 from JSON to SQLite
-- [ ] make expression and emotion switching feel more natural
-- [ ] import and export settings, prompts, and profile data
-- [ ] add relationship and personality tuning presets
-- [ ] improve context-aware proactive conversations
+- Improve first-run onboarding and setup validation.
+- Polish packaged desktop releases.
+- Add import/export for settings, prompts, profiles, and memory.
+- Improve memory controls and eventually move Memory 2.0 storage from JSON to SQLite.
+- Improve expression selection and proactive conversation timing.
+- Add richer provider setup guidance.
+- Continue reducing large bridge/runtime surfaces only where it improves reliability.
 
 ## Third-Party Licenses
 
 - ENE uses inline Lucide SVG icons for several controls in the web UI, including `paperclip`, `pencil`, and `rotate-ccw`.
 - These icons are used directly in the project UI and are not provided through the Forui framework.
 - Lucide icons are distributed under the ISC License.
-- When redistributing these icon assets or their adapted SVG markup, please keep the appropriate upstream attribution and license notices for Lucide.
+- When redistributing these icon assets or adapted SVG markup, keep the appropriate upstream attribution and license notices for Lucide.
