@@ -22,6 +22,12 @@ from .app_llm_bootstrap import (
     create_llm_runtime_client,
     resolve_llm_bootstrap_config,
 )
+from .app_memory_bootstrap import build_memory_manager, build_profile_runtime
+from .app_tts_bootstrap import (
+    TTSRuntime,
+    apply_tts_runtime_to_bridge,
+    build_tts_runtime,
+)
 
 
 class ENEApplication(QObject):
@@ -101,8 +107,7 @@ class ENEApplication(QObject):
             self._init_memory_manager()
             
             # 사용자 프로필 초기화
-            self._init_user_profile()
-            self._init_ene_profile()
+            self._init_profiles()
             self._init_mood_manager()
             
             self.llm_client = create_llm_runtime_client(
@@ -159,34 +164,11 @@ class ENEApplication(QObject):
             traceback.print_exc()
             self.goal_manager = None
 
-    def _init_user_profile(self):
-        """사용자 프로필 초기화"""
-        try:
-            from src.ai.user_profile import UserProfile
-            
-            self.user_profile = UserProfile(profile_file="user_profile.json")
-            print("OK: 사용자 프로필 초기화 성공")
-            
-        except Exception as e:
-            print(f"ERROR: 사용자 프로필 초기화 실패: {e}")
-            import traceback
-            traceback.print_exc()
-            self.user_profile = None
-
-    def _init_ene_profile(self):
-        """에네 프로필 초기화"""
-        try:
-            from src.ai.ene_profile import EneProfile
-
-            user_profile = self.user_profile if hasattr(self, "user_profile") else None
-            self.ene_profile = EneProfile(profile_file="ene_profile.json", user_profile=user_profile)
-            print("OK: 에네 프로필 초기화 성공")
-
-        except Exception as e:
-            print(f"ERROR: 에네 프로필 초기화 실패: {e}")
-            import traceback
-            traceback.print_exc()
-            self.ene_profile = None
+    def _init_profiles(self):
+        """사용자/에네 프로필 초기화"""
+        runtime = build_profile_runtime()
+        self.user_profile = runtime.user_profile
+        self.ene_profile = runtime.ene_profile
     
     def _init_calendar_manager(self):
         """캘린더 매니저 초기화"""
@@ -218,39 +200,8 @@ class ENEApplication(QObject):
     
     def _init_memory_manager(self):
         """메모리 매니저 초기화"""
-        from src.ai.memory import MemoryManager
-        from src.ai.embedding import EmbeddingGenerator
-        
         try:
-            embedding_provider = str(self.settings.get("embedding_provider", "voyage")).strip().lower()
-            embedding_model = str(self.settings.get("embedding_model", "voyage-3")).strip() or "voyage-3"
-            embedding_api_keys = self.settings.get("embedding_api_keys", {})
-            if not isinstance(embedding_api_keys, dict):
-                embedding_api_keys = {}
-            embedding_api_key = str(embedding_api_keys.get(embedding_provider, "")).strip()
-
-            if embedding_provider != "voyage":
-                print(f"WARNING: 지원하지 않는 임베딩 공급자입니다: {embedding_provider}")
-                embedding_gen = None
-            elif not embedding_api_key:
-                print("WARNING: 임베딩 API 키가 없습니다.")
-                print("장기기억 기능이 제한적으로 작동합니다 (임베딩 없음).")
-                embedding_gen = None
-            else:
-                if embedding_api_key == "your-voyage-api-key-here" or not embedding_api_key:
-                    print("WARNING: Voyage AI API 키를 설정해주세요.")
-                    embedding_gen = None
-                else:
-                    embedding_gen = EmbeddingGenerator(api_key=embedding_api_key, model=embedding_model)
-                    print(f"OK: Voyage AI 임베딩 생성기 초기화 성공 ({embedding_model})")
-            
-            # 메모리 매니저 생성
-            self.memory_manager = MemoryManager(
-                memory_file="memory.json",
-                embedding_generator=embedding_gen
-            )
-            print("OK: 메모리 매니저 초기화 성공")
-            
+            self.memory_manager = build_memory_manager(self.settings)
         except Exception as e:
             print(f"ERROR: 메모리 매니저 초기화 실패: {e}")
             import traceback
@@ -276,55 +227,9 @@ class ENEApplication(QObject):
     def _init_tts(self):
         """TTS 및 오디오 플레이어 초기화"""
         try:
-            from src.ai.tts_client import create_tts_client, get_tts_provider_defaults
-            from src.core.audio_player import AudioPlayer
-
-            if not bool(self.settings.get("enable_tts", True)):
-                self.tts_client = None
-                self.audio_player = None
-                print("INFO: TTS 비활성화 상태로 초기화를 건너뜁니다.")
-                return
-
-            tts_provider = str(self.settings.get("tts_provider", "gpt_sovits_http")).strip().lower()
-            tts_provider_configs = self.settings.get("tts_provider_configs", {})
-            if not isinstance(tts_provider_configs, dict):
-                tts_provider_configs = {}
-
-            provider_config = get_tts_provider_defaults(tts_provider)
-            raw_provider_config = tts_provider_configs.get(tts_provider, {})
-            if isinstance(raw_provider_config, dict):
-                provider_config.update(raw_provider_config)
-
-            tts_api_keys = self.settings.get("tts_api_keys", {})
-            if not isinstance(tts_api_keys, dict):
-                tts_api_keys = {}
-
-            try:
-                self.tts_client = create_tts_client(
-                    tts_provider,
-                    provider_config,
-                    api_key=str(tts_api_keys.get(tts_provider, "")).strip(),
-                )
-            except ValueError:
-                self.tts_client = None
-                self.audio_player = None
-                print(f"WARNING: 아직 지원하지 않는 TTS 공급자입니다: {tts_provider}")
-                return
-            
-            # 오디오 플레이어 초기화
-            self.audio_player = AudioPlayer(
-                output_device_id=str(self.settings.get("tts_output_device_id", "")).strip(),
-                volume=float(self.settings.get("tts_output_volume", 0.8) or 0.8),
-            )
-            
-            # TTS 사용 가능 여부 확인
-            if self.tts_client.is_available():
-                print(f"OK: TTS 클라이언트 초기화 성공 ({tts_provider})")
-            else:
-                print(f"WARNING: TTS 공급자 설정이 충분하지 않습니다. provider={tts_provider}")
-                self.tts_client = None
-                self.audio_player = None
-            
+            runtime = build_tts_runtime(self.settings)
+            self.tts_client = runtime.tts_client
+            self.audio_player = runtime.audio_player
         except Exception as e:
             print(f"WARNING: TTS 초기화 실패: {e}")
             import traceback
@@ -336,16 +241,13 @@ class ENEApplication(QObject):
         """TTS 설정 변경 후 클라이언트/브리지 상태를 다시 연결한다."""
         self._init_tts()
         if hasattr(self, "overlay_window") and self.overlay_window and hasattr(self.overlay_window, "bridge"):
-            self.overlay_window.bridge.enable_tts = bool(self.settings.get("enable_tts", False))
-            self.overlay_window.bridge.tts_streaming_enabled = bool(
-                self.settings.get("tts_streaming_enabled", False)
-            )
-            self.overlay_window.bridge.tts_streaming_emit_message_on_first_chunk = bool(
-                self.settings.get("tts_streaming_emit_message_on_first_chunk", True)
-            )
-            self.overlay_window.bridge.set_tts(
-                self.tts_client if hasattr(self, "tts_client") else None,
-                self.audio_player if hasattr(self, "audio_player") else None,
+            apply_tts_runtime_to_bridge(
+                self.overlay_window.bridge,
+                self.settings,
+                TTSRuntime(
+                    tts_client=self.tts_client if hasattr(self, "tts_client") else None,
+                    audio_player=self.audio_player if hasattr(self, "audio_player") else None,
+                ),
             )
     
     def _connect_signals(self):
