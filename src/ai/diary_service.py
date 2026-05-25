@@ -10,9 +10,6 @@ import re
 import subprocess
 
 
-_DIARY_COMMAND_PATTERN = re.compile(r"^/diary(?:\s+(.*))?$", re.IGNORECASE | re.DOTALL)
-_OBS_COMMAND_PATTERN = re.compile(r"^/obs(?:\s+(.*))?$", re.IGNORECASE | re.DOTALL)
-_NOTE_COMMAND_PATTERN = re.compile(r"^/note(?:\s+(.*))?$", re.IGNORECASE | re.DOTALL)
 _SAFE_SLUG_PATTERN = re.compile(r"[^0-9A-Za-z가-힣_-]+")
 
 
@@ -36,36 +33,6 @@ class DiaryService:
     def __init__(self, base_dir: str | Path = "diary", settings=None):
         self.base_dir = Path(base_dir)
         self.settings = settings
-
-    @staticmethod
-    def parse_diary_command(message: str) -> tuple[bool, str]:
-        """/diary 명령 여부와 본문을 반환한다."""
-        text = (message or "").strip()
-        match = _DIARY_COMMAND_PATTERN.match(text)
-        if not match:
-            return False, ""
-        body = (match.group(1) or "").strip()
-        return True, body
-
-    @staticmethod
-    def parse_obs_command(message: str) -> tuple[bool, str]:
-        """/obs 명령 여부와 본문을 반환한다."""
-        text = (message or "").strip()
-        match = _OBS_COMMAND_PATTERN.match(text)
-        if not match:
-            return False, ""
-        body = (match.group(1) or "").strip()
-        return True, body
-
-    @staticmethod
-    def parse_note_command(message: str) -> tuple[bool, str]:
-        """/note 명령 여부와 본문을 반환한다."""
-        text = (message or "").strip()
-        match = _NOTE_COMMAND_PATTERN.match(text)
-        if not match:
-            return False, ""
-        body = (match.group(1) or "").strip()
-        return True, body
 
     @staticmethod
     def build_slug(source_text: str, max_length: int = 40) -> str:

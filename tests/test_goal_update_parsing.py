@@ -154,10 +154,10 @@ def test_gemini_parse_response_returns_goal_update_metadata():
     )
 
     assert len(parsed) == 8
-    clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update = parsed
+    clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update = parsed
     assert clean_text == "좋아요."
     assert emotion == "smile"
-    assert japanese_text is None
+    assert tts_text is None
     assert events == []
     assert analysis == {}
     assert promises == []

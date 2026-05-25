@@ -47,9 +47,11 @@ GENERATED_SUB_PROMPT_SECTION_TITLES = {
     "感情使用ガイド",
 }
 
+# 예전 사용자 프롬프트 파일을 읽을 수 있도록 과거 섹션명을 현재 명칭으로 정규화한다.
 SUB_PROMPT_SECTION_TITLE_ALIASES = {
     "Emotion Expression Rules": "감정 표현 규칙",
-    "Japanese Response Rules": "일본어 응답 규칙",
+    "Japanese Response Rules": "일본어 표기 규칙",
+    "Japanese Notation Rules": "일본어 표기 규칙",
     "Response Format Examples": "응답 형식 예시",
     "Emotion Usage Guide": "감정 사용 가이드",
 }

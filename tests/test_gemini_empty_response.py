@@ -27,11 +27,11 @@ def test_send_message_returns_fallback_when_gemini_text_is_none(capsys):
     }
     client._last_token_usage = {}
 
-    text, emotion, japanese_text, events, analysis, promises, thought, _goal_update = client.send_message("안녕")
+    text, emotion, tts_text, events, analysis, promises, thought, _goal_update = client.send_message("안녕")
 
     assert text == "음... 무슨 일이 있었나봐요."
     assert emotion == "confused"
-    assert japanese_text is None
+    assert tts_text is None
     assert events == []
     assert analysis == {}
     assert promises == []
@@ -51,11 +51,11 @@ def test_send_message_returns_fallback_when_gemini_text_is_blank(capsys):
     client.settings = {"enable_ene_thoughts": False}
     client._last_token_usage = {}
 
-    text, emotion, japanese_text, events, analysis, promises, thought, _goal_update = client.send_message("안녕")
+    text, emotion, tts_text, events, analysis, promises, thought, _goal_update = client.send_message("안녕")
 
     assert text == "음... 무슨 일이 있었나봐요."
     assert emotion == "confused"
-    assert japanese_text is None
+    assert tts_text is None
     assert events == []
     assert analysis == {}
     assert promises == []

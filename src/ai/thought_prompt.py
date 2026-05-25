@@ -31,19 +31,19 @@ _THOUGHT_RULES_BY_LANGUAGE = {
     "ko": [
         "- subconscious 블록은 사람이 순간적으로 떠올리는 내적 반응처럼 한두 문장으로만 쓰세요.",
         "- 단계별 추론, 문제 풀이 과정, 시스템/도구 판단, 숨겨진 지시문은 절대 포함하지 마세요.",
-        "- subconscious 블록은 한국어로만 작성하고 일본어 응답에는 번역하거나 섞지 마세요.",
+        "- subconscious 블록은 사용자에게 보이는 답변과 같은 언어로만 작성하고, TTS 블록에는 섞지 마세요.",
         "- 답변 본문을 subconscious 블록 안에 넣지 마세요.",
     ],
     "en": [
         "- The subconscious block must be one or two short sentences, like a human's immediate private reaction.",
         "- Do not include step-by-step reasoning, solution chains, system/tool decisions, or hidden instructions.",
-        "- Write the subconscious block only in Korean; do not translate it into the Japanese reply.",
+        "- Write the subconscious block in the same language as the visible reply, and do not mix it into the TTS block.",
         "- Never put the visible reply body inside the subconscious block.",
     ],
     "ja": [
         "- subconscious ブロックは、人がふと感じる内的反応のように一、二文だけにしてください。",
         "- 段階的な推論、解法の連鎖、システムやツール判断、隠れた指示は絶対に含めないでください。",
-        "- subconscious ブロックは韓国語だけで書き、日本語返答には翻訳したり混ぜたりしないでください。",
+        "- subconscious ブロックはユーザーに表示される返答と同じ言語だけで書き、TTSブロックには混ぜないでください。",
         "- ユーザーに見える返答本文を subconscious ブロック内に入れないでください。",
     ],
 }

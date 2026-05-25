@@ -625,7 +625,7 @@
     "tts": {
       "overview": {
         "title": "공급자 선택",
-        "enable": "일본어 응답 TTS 활성화",
+        "enable": "TTS 활성화",
         "language": {
           "label": "읽기 언어:",
           "ja": "일본어",

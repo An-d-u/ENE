@@ -24,14 +24,15 @@ from .prompt_language import resolve_prompt_language
 from .response_cleanup import extract_goal_update_metadata, extract_thought_metadata
 from .response_parser import (
     extract_analysis_block,
-    extract_japanese_lines,
+    extract_legacy_japanese_tts_lines,
     extract_tts_text,
     is_japanese,
     parse_analysis_lines,
     parse_llm_response,
 )
 from .summary_parser import parse_summary_memory_meta, parse_summary_response
-from .summary_prompt import build_markdown_document_prompt, build_summary_prompt
+from .markdown_document_prompt import build_markdown_document_prompt
+from .summary_prompt import build_summary_prompt
 
 LLM_RESPONSE_TUPLE = Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict], str, Dict[str, str]]
 
@@ -405,17 +406,17 @@ class GeminiClient:
             print(f"[LLM] 멀티모달 응답: {response_text[:100]}...")
             
             # 응답에서 텍스트, 감정, 일정 분리 (기존 메서드 활용)
-            clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._parse_response(response_text)
+            clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update = self._parse_response(response_text)
             
             # TTS 텍스트가 있으면 로깅
-            if japanese_text:
-                print(f"[LLM] TTS 텍스트: {japanese_text[:30]}...")
+            if tts_text:
+                print(f"[LLM] TTS 텍스트: {tts_text[:30]}...")
             
             # 일정이 있으면 로깅
             if events:
                 print(f"[LLM] {len(events)}개 일정 추출됨")
             
-            return clean_text, emotion, japanese_text, events, analysis, promises, thought, goal_update
+            return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update
 
             
         except Exception as e:
@@ -549,17 +550,17 @@ class GeminiClient:
             print(f"[LLM] Received response: {response_text[:50]}...")
             
             # 응답에서 텍스트와 감정 분리
-            text, emotion, japanese_text, events, analysis, promises, thought, goal_update = self._parse_response(response_text)
+            text, emotion, tts_text, events, analysis, promises, thought, goal_update = self._parse_response(response_text)
             
             # TTS 텍스트가 있으면 로깅
-            if japanese_text:
-                print(f"[LLM] TTS 텍스트: {japanese_text[:30]}...")
+            if tts_text:
+                print(f"[LLM] TTS 텍스트: {tts_text[:30]}...")
             
             # 일정이 있으면 로깅
             if events:
                 print(f"[LLM] {len(events)}개 일정 추출됨")
             
-            return text, emotion, japanese_text, events, analysis, promises, thought, goal_update
+            return text, emotion, tts_text, events, analysis, promises, thought, goal_update
             
         except Exception as e:
             print(f"[LLM] Error: {e}")
@@ -663,9 +664,9 @@ class GeminiClient:
         """응답 본문에서 목표 업데이트 메타데이터 블록을 분리한다."""
         return extract_goal_update_metadata(response_text)
 
-    def _extract_japanese_lines(self, text: str) -> tuple[str, str | None]:
-        """본문 어디에 있든 일본어 전용 줄을 분리해 표시용 텍스트에서 제거한다."""
-        return extract_japanese_lines(text)
+    def _extract_legacy_japanese_tts_lines(self, text: str) -> tuple[str, str | None]:
+        """구형 일본어 TTS 줄을 표시 텍스트와 분리한다."""
+        return extract_legacy_japanese_tts_lines(text)
 
     def _extract_tts_text(self, text: str) -> tuple[str, str | None]:
         """명시적 TTS 블록 또는 설정 언어에 따라 TTS용 텍스트를 분리한다."""
@@ -673,7 +674,7 @@ class GeminiClient:
 
     def _parse_response(self, response_text: str) -> LLM_RESPONSE_TUPLE:
         """
-        응답 텍스트에서 감정 태그, 일본어, 일정 추출
+        응답 텍스트에서 감정 태그, TTS 텍스트, 일정 추출
         
         Args:
             response_text: AI 응답 텍스트

@@ -1,11 +1,12 @@
 ﻿"""
-WebBridge? Obsidian ??, ??, ?? ?? ??.
+WebBridge의 Obsidian 패널, 명령, 컨텍스트 연동을 담당한다.
 """
 import json
 import re
 
 from PyQt6.QtCore import QTimer, pyqtSlot
 
+from ...ai.chat_commands import parse_obs_command
 from ..bridge_workers import ObsidianCheckedFilesWorker, ObsidianTreeWorker, build_obsidian_checked_context
 
 
@@ -182,7 +183,7 @@ class ObsidianBridgeMixin:
 
     def _handle_obs_command(self, message: str) -> bool:
         """'/obs' 명령을 감지해 Obsidian 명령/질의를 처리한다."""
-        is_obs, obs_body = self.diary_service.parse_obs_command(message)
+        is_obs, obs_body = parse_obs_command(message)
         if not is_obs:
             return False
 

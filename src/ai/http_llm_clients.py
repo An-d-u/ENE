@@ -26,14 +26,15 @@ from .prompt_language import resolve_prompt_language
 from .response_cleanup import extract_goal_update_metadata, extract_thought_metadata
 from .response_parser import (
     extract_analysis_block,
-    extract_japanese_lines,
+    extract_legacy_japanese_tts_lines,
     extract_tts_text,
     is_japanese,
     parse_analysis_lines,
     parse_llm_response,
 )
 from .summary_parser import parse_summary_memory_meta, parse_summary_response
-from .summary_prompt import build_markdown_document_prompt, build_summary_prompt, build_summary_prompt_from_text
+from .markdown_document_prompt import build_markdown_document_prompt
+from .summary_prompt import build_summary_prompt, build_summary_prompt_from_text
 from .http_llm_openai import (
     MistralClient,
     OpenAICompatibleClient,
@@ -54,7 +55,7 @@ __all__ = [
     "DEFAULT_GENERATION_PARAMS",
     "extract_analysis_block",
     "extract_goal_update_metadata",
-    "extract_japanese_lines",
+    "extract_legacy_japanese_tts_lines",
     "extract_thought_metadata",
     "extract_tts_text",
     "get_available_emotions",

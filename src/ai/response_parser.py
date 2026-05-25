@@ -116,8 +116,8 @@ def is_japanese(text: str) -> bool:
     return japanese_chars / len(text) > 0.2 if text else False
 
 
-def extract_japanese_lines(text: str) -> tuple[str, str | None]:
-    """본문 어디에 있든 일본어 전용 줄을 분리해 표시용 텍스트에서 제거한다."""
+def extract_legacy_japanese_tts_lines(text: str) -> tuple[str, str | None]:
+    """구형 일본어 TTS 줄을 표시 텍스트와 분리한다."""
     visible_lines = []
     japanese_lines = []
 
@@ -134,8 +134,8 @@ def extract_japanese_lines(text: str) -> tuple[str, str | None]:
         visible_lines.append(raw_line.rstrip())
 
     clean_text = "\n".join(visible_lines).strip()
-    japanese_text = "\n".join(japanese_lines).strip() if japanese_lines else None
-    return clean_text, japanese_text
+    tts_text = "\n".join(japanese_lines).strip() if japanese_lines else None
+    return clean_text, tts_text
 
 
 def extract_tts_text(text: str, settings_source: object | None = None) -> tuple[str, str | None]:
@@ -153,7 +153,7 @@ def extract_tts_text(text: str, settings_source: object | None = None) -> tuple[
         normalized = clean_text.strip()
         return normalized, normalized or None
     if tts_language == "ja":
-        return extract_japanese_lines(clean_text)
+        return extract_legacy_japanese_tts_lines(clean_text)
     return clean_text.strip(), None
 
 

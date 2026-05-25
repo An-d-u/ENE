@@ -1,5 +1,5 @@
 ﻿"""
-WebBridge? ?? ??? ?? ??? ??.
+WebBridge의 대화 요약과 장기기억 저장 흐름을 담당한다.
 """
 from datetime import datetime
 import re

@@ -12,7 +12,7 @@ def _write_text(path: Path, text: str) -> None:
 def _sample_prompt_payload() -> dict:
     return {
         "base_system_prompt": "기본 베이스 프롬프트\n\n- 줄 단위 저장",
-        "sub_prompt_body": "### [일본어 응답 규칙]\n- 일본어 번역을 붙이세요.",
+        "sub_prompt_body": "### [일본어 표기 규칙]\n- 일본어/한자 표기는 자연스럽게 유지하세요.",
         "emotions": ["normal", "smile"],
         "emotion_guides": {
             "normal": "기본 상태",
@@ -85,7 +85,7 @@ def test_load_prompt_config_strips_generated_emotion_sections_in_both_languages(
                 "- Format: `[emotion]`",
                 "- Available emotions: ``",
                 "",
-                "### [Japanese Response Rules]",
+                "### [Japanese Notation Rules]",
                 "- Keep this section.",
                 "",
                 "### [Emotion Usage Guide]",
@@ -107,7 +107,7 @@ def test_load_prompt_config_strips_generated_emotion_sections_in_both_languages(
 
     loaded = prompt_config.load_prompt_config()
 
-    assert loaded["sub_prompt_body"] == "### [일본어 응답 규칙]\n- Keep this section."
+    assert loaded["sub_prompt_body"] == "### [일본어 표기 규칙]\n- Keep this section."
 
 
 def test_parse_emotion_guides_accepts_backtick_wrapped_names():
@@ -167,6 +167,7 @@ def test_default_prompt_templates_keep_output_format_in_runtime_contract(tmp_pat
     assert "[감정 표현 규칙]" in prompt_with_sub
     assert "Response Style Rules" in prompt_with_sub
     assert "[Japanese Response Rules]" not in prompt_with_sub
+    assert "[Japanese Notation Rules]" not in prompt_with_sub
     assert "[Final Output Format]" not in prompt_with_sub
     assert "Japanese translation" not in prompt_with_sub
     assert "normal, smile" in prompt_with_sub
@@ -310,11 +311,18 @@ def test_runtime_thought_rules_are_localized(tmp_path, monkeypatch):
     assert "Japanese TTS text" in english_prompt
     assert "Korean reply [emotion]" not in english_prompt
     assert "step-by-step reasoning" in english_prompt
+    assert "subconscious block in the same language as the visible reply" in english_prompt
+    assert "do not mix it into the TTS block" in english_prompt
+    assert "only in Korean" not in english_prompt
+    assert "Japanese reply" not in english_prompt
     assert "### [最終応答形式]" in japanese_prompt
     assert "[subconscious]" in japanese_prompt
     assert "日本語返答 [emotion]" in japanese_prompt
     assert "韓国語返答 [emotion]" not in japanese_prompt
     assert "段階的な推論" in japanese_prompt
+    assert "表示される返答と同じ言語" in japanese_prompt
+    assert "TTSブロックには混ぜないでください" in japanese_prompt
+    assert "韓国語だけ" not in japanese_prompt
 
 
 def test_runtime_prompt_omits_tts_block_when_tts_language_matches_response_language(tmp_path, monkeypatch):

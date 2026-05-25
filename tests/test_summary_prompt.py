@@ -1,8 +1,5 @@
-﻿from src.ai.summary_prompt import (
-    _format_now_for_language,
-    build_markdown_document_prompt,
-    build_summary_prompt_from_text,
-)
+﻿from src.ai.markdown_document_prompt import build_markdown_document_prompt
+from src.ai.summary_prompt import _format_now_for_language, build_summary_prompt_from_text
 from src.ai.http_llm_clients import _build_summary_prompt
 
 
@@ -80,4 +77,16 @@ def test_markdown_document_prompt_uses_selected_language():
 
     assert "次の依頼に合わせてMarkdown文書を書いてください。" in prompt
     assert "感情タグ" in prompt
+    assert "TTSブロック" in prompt
+    assert "日本語訳" not in prompt
     assert "日記を書いて" in prompt
+
+
+def test_markdown_document_prompt_blocks_tts_metadata_not_translation_labels():
+    ko_prompt = build_markdown_document_prompt("회의록을 정리해줘", language="ko")
+    en_prompt = build_markdown_document_prompt("Write meeting notes", language="en")
+
+    assert "TTS 블록" in ko_prompt
+    assert "일본어 번역" not in ko_prompt
+    assert "TTS block" in en_prompt
+    assert "Japanese translation" not in en_prompt
