@@ -17,10 +17,6 @@ from .app_paths import (
 class Settings:
     """Application settings manager."""
 
-    LEGACY_DEFAULT_MODEL_JSON_PATHS = {
-        "assets/live2d_models/jksalt/jksalt.model3.json",
-    }
-
     DEFAULT_CONFIG = {
         "window_x": 100,
         "window_y": 100,
@@ -268,7 +264,6 @@ class Settings:
         self._migrate_secrets_from_legacy_config()
         self._migrate_legacy_embedding_key_file()
         self._migrate_legacy_tts_config()
-        self._migrate_legacy_default_model_path()
 
     def load(self) -> dict:
         """Load settings. Return defaults on failure."""
@@ -454,22 +449,6 @@ class Settings:
             existing_keys = {}
         secret_defaults.update(existing_keys)
         self.secret_config["tts_api_keys"] = secret_defaults
-
-    def _migrate_legacy_default_model_path(self):
-        """
-        예전 번들 기본 모델 경로를 새 Hiyori 기본 모델로 이전한다.
-        사용자가 직접 고른 커스텀 모델 경로는 건드리지 않는다.
-        """
-        model_path = str(self.config.get("model_json_path", "")).strip().replace("\\", "/")
-        if model_path not in self.LEGACY_DEFAULT_MODEL_JSON_PATHS:
-            return
-
-        self.config["model_json_path"] = self.DEFAULT_CONFIG["model_json_path"]
-        if self.config.get("head_pat_active_emotion_default") == "eyeclose":
-            self.config["head_pat_active_emotion_default"] = self.DEFAULT_CONFIG["head_pat_active_emotion_default"]
-        if self.config.get("head_pat_end_emotion_default") == "shy":
-            self.config["head_pat_end_emotion_default"] = self.DEFAULT_CONFIG["head_pat_end_emotion_default"]
-        self.save()
 
     def save(self):
         """Persist current settings and secret settings."""
