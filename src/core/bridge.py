@@ -96,10 +96,6 @@ class WebBridge(
         self.away_timer = QTimer(self)
         self.away_timer.setInterval(10_000)
         self.away_timer.timeout.connect(self._check_away_nudge_condition)
-
-        self.away_second_shot_timer = QTimer(self)
-        self.away_second_shot_timer.setSingleShot(True)
-        self.away_second_shot_timer.timeout.connect(self._complete_away_capture_pipeline)
         
         # 설정에서 임계값 로드 (기본값: 10)
         if settings and hasattr(settings, 'config'):

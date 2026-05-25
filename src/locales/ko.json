@@ -971,7 +971,10 @@
           "label": "유휴 시간:",
           "suffix": " 분"
         },
-        "diff_threshold": "화면 차이 민감도:",
+        "input_grace_minutes": {
+          "label": "입력 확인 구간:",
+          "suffix": " 분"
+        },
         "retry_limit": {
           "label": "추가 재실행 횟수:",
           "suffix": " 회"

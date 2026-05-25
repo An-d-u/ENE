@@ -10,6 +10,7 @@ def test_load_missing_file_uses_default_config(tmp_path):
     assert settings.get("window_width") == Settings.DEFAULT_CONFIG["window_width"]
     assert settings.get("ui_language") == "auto"
     assert settings.get("enable_away_nudge") is True
+    assert settings.get("away_input_grace_minutes") == 5
     assert settings.get("show_obsidian_note_button") is True
     assert settings.get("show_token_usage_bubble") is False
     assert settings.get("note_include_recent_context") is False

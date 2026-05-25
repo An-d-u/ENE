@@ -969,7 +969,10 @@
           "label": "Idle time:",
           "suffix": " min"
         },
-        "diff_threshold": "Screen difference sensitivity:",
+        "input_grace_minutes": {
+          "label": "Input check window:",
+          "suffix": " min"
+        },
         "retry_limit": {
           "label": "Additional retry count:",
           "suffix": " retries"
