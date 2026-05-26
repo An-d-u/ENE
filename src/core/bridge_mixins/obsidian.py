@@ -122,7 +122,43 @@ class ObsidianBridgeMixin:
             self._schedule_checked_files_context_refresh(force=True)
             return ""
 
+        if self._cached_checked_files_context and not self._validate_cached_checked_files_context(signature):
+            return ""
+
         return self._cached_checked_files_context
+
+    def _validate_cached_checked_files_context(self, signature: tuple[str, ...]) -> bool:
+        """캐시된 체크 파일이 현재 Obsidian 트리에 여전히 존재하는지 확인한다."""
+        try:
+            tree = self.obsidian_manager.build_tree(allow_retry=False)
+        except Exception as e:
+            print(f"[Bridge] 체크 파일 캐시 검증 실패: {e}")
+            self._invalidate_checked_files_context_cache()
+            return False
+
+        if not isinstance(tree, dict) or not tree.get("ok"):
+            self._invalidate_checked_files_context_cache()
+            return False
+
+        checked_files = tuple(str(path) for path in tree.get("checked_files", []) if str(path).strip())
+        if checked_files == signature:
+            return True
+
+        setter = getattr(self.obs_settings, "set_checked_files", None)
+        if callable(setter):
+            try:
+                setter(list(checked_files))
+            except Exception as e:
+                print(f"[Bridge] 체크 파일 설정 정리 실패: {e}")
+        self._invalidate_checked_files_context_cache()
+        try:
+            self._cached_obs_tree_json = json.dumps(tree, ensure_ascii=False)
+            self.obs_tree_updated.emit(self._cached_obs_tree_json)
+        except Exception as e:
+            print(f"[Bridge] 체크 파일 정리 후 트리 emit 실패: {e}")
+        if checked_files:
+            self._schedule_checked_files_context_refresh(force=True)
+        return False
 
     def _invalidate_checked_files_context_cache(self):
         """체크 파일 내용이 바뀐 뒤 기존 스냅샷을 무효화한다."""
