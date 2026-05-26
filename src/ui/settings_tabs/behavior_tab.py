@@ -100,6 +100,13 @@ def build_behavior_tab(dialog):
     self.include_ene_thoughts_in_context_check.toggled.connect(self._on_ene_thought_context_toggle)
     display_layout.addWidget(self.include_ene_thoughts_in_context_check)
 
+    self.enable_proactive_conversation_check = self._create_toggle(
+        "선제 대화 사용",
+        key="settings.behavior.display.proactive_conversation",
+    )
+    self.enable_proactive_conversation_check.toggled.connect(self._on_setting_changed)
+    display_layout.addWidget(self.enable_proactive_conversation_check)
+
     thought_context_layout = QFormLayout()
     thought_context_layout.setContentsMargins(0, 0, 0, 0)
     thought_context_layout.setSpacing(8)

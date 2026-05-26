@@ -10,6 +10,28 @@ from .prompt_language import resolve_prompt_language, resolve_tts_language
 from .thought_prompt import build_thought_rules, is_thought_prompt_enabled
 
 
+def _read_setting(settings_source: object | None, key: str, default):
+    if settings_source is None:
+        return default
+    if isinstance(settings_source, dict):
+        return settings_source.get(key, default)
+    getter = getattr(settings_source, "get", None)
+    if callable(getter):
+        try:
+            return getter(key, default)
+        except Exception:
+            pass
+    config = getattr(settings_source, "config", None)
+    if isinstance(config, dict):
+        return config.get(key, default)
+    return default
+
+
+def is_proactive_conversation_enabled(settings_source: object | None = None) -> bool:
+    """설정에서 선제 대화 기능 활성화 여부를 읽는다."""
+    return bool(_read_setting(settings_source, "enable_proactive_conversation", True))
+
+
 _RESPONSE_CONTRACT_BY_LANGUAGE = {
     "ko": {
         "header": "### [최종 응답 형식]",
@@ -106,6 +128,7 @@ def build_response_contract_appendix(settings_source: object | None = None) -> s
     names = resolve_prompt_persona_names(settings_source=settings_source, language=language)
     goal_enabled = is_goal_prompt_enabled(settings_source)
     thought_enabled = is_thought_prompt_enabled(settings_source)
+    proactive_enabled = is_proactive_conversation_enabled(settings_source)
 
     names_key = "names_with_tts" if tts_language != language else "names"
 
@@ -123,8 +146,9 @@ def build_response_contract_appendix(settings_source: object | None = None) -> s
     if thought_enabled:
         lines.append(contract["subconscious"])
         lines.extend(build_thought_rules(language=language))
-    lines.append(contract["proactive"])
-    lines.extend(_build_proactive_conversation_rules(language=language))
+    if proactive_enabled:
+        lines.append(contract["proactive"])
+        lines.extend(_build_proactive_conversation_rules(language=language))
     lines.append(_build_format_block(contract, goal_enabled, thought_enabled, language, tts_language))
     return "\n".join(lines)
 

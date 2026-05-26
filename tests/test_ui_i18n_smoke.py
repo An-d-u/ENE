@@ -1027,6 +1027,34 @@ def test_settings_dialog_exposes_message_split_toggle_and_saves_value():
         dialog.close()
 
 
+def test_settings_dialog_exposes_proactive_conversation_toggle_and_saves_value():
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        dialog = SettingsDialog(
+            {
+                "ui_language": "ko",
+                "llm_provider": "gemini",
+                "tts_provider": "gpt_sovits_http",
+                "enable_tts": True,
+                "enable_proactive_conversation": False,
+            }
+        )
+
+        assert dialog.enable_proactive_conversation_check.isChecked() is False
+
+        dialog.enable_proactive_conversation_check.setChecked(True)
+
+        current_values = dialog._get_current_values()
+        assert current_values["enable_proactive_conversation"] is True
+
+        dialog.close()
+
+
 def test_settings_dialog_exposes_ene_thought_context_controls_and_saves_values():
     _get_qapp()
     locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
@@ -2194,7 +2222,11 @@ def test_app_runtime_language_change_retranslates_open_windows(tmp_path):
     calls = []
     dialog_calls = []
     overlay_calls = []
-    bridge = SimpleNamespace(enable_tts=False)
+    proactive_calls = []
+    bridge = SimpleNamespace(
+        enable_tts=False,
+        refresh_proactive_settings=lambda: proactive_calls.append("proactive"),
+    )
     app = ENEApplication.__new__(ENEApplication)
     app.settings = _DummySettings({"ui_language": "ko", "enable_tts": False, "tts_provider": "gpt_sovits_http"})
     app.overlay_window = SimpleNamespace(apply_new_settings=lambda settings: overlay_calls.append(settings), bridge=bridge)
@@ -2212,6 +2244,7 @@ def test_app_runtime_language_change_retranslates_open_windows(tmp_path):
     ENEApplication._on_settings_changed(app, {"ui_language": "ja", "interrupt_tts_on_ptt": True})
 
     assert overlay_calls == [{"ui_language": "ja", "interrupt_tts_on_ptt": True}]
+    assert proactive_calls == ["proactive"]
     assert calls == ["tray", "obsidian"]
     assert dialog_calls == ["dialog"]
 

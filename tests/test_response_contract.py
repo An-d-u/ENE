@@ -1,5 +1,5 @@
 ﻿from src.ai.goal_prompt import build_goal_update_rules, is_goal_prompt_enabled
-from src.ai.response_contract import build_response_contract_appendix
+from src.ai.response_contract import build_response_contract_appendix, is_proactive_conversation_enabled
 from src.ai.thought_prompt import is_thought_prompt_enabled
 
 
@@ -10,12 +10,14 @@ class _GetSettings:
     def get(self, key: str, default=None):
         if key == "enable_ene_goals":
             return self._value
+        if key == "enable_proactive_conversation":
+            return self._value
         return default
 
 
 class _ConfigSettings:
     def __init__(self, value: bool):
-        self.config = {"enable_ene_goals": value}
+        self.config = {"enable_ene_goals": value, "enable_proactive_conversation": value}
 
 
 class _RaisingGetSettings:
@@ -23,6 +25,7 @@ class _RaisingGetSettings:
         self.config = {
             "enable_ene_goals": False,
             "enable_ene_thoughts": False,
+            "enable_proactive_conversation": False,
         }
 
     def get(self, key: str, default=None):
@@ -78,6 +81,21 @@ def test_response_contract_includes_optional_proactive_conversation_rules():
     assert "<ISO8601 +09:00" in appendix
 
 
+def test_response_contract_omits_proactive_conversation_rules_when_disabled():
+    appendix = build_response_contract_appendix(
+        {
+            "ui_language": "ko",
+            "enable_ene_goals": False,
+            "enable_ene_thoughts": False,
+            "enable_proactive_conversation": False,
+        }
+    )
+
+    assert "[analysis]" in appendix
+    assert "[proactive_conversation]" not in appendix
+    assert "short-followup" not in appendix
+
+
 def test_response_contract_includes_custom_prompt_names_without_changing_parser_tokens():
     appendix = build_response_contract_appendix(
         {
@@ -119,11 +137,19 @@ def test_goal_prompt_enabled_reads_supported_settings_sources():
     assert is_goal_prompt_enabled(_ConfigSettings(False)) is False
 
 
+def test_proactive_conversation_enabled_reads_supported_settings_sources():
+    assert is_proactive_conversation_enabled() is True
+    assert is_proactive_conversation_enabled({"enable_proactive_conversation": False}) is False
+    assert is_proactive_conversation_enabled(_GetSettings(False)) is False
+    assert is_proactive_conversation_enabled(_ConfigSettings(False)) is False
+
+
 def test_prompt_feature_flags_fall_back_to_config_when_get_raises():
     settings = _RaisingGetSettings()
 
     assert is_goal_prompt_enabled(settings) is False
     assert is_thought_prompt_enabled(settings) is False
+    assert is_proactive_conversation_enabled(settings) is False
 
 
 def test_goal_update_rules_describe_actions_and_goal_scopes():

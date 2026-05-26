@@ -34,6 +34,7 @@ class Settings:
         "typing_effect_speed": "normal",
         "message_split_enabled": False,
         "enable_ene_thoughts": True,
+        "enable_proactive_conversation": True,
         "include_ene_thoughts_in_context": False,
         "ene_thought_context_limit": 2,
         "enable_ene_goals": True,
