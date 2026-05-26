@@ -58,7 +58,6 @@ body {
     left: 0;
     right: 0;
     background: var(--ene-chat-panel-bg);
-    backdrop-filter: blur(10px);
     border-top: 1px solid var(--ene-chat-panel-border);
     max-height: min(360px, 42vh);
     display: flex;
@@ -453,7 +452,6 @@ body.thought-feature-disabled .message-thought {
     background: var(--ene-floating-panel-bg);
     color: var(--ene-floating-panel-text);
     cursor: pointer;
-    backdrop-filter: blur(6px);
     box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
     display: inline-flex;
     align-items: center;
@@ -514,7 +512,6 @@ body.thought-feature-disabled .message-thought {
     border: 1px solid var(--ene-floating-panel-border);
     background: var(--ene-floating-panel-bg);
     color: var(--ene-floating-panel-text);
-    backdrop-filter: blur(6px);
     box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
     font-size: 12px;
     line-height: 1.35;
@@ -555,7 +552,6 @@ body.thought-feature-disabled .message-thought {
     color: var(--ene-floating-panel-text);
     font-size: 13px;
     cursor: pointer;
-    backdrop-filter: blur(4px);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -572,7 +568,6 @@ body.thought-feature-disabled .message-thought {
     background: var(--ene-floating-panel-bg);
     color: var(--ene-floating-panel-text);
     cursor: pointer;
-    backdrop-filter: blur(4px);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -648,7 +643,6 @@ body.thought-feature-disabled .message-thought {
     border-radius: 14px;
     background: var(--ene-floating-panel-bg);
     color: var(--ene-floating-panel-text);
-    backdrop-filter: blur(5px);
     box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
     padding: 12px;
 }
@@ -807,7 +801,6 @@ body.thought-feature-disabled .message-thought {
     border: 1px solid var(--ene-floating-panel-border);
     border-radius: 12px;
     background: var(--ene-floating-panel-bg);
-    backdrop-filter: blur(5px);
     color: var(--ene-floating-panel-text);
     padding: 10px 10px 8px 10px;
     display: flex;
@@ -898,7 +891,6 @@ body.thought-feature-disabled .message-thought {
     border: 1px solid var(--ene-floating-panel-border);
     background: var(--ene-floating-panel-bg);
     color: var(--ene-floating-panel-text);
-    backdrop-filter: blur(4px);
 }
 
 #mood-status-widget.hidden {
@@ -1102,7 +1094,6 @@ body.thought-feature-disabled .message-thought {
     justify-content: center;
     padding: 24px;
     background: rgba(3, 6, 14, 0.78);
-    backdrop-filter: blur(8px);
 }
 
 #image-lightbox-overlay.hidden {
@@ -1357,7 +1348,6 @@ body.thought-feature-disabled .message-thought {
     border: 1px solid rgba(255, 255, 255, 0.10);
     border-radius: 12px;
     background: rgba(255, 255, 255, 0.06);
-    backdrop-filter: blur(4px);
     flex-shrink: 0;
 }
 

@@ -163,6 +163,14 @@ def test_app_runtime_initializers_live_outside_app_module():
     assert "from src.core.audio_player import AudioPlayer" not in app_text
     assert (root / "src" / "core" / "app_memory_bootstrap.py").exists()
     assert (root / "src" / "core" / "app_tts_bootstrap.py").exists()
+
+
+def test_main_configures_qt_webengine_gl_before_app_import():
+    root = Path(__file__).resolve().parents[1]
+    main_text = (root / "main.py").read_text(encoding="utf-8-sig")
+
+    assert "AA_ShareOpenGLContexts" in main_text
+    assert main_text.index("QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts, True)") < main_text.index("from src.core.app import ENEApplication")
 def _extract_ci_step(ci_config: str, step_name: str) -> str:
     start_marker = f"      - name: {step_name}"
     start = ci_config.index(start_marker)
