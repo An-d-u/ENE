@@ -25,8 +25,12 @@ def _preload_stt_runtime():
 # 중요: PyQt import 전에 STT 런타임을 프리로드한다.
 _preload_stt_runtime()
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication
+
+QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts, True)
+
 from src.core.app import ENEApplication
 
 

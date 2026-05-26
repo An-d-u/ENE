@@ -85,6 +85,12 @@ def test_chat_container_uses_roomier_bounded_height():
     assert "max-height: min(360px, 42vh);" in block
 
 
+def test_web_css_avoids_backdrop_filter_in_transparent_overlay():
+    css = STYLE_PATH.read_text(encoding="utf-8-sig")
+
+    assert "backdrop-filter" not in css
+
+
 def test_chat_messages_can_shrink_inside_flex_panel():
     block = _rule_block("#chat-messages")
     assert "min-height: 0;" in block
