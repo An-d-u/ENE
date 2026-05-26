@@ -574,6 +574,23 @@ class ChatFlowBridgeMixin:
     ):
         """AI 응답 준비 완료"""
         completed_promise_id = str(getattr(self, "_active_promise_id", "") or "").strip()
+        completed_proactive_id = str(getattr(self, "_active_proactive_id", "") or "").strip()
+        proactive_enabled = getattr(self, "_is_proactive_conversation_enabled", None)
+        if completed_proactive_id and callable(proactive_enabled) and not proactive_enabled():
+            print("[Bridge] 선제 대화 설정이 꺼져 활성 선제 응답을 폐기합니다.")
+            ChatFlowBridgeMixin._emit_request_pending_changed(self, False)
+            proactive_manager = getattr(self, "proactive_manager", None)
+            if proactive_manager:
+                proactive_manager.delete_item(completed_proactive_id)
+            self._active_proactive_id = None
+            self._active_proactive_signature = None
+            refresh_history = getattr(self, "_refresh_llm_history_from_visible_conversation", None)
+            if callable(refresh_history):
+                refresh_history()
+            drain_proactive_queue = getattr(self, "_drain_proactive_queue_if_idle", None)
+            if callable(drain_proactive_queue):
+                drain_proactive_queue()
+            return
         text = self._sanitize_visible_response_text(text)
         sanitize_thought = getattr(self, "_sanitize_visible_thought_text", None)
         thought = sanitize_thought(thought) if callable(sanitize_thought) else str(thought or "").strip()
@@ -688,7 +705,6 @@ class ChatFlowBridgeMixin:
         if callable(drain_queue):
             drain_queue()
         proactive_manager = getattr(self, "proactive_manager", None)
-        completed_proactive_id = str(getattr(self, "_active_proactive_id", "") or "").strip()
         if proactive_manager and completed_proactive_id:
             proactive_manager.delete_item(completed_proactive_id)
         self._active_proactive_id = None

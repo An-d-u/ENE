@@ -480,6 +480,10 @@ class ENEApplication(QObject):
         )
 
         self.overlay_window.apply_new_settings(new_settings)
+        if hasattr(self.overlay_window, "bridge") and self.overlay_window.bridge:
+            refresh_proactive_settings = getattr(self.overlay_window.bridge, "refresh_proactive_settings", None)
+            if callable(refresh_proactive_settings):
+                refresh_proactive_settings()
         self.interrupt_tts_on_ptt = bool(new_settings.get("interrupt_tts_on_ptt", True))
         if hasattr(self, "global_ptt") and self.global_ptt:
             self.global_ptt.apply_settings(new_settings)

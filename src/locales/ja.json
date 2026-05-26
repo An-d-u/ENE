@@ -810,6 +810,7 @@
         "ene_thoughts": "エネの思考を表示",
         "ene_goals": "エネの目標を有効化",
         "ene_thought_context": "エネの内心メモを次の会話に反映",
+        "proactive_conversation": "先回り会話を有効化",
         "ene_thought_context_limit": {
           "label": "反映する数:",
           "suffix": " 個",

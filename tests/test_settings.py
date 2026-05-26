@@ -235,6 +235,7 @@ def test_save_and_reload_roundtrip(tmp_path):
     settings.set("typing_effect_speed", "slow")
     settings.set("message_split_enabled", True)
     settings.set("enable_ene_thoughts", False)
+    settings.set("enable_proactive_conversation", False)
     settings.set("include_ene_thoughts_in_context", True)
     settings.set("ene_thought_context_limit", 4)
     settings.set("chat_panel_height", 388)
@@ -251,6 +252,7 @@ def test_save_and_reload_roundtrip(tmp_path):
     assert reloaded.get("typing_effect_speed") == "slow"
     assert reloaded.get("message_split_enabled") is True
     assert reloaded.get("enable_ene_thoughts") is False
+    assert reloaded.get("enable_proactive_conversation") is False
     assert reloaded.get("include_ene_thoughts_in_context") is True
     assert reloaded.get("ene_thought_context_limit") == 4
     assert reloaded.get("chat_panel_height") == 388
@@ -267,6 +269,10 @@ def test_save_and_reload_roundtrip_preserves_builtin_idle_motion(tmp_path):
 
     reloaded = Settings(config_path=str(config_path), secret_path=str(secret_path))
     assert reloaded.get("enable_builtin_idle_motion") is False
+
+
+def test_default_config_enables_proactive_conversation():
+    assert Settings.DEFAULT_CONFIG["enable_proactive_conversation"] is True
 
 
 def test_save_and_reload_roundtrip_preserves_auto_eye_blink(tmp_path):

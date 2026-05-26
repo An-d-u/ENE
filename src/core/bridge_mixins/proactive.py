@@ -4,6 +4,7 @@ WebBridge의 선제 대화 예약과 실행 흐름을 담당한다.
 from datetime import datetime
 
 from ...ai.persona_names import resolve_prompt_persona_names
+from ...ai.response_contract import is_proactive_conversation_enabled
 from ..proactive_conversation_runtime import (
     build_proactive_conversation_prompt,
     proactive_fire_signature,
@@ -26,9 +27,22 @@ def _collect_proactive_ids(items: list | None) -> list[str]:
 
 
 class ProactiveBridgeMixin:
+    def _is_proactive_conversation_enabled(self) -> bool:
+        """현재 설정에서 선제 대화 기능이 켜져 있는지 확인한다."""
+        return is_proactive_conversation_enabled(getattr(self, "settings", None))
+
+    def refresh_proactive_settings(self) -> None:
+        """선제 대화 설정이 꺼져 있으면 대기 중인 예약을 즉시 정리한다."""
+        if self._is_proactive_conversation_enabled():
+            return
+        if not self.proactive_manager:
+            self.proactive_run_queue = []
+            return
+        self._cancel_pending_proactive_conversations_for_user_message()
+
     def _store_proactive_conversations(self, candidates: list | None, *, suppress: bool = False) -> list:
         """LLM 응답 메타에 포함된 선제 대화 예약을 저장한다."""
-        if suppress or not candidates or not self.proactive_manager:
+        if suppress or not candidates or not self.proactive_manager or not self._is_proactive_conversation_enabled():
             return []
 
         stored = []
@@ -151,6 +165,9 @@ class ProactiveBridgeMixin:
 
     def _drain_proactive_queue_if_idle(self) -> None:
         """유휴 상태가 되면 대기 중인 선제 대화를 하나 실행한다."""
+        if not self._is_proactive_conversation_enabled():
+            self.refresh_proactive_settings()
+            return
         if self.worker and self.worker.isRunning():
             return
         if not self.proactive_run_queue:
@@ -161,6 +178,10 @@ class ProactiveBridgeMixin:
     def _start_proactive_ai_worker(self, payload: dict) -> None:
         """선제 대화 생성 프롬프트로 응답 생성을 시작한다."""
         proactive_id = str((payload or {}).get("id", "") or "").strip()
+        if not self._is_proactive_conversation_enabled():
+            if self.proactive_manager and proactive_id:
+                self.proactive_manager.set_status(proactive_id, "cancelled")
+            return
         if self.proactive_manager and proactive_id:
             self.proactive_manager.set_status(proactive_id, "triggered")
         self._mark_proactive_fire_started(payload)
@@ -182,6 +203,9 @@ class ProactiveBridgeMixin:
     def _poll_proactive_conversations(self) -> None:
         """도래한 선제 대화 예약을 찾아 즉시 실행하거나 큐에 넣는다."""
         if not self.proactive_manager:
+            return
+        if not self._is_proactive_conversation_enabled():
+            self.refresh_proactive_settings()
             return
 
         due_items, _expired_items = self.proactive_manager.refresh_due_statuses()

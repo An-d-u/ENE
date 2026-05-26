@@ -259,7 +259,12 @@ def test_runtime_prompt_omits_optional_response_contract_sections_when_settings_
     runtime_prompt = prompt_module.build_runtime_system_prompt(
         include_sub_prompt=True,
         include_analysis_appendix=True,
-        settings_source={"ui_language": "ko", "enable_ene_goals": False, "enable_ene_thoughts": False},
+        settings_source={
+            "ui_language": "ko",
+            "enable_ene_goals": False,
+            "enable_ene_thoughts": False,
+            "enable_proactive_conversation": False,
+        },
     )
 
     assert "### [최종 응답 형식]" in runtime_prompt
@@ -271,6 +276,7 @@ def test_runtime_prompt_omits_optional_response_contract_sections_when_settings_
     assert "[/ene_thought]" not in runtime_prompt
     assert "[thought]" not in runtime_prompt
     assert "[/thought]" not in runtime_prompt
+    assert "[proactive_conversation]" not in runtime_prompt
     assert "한국어 답변 [emotion]\n[tts]\n일본어 TTS 문장\n[/tts]" in runtime_prompt
 
 

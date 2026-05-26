@@ -864,6 +864,7 @@
         "ene_thoughts": "에네 생각 표시",
         "ene_goals": "에네 목표 사용",
         "ene_thought_context": "에네 생각을 다음 대화에 반영",
+        "proactive_conversation": "선제 대화 사용",
         "ene_thought_context_limit": {
           "label": "생각 반영 개수:",
           "suffix": " 개",

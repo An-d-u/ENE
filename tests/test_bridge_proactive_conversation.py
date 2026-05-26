@@ -32,6 +32,14 @@ class _StoppedWorker:
         return False
 
 
+class _DummySettings:
+    def __init__(self, config=None):
+        self.config = dict(config or {})
+
+    def get(self, key, default=None):
+        return self.config.get(key, default)
+
+
 class _DummyProactiveManager:
     def __init__(self):
         self.added = []
@@ -84,6 +92,8 @@ def _attach_proactive_helpers(dummy):
         lambda payload=None: WebBridge._should_suppress_duplicate_proactive_fire(dummy, payload)
     )
     dummy._mark_proactive_fire_started = lambda payload=None: WebBridge._mark_proactive_fire_started(dummy, payload)
+    dummy._is_proactive_conversation_enabled = lambda: WebBridge._is_proactive_conversation_enabled(dummy)
+    dummy.refresh_proactive_settings = lambda: WebBridge.refresh_proactive_settings(dummy)
     dummy._store_proactive_conversations = (
         lambda candidates=None, suppress=False: WebBridge._store_proactive_conversations(dummy, candidates, suppress=suppress)
     )
@@ -103,6 +113,7 @@ def test_store_proactive_conversations_persists_items_and_tracks_ids():
     _attach_proactive_helpers(dummy)
     dummy.proactive_manager = _DummyProactiveManager()
     dummy._last_request_payload = {"type": "text"}
+    dummy.settings = _DummySettings({"enable_proactive_conversation": True})
 
     stored = WebBridge._store_proactive_conversations(
         dummy,
@@ -121,6 +132,28 @@ def test_store_proactive_conversations_persists_items_and_tracks_ids():
 
     assert dummy.proactive_manager.added[0]["cooldown_key"] == "short-followup"
     assert dummy._last_request_payload["proactive_ids"] == ["proactive-1"]
+
+
+def test_store_proactive_conversations_skips_when_feature_is_disabled():
+    dummy = type("BridgeDummy", (), {})()
+    _attach_proactive_helpers(dummy)
+    dummy.proactive_manager = _DummyProactiveManager()
+    dummy.settings = _DummySettings({"enable_proactive_conversation": False})
+
+    stored = WebBridge._store_proactive_conversations(
+        dummy,
+        [
+            {
+                "trigger_at": "2026-05-26T21:20:00+09:00",
+                "title": "가벼운 확인",
+                "generation_prompt": "합성 대화 흐름을 짧게 다시 이어가세요.",
+                "cooldown_key": "short-followup",
+            }
+        ],
+    )
+
+    assert stored == []
+    assert dummy.proactive_manager.added == []
 
 
 def test_cancel_pending_proactive_conversations_for_user_message():
@@ -217,8 +250,36 @@ def test_enqueue_due_proactive_conversation_queues_when_worker_is_running():
     assert dummy.proactive_manager.updated == []
 
 
+def test_poll_proactive_conversations_ignores_due_items_when_feature_is_disabled():
+    dummy = type("BridgeDummy", (), {})()
+    _attach_proactive_helpers(dummy)
+    dummy.worker = _StoppedWorker()
+    dummy.proactive_manager = _DummyProactiveManager()
+    dummy.proactive_manager.items = [
+        {
+            "id": "p1",
+            "title": "가벼운 확인",
+            "generation_prompt": "합성 대화 흐름을 짧게 다시 이어가세요.",
+            "cooldown_key": "short-followup",
+            "trigger_at": "2026-05-26T21:20:00+09:00",
+            "status": "scheduled",
+        }
+    ]
+    dummy.proactive_run_queue = [{"id": "queued-1", "status": "scheduled"}]
+    dummy.settings = _DummySettings({"enable_proactive_conversation": False})
+    started = []
+    dummy._start_proactive_ai_worker = lambda payload: started.append(payload)
+
+    WebBridge._poll_proactive_conversations(dummy)
+
+    assert started == []
+    assert dummy.proactive_run_queue == []
+    assert dummy.proactive_manager.cancelled is True
+
+
 def test_drain_proactive_queue_if_idle_starts_next_payload():
     dummy = type("BridgeDummy", (), {})()
+    _attach_proactive_helpers(dummy)
     dummy.worker = None
     dummy.proactive_run_queue = [{"id": "p1"}]
     started = []
@@ -228,6 +289,47 @@ def test_drain_proactive_queue_if_idle_starts_next_payload():
 
     assert started == [{"id": "p1"}]
     assert dummy.proactive_run_queue == []
+
+
+def test_drain_proactive_queue_clears_pending_when_feature_is_disabled():
+    dummy = type("BridgeDummy", (), {})()
+    _attach_proactive_helpers(dummy)
+    dummy.settings = _DummySettings({"enable_proactive_conversation": False})
+    dummy.worker = None
+    dummy.proactive_manager = _DummyProactiveManager()
+    dummy.proactive_run_queue = [{"id": "p1", "status": "scheduled"}]
+    started = []
+    dummy._start_proactive_ai_worker = lambda payload: started.append(payload)
+
+    WebBridge._drain_proactive_queue_if_idle(dummy)
+
+    assert started == []
+    assert dummy.proactive_run_queue == []
+    assert dummy.proactive_manager.cancelled is True
+
+
+def test_start_proactive_ai_worker_cancels_payload_when_feature_is_disabled():
+    dummy = type("BridgeDummy", (), {})()
+    _attach_proactive_helpers(dummy)
+    dummy.settings = _DummySettings({"enable_proactive_conversation": False})
+    dummy.proactive_manager = _DummyProactiveManager()
+    dummy._active_proactive_signature = None
+    dummy._recent_proactive_fire_signatures = {}
+    started = []
+    dummy._start_ai_worker = lambda message_with_time: started.append(message_with_time)
+
+    WebBridge._start_proactive_ai_worker(
+        dummy,
+        {
+            "id": "p1",
+            "title": "가벼운 확인",
+            "generation_prompt": "합성 대화 흐름을 짧게 다시 이어가세요.",
+            "cooldown_key": "short-followup",
+        },
+    )
+
+    assert started == []
+    assert dummy.proactive_manager.updated == [("p1", "cancelled")]
 
 
 def test_start_proactive_ai_worker_uses_generation_prompt():
@@ -316,6 +418,69 @@ def test_on_response_ready_stores_proactive_conversation_when_no_promises():
 
     assert len(dummy.proactive_manager.added) == 1
     assert dummy._last_request_payload["proactive_ids"] == ["proactive-1"]
+
+
+def test_on_response_ready_drops_active_proactive_reply_when_feature_is_disabled():
+    dummy = type("BridgeDummy", (), {})()
+    _attach_proactive_helpers(dummy)
+    dummy.settings = _DummySettings({"enable_proactive_conversation": False})
+    dummy.proactive_manager = _DummyProactiveManager()
+    dummy.proactive_manager.items = [{"id": "p1", "status": "triggered"}]
+    dummy.promise_manager = None
+    dummy.message_received = _DummySignal()
+    dummy.request_pending_changed = _DummySignal()
+    dummy.token_usage_ready = _DummySignal()
+    dummy.reroll_state_changed = _DummySignal()
+    dummy.conversation_buffer = []
+    dummy.mood_manager = None
+    dummy.calendar_manager = None
+    dummy.enable_tts = False
+    dummy.tts_client = None
+    dummy.audio_player = None
+    dummy.pending_response = None
+    dummy.pending_token_usage_payload = ""
+    dummy._is_rerolling = False
+    dummy._active_promise_id = ""
+    dummy._active_proactive_id = "p1"
+    dummy._active_proactive_signature = "short-followup|가벼운 확인|2026-05-26T21:20"
+    dummy._last_request_payload = {"type": "proactive"}
+    dummy._last_assistant_response = None
+    dummy._emit_mood_changed = lambda snapshot: None
+    dummy._sanitize_visible_response_text = lambda text: text
+    dummy._resolve_token_usage_payload = lambda payload="": payload
+    dummy._append_conversation = lambda role, text, timestamp=None: dummy.conversation_buffer.append((role, text, timestamp or "2026-05-26 21:20"))
+    history_refreshes = []
+    dummy._refresh_llm_history_from_visible_conversation = lambda: history_refreshes.append("refreshed")
+    dummy._check_auto_summarize = lambda: None
+    dummy._store_scheduled_promises = lambda items: []
+    dummy._maybe_store_user_promise_candidates = lambda scheduled_promises=None: []
+    dummy._maybe_store_assistant_promise_candidates = lambda source_text: []
+    dummy._collect_promise_ids = lambda items=None: []
+    dummy._remember_tracked_promise_ids = lambda ids=None: None
+    dummy._drain_promise_queue_if_idle = lambda: None
+    dummy._drain_proactive_queue_if_idle = lambda: None
+
+    WebBridge._on_response_ready(
+        dummy,
+        "설정이 꺼진 뒤 도착한 합성 선제 답변입니다.",
+        "smile",
+        "",
+        [],
+        "",
+        "",
+        [],
+        "",
+        "",
+        [],
+    )
+
+    assert dummy.message_received.emitted == []
+    assert dummy.conversation_buffer == []
+    assert dummy.proactive_manager.deleted == ["p1"]
+    assert dummy._active_proactive_id is None
+    assert dummy._active_proactive_signature is None
+    assert dummy.request_pending_changed.emitted == [(False,)]
+    assert history_refreshes == ["refreshed"]
 
 
 def test_on_response_ready_skips_proactive_conversation_when_promises_exist():

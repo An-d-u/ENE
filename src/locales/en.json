@@ -862,6 +862,7 @@
         "ene_thoughts": "Show ENE thoughts",
         "ene_goals": "Enable ENE goals",
         "ene_thought_context": "Reflect ENE thoughts in the next reply",
+        "proactive_conversation": "Enable proactive conversation",
         "ene_thought_context_limit": {
           "label": "Thoughts to reflect:",
           "suffix": " thoughts",
