@@ -33,6 +33,12 @@ def _prompt_role_label(role: str, language: str, settings_source=None) -> str:
 
 
 class ChatFlowBridgeMixin:
+    def _emit_request_pending_changed(self, active: bool):
+        """LLM 응답 생성 진행 상태를 프런트에 알린다."""
+        signal = getattr(self, "request_pending_changed", None)
+        if signal and hasattr(signal, "emit"):
+            signal.emit(bool(active))
+
     def _start_ai_worker(
         self,
         message_with_time: str,
@@ -60,6 +66,7 @@ class ChatFlowBridgeMixin:
         )
         self.worker.response_ready.connect(self._on_response_ready)
         self.worker.error_occurred.connect(self._on_error)
+        self._emit_request_pending_changed(True)
         self.worker.start()
 
     def _start_diary_worker(self, diary_request: str, message_with_time: str, use_obsidian_priority: bool = False):
@@ -77,6 +84,7 @@ class ChatFlowBridgeMixin:
         )
         self.worker.response_ready.connect(self._on_response_ready)
         self.worker.error_occurred.connect(self._on_error)
+        self._emit_request_pending_changed(True)
         self.worker.start()
 
     def _start_note_worker(self, note_request: str, message_with_time: str, note_recent_context: str = ""):
@@ -95,6 +103,7 @@ class ChatFlowBridgeMixin:
         )
         self.worker.response_ready.connect(self._on_response_ready)
         self.worker.error_occurred.connect(self._on_error)
+        self._emit_request_pending_changed(True)
         self.worker.start()
 
     def _resolve_note_context_settings(self) -> tuple[bool, int]:
@@ -509,7 +518,14 @@ class ChatFlowBridgeMixin:
         )
         print("[Bridge] Edit last user message started")
 
-    def _on_response_ready(
+    def _on_response_ready(self, *args, **kwargs):
+        try:
+            return ChatFlowBridgeMixin._handle_response_ready(self, *args, **kwargs)
+        except Exception:
+            ChatFlowBridgeMixin._emit_request_pending_changed(self, False)
+            raise
+
+    def _handle_response_ready(
         self,
         text: str,
         emotion: str,
@@ -600,6 +616,7 @@ class ChatFlowBridgeMixin:
         else:
             # TTS 비활성화 또는 읽어줄 텍스트 없음 - 즉시 텍스트 전송
             print(f"[Bridge] TTS 비활성화 - 텍스트 즉시 전송")
+            ChatFlowBridgeMixin._emit_request_pending_changed(self, False)
             self.message_received.emit(text, emotion, thought)
             self.token_usage_ready.emit(resolved_token_usage_payload)
             if self._is_rerolling:
@@ -625,6 +642,7 @@ class ChatFlowBridgeMixin:
     def _on_error(self, error_msg: str):
         """오류 발생"""
         print(f"[Bridge] Error occurred: {error_msg}")
+        ChatFlowBridgeMixin._emit_request_pending_changed(self, False)
         reminder_id = str(getattr(self, "_active_promise_id", "") or "").strip()
         promise_manager = getattr(self, "promise_manager", None)
         if promise_manager and reminder_id:

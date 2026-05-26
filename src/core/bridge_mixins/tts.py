@@ -304,6 +304,9 @@ class TTSBridgeMixin:
             text, emotion = self.pending_response
             thought = ""
         print(f"[Bridge] 보류된 응답 즉시 전송: {text[:50]}... [{emotion}]")
+        emit_pending = getattr(self, "_emit_request_pending_changed", None)
+        if callable(emit_pending):
+            emit_pending(False)
         self.message_received.emit(text, emotion, thought)
         self.token_usage_ready.emit(self._resolve_token_usage_payload(self.pending_token_usage_payload))
         if self._is_rerolling:

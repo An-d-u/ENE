@@ -20,6 +20,25 @@ function showLoadingIndicator(show) {
     }
 }
 
+function updateRequestInputControls() {
+    if (sendButton) {
+        sendButton.disabled = isRequestPending;
+    }
+    if (activeInlineEditMessageEl) {
+        const saveBtn = activeInlineEditMessageEl.querySelector('.inline-edit-save');
+        if (saveBtn) {
+            saveBtn.disabled = isRequestPending;
+        }
+    }
+}
+
+function setRequestPending(active) {
+    isRequestPending = Boolean(active);
+    showLoadingIndicator(isRequestPending);
+    updateRequestInputControls();
+    updateRerollButtonState();
+}
+
 // 최근 assistant 메시지 DOM 참조를 재동기화한다.
 function syncLastAssistantMessageRef() {
     const nodes = chatMessages.querySelectorAll('.message.assistant:not([data-reroll-excluded="true"])');
@@ -138,6 +157,8 @@ function isManualSummaryBridgeAvailable() {
 }
 
 function updateRerollButtonState() {
+    updateRequestInputControls();
+
     if (manualSummarizeButton) {
         const enabledByBridge = isManualSummaryBridgeAvailable();
         manualSummarizeButton.style.display = manualSummaryButtonVisibleBySetting ? 'inline-flex' : 'none';
@@ -166,10 +187,14 @@ function updateRerollButtonState() {
         btn.addEventListener('click', () => {
             if (!window.pyBridge || !window.pyBridge.reroll_last_response) return;
             if (isRequestPending) return;
-            isRequestPending = true;
-            showLoadingIndicator(true);
-            updateRerollButtonState();
-            window.pyBridge.reroll_last_response();
+            setRequestPending(true);
+            dispatchBridgeCall(() => {
+                window.pyBridge.reroll_last_response();
+            }, (error) => {
+                console.error("Python bridge reroll failed", error);
+                shouldReplaceNextAssistant = false;
+                setRequestPending(false);
+            });
         });
         const assistantRail = ensureMessageMetaRail(
             lastAssistantMessageEl,
