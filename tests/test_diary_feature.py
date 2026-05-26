@@ -444,6 +444,7 @@ def test_bridge_general_chat_includes_checked_obsidian_context(monkeypatch):
     bridge._cached_checked_files_signature = ("notes/test.md",)
     bridge._cached_checked_files_context = "[Obsidian 체크된 파일 본문]\n[파일:notes/test.md]\n# 테스트\n본문"
     monkeypatch.setattr(bridge.obs_settings, "get_checked_files", lambda: ["notes/test.md"])
+    monkeypatch.setattr(bridge, "_validate_cached_checked_files_context", lambda signature: True)
 
     captured = {}
 
