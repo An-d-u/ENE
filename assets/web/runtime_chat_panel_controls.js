@@ -267,6 +267,17 @@ window.setMoodToggleButtonEnabled = function (enabled) {
     }
 };
 
+// 설정창 값에 따라 선제 대화 확인 버튼 표시 여부를 반영한다.
+window.setProactiveConversationButtonEnabled = function setProactiveConversationButtonEnabled(enabled) {
+    proactiveConversationButtonVisibleBySetting = Boolean(enabled);
+    if (proactiveConversationsButton) {
+        proactiveConversationsButton.style.display = proactiveConversationButtonVisibleBySetting ? 'inline-flex' : 'none';
+    }
+    if (!proactiveConversationButtonVisibleBySetting) {
+        setProactiveConversationPanelOpen(false);
+    }
+};
+
 // 설정창 값에 따라 목표 버튼 표시 여부를 반영한다.
 window.setGoalButtonEnabled = function setGoalButtonEnabled(enabled) {
     goalButtonVisibleBySetting = Boolean(enabled);

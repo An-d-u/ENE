@@ -17,6 +17,13 @@ ALLOWED_COOLDOWN_KEYS = {
     "task-momentum",
     "global-proactive",
 }
+COOLDOWN_KEY_ORDER = [
+    "short-followup",
+    "quiet-checkin",
+    "topic-reopen",
+    "task-momentum",
+    "global-proactive",
+]
 DEFAULT_COOLDOWN_KEY = "global-proactive"
 DEFAULT_COOLDOWN_MINUTES = 20
 MIN_TRIGGER_SECONDS = 60
@@ -104,9 +111,11 @@ class ProactiveConversationManager:
             {"items": [item.to_dict() for item in self.items]},
         )
 
-    def _has_recent_activity_for_key(self, cooldown_key: str, now_dt: datetime) -> bool:
+    def _is_key_on_cooldown(self, cooldown_key: str, now_dt: datetime) -> bool:
         cooldown_seconds = self.cooldown_minutes * 60
         for item in self.items:
+            if item.status != "completed":
+                continue
             try:
                 updated_at = _coerce_datetime(item.updated_at or item.created_at)
             except Exception:
@@ -114,11 +123,21 @@ class ProactiveConversationManager:
             elapsed = (now_dt - updated_at).total_seconds()
             if elapsed < 0 or elapsed >= cooldown_seconds:
                 continue
-            if item.cooldown_key == cooldown_key or item.cooldown_key == DEFAULT_COOLDOWN_KEY:
+            if item.cooldown_key == cooldown_key:
                 return True
-            # V1은 전체 선제 대화에도 전역 쿨다운을 적용한다.
-            return True
         return False
+
+    def _has_recent_activity_for_key(self, cooldown_key: str, now_dt: datetime) -> bool:
+        return self._is_key_on_cooldown(cooldown_key, now_dt)
+
+    def available_cooldown_keys(self, now: str | datetime | None = None) -> list[str]:
+        """현재 예약 생성에 사용할 수 있는 선제 발화 방식 키 목록을 반환한다."""
+        now_dt = _coerce_datetime(now)
+        return [
+            key
+            for key in COOLDOWN_KEY_ORDER
+            if not self._is_key_on_cooldown(key, now_dt)
+        ]
 
     def _is_valid_trigger(self, trigger_at: str, now_dt: datetime) -> bool:
         try:

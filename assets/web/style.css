@@ -543,6 +543,7 @@ body.thought-feature-disabled .message-thought {
 #obs-note-floating-btn,
 #mood-toggle-floating-btn,
 #promise-reminders-floating-btn,
+#proactive-conversations-floating-btn,
 #goal-toggle-floating-btn {
     z-index: 1200;
     padding: 8px 12px;
@@ -620,6 +621,15 @@ body.thought-feature-disabled .message-thought {
     transform: translateY(-1px);
 }
 
+#proactive-conversations-floating-btn {
+    transition: background 0.2s ease, transform 0.2s ease;
+}
+
+#proactive-conversations-floating-btn:hover {
+    background: var(--ene-floating-panel-button-hover);
+    transform: translateY(-1px);
+}
+
 #goal-toggle-floating-btn {
     transition: background 0.2s ease, transform 0.2s ease;
 }
@@ -630,6 +640,7 @@ body.thought-feature-disabled .message-thought {
 }
 
 #promise-reminders-panel,
+#proactive-conversations-panel,
 #goal-status-panel {
     position: fixed;
     right: 12px;
@@ -648,11 +659,13 @@ body.thought-feature-disabled .message-thought {
 }
 
 #promise-reminders-panel.hidden,
+#proactive-conversations-panel.hidden,
 #goal-status-panel.hidden {
     display: none;
 }
 
 #promise-reminders-panel-header,
+#proactive-conversations-panel-header,
 #goal-status-panel-header {
     display: flex;
     align-items: center;
@@ -662,12 +675,14 @@ body.thought-feature-disabled .message-thought {
 }
 
 #promise-reminders-panel-title,
+#proactive-conversations-panel-title,
 #goal-status-panel-title {
     font-size: 13px;
     font-weight: 700;
 }
 
 #promise-reminders-close-btn,
+#proactive-conversations-close-btn,
 #goal-status-close-btn {
     width: 22px;
     height: 22px;
@@ -686,11 +701,13 @@ body.thought-feature-disabled .message-thought {
 }
 
 #promise-reminders-close-btn:hover,
+#proactive-conversations-close-btn:hover,
 #goal-status-close-btn:hover {
     background: var(--ene-floating-panel-button-hover);
 }
 
 #promise-reminders-list,
+#proactive-conversations-list,
 #goal-status-list {
     display: flex;
     flex-direction: column;
@@ -698,7 +715,8 @@ body.thought-feature-disabled .message-thought {
     overflow-y: auto;
 }
 
-.promise-reminder-item {
+.promise-reminder-item,
+.proactive-conversation-item {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -707,29 +725,34 @@ body.thought-feature-disabled .message-thought {
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.promise-reminder-item:last-child {
+.promise-reminder-item:last-child,
+.proactive-conversation-item:last-child {
     border-bottom: none;
     padding-bottom: 0;
 }
 
-.promise-reminder-text {
+.promise-reminder-text,
+.proactive-conversation-text {
     min-width: 0;
 }
 
-.promise-reminder-title {
+.promise-reminder-title,
+.proactive-conversation-title {
     font-size: 13px;
     font-weight: 600;
 }
 
-.promise-reminder-meta {
+.promise-reminder-meta,
+.proactive-conversation-meta {
     margin-top: 3px;
     font-size: 11px;
     color: var(--ene-floating-panel-muted-text);
 }
 
-.promise-reminder-remove {
-    width: 24px;
-    height: 24px;
+.promise-reminder-remove,
+.proactive-conversation-remove {
+    width: 32px;
+    height: 32px;
     border: 1px solid var(--ene-floating-panel-border);
     border-radius: 999px;
     background: var(--ene-floating-panel-button-bg);

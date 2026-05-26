@@ -52,6 +52,7 @@
             <button id="obs-note-floating-btn" title="Obsidian 노트 패널 열기/닫기">노트</button>
             <button id="mood-toggle-floating-btn" title="기분 상태">기분</button>
             <button id="promise-reminders-floating-btn" title="예정된 대화 약속">예정</button>
+            <button id="proactive-conversations-floating-btn" title="예약된 선제 대화" aria-label="예약된 선제 대화">선제</button>
             <button id="goal-toggle-floating-btn" title="에네 목표" aria-label="에네 목표">목표</button>
             <button id="settings-floating-btn" type="button" title="설정 열기" aria-label="설정 열기">
                 <svg class="lucide-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -67,6 +68,13 @@
             <button id="promise-reminders-close-btn" type="button" title="닫기" aria-label="닫기">×</button>
         </div>
         <div id="promise-reminders-list"></div>
+    </div>
+    <div id="proactive-conversations-panel" class="hidden" aria-live="polite">
+        <div id="proactive-conversations-panel-header">
+            <div id="proactive-conversations-panel-title">선제 대화</div>
+            <button id="proactive-conversations-close-btn" type="button" title="닫기" aria-label="닫기">×</button>
+        </div>
+        <div id="proactive-conversations-list"></div>
     </div>
     <div id="goal-status-panel" class="hidden" aria-live="polite">
         <div id="goal-status-panel-header">

@@ -24,6 +24,7 @@ from .response_parser import (
 )
 from .summary_parser import parse_summary_memory_meta, parse_summary_response
 from .markdown_document_prompt import build_markdown_document_prompt
+from .runtime_prompt_settings import build_runtime_prompt_settings_source
 from .summary_prompt import build_summary_prompt, build_summary_prompt_from_text
 DEFAULT_GENERATION_PARAMS = {
     "temperature": 0.9,
@@ -100,6 +101,13 @@ def _normalize_generation_params(params: dict | None) -> dict:
 
 
 class _CommonMixin:
+    def _runtime_prompt_settings_source(self):
+        """현재 선제 대화 쿨다운 상태를 반영한 프롬프트 설정을 반환한다."""
+        return build_runtime_prompt_settings_source(
+            getattr(self, "settings", None),
+            proactive_manager=getattr(self, "proactive_manager", None),
+        )
+
     def _empty_text_fallback_response(self) -> LLM_RESPONSE_TUPLE:
         return "음... 무슨 일이 있었나봐요.", "confused", None, [], {}, [], "", {}, []
 
@@ -299,7 +307,7 @@ class _CommonMixin:
             "content": build_runtime_system_prompt(
                 include_sub_prompt=include_sub_prompt,
                 include_analysis_appendix=True,
-                settings_source=self.settings,
+                settings_source=self._runtime_prompt_settings_source(),
             ),
         }]
         messages.extend(self._history)

@@ -22,6 +22,7 @@ from .persona_names import resolve_prompt_persona_names
 from .prompt import build_runtime_system_prompt, get_parseable_emotions
 from .prompt_language import resolve_prompt_language
 from .response_cleanup import extract_goal_update_metadata, extract_thought_metadata
+from .runtime_prompt_settings import build_runtime_prompt_settings_source
 from .response_parser import (
     extract_analysis_block,
     extract_legacy_japanese_tts_lines,
@@ -74,6 +75,7 @@ class GeminiClient:
         self.calendar_manager = calendar_manager
         self.mood_manager = mood_manager
         self.goal_manager = goal_manager
+        self.proactive_manager = None
         self._last_token_usage = {
             "input_tokens": None,
             "output_tokens": None,
@@ -82,10 +84,49 @@ class GeminiClient:
         
         # Chat 세션 생성
         self.chat = self._create_chat_session()
+        self._last_runtime_prompt_signature = self._runtime_prompt_signature()
         
         print(f"[LLM] Chat session created with model: {self.model_name}")
         if self.memory_manager:
             print("[LLM] Memory manager connected")
+
+    def _runtime_prompt_settings_source(self):
+        """현재 선제 대화 쿨다운 상태를 반영한 프롬프트 설정을 반환한다."""
+        return build_runtime_prompt_settings_source(
+            self.settings,
+            proactive_manager=getattr(self, "proactive_manager", None),
+        )
+
+    def _runtime_prompt_signature(self) -> tuple:
+        source = self._runtime_prompt_settings_source()
+        proactive_enabled = True
+        keys = []
+        if isinstance(source, dict):
+            proactive_enabled = bool(source.get("enable_proactive_conversation", True))
+            keys = list(source.get("proactive_available_cooldown_keys") or [])
+        else:
+            getter = getattr(source, "get", None)
+            if callable(getter):
+                try:
+                    proactive_enabled = bool(getter("enable_proactive_conversation", True))
+                except Exception:
+                    proactive_enabled = True
+            config = getattr(source, "config", None)
+            if isinstance(config, dict):
+                proactive_enabled = bool(config.get("enable_proactive_conversation", proactive_enabled))
+        return (proactive_enabled, tuple(str(key) for key in keys))
+
+    def _refresh_chat_session_for_runtime_prompt_if_needed(self) -> None:
+        signature = self._runtime_prompt_signature()
+        previous = getattr(self, "_last_runtime_prompt_signature", None)
+        if previous == signature:
+            return
+        if not hasattr(self, "model_name") or not hasattr(self, "client"):
+            self._last_runtime_prompt_signature = signature
+            return
+        history = self.get_conversation_history()
+        self.chat = self._create_chat_session(history=history)
+        self._last_runtime_prompt_signature = signature
 
     def _create_chat_session(self, history=None):
         """Gemini chat 세션을 생성한다."""
@@ -125,7 +166,7 @@ class GeminiClient:
         system_instruction = build_runtime_system_prompt(
             include_sub_prompt=include_sub_prompt,
             include_analysis_appendix=True,
-            settings_source=self.settings,
+            settings_source=self._runtime_prompt_settings_source(),
         )
         config = {
             "system_instruction": system_instruction,
@@ -397,6 +438,7 @@ class GeminiClient:
             contents = pil_images + [enhanced_message]
             
             print(f"[LLM] Gemini 멀티모달 요청 전송...")
+            self._refresh_chat_session_for_runtime_prompt_if_needed()
             response = self.chat.send_message(contents)
             self._log_turn_token_usage(response, label="멀티모달")
             
@@ -540,6 +582,7 @@ class GeminiClient:
             # 별도의 동기 메서드로 구현해야 함. 일단은 생략하고 멀티모달에서만 적용
             
             # Chat 세션으로 메시지 전송
+            self._refresh_chat_session_for_runtime_prompt_if_needed()
             response = self.chat.send_message(message)
             self._log_turn_token_usage(response, label="텍스트")
             
@@ -696,6 +739,7 @@ class GeminiClient:
     def clear_context(self):
         """대화 컨텍스트 초기화 - 새로운 Chat 세션 생성"""
         self.chat = self._create_chat_session()
+        self._last_runtime_prompt_signature = self._runtime_prompt_signature()
         print("[LLM] Chat session reset")
 
     def _get_item_role(self, item) -> str:

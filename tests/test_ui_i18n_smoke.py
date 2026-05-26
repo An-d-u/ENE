@@ -2319,6 +2319,8 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
           "chat.actions.mood.title": "Mood status",
           "chat.actions.promises": "Scheduled",
           "chat.actions.promises.title": "Scheduled conversation promises",
+          "chat.actions.proactive": "Proactive",
+          "chat.actions.proactive.title": "Scheduled proactive conversations",
           "chat.actions.goals": "Goals",
           "chat.actions.goals.title": "ENE goals",
           "chat.promise.notice.saved": "Conversation promise saved.",
@@ -2327,6 +2329,14 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
           "chat.promise.panel.queued": "Right after the current reply",
           "chat.promise.panel.in_minutes": "In {minutes} min",
           "chat.promise.panel.overdue_minutes": "{minutes} min late",
+          "chat.proactive.panel.title": "Proactive",
+          "chat.proactive.panel.empty": "No scheduled proactive conversations.",
+          "chat.proactive.panel.soon": "Soon",
+          "chat.proactive.panel.queued": "Right after the current reply",
+          "chat.proactive.panel.in_minutes": "In {minutes} min",
+          "chat.proactive.panel.overdue_minutes": "{minutes} min late",
+          "chat.proactive.panel.close": "Close",
+          "chat.proactive.panel.remove": "Delete proactive conversation",
           "chat.goals.label": "Goals",
           "chat.goals.title": "ENE goals",
           "chat.goals.empty": "No active goals yet.",
@@ -2375,6 +2385,8 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
           "chat.actions.mood.title": "気分の状態",
           "chat.actions.promises": "予定",
           "chat.actions.promises.title": "予定された会話の約束",
+          "chat.actions.proactive": "先回り",
+          "chat.actions.proactive.title": "予約された先回り会話",
           "chat.actions.goals": "目標",
           "chat.actions.goals.title": "エネの目標",
           "chat.promise.notice.saved": "会話の約束を保存しました。",
@@ -2383,6 +2395,14 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
           "chat.promise.panel.queued": "現在の応答の直後",
           "chat.promise.panel.in_minutes": "{minutes}分後",
           "chat.promise.panel.overdue_minutes": "{minutes}分経過",
+          "chat.proactive.panel.title": "先回り",
+          "chat.proactive.panel.empty": "予約された先回り会話はありません。",
+          "chat.proactive.panel.soon": "まもなく",
+          "chat.proactive.panel.queued": "現在の応答の直後",
+          "chat.proactive.panel.in_minutes": "{minutes}分後",
+          "chat.proactive.panel.overdue_minutes": "{minutes}分経過",
+          "chat.proactive.panel.close": "閉じる",
+          "chat.proactive.panel.remove": "先回り会話を削除",
           "chat.goals.label": "目標",
           "chat.goals.title": "エネの目標",
           "chat.goals.empty": "進行中の目標はまだありません。",
@@ -2447,8 +2467,13 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
     assert "送信" in captured[-1]
     assert "考え中..." in captured[-1]
     assert '"promises": {' in captured[-1]
+    assert '"proactive": {' in captured[-1]
     assert '"goals": {' in captured[-1]
     assert '"label": "予定"' in captured[-1]
+    assert '"label": "先回り"' in captured[-1]
+    assert '"proactivePanel": {' in captured[-1]
+    assert '"proactivePanel": {"title": "先回り"' in captured[-1]
+    assert '"remove": "先回り会話を削除"' in captured[-1]
     assert '"goalPanel": {' in captured[-1]
     assert '"goalPanel": {"label": "目標", "title": "エネの目標"' in captured[-1]
     assert '"title": "エネの目標"' in captured[-1]
@@ -2470,9 +2495,12 @@ def test_chat_web_script_has_runtime_i18n_hooks():
     assert "sendButton.textContent = currentUiStrings.send;" in content
     assert "moodStatusLabel.textContent = formatMoodStatusText(label, temporaryState);" in content
     assert "promiseRemindersButton.textContent = currentUiStrings.actions.promises.label;" in content
+    assert "proactiveConversationsButton.textContent = currentUiStrings.actions.proactive.label;" in content
     assert "goalButton.textContent = currentUiStrings.actions.goals.label;" in content
     assert "goalButton.setAttribute('aria-label', currentUiStrings.actions.goals.title);" in content
     assert "label: goalPanel.label || DEFAULT_UI_STRINGS.goalPanel.label" in content
+    assert "window.setProactiveConversationButtonEnabled = function setProactiveConversationButtonEnabled(enabled)" in content
+    assert "window.setProactiveConversationItems = function setProactiveConversationItems(items)" in content
     assert "window.setGoalButtonEnabled = function setGoalButtonEnabled(enabled)" in content
     assert "window.setGoalItems = function setGoalItems(value)" in content
     assert "renderGoalPanel();" in content
@@ -2563,12 +2591,59 @@ def test_overlay_window_syncs_goal_button_visibility_to_webview(tmp_path):
     ]
 
 
+def test_overlay_window_syncs_proactive_button_visibility_to_webview(tmp_path):
+    _get_qapp()
+    locales_dir = tmp_path / "locales"
+    locales_dir.mkdir(parents=True, exist_ok=True)
+    (locales_dir / "en.json").write_text("{}", encoding="utf-8-sig")
+    (locales_dir / "ja.json").write_text("{}", encoding="utf-8-sig")
+    (locales_dir / "ko.json").write_text("{}", encoding="utf-8-sig")
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+
+    from src.core.overlay_window import OverlayWindow
+
+    captured = []
+
+    class _FakePage:
+        def runJavaScript(self, code):
+            captured.append(code)
+
+    class _FakeWebView:
+        def __init__(self):
+            self._page = _FakePage()
+
+        def page(self):
+            return self._page
+
+    overlay = OverlayWindow.__new__(OverlayWindow)
+    overlay.settings = _DummySettings({"enable_proactive_conversation": True})
+    overlay.web_view = _FakeWebView()
+    overlay._page_loaded = True
+
+    OverlayWindow._sync_proactive_conversation_button_visibility_to_js(
+        overlay,
+        {"enable_proactive_conversation": False},
+    )
+    OverlayWindow._sync_proactive_conversation_button_visibility_to_js(
+        overlay,
+        {"enable_proactive_conversation": True},
+    )
+
+    assert captured == [
+        "window.setProactiveConversationButtonEnabled(false);",
+        "window.setProactiveConversationButtonEnabled(true);",
+    ]
+
+
 def test_chat_web_assets_translate_mood_axis_labels_and_center_floating_buttons():
     assets_root = Path(__file__).resolve().parents[1] / "assets" / "web"
     script_content = _read_web_runtime_script_text(assets_root)
     html_content = (assets_root / "index.html").read_text(encoding="utf-8")
     css_content = (assets_root / "style.css").read_text(encoding="utf-8")
 
+    assert 'id="proactive-conversations-floating-btn"' in html_content
+    assert 'id="proactive-conversations-panel"' in html_content
+    assert 'id="proactive-conversations-list"' in html_content
     assert 'id="mood-meter-name-valence"' in html_content
     assert 'id="mood-meter-name-bond"' in html_content
     assert 'id="mood-meter-name-energy"' in html_content
@@ -2580,6 +2655,7 @@ def test_chat_web_assets_translate_mood_axis_labels_and_center_floating_buttons(
     assert "moodMeterNameBond.textContent = currentUiStrings.mood.axis.bond;" in script_content
     assert "moodMeterNameEnergy.textContent = currentUiStrings.mood.axis.energy;" in script_content
     assert "moodMeterNameStress.textContent = currentUiStrings.mood.axis.stress;" in script_content
+    assert "proactive-conversation-item" in css_content
     assert "goal-status-item" in css_content
     assert "justify-content: center;" in css_content
     assert "text-align: center;" in css_content

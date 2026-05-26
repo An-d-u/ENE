@@ -371,6 +371,10 @@ class ChatFlowBridgeMixin:
             print("[Bridge] Reroll ignored: no previous request payload")
             self._reset_pending_ui_state("리롤할 수 있는 최근 요청이 없어요.")
             return
+        if self._last_request_payload.get("type") == "proactive":
+            print("[Bridge] Reroll ignored: proactive reply has no user request turn")
+            self._reset_pending_ui_state("선제 대화 응답은 리롤할 수 없어요.")
+            return
 
         if self.worker and self.worker.isRunning():
             print("[Bridge] Reroll ignored: worker is still running")
@@ -453,6 +457,10 @@ class ChatFlowBridgeMixin:
         if not self._last_request_payload:
             print("[Bridge] Edit ignored: no previous request payload")
             self._reset_pending_ui_state("/diary 응답은 Edit로 다시 생성할 수 없어요.")
+            return
+        if self._last_request_payload.get("type") == "proactive":
+            print("[Bridge] Edit ignored: proactive reply has no user request turn")
+            self._reset_pending_ui_state("선제 대화 응답은 수정할 사용자 메시지가 없어요.")
             return
 
         if self.worker and self.worker.isRunning():
@@ -663,7 +671,7 @@ class ChatFlowBridgeMixin:
         if callable(store_proactive):
             stored_proactive = store_proactive(
                 list(proactive_conversations or []),
-                suppress=bool(llm_promises),
+                suppress=bool(llm_promises) or bool(completed_proactive_id),
             )
             collect_proactive_ids = getattr(self, "_collect_proactive_ids", None)
             if callable(collect_proactive_ids):
@@ -673,11 +681,17 @@ class ChatFlowBridgeMixin:
             remember_proactive(stored_proactive_ids)
         
         # TTS 재생 (읽어줄 텍스트가 있고 TTS가 활성화되어 있으면)
+        deferred_completion = False
         if tts_text and self.enable_tts and self.tts_client and self.audio_player:
             print(f"[Bridge] TTS 활성화 - 텍스트 보류 중, TTS 생성 시작")
             # 텍스트를 보류하고 TTS 완료 대기
             self.pending_response = (text, emotion, thought)
             self.pending_token_usage_payload = resolved_token_usage_payload
+            self._pending_response_completion = {
+                "promise_id": completed_promise_id,
+                "proactive_id": completed_proactive_id,
+            }
+            deferred_completion = True
             self._play_tts(tts_text)
         else:
             # TTS 비활성화 또는 읽어줄 텍스트 없음 - 즉시 텍스트 전송
@@ -693,6 +707,15 @@ class ChatFlowBridgeMixin:
         
         # 자동 요약 확인
         self._check_auto_summarize()
+        if deferred_completion:
+            if self.pending_response:
+                return
+            ChatFlowBridgeMixin._finalize_pending_response_completion_if_any(self)
+            return
+        ChatFlowBridgeMixin._finalize_completed_runtime_items(self, completed_promise_id, completed_proactive_id)
+
+    def _finalize_completed_runtime_items(self, completed_promise_id: str = "", completed_proactive_id: str = ""):
+        """사용자에게 응답을 보낸 뒤 예약/큐 상태를 마무리한다."""
         promise_manager = getattr(self, "promise_manager", None)
         if promise_manager and completed_promise_id:
             promise_manager.delete_promise(completed_promise_id)
@@ -706,12 +729,27 @@ class ChatFlowBridgeMixin:
             drain_queue()
         proactive_manager = getattr(self, "proactive_manager", None)
         if proactive_manager and completed_proactive_id:
-            proactive_manager.delete_item(completed_proactive_id)
+            proactive_manager.set_status(completed_proactive_id, "completed")
+            emit_proactive_items = getattr(self, "_emit_proactive_items_updated", None)
+            if callable(emit_proactive_items):
+                emit_proactive_items()
         self._active_proactive_id = None
         self._active_proactive_signature = None
         drain_proactive_queue = getattr(self, "_drain_proactive_queue_if_idle", None)
         if callable(drain_proactive_queue):
             drain_proactive_queue()
+
+    def _finalize_pending_response_completion_if_any(self):
+        """TTS 보류 응답이 실제로 표시된 뒤 예약 완료 처리를 수행한다."""
+        payload = getattr(self, "_pending_response_completion", None)
+        self._pending_response_completion = None
+        if not isinstance(payload, dict):
+            return
+        ChatFlowBridgeMixin._finalize_completed_runtime_items(
+            self,
+            str(payload.get("promise_id", "") or "").strip(),
+            str(payload.get("proactive_id", "") or "").strip(),
+        )
 
     def _on_error(self, error_msg: str):
         """오류 발생"""

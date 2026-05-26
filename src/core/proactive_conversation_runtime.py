@@ -87,7 +87,8 @@ def build_proactive_conversation_prompt(
             f"The internal title is '{normalized_title}'. "
             f"Reason: '{normalized_reason}'. "
             f"Instruction: {normalized_prompt} "
-            "Reply with one or two short, natural sentences. Do not explain this notice."
+            "Reply with one or two short, natural sentences. Do not explain this notice. "
+            "Do not create a new proactive conversation reservation."
         )
     if normalized_language == "ja":
         return (
@@ -96,10 +97,12 @@ def build_proactive_conversation_prompt(
             f"理由:「{normalized_reason}」。"
             f"指示: {normalized_prompt} "
             "一、二文で自然に返してください。この通知自体は説明しないでください。"
+            "新しい先回り会話の予約は作らないでください。"
         )
     return (
         f"상태 알림: {prompt_user_name}에게 먼저 말을 걸 타이밍이야. "
         f"내부 제목은 '{normalized_title}'이고, 이유는 '{normalized_reason}'이야. "
         f"실행 지시: {normalized_prompt} "
-        "이 알림 자체는 설명하지 말고, 자연스러운 한두 문장으로만 답해줘."
+        "이 알림 자체는 설명하지 말고, 자연스러운 한두 문장으로만 답해줘. "
+        "새 선제 대화 예약은 만들지 마."
     )
