@@ -12,6 +12,7 @@ from .response_cleanup import (
     extract_goal_update_metadata,
     extract_thought_metadata,
     extract_tts_metadata,
+    strip_proactive_conversation_blocks,
     strip_thinking_markers,
 )
 
@@ -142,7 +143,7 @@ def extract_proactive_conversation_blocks(response_text: str) -> tuple[str, List
         parsed = parse_proactive_conversation_lines(match.group(1))
         if parsed:
             proactive_conversations.append(parsed)
-    cleaned = re.sub(pattern, "", response_text, flags=re.IGNORECASE | re.DOTALL).strip()
+    cleaned = strip_proactive_conversation_blocks(response_text)
     return cleaned, proactive_conversations[:1]
 
 

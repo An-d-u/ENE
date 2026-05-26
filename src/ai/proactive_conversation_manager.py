@@ -112,7 +112,7 @@ class ProactiveConversationManager:
             except Exception:
                 continue
             elapsed = (now_dt - updated_at).total_seconds()
-            if elapsed < 0 or elapsed > cooldown_seconds:
+            if elapsed < 0 or elapsed >= cooldown_seconds:
                 continue
             if item.cooldown_key == cooldown_key or item.cooldown_key == DEFAULT_COOLDOWN_KEY:
                 return True
@@ -209,7 +209,7 @@ class ProactiveConversationManager:
         timestamp = _coerce_datetime(now).isoformat(timespec="seconds")
         cancelled: list[ProactiveConversation] = []
         for item in self.items:
-            if item.status != "scheduled":
+            if item.status not in {"scheduled", "queued"}:
                 continue
             item.status = "cancelled"
             item.updated_at = timestamp
@@ -228,7 +228,7 @@ class ProactiveConversationManager:
         changed = False
 
         for item in self.items:
-            if item.status != "scheduled":
+            if item.status not in {"scheduled", "queued"}:
                 continue
             try:
                 trigger_dt = _coerce_datetime(item.trigger_at)

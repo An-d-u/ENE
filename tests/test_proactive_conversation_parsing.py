@@ -47,6 +47,30 @@ title=불완전
     assert proactive == []
 
 
+def test_parse_response_strips_unclosed_proactive_conversation_block():
+    parsed = parse_llm_response(
+        """응답입니다.
+[proactive_conversation]
+trigger_at=2026-05-26T21:20:00+09:00
+title=닫히지 않은 예약
+generation_prompt=내부 예약 지시는 사용자에게 보이면 안 됩니다."""
+    )
+
+    text, _emotion, _tts, _events, _analysis, _promises, _thought, _goal, proactive = parsed
+
+    assert text == "응답입니다."
+    assert proactive == []
+
+
+def test_parse_response_does_not_create_proactive_from_visible_keywords_only():
+    parsed = parse_llm_response("나중에 다시 확인해볼게요. 잠시 후에 이어가도 좋아요.")
+
+    text, _emotion, _tts, _events, _analysis, _promises, _thought, _goal, proactive = parsed
+
+    assert text == "나중에 다시 확인해볼게요. 잠시 후에 이어가도 좋아요."
+    assert proactive == []
+
+
 def test_ai_worker_normalize_response_payload_adds_empty_proactive_list_for_legacy_payload():
     worker = AIWorker.__new__(AIWorker)
 

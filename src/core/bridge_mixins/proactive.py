@@ -88,7 +88,14 @@ class ProactiveBridgeMixin:
         """사용자가 새 메시지를 보내면 아직 실행되지 않은 선제 대화를 취소한다."""
         if not self.proactive_manager:
             return []
-        return self.proactive_manager.cancel_scheduled()
+        queued_payloads = list(getattr(self, "proactive_run_queue", []) or [])
+        self.proactive_run_queue = []
+        cancelled = self.proactive_manager.cancel_scheduled()
+        for payload in queued_payloads:
+            proactive_id = str((payload or {}).get("id", "") or "").strip()
+            if proactive_id:
+                self.proactive_manager.set_status(proactive_id, "cancelled")
+        return cancelled
 
     def _current_proactive_fire_time(self) -> datetime:
         """중복 발화 억제 계산에 사용할 현재 시각을 반환한다."""
@@ -127,12 +134,17 @@ class ProactiveBridgeMixin:
 
     def _enqueue_due_proactive_conversation(self, payload: dict) -> None:
         """현재 생성 중이면 선제 대화를 큐에 넣고, 아니면 즉시 시작한다."""
-        if self._should_suppress_duplicate_proactive_fire(payload):
-            return
         proactive_id = str((payload or {}).get("id", "") or "").strip()
-        if self.worker and self.worker.isRunning():
+        if proactive_id:
+            for queued in list(getattr(self, "proactive_run_queue", []) or []):
+                queued_id = str((queued or {}).get("id", "") or "").strip()
+                if queued_id == proactive_id:
+                    return
+        if self._should_suppress_duplicate_proactive_fire(payload):
             if self.proactive_manager and proactive_id:
-                self.proactive_manager.set_status(proactive_id, "queued")
+                self.proactive_manager.set_status(proactive_id, "cancelled")
+            return
+        if self.worker and self.worker.isRunning():
             self.proactive_run_queue.append(payload)
             return
         self._start_proactive_ai_worker(payload)

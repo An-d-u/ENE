@@ -91,18 +91,6 @@ def _build_format_block(
         )
     if thought_enabled:
         lines.extend(["[subconscious]", contract["thought_sample"], "[/subconscious]"])
-    lines.extend(
-        [
-            "[proactive_conversation]",
-            "trigger_at=2026-05-26T21:20:00+09:00",
-            "title=짧은 제목",
-            "generation_prompt=나중에 사용자에게 먼저 말을 걸 때 사용할 자연어 지시",
-            "source_excerpt=실제 원문 복사가 아닌 짧은 맥락 요약",
-            "reason=예약 판단 이유",
-            "cooldown_key=short-followup",
-            "[/proactive_conversation]",
-        ]
-    )
     lines.append(contract["reply"])
     if tts_language != response_language:
         lines.extend(["[tts]", contract["tts_samples"].get(tts_language, "TTS text"), "[/tts]"])
@@ -151,6 +139,17 @@ def _build_proactive_conversation_rules(language: str = "ko") -> list[str]:
             "- `generation_prompt` is the instruction for ENE's later reply, not the final line itself.",
             "- `source_excerpt` must be a short synthetic context summary, not a verbatim private conversation quote.",
             f"- `cooldown_key` must be one of: {allowed_keys}.",
+            "- Optional example:",
+            "```",
+            "[proactive_conversation]",
+            "trigger_at=<ISO8601 +09:00, 1-60 minutes after the current time>",
+            "title=short title",
+            "generation_prompt=natural-language instruction for ENE's later proactive reply",
+            "source_excerpt=short synthetic context summary",
+            "reason=why this later follow-up is natural",
+            "cooldown_key=short-followup",
+            "[/proactive_conversation]",
+            "```",
         ]
     if normalized_language == "ja":
         return [
@@ -159,6 +158,17 @@ def _build_proactive_conversation_rules(language: str = "ko") -> list[str]:
             "- `generation_prompt` は後でENEが返答を作るための指示であり、最終セリフそのものではありません。",
             "- `source_excerpt` は実際の私的な会話の引用ではなく、短い合成文脈要約にしてください。",
             f"- `cooldown_key` は次のどれかだけを使ってください: {allowed_keys}。",
+            "- 任意の例:",
+            "```",
+            "[proactive_conversation]",
+            "trigger_at=<ISO8601 +09:00, 現在時刻の1-60分後>",
+            "title=短い題名",
+            "generation_prompt=後でENEが自然に話しかけるための指示",
+            "source_excerpt=短い合成文脈要約",
+            "reason=あとで話しかけるのが自然な理由",
+            "cooldown_key=short-followup",
+            "[/proactive_conversation]",
+            "```",
         ]
     return [
         "- 이 블록은 선택 사항입니다. 나중에 자연스럽게 이어 말할 이유가 없으면 출력하지 마세요.",
@@ -166,4 +176,15 @@ def _build_proactive_conversation_rules(language: str = "ko") -> list[str]:
         "- `generation_prompt`는 나중에 ENE가 답변을 생성할 때 쓸 지시문이며 최종 대사 자체가 아닙니다.",
         "- `source_excerpt`는 실제 사적인 대화 원문 인용이 아니라 짧은 합성 맥락 요약이어야 합니다.",
         f"- `cooldown_key`는 다음 값 중 하나만 사용하세요: {allowed_keys}.",
+        "- 선택 예시:",
+        "```",
+        "[proactive_conversation]",
+        "trigger_at=<ISO8601 +09:00, 현재 시각 기준 1-60분 뒤>",
+        "title=짧은 제목",
+        "generation_prompt=나중에 ENE가 자연스럽게 먼저 말할 때 사용할 지시문",
+        "source_excerpt=짧은 합성 맥락 요약",
+        "reason=나중에 이어 말하는 것이 자연스러운 이유",
+        "cooldown_key=short-followup",
+        "[/proactive_conversation]",
+        "```",
     ]

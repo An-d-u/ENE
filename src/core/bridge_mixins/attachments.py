@@ -167,6 +167,9 @@ class AttachmentBridgeMixin:
         if hasattr(self, "calendar_manager") and self.calendar_manager:
             head_pat_count_before_message = int(self.calendar_manager.drain_pending_head_pat_count())
 
+        cancel_proactive = getattr(self, "_cancel_pending_proactive_conversations_for_user_message", None)
+        if callable(cancel_proactive):
+            cancel_proactive()
         self._mark_user_activity()
         attachment_note = build_attachment_note(runtime_attachments, language=self._prompt_language())
         history_message = self._compose_attachment_history_message(effective_message, runtime_attachments)

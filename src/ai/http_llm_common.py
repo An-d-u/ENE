@@ -31,7 +31,7 @@ DEFAULT_GENERATION_PARAMS = {
     "max_tokens": 2048,
 }
 
-LLM_RESPONSE_TUPLE = Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict], str, Dict[str, str]]
+LLM_RESPONSE_TUPLE = Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict], str, Dict[str, str], List[Dict]]
 
 
 def _parse_summary_memory_meta_lines(meta_lines: list[str]) -> dict:

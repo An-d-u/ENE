@@ -34,7 +34,7 @@ from .summary_parser import parse_summary_memory_meta, parse_summary_response
 from .markdown_document_prompt import build_markdown_document_prompt
 from .summary_prompt import build_summary_prompt
 
-LLM_RESPONSE_TUPLE = Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict], str, Dict[str, str]]
+LLM_RESPONSE_TUPLE = Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict], str, Dict[str, str], List[Dict]]
 
 
 class GeminiClient:
