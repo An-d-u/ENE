@@ -152,6 +152,9 @@ class ChatFlowBridgeMixin:
         if not is_diary:
             return False
 
+        cancel_proactive = getattr(self, "_cancel_pending_proactive_conversations_for_user_message", None)
+        if callable(cancel_proactive):
+            cancel_proactive()
         self._mark_user_activity()
         if self.mood_manager:
             snapshot = self.mood_manager.on_user_message(message, image_count=0)
@@ -178,6 +181,9 @@ class ChatFlowBridgeMixin:
         if not is_note:
             return False
 
+        cancel_proactive = getattr(self, "_cancel_pending_proactive_conversations_for_user_message", None)
+        if callable(cancel_proactive):
+            cancel_proactive()
         self._mark_user_activity()
         if self.mood_manager:
             snapshot = self.mood_manager.on_user_message(message, image_count=0)
@@ -303,6 +309,9 @@ class ChatFlowBridgeMixin:
             head_pat_count_before_message = int(self.calendar_manager.drain_pending_head_pat_count())
         print(f"[Bridge] Message with timestamp: {message_with_time}")
 
+        cancel_proactive = getattr(self, "_cancel_pending_proactive_conversations_for_user_message", None)
+        if callable(cancel_proactive):
+            cancel_proactive()
         self._mark_user_activity()
         self._append_conversation("user", message, timestamp)
         if self.mood_manager:
@@ -355,6 +364,9 @@ class ChatFlowBridgeMixin:
             return
 
         self._delete_tracked_promises_for_retry()
+        delete_proactive = getattr(self, "_delete_tracked_proactive_for_retry", None)
+        if callable(delete_proactive):
+            delete_proactive()
 
         # 교체 의미를 지키기 위해 최근 assistant 응답 하나를 버퍼에서 제거
         if self.conversation_buffer and self.conversation_buffer[-1][0] == "assistant":
@@ -436,6 +448,9 @@ class ChatFlowBridgeMixin:
             return
 
         self._delete_tracked_promises_for_retry()
+        delete_proactive = getattr(self, "_delete_tracked_proactive_for_retry", None)
+        if callable(delete_proactive):
+            delete_proactive()
 
         # 대화 버퍼의 최근 assistant/user 턴 제거
         if self.conversation_buffer and self.conversation_buffer[-1][0] == "assistant":
@@ -536,6 +551,7 @@ class ChatFlowBridgeMixin:
         scheduled_promises: list | None = None,
         thought: str = "",
         goal_update_payload: str = "",
+        proactive_conversations: list | None = None,
     ):
         """AI 응답 준비 완료"""
         completed_promise_id = str(getattr(self, "_active_promise_id", "") or "").strip()
@@ -605,6 +621,20 @@ class ChatFlowBridgeMixin:
             stored = maybe_store_assistant_promises(text)
             stored_promise_ids.extend(self._collect_promise_ids(stored))
         self._remember_tracked_promise_ids(stored_promise_ids)
+
+        stored_proactive_ids: list[str] = []
+        store_proactive = getattr(self, "_store_proactive_conversations", None)
+        if callable(store_proactive):
+            stored_proactive = store_proactive(
+                list(proactive_conversations or []),
+                suppress=bool(llm_promises),
+            )
+            collect_proactive_ids = getattr(self, "_collect_proactive_ids", None)
+            if callable(collect_proactive_ids):
+                stored_proactive_ids.extend(collect_proactive_ids(stored_proactive))
+        remember_proactive = getattr(self, "_remember_tracked_proactive_ids", None)
+        if callable(remember_proactive):
+            remember_proactive(stored_proactive_ids)
         
         # TTS 재생 (읽어줄 텍스트가 있고 TTS가 활성화되어 있으면)
         if tts_text and self.enable_tts and self.tts_client and self.audio_player:
@@ -638,6 +668,15 @@ class ChatFlowBridgeMixin:
         drain_queue = getattr(self, "_drain_promise_queue_if_idle", None)
         if callable(drain_queue):
             drain_queue()
+        proactive_manager = getattr(self, "proactive_manager", None)
+        completed_proactive_id = str(getattr(self, "_active_proactive_id", "") or "").strip()
+        if proactive_manager and completed_proactive_id:
+            proactive_manager.delete_item(completed_proactive_id)
+        self._active_proactive_id = None
+        self._active_proactive_signature = None
+        drain_proactive_queue = getattr(self, "_drain_proactive_queue_if_idle", None)
+        if callable(drain_proactive_queue):
+            drain_proactive_queue()
 
     def _on_error(self, error_msg: str):
         """오류 발생"""
@@ -652,6 +691,12 @@ class ChatFlowBridgeMixin:
                 emit_items()
             self._active_promise_id = None
             self._active_promise_signature = None
+        proactive_id = str(getattr(self, "_active_proactive_id", "") or "").strip()
+        proactive_manager = getattr(self, "proactive_manager", None)
+        if proactive_manager and proactive_id:
+            proactive_manager.set_status(proactive_id, "expired")
+            self._active_proactive_id = None
+            self._active_proactive_signature = None
         self.message_received.emit("음... 무슨 일이 있었나봐요.", "confused", "")
         if self._is_rerolling:
             self._is_rerolling = False

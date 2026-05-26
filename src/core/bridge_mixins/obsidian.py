@@ -223,6 +223,9 @@ class ObsidianBridgeMixin:
         if not is_obs:
             return False
 
+        cancel_proactive = getattr(self, "_cancel_pending_proactive_conversations_for_user_message", None)
+        if callable(cancel_proactive):
+            cancel_proactive()
         self._mark_user_activity()
         if self.mood_manager:
             snapshot = self.mood_manager.on_user_message(message, image_count=0)

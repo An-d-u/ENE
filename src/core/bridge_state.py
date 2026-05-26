@@ -97,6 +97,18 @@ class PromiseBridgeState:
 
 
 @dataclass
+class ProactiveBridgeState:
+    """선제 대화 실행 큐와 현재 실행 중인 예약 상태."""
+
+    manager: Any = None
+    run_queue: list[dict[str, Any]] = field(default_factory=list)
+    active_id: str | None = None
+    active_signature: str | None = None
+    recent_fire_signatures: dict[str, Any] = field(default_factory=dict)
+    timer: Any = None
+
+
+@dataclass
 class AwayBridgeState:
     """자리 비움 감지와 입력 유휴 상태."""
 
@@ -171,6 +183,12 @@ BRIDGE_STATE_ALIASES = {
     "_active_promise_signature": ("promise_state", "active_signature"),
     "_recent_promise_fire_signatures": ("promise_state", "recent_fire_signatures"),
     "promise_timer": ("promise_state", "timer"),
+    "proactive_manager": ("proactive_state", "manager"),
+    "proactive_run_queue": ("proactive_state", "run_queue"),
+    "_active_proactive_id": ("proactive_state", "active_id"),
+    "_active_proactive_signature": ("proactive_state", "active_signature"),
+    "_recent_proactive_fire_signatures": ("proactive_state", "recent_fire_signatures"),
+    "proactive_timer": ("proactive_state", "timer"),
     "last_user_message_at": ("away_state", "last_user_message_at"),
     "user_message_count": ("away_state", "user_message_count"),
     "away_check_in_progress": ("away_state", "check_in_progress"),
@@ -195,6 +213,7 @@ class BridgeStateAliasMixin:
         self.tts_state = TTSBridgeState()
         self.chat_state = ChatBridgeState()
         self.promise_state = PromiseBridgeState()
+        self.proactive_state = ProactiveBridgeState()
         self.away_state = AwayBridgeState()
         self.attachment_state = AttachmentBridgeState()
 

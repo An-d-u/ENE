@@ -229,7 +229,8 @@ def test_runtime_prompt_adds_korean_response_contract_from_code_when_enabled(tmp
     assert "[thought]" not in runtime_prompt
     assert "[/thought]" not in runtime_prompt
     assert "단계별 추론" in runtime_prompt
-    assert "[/subconscious]\n한국어 답변 [emotion]\n[tts]\n일본어 TTS 문장\n[/tts]" in runtime_prompt
+    assert "[/subconscious]\n[proactive_conversation]" in runtime_prompt
+    assert "[/proactive_conversation]\n한국어 답변 [emotion]\n[tts]\n일본어 TTS 문장\n[/tts]" in runtime_prompt
     assert "본문을 subconscious 블록 안에 넣지 마세요" in runtime_prompt
     assert runtime_prompt.index("### [분석 규칙]") < runtime_prompt.index("### [최종 응답 형식]")
 

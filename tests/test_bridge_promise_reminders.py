@@ -114,6 +114,7 @@ def test_ai_worker_normalize_response_payload_supports_promises():
         [{"title": "쉬는 시간"}],
         "",
         {},
+        [],
     )
 
 
@@ -143,6 +144,7 @@ def test_ai_worker_normalize_response_payload_keeps_goal_update_for_runtime_flow
         [{"title": "쉬는 시간"}],
         "속마음",
         {"action": "none"},
+        [],
     )
 
 

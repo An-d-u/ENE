@@ -45,7 +45,7 @@ def build_obsidian_checked_context(checked_contents: list[tuple[str, str]], lang
 class AIWorker(QThread):
     """AI 응답을 비동기로 처리하는 워커 스레드"""
 
-    response_ready = pyqtSignal(str, str, str, list, str, str, list, str, str)  # (텍스트, 감정, TTS 텍스트, 이벤트, analysis JSON, 토큰 JSON, 약속 리스트, 생각, 목표 업데이트 JSON)
+    response_ready = pyqtSignal(str, str, str, list, str, str, list, str, str, list)  # (텍스트, 감정, TTS 텍스트, 이벤트, analysis JSON, 토큰 JSON, 약속 리스트, 생각, 목표 업데이트 JSON, 선제 대화 리스트)
     error_occurred = pyqtSignal(str)  # 오류 메시지
 
     def __init__(
@@ -87,22 +87,25 @@ class AIWorker(QThread):
         return resolve_prompt_language(settings_source=getattr(self.llm_client, "settings", None))
 
     def _normalize_response_payload(self, payload):
-        """신구 응답 형식을 모두 8개 값으로 정규화한다."""
+        """신구 응답 형식을 모두 9개 값으로 정규화한다."""
         if isinstance(payload, tuple):
-            if len(payload) == 8:
+            if len(payload) == 9:
                 return payload
+            if len(payload) == 8:
+                text, emotion, tts_text, events, analysis, promises, thought, goal_update = payload
+                return text, emotion, tts_text, events, analysis, promises, thought, goal_update, []
             if len(payload) == 7:
                 text, emotion, tts_text, events, analysis, promises, thought = payload
-                return text, emotion, tts_text, events, analysis, promises, thought, {}
+                return text, emotion, tts_text, events, analysis, promises, thought, {}, []
             if len(payload) == 6:
                 text, emotion, tts_text, events, analysis, promises = payload
-                return text, emotion, tts_text, events, analysis, promises, "", {}
+                return text, emotion, tts_text, events, analysis, promises, "", {}, []
             if len(payload) == 5:
                 text, emotion, tts_text, events, analysis = payload
-                return text, emotion, tts_text, events, analysis, [], "", {}
+                return text, emotion, tts_text, events, analysis, [], "", {}, []
             if len(payload) == 4:
                 text, emotion, tts_text, events = payload
-                return text, emotion, tts_text, events, {}, [], "", {}
+                return text, emotion, tts_text, events, {}, [], "", {}, []
         raise ValueError("지원하지 않는 응답 형식입니다.")
 
     def _ensure_image_input_supported(self):
@@ -127,21 +130,23 @@ class AIWorker(QThread):
             analysis = {}
             promises = []
 
+            proactive_conversations = []
+
             if self.note_request and self.note_service and self.obsidian_manager:
                 print("[AI Worker] /note 모드")
-                response_text, emotion, tts_text, events, analysis, promises, thought, goal_update = self._normalize_response_payload(
+                response_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations = self._normalize_response_payload(
                     loop.run_until_complete(self._run_note_flow())
                 )
             elif self.diary_request and self.diary_service:
                 print("[AI Worker] /diary 모드")
-                response_text, emotion, tts_text, events, analysis, promises, thought, goal_update = self._normalize_response_payload(
+                response_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations = self._normalize_response_payload(
                     loop.run_until_complete(self._run_diary_flow())
                 )
             # 이미지가 있으면 멀티모달로 처리
             elif self.images:
                 self._ensure_image_input_supported()
                 print(f"[AI Worker] 이미지 {len(self.images)}개 포함 - 멀티모달 모드")
-                response_text, emotion, tts_text, events, analysis, promises, thought, goal_update = self._normalize_response_payload(
+                response_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations = self._normalize_response_payload(
                     loop.run_until_complete(
                         self.llm_client.send_message_with_images(
                             self.message,
@@ -155,7 +160,7 @@ class AIWorker(QThread):
                 )
             elif self.use_memory and hasattr(self.llm_client, 'send_message_with_memory'):
                 print(f"[AI Worker] 메모리 활용 모드")
-                response_text, emotion, tts_text, events, analysis, promises, thought, goal_update = self._normalize_response_payload(
+                response_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations = self._normalize_response_payload(
                     loop.run_until_complete(
                         self.llm_client.send_message_with_memory(
                             self.message,
@@ -168,7 +173,7 @@ class AIWorker(QThread):
                 )
             else:
                 print(f"[AI Worker] 일반 모드 (메모리 없음)")
-                response_text, emotion, tts_text, events, analysis, promises, thought, goal_update = self._normalize_response_payload(
+                response_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations = self._normalize_response_payload(
                     self.llm_client.send_message(self.message)
                 )
 
@@ -190,6 +195,7 @@ class AIWorker(QThread):
                 promises,
                 thought,
                 json.dumps(goal_update or {}, ensure_ascii=False),
+                proactive_conversations,
             )
         except Exception as e:
             print(f"[AI Worker] Error: {e}")
@@ -293,12 +299,12 @@ class AIWorker(QThread):
             completion_context += f"\n- {note_label}: {result.obsidian_cli_error}"
 
         if hasattr(self.llm_client, "generate_diary_completion_reply"):
-            text, emotion, tts_text, events, analysis, promises, thought, goal_update = self._normalize_response_payload(
+            text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations = self._normalize_response_payload(
                 await self.llm_client.generate_diary_completion_reply(completion_context)
             )
             if required not in text:
                 text = f"{required}\n{text}".strip()
-            return text, emotion, tts_text, events, analysis, promises, thought, goal_update
+            return text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations
 
         # 하위 호환 폴백 (기존 클라이언트 경로)
         return self._normalize_response_payload(self.llm_client.send_message(completion_context))

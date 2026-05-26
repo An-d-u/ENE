@@ -101,7 +101,7 @@ def _normalize_generation_params(params: dict | None) -> dict:
 
 class _CommonMixin:
     def _empty_text_fallback_response(self) -> LLM_RESPONSE_TUPLE:
-        return "음... 무슨 일이 있었나봐요.", "confused", None, [], {}, [], "", {}
+        return "음... 무슨 일이 있었나봐요.", "confused", None, [], {}, [], "", {}, []
 
     def _parse_response_with_empty_fallback(self, response_text: str) -> LLM_RESPONSE_TUPLE:
         if not str(response_text or "").strip():
