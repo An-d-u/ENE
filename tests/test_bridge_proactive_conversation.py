@@ -1,4 +1,5 @@
 ﻿import sys
+import json
 import types
 from typing import get_args
 
@@ -77,6 +78,14 @@ class _DummyProactiveManager:
         self.items = [item for item in self.items if item.get("id") != item_id]
         return len(self.items) != before
 
+    def list_dicts(self, include_statuses=None):
+        allowed = set(include_statuses or [])
+        return [
+            dict(item)
+            for item in self.items
+            if not allowed or item.get("status") in allowed
+        ]
+
     def refresh_due_statuses(self):
         due = [item for item in self.items if item.get("status") == "scheduled"]
         return due, []
@@ -105,6 +114,12 @@ def _attach_proactive_helpers(dummy):
     dummy._drain_proactive_queue_if_idle = lambda: WebBridge._drain_proactive_queue_if_idle(dummy)
     dummy._start_proactive_ai_worker = lambda payload: WebBridge._start_proactive_ai_worker(dummy, payload)
     dummy._collect_proactive_ids = lambda items=None: WebBridge._collect_proactive_ids(dummy, items)
+    dummy._finalize_completed_runtime_items = (
+        lambda promise_id="", proactive_id="": WebBridge._finalize_completed_runtime_items(dummy, promise_id, proactive_id)
+    )
+    dummy._finalize_pending_response_completion_if_any = (
+        lambda: WebBridge._finalize_pending_response_completion_if_any(dummy)
+    )
     return dummy
 
 
@@ -213,7 +228,7 @@ def test_duplicate_due_proactive_is_cancelled_instead_of_repolled():
     assert dummy.proactive_run_queue == []
 
 
-def test_repeated_poll_for_same_queued_proactive_keeps_persisted_item_scheduled():
+def test_repeated_poll_for_same_queued_proactive_does_not_enqueue_duplicate():
     dummy = type("BridgeDummy", (), {})()
     _attach_proactive_helpers(dummy)
     dummy.worker = _RunningWorker()
@@ -247,7 +262,7 @@ def test_enqueue_due_proactive_conversation_queues_when_worker_is_running():
     WebBridge._enqueue_due_proactive_conversation(dummy, payload)
 
     assert dummy.proactive_run_queue == [payload]
-    assert dummy.proactive_manager.updated == []
+    assert dummy.proactive_manager.updated == [("p1", "queued")]
 
 
 def test_poll_proactive_conversations_ignores_due_items_when_feature_is_disabled():
@@ -341,6 +356,7 @@ def test_start_proactive_ai_worker_uses_generation_prompt():
     dummy._prompt_language = lambda: "ko"
     dummy._now_timestamp = lambda: "2026-05-26 21:20"
     dummy._with_prompt_time = lambda timestamp, prompt: f"[현재 시각: {timestamp}]\n{prompt}"
+    dummy._last_request_payload = None
     started = []
     dummy._start_ai_worker = lambda message_with_time: started.append(message_with_time)
 
@@ -358,6 +374,70 @@ def test_start_proactive_ai_worker_uses_generation_prompt():
 
     assert dummy.proactive_manager.updated == [("p1", "triggered")]
     assert "합성 대화 흐름을 짧게 다시 이어가세요." in started[0]
+    assert dummy._last_request_payload["type"] == "proactive"
+    assert dummy._last_request_payload["proactive_id"] == "p1"
+    assert dummy._last_request_payload["message_with_time"] == started[0]
+
+
+def test_reroll_ignores_proactive_reply_payload():
+    dummy = type("BridgeDummy", (), {})()
+    dummy.llm_client = object()
+    dummy._last_request_payload = {"type": "proactive", "message_with_time": "synthetic prompt"}
+    dummy.worker = None
+    messages = []
+    dummy._reset_pending_ui_state = lambda message: messages.append(message)
+    dummy._rollback_last_turn_pair_for_retry = lambda: (_ for _ in ()).throw(AssertionError("rollback should not run"))
+
+    WebBridge.reroll_last_response(dummy)
+
+    assert messages == ["선제 대화 응답은 리롤할 수 없어요."]
+
+
+def test_edit_ignores_proactive_reply_payload():
+    dummy = type("BridgeDummy", (), {})()
+    dummy.llm_client = object()
+    dummy._last_request_payload = {"type": "proactive", "message_with_time": "synthetic prompt"}
+    dummy.worker = None
+    messages = []
+    dummy._reset_pending_ui_state = lambda message: messages.append(message)
+    dummy._rollback_last_turn_pair_for_retry = lambda: (_ for _ in ()).throw(AssertionError("rollback should not run"))
+
+    WebBridge.edit_last_user_message(dummy, "수정 문장")
+
+    assert messages == ["선제 대화 응답은 수정할 사용자 메시지가 없어요."]
+
+
+def test_request_proactive_conversation_items_emits_visible_items_when_enabled():
+    dummy = type("BridgeDummy", (), {})()
+    _attach_proactive_helpers(dummy)
+    dummy.settings = _DummySettings({"enable_proactive_conversation": True})
+    dummy.proactive_manager = _DummyProactiveManager()
+    dummy.proactive_items_updated = _DummySignal()
+    dummy.proactive_manager.items = [
+        {"id": "p1", "title": "가벼운 확인", "status": "scheduled"},
+        {"id": "p2", "title": "대기 중 확인", "status": "queued"},
+        {"id": "p3", "title": "이미 시작", "status": "triggered"},
+    ]
+
+    WebBridge.request_proactive_conversation_items(dummy)
+
+    payload = json.loads(dummy.proactive_items_updated.emitted[-1][0])
+    assert [item["id"] for item in payload] == ["p1", "p2"]
+
+
+def test_request_proactive_conversation_items_emits_empty_when_disabled():
+    dummy = type("BridgeDummy", (), {})()
+    _attach_proactive_helpers(dummy)
+    dummy.settings = _DummySettings({"enable_proactive_conversation": False})
+    dummy.proactive_manager = _DummyProactiveManager()
+    dummy.proactive_items_updated = _DummySignal()
+    dummy.proactive_manager.items = [
+        {"id": "p1", "title": "가벼운 확인", "status": "scheduled"},
+    ]
+
+    WebBridge.request_proactive_conversation_items(dummy)
+
+    assert dummy.proactive_items_updated.emitted == [("[]",)]
 
 
 def test_on_response_ready_stores_proactive_conversation_when_no_promises():
@@ -418,6 +498,203 @@ def test_on_response_ready_stores_proactive_conversation_when_no_promises():
 
     assert len(dummy.proactive_manager.added) == 1
     assert dummy._last_request_payload["proactive_ids"] == ["proactive-1"]
+
+
+def test_on_response_ready_marks_active_proactive_completed_for_cooldown():
+    dummy = type("BridgeDummy", (), {})()
+    _attach_proactive_helpers(dummy)
+    dummy.settings = _DummySettings({"enable_proactive_conversation": True})
+    dummy.proactive_manager = _DummyProactiveManager()
+    dummy.proactive_manager.items = [{"id": "p1", "status": "triggered"}]
+    dummy.promise_manager = None
+    dummy.message_received = _DummySignal()
+    dummy.token_usage_ready = _DummySignal()
+    dummy.reroll_state_changed = _DummySignal()
+    dummy.conversation_buffer = []
+    dummy.mood_manager = None
+    dummy.calendar_manager = None
+    dummy.enable_tts = False
+    dummy.tts_client = None
+    dummy.audio_player = None
+    dummy.pending_response = None
+    dummy.pending_token_usage_payload = ""
+    dummy._is_rerolling = False
+    dummy._active_promise_id = ""
+    dummy._active_proactive_id = "p1"
+    dummy._active_proactive_signature = "short-followup|가벼운 확인|2026-05-26T21:20"
+    dummy._last_request_payload = {"type": "proactive"}
+    dummy._last_assistant_response = None
+    dummy._emit_mood_changed = lambda snapshot: None
+    dummy._sanitize_visible_response_text = lambda text: text
+    dummy._resolve_token_usage_payload = lambda payload="": payload
+    dummy._append_conversation = lambda role, text, timestamp=None: dummy.conversation_buffer.append((role, text, timestamp or "2026-05-26 21:20"))
+    dummy._refresh_llm_history_from_visible_conversation = lambda: None
+    dummy._check_auto_summarize = lambda: None
+    dummy._store_scheduled_promises = lambda items: []
+    dummy._maybe_store_user_promise_candidates = lambda scheduled_promises=None: []
+    dummy._maybe_store_assistant_promise_candidates = lambda source_text: []
+    dummy._collect_promise_ids = lambda items=None: []
+    dummy._remember_tracked_promise_ids = lambda ids=None: None
+    dummy._drain_promise_queue_if_idle = lambda: None
+    dummy._drain_proactive_queue_if_idle = lambda: None
+
+    WebBridge._on_response_ready(
+        dummy,
+        "가볍게 먼저 말을 건 합성 답변입니다.",
+        "smile",
+        "",
+        [],
+        "",
+        "",
+        [],
+        "",
+        "",
+        [],
+    )
+
+    assert dummy.proactive_manager.updated == [("p1", "completed")]
+    assert dummy.proactive_manager.deleted == []
+    assert dummy._active_proactive_id is None
+    assert dummy._active_proactive_signature is None
+
+
+def test_on_response_ready_defers_proactive_completion_until_tts_pending_response_is_flushed():
+    dummy = type("BridgeDummy", (), {})()
+    _attach_proactive_helpers(dummy)
+    dummy.settings = _DummySettings({"enable_proactive_conversation": True})
+    dummy.proactive_manager = _DummyProactiveManager()
+    dummy.proactive_manager.items = [{"id": "p1", "status": "triggered"}]
+    dummy.promise_manager = None
+    dummy.message_received = _DummySignal()
+    dummy.token_usage_ready = _DummySignal()
+    dummy.reroll_state_changed = _DummySignal()
+    dummy.conversation_buffer = []
+    dummy.mood_manager = None
+    dummy.calendar_manager = None
+    dummy.enable_tts = True
+    dummy.tts_client = object()
+    dummy.audio_player = object()
+    dummy.pending_response = None
+    dummy.pending_token_usage_payload = ""
+    dummy._is_rerolling = False
+    dummy._active_promise_id = ""
+    dummy._active_proactive_id = "p1"
+    dummy._active_proactive_signature = "short-followup|가벼운 확인|2026-05-26T21:20"
+    dummy._last_request_payload = {"type": "proactive"}
+    dummy._last_assistant_response = None
+    dummy._emit_mood_changed = lambda snapshot: None
+    dummy._sanitize_visible_response_text = lambda text: text
+    dummy._resolve_token_usage_payload = lambda payload="": payload
+    dummy._append_conversation = lambda role, text, timestamp=None: dummy.conversation_buffer.append((role, text, timestamp or "2026-05-26 21:20"))
+    dummy._refresh_llm_history_from_visible_conversation = lambda: None
+    dummy._check_auto_summarize = lambda: None
+    dummy._store_scheduled_promises = lambda items: []
+    dummy._maybe_store_user_promise_candidates = lambda scheduled_promises=None: []
+    dummy._maybe_store_assistant_promise_candidates = lambda source_text: []
+    dummy._collect_promise_ids = lambda items=None: []
+    dummy._remember_tracked_promise_ids = lambda ids=None: None
+    dummy._drain_promise_queue_if_idle = lambda: None
+    drained = []
+    dummy._drain_proactive_queue_if_idle = lambda: drained.append("drained")
+    dummy._finalize_completed_runtime_items = (
+        lambda promise_id="", proactive_id="": WebBridge._finalize_completed_runtime_items(dummy, promise_id, proactive_id)
+    )
+    dummy._finalize_pending_response_completion_if_any = (
+        lambda: WebBridge._finalize_pending_response_completion_if_any(dummy)
+    )
+    played = []
+    dummy._play_tts = lambda text: played.append(text)
+
+    WebBridge._on_response_ready(
+        dummy,
+        "가볍게 먼저 말을 건 합성 답변입니다.",
+        "smile",
+        "읽어줄 합성 문장",
+        [],
+        "",
+        "",
+        [],
+        "",
+        "",
+        [],
+    )
+
+    assert played == ["읽어줄 합성 문장"]
+    assert dummy.message_received.emitted == []
+    assert dummy.proactive_manager.updated == []
+    assert drained == []
+
+    WebBridge._flush_pending_response_if_any(dummy)
+
+    assert dummy.message_received.emitted == [("가볍게 먼저 말을 건 합성 답변입니다.", "smile", "")]
+    assert dummy.proactive_manager.updated == [("p1", "completed")]
+    assert dummy._active_proactive_id is None
+    assert dummy._active_proactive_signature is None
+    assert drained == ["drained"]
+
+
+def test_on_response_ready_does_not_chain_proactive_conversations_from_active_proactive_reply():
+    dummy = type("BridgeDummy", (), {})()
+    _attach_proactive_helpers(dummy)
+    dummy.settings = _DummySettings({"enable_proactive_conversation": True})
+    dummy.proactive_manager = _DummyProactiveManager()
+    dummy.proactive_manager.items = [{"id": "p1", "status": "triggered"}]
+    dummy.promise_manager = None
+    dummy.message_received = _DummySignal()
+    dummy.token_usage_ready = _DummySignal()
+    dummy.reroll_state_changed = _DummySignal()
+    dummy.conversation_buffer = []
+    dummy.mood_manager = None
+    dummy.calendar_manager = None
+    dummy.enable_tts = False
+    dummy.tts_client = None
+    dummy.audio_player = None
+    dummy.pending_response = None
+    dummy.pending_token_usage_payload = ""
+    dummy._is_rerolling = False
+    dummy._active_promise_id = ""
+    dummy._active_proactive_id = "p1"
+    dummy._active_proactive_signature = "short-followup|가벼운 확인|2026-05-26T21:20"
+    dummy._last_request_payload = {"type": "proactive"}
+    dummy._last_assistant_response = None
+    dummy._emit_mood_changed = lambda snapshot: None
+    dummy._sanitize_visible_response_text = lambda text: text
+    dummy._resolve_token_usage_payload = lambda payload="": payload
+    dummy._append_conversation = lambda role, text, timestamp=None: dummy.conversation_buffer.append((role, text, timestamp or "2026-05-26 21:20"))
+    dummy._refresh_llm_history_from_visible_conversation = lambda: None
+    dummy._check_auto_summarize = lambda: None
+    dummy._store_scheduled_promises = lambda items: []
+    dummy._maybe_store_user_promise_candidates = lambda scheduled_promises=None: []
+    dummy._maybe_store_assistant_promise_candidates = lambda source_text: []
+    dummy._collect_promise_ids = lambda items=None: []
+    dummy._remember_tracked_promise_ids = lambda ids=None: None
+    dummy._drain_promise_queue_if_idle = lambda: None
+    dummy._drain_proactive_queue_if_idle = lambda: None
+
+    WebBridge._on_response_ready(
+        dummy,
+        "먼저 말을 건 뒤 짧게 마무리한 합성 답변입니다.",
+        "smile",
+        "",
+        [],
+        "",
+        "",
+        [],
+        "",
+        "",
+        [
+            {
+                "trigger_at": "2026-05-26T21:30:00+09:00",
+                "title": "연쇄 확인",
+                "generation_prompt": "다시 먼저 말을 거세요.",
+                "cooldown_key": "quiet-checkin",
+            }
+        ],
+    )
+
+    assert dummy.proactive_manager.added == []
+    assert dummy.proactive_manager.updated == [("p1", "completed")]
+    assert dummy._last_request_payload["proactive_ids"] == []
 
 
 def test_on_response_ready_drops_active_proactive_reply_when_feature_is_disabled():

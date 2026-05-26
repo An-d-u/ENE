@@ -89,7 +89,7 @@ class GoogleCloudClient(_CommonMixin):
                     "text": build_runtime_system_prompt(
                         include_sub_prompt=include_sub_prompt,
                         include_analysis_appendix=True,
-                        settings_source=self.settings,
+                        settings_source=self._runtime_prompt_settings_source(),
                     )
                 }]
             },
@@ -120,7 +120,7 @@ class GoogleCloudClient(_CommonMixin):
                     "text": build_runtime_system_prompt(
                         include_sub_prompt=include_sub_prompt,
                         include_analysis_appendix=True,
-                        settings_source=self.settings,
+                        settings_source=self._runtime_prompt_settings_source(),
                     )
                 }]
             },
@@ -234,7 +234,7 @@ class CohereClient(_CommonMixin):
         preamble = build_runtime_system_prompt(
             include_sub_prompt=include_sub_prompt,
             include_analysis_appendix=True,
-            settings_source=self.settings,
+            settings_source=self._runtime_prompt_settings_source(),
         )
         for h in self._history:
             role = str(h.get("role", "user"))
@@ -273,7 +273,7 @@ class CohereClient(_CommonMixin):
             "preamble": build_runtime_system_prompt(
                 include_sub_prompt=include_sub_prompt,
                 include_analysis_appendix=True,
-                settings_source=self.settings,
+                settings_source=self._runtime_prompt_settings_source(),
             ),
             "temperature": self.generation_params["temperature"],
             "p": self.generation_params["top_p"],
@@ -337,5 +337,3 @@ class CohereClient(_CommonMixin):
         prompt = self._build_summary_prompt_for_messages(messages)
         response_text = self._request_one_shot_raw(prompt)
         return self._parse_summary_response(response_text)
-
-

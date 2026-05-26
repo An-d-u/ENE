@@ -52,7 +52,7 @@ class OllamaClient(_CommonMixin):
             "content": build_runtime_system_prompt(
                 include_sub_prompt=include_sub_prompt,
                 include_analysis_appendix=True,
-                settings_source=self.settings,
+                settings_source=self._runtime_prompt_settings_source(),
             ),
         }]
         for item in self._history:
@@ -93,7 +93,7 @@ class OllamaClient(_CommonMixin):
                     "content": build_runtime_system_prompt(
                         include_sub_prompt=include_sub_prompt,
                         include_analysis_appendix=True,
-                        settings_source=self.settings,
+                        settings_source=self._runtime_prompt_settings_source(),
                     ),
                 },
                 {"role": "user", "content": str(message)},

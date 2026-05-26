@@ -64,3 +64,4 @@ def test_build_proactive_conversation_prompt_localizes_korean_message():
     assert "가벼운 확인" in prompt
     assert "합성 대화 흐름을 짧게 다시 이어가세요." in prompt
     assert "한두 문장" in prompt
+    assert "새 선제 대화 예약" in prompt

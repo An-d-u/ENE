@@ -78,7 +78,7 @@ class OpenAICompatibleClient(_CommonMixin):
                     "content": build_runtime_system_prompt(
                         include_sub_prompt=include_sub_prompt,
                         include_analysis_appendix=True,
-                        settings_source=self.settings,
+                        settings_source=self._runtime_prompt_settings_source(),
                     ),
                 },
                 {"role": "user", "content": user_content},
@@ -242,7 +242,7 @@ class OpenAIResponseAPIClient(_CommonMixin):
             "instructions": build_runtime_system_prompt(
                 include_sub_prompt=True,
                 include_analysis_appendix=True,
-                settings_source=self.settings,
+                settings_source=self._runtime_prompt_settings_source(),
             ),
             "input": self._input_items(user_content),
             "store": False,
@@ -277,7 +277,7 @@ class OpenAIResponseAPIClient(_CommonMixin):
             "instructions": build_runtime_system_prompt(
                 include_sub_prompt=include_sub_prompt,
                 include_analysis_appendix=True,
-                settings_source=self.settings,
+                settings_source=self._runtime_prompt_settings_source(),
             ),
             "input": [user_item],
             "store": False,
@@ -413,7 +413,7 @@ class MistralClient(OpenAICompatibleClient):
                     "content": build_runtime_system_prompt(
                         include_sub_prompt=include_sub_prompt,
                         include_analysis_appendix=True,
-                        settings_source=self.settings,
+                        settings_source=self._runtime_prompt_settings_source(),
                     ),
                 },
                 {"role": "user", "content": content},
@@ -430,5 +430,3 @@ class MistralClient(OpenAICompatibleClient):
         data = response.json()
         content = data["choices"][0]["message"]["content"]
         return str(content).strip()
-
-

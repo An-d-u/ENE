@@ -65,13 +65,14 @@ def test_response_contract_keeps_analysis_when_goal_and_thought_sections_are_dis
     assert "[subconscious]" not in appendix
 
 
-def test_response_contract_includes_optional_proactive_conversation_rules():
+def test_response_contract_prefers_proactive_conversation_rules_when_enabled():
     appendix = build_response_contract_appendix(
         {"ui_language": "ko", "enable_ene_goals": False, "enable_ene_thoughts": False}
     )
 
     assert "[proactive_conversation]" in appendix
-    assert "필요할 때만" in appendix
+    assert "원칙적으로" in appendix
+    assert "quiet-checkin" in appendix
     assert "short-followup" in appendix
     assert "quiet-checkin" in appendix
     assert "topic-reopen" in appendix
@@ -79,6 +80,38 @@ def test_response_contract_includes_optional_proactive_conversation_rules():
     assert "global-proactive" in appendix
     assert "2026-05-26T21:20:00+09:00" not in appendix
     assert "<ISO8601 +09:00" in appendix
+
+
+def test_response_contract_lists_only_available_proactive_cooldown_keys():
+    appendix = build_response_contract_appendix(
+        {
+            "ui_language": "ko",
+            "enable_ene_goals": False,
+            "enable_ene_thoughts": False,
+            "proactive_available_cooldown_keys": ["quiet-checkin", "task-momentum"],
+        }
+    )
+
+    assert "[proactive_conversation]" in appendix
+    assert "quiet-checkin, task-momentum" in appendix
+    assert "cooldown_key=quiet-checkin" in appendix
+    assert "short-followup" not in appendix
+    assert "topic-reopen" not in appendix
+
+
+def test_response_contract_omits_proactive_rules_when_all_keys_are_on_cooldown():
+    appendix = build_response_contract_appendix(
+        {
+            "ui_language": "ko",
+            "enable_ene_goals": False,
+            "enable_ene_thoughts": False,
+            "proactive_available_cooldown_keys": [],
+        }
+    )
+
+    assert "[analysis]" in appendix
+    assert "[proactive_conversation]" not in appendix
+    assert "선제 대화 기능" not in appendix
 
 
 def test_response_contract_omits_proactive_conversation_rules_when_disabled():

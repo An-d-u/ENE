@@ -69,6 +69,7 @@ class WebBridge(
     token_usage_ready = pyqtSignal(str)  # 토큰 사용량 JSON
     promise_notice = pyqtSignal(str, str)  # (메시지, 레벨)
     promise_items_updated = pyqtSignal(str)  # 예정 목록 JSON
+    proactive_items_updated = pyqtSignal(str)  # 선제 대화 예약 목록 JSON
     goal_items_updated = pyqtSignal(str)  # 목표 목록 JSON
     goal_notice = pyqtSignal(str, str)  # (메시지, 레벨)
     

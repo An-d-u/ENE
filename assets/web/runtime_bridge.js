@@ -30,6 +30,14 @@ if (typeof QWebChannel !== 'undefined') {
         if (window.pyBridge.request_promise_items) {
             window.pyBridge.request_promise_items();
         }
+        if (window.pyBridge.proactive_items_updated) {
+            window.pyBridge.proactive_items_updated.connect(function (value) {
+                window.setProactiveConversationItems(value);
+            });
+        }
+        if (window.pyBridge.request_proactive_conversation_items) {
+            window.pyBridge.request_proactive_conversation_items();
+        }
         if (window.pyBridge.goal_items_updated) {
             window.pyBridge.goal_items_updated.connect(function (value) {
                 window.setGoalItems(value);

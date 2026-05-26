@@ -1,7 +1,10 @@
 ﻿"""
 WebBridge의 선제 대화 예약과 실행 흐름을 담당한다.
 """
+import json
 from datetime import datetime
+
+from PyQt6.QtCore import pyqtSlot
 
 from ...ai.persona_names import resolve_prompt_persona_names
 from ...ai.response_contract import is_proactive_conversation_enabled
@@ -37,8 +40,22 @@ class ProactiveBridgeMixin:
             return
         if not self.proactive_manager:
             self.proactive_run_queue = []
+            ProactiveBridgeMixin._emit_proactive_items_updated(self)
             return
         self._cancel_pending_proactive_conversations_for_user_message()
+
+    def _emit_proactive_items_updated(self) -> None:
+        """웹 UI가 표시할 선제 대화 예약 목록을 전송한다."""
+        signal = getattr(self, "proactive_items_updated", None)
+        emit = getattr(signal, "emit", None)
+        if not callable(emit):
+            return
+        manager = getattr(self, "proactive_manager", None)
+        if not manager or not self._is_proactive_conversation_enabled():
+            emit("[]")
+            return
+        payload = manager.list_dicts(include_statuses=("scheduled", "queued"))
+        emit(json.dumps(payload, ensure_ascii=False))
 
     def _store_proactive_conversations(self, candidates: list | None, *, suppress: bool = False) -> list:
         """LLM 응답 메타에 포함된 선제 대화 예약을 저장한다."""
@@ -64,6 +81,8 @@ class ProactiveBridgeMixin:
             )
             if created:
                 stored.append(created)
+        if stored:
+            ProactiveBridgeMixin._emit_proactive_items_updated(self)
         return stored
 
     def _remember_tracked_proactive_ids(self, proactive_ids: list[str] | None) -> None:
@@ -96,11 +115,14 @@ class ProactiveBridgeMixin:
             normalized = str(proactive_id or "").strip()
             if normalized and self.proactive_manager.delete_item(normalized):
                 removed_ids.append(normalized)
+        if removed_ids:
+            ProactiveBridgeMixin._emit_proactive_items_updated(self)
         return removed_ids
 
     def _cancel_pending_proactive_conversations_for_user_message(self) -> list:
         """사용자가 새 메시지를 보내면 아직 실행되지 않은 선제 대화를 취소한다."""
         if not self.proactive_manager:
+            ProactiveBridgeMixin._emit_proactive_items_updated(self)
             return []
         queued_payloads = list(getattr(self, "proactive_run_queue", []) or [])
         self.proactive_run_queue = []
@@ -109,6 +131,8 @@ class ProactiveBridgeMixin:
             proactive_id = str((payload or {}).get("id", "") or "").strip()
             if proactive_id:
                 self.proactive_manager.set_status(proactive_id, "cancelled")
+        if cancelled or queued_payloads:
+            ProactiveBridgeMixin._emit_proactive_items_updated(self)
         return cancelled
 
     def _current_proactive_fire_time(self) -> datetime:
@@ -157,9 +181,13 @@ class ProactiveBridgeMixin:
         if self._should_suppress_duplicate_proactive_fire(payload):
             if self.proactive_manager and proactive_id:
                 self.proactive_manager.set_status(proactive_id, "cancelled")
+                ProactiveBridgeMixin._emit_proactive_items_updated(self)
             return
         if self.worker and self.worker.isRunning():
             self.proactive_run_queue.append(payload)
+            if self.proactive_manager and proactive_id:
+                self.proactive_manager.set_status(proactive_id, "queued")
+            ProactiveBridgeMixin._emit_proactive_items_updated(self)
             return
         self._start_proactive_ai_worker(payload)
 
@@ -181,9 +209,11 @@ class ProactiveBridgeMixin:
         if not self._is_proactive_conversation_enabled():
             if self.proactive_manager and proactive_id:
                 self.proactive_manager.set_status(proactive_id, "cancelled")
+                ProactiveBridgeMixin._emit_proactive_items_updated(self)
             return
         if self.proactive_manager and proactive_id:
             self.proactive_manager.set_status(proactive_id, "triggered")
+            ProactiveBridgeMixin._emit_proactive_items_updated(self)
         self._mark_proactive_fire_started(payload)
         self._active_proactive_id = proactive_id or None
         language = self._prompt_language()
@@ -198,7 +228,15 @@ class ProactiveBridgeMixin:
             ).user,
         )
         timestamp = self._now_timestamp()
-        self._start_ai_worker(self._with_prompt_time(timestamp, prompt))
+        message_with_time = self._with_prompt_time(timestamp, prompt)
+        self._last_request_payload = {
+            "type": "proactive",
+            "message": prompt,
+            "message_with_time": message_with_time,
+            "images": [],
+            "proactive_id": proactive_id,
+        }
+        self._start_ai_worker(message_with_time)
 
     def _poll_proactive_conversations(self) -> None:
         """도래한 선제 대화 예약을 찾아 즉시 실행하거나 큐에 넣는다."""
@@ -208,7 +246,9 @@ class ProactiveBridgeMixin:
             self.refresh_proactive_settings()
             return
 
-        due_items, _expired_items = self.proactive_manager.refresh_due_statuses()
+        due_items, expired_items = self.proactive_manager.refresh_due_statuses()
+        if expired_items:
+            ProactiveBridgeMixin._emit_proactive_items_updated(self)
         for item in due_items:
             if isinstance(item, dict):
                 payload = item
@@ -219,3 +259,17 @@ class ProactiveBridgeMixin:
     def _collect_proactive_ids(self, items: list | None) -> list[str]:
         """저장 결과에서 유효한 선제 대화 id만 추출한다."""
         return _collect_proactive_ids(items)
+
+    @pyqtSlot()
+    def request_proactive_conversation_items(self):
+        """웹 UI에서 현재 선제 대화 예약 목록을 요청한다."""
+        ProactiveBridgeMixin._emit_proactive_items_updated(self)
+
+    @pyqtSlot(str)
+    def delete_proactive_conversation(self, proactive_id: str):
+        """웹 UI에서 선택한 선제 대화 예약을 삭제한다."""
+        normalized = str(proactive_id or "").strip()
+        if not normalized or not self.proactive_manager:
+            return
+        if self.proactive_manager.delete_item(normalized):
+            ProactiveBridgeMixin._emit_proactive_items_updated(self)

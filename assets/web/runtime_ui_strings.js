@@ -10,6 +10,7 @@ function mergeUiStrings(config) {
     const summaryConfirm = source.summaryConfirm || {};
     const promiseNotice = source.promiseNotice || {};
     const promisePanel = source.promisePanel || {};
+    const proactivePanel = source.proactivePanel || {};
     const goalPanel = source.goalPanel || {};
     const thoughts = source.thoughts || {};
 
@@ -36,6 +37,10 @@ function mergeUiStrings(config) {
                 label: (actions.promises && actions.promises.label) || DEFAULT_UI_STRINGS.actions.promises.label,
                 title: (actions.promises && actions.promises.title) || DEFAULT_UI_STRINGS.actions.promises.title
             },
+            proactive: {
+                label: (actions.proactive && actions.proactive.label) || DEFAULT_UI_STRINGS.actions.proactive.label,
+                title: (actions.proactive && actions.proactive.title) || DEFAULT_UI_STRINGS.actions.proactive.title
+            },
             goals: {
                 label: (actions.goals && actions.goals.label) || DEFAULT_UI_STRINGS.actions.goals.label,
                 title: (actions.goals && actions.goals.title) || DEFAULT_UI_STRINGS.actions.goals.title
@@ -52,6 +57,16 @@ function mergeUiStrings(config) {
             queued: promisePanel.queued || DEFAULT_UI_STRINGS.promisePanel.queued,
             inMinutes: promisePanel.inMinutes || DEFAULT_UI_STRINGS.promisePanel.inMinutes,
             overdueMinutes: promisePanel.overdueMinutes || DEFAULT_UI_STRINGS.promisePanel.overdueMinutes
+        },
+        proactivePanel: {
+            title: proactivePanel.title || DEFAULT_UI_STRINGS.proactivePanel.title,
+            close: proactivePanel.close || DEFAULT_UI_STRINGS.proactivePanel.close,
+            empty: proactivePanel.empty || DEFAULT_UI_STRINGS.proactivePanel.empty,
+            soon: proactivePanel.soon || DEFAULT_UI_STRINGS.proactivePanel.soon,
+            queued: proactivePanel.queued || DEFAULT_UI_STRINGS.proactivePanel.queued,
+            inMinutes: proactivePanel.inMinutes || DEFAULT_UI_STRINGS.proactivePanel.inMinutes,
+            overdueMinutes: proactivePanel.overdueMinutes || DEFAULT_UI_STRINGS.proactivePanel.overdueMinutes,
+            remove: proactivePanel.remove || DEFAULT_UI_STRINGS.proactivePanel.remove
         },
         goalPanel: {
             label: goalPanel.label || DEFAULT_UI_STRINGS.goalPanel.label,
@@ -149,6 +164,11 @@ function applyUiStringsToStaticNodes() {
         promiseRemindersButton.textContent = currentUiStrings.actions.promises.label;
         promiseRemindersButton.title = currentUiStrings.actions.promises.title;
     }
+    if (proactiveConversationsButton) {
+        proactiveConversationsButton.textContent = currentUiStrings.actions.proactive.label;
+        proactiveConversationsButton.title = currentUiStrings.actions.proactive.title;
+        proactiveConversationsButton.setAttribute('aria-label', currentUiStrings.actions.proactive.title);
+    }
     if (goalButton) {
         goalButton.textContent = currentUiStrings.actions.goals.label;
         goalButton.title = currentUiStrings.actions.goals.title;
@@ -160,6 +180,13 @@ function applyUiStringsToStaticNodes() {
     if (promiseRemindersCloseButton) {
         promiseRemindersCloseButton.title = currentUiStrings.promisePanel.close;
         promiseRemindersCloseButton.setAttribute('aria-label', currentUiStrings.promisePanel.close);
+    }
+    if (proactiveConversationsPanelTitle) {
+        proactiveConversationsPanelTitle.textContent = currentUiStrings.proactivePanel.title;
+    }
+    if (proactiveConversationsCloseButton) {
+        proactiveConversationsCloseButton.title = currentUiStrings.proactivePanel.close;
+        proactiveConversationsCloseButton.setAttribute('aria-label', currentUiStrings.proactivePanel.close);
     }
     if (goalPanelTitle) {
         goalPanelTitle.textContent = currentUiStrings.goalPanel.title;
@@ -185,6 +212,7 @@ window.applyENEUiStrings = function applyENEUiStrings(config) {
     window.eneUiStrings = currentUiStrings;
     applyUiStringsToStaticNodes();
     renderPromiseReminderPanel();
+    renderProactiveConversationPanel();
     renderGoalPanel();
     updateMoodWidget(
         currentMoodSnapshot.label,

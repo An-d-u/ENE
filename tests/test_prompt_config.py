@@ -230,7 +230,8 @@ def test_runtime_prompt_adds_korean_response_contract_from_code_when_enabled(tmp
     assert "[/thought]" not in runtime_prompt
     assert "단계별 추론" in runtime_prompt
     assert "[proactive_conversation]" in runtime_prompt
-    assert "[/subconscious]\n한국어 답변 [emotion]\n[tts]\n일본어 TTS 문장\n[/tts]" in runtime_prompt
+    assert "[/subconscious]\n[proactive_conversation]" in runtime_prompt
+    assert "[/proactive_conversation]\n한국어 답변 [emotion]\n[tts]\n일본어 TTS 문장\n[/tts]" in runtime_prompt
     assert "본문을 subconscious 블록 안에 넣지 마세요" in runtime_prompt
     assert runtime_prompt.index("### [분석 규칙]") < runtime_prompt.index("### [최종 응답 형식]")
 
@@ -278,6 +279,108 @@ def test_runtime_prompt_omits_optional_response_contract_sections_when_settings_
     assert "[/thought]" not in runtime_prompt
     assert "[proactive_conversation]" not in runtime_prompt
     assert "한국어 답변 [emotion]\n[tts]\n일본어 TTS 문장\n[/tts]" in runtime_prompt
+
+
+def test_runtime_prompt_settings_source_adds_available_proactive_keys():
+    from src.ai.runtime_prompt_settings import build_runtime_prompt_settings_source
+
+    class _Settings:
+        config = {
+            "ui_language": "ko",
+            "enable_proactive_conversation": True,
+        }
+
+        def get(self, key, default=None):
+            return self.config.get(key, default)
+
+    class _ProactiveManager:
+        def available_cooldown_keys(self):
+            return ["quiet-checkin", "task-momentum"]
+
+    source = build_runtime_prompt_settings_source(_Settings(), proactive_manager=_ProactiveManager())
+
+    assert source["ui_language"] == "ko"
+    assert source["enable_proactive_conversation"] is True
+    assert source["proactive_available_cooldown_keys"] == ["quiet-checkin", "task-momentum"]
+
+
+def test_runtime_prompt_settings_source_preserves_get_only_settings():
+    from src.ai import response_contract
+    from src.ai.runtime_prompt_settings import build_runtime_prompt_settings_source
+
+    class _Settings:
+        values = {
+            "ui_language": "en",
+            "enable_proactive_conversation": False,
+        }
+
+        def get(self, key, default=None):
+            return self.values.get(key, default)
+
+    class _ProactiveManager:
+        def available_cooldown_keys(self):
+            return ["quiet-checkin"]
+
+    source = build_runtime_prompt_settings_source(_Settings(), proactive_manager=_ProactiveManager())
+    appendix = response_contract.build_response_contract_appendix(source)
+
+    assert source["ui_language"] == "en"
+    assert source["enable_proactive_conversation"] is False
+    assert "[Final Response Format]" in appendix
+    assert "[proactive_conversation]" not in appendix
+
+
+def test_gemini_runtime_prompt_refreshes_when_proactive_setting_changes():
+    from src.ai.llm_client import GeminiClient
+
+    class _Chat:
+        history = [{"role": "user", "parts": [{"text": "테스트 메시지"}]}]
+
+    class _ProactiveManager:
+        def available_cooldown_keys(self):
+            return ["quiet-checkin"]
+
+    client = GeminiClient.__new__(GeminiClient)
+    client.settings = {"enable_proactive_conversation": True}
+    client.proactive_manager = _ProactiveManager()
+    client.chat = _Chat()
+    client.model_name = "gemini-test"
+    client.client = object()
+    recreated = []
+
+    def _create_chat_session(history=None):
+        recreated.append(history)
+        return _Chat()
+
+    client._create_chat_session = _create_chat_session
+    client._last_runtime_prompt_signature = GeminiClient._runtime_prompt_signature(client)
+
+    client.settings["enable_proactive_conversation"] = False
+    GeminiClient._refresh_chat_session_for_runtime_prompt_if_needed(client)
+
+    assert recreated == [_Chat.history]
+    assert client._last_runtime_prompt_signature == (False, ("quiet-checkin",))
+
+
+def test_gemini_runtime_prompt_does_not_refresh_when_signature_is_unchanged():
+    from src.ai.llm_client import GeminiClient
+
+    class _Chat:
+        history = []
+
+    client = GeminiClient.__new__(GeminiClient)
+    client.settings = {"enable_proactive_conversation": True}
+    client.proactive_manager = None
+    client.chat = _Chat()
+    client.model_name = "gemini-test"
+    client.client = object()
+    client._last_runtime_prompt_signature = GeminiClient._runtime_prompt_signature(client)
+    recreated = []
+    client._create_chat_session = lambda history=None: recreated.append(history) or _Chat()
+
+    GeminiClient._refresh_chat_session_for_runtime_prompt_if_needed(client)
+
+    assert recreated == []
 
 
 def test_runtime_thought_rules_are_localized(tmp_path, monkeypatch):

@@ -207,6 +207,8 @@ class ENEApplication(QObject):
         """선제 대화 매니저 초기화"""
         try:
             self.proactive_manager = ProactiveConversationManager()
+            if hasattr(self, "llm_client") and self.llm_client:
+                self.llm_client.proactive_manager = self.proactive_manager
             print("OK: 선제 대화 매니저 초기화 성공")
         except Exception as e:
             print(f"ERROR: 선제 대화 매니저 초기화 실패: {e}")

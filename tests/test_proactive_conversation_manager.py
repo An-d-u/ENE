@@ -1,6 +1,10 @@
 ﻿from datetime import datetime, timedelta, timezone
 
-from src.ai.proactive_conversation_manager import DEFAULT_COOLDOWN_MINUTES, ProactiveConversationManager
+from src.ai.proactive_conversation_manager import (
+    ALLOWED_COOLDOWN_KEYS,
+    DEFAULT_COOLDOWN_MINUTES,
+    ProactiveConversationManager,
+)
 
 
 KST = timezone(timedelta(hours=9))
@@ -58,31 +62,64 @@ def test_add_rejects_invalid_trigger_ranges(tmp_path):
     ) is None
 
 
-def test_add_rejects_same_key_and_global_cooldown(tmp_path):
+def test_completed_items_start_cooldown_for_same_key_only(tmp_path):
     manager = ProactiveConversationManager(tmp_path / "proactive.json")
 
     first = manager.add_proactive_conversation(**_payload(), now=BASE)
+    manager.set_status(first.id, "completed", now=BASE + timedelta(minutes=6))
     same_key = manager.add_proactive_conversation(
-        **_payload(trigger_at=(BASE + timedelta(minutes=10)).isoformat(timespec="seconds")),
-        now=BASE + timedelta(minutes=5),
+        **_payload(trigger_at=(BASE + timedelta(minutes=15)).isoformat(timespec="seconds")),
+        now=BASE + timedelta(minutes=10),
     )
     different_key = manager.add_proactive_conversation(
         **_payload(
-            trigger_at=(BASE + timedelta(minutes=15)).isoformat(timespec="seconds"),
+            trigger_at=(BASE + timedelta(minutes=16)).isoformat(timespec="seconds"),
             cooldown_key="topic-reopen",
         ),
-        now=BASE + timedelta(minutes=5),
+        now=BASE + timedelta(minutes=10),
     )
 
     assert first is not None
     assert same_key is None
-    assert different_key is None
+    assert different_key is not None
+
+
+def test_available_cooldown_keys_excludes_only_completed_keys_in_cooldown(tmp_path):
+    manager = ProactiveConversationManager(tmp_path / "proactive.json")
+
+    first = manager.add_proactive_conversation(**_payload(), now=BASE)
+    manager.set_status(first.id, "completed", now=BASE + timedelta(minutes=2))
+
+    available = manager.available_cooldown_keys(now=BASE + timedelta(minutes=3))
+
+    assert "short-followup" not in available
+    assert set(available) == ALLOWED_COOLDOWN_KEYS - {"short-followup"}
+
+
+def test_unanswered_items_do_not_start_cooldown(tmp_path):
+    for status in ["scheduled", "queued", "triggered", "cancelled", "expired"]:
+        manager = ProactiveConversationManager(tmp_path / f"{status}.json")
+
+        first = manager.add_proactive_conversation(**_payload(), now=BASE)
+        if status == "cancelled":
+            manager.cancel_scheduled(now=BASE + timedelta(minutes=2))
+        elif status != "scheduled":
+            manager.set_status(first.id, status, now=BASE + timedelta(minutes=2))
+        next_item = manager.add_proactive_conversation(
+            **_payload(trigger_at=(BASE + timedelta(minutes=9)).isoformat(timespec="seconds")),
+            now=BASE + timedelta(minutes=3),
+        )
+
+        assert first is not None
+        assert next_item is not None, status
+        assert next_item.status == "scheduled"
 
 
 def test_default_cooldown_is_twenty_minutes_at_boundary(tmp_path):
     manager = ProactiveConversationManager(tmp_path / "proactive.json")
 
     first = manager.add_proactive_conversation(**_payload(), now=BASE)
+    manager.set_status(first.id, "completed", now=BASE)
     before_boundary = manager.add_proactive_conversation(
         **_payload(trigger_at=(BASE + timedelta(minutes=25)).isoformat(timespec="seconds")),
         now=BASE + timedelta(minutes=19, seconds=59),

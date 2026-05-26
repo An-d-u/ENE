@@ -66,6 +66,10 @@ const DEFAULT_UI_STRINGS = {
             label: 'Scheduled',
             title: 'Scheduled conversation promises'
         },
+        proactive: {
+            label: 'Proactive',
+            title: 'Scheduled proactive conversations'
+        },
         goals: {
             label: 'Goals',
             title: 'ENE goals'
@@ -82,6 +86,16 @@ const DEFAULT_UI_STRINGS = {
         queued: 'Right after the current reply',
         inMinutes: 'In {minutes} min',
         overdueMinutes: '{minutes} min late'
+    },
+    proactivePanel: {
+        title: 'Proactive',
+        close: 'Close',
+        empty: 'No scheduled proactive conversations.',
+        soon: 'Soon',
+        queued: 'Right after the current reply',
+        inMinutes: 'In {minutes} min',
+        overdueMinutes: '{minutes} min late',
+        remove: 'Delete proactive conversation'
     },
     goalPanel: {
         label: 'Goals',

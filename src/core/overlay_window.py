@@ -101,6 +101,7 @@ class OverlayWindow(QWidget):
         self._sync_manual_summary_button_visibility_to_js()
         self._sync_obsidian_note_button_visibility_to_js()
         self._sync_mood_toggle_button_visibility_to_js()
+        self._sync_proactive_conversation_button_visibility_to_js()
         self._sync_goal_button_visibility_to_js()
         self._sync_token_usage_bubble_visibility_to_js()
         self._sync_typing_effect_settings_to_js()
@@ -229,6 +230,10 @@ class OverlayWindow(QWidget):
                     "label": i18n.t("chat.actions.promises"),
                     "title": i18n.t("chat.actions.promises.title"),
                 },
+                "proactive": {
+                    "label": i18n.t("chat.actions.proactive"),
+                    "title": i18n.t("chat.actions.proactive.title"),
+                },
                 "goals": {
                     "label": i18n.t("chat.actions.goals"),
                     "title": i18n.t("chat.actions.goals.title"),
@@ -243,6 +248,16 @@ class OverlayWindow(QWidget):
                 "queued": i18n.t("chat.promise.panel.queued"),
                 "inMinutes": i18n.t("chat.promise.panel.in_minutes"),
                 "overdueMinutes": i18n.t("chat.promise.panel.overdue_minutes"),
+            },
+            "proactivePanel": {
+                "title": i18n.t("chat.proactive.panel.title"),
+                "close": i18n.t("chat.proactive.panel.close"),
+                "empty": i18n.t("chat.proactive.panel.empty"),
+                "soon": i18n.t("chat.proactive.panel.soon"),
+                "queued": i18n.t("chat.proactive.panel.queued"),
+                "inMinutes": i18n.t("chat.proactive.panel.in_minutes"),
+                "overdueMinutes": i18n.t("chat.proactive.panel.overdue_minutes"),
+                "remove": i18n.t("chat.proactive.panel.remove"),
             },
             "goalPanel": {
                 "label": i18n.t("chat.goals.label"),
@@ -483,6 +498,7 @@ class OverlayWindow(QWidget):
         self._sync_manual_summary_button_visibility_to_js()
         self._sync_obsidian_note_button_visibility_to_js()
         self._sync_mood_toggle_button_visibility_to_js()
+        self._sync_proactive_conversation_button_visibility_to_js()
         self._sync_goal_button_visibility_to_js()
         self._sync_token_usage_bubble_visibility_to_js()
         self._sync_typing_effect_settings_to_js()
@@ -533,6 +549,7 @@ class OverlayWindow(QWidget):
             self._sync_manual_summary_button_visibility_to_js(new_settings)
             self._sync_obsidian_note_button_visibility_to_js(new_settings)
             self._sync_mood_toggle_button_visibility_to_js(new_settings)
+            self._sync_proactive_conversation_button_visibility_to_js(new_settings)
             self._sync_goal_button_visibility_to_js(new_settings)
             self._sync_token_usage_bubble_visibility_to_js(new_settings)
             self._sync_typing_effect_settings_to_js(new_settings)
@@ -552,6 +569,7 @@ class OverlayWindow(QWidget):
         self._sync_manual_summary_button_visibility_to_js()
         self._sync_obsidian_note_button_visibility_to_js()
         self._sync_mood_toggle_button_visibility_to_js()
+        self._sync_proactive_conversation_button_visibility_to_js()
         self._sync_goal_button_visibility_to_js()
         self._sync_token_usage_bubble_visibility_to_js()
         self._sync_typing_effect_settings_to_js()
@@ -748,6 +766,13 @@ class OverlayWindow(QWidget):
         source = settings_override if settings_override is not None else self.settings.config
         enabled = "true" if bool(source.get("show_mood_toggle_button", True)) else "false"
         self.web_view.page().runJavaScript(f"window.setMoodToggleButtonEnabled({enabled});")
+
+    def _sync_proactive_conversation_button_visibility_to_js(self, settings_override: dict | None = None):
+        if not self._page_loaded:
+            return
+        source = settings_override if settings_override is not None else self.settings.config
+        enabled = "true" if bool(source.get("enable_proactive_conversation", True)) else "false"
+        self.web_view.page().runJavaScript(f"window.setProactiveConversationButtonEnabled({enabled});")
 
     def _sync_goal_button_visibility_to_js(self, settings_override: dict | None = None):
         if not self._page_loaded:

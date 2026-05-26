@@ -314,6 +314,9 @@ class TTSBridgeMixin:
             self.reroll_state_changed.emit(False)
         self.pending_response = None
         self.pending_token_usage_payload = ""
+        finalize_pending = getattr(self, "_finalize_pending_response_completion_if_any", None)
+        if callable(finalize_pending):
+            finalize_pending()
 
     def _resolve_token_usage_payload(self, token_usage_payload: str = "") -> str:
         """브리지에서 사용할 토큰 사용량 JSON을 정규화한다."""

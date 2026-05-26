@@ -61,7 +61,7 @@ class AnthropicClient(_CommonMixin):
             "system": build_runtime_system_prompt(
                 include_sub_prompt=include_sub_prompt,
                 include_analysis_appendix=True,
-                settings_source=self.settings,
+                settings_source=self._runtime_prompt_settings_source(),
             ),
             "messages": messages,
         }
@@ -80,7 +80,7 @@ class AnthropicClient(_CommonMixin):
             "system": build_runtime_system_prompt(
                 include_sub_prompt=include_sub_prompt,
                 include_analysis_appendix=True,
-                settings_source=self.settings,
+                settings_source=self._runtime_prompt_settings_source(),
             ),
             "messages": [{"role": "user", "content": [{"type": "text", "text": str(message)}]}],
         }
@@ -157,5 +157,3 @@ class AnthropicClient(_CommonMixin):
         prompt = self._build_summary_prompt_for_messages(messages)
         response_text = self._request_one_shot_raw(prompt)
         return self._parse_summary_response(response_text)
-
-

@@ -290,8 +290,22 @@ if (promiseRemindersButton) {
             window.pyBridge.request_promise_items();
         }
         const nextOpen = promiseRemindersPanel ? promiseRemindersPanel.classList.contains('hidden') : false;
+        setProactiveConversationPanelOpen(false);
         setGoalPanelOpen(false);
         setPromiseRemindersPanelOpen(nextOpen);
+        setFloatingActionsOpen(false);
+    });
+}
+
+if (proactiveConversationsButton) {
+    proactiveConversationsButton.addEventListener('click', () => {
+        if (window.pyBridge && window.pyBridge.request_proactive_conversation_items) {
+            window.pyBridge.request_proactive_conversation_items();
+        }
+        const nextOpen = proactiveConversationsPanel ? proactiveConversationsPanel.classList.contains('hidden') : false;
+        setPromiseRemindersPanelOpen(false);
+        setGoalPanelOpen(false);
+        setProactiveConversationPanelOpen(nextOpen);
         setFloatingActionsOpen(false);
     });
 }
@@ -301,6 +315,7 @@ if (goalButton) {
         if (window.pyBridge && window.pyBridge.request_goal_items) {
             window.pyBridge.request_goal_items();
         }
+        setProactiveConversationPanelOpen(false);
         setPromiseRemindersPanelOpen(false);
         setGoalPanelOpen(!goalPanelOpen);
         setFloatingActionsOpen(false);
@@ -310,6 +325,12 @@ if (goalButton) {
 if (promiseRemindersCloseButton) {
     promiseRemindersCloseButton.addEventListener('click', () => {
         setPromiseRemindersPanelOpen(false);
+    });
+}
+
+if (proactiveConversationsCloseButton) {
+    proactiveConversationsCloseButton.addEventListener('click', () => {
+        setProactiveConversationPanelOpen(false);
     });
 }
 
