@@ -164,7 +164,7 @@ def test_multimodal_send_returns_fallback_when_response_is_empty(monkeypatch, fa
     monkeypatch.setattr(client, "_build_memory_context", fake_memory_context)
     monkeypatch.setattr(client, request_method, lambda *args, **kwargs: "")
 
-    text, emotion, tts_text, events, analysis, promises, thought, _goal_update = asyncio.run(
+    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive = asyncio.run(
         client.send_message_with_images("설명", [{"dataUrl": IMAGE_DATA_URL}])
     )
     history = client.get_conversation_history()

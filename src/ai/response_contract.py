@@ -18,6 +18,7 @@ _RESPONSE_CONTRACT_BY_LANGUAGE = {
         "names": "- 사용자에게 보이는 답변에서는 캐릭터 자신을 `{assistant_name}`로, 사용자를 `{user_name}`로 부르세요.",
         "names_with_tts": "- 사용자에게 보이는 답변과 `[tts]` 블록에서는 캐릭터 자신을 `{assistant_name}`로, 사용자를 `{user_name}`로 부르세요.",
         "goal": "- 목표 기능이 켜져 있으면 `[analysis]` 블록 뒤에 `[ene_goal_update]...[/ene_goal_update]` 블록을 출력하세요.",
+        "proactive": "- 추후 짧게 이어 말하면 자연스러운 대화 계기가 있을 때, 필요할 때만 `[proactive_conversation]...[/proactive_conversation]` 블록을 최대 1개 출력하세요.",
         "tts": "- TTS 언어가 응답 언어와 다르면 답변 본문 뒤에 `[tts]...[/tts]` 블록을 추가하세요. TTS 언어가 같으면 TTS 블록을 만들지 마세요.",
         "subconscious": "- 생각 기능이 켜져 있으면 목표 블록 뒤, 사용자에게 보일 답변 앞에 `[subconscious]...[/subconscious]` 블록을 출력하세요.",
         "reply": "한국어 답변 [emotion]",
@@ -35,6 +36,7 @@ _RESPONSE_CONTRACT_BY_LANGUAGE = {
         "names": "- In the visible reply, refer to the assistant persona as `{assistant_name}` and address the user as `{user_name}`.",
         "names_with_tts": "- In the visible reply and any `[tts]` block, refer to the assistant persona as `{assistant_name}` and address the user as `{user_name}`.",
         "goal": "- When the goal feature is enabled, output an `[ene_goal_update]...[/ene_goal_update]` block after `[analysis]`.",
+        "proactive": "- Only when a short proactive follow-up would feel natural later, output at most one `[proactive_conversation]...[/proactive_conversation]` block.",
         "tts": "- If the TTS language differs from the response language, add a `[tts]...[/tts]` block after the visible reply. If they match, do not add a TTS block.",
         "subconscious": "- When the thought feature is enabled, output a `[subconscious]...[/subconscious]` block after the goal block and before the visible reply.",
         "reply": "English reply [emotion]",
@@ -52,6 +54,7 @@ _RESPONSE_CONTRACT_BY_LANGUAGE = {
         "names": "- ユーザーに見える返答では、キャラクター自身を `{assistant_name}`、ユーザーを `{user_name}` と呼んでください。",
         "names_with_tts": "- ユーザーに見える返答と `[tts]` ブロックでは、キャラクター自身を `{assistant_name}`、ユーザーを `{user_name}` と呼んでください。",
         "goal": "- 目標機能が有効な場合、`[analysis]` ブロックの後に `[ene_goal_update]...[/ene_goal_update]` ブロックを出力してください。",
+        "proactive": "- あとで短く自然に話しかけるきっかけがある場合だけ、`[proactive_conversation]...[/proactive_conversation]` ブロックを最大1つ出力してください。",
         "tts": "- TTS言語が返答言語と異なる場合だけ、ユーザーに見える返答の後に `[tts]...[/tts]` ブロックを追加してください。同じ場合はTTSブロックを作らないでください。",
         "subconscious": "- 思考表示機能が有効な場合、目標ブロックの後、ユーザーに見える返答の前に `[subconscious]...[/subconscious]` ブロックを出力してください。",
         "reply": "日本語返答 [emotion]",
@@ -88,6 +91,18 @@ def _build_format_block(
         )
     if thought_enabled:
         lines.extend(["[subconscious]", contract["thought_sample"], "[/subconscious]"])
+    lines.extend(
+        [
+            "[proactive_conversation]",
+            "trigger_at=2026-05-26T21:20:00+09:00",
+            "title=짧은 제목",
+            "generation_prompt=나중에 사용자에게 먼저 말을 걸 때 사용할 자연어 지시",
+            "source_excerpt=실제 원문 복사가 아닌 짧은 맥락 요약",
+            "reason=예약 판단 이유",
+            "cooldown_key=short-followup",
+            "[/proactive_conversation]",
+        ]
+    )
     lines.append(contract["reply"])
     if tts_language != response_language:
         lines.extend(["[tts]", contract["tts_samples"].get(tts_language, "TTS text"), "[/tts]"])
@@ -120,5 +135,35 @@ def build_response_contract_appendix(settings_source: object | None = None) -> s
     if thought_enabled:
         lines.append(contract["subconscious"])
         lines.extend(build_thought_rules(language=language))
+    lines.append(contract["proactive"])
+    lines.extend(_build_proactive_conversation_rules(language=language))
     lines.append(_build_format_block(contract, goal_enabled, thought_enabled, language, tts_language))
     return "\n".join(lines)
+
+
+def _build_proactive_conversation_rules(language: str = "ko") -> list[str]:
+    allowed_keys = "short-followup, quiet-checkin, topic-reopen, task-momentum, global-proactive"
+    normalized_language = str(language or "ko").strip().lower()
+    if normalized_language == "en":
+        return [
+            "- This block is optional. Do not output it when there is no natural later follow-up.",
+            "- `trigger_at` must be an ISO 8601 timestamp with `+09:00`, chosen from the current time and conversation context.",
+            "- `generation_prompt` is the instruction for ENE's later reply, not the final line itself.",
+            "- `source_excerpt` must be a short synthetic context summary, not a verbatim private conversation quote.",
+            f"- `cooldown_key` must be one of: {allowed_keys}.",
+        ]
+    if normalized_language == "ja":
+        return [
+            "- このブロックは任意です。あとで自然に話しかける理由がない場合は出力しないでください。",
+            "- `trigger_at` は現在時刻と会話文脈から選んだ `+09:00` 付きISO 8601時刻にしてください。",
+            "- `generation_prompt` は後でENEが返答を作るための指示であり、最終セリフそのものではありません。",
+            "- `source_excerpt` は実際の私的な会話の引用ではなく、短い合成文脈要約にしてください。",
+            f"- `cooldown_key` は次のどれかだけを使ってください: {allowed_keys}。",
+        ]
+    return [
+        "- 이 블록은 선택 사항입니다. 나중에 자연스럽게 이어 말할 이유가 없으면 출력하지 마세요.",
+        "- `trigger_at`은 현재 시각과 대화 맥락을 보고 고른 `+09:00` 포함 ISO 8601 시각이어야 합니다.",
+        "- `generation_prompt`는 나중에 ENE가 답변을 생성할 때 쓸 지시문이며 최종 대사 자체가 아닙니다.",
+        "- `source_excerpt`는 실제 사적인 대화 원문 인용이 아니라 짧은 합성 맥락 요약이어야 합니다.",
+        f"- `cooldown_key`는 다음 값 중 하나만 사용하세요: {allowed_keys}.",
+    ]

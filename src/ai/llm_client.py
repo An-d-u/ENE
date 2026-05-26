@@ -147,7 +147,7 @@ class GeminiClient:
 
     def _empty_text_fallback_response(self) -> LLM_RESPONSE_TUPLE:
         """LLM이 텍스트 없는 응답을 반환했을 때 사용자에게 보여줄 안전한 fallback."""
-        return "음... 무슨 일이 있었나봐요.", "confused", None, [], {}, [], "", {}
+        return "음... 무슨 일이 있었나봐요.", "confused", None, [], {}, [], "", {}, []
 
     def _read_runtime_setting_for_log(self, key: str, default=None):
         """진단 로그용으로 dict/Settings 객체에서 설정값을 읽는다."""
@@ -406,7 +406,7 @@ class GeminiClient:
             print(f"[LLM] 멀티모달 응답: {response_text[:100]}...")
             
             # 응답에서 텍스트, 감정, 일정 분리 (기존 메서드 활용)
-            clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update = self._parse_response(response_text)
+            clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations = self._parse_response(response_text)
             
             # TTS 텍스트가 있으면 로깅
             if tts_text:
@@ -416,14 +416,14 @@ class GeminiClient:
             if events:
                 print(f"[LLM] {len(events)}개 일정 추출됨")
             
-            return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update
+            return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations
 
             
         except Exception as e:
             print(f"[LLM] 멀티모달 처리 실패: {e}")
             import traceback
             traceback.print_exc()
-            return f"이미지를 처리하는 중에 문제가 생겼어요... ({str(e)[:50]})", "confused", None, [], {}, [], "", {}
+            return f"이미지를 처리하는 중에 문제가 생겼어요... ({str(e)[:50]})", "confused", None, [], {}, [], "", {}, []
 
     def _build_goal_context_block(self, prompt_language: str | None = None) -> str:
         """메모리 매니저와 독립적으로 활성 목표 컨텍스트를 만든다."""
@@ -550,7 +550,7 @@ class GeminiClient:
             print(f"[LLM] Received response: {response_text[:50]}...")
             
             # 응답에서 텍스트와 감정 분리
-            text, emotion, tts_text, events, analysis, promises, thought, goal_update = self._parse_response(response_text)
+            text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations = self._parse_response(response_text)
             
             # TTS 텍스트가 있으면 로깅
             if tts_text:
@@ -560,7 +560,7 @@ class GeminiClient:
             if events:
                 print(f"[LLM] {len(events)}개 일정 추출됨")
             
-            return text, emotion, tts_text, events, analysis, promises, thought, goal_update
+            return text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations
             
         except Exception as e:
             print(f"[LLM] Error: {e}")

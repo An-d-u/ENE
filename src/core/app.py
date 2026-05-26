@@ -17,6 +17,7 @@ from ..ui.obsidian_panel_window import ObsidianPanelWindow
 from ..ui.settings_dialog import SettingsDialog
 from ..ai.mood_manager import MoodManager
 from ..ai.ene_goal_manager import EneGoalManager
+from ..ai.proactive_conversation_manager import ProactiveConversationManager
 from .app_llm_bootstrap import (
     LLMRuntimeDependencies,
     create_llm_runtime_client,
@@ -50,6 +51,7 @@ class ENEApplication(QObject):
         # 캘린더 매니저 초기화
         self._init_calendar_manager()
         self._init_promise_manager()
+        self._init_proactive_manager()
         
         # 오버레이 윈도우 생성
         self.overlay_window = OverlayWindow(self.settings)
@@ -67,6 +69,9 @@ class ENEApplication(QObject):
             self.overlay_window.bridge.promise_manager = self.promise_manager
             self.overlay_window.bridge.request_promise_items()
             print("[App] Bridge에 대화 약속 매니저 연결")
+        if hasattr(self, "proactive_manager") and self.proactive_manager:
+            self.overlay_window.bridge.proactive_manager = self.proactive_manager
+            print("[App] Bridge에 선제 대화 매니저 연결")
 
         # Obsidian 패널 창 생성 (ENE 외부 플로팅)
         self.obsidian_panel_window = ObsidianPanelWindow(
@@ -197,6 +202,17 @@ class ENEApplication(QObject):
             import traceback
             traceback.print_exc()
             self.promise_manager = None
+
+    def _init_proactive_manager(self):
+        """선제 대화 매니저 초기화"""
+        try:
+            self.proactive_manager = ProactiveConversationManager()
+            print("OK: 선제 대화 매니저 초기화 성공")
+        except Exception as e:
+            print(f"ERROR: 선제 대화 매니저 초기화 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            self.proactive_manager = None
     
     def _init_memory_manager(self):
         """메모리 매니저 초기화"""

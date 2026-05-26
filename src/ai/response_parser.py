@@ -28,7 +28,27 @@ ANALYSIS_KEYS = {
     "flags",
 }
 
-LLM_RESPONSE_TUPLE = Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict], str, Dict[str, str]]
+LLM_RESPONSE_TUPLE = Tuple[
+    str,
+    str,
+    str | None,
+    List[Dict],
+    Dict[str, str],
+    List[Dict],
+    str,
+    Dict[str, str],
+    List[Dict],
+]
+
+PROACTIVE_CONVERSATION_KEYS = {
+    "trigger_at",
+    "title",
+    "generation_prompt",
+    "source_excerpt",
+    "reason",
+    "cooldown_key",
+}
+REQUIRED_PROACTIVE_CONVERSATION_KEYS = {"trigger_at", "title", "generation_prompt"}
 
 
 def parse_analysis_lines(raw_block: str) -> Dict[str, str]:
@@ -95,6 +115,35 @@ def extract_analysis_block(response_text: str) -> tuple[str, Dict[str, str]]:
     analysis = parse_analysis_lines("\n".join(prefix_lines))
     cleaned = "\n".join(lines[consumed:]).strip()
     return cleaned, analysis
+
+
+def parse_proactive_conversation_lines(raw_block: str) -> Dict[str, str]:
+    """선제 대화 예약 블록의 key=value 줄을 파싱한다."""
+    payload: Dict[str, str] = {}
+    for raw_line in raw_block.splitlines():
+        line = raw_line.strip()
+        if not line or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if key in PROACTIVE_CONVERSATION_KEYS and value:
+            payload[key] = value
+    if not REQUIRED_PROACTIVE_CONVERSATION_KEYS.issubset(payload):
+        return {}
+    return payload
+
+
+def extract_proactive_conversation_blocks(response_text: str) -> tuple[str, List[Dict[str, str]]]:
+    """응답에서 선제 대화 예약 블록을 제거하고 구조화된 예약 후보를 반환한다."""
+    pattern = r"\[\s*proactive_conversation\s*\]\s*(.*?)\s*\[\s*/\s*proactive_conversation\s*\]"
+    proactive_conversations: List[Dict[str, str]] = []
+    for match in re.finditer(pattern, response_text, re.IGNORECASE | re.DOTALL):
+        parsed = parse_proactive_conversation_lines(match.group(1))
+        if parsed:
+            proactive_conversations.append(parsed)
+    cleaned = re.sub(pattern, "", response_text, flags=re.IGNORECASE | re.DOTALL).strip()
+    return cleaned, proactive_conversations[:1]
 
 
 def is_japanese(text: str) -> bool:
@@ -169,6 +218,7 @@ def parse_llm_response(
     response_text, analysis = extract_analysis_block(response_text)
     response_text, goal_update = extract_goal_update_metadata(response_text)
     response_text, thought = extract_thought_metadata(response_text)
+    response_text, proactive_conversations = extract_proactive_conversation_blocks(response_text)
 
     events = []
     event_pattern = r"\[이벤트:([^\]]+)\]"
@@ -222,4 +272,4 @@ def parse_llm_response(
     else:
         clean_text, tts_text = extract_tts_text(clean_text, settings_source=settings_source)
 
-    return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update
+    return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations

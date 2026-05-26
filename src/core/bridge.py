@@ -22,6 +22,7 @@ from .bridge_mixins.goals import GoalBridgeMixin
 from .bridge_mixins.memory_summary import MemorySummaryBridgeMixin
 from .bridge_mixins.mood import MoodBridgeMixin
 from .bridge_mixins.obsidian import ObsidianBridgeMixin
+from .bridge_mixins.proactive import ProactiveBridgeMixin
 from .bridge_mixins.promise import PromiseBridgeMixin
 from .bridge_mixins.thoughts import ThoughtBridgeMixin
 from .bridge_mixins.tts import TTSBridgeMixin
@@ -46,6 +47,7 @@ class WebBridge(
     ObsidianBridgeMixin,
     MemorySummaryBridgeMixin,
     PromiseBridgeMixin,
+    ProactiveBridgeMixin,
     ThoughtBridgeMixin,
     TTSBridgeMixin,
     BridgeStateAliasMixin,
@@ -93,6 +95,11 @@ class WebBridge(
         self.promise_timer.setInterval(10_000)
         self.promise_timer.timeout.connect(self._poll_promise_reminders)
         self.promise_timer.start()
+
+        self.proactive_timer = QTimer(self)
+        self.proactive_timer.setInterval(10_000)
+        self.proactive_timer.timeout.connect(self._poll_proactive_conversations)
+        self.proactive_timer.start()
 
         self.away_timer = QTimer(self)
         self.away_timer.setInterval(10_000)

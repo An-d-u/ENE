@@ -26,9 +26,15 @@ class _DummyGoalManager:
         self.settings = settings
 
 
+class _DummyProactiveManager:
+    def __init__(self, storage_file=None):
+        self.storage_file = storage_file
+
+
 class _DummyBridge:
     def __init__(self):
         self.goal_manager = None
+        self.proactive_manager = None
         self.llm_client = None
         self.obs_settings = type("ObsSettings", (), {"get": lambda self, key, default=None: False})()
 
@@ -74,6 +80,7 @@ def test_app_initializes_goal_manager_without_llm_api_key(monkeypatch):
     monkeypatch.setattr(app_module, "Settings", lambda: settings)
     monkeypatch.setattr(app_module, "configure_i18n", lambda language="auto": object())
     monkeypatch.setattr(app_module, "EneGoalManager", _DummyGoalManager)
+    monkeypatch.setattr(app_module, "ProactiveConversationManager", _DummyProactiveManager)
     monkeypatch.setattr(app_module, "OverlayWindow", _DummyOverlayWindow)
     monkeypatch.setattr(app_module, "ObsidianPanelWindow", _DummyObsPanelWindow)
     monkeypatch.setattr(app_module, "TrayIcon", _DummyTrayIcon)
@@ -90,3 +97,5 @@ def test_app_initializes_goal_manager_without_llm_api_key(monkeypatch):
     assert isinstance(app.goal_manager, _DummyGoalManager)
     assert app.goal_manager.state_file == "test_ene_goals.json"
     assert app.overlay_window.bridge.goal_manager is app.goal_manager
+    assert isinstance(app.proactive_manager, _DummyProactiveManager)
+    assert app.overlay_window.bridge.proactive_manager is app.proactive_manager

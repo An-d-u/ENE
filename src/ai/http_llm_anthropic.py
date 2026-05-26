@@ -143,15 +143,15 @@ class AnthropicClient(_CommonMixin):
                 }
             )
         raw_response_text = self._request_anthropic(blocks)
-        clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update = self._parse_response_with_empty_fallback(raw_response_text)
-        self._remember_turn(blocks, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update)))
-        return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update
+        clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations = self._parse_response_with_empty_fallback(raw_response_text)
+        self._remember_turn(blocks, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations)))
+        return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations
 
     def send_message(self, message: str) -> LLM_RESPONSE_TUPLE:
         raw_response_text = self._request_anthropic([{"type": "text", "text": message}])
-        clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update = self._parse_response_with_empty_fallback(raw_response_text)
-        self._remember_turn(message, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update)))
-        return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update
+        clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations = self._parse_response_with_empty_fallback(raw_response_text)
+        self._remember_turn(message, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations)))
+        return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
         prompt = self._build_summary_prompt_for_messages(messages)

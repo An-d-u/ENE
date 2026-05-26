@@ -174,30 +174,33 @@ def test_ai_worker_normalize_response_payload_returns_goal_update_for_new_and_le
         [{"title": "쉬기"}],
         "속마음",
         {"action": "none"},
+        [],
     )
     assert AIWorker._normalize_response_payload(
         worker,
         ("본문", "smile", "TTS", [], {"user_intent": "plan"}, [{"title": "쉬기"}], "속마음"),
-    ) == (
-        "본문",
-        "smile",
-        "TTS",
-        [],
-        {"user_intent": "plan"},
-        [{"title": "쉬기"}],
-        "속마음",
-        {},
-    )
+        ) == (
+            "본문",
+            "smile",
+            "TTS",
+            [],
+            {"user_intent": "plan"},
+            [{"title": "쉬기"}],
+            "속마음",
+            {},
+            [],
+        )
     assert AIWorker._normalize_response_payload(
         worker,
         ("본문", "smile", "TTS", [], {"user_intent": "plan"}, [{"title": "쉬기"}]),
-    ) == (
-        "본문",
-        "smile",
-        "TTS",
-        [],
-        {"user_intent": "plan"},
-        [{"title": "쉬기"}],
-        "",
-        {},
-    )
+        ) == (
+            "본문",
+            "smile",
+            "TTS",
+            [],
+            {"user_intent": "plan"},
+            [{"title": "쉬기"}],
+            "",
+            {},
+            [],
+        )

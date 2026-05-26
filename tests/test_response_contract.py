@@ -62,6 +62,20 @@ def test_response_contract_keeps_analysis_when_goal_and_thought_sections_are_dis
     assert "[subconscious]" not in appendix
 
 
+def test_response_contract_includes_optional_proactive_conversation_rules():
+    appendix = build_response_contract_appendix(
+        {"ui_language": "ko", "enable_ene_goals": False, "enable_ene_thoughts": False}
+    )
+
+    assert "[proactive_conversation]" in appendix
+    assert "필요할 때만" in appendix
+    assert "short-followup" in appendix
+    assert "quiet-checkin" in appendix
+    assert "topic-reopen" in appendix
+    assert "task-momentum" in appendix
+    assert "global-proactive" in appendix
+
+
 def test_response_contract_includes_custom_prompt_names_without_changing_parser_tokens():
     appendix = build_response_contract_appendix(
         {
