@@ -579,6 +579,7 @@ class ObsidianCheckedFilesWorker(QThread):
         try:
             checked_contents = self.obsidian_manager.get_checked_file_contents(
                 max_files=8,
+                checked_files=self.checked_files,
                 allow_retry=False,
             )
             context = build_obsidian_checked_context(checked_contents, self.language)
