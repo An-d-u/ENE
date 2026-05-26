@@ -382,14 +382,29 @@ class ObsidianManager:
             return {"ok": False, "error": err, "nodes": []}
 
         paths = self._parse_files_output(completed.stdout)
+        checked_files = self._prune_checked_files_to_existing_paths(paths)
         nodes = self._build_tree_from_paths(paths, max_depth=max_depth, max_nodes=max_nodes)
         self._tree_connection_ok = True
         return {
             "ok": True,
             "cli": self._cli_bin(),
             "nodes": nodes,
-            "checked_files": self.obs_settings.get_checked_files(),
+            "checked_files": checked_files,
         }
+
+    def _prune_checked_files_to_existing_paths(self, paths: list[str]) -> list[str]:
+        """현재 vault 목록에 없는 체크 파일을 설정에서 제거한다."""
+        checked = self.obs_settings.get_checked_files()
+        if not checked:
+            return []
+
+        available = {self._normalize_rel(path) for path in paths}
+        pruned = [rel for rel in checked if self._normalize_rel(rel) in available]
+        if pruned != checked:
+            setter = getattr(self.obs_settings, "set_checked_files", None)
+            if callable(setter):
+                setter(pruned)
+        return pruned
 
     def get_tree_json(self, allow_retry: bool = True) -> str:
         return json.dumps(self.build_tree(allow_retry=allow_retry), ensure_ascii=False)
@@ -475,6 +490,7 @@ class ObsidianManager:
         max_files: int = 8,
         max_chars_per_file: int | None = None,
         total_max_chars: int | None = None,
+        checked_files: list[str] | tuple[str, ...] | None = None,
         allow_retry: bool = True,
     ) -> list[tuple[str, str]]:
         if max_chars_per_file is None:
@@ -482,10 +498,13 @@ class ObsidianManager:
         if total_max_chars is None:
             total_max_chars = self._checked_total_max_chars()
 
-        checked = self.obs_settings.get_checked_files()
+        checked = list(checked_files) if checked_files is not None else self.obs_settings.get_checked_files()
         result: list[tuple[str, str]] = []
         total = 0
         for rel in checked[:max_files]:
+            rel = self._normalize_rel(rel)
+            if not rel:
+                continue
             try:
                 text = self.read_file(rel, allow_retry=allow_retry)
             except Exception:

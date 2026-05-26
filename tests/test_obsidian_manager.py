@@ -1,6 +1,7 @@
 ﻿import subprocess
 
 from src.ai.obsidian_manager import ObsidianManager
+from src.core.bridge_workers import ObsidianCheckedFilesWorker
 
 
 class DummySettings:
@@ -17,8 +18,14 @@ class DummySettings:
 
 
 class DummyObsSettings:
+    def __init__(self, checked_files=None):
+        self.checked_files = list(checked_files or ["notes/a.md"])
+
     def get_checked_files(self):
-        return ["notes/a.md"]
+        return list(self.checked_files)
+
+    def set_checked_files(self, files):
+        self.checked_files = list(files)
 
 
 def test_parse_files_output_extracts_paths():
@@ -54,6 +61,23 @@ def test_build_tree_uses_cli_files(monkeypatch):
     assert tree["ok"] is True
     assert tree["checked_files"] == ["notes/a.md"]
     assert tree["nodes"]
+
+
+def test_build_tree_prunes_checked_files_missing_from_cli_files(monkeypatch):
+    obs_settings = DummyObsSettings(checked_files=["notes/old.md", "notes/current.md"])
+    manager = ObsidianManager(settings=DummySettings(), obs_settings=obs_settings)
+
+    class DummyCompleted:
+        returncode = 0
+        stdout = "notes/current.md\n"
+        stderr = ""
+
+    monkeypatch.setattr(manager, "_run_cli", lambda args, allow_retry=True: DummyCompleted())
+
+    tree = manager.build_tree()
+
+    assert tree["checked_files"] == ["notes/current.md"]
+    assert obs_settings.get_checked_files() == ["notes/current.md"]
 
 
 def test_read_file_calls_cli(monkeypatch):
@@ -255,3 +279,34 @@ def test_get_checked_file_contents_uses_settings_limits(monkeypatch):
     checked_contents = manager.get_checked_file_contents()
 
     assert checked_contents == [("notes/a.md", "a" * 555)]
+
+
+def test_get_checked_file_contents_reads_explicit_snapshot_not_current_settings(monkeypatch):
+    obs_settings = DummyObsSettings(checked_files=["notes/current.md"])
+    manager = ObsidianManager(settings=DummySettings(), obs_settings=obs_settings)
+    captured = []
+
+    def fake_read(rel, allow_retry=True):
+        captured.append(rel)
+        return f"content for {rel}"
+
+    monkeypatch.setattr(manager, "read_file", fake_read)
+
+    checked_contents = manager.get_checked_file_contents(checked_files=["notes/snapshot.md"])
+
+    assert captured == ["notes/snapshot.md"]
+    assert checked_contents == [("notes/snapshot.md", "content for notes/snapshot.md")]
+
+
+def test_checked_files_worker_reads_its_snapshot():
+    captured = {}
+
+    class DummyManager:
+        def get_checked_file_contents(self, **kwargs):
+            captured["checked_files"] = kwargs.get("checked_files")
+            return [("notes/snapshot.md", "snapshot body")]
+
+    worker = ObsidianCheckedFilesWorker(DummyManager(), ["notes/snapshot.md"], language="ko")
+    worker.run()
+
+    assert captured["checked_files"] == ["notes/snapshot.md"]
