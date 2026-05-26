@@ -151,6 +151,8 @@ function updateAttachmentPreview() {
  */
 // 입력창 텍스트/첨부를 브리지로 보내고 전송 상태를 초기화한다.
 function sendMessage() {
+    if (isRequestPending) return;
+
     const message = chatInput.value.trim();
 
     if (!message && attachedAttachments.length === 0) return;
@@ -171,10 +173,8 @@ function sendMessage() {
     if (!canDispatchMessage) {
         console.error("Python bridge send route is not available");
         addMessage("연결 오류가 발생했어요.", 'assistant', [], new Date(), { excludeFromReroll: true });
-        isRequestPending = false;
+        setRequestPending(false);
         shouldReplaceNextAssistant = false;
-        updateRerollButtonState();
-        showLoadingIndicator(false);
         return;
     }
 
@@ -182,10 +182,8 @@ function sendMessage() {
     chatInput.value = '';
     autoResizeTextarea();
 
-    isRequestPending = true;
     shouldReplaceNextAssistant = false;
-    updateRerollButtonState();
-    showLoadingIndicator(true);
+    setRequestPending(true);
 
     dispatchBridgeCall(() => {
         if (pendingAttachments.length > 0) {
@@ -196,10 +194,8 @@ function sendMessage() {
     }, (error) => {
         console.error("Python bridge dispatch failed", error);
         addMessage("연결 오류가 발생했어요.", 'assistant', [], new Date(), { excludeFromReroll: true });
-        isRequestPending = false;
+        setRequestPending(false);
         shouldReplaceNextAssistant = false;
-        updateRerollButtonState();
-        showLoadingIndicator(false);
     });
     attachedAttachments = [];
     updateAttachmentPreview();
@@ -207,33 +203,30 @@ function sendMessage() {
 
 // Python 전역 PTT가 호출하는 텍스트 전송 진입점.
 function submitVoiceText(text) {
+    if (isRequestPending) return;
+
     const message = (text || '').trim();
     if (!message) return;
 
     addMessage(message, 'user', [], new Date());
     if (window.pyBridge && window.pyBridge.send_to_ai) {
-        isRequestPending = true;
         shouldReplaceNextAssistant = false;
-        updateRerollButtonState();
-        showLoadingIndicator(true);
+        setRequestPending(true);
         dispatchBridgeCall(() => {
             window.pyBridge.send_to_ai(message);
         }, (error) => {
             console.error("Python bridge dispatch failed", error);
             addMessage("연결 오류가 발생했어요.", 'assistant', [], new Date(), { excludeFromReroll: true });
-            isRequestPending = false;
+            setRequestPending(false);
             shouldReplaceNextAssistant = false;
-            updateRerollButtonState();
-            showLoadingIndicator(false);
         });
         return;
     }
 
     console.error("Python bridge not connected");
     addMessage("연결 오류가 발생했어요.", 'assistant', [], new Date(), { excludeFromReroll: true });
-    isRequestPending = false;
+    setRequestPending(false);
     shouldReplaceNextAssistant = false;
-    updateRerollButtonState();
 }
 window.submitVoiceText = submitVoiceText;
 

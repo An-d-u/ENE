@@ -154,11 +154,16 @@ function openInlineEdit(messageDiv) {
             attachments: getMessageVisualAttachments(messageDiv),
             immediate: true
         });
-        isRequestPending = true;
         shouldReplaceNextAssistant = true;
-        showLoadingIndicator(true);
-        updateRerollButtonState();
-        window.pyBridge.edit_last_user_message(trimmed);
+        setRequestPending(true);
+        dispatchBridgeCall(() => {
+            window.pyBridge.edit_last_user_message(trimmed);
+        }, (error) => {
+            console.error("Python bridge edit retry failed", error);
+            addMessage("연결 오류가 발생했어요.", 'assistant', [], new Date(), { excludeFromReroll: true });
+            shouldReplaceNextAssistant = false;
+            setRequestPending(false);
+        });
     };
 
     cancelBtn.addEventListener('click', () => closeInlineEdit(messageDiv, true));

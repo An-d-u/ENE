@@ -150,6 +150,53 @@ def test_loading_indicator_uses_plain_message_row_visuals():
     assert "transform: translateY(4px);" in typing_text_block
 
 
+def test_chat_script_uses_bridge_pending_signal_for_loading_state():
+    script = _script_text()
+
+    assert "function setRequestPending(active)" in script
+    assert "window.pyBridge.request_pending_changed.connect" in script
+    assert "setRequestPending(Boolean(active));" in script
+
+
+def test_chat_script_blocks_send_while_request_is_pending():
+    script = _script_text()
+
+    assert "sendButton.disabled = isRequestPending;" in script
+    assert "if (isRequestPending) return;" in script
+
+
+def test_reroll_and_inline_edit_restore_pending_when_bridge_call_fails():
+    script = _script_text()
+
+    reroll_block = re.search(
+        r"setRequestPending\(true\);\s*dispatchBridgeCall\(\(\) => \{\s*window\.pyBridge\.reroll_last_response\(\);",
+        script,
+    )
+    edit_block = re.search(
+        r"setRequestPending\(true\);\s*dispatchBridgeCall\(\(\) => \{\s*window\.pyBridge\.edit_last_user_message\(trimmed\);",
+        script,
+    )
+
+    assert reroll_block
+    assert edit_block
+    assert "setRequestPending(false);" in script
+    assert "shouldReplaceNextAssistant = false;" in script
+
+
+def test_manual_summary_bridge_call_does_not_toggle_chat_pending():
+    script = _script_text()
+
+    assert "window.pyBridge.summarize_now();" in script
+    assert "Python bridge manual summary failed" not in script
+
+
+def test_inline_edit_save_button_reflects_request_pending_state():
+    script = _script_text()
+
+    assert "const saveBtn = activeInlineEditMessageEl.querySelector('.inline-edit-save');" in script
+    assert "saveBtn.disabled = isRequestPending;" in script
+
+
 def test_token_usage_bubble_is_offset_slightly_lower_from_top_left():
     stack_block = _rule_block("#overlay-notice-stack")
     bubble_block = _rule_block("#token-usage-bubble")

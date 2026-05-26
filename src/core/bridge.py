@@ -55,6 +55,7 @@ class WebBridge(
     
     # Python -> JavaScript 시그널
     message_received = pyqtSignal(str, str, str)  # (텍스트, 감정, 생각)
+    request_pending_changed = pyqtSignal(bool)  # LLM 응답 생성 진행 상태
     expression_changed = pyqtSignal(str)     # 표정 변경
     lip_sync_update = pyqtSignal(float)      # 립싱크 업데이트 (mouth_value)
     mouth_pose_update = pyqtSignal(str)      # 모델 적응형 입모양 JSON
@@ -136,6 +137,9 @@ class WebBridge(
         주로 reroll/edit 조기 종료 경로에서 사용한다.
         """
         self._is_rerolling = False
+        signal = getattr(self, "request_pending_changed", None)
+        if signal and hasattr(signal, "emit"):
+            signal.emit(False)
         self.reroll_state_changed.emit(False)
         if notice:
             self.summary_notice.emit(notice, "info")

@@ -38,10 +38,14 @@ if (typeof QWebChannel !== 'undefined') {
         if (window.pyBridge.request_goal_items) {
             window.pyBridge.request_goal_items();
         }
+        if (window.pyBridge.request_pending_changed) {
+            window.pyBridge.request_pending_changed.connect(function (active) {
+                setRequestPending(Boolean(active));
+            });
+        }
         window.pyBridge.message_received.connect(function (text, emotion, thought) {
             console.log(`Received from Python: "${text}" [${emotion}]`);
-            showLoadingIndicator(false);
-            isRequestPending = false;
+            setRequestPending(false);
             const receivedAt = new Date();
             if (shouldReplaceNextAssistant) {
                 const replaced = replaceLastAssistantMessage(text, receivedAt, thought || '');
@@ -84,9 +88,7 @@ if (typeof QWebChannel !== 'undefined') {
         if (window.pyBridge.reroll_state_changed) {
             window.pyBridge.reroll_state_changed.connect(function (active) {
                 shouldReplaceNextAssistant = Boolean(active);
-                isRequestPending = Boolean(active);
-                showLoadingIndicator(Boolean(active));
-                updateRerollButtonState();
+                setRequestPending(Boolean(active));
             });
         }
 
