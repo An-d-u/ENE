@@ -1,6 +1,6 @@
 ﻿from datetime import datetime, timedelta, timezone
 
-from src.ai.proactive_conversation_manager import ProactiveConversationManager
+from src.ai.proactive_conversation_manager import DEFAULT_COOLDOWN_MINUTES, ProactiveConversationManager
 
 
 KST = timezone(timedelta(hours=9))
@@ -77,6 +77,37 @@ def test_add_rejects_same_key_and_global_cooldown(tmp_path):
     assert first is not None
     assert same_key is None
     assert different_key is None
+
+
+def test_default_cooldown_is_twenty_minutes_at_boundary(tmp_path):
+    manager = ProactiveConversationManager(tmp_path / "proactive.json")
+
+    first = manager.add_proactive_conversation(**_payload(), now=BASE)
+    before_boundary = manager.add_proactive_conversation(
+        **_payload(trigger_at=(BASE + timedelta(minutes=25)).isoformat(timespec="seconds")),
+        now=BASE + timedelta(minutes=19, seconds=59),
+    )
+    at_boundary = manager.add_proactive_conversation(
+        **_payload(trigger_at=(BASE + timedelta(minutes=30)).isoformat(timespec="seconds")),
+        now=BASE + timedelta(minutes=20),
+    )
+
+    assert DEFAULT_COOLDOWN_MINUTES == 20
+    assert first is not None
+    assert before_boundary is None
+    assert at_boundary is not None
+
+
+def test_refresh_due_statuses_recovers_persisted_queued_items(tmp_path):
+    manager = ProactiveConversationManager(tmp_path / "proactive.json")
+    item = manager.add_proactive_conversation(**_payload(), now=BASE)
+    manager.set_status(item.id, "queued", now=BASE + timedelta(minutes=5))
+
+    reloaded = ProactiveConversationManager(tmp_path / "proactive.json")
+    due_items, expired_items = reloaded.refresh_due_statuses(now=BASE + timedelta(minutes=6))
+
+    assert [entry.id for entry in due_items] == [item.id]
+    assert expired_items == []
 
 
 def test_cancel_scheduled_marks_pending_items_cancelled(tmp_path):

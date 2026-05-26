@@ -39,6 +39,22 @@ class ChatFlowBridgeMixin:
         if signal and hasattr(signal, "emit"):
             signal.emit(bool(active))
 
+    def _drain_queues_after_worker_finished(self):
+        """워커 종료 뒤 대기 중인 약속/선제 대화 큐를 다시 확인한다."""
+        drain_promise_queue = getattr(self, "_drain_promise_queue_if_idle", None)
+        if callable(drain_promise_queue):
+            drain_promise_queue()
+        drain_proactive_queue = getattr(self, "_drain_proactive_queue_if_idle", None)
+        if callable(drain_proactive_queue):
+            drain_proactive_queue()
+
+    def _connect_worker_finished_drain(self):
+        """QThread finished signal이 있는 워커에서만 종료 후 큐 재확인을 연결한다."""
+        finished = getattr(getattr(self, "worker", None), "finished", None)
+        connector = getattr(finished, "connect", None)
+        if callable(connector):
+            connector(self._drain_queues_after_worker_finished)
+
     def _start_ai_worker(
         self,
         message_with_time: str,
@@ -66,6 +82,7 @@ class ChatFlowBridgeMixin:
         )
         self.worker.response_ready.connect(self._on_response_ready)
         self.worker.error_occurred.connect(self._on_error)
+        self._connect_worker_finished_drain()
         self._emit_request_pending_changed(True)
         self.worker.start()
 
@@ -84,6 +101,7 @@ class ChatFlowBridgeMixin:
         )
         self.worker.response_ready.connect(self._on_response_ready)
         self.worker.error_occurred.connect(self._on_error)
+        self._connect_worker_finished_drain()
         self._emit_request_pending_changed(True)
         self.worker.start()
 
@@ -103,6 +121,7 @@ class ChatFlowBridgeMixin:
         )
         self.worker.response_ready.connect(self._on_response_ready)
         self.worker.error_occurred.connect(self._on_error)
+        self._connect_worker_finished_drain()
         self._emit_request_pending_changed(True)
         self.worker.start()
 
@@ -704,4 +723,7 @@ class ChatFlowBridgeMixin:
         drain_queue = getattr(self, "_drain_promise_queue_if_idle", None)
         if callable(drain_queue):
             drain_queue()
+        drain_proactive_queue = getattr(self, "_drain_proactive_queue_if_idle", None)
+        if callable(drain_proactive_queue):
+            drain_proactive_queue()
 

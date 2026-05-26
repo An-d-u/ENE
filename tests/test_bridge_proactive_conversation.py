@@ -1,5 +1,6 @@
 ﻿import sys
 import types
+from typing import get_args
 
 
 google_module = types.ModuleType("google")
@@ -9,6 +10,7 @@ google_module.genai = genai_module
 sys.modules.setdefault("google", google_module)
 sys.modules.setdefault("google.genai", genai_module)
 
+from src.ai import http_llm_common, llm_client
 from src.core.bridge import WebBridge
 
 
@@ -23,6 +25,11 @@ class _DummySignal:
 class _RunningWorker:
     def isRunning(self):
         return True
+
+
+class _StoppedWorker:
+    def isRunning(self):
+        return False
 
 
 class _DummyProactiveManager:
@@ -132,6 +139,68 @@ def test_cancel_pending_proactive_conversations_for_user_message():
     assert dummy.proactive_manager.items[0]["status"] == "cancelled"
 
 
+def test_cancel_pending_proactive_conversations_clears_queued_payloads():
+    dummy = type("BridgeDummy", (), {})()
+    _attach_proactive_helpers(dummy)
+    dummy.proactive_manager = _DummyProactiveManager()
+    dummy.proactive_run_queue = [
+        {
+            "id": "queued-1",
+            "title": "가벼운 확인",
+            "cooldown_key": "short-followup",
+            "trigger_at": "2026-05-26T21:20:00+09:00",
+        }
+    ]
+    dummy.proactive_manager.items = [{"id": "queued-1", "status": "scheduled"}]
+
+    WebBridge._cancel_pending_proactive_conversations_for_user_message(dummy)
+
+    assert dummy.proactive_run_queue == []
+    assert dummy.proactive_manager.items[0]["status"] == "cancelled"
+
+
+def test_duplicate_due_proactive_is_cancelled_instead_of_repolled():
+    dummy = type("BridgeDummy", (), {})()
+    _attach_proactive_helpers(dummy)
+    dummy.worker = _StoppedWorker()
+    dummy.proactive_manager = _DummyProactiveManager()
+    dummy.proactive_run_queue = []
+    dummy._recent_proactive_fire_signatures = {}
+    payload = {
+        "id": "p1",
+        "title": "가벼운 확인",
+        "cooldown_key": "short-followup",
+        "trigger_at": "2026-05-26T21:20:00+09:00",
+    }
+    dummy._active_proactive_signature = WebBridge._proactive_fire_signature(dummy, payload)
+
+    WebBridge._enqueue_due_proactive_conversation(dummy, payload)
+
+    assert dummy.proactive_manager.updated == [("p1", "cancelled")]
+    assert dummy.proactive_run_queue == []
+
+
+def test_repeated_poll_for_same_queued_proactive_keeps_persisted_item_scheduled():
+    dummy = type("BridgeDummy", (), {})()
+    _attach_proactive_helpers(dummy)
+    dummy.worker = _RunningWorker()
+    dummy.proactive_manager = _DummyProactiveManager()
+    payload = {
+        "id": "p1",
+        "title": "가벼운 확인",
+        "cooldown_key": "short-followup",
+        "trigger_at": "2026-05-26T21:20:00+09:00",
+    }
+    dummy.proactive_run_queue = [payload]
+    dummy._recent_proactive_fire_signatures = {}
+    dummy._active_proactive_signature = None
+
+    WebBridge._enqueue_due_proactive_conversation(dummy, dict(payload))
+
+    assert dummy.proactive_run_queue == [payload]
+    assert dummy.proactive_manager.updated == []
+
+
 def test_enqueue_due_proactive_conversation_queues_when_worker_is_running():
     dummy = type("BridgeDummy", (), {})()
     _attach_proactive_helpers(dummy)
@@ -145,7 +214,7 @@ def test_enqueue_due_proactive_conversation_queues_when_worker_is_running():
     WebBridge._enqueue_due_proactive_conversation(dummy, payload)
 
     assert dummy.proactive_run_queue == [payload]
-    assert dummy.proactive_manager.updated == [("p1", "queued")]
+    assert dummy.proactive_manager.updated == []
 
 
 def test_drain_proactive_queue_if_idle_starts_next_payload():
@@ -262,3 +331,75 @@ def test_on_response_ready_skips_proactive_conversation_when_promises_exist():
 
     assert stored == []
     assert dummy.proactive_manager.added == []
+
+
+def test_on_error_drains_proactive_queue_after_active_failure():
+    dummy = type("BridgeDummy", (), {})()
+    dummy.proactive_manager = _DummyProactiveManager()
+    dummy.proactive_run_queue = [{"id": "p2"}]
+    dummy._active_proactive_id = "p1"
+    dummy._active_proactive_signature = "short-followup|확인|2026-05-26t21:20"
+    dummy._active_promise_id = ""
+    dummy.promise_manager = None
+    dummy.message_received = _DummySignal()
+    dummy.reroll_state_changed = _DummySignal()
+    dummy._is_rerolling = False
+    drained = []
+    dummy._drain_promise_queue_if_idle = lambda: None
+    dummy._drain_proactive_queue_if_idle = lambda: drained.append("drained")
+
+    WebBridge._on_error(dummy, "synthetic failure")
+
+    assert dummy.proactive_manager.updated == [("p1", "expired")]
+    assert drained == ["drained"]
+
+
+def test_worker_finished_hook_rechecks_promise_and_proactive_queues():
+    dummy = type("BridgeDummy", (), {})()
+    calls = []
+    dummy._drain_promise_queue_if_idle = lambda: calls.append("promise")
+    dummy._drain_proactive_queue_if_idle = lambda: calls.append("proactive")
+
+    WebBridge._drain_queues_after_worker_finished(dummy)
+
+    assert calls == ["promise", "proactive"]
+
+
+def test_attachment_user_message_cancels_pending_proactive_conversations():
+    dummy = type("BridgeDummy", (), {})()
+    dummy.llm_client = object()
+    dummy.message_received = _DummySignal()
+    dummy.settings = {}
+    dummy.calendar_manager = None
+    dummy.mood_manager = None
+    dummy.conversation_buffer = []
+    dummy._message_attachment_records = {}
+    dummy._is_rerolling = False
+    cancelled = []
+    dummy._cancel_pending_proactive_conversations_for_user_message = lambda: cancelled.append("cancelled")
+    dummy._resolve_prepared_attachments = lambda attachments: []
+    dummy._normalize_attachment_runtime_state = lambda prepared: []
+    dummy._build_active_image_payload = lambda runtime: []
+    dummy._now_timestamp = lambda: "2026-05-26 21:20"
+    dummy._extract_attachment_message_id = lambda attachments: "msg-1"
+    dummy._prompt_language = lambda: "ko"
+    dummy._build_general_chat_prompt = lambda message, attachment_context="": message
+    dummy._with_prompt_time = lambda timestamp, prompt: f"{timestamp}\n{prompt}"
+    dummy._build_memory_search_inputs = lambda message, timestamp: {
+        "memory_search_text": message,
+        "latest_user_message": message,
+        "recent_context_text": "",
+    }
+    dummy._mark_user_activity = lambda: None
+    dummy._compose_attachment_history_message = lambda message, attachments: message
+    dummy._append_conversation = lambda role, text, timestamp=None: dummy.conversation_buffer.append((role, text, timestamp))
+    dummy._start_ai_worker = lambda *args, **kwargs: None
+
+    WebBridge.send_to_ai_with_attachments(dummy, "합성 첨부 답변", "[]")
+
+    assert cancelled == ["cancelled"]
+
+
+def test_llm_response_tuple_aliases_include_proactive_conversations():
+    assert len(get_args(llm_client.LLM_RESPONSE_TUPLE)) == 9
+    assert len(get_args(http_llm_common.LLM_RESPONSE_TUPLE)) == 9

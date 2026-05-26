@@ -32,6 +32,12 @@ _TTS_BLOCK_PATTERN = r"\[\s*tts\s*\]\s*(.*?)\s*\[\s*/\s*tts\s*\]"
 GOAL_UPDATE_KEYS = ("action", "type", "id", "title", "reason", "completion_reason")
 _GOAL_UPDATE_BLOCK_PATTERN = r"\[\s*ene_goal_update\s*\]\s*(.*?)\s*\[\s*/\s*ene_goal_update\s*\]"
 _UNCLOSED_GOAL_UPDATE_BLOCK_PATTERN = r"\[\s*ene_goal_update\s*\].*$"
+_PROACTIVE_CONVERSATION_BLOCK_PATTERN = (
+    r"\[\s*proactive_conversation\s*\]\s*"
+    r".*?"
+    r"\s*\[\s*/\s*proactive_conversation\s*\]"
+)
+_UNCLOSED_PROACTIVE_CONVERSATION_BLOCK_PATTERN = r"\[\s*proactive_conversation\s*\].*$"
 
 
 def strip_thinking_markers(text: str) -> str:
@@ -110,6 +116,14 @@ def extract_goal_update_metadata(text: str) -> tuple[str, dict[str, str]]:
     cleaned = re.sub(_GOAL_UPDATE_BLOCK_PATTERN, "", source, flags=re.IGNORECASE | re.DOTALL)
     cleaned = re.sub(_UNCLOSED_GOAL_UPDATE_BLOCK_PATTERN, "", cleaned, flags=re.IGNORECASE | re.DOTALL).strip()
     return cleaned, parsed
+
+
+def strip_proactive_conversation_blocks(text: str) -> str:
+    """화면에 노출되면 안 되는 선제 대화 예약 블록을 제거한다."""
+    source = str(text or "")
+    cleaned = re.sub(_PROACTIVE_CONVERSATION_BLOCK_PATTERN, "", source, flags=re.IGNORECASE | re.DOTALL)
+    cleaned = re.sub(_UNCLOSED_PROACTIVE_CONVERSATION_BLOCK_PATTERN, "", cleaned, flags=re.IGNORECASE | re.DOTALL)
+    return cleaned.strip()
 
 
 def extract_tts_metadata(text: str) -> tuple[str, str]:

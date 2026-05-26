@@ -74,6 +74,8 @@ def test_response_contract_includes_optional_proactive_conversation_rules():
     assert "topic-reopen" in appendix
     assert "task-momentum" in appendix
     assert "global-proactive" in appendix
+    assert "2026-05-26T21:20:00+09:00" not in appendix
+    assert "<ISO8601 +09:00" in appendix
 
 
 def test_response_contract_includes_custom_prompt_names_without_changing_parser_tokens():

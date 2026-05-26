@@ -5,7 +5,12 @@ import re
 
 from ...ai.persona_names import resolve_prompt_persona_names
 from ...ai.prompt_language import resolve_prompt_language
-from ...ai.response_cleanup import extract_goal_update_metadata, extract_thought_metadata, strip_thinking_markers
+from ...ai.response_cleanup import (
+    extract_goal_update_metadata,
+    extract_thought_metadata,
+    strip_proactive_conversation_blocks,
+    strip_thinking_markers,
+)
 
 
 VISIBLE_RESPONSE_ANALYSIS_KEYS = (
@@ -28,6 +33,7 @@ class ThoughtBridgeMixin:
         sanitized = re.sub(r"\[analysis\]\s*.*?\s*\[/analysis\]\s*", "", sanitized, flags=re.IGNORECASE | re.DOTALL)
         sanitized, _ = extract_thought_metadata(sanitized)
         sanitized, goal_update = extract_goal_update_metadata(sanitized)
+        sanitized = strip_proactive_conversation_blocks(sanitized)
         if goal_update:
             sanitized = re.sub(r"\n{2,}", "\n", sanitized)
 
