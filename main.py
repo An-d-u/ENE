@@ -7,6 +7,37 @@ import sys
 from pathlib import Path
 
 
+WEBENGINE_SAFE_RENDERING_FLAGS = (
+    "--disable-gpu-compositing",
+    "--disable-zero-copy",
+    "--disable-gpu-rasterization",
+    "--disable-accelerated-2d-canvas",
+)
+
+
+def _append_chromium_flags(existing_flags: str, required_flags: tuple[str, ...]) -> str:
+    """기존 Chromium 플래그를 유지하면서 필요한 플래그만 추가한다."""
+    flags = existing_flags.split()
+    known_flags = set(flags)
+    for flag in required_flags:
+        if flag not in known_flags:
+            flags.append(flag)
+            known_flags.add(flag)
+    return " ".join(flags)
+
+
+def _configure_webengine_rendering():
+    """
+    투명 WebEngine 창과 WebGL 캔버스가 Windows GPU 합성에서
+    검은 타일/뒤 화면 비침으로 깨지는 현상을 줄인다.
+    """
+    existing_flags = os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS", "")
+    os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = _append_chromium_flags(
+        existing_flags,
+        WEBENGINE_SAFE_RENDERING_FLAGS,
+    )
+
+
 def _preload_stt_runtime():
     """
     Windows에서 PyQt6 이후 faster-whisper 모델 로드 시
@@ -22,7 +53,8 @@ def _preload_stt_runtime():
         print(f"WARNING: STT 런타임 프리로드 실패: {e}")
 
 
-# 중요: PyQt import 전에 STT 런타임을 프리로드한다.
+# 중요: PyQt import 전에 WebEngine 렌더링 플래그와 STT 런타임을 준비한다.
+_configure_webengine_rendering()
 _preload_stt_runtime()
 
 from PyQt6.QtCore import Qt
