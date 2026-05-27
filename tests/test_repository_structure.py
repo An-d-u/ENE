@@ -171,6 +171,24 @@ def test_main_configures_qt_webengine_gl_before_app_import():
 
     assert "AA_ShareOpenGLContexts" in main_text
     assert main_text.index("QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts, True)") < main_text.index("from src.core.app import ENEApplication")
+
+
+def test_main_configures_webengine_safe_rendering_before_qt_import():
+    root = Path(__file__).resolve().parents[1]
+    main_text = (root / "main.py").read_text(encoding="utf-8-sig")
+
+    assert "_configure_webengine_rendering()" in main_text
+    assert main_text.index("_configure_webengine_rendering()") < main_text.index("from PyQt6.QtCore import Qt")
+    assert "QTWEBENGINE_CHROMIUM_FLAGS" in main_text
+    for flag in [
+        "--disable-gpu-compositing",
+        "--disable-zero-copy",
+        "--disable-gpu-rasterization",
+        "--disable-accelerated-2d-canvas",
+    ]:
+        assert flag in main_text
+
+
 def _extract_ci_step(ci_config: str, step_name: str) -> str:
     start_marker = f"      - name: {step_name}"
     start = ci_config.index(start_marker)
