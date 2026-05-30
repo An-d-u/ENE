@@ -104,6 +104,23 @@ if (typeof QWebChannel !== 'undefined') {
             window.pyBridge.summary_notice.connect(function (message, level) {
                 const normalizedLevel = (typeof level === 'string' && level.trim()) ? level.trim().toLowerCase() : 'info';
                 showToast(message, normalizedLevel);
+                if (summaryReviewOverlay && !summaryReviewOverlay.classList.contains('hidden') && normalizedLevel === 'error') {
+                    setSummaryReviewBusy(false);
+                }
+                updateRerollButtonState();
+            });
+        }
+
+        if (window.pyBridge.summary_review_ready) {
+            window.pyBridge.summary_review_ready.connect(function (value) {
+                showSummaryReview(value);
+                updateRerollButtonState();
+            });
+        }
+
+        if (window.pyBridge.summary_review_saved) {
+            window.pyBridge.summary_review_saved.connect(function () {
+                hideSummaryReview();
                 updateRerollButtonState();
             });
         }

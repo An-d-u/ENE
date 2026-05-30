@@ -119,6 +119,73 @@
         </div>
     </div>
 
+    <div id="summary-review-overlay" class="hidden" role="dialog" aria-modal="true" aria-labelledby="summary-review-title">
+        <div id="summary-review-dialog">
+            <div id="summary-review-header">
+                <div>
+                    <div id="summary-review-title">요약 확인</div>
+                    <div id="summary-review-subtitle">저장 전에 기억 내용을 확인하세요.</div>
+                </div>
+                <button id="summary-review-close" type="button" aria-label="닫기">×</button>
+            </div>
+            <label class="summary-review-field">
+                <span>요약</span>
+                <textarea id="summary-review-textarea" rows="6"></textarea>
+            </label>
+            <div class="summary-review-grid">
+                <label class="summary-review-field">
+                    <span>기억 유형</span>
+                    <select id="summary-review-memory-type">
+                        <option value="fact">fact</option>
+                        <option value="preference">preference</option>
+                        <option value="promise">promise</option>
+                        <option value="event">event</option>
+                        <option value="relationship">relationship</option>
+                        <option value="task">task</option>
+                        <option value="general">general</option>
+                    </select>
+                </label>
+                <label class="summary-review-field">
+                    <span>중요도 이유</span>
+                    <select id="summary-review-importance-reason">
+                        <option value="none">none</option>
+                        <option value="user_marked">user_marked</option>
+                        <option value="promise">promise</option>
+                        <option value="repeated_topic">repeated_topic</option>
+                        <option value="long_term_preference">long_term_preference</option>
+                    </select>
+                </label>
+                <label class="summary-review-field">
+                    <span>신뢰도</span>
+                    <input id="summary-review-confidence" type="number" min="0" max="1" step="0.01">
+                </label>
+                <label class="summary-review-field">
+                    <span>엔티티</span>
+                    <input id="summary-review-entities" type="text">
+                </label>
+            </div>
+            <div class="summary-review-section">
+                <div class="summary-review-section-title">
+                    <span>사용자 정보</span>
+                    <button id="summary-review-add-user-fact" class="summary-review-add-fact" type="button">추가</button>
+                </div>
+                <div id="summary-review-user-facts" class="summary-review-facts"></div>
+            </div>
+            <div class="summary-review-section">
+                <div class="summary-review-section-title">
+                    <span>에네 정보</span>
+                    <button id="summary-review-add-ene-fact" class="summary-review-add-fact" type="button">추가</button>
+                </div>
+                <div id="summary-review-ene-facts" class="summary-review-facts"></div>
+            </div>
+            <div id="summary-review-actions">
+                <button id="summary-review-cancel" type="button">취소</button>
+                <button id="summary-review-regenerate" type="button">재생성</button>
+                <button id="summary-review-save" type="button">저장</button>
+            </div>
+        </div>
+    </div>
+
     <div id="attachment-delete-confirm-overlay" class="hidden" role="dialog" aria-modal="true" aria-labelledby="attachment-delete-confirm-body">
         <div id="attachment-delete-confirm-dialog">
             <div id="attachment-delete-confirm-body">지운 사진은 컨텍스트에 포함되지 않습니다.
