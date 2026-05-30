@@ -99,6 +99,43 @@ def test_response_contract_lists_only_available_proactive_cooldown_keys():
     assert "topic-reopen" not in appendix
 
 
+def test_response_contract_guides_closed_conversations_toward_new_topics():
+    appendix = build_response_contract_appendix(
+        {
+            "ui_language": "ko",
+            "enable_ene_goals": False,
+            "enable_ene_thoughts": False,
+        }
+    )
+
+    assert "대화가 자연스럽게 마무리된 흐름이면 기존 화제를 억지로 이어가지 말고" in appendix
+    assert "topic-reopen" in appendix
+    assert "quiet-checkin" in appendix
+    assert "가벼운 새 화제" in appendix
+
+
+def test_response_contract_localizes_closed_conversation_topic_shift_rule():
+    english = build_response_contract_appendix(
+        {
+            "ui_language": "en",
+            "enable_ene_goals": False,
+            "enable_ene_thoughts": False,
+        }
+    )
+    japanese = build_response_contract_appendix(
+        {
+            "ui_language": "ja",
+            "enable_ene_goals": False,
+            "enable_ene_thoughts": False,
+        }
+    )
+
+    assert "If the conversation has naturally wrapped up" in english
+    assert "a light new topic" in english
+    assert "会話が自然に一区切りついている場合" in japanese
+    assert "軽い新しい話題" in japanese
+
+
 def test_response_contract_omits_proactive_rules_when_all_keys_are_on_cooldown():
     appendix = build_response_contract_appendix(
         {
