@@ -11,6 +11,162 @@ function hideSummaryConfirm() {
     summaryConfirmOverlay.classList.add('hidden');
 }
 
+function normalizeSummaryReviewPayload(payload) {
+    let data = payload;
+    if (typeof payload === 'string') {
+        try {
+            data = JSON.parse(payload);
+        } catch (error) {
+            data = {};
+        }
+    }
+    if (!data || typeof data !== 'object') {
+        data = {};
+    }
+    const meta = data.memory_meta && typeof data.memory_meta === 'object' ? data.memory_meta : {};
+    return {
+        summary: String(data.summary || ''),
+        user_facts: Array.isArray(data.user_facts) ? data.user_facts.map(String) : [],
+        ene_facts: Array.isArray(data.ene_facts) ? data.ene_facts.map(String) : [],
+        memory_meta: Object.assign({}, meta, {
+            memory_type: String(meta.memory_type || 'general'),
+            importance_reason: String(meta.importance_reason || 'none'),
+            confidence: Number.isFinite(Number(meta.confidence)) ? Number(meta.confidence) : 0.5,
+            entity_names: Array.isArray(meta.entity_names) ? meta.entity_names.map(String) : []
+        })
+    };
+}
+
+function ensureSummaryReviewSelectOption(select, value) {
+    if (!select || !value) return;
+    const normalized = String(value);
+    const exists = Array.from(select.options).some((option) => option.value === normalized);
+    if (exists) return;
+    const option = document.createElement('option');
+    option.value = normalized;
+    option.textContent = normalized;
+    select.appendChild(option);
+}
+
+function appendSummaryReviewFact(container, fact, groupName) {
+    if (!container) return;
+    const row = document.createElement('label');
+    row.className = 'summary-review-fact';
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = true;
+    checkbox.name = groupName;
+    const text = document.createElement('textarea');
+    text.className = 'summary-review-fact-input';
+    text.rows = 2;
+    text.value = String(fact || '');
+    row.appendChild(checkbox);
+    row.appendChild(text);
+    container.appendChild(row);
+    text.focus();
+}
+
+function renderSummaryReviewFacts(container, facts, groupName) {
+    if (!container) return;
+    container.innerHTML = '';
+    if (!facts || facts.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'summary-review-empty';
+        empty.textContent = '없음';
+        container.appendChild(empty);
+        return;
+    }
+
+    facts.forEach((fact, index) => {
+        const row = document.createElement('label');
+        row.className = 'summary-review-fact';
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = true;
+        checkbox.name = groupName;
+        checkbox.value = String(index);
+        const text = document.createElement('textarea');
+        text.className = 'summary-review-fact-input';
+        text.rows = 2;
+        text.value = fact;
+        row.appendChild(checkbox);
+        row.appendChild(text);
+        container.appendChild(row);
+    });
+}
+
+function showSummaryReview(payload) {
+    if (!summaryReviewOverlay) return;
+    currentSummaryReviewPayload = normalizeSummaryReviewPayload(payload);
+    if (summaryReviewTextarea) summaryReviewTextarea.value = currentSummaryReviewPayload.summary;
+    ensureSummaryReviewSelectOption(summaryReviewMemoryType, currentSummaryReviewPayload.memory_meta.memory_type);
+    ensureSummaryReviewSelectOption(summaryReviewImportanceReason, currentSummaryReviewPayload.memory_meta.importance_reason);
+    if (summaryReviewMemoryType) summaryReviewMemoryType.value = currentSummaryReviewPayload.memory_meta.memory_type;
+    if (summaryReviewImportanceReason) summaryReviewImportanceReason.value = currentSummaryReviewPayload.memory_meta.importance_reason;
+    if (summaryReviewConfidence) summaryReviewConfidence.value = String(currentSummaryReviewPayload.memory_meta.confidence);
+    if (summaryReviewEntities) summaryReviewEntities.value = currentSummaryReviewPayload.memory_meta.entity_names.join(', ');
+    renderSummaryReviewFacts(summaryReviewUserFacts, currentSummaryReviewPayload.user_facts, 'summary-user-fact');
+    renderSummaryReviewFacts(summaryReviewEneFacts, currentSummaryReviewPayload.ene_facts, 'summary-ene-fact');
+    summaryReviewOverlay.classList.remove('hidden');
+    setSummaryReviewBusy(false);
+    if (summaryReviewTextarea) {
+        summaryReviewTextarea.focus();
+    }
+}
+
+function hideSummaryReview() {
+    if (!summaryReviewOverlay) return;
+    summaryReviewOverlay.classList.add('hidden');
+    currentSummaryReviewPayload = null;
+    setSummaryReviewBusy(false);
+}
+
+function setSummaryReviewBusy(active) {
+    summaryReviewBusy = Boolean(active);
+    if (!summaryReviewOverlay) return;
+    const controls = summaryReviewOverlay.querySelectorAll('textarea, input, select, button');
+    controls.forEach((control) => {
+        control.disabled = summaryReviewBusy;
+    });
+}
+
+function collectCheckedSummaryFacts(container) {
+    if (!container) return [];
+    return Array.from(container.querySelectorAll('.summary-review-fact'))
+        .filter((row) => {
+            const checkbox = row.querySelector('input[type="checkbox"]');
+            return checkbox && checkbox.checked;
+        })
+        .map((row) => {
+            const input = row.querySelector('.summary-review-fact-input');
+            return String(input ? input.value : '').trim();
+        })
+        .filter(Boolean);
+}
+
+function collectSummaryReviewPayload() {
+    const confidenceValue = Number(summaryReviewConfidence ? summaryReviewConfidence.value : 0.5);
+    const confidence = Number.isFinite(confidenceValue) ? Math.max(0, Math.min(1, confidenceValue)) : 0.5;
+    const entityNames = String(summaryReviewEntities ? summaryReviewEntities.value : '')
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean);
+    const previousMeta = currentSummaryReviewPayload && currentSummaryReviewPayload.memory_meta
+        ? currentSummaryReviewPayload.memory_meta
+        : {};
+    return {
+        summary: String(summaryReviewTextarea ? summaryReviewTextarea.value : '').trim(),
+        user_facts: collectCheckedSummaryFacts(summaryReviewUserFacts),
+        ene_facts: collectCheckedSummaryFacts(summaryReviewEneFacts),
+        memory_meta: Object.assign({}, previousMeta, {
+            memory_type: String(summaryReviewMemoryType ? summaryReviewMemoryType.value : 'general'),
+            importance_reason: String(summaryReviewImportanceReason ? summaryReviewImportanceReason.value : 'none'),
+            confidence,
+            entity_names: entityNames
+        })
+    };
+}
+
 function showAttachmentDeleteConfirm() {
     if (!attachmentDeleteConfirmOverlay) return;
     if (attachmentDeleteConfirmBody) {

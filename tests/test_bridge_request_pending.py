@@ -58,6 +58,9 @@ class _ManualSummaryBridge(MemorySummaryBridgeMixin):
     async def _auto_summarize(self):
         self.summarized = True
 
+    async def _prepare_summary_review(self):
+        self.summarized = True
+
 
 def test_start_ai_worker_emits_request_pending_changed(monkeypatch):
     monkeypatch.setattr(chat_flow, "AIWorker", _DummyWorker)

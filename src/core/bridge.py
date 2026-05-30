@@ -63,6 +63,8 @@ class WebBridge(
     mouth_pose_update = pyqtSignal(str)      # 모델 적응형 입모양 JSON
     reroll_state_changed = pyqtSignal(bool)  # 리롤 응답 교체 모드 on/off
     summary_notice = pyqtSignal(str, str)    # (메시지, 레벨)
+    summary_review_ready = pyqtSignal(str)   # 요약 검토 payload JSON
+    summary_review_saved = pyqtSignal()      # 요약 검토 저장 완료
     mood_changed = pyqtSignal(str, float, float, float, float, str)  # (라벨, valence, energy, bond, stress, 단기 분위기)
     obs_tree_updated = pyqtSignal(str)       # Obsidian 트리 JSON
     attachment_preview_ready = pyqtSignal(str)  # 첨부 프리뷰 메타데이터 JSON

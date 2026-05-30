@@ -190,6 +190,61 @@ def test_manual_summary_bridge_call_does_not_toggle_chat_pending():
     assert "Python bridge manual summary failed" not in script
 
 
+def test_summary_review_modal_markup_exists():
+    html = (WEB_DIR / "index.html").read_text(encoding="utf-8-sig")
+
+    assert 'id="summary-review-overlay"' in html
+    assert 'id="summary-review-textarea"' in html
+    assert 'id="summary-review-user-facts"' in html
+    assert 'id="summary-review-ene-facts"' in html
+    assert 'id="summary-review-add-user-fact"' in html
+    assert 'id="summary-review-add-ene-fact"' in html
+    assert 'id="summary-review-regenerate"' in html
+    assert 'id="summary-review-save"' in html
+
+
+def test_chat_script_routes_summary_review_through_bridge_slots():
+    script = _script_text()
+
+    assert "function showSummaryReview(" in script
+    assert "function collectSummaryReviewPayload()" in script
+    assert "function setSummaryReviewBusy(active)" in script
+    assert "function appendSummaryReviewFact(" in script
+    assert "window.pyBridge.summary_review_ready.connect" in script
+    assert "window.pyBridge.summary_review_saved.connect" in script
+    assert "window.pyBridge.approve_summary_review(JSON.stringify(payload));" in script
+    assert "window.pyBridge.regenerate_summary_review();" in script
+    assert "window.pyBridge.cancel_summary_review();" in script
+    save_handler = re.search(
+        r"summaryReviewSaveButton\.addEventListener\('click', \(\) => \{.*?\n    \}\);",
+        script,
+        re.DOTALL,
+    )
+    assert save_handler
+    assert "setSummaryReviewBusy(true);" in save_handler.group(0)
+    assert "hideSummaryReview();" not in save_handler.group(0)
+
+
+def test_summary_review_facts_are_editable_and_meta_is_preserved():
+    script = _script_text()
+
+    assert "text.className = 'summary-review-fact-input';" in script
+    assert "Object.assign({}, previousMeta" in script
+    assert "ensureSummaryReviewSelectOption(summaryReviewMemoryType" in script
+    assert "ensureSummaryReviewSelectOption(summaryReviewImportanceReason" in script
+
+
+def test_summary_review_modal_uses_bounded_scroll_layout():
+    overlay_block = _rule_block("#summary-review-overlay")
+    dialog_block = _rule_block("#summary-review-dialog")
+    textarea_block = _rule_block("#summary-review-textarea")
+
+    assert "position: fixed;" in overlay_block
+    assert "max-height: calc(100vh - 32px);" in dialog_block
+    assert "overflow: auto;" in dialog_block
+    assert "resize: vertical;" in textarea_block
+
+
 def test_inline_edit_save_button_reflects_request_pending_state():
     script = _script_text()
 

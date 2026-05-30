@@ -384,6 +384,69 @@ if (summaryConfirmOverlay) {
     });
 }
 
+if (summaryReviewCloseButton) {
+    summaryReviewCloseButton.addEventListener('click', () => {
+        if (summaryReviewBusy) return;
+        hideSummaryReview();
+        if (window.pyBridge && typeof window.pyBridge.cancel_summary_review === 'function') {
+            window.pyBridge.cancel_summary_review();
+        }
+    });
+}
+
+if (summaryReviewCancelButton) {
+    summaryReviewCancelButton.addEventListener('click', () => {
+        if (summaryReviewBusy) return;
+        hideSummaryReview();
+        if (window.pyBridge && typeof window.pyBridge.cancel_summary_review === 'function') {
+            window.pyBridge.cancel_summary_review();
+        }
+    });
+}
+
+if (summaryReviewRegenerateButton) {
+    summaryReviewRegenerateButton.addEventListener('click', () => {
+        if (summaryReviewBusy) return;
+        if (!window.pyBridge || typeof window.pyBridge.regenerate_summary_review !== 'function') return;
+        setSummaryReviewBusy(true);
+        window.pyBridge.regenerate_summary_review();
+    });
+}
+
+if (summaryReviewAddUserFactButton) {
+    summaryReviewAddUserFactButton.addEventListener('click', () => {
+        if (summaryReviewBusy) return;
+        if (summaryReviewUserFacts) {
+            summaryReviewUserFacts.querySelectorAll('.summary-review-empty').forEach((node) => node.remove());
+        }
+        appendSummaryReviewFact(summaryReviewUserFacts, '', 'summary-user-fact');
+    });
+}
+
+if (summaryReviewAddEneFactButton) {
+    summaryReviewAddEneFactButton.addEventListener('click', () => {
+        if (summaryReviewBusy) return;
+        if (summaryReviewEneFacts) {
+            summaryReviewEneFacts.querySelectorAll('.summary-review-empty').forEach((node) => node.remove());
+        }
+        appendSummaryReviewFact(summaryReviewEneFacts, '', 'summary-ene-fact');
+    });
+}
+
+if (summaryReviewSaveButton) {
+    summaryReviewSaveButton.addEventListener('click', () => {
+        if (summaryReviewBusy) return;
+        if (!window.pyBridge || typeof window.pyBridge.approve_summary_review !== 'function') return;
+        const payload = collectSummaryReviewPayload();
+        if (!payload.summary) {
+            showToast('요약 내용이 비어 있어 저장할 수 없어요.', 'error');
+            return;
+        }
+        setSummaryReviewBusy(true);
+        window.pyBridge.approve_summary_review(JSON.stringify(payload));
+    });
+}
+
 if (attachmentDeleteConfirmNoButton) {
     attachmentDeleteConfirmNoButton.addEventListener('click', hideAttachmentDeleteConfirm);
 }
@@ -423,6 +486,9 @@ document.addEventListener('keydown', (e) => {
     }
     if (e.key === 'Escape' && summaryConfirmOverlay && !summaryConfirmOverlay.classList.contains('hidden')) {
         hideSummaryConfirm();
+        return;
+    }
+    if (e.key === 'Escape' && summaryReviewOverlay && !summaryReviewOverlay.classList.contains('hidden')) {
         return;
     }
     if (e.key === 'Escape' && floatingActionsOpen) {
