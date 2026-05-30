@@ -194,11 +194,18 @@ def build_response_contract_appendix(settings_source: object | None = None) -> s
 def _build_proactive_conversation_rules(language: str = "ko", cooldown_keys: list[str] | None = None) -> list[str]:
     available_keys = [key for key in COOLDOWN_KEY_ORDER if key in set(cooldown_keys or COOLDOWN_KEY_ORDER)]
     allowed_keys = ", ".join(available_keys)
+    topic_shift_keys = [
+        key
+        for key in ("topic-reopen", "quiet-checkin", "global-proactive")
+        if key in available_keys
+    ] or available_keys
+    topic_shift_key_text = ", ".join(topic_shift_keys)
     sample_key = available_keys[0] if available_keys else "quiet-checkin"
     normalized_language = str(language or "ko").strip().lower()
     if normalized_language == "en":
         return [
-            "- Prefer creating a lightweight later follow-up. If no topic-specific follow-up exists, use a quiet check-in.",
+            "- Prefer a lightweight later follow-up when the conversation is still open or the user is likely to return to the same task.",
+            f"- If the conversation has naturally wrapped up, do not force the previous topic to continue; use one of the available topic-shift keys ({topic_shift_key_text}) for a light new topic, a mood shift, or a gentle check-in.",
             "- Keys not listed below are currently on cooldown; do not output them.",
             "- Do not output this block when the reply already creates a conversation promise/reminder.",
             "- `trigger_at` must be an ISO 8601 timestamp with `+09:00`, chosen from the current time and conversation context.",
@@ -219,7 +226,8 @@ def _build_proactive_conversation_rules(language: str = "ko", cooldown_keys: lis
         ]
     if normalized_language == "ja":
         return [
-            "- 軽い後続の話しかけを優先して作ってください。話題固有の理由がない場合は静かな確認にしてください。",
+            "- 会話がまだ続いている、またはユーザーが同じ作業に戻りそうな場合は、軽い後続確認を優先してください。",
+            f"- 会話が自然に一区切りついている場合は、前の話題を無理に続けず、使用可能な話題転換キー（{topic_shift_key_text}）で軽い新しい話題、気分転換、静かな確認にしてください。",
             "- 下にないキーは現在クールダウン中です。出力しないでください。",
             "- 返答内で会話の約束やリマインダーを作る場合、このブロックは出力しないでください。",
             "- `trigger_at` は現在時刻と会話文脈から選んだ `+09:00` 付きISO 8601時刻にしてください。",
@@ -239,7 +247,8 @@ def _build_proactive_conversation_rules(language: str = "ko", cooldown_keys: lis
             "```",
         ]
     return [
-        "- 가벼운 후속 선제 발화를 우선 만들어 주세요. 특정 화제의 후속 이유가 없으면 조용한 확인 형태로 만드세요.",
+        "- 대화가 아직 열린 흐름이거나 사용자가 같은 작업으로 돌아올 가능성이 높으면 가벼운 후속 확인을 우선 만드세요.",
+        f"- 대화가 자연스럽게 마무리된 흐름이면 기존 화제를 억지로 이어가지 말고 사용 가능한 화제 전환 키({topic_shift_key_text})로 가벼운 새 화제, 분위기 전환, 조용한 확인을 만드세요.",
         "- 아래 목록에 없는 키는 현재 쿨다운 중입니다. 출력하지 마세요.",
         "- 응답에서 대화 약속이나 리마인더를 만들 때는 이 블록을 출력하지 마세요.",
         "- `trigger_at`은 현재 시각과 대화 맥락을 보고 고른 `+09:00` 포함 ISO 8601 시각이어야 합니다.",
