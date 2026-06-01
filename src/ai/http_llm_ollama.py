@@ -1,14 +1,10 @@
 ﻿from __future__ import annotations
 
 import requests
-
-from .prompt import build_runtime_system_prompt
 from .http_llm_common import (
-    DEFAULT_GENERATION_PARAMS,
     LLM_RESPONSE_TUPLE,
     _CommonMixin,
     _normalize_generation_params,
-    _raise_for_status_with_detail,
 )
 
 
@@ -47,17 +43,19 @@ class OllamaClient(_CommonMixin):
         images_data: list | None = None,
         include_sub_prompt: bool = True,
     ) -> str:
+        context = self._build_request_context(
+            message,
+            provider_format="ollama",
+            include_sub_prompt=include_sub_prompt,
+            attachments_metadata=self._image_context_metadata(images_data),
+        )
         messages = [{
             "role": "system",
-            "content": build_runtime_system_prompt(
-                include_sub_prompt=include_sub_prompt,
-                include_analysis_appendix=True,
-                settings_source=self._runtime_prompt_settings_source(),
-            ),
+            "content": context.system_prompt,
         }]
-        for item in self._history:
+        for item in context.history:
             messages.append(self._to_ollama_message_from_history(item))
-        user_msg = {"role": "user", "content": message}
+        user_msg = {"role": "user", "content": context.user_content}
         if images_data:
             images = []
             for img in images_data:
@@ -85,18 +83,20 @@ class OllamaClient(_CommonMixin):
         return str(data.get("message", {}).get("content", "")).strip()
 
     def _request_one_shot_raw(self, message: str, include_sub_prompt: bool = True) -> str:
+        context = self._build_request_context(
+            message,
+            provider_format="ollama_one_shot",
+            include_sub_prompt=include_sub_prompt,
+            include_history=False,
+        )
         payload = {
             "model": self.model_name,
             "messages": [
                 {
                     "role": "system",
-                    "content": build_runtime_system_prompt(
-                        include_sub_prompt=include_sub_prompt,
-                        include_analysis_appendix=True,
-                        settings_source=self._runtime_prompt_settings_source(),
-                    ),
+                    "content": context.system_prompt,
                 },
-                {"role": "user", "content": str(message)},
+                {"role": "user", "content": str(context.user_content)},
             ],
             "stream": False,
             "options": {
