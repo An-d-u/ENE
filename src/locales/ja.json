@@ -14,6 +14,8 @@
   "tray.mouse_tracking.disable": "マウストラッキングを無効化",
   "tray.mouse_tracking.enable": "マウストラッキングを有効化",
   "tray.quit": "終了",
+  "app.quit.summary.title": "終了前の要約",
+  "app.quit.summary.body": "まだ要約されていないメッセージがあります。要約しますか？",
   "obsidian.window.title": "Obsidian",
   "obsidian.window.subtitle": "ドラッグで移動 / チェックしたファイルはコンテキストに含まれます",
   "obsidian.window.refresh": "更新",

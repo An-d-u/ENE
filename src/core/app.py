@@ -4,7 +4,7 @@ ENE 메인 애플리케이션
 """
 import json
 
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QMessageBox
 from PyQt6.QtCore import QObject, QTimer
 
 from .i18n import configure_i18n, tr
@@ -89,6 +89,9 @@ class ENEApplication(QObject):
             drag_bar_visible=bool(self.settings.get("show_drag_bar", True)),
             mouse_tracking_enabled=bool(self.settings.get("mouse_tracking_enabled", True)),
         )
+        self._quit_after_summary_review = False
+        self._quit_in_progress = False
+        self._quit_summary_review_connected = False
         
         # 시그널 연결
         self._connect_signals()
@@ -576,29 +579,82 @@ class ENEApplication(QObject):
         """마우스 트래킹 토글"""
         is_enabled = self.overlay_window.toggle_mouse_tracking()
         self.tray_icon.update_mouse_tracking_menu_text(is_enabled)
+
+    def _bridge_has_unsummarized_messages(self) -> bool:
+        """종료 전에 확인해야 할 미요약 대화가 있는지 확인한다."""
+        if not hasattr(self, "overlay_window") or not hasattr(self.overlay_window, "bridge"):
+            return False
+        bridge = self.overlay_window.bridge
+        return bool(getattr(bridge, "conversation_buffer", None))
+
+    def _ask_quit_summary_confirmation(self) -> bool:
+        """종료 전 미요약 대화를 저장할지 사용자에게 묻는다."""
+        reply = QMessageBox.question(
+            self.overlay_window if hasattr(self, "overlay_window") else None,
+            tr("app.quit.summary.title"),
+            tr("app.quit.summary.body"),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        return reply == QMessageBox.StandardButton.Yes
+
+    def _start_quit_summary_review(self):
+        """수동 요약 검토를 시작하고 저장 완료 후 종료되도록 연결한다."""
+        if not hasattr(self, "overlay_window") or not hasattr(self.overlay_window, "bridge"):
+            self._finish_quit_application()
+            return
+
+        bridge = self.overlay_window.bridge
+        self._quit_after_summary_review = True
+        if not getattr(self, "_quit_summary_review_connected", False):
+            saved_signal = getattr(bridge, "summary_review_saved", None)
+            if saved_signal is not None:
+                saved_signal.connect(self._on_quit_summary_review_saved)
+                self._quit_summary_review_connected = True
+
+        if hasattr(self.overlay_window, "show"):
+            self.overlay_window.show()
+        if hasattr(self.overlay_window, "raise_"):
+            self.overlay_window.raise_()
+        if hasattr(self.overlay_window, "activateWindow"):
+            self.overlay_window.activateWindow()
+
+        bridge.summarize_now()
+
+    def _on_quit_summary_review_saved(self):
+        """종료 대기 중인 요약 검토 저장이 끝나면 실제 종료한다."""
+        if not getattr(self, "_quit_after_summary_review", False):
+            return
+        self._finish_quit_application()
     
     def _quit_application(self):
         """애플리케이션 종료"""
         print("애플리케이션 종료 중...")
 
+        if getattr(self, "_quit_in_progress", False):
+            return
+
+        if self._bridge_has_unsummarized_messages():
+            if self._ask_quit_summary_confirmation():
+                self._start_quit_summary_review()
+                return
+            print("종료 전 요약을 건너뜁니다.")
+
+        self._finish_quit_application()
+
+    def _finish_quit_application(self):
+        """요약 여부가 결정된 뒤 실제 애플리케이션을 종료한다."""
+        if getattr(self, "_quit_in_progress", False):
+            return
+        self._quit_in_progress = True
+        self._quit_after_summary_review = False
+
         if hasattr(self, "system_theme_timer") and self.system_theme_timer:
             self.system_theme_timer.stop()
-        
-        # 종료 전 남은 대화 요약
+
         if hasattr(self, 'overlay_window') and hasattr(self.overlay_window, 'bridge'):
             bridge = self.overlay_window.bridge
             bridge.stop_away_monitor()
-            
-            # 남은 대화가 있으면 요약
-            if bridge.conversation_buffer:
-                print(f"남은 대화 {len(bridge.conversation_buffer)}개 요약 중...")
-                
-                try:
-                    # clear_conversation이 자동으로 남은 대화를 요약함
-                    bridge.clear_conversation()
-                    print("요약 완료")
-                except Exception as e:
-                    print(f"종료 전 요약 실패: {e}")
 
         if hasattr(self, "_settings_dialog") and self._settings_dialog and self._settings_dialog.isVisible():
             self._settings_dialog.close()

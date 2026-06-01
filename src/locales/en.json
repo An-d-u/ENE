@@ -14,6 +14,8 @@
   "tray.mouse_tracking.disable": "Disable mouse tracking",
   "tray.mouse_tracking.enable": "Enable mouse tracking",
   "tray.quit": "Quit",
+  "app.quit.summary.title": "Summarize before quitting",
+  "app.quit.summary.body": "There are unsummarized messages. Do you want to summarize them?",
   "obsidian.window.title": "Obsidian",
   "obsidian.window.subtitle": "Drag to move / checked files join context",
   "obsidian.window.refresh": "Refresh",
