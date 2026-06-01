@@ -14,6 +14,8 @@
   "tray.mouse_tracking.disable": "마우스 트래킹 비활성화",
   "tray.mouse_tracking.enable": "마우스 트래킹 활성화",
   "tray.quit": "종료",
+  "app.quit.summary.title": "종료 전 요약",
+  "app.quit.summary.body": "요약이 안 된 메시지가 있습니다. 요약하겠습니까?",
   "obsidian.window.title": "Obsidian",
   "obsidian.window.subtitle": "드래그로 이동 / 체크한 파일은 컨텍스트에 포함됩니다",
   "obsidian.window.refresh": "새로고침",
