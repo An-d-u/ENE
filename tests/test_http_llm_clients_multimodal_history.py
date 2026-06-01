@@ -180,6 +180,65 @@ def test_multimodal_send_returns_fallback_when_response_is_empty(monkeypatch, fa
     assert history[-1]["content"] == "음... 무슨 일이 있었나봐요."
 
 
+@pytest.mark.parametrize(
+    ("factory", "response_body", "assert_payload_image"),
+    [
+        (
+            _build_openai_compatible_client,
+            {"choices": [{"message": {"content": RAW_OUTPUT}}]},
+            lambda payload: payload["messages"][-1]["content"][1]["image_url"]["url"] == IMAGE_DATA_URL,
+        ),
+        (
+            _build_openai_response_client,
+            {"output_text": RAW_OUTPUT},
+            lambda payload: payload["input"][-1]["content"][1]["image_url"] == IMAGE_DATA_URL,
+        ),
+        (
+            _build_google_client,
+            {"candidates": [{"content": {"parts": [{"text": RAW_OUTPUT}]}}]},
+            lambda payload: payload["contents"][-1]["parts"][1]["inlineData"]["data"] == "QUJD",
+        ),
+        (
+            _build_anthropic_client,
+            {"content": [{"type": "text", "text": RAW_OUTPUT}]},
+            lambda payload: payload["messages"][-1]["content"][1]["source"]["data"] == "QUJD",
+        ),
+        (
+            _build_ollama_client,
+            {"message": {"content": RAW_OUTPUT}},
+            lambda payload: payload["messages"][-1]["images"] == ["QUJD"],
+        ),
+    ],
+    ids=["openai_compatible", "openai_response", "google_cloud", "anthropic", "ollama"],
+)
+def test_multimodal_requests_record_attachment_fingerprint_without_changing_payload(
+    monkeypatch,
+    factory,
+    response_body,
+    assert_payload_image,
+):
+    captured = {}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured["json"] = json
+        return _DummyResponse(response_body)
+
+    async def fake_memory_context(_message, recent_context: str = "", head_pat_count_before_message: int | None = None):
+        return ""
+
+    monkeypatch.setattr("src.ai.http_llm_clients.requests.post", fake_post)
+
+    client = factory()
+    monkeypatch.setattr(client, "_build_memory_context", fake_memory_context)
+
+    asyncio.run(client.send_message_with_images("설명", [{"dataUrl": IMAGE_DATA_URL}]))
+
+    fingerprint = client.get_last_request_context_fingerprint()
+    assert fingerprint["attachment_count"] == 1
+    assert fingerprint["attachments_sha256"]
+    assert assert_payload_image(captured["json"])
+
+
 def test_openai_response_history_rehydrates_prior_image_turn():
     client = _build_openai_response_client()
     client._history = [

@@ -1,14 +1,11 @@
 ﻿from __future__ import annotations
 
 import requests
-
-from .prompt import build_runtime_system_prompt
 from .http_llm_common import (
     DEFAULT_GENERATION_PARAMS,
     LLM_RESPONSE_TUPLE,
     _CommonMixin,
     _normalize_generation_params,
-    _raise_for_status_with_detail,
 )
 class AnthropicClient(_CommonMixin):
     def __init__(
@@ -47,22 +44,23 @@ class AnthropicClient(_CommonMixin):
         }
 
     def _request_anthropic(self, user_content_blocks: list[dict], include_sub_prompt: bool = True) -> str:
+        context = self._build_request_context(
+            user_content_blocks,
+            provider_format="anthropic",
+            include_sub_prompt=include_sub_prompt,
+        )
         messages = []
-        for h in self._history:
+        for h in context.history:
             role = h.get("role", "user")
             content = h.get("content", "")
             messages.append({"role": role, "content": self._to_anthropic_blocks_from_history(content)})
-        messages.append({"role": "user", "content": user_content_blocks})
+        messages.append({"role": "user", "content": context.user_content})
         payload = {
             "model": self.model_name,
             "max_tokens": max(1, self.generation_params["max_tokens"] or DEFAULT_GENERATION_PARAMS["max_tokens"]),
             "temperature": self.generation_params["temperature"],
             "top_p": self.generation_params["top_p"],
-            "system": build_runtime_system_prompt(
-                include_sub_prompt=include_sub_prompt,
-                include_analysis_appendix=True,
-                settings_source=self._runtime_prompt_settings_source(),
-            ),
+            "system": context.system_prompt,
             "messages": messages,
         }
         response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=60)
@@ -72,17 +70,19 @@ class AnthropicClient(_CommonMixin):
         return "\n".join(text_parts).strip()
 
     def _request_one_shot_raw(self, message: str, include_sub_prompt: bool = True) -> str:
+        context = self._build_request_context(
+            message,
+            provider_format="anthropic_one_shot",
+            include_sub_prompt=include_sub_prompt,
+            include_history=False,
+        )
         payload = {
             "model": self.model_name,
             "max_tokens": max(1, self.generation_params["max_tokens"] or DEFAULT_GENERATION_PARAMS["max_tokens"]),
             "temperature": self.generation_params["temperature"],
             "top_p": self.generation_params["top_p"],
-            "system": build_runtime_system_prompt(
-                include_sub_prompt=include_sub_prompt,
-                include_analysis_appendix=True,
-                settings_source=self._runtime_prompt_settings_source(),
-            ),
-            "messages": [{"role": "user", "content": [{"type": "text", "text": str(message)}]}],
+            "system": context.system_prompt,
+            "messages": [{"role": "user", "content": [{"type": "text", "text": str(context.user_content)}]}],
         }
         response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=60)
         response.raise_for_status()

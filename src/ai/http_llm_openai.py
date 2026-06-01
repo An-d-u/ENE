@@ -1,10 +1,7 @@
 ﻿from __future__ import annotations
 
 import requests
-
-from .prompt import build_runtime_system_prompt
 from .http_llm_common import (
-    DEFAULT_GENERATION_PARAMS,
     LLM_RESPONSE_TUPLE,
     _CommonMixin,
     _normalize_generation_params,
@@ -70,18 +67,20 @@ class OpenAICompatibleClient(_CommonMixin):
         return str(content).strip()
 
     def _request_one_shot_raw(self, user_content, include_sub_prompt: bool = True) -> str:
+        context = self._build_request_context(
+            user_content,
+            provider_format="openai_chat_one_shot",
+            include_sub_prompt=include_sub_prompt,
+            include_history=False,
+        )
         payload = {
             "model": self.model_name,
             "messages": [
                 {
                     "role": "system",
-                    "content": build_runtime_system_prompt(
-                        include_sub_prompt=include_sub_prompt,
-                        include_analysis_appendix=True,
-                        settings_source=self._runtime_prompt_settings_source(),
-                    ),
+                    "content": context.system_prompt,
                 },
-                {"role": "user", "content": user_content},
+                {"role": "user", "content": context.user_content},
             ],
             "temperature": self.generation_params["temperature"],
             "top_p": self.generation_params["top_p"],
@@ -193,9 +192,9 @@ class OpenAIResponseAPIClient(_CommonMixin):
             "Content-Type": "application/json",
         }
 
-    def _input_items(self, user_content) -> list[dict]:
+    def _input_items(self, user_content, history: list[dict] | None = None) -> list[dict]:
         items = []
-        for h in self._history:
+        for h in (self._history if history is None else history):
             role = str(h.get("role", "user"))
             content = h.get("content", "")
             if role not in {"user", "assistant"}:
@@ -237,14 +236,14 @@ class OpenAIResponseAPIClient(_CommonMixin):
         return ""
 
     def _request_responses(self, user_content) -> str:
+        context = self._build_request_context(
+            user_content,
+            provider_format="openai_responses",
+        )
         payload = {
             "model": self.model_name,
-            "instructions": build_runtime_system_prompt(
-                include_sub_prompt=True,
-                include_analysis_appendix=True,
-                settings_source=self._runtime_prompt_settings_source(),
-            ),
-            "input": self._input_items(user_content),
+            "instructions": context.system_prompt,
+            "input": self._input_items(context.user_content, history=context.history),
             "store": False,
             "temperature": self.generation_params["temperature"],
             "top_p": self.generation_params["top_p"],
@@ -257,9 +256,15 @@ class OpenAIResponseAPIClient(_CommonMixin):
         return self._extract_text(data)
 
     def _request_one_shot_raw(self, user_content, include_sub_prompt: bool = True) -> str:
+        context = self._build_request_context(
+            user_content,
+            provider_format="openai_responses_one_shot",
+            include_sub_prompt=include_sub_prompt,
+            include_history=False,
+        )
         user_item = {"role": "user", "content": []}
-        if isinstance(user_content, list):
-            for part in user_content:
+        if isinstance(context.user_content, list):
+            for part in context.user_content:
                 if not isinstance(part, dict):
                     continue
                 if part.get("type") == "text":
@@ -270,15 +275,11 @@ class OpenAIResponseAPIClient(_CommonMixin):
                     if url:
                         user_item["content"].append({"type": "input_image", "detail": "auto", "image_url": url})
         else:
-            user_item["content"].append({"type": "input_text", "text": str(user_content)})
+            user_item["content"].append({"type": "input_text", "text": str(context.user_content)})
 
         payload = {
             "model": self.model_name,
-            "instructions": build_runtime_system_prompt(
-                include_sub_prompt=include_sub_prompt,
-                include_analysis_appendix=True,
-                settings_source=self._runtime_prompt_settings_source(),
-            ),
+            "instructions": context.system_prompt,
             "input": [user_item],
             "store": False,
             "temperature": self.generation_params["temperature"],
@@ -354,7 +355,11 @@ class OpenAIResponseAPIClient(_CommonMixin):
 
 class MistralClient(OpenAICompatibleClient):
     def _mistral_messages(self, user_content, include_sub_prompt: bool = True) -> list[dict]:
-        source = self._messages_for_openai(user_content, include_sub_prompt=include_sub_prompt)
+        source = self._messages_for_openai(
+            user_content,
+            include_sub_prompt=include_sub_prompt,
+            provider_format="mistral",
+        )
         reformatted = []
         for idx, msg in enumerate(source):
             role = str(msg.get("role", "user"))
@@ -404,17 +409,19 @@ class MistralClient(OpenAICompatibleClient):
         return str(content).strip()
 
     def _request_one_shot_raw(self, user_content, include_sub_prompt: bool = True) -> str:
-        content = str(user_content)
+        context = self._build_request_context(
+            user_content,
+            provider_format="mistral_one_shot",
+            include_sub_prompt=include_sub_prompt,
+            include_history=False,
+        )
+        content = str(context.user_content)
         payload = {
             "model": self.model_name,
             "messages": [
                 {
                     "role": "system",
-                    "content": build_runtime_system_prompt(
-                        include_sub_prompt=include_sub_prompt,
-                        include_analysis_appendix=True,
-                        settings_source=self._runtime_prompt_settings_source(),
-                    ),
+                    "content": context.system_prompt,
                 },
                 {"role": "user", "content": content},
             ],

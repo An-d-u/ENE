@@ -4,6 +4,14 @@ OpenAI 호환, Anthropic, Ollama 경로를 제공한다.
 """
 from __future__ import annotations
 
+import base64
+import binascii
+import copy
+from dataclasses import dataclass, field
+import hmac
+import hashlib
+import json
+import secrets
 from typing import Dict, List, Tuple
 
 import requests
@@ -33,6 +41,53 @@ DEFAULT_GENERATION_PARAMS = {
 }
 
 LLM_RESPONSE_TUPLE = Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict], str, Dict[str, str], List[Dict]]
+_CONTEXT_FINGERPRINT_KEY = secrets.token_bytes(32)
+
+
+def _fingerprint_payload(value) -> str:
+    """원문을 남기지 않고 컨텍스트 동일성만 비교하기 위한 process-local HMAC을 만든다."""
+    try:
+        serialized = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+    except TypeError:
+        serialized = str(value)
+    return hmac.new(_CONTEXT_FINGERPRINT_KEY, serialized.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def _payload_length(value) -> int:
+    if isinstance(value, str):
+        return len(value)
+    try:
+        return len(json.dumps(value, ensure_ascii=False, sort_keys=True, default=str))
+    except TypeError:
+        return len(str(value))
+
+
+@dataclass(frozen=True)
+class LLMRequestContext:
+    """공급자별 payload로 변환되기 전의 공통 요청 컨텍스트."""
+
+    provider_format: str
+    system_prompt: str
+    user_content: object
+    history: list[dict] = field(default_factory=list)
+    attachments_metadata: list[dict] = field(default_factory=list)
+    include_sub_prompt: bool = True
+    generation_params: dict = field(default_factory=dict)
+
+    def fingerprint(self) -> dict:
+        return {
+            "provider_format": self.provider_format,
+            "include_sub_prompt": self.include_sub_prompt,
+            "system_prompt_sha256": _fingerprint_payload(self.system_prompt),
+            "system_prompt_chars": len(self.system_prompt),
+            "user_content_sha256": _fingerprint_payload(self.user_content),
+            "user_content_chars": _payload_length(self.user_content),
+            "history_sha256": _fingerprint_payload(self.history),
+            "history_turns": len(self.history),
+            "attachments_sha256": _fingerprint_payload(self.attachments_metadata),
+            "attachment_count": len(self.attachments_metadata),
+            "generation_params": dict(self.generation_params),
+        }
 
 
 def _parse_summary_memory_meta_lines(meta_lines: list[str]) -> dict:
@@ -101,12 +156,181 @@ def _normalize_generation_params(params: dict | None) -> dict:
 
 
 class _CommonMixin:
+    def _setting_enabled(self, key: str, default: bool = False) -> bool:
+        settings = getattr(self, "settings", None)
+        if settings is None:
+            return default
+        getter = getattr(settings, "get", None)
+        if callable(getter):
+            try:
+                return bool(getter(key, default))
+            except Exception:
+                return default
+        if isinstance(settings, dict):
+            return bool(settings.get(key, default))
+        return bool(getattr(settings, key, default))
+
     def _runtime_prompt_settings_source(self):
         """현재 선제 대화 쿨다운 상태를 반영한 프롬프트 설정을 반환한다."""
         return build_runtime_prompt_settings_source(
             getattr(self, "settings", None),
             proactive_manager=getattr(self, "proactive_manager", None),
         )
+
+    def _build_request_context(
+        self,
+        user_content,
+        *,
+        provider_format: str,
+        include_sub_prompt: bool = True,
+        include_history: bool = True,
+        attachments_metadata: list[dict] | None = None,
+    ) -> LLMRequestContext:
+        attachments = (
+            list(attachments_metadata)
+            if attachments_metadata is not None
+            else self._attachment_metadata_from_content(user_content)
+        )
+        context = LLMRequestContext(
+            provider_format=provider_format,
+            system_prompt=build_runtime_system_prompt(
+                include_sub_prompt=include_sub_prompt,
+                include_analysis_appendix=True,
+                settings_source=self._runtime_prompt_settings_source(),
+            ),
+            user_content=user_content,
+            history=copy.deepcopy(list(getattr(self, "_history", []) or [])) if include_history else [],
+            attachments_metadata=attachments,
+            include_sub_prompt=include_sub_prompt,
+            generation_params=dict(getattr(self, "generation_params", {}) or {}),
+        )
+        fingerprint = context.fingerprint()
+        self._last_request_context_fingerprint = fingerprint
+        if self._setting_enabled("debug_llm_context_parity", False):
+            print(f"[LLM] request context fingerprint: {fingerprint}")
+        return context
+
+    def get_last_request_context_fingerprint(self) -> dict:
+        """최근 요청 컨텍스트의 privacy-safe fingerprint를 반환한다."""
+        return dict(getattr(self, "_last_request_context_fingerprint", {}) or {})
+
+    def _image_context_metadata(self, images_data: list | None) -> list[dict]:
+        """이미지 원문 없이 parity 확인에 필요한 최소 메타데이터를 만든다."""
+        metadata = []
+        for index, image in enumerate(images_data or []):
+            if not isinstance(image, dict):
+                continue
+            data_url = str(image.get("dataUrl", "") or "")
+            mime_type = ""
+            payload = data_url
+            if data_url and "," in data_url:
+                header, payload = data_url.split(",", 1)
+                if ":" in header and ";" in header:
+                    mime_type = header.split(":", 1)[1].split(";", 1)[0]
+            byte_count = 0
+            digest_source = payload
+            if payload:
+                try:
+                    raw_bytes = base64.b64decode(payload, validate=True)
+                    byte_count = len(raw_bytes)
+                    digest_source = raw_bytes.hex()
+                except (binascii.Error, ValueError):
+                    byte_count = len(payload)
+            metadata.append(
+                {
+                    "index": index,
+                    "mime_type": mime_type,
+                    "byte_count": byte_count,
+                    "digest": _fingerprint_payload(digest_source),
+                }
+            )
+        return metadata
+
+    def _image_payload_metadata(self, *, index: int, payload: str, mime_type: str = "") -> dict:
+        byte_count = 0
+        digest_source = payload
+        if payload:
+            try:
+                raw_bytes = base64.b64decode(payload, validate=True)
+                byte_count = len(raw_bytes)
+                digest_source = raw_bytes.hex()
+            except (binascii.Error, ValueError):
+                byte_count = len(payload)
+        return {
+            "index": index,
+            "mime_type": mime_type,
+            "byte_count": byte_count,
+            "digest": _fingerprint_payload(digest_source),
+        }
+
+    def _attachment_metadata_from_content(self, content) -> list[dict]:
+        """provider user content 안에 포함된 이미지 첨부를 원문 없이 요약한다."""
+        metadata = []
+
+        def add_payload(payload: str, mime_type: str = "") -> None:
+            metadata.append(
+                self._image_payload_metadata(
+                    index=len(metadata),
+                    payload=payload,
+                    mime_type=mime_type,
+                )
+            )
+
+        def add_data_url(data_url: str) -> None:
+            payload = data_url
+            mime_type = ""
+            if data_url and "," in data_url:
+                header, payload = data_url.split(",", 1)
+                if ":" in header and ";" in header:
+                    mime_type = header.split(":", 1)[1].split(";", 1)[0]
+            add_payload(payload, mime_type)
+
+        def visit(value) -> None:
+            if isinstance(value, list):
+                for item in value:
+                    visit(item)
+                return
+            if not isinstance(value, dict):
+                return
+
+            image_url = value.get("image_url")
+            if isinstance(image_url, dict):
+                url = image_url.get("url")
+                if isinstance(url, str) and url:
+                    add_data_url(url)
+                return
+            if isinstance(image_url, str) and image_url:
+                add_data_url(image_url)
+                return
+
+            inline_data = value.get("inlineData")
+            if isinstance(inline_data, dict) and inline_data.get("data"):
+                add_payload(
+                    str(inline_data.get("data", "")),
+                    mime_type=str(inline_data.get("mimeType", "")),
+                )
+                return
+
+            source = value.get("source")
+            if isinstance(source, dict) and source.get("data"):
+                add_payload(
+                    str(source.get("data", "")),
+                    mime_type=str(source.get("media_type", "")),
+                )
+                return
+
+            images = value.get("images")
+            if isinstance(images, list):
+                for image in images:
+                    if image:
+                        add_payload(str(image))
+                return
+
+            for nested in value.values():
+                visit(nested)
+
+        visit(content)
+        return metadata
 
     def _empty_text_fallback_response(self) -> LLM_RESPONSE_TUPLE:
         return "음... 무슨 일이 있었나봐요.", "confused", None, [], {}, [], "", {}, []
@@ -301,17 +525,23 @@ class _CommonMixin:
             head_pat_count_before_message=head_pat_count_before_message,
         )
 
-    def _messages_for_openai(self, user_content, include_sub_prompt: bool = True):
+    def _messages_for_openai(
+        self,
+        user_content,
+        include_sub_prompt: bool = True,
+        provider_format: str = "openai_chat",
+    ):
+        context = self._build_request_context(
+            user_content,
+            provider_format=provider_format,
+            include_sub_prompt=include_sub_prompt,
+        )
         messages = [{
             "role": "system",
-            "content": build_runtime_system_prompt(
-                include_sub_prompt=include_sub_prompt,
-                include_analysis_appendix=True,
-                settings_source=self._runtime_prompt_settings_source(),
-            ),
+            "content": context.system_prompt,
         }]
-        messages.extend(self._history)
-        messages.append({"role": "user", "content": user_content})
+        messages.extend(context.history)
+        messages.append({"role": "user", "content": context.user_content})
         return messages
 
     def clear_context(self):

@@ -1,14 +1,10 @@
 ﻿from __future__ import annotations
 
 import requests
-
-from .prompt import build_runtime_system_prompt
 from .http_llm_common import (
-    DEFAULT_GENERATION_PARAMS,
     LLM_RESPONSE_TUPLE,
     _CommonMixin,
     _normalize_generation_params,
-    _raise_for_status_with_detail,
 )
 class GoogleCloudClient(_CommonMixin):
     def __init__(
@@ -73,11 +69,17 @@ class GoogleCloudClient(_CommonMixin):
         images_data: list | None = None,
         include_sub_prompt: bool = True,
     ) -> str:
+        context = self._build_request_context(
+            message,
+            provider_format="google_cloud",
+            include_sub_prompt=include_sub_prompt,
+            attachments_metadata=self._image_context_metadata(images_data),
+        )
         contents = []
-        for h in self._history:
+        for h in context.history:
             role = "model" if h.get("role") == "assistant" else "user"
             contents.append({"role": role, "parts": self._to_google_parts_from_history(h.get("content", ""))})
-        contents.append({"role": "user", "parts": self._to_parts(message, images_data)})
+        contents.append({"role": "user", "parts": self._to_parts(context.user_content, images_data)})
         payload = {
             "contents": contents,
             "generation_config": {
@@ -86,11 +88,7 @@ class GoogleCloudClient(_CommonMixin):
             },
             "systemInstruction": {
                 "parts": [{
-                    "text": build_runtime_system_prompt(
-                        include_sub_prompt=include_sub_prompt,
-                        include_analysis_appendix=True,
-                        settings_source=self._runtime_prompt_settings_source(),
-                    )
+                    "text": context.system_prompt
                 }]
             },
         }
@@ -109,19 +107,21 @@ class GoogleCloudClient(_CommonMixin):
         return ""
 
     def _request_one_shot_raw(self, message: str, include_sub_prompt: bool = True) -> str:
+        context = self._build_request_context(
+            message,
+            provider_format="google_cloud_one_shot",
+            include_sub_prompt=include_sub_prompt,
+            include_history=False,
+        )
         payload = {
-            "contents": [{"role": "user", "parts": [{"text": str(message)}]}],
+            "contents": [{"role": "user", "parts": [{"text": str(context.user_content)}]}],
             "generation_config": {
                 "temperature": self.generation_params["temperature"],
                 "topP": self.generation_params["top_p"],
             },
             "systemInstruction": {
                 "parts": [{
-                    "text": build_runtime_system_prompt(
-                        include_sub_prompt=include_sub_prompt,
-                        include_analysis_appendix=True,
-                        settings_source=self._runtime_prompt_settings_source(),
-                    )
+                    "text": context.system_prompt
                 }]
             },
         }
@@ -230,13 +230,14 @@ class CohereClient(_CommonMixin):
         }
 
     def _request_cohere(self, message: str, include_sub_prompt: bool = True) -> str:
-        chat_history = []
-        preamble = build_runtime_system_prompt(
+        context = self._build_request_context(
+            message,
+            provider_format="cohere",
             include_sub_prompt=include_sub_prompt,
-            include_analysis_appendix=True,
-            settings_source=self._runtime_prompt_settings_source(),
         )
-        for h in self._history:
+        chat_history = []
+        preamble = context.system_prompt
+        for h in context.history:
             role = str(h.get("role", "user"))
             content = str(h.get("content", ""))
             if role == "assistant":
@@ -248,7 +249,7 @@ class CohereClient(_CommonMixin):
 
         payload = {
             "model": self.model_name,
-            "message": message,
+            "message": context.user_content,
             "chat_history": chat_history,
             "preamble": preamble,
             "temperature": self.generation_params["temperature"],
@@ -266,15 +267,17 @@ class CohereClient(_CommonMixin):
         return ""
 
     def _request_one_shot_raw(self, message: str, include_sub_prompt: bool = True) -> str:
+        context = self._build_request_context(
+            message,
+            provider_format="cohere_one_shot",
+            include_sub_prompt=include_sub_prompt,
+            include_history=False,
+        )
         payload = {
             "model": self.model_name,
-            "message": message,
+            "message": context.user_content,
             "chat_history": [],
-            "preamble": build_runtime_system_prompt(
-                include_sub_prompt=include_sub_prompt,
-                include_analysis_appendix=True,
-                settings_source=self._runtime_prompt_settings_source(),
-            ),
+            "preamble": context.system_prompt,
             "temperature": self.generation_params["temperature"],
             "p": self.generation_params["top_p"],
         }
