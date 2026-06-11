@@ -17,6 +17,7 @@ from src.ai.llm_client import (
     _format_context_month_day,
     _format_context_month_day_time,
 )
+from src.ai.memory import MemoryActivationResult
 from src.ai.memory_types import MemoryChunk
 from src.core.bridge import WebBridge
 
@@ -806,6 +807,78 @@ class _RawChunkMemoryManager:
         ]
 
 
+class _ActivatedRawChunkMemoryManager(_RawChunkMemoryManager):
+    def __init__(self):
+        super().__init__()
+        self.find_activated_calls = []
+
+    async def find_activated(
+        self,
+        latest_query,
+        recent_context="",
+        top_k=3,
+        min_similarity=0.5,
+        expand_hops=1,
+    ):
+        self.find_activated_calls.append(
+            {
+                "latest_query": latest_query,
+                "recent_context": recent_context,
+                "top_k": top_k,
+                "min_similarity": min_similarity,
+                "expand_hops": expand_hops,
+            }
+        )
+        memory = type("Memory", (), {"summary": "릴리스 회의 시간은 오후 4시로 정리한 기억"})()
+        return [
+            MemoryActivationResult(
+                memory=memory,
+                activation_score=0.97,
+                similarity_score=0.82,
+                keyword_score=0.5,
+                recent_context_score=0.4,
+                link_score=0.2,
+            )
+        ]
+
+
+class _FailingActivatedMemoryManager(_RawChunkMemoryManager):
+    async def find_activated(
+        self,
+        latest_query,
+        recent_context="",
+        top_k=3,
+        min_similarity=0.5,
+        expand_hops=1,
+    ):
+        raise RuntimeError("activation failed")
+
+
+class _EmptyActivatedMemoryManager(_RawChunkMemoryManager):
+    def __init__(self):
+        super().__init__()
+        self.find_activated_calls = []
+
+    async def find_activated(
+        self,
+        latest_query,
+        recent_context="",
+        top_k=3,
+        min_similarity=0.5,
+        expand_hops=1,
+    ):
+        self.find_activated_calls.append(
+            {
+                "latest_query": latest_query,
+                "recent_context": recent_context,
+                "top_k": top_k,
+                "min_similarity": min_similarity,
+                "expand_hops": expand_hops,
+            }
+        )
+        return []
+
+
 def test_build_memory_context_uses_latest_query_for_similarity_and_includes_raw_chunks():
     memory_manager = _RawChunkMemoryManager()
     dummy = type("ClientDummy", (), {})()
@@ -853,6 +926,176 @@ def test_build_memory_context_uses_latest_query_for_similarity_and_includes_raw_
     assert "병원 예약을 자주 확인해 달라고 말한 기억" in context
     assert "[회상된 원문 조각]" in context
     assert "[user] 내일 병원 예약 있어" in context
+
+
+def test_build_memory_context_uses_activation_search_when_enabled():
+    memory_manager = _ActivatedRawChunkMemoryManager()
+    dummy = type("ClientDummy", (), {})()
+    dummy.memory_manager = memory_manager
+    dummy.user_profile = _DummyProfile([])
+    dummy.ene_profile = None
+    dummy.mood_manager = None
+    dummy.settings = type(
+        "SettingsDummy",
+        (),
+        {
+            "config": {
+                "memory_activation_enabled": True,
+                "max_activated_memories": 2,
+                "memory_activation_expand_hops": 1,
+                "max_similar_memories": 5,
+                "min_similarity": 0.35,
+                "max_raw_chunks_in_context": 1,
+                "raw_chunk_turns": 4,
+            }
+        },
+    )()
+    dummy.calendar_manager = None
+
+    context = asyncio.run(
+        GeminiClient._build_memory_context(
+            dummy,
+            "릴리스 회의 시간이 뭐였지?",
+            recent_context="[마스터] 릴리즈 회의 다시 확인하자",
+        )
+    )
+
+    assert memory_manager.find_activated_calls == [
+        {
+            "latest_query": "릴리스 회의 시간이 뭐였지?",
+            "recent_context": "[마스터] 릴리즈 회의 다시 확인하자",
+            "top_k": 2,
+            "min_similarity": 0.35,
+            "expand_hops": 1,
+        }
+    ]
+    assert memory_manager.find_similar_calls == []
+    assert memory_manager.find_relevant_raw_chunks_calls[0]["candidate_memories"][0][1] == 0.97
+    assert memory_manager.find_relevant_raw_chunks_calls[0]["chunk_turns"] == 4
+    assert "[관련된 과거 기억]" in context
+    assert "릴리스 회의 시간은 오후 4시로 정리한 기억" in context
+
+
+def test_build_memory_context_uses_similar_count_when_activation_count_is_unset():
+    memory_manager = _ActivatedRawChunkMemoryManager()
+    dummy = type("ClientDummy", (), {})()
+    dummy.memory_manager = memory_manager
+    dummy.user_profile = _DummyProfile([])
+    dummy.ene_profile = None
+    dummy.mood_manager = None
+    dummy.settings = type(
+        "SettingsDummy",
+        (),
+        {
+            "config": {
+                "memory_activation_enabled": True,
+                "max_activated_memories": None,
+                "max_similar_memories": 5,
+                "min_similarity": 0.35,
+                "max_raw_chunks_in_context": 0,
+            }
+        },
+    )()
+    dummy.calendar_manager = None
+
+    asyncio.run(GeminiClient._build_memory_context(dummy, "릴리스 회의 시간이 뭐였지?"))
+
+    assert memory_manager.find_activated_calls[0]["top_k"] == 5
+
+
+def test_build_memory_context_uses_find_similar_when_activation_disabled():
+    memory_manager = _ActivatedRawChunkMemoryManager()
+    dummy = type("ClientDummy", (), {})()
+    dummy.memory_manager = memory_manager
+    dummy.user_profile = _DummyProfile([])
+    dummy.ene_profile = None
+    dummy.mood_manager = None
+    dummy.settings = type(
+        "SettingsDummy",
+        (),
+        {
+            "config": {
+                "memory_activation_enabled": False,
+                "max_similar_memories": 3,
+                "min_similarity": 0.35,
+                "max_raw_chunks_in_context": 0,
+            }
+        },
+    )()
+    dummy.calendar_manager = None
+
+    context = asyncio.run(GeminiClient._build_memory_context(dummy, "지금 병원 시간이 몇 시였지?"))
+
+    assert memory_manager.find_activated_calls == []
+    assert len(memory_manager.find_similar_calls) == 1
+    assert "병원 예약을 자주 확인해 달라고 말한 기억" in context
+
+
+def test_build_memory_context_falls_back_to_similarity_when_activation_raises():
+    memory_manager = _FailingActivatedMemoryManager()
+    dummy = type("ClientDummy", (), {})()
+    dummy.memory_manager = memory_manager
+    dummy.user_profile = _DummyProfile([])
+    dummy.ene_profile = None
+    dummy.mood_manager = None
+    dummy.settings = type(
+        "SettingsDummy",
+        (),
+        {
+            "config": {
+                "memory_activation_enabled": True,
+                "max_activated_memories": 2,
+                "max_similar_memories": 3,
+                "min_similarity": 0.35,
+                "max_raw_chunks_in_context": 1,
+                "raw_chunk_turns": 4,
+            }
+        },
+    )()
+    dummy.calendar_manager = None
+
+    context = asyncio.run(
+        GeminiClient._build_memory_context(
+            dummy,
+            "지금 병원 시간이 몇 시였지?",
+            recent_context="[마스터] 내일 병원 예약 있어",
+        )
+    )
+
+    assert len(memory_manager.find_similar_calls) == 1
+    assert len(memory_manager.find_relevant_raw_chunks_calls) == 1
+    assert "[관련된 과거 기억]" in context
+    assert "[회상된 원문 조각]" in context
+
+
+def test_build_memory_context_does_not_fallback_when_activation_returns_empty():
+    memory_manager = _EmptyActivatedMemoryManager()
+    dummy = type("ClientDummy", (), {})()
+    dummy.memory_manager = memory_manager
+    dummy.user_profile = _DummyProfile([])
+    dummy.ene_profile = None
+    dummy.mood_manager = None
+    dummy.settings = type(
+        "SettingsDummy",
+        (),
+        {
+            "config": {
+                "memory_activation_enabled": True,
+                "max_activated_memories": 2,
+                "max_similar_memories": 3,
+                "min_similarity": 0.35,
+                "max_raw_chunks_in_context": 1,
+            }
+        },
+    )()
+    dummy.calendar_manager = None
+
+    context = asyncio.run(GeminiClient._build_memory_context(dummy, "릴리스 회의 시간이 뭐였지?"))
+
+    assert len(memory_manager.find_activated_calls) == 1
+    assert memory_manager.find_similar_calls == []
+    assert memory_manager.find_relevant_raw_chunks_calls == []
+    assert "[관련된 과거 기억]" not in context
 
 
 def test_on_response_ready_rebuilds_llm_history_from_visible_conversation_only():

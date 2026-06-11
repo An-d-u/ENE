@@ -276,6 +276,20 @@ def normalize_int_setting(value, *, default: int, min_value: int, max_value: int
     return max(min_value, min(max_value, parsed))
 
 
+def normalize_bool_setting(value, *, default: bool) -> bool:
+    """불리언 설정값을 안전하게 정규화한다."""
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
 async def build_memory_context(
     client,
     query: str,
@@ -417,6 +431,22 @@ async def build_memory_context(
     max_similar = settings_config.get("max_similar_memories", 3)
     min_sim = settings_config.get("min_similarity", 0.35)
     max_recent = settings_config.get("max_recent_memories", 2)
+    activation_enabled = normalize_bool_setting(
+        settings_config.get("memory_activation_enabled", True),
+        default=True,
+    )
+    max_activated = normalize_int_setting(
+        settings_config.get("max_activated_memories", max_similar),
+        default=max_similar,
+        min_value=0,
+        max_value=10,
+    )
+    activation_expand_hops = normalize_int_setting(
+        settings_config.get("memory_activation_expand_hops", 1),
+        default=1,
+        min_value=0,
+        max_value=1,
+    )
     max_raw_chunks = normalize_int_setting(
         settings_config.get("max_raw_chunks_in_context", 2),
         default=2,
@@ -441,13 +471,61 @@ async def build_memory_context(
         print("[LLM] 중요 기억 없음")
 
     similar_memories = []
+    activation_attempted = False
+    related_memories_reported = False
     try:
-        similar_memories = await memory_manager.find_similar(
-            normalized_query,
-            top_k=max_similar,
-            min_similarity=min_sim,
-        )
+        if activation_enabled and max_activated > 0 and hasattr(memory_manager, "find_activated"):
+            activation_attempted = True
+            activated_results = await memory_manager.find_activated(
+                normalized_query,
+                recent_context=normalized_recent_context,
+                top_k=max_activated,
+                min_similarity=min_sim,
+                expand_hops=activation_expand_hops,
+            )
+            similar_memories = [
+                (result.memory, result.activation_score)
+                for result in activated_results
+            ]
+            if similar_memories:
+                print(f"[LLM] 활성화 기억 {len(similar_memories)}개 발견")
 
+        if not activation_attempted:
+            similar_memories = await memory_manager.find_similar(
+                normalized_query,
+                top_k=max_similar,
+                min_similarity=min_sim,
+            )
+
+        if similar_memories:
+            related_memories_reported = True
+            print(f"[LLM] 유사 기억 {len(similar_memories)}개 발견")
+            context_parts.append(f"\n[{labels['related']}]")
+            for memory, similarity in similar_memories:
+                context_parts.append(f"- {memory.summary}")
+                print(f"  [{similarity:.2f}] {memory.summary[:50]}...")
+        else:
+            related_memories_reported = True
+            print("[LLM] 유사 기억 없음")
+
+    except Exception as e:
+        print(f"[LLM] 기억 검색 실패: {e}")
+        import traceback
+        traceback.print_exc()
+
+        if activation_attempted:
+            try:
+                similar_memories = await memory_manager.find_similar(
+                    normalized_query,
+                    top_k=max_similar,
+                    min_similarity=min_sim,
+                )
+            except Exception as fallback_error:
+                print(f"[LLM] 유사 기억 fallback 실패: {fallback_error}")
+                import traceback
+                traceback.print_exc()
+
+    if not related_memories_reported:
         if similar_memories:
             print(f"[LLM] 유사 기억 {len(similar_memories)}개 발견")
             context_parts.append(f"\n[{labels['related']}]")
@@ -456,11 +534,6 @@ async def build_memory_context(
                 print(f"  [{similarity:.2f}] {memory.summary[:50]}...")
         else:
             print("[LLM] 유사 기억 없음")
-
-    except Exception as e:
-        print(f"[LLM] 유사 기억 검색 실패: {e}")
-        import traceback
-        traceback.print_exc()
 
     if max_raw_chunks > 0 and similar_memories and hasattr(memory_manager, "find_relevant_raw_chunks"):
         try:
