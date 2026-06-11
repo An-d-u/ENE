@@ -3,6 +3,7 @@
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 from datetime import datetime
@@ -28,6 +29,11 @@ _MIGRATED_MEMORY_REQUIRED_FIELDS = (
     "expires_at",
     "schema_version",
     "migration_meta",
+    "aliases",
+    "trigger_terms",
+    "linked_memory_ids",
+    "activation_weight",
+    "last_activated_at",
 )
 
 _QUERY_TYPE_PATTERNS = {
@@ -37,6 +43,18 @@ _QUERY_TYPE_PATTERNS = {
     "task": ("해야", "할 일", "정리", "작업", "TODO", "todo"),
     "relationship": ("호칭", "관계", "애칭", "성격"),
 }
+
+
+@dataclass
+class MemoryActivationResult:
+    """활성화 검색 결과와 점수 근거."""
+
+    memory: MemoryEntry
+    activation_score: float
+    similarity_score: float
+    keyword_score: float
+    recent_context_score: float
+    link_score: float = 0.0
 
 
 class MemoryManager:
@@ -77,7 +95,7 @@ class MemoryManager:
             for raw_entry in raw_entries:
                 entry = MemoryEntry.from_dict(raw_entry if isinstance(raw_entry, dict) else {})
                 self.memories.append(entry)
-                if self._entry_needs_persisted_migration(raw_entry):
+                if self._entry_needs_persisted_migration(raw_entry, entry):
                     needs_persist = True
             
             print(f"[Memory] {len(self.memories)}개 기억 로드 완료")
@@ -92,7 +110,11 @@ class MemoryManager:
                 print("[Memory] 기억 파일 없음. 새로 생성합니다.")
             self.memories = []
 
-    def _entry_needs_persisted_migration(self, raw_entry) -> bool:
+    def _entry_needs_persisted_migration(
+        self,
+        raw_entry,
+        normalized_entry: MemoryEntry | None = None,
+    ) -> bool:
         """레거시 항목인지 확인해 최신 스키마로 재저장이 필요한지 판단한다."""
         if not isinstance(raw_entry, dict):
             return True
@@ -105,7 +127,15 @@ class MemoryManager:
         if schema_version < CURRENT_MEMORY_SCHEMA_VERSION:
             return True
 
-        return any(field_name not in raw_entry for field_name in _MIGRATED_MEMORY_REQUIRED_FIELDS)
+        if any(field_name not in raw_entry for field_name in _MIGRATED_MEMORY_REQUIRED_FIELDS):
+            return True
+
+        entry = normalized_entry or MemoryEntry.from_dict(raw_entry)
+        canonical = entry.to_dict()
+        return any(
+            raw_entry.get(field_name) != canonical.get(field_name)
+            for field_name in _MIGRATED_MEMORY_REQUIRED_FIELDS
+        )
     
     def save(self):
         """JSON 파일에 기억 저장"""
@@ -190,7 +220,9 @@ class MemoryManager:
         self,
         query: str,
         top_k: int = 3,
-        min_similarity: float = 0.5
+        min_similarity: float = 0.5,
+        *,
+        mark_retrieved: bool = True,
     ) -> List[Tuple[MemoryEntry, float]]:
         """
         유사 기억 검색
@@ -203,6 +235,28 @@ class MemoryManager:
         Returns:
             (MemoryEntry, 유사도) 튜플 리스트
         """
+        ranked = await self._rank_similar_memories(
+            query,
+            top_k=top_k,
+            min_similarity=min_similarity,
+        )
+        result = [(memory, final_score) for memory, final_score, _ in ranked]
+        if mark_retrieved:
+            self._mark_memories_retrieved([memory for memory, _ in result])
+
+        if result:
+            print(f"[Memory] 유사 기억 {len(result)}개 찾음 (임계값: {min_similarity})")
+            for memory, sim in result:
+                print(f"  - [{sim:.3f}] {memory.summary[:50]}...")
+        return result
+
+    async def _rank_similar_memories(
+        self,
+        query: str,
+        top_k: int = 3,
+        min_similarity: float = 0.5,
+    ) -> List[Tuple[MemoryEntry, float, float]]:
+        """기억 검색 후보를 최종 점수와 순수 유사도로 함께 반환한다."""
         if not self.embedding_generator:
             print("[Memory] 임베딩 생성기가 없어 검색 불가")
             return []
@@ -243,24 +297,220 @@ class MemoryManager:
             
             # 최종 점수 높은 순으로 정렬하고, 동점이면 기본 유사도를 우선한다.
             similarities.sort(key=lambda item: (item[1], item[2]), reverse=True)
-            
-            # 상위 k개 반환
             ranked = similarities[:top_k]
-            result = [(memory, final_score) for memory, final_score, _ in ranked]
-            self._mark_memories_retrieved([memory for memory, _ in result])
-            
-            if result:
-                print(f"[Memory] 유사 기억 {len(result)}개 찾음 (임계값: {min_similarity})")
-                for memory, sim in result:
-                    print(f"  - [{sim:.3f}] {memory.summary[:50]}...")
-            else:
+
+            if not ranked:
                 print(f"[Memory] 임계값({min_similarity}) 이상의 유사 기억 없음 (최대: {max_similarity:.3f})")
-            
-            return result
+
+            return ranked
             
         except Exception as e:
             print(f"[Memory] 검색 실패: {e}")
             return []
+
+    async def find_activated(
+        self,
+        latest_query: str,
+        recent_context: str = "",
+        top_k: int = 3,
+        min_similarity: float = 0.5,
+        expand_hops: int = 1,
+    ) -> List[MemoryActivationResult]:
+        """유사도 위에 별칭/트리거/최근 대화 신호를 얹어 기억을 고른다."""
+        max_results = max(0, int(top_k or 0))
+        if max_results == 0:
+            return []
+
+        candidate_k = max(max_results * 3, max_results)
+        similar_candidates = await self._rank_similar_memories(
+            latest_query,
+            top_k=candidate_k,
+            min_similarity=min_similarity,
+        )
+        if not similar_candidates:
+            return []
+
+        ranked: list[MemoryActivationResult] = []
+        raw_similarity_by_id = {
+            str(getattr(memory, "id", "") or "").strip(): raw_similarity
+            for memory, _, raw_similarity in similar_candidates
+        }
+        for memory, _, raw_similarity in similar_candidates:
+            ranked.append(
+                self._build_activation_result(
+                    memory=memory,
+                    similarity_score=raw_similarity,
+                    latest_query=latest_query,
+                    recent_context=recent_context,
+                )
+            )
+
+        ranked.sort(key=lambda item: item.activation_score, reverse=True)
+        selected = self._select_activation_results(
+            ranked,
+            latest_query=latest_query,
+            recent_context=recent_context,
+            max_results=max_results,
+            expand_hops=expand_hops,
+            raw_similarity_by_id=raw_similarity_by_id,
+        )
+        self._mark_activation_results_used(selected)
+
+        if selected:
+            print(f"[Memory] 활성화 기억 {len(selected)}개 찾음")
+            for result in selected:
+                print(
+                    "  - "
+                    f"[{result.activation_score:.3f}] "
+                    f"{result.memory.summary[:50]}..."
+                )
+        else:
+            print("[Memory] 활성화 기억 없음")
+
+        return selected
+
+    def _build_activation_result(
+        self,
+        memory: MemoryEntry,
+        similarity_score: float,
+        latest_query: str,
+        recent_context: str,
+        link_score: float = 0.0,
+    ) -> MemoryActivationResult:
+        """단일 기억의 활성화 점수와 근거를 계산한다."""
+        activation_text = self._memory_activation_text(memory)
+        keyword_score = self._keyword_overlap_score(latest_query, activation_text)
+        recent_context_score = self._keyword_overlap_score(recent_context, activation_text)
+        weight = self._activation_weight(memory)
+        activation_score = (
+            (max(0.0, float(similarity_score)) * 0.64)
+            + (keyword_score * 0.22)
+            + (recent_context_score * 0.10)
+            + (link_score * 0.04)
+        ) * weight
+        return MemoryActivationResult(
+            memory=memory,
+            activation_score=activation_score,
+            similarity_score=float(similarity_score),
+            keyword_score=keyword_score,
+            recent_context_score=recent_context_score,
+            link_score=link_score,
+        )
+
+    def _memory_activation_text(self, memory: MemoryEntry) -> str:
+        """활성화 검색에 사용할 대표 텍스트를 모은다."""
+        parts: list[str] = [
+            str(getattr(memory, "summary", "") or ""),
+            " ".join(getattr(memory, "tags", []) or []),
+            " ".join(getattr(memory, "entity_names", []) or []),
+            " ".join(getattr(memory, "aliases", []) or []),
+            " ".join(getattr(memory, "trigger_terms", []) or []),
+        ]
+        for message in getattr(memory, "original_messages", []) or []:
+            parts.append(str(getattr(message, "text", message) or ""))
+        return "\n".join(part for part in parts if part)
+
+    def _activation_weight(self, memory: MemoryEntry) -> float:
+        """기억별 활성화 가중치를 안전한 범위로 제한한다."""
+        try:
+            return max(0.1, min(3.0, float(getattr(memory, "activation_weight", 1.0))))
+        except (TypeError, ValueError):
+            return 1.0
+
+    def _select_activation_results(
+        self,
+        ranked: list[MemoryActivationResult],
+        latest_query: str,
+        recent_context: str,
+        max_results: int,
+        expand_hops: int,
+        raw_similarity_by_id: dict[str, float],
+    ) -> list[MemoryActivationResult]:
+        """직접 후보와 연결 후보를 같은 점수 기준으로 고른다."""
+        candidate_pool = list(ranked)
+        if int(expand_hops or 0) > 0:
+            for result in ranked:
+                candidate_pool.extend(
+                    self._expand_linked_activation_results(
+                        result,
+                        latest_query=latest_query,
+                        recent_context=recent_context,
+                        raw_similarity_by_id=raw_similarity_by_id,
+                    )
+                )
+
+        candidate_pool.sort(key=lambda item: item.activation_score, reverse=True)
+        selected: list[MemoryActivationResult] = []
+        seen_ids: set[str] = set()
+
+        for result in candidate_pool:
+            memory_id = str(getattr(result.memory, "id", "") or "").strip()
+            if memory_id and memory_id in seen_ids:
+                continue
+            if memory_id:
+                seen_ids.add(memory_id)
+            selected.append(result)
+            if len(selected) >= max_results:
+                break
+
+        return selected
+
+    def _expand_linked_activation_results(
+        self,
+        parent: MemoryActivationResult,
+        latest_query: str,
+        recent_context: str,
+        raw_similarity_by_id: dict[str, float],
+    ) -> list[MemoryActivationResult]:
+        """선택된 기억의 1-hop 연결 기억을 활성화 결과로 변환한다."""
+        linked_results: list[MemoryActivationResult] = []
+        memory_by_id = self._memory_by_id()
+        for linked_id in getattr(parent.memory, "linked_memory_ids", []) or []:
+            linked_memory = memory_by_id.get(str(linked_id or "").strip())
+            if linked_memory is None:
+                continue
+            if linked_memory.id == parent.memory.id:
+                continue
+            linked_memory_id = str(getattr(linked_memory, "id", "") or "").strip()
+            link_score = max(0.0, min(1.0, parent.activation_score))
+            direct_similarity = raw_similarity_by_id.get(linked_memory_id)
+            relation_similarity = (
+                direct_similarity
+                if direct_similarity is not None
+                else min(0.45, max(0.0, parent.similarity_score * 0.55))
+            )
+            linked_result = self._build_activation_result(
+                memory=linked_memory,
+                similarity_score=relation_similarity,
+                latest_query=latest_query,
+                recent_context=recent_context,
+                link_score=link_score,
+            )
+            if direct_similarity is None and linked_result.keyword_score <= 0.0 and linked_result.recent_context_score <= 0.0:
+                continue
+            linked_results.append(linked_result)
+        return linked_results
+
+    def _memory_by_id(self) -> dict[str, MemoryEntry]:
+        """현재 로드된 기억을 id 기준으로 조회할 수 있게 만든다."""
+        return {
+            str(getattr(memory, "id", "") or "").strip(): memory
+            for memory in self.memories
+            if str(getattr(memory, "id", "") or "").strip()
+        }
+
+    def _mark_activation_results_used(self, results: list[MemoryActivationResult]):
+        """실제로 주입 대상으로 선택된 기억만 사용 메타데이터를 갱신한다."""
+        if not results:
+            return
+
+        now_iso = datetime.now().astimezone().isoformat(timespec="seconds")
+        for result in results:
+            memory = result.memory
+            memory.retrieval_count = int(memory.retrieval_count or 0) + 1
+            memory.last_used_at = now_iso
+            memory.last_activated_at = now_iso
+        self.save()
 
     def build_raw_chunks(self, memory: MemoryEntry, chunk_turns: int = 6) -> List[MemoryChunk]:
         """기억 원문에서 고정 길이 turn window chunk를 생성한다."""

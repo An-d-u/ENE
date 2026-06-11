@@ -1,4 +1,4 @@
-from src.ai.memory_types import MemoryEntry, MemoryMessage, create_memory_entry
+﻿from src.ai.memory_types import MemoryEntry, MemoryMessage, create_memory_entry
 
 
 def test_create_memory_entry_sets_defaults():
@@ -52,9 +52,33 @@ def test_memory_entry_from_legacy_dict_backfills_new_fields():
     assert restored.entity_names == ["Obsidian"]
     assert restored.conversation_id == "legacy-mem-legacy"
     assert restored.expires_at is None
-    assert restored.schema_version == 3
+    assert restored.schema_version == 4
     assert restored.migration_meta["migration_version"] == 1
     assert "memory_type" in restored.migration_meta["inferred_fields"]
+
+
+def test_memory_entry_from_legacy_dict_backfills_activation_fields():
+    restored = MemoryEntry.from_dict(
+        {
+            "id": "mem-activation-legacy",
+            "summary": "프로젝트 릴리스 회의는 금요일 오후로 정리함",
+            "original_messages": ["릴리스 회의는 금요일 오후로 잡자."],
+            "timestamp": "2026-05-01T10:00:00",
+            "schema_version": 3,
+            "aliases": [" 릴리즈 회의 ", "", "release meeting"],
+            "trigger_terms": [" 배포 ", "릴리스", ""],
+            "linked_memory_ids": [" mem-detail ", "", "mem-detail"],
+            "activation_weight": "1.4",
+            "last_activated_at": "2026-05-02T10:00:00",
+        }
+    )
+
+    assert restored.aliases == ["릴리즈 회의", "release meeting"]
+    assert restored.trigger_terms == ["배포", "릴리스"]
+    assert restored.linked_memory_ids == ["mem-detail"]
+    assert restored.activation_weight == 1.4
+    assert restored.last_activated_at == "2026-05-02T10:00:00"
+    assert restored.schema_version == 4
 
 
 def test_create_memory_entry_normalizes_structured_original_messages():
@@ -123,7 +147,7 @@ def test_memory_entry_from_legacy_message_strings_backfills_message_metadata():
             turn_index=1,
         ),
     ]
-    assert restored.schema_version == 3
+    assert restored.schema_version == 4
     assert restored.migration_meta["legacy_original_messages"] is True
 
 

@@ -1,4 +1,4 @@
-"""
+﻿"""
 장기기억 데이터 구조
 """
 from __future__ import annotations
@@ -9,7 +9,7 @@ from typing import Any
 import re
 
 
-CURRENT_MEMORY_SCHEMA_VERSION = 3
+CURRENT_MEMORY_SCHEMA_VERSION = 4
 LEGACY_MIGRATION_VERSION = 1
 
 _PREFERENCE_PATTERNS = ("좋아", "선호", "편해", "익숙", "싫어", "자주")
@@ -33,11 +33,30 @@ def _normalize_str_list(value: Any) -> list[str]:
     return [text] if text else []
 
 
+def _normalize_unique_str_list(value: Any) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in _normalize_str_list(value):
+        key = item.lower()
+        if key in seen:
+            continue
+        normalized.append(item)
+        seen.add(key)
+    return normalized
+
+
 def _clamp_confidence(value: Any) -> float:
     try:
         return max(0.0, min(1.0, float(value)))
     except (TypeError, ValueError):
         return 0.5
+
+
+def _clamp_activation_weight(value: Any) -> float:
+    try:
+        return max(0.1, min(3.0, float(value)))
+    except (TypeError, ValueError):
+        return 1.0
 
 
 def _normalize_role(value: Any) -> str:
@@ -478,6 +497,11 @@ class MemoryEntry:
     expires_at: str | None = None
     schema_version: int = CURRENT_MEMORY_SCHEMA_VERSION
     migration_meta: dict[str, Any] = field(default_factory=dict)
+    aliases: list[str] = field(default_factory=list)
+    trigger_terms: list[str] = field(default_factory=list)
+    linked_memory_ids: list[str] = field(default_factory=list)
+    activation_weight: float = 1.0
+    last_activated_at: str | None = None
 
     def __post_init__(self):
         fallback_timestamp = str(self.timestamp or "").strip() or _now_iso()
@@ -492,6 +516,15 @@ class MemoryEntry:
         )
         self.tags = _normalize_str_list(self.tags)
         self.entity_names = _normalize_str_list(self.entity_names)
+        self.aliases = _normalize_unique_str_list(self.aliases)
+        self.trigger_terms = _normalize_unique_str_list(self.trigger_terms)
+        self.linked_memory_ids = _normalize_unique_str_list(self.linked_memory_ids)
+        self.activation_weight = _clamp_activation_weight(self.activation_weight)
+        self.last_activated_at = (
+            str(self.last_activated_at).strip()
+            if self.last_activated_at is not None and str(self.last_activated_at).strip()
+            else None
+        )
         self.confidence = _clamp_confidence(self.confidence)
         self.schema_version = max(int(self.schema_version or 0), CURRENT_MEMORY_SCHEMA_VERSION)
         self.conversation_id = (
@@ -574,6 +607,29 @@ class MemoryEntry:
 
         if "expires_at" not in normalized:
             normalized["expires_at"] = None
+
+        if "aliases" not in normalized:
+            normalized["aliases"] = []
+        else:
+            normalized["aliases"] = _normalize_unique_str_list(normalized.get("aliases"))
+
+        if "trigger_terms" not in normalized:
+            normalized["trigger_terms"] = []
+        else:
+            normalized["trigger_terms"] = _normalize_unique_str_list(normalized.get("trigger_terms"))
+
+        if "linked_memory_ids" not in normalized:
+            normalized["linked_memory_ids"] = []
+        else:
+            normalized["linked_memory_ids"] = _normalize_unique_str_list(normalized.get("linked_memory_ids"))
+
+        if "activation_weight" not in normalized:
+            normalized["activation_weight"] = 1.0
+        else:
+            normalized["activation_weight"] = _clamp_activation_weight(normalized.get("activation_weight"))
+
+        if "last_activated_at" not in normalized:
+            normalized["last_activated_at"] = None
 
         raw_schema_version = normalized.get("schema_version", 0)
         try:

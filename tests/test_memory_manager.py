@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 import json
 
 from src.ai.embedding import EmbeddingGenerator
@@ -113,6 +113,164 @@ def test_find_similar_returns_ranked_results(tmp_path):
     assert results[0][1] == 1.0
 
 
+def test_find_activated_boosts_alias_terms_and_recent_context(tmp_path):
+    manager = MemoryManager(
+        str(tmp_path / "memory.json"),
+        embedding_generator=ScoreEmbeddingGenerator(),
+    )
+    plain_match = MemoryEntry(
+        id="mem-plain",
+        summary="일반 배포 메모",
+        original_messages=["배포 일정은 아직 정하지 않았다."],
+        timestamp="2026-05-01T09:00:00",
+        embedding=[0.82],
+    )
+    activated_match = MemoryEntry(
+        id="mem-activation",
+        summary="릴리스 회의는 금요일 오후로 정리함",
+        original_messages=["릴리스 회의는 금요일 오후로 잡자."],
+        timestamp="2026-05-01T10:00:00",
+        embedding=[0.75],
+        aliases=["릴리즈 회의"],
+        trigger_terms=["배포"],
+        activation_weight=1.3,
+    )
+    manager.memories = [plain_match, activated_match]
+
+    results = asyncio.run(
+        manager.find_activated(
+            "배포 일정 알려줘",
+            recent_context="방금 릴리즈 회의 이야기를 했다.",
+            top_k=1,
+            min_similarity=0.5,
+            expand_hops=0,
+        )
+    )
+
+    assert len(results) == 1
+    assert results[0].memory.id == "mem-activation"
+    assert results[0].keyword_score > 0
+    assert results[0].recent_context_score > 0
+    assert activated_match.retrieval_count == 1
+    assert activated_match.last_activated_at is not None
+    assert plain_match.retrieval_count == 0
+
+
+def test_find_activated_reports_raw_similarity_without_metadata_bonus(tmp_path):
+    manager = MemoryManager(
+        str(tmp_path / "memory.json"),
+        embedding_generator=ScoreEmbeddingGenerator(),
+    )
+    metadata_rich = MemoryEntry(
+        id="mem-metadata-rich",
+        summary="배포 체크리스트를 정리함",
+        original_messages=["배포 전에 체크리스트를 확인하기로 했다."],
+        timestamp="2026-05-01T10:00:00",
+        is_important=True,
+        embedding=[0.6],
+        memory_type="task",
+        importance_reason="user_marked",
+        confidence=1.0,
+        trigger_terms=["배포"],
+    )
+    manager.memories = [metadata_rich]
+
+    results = asyncio.run(
+        manager.find_activated("배포 체크리스트", top_k=1, min_similarity=0.5)
+    )
+
+    assert len(results) == 1
+    assert results[0].similarity_score == 0.6
+
+
+def test_find_activated_expands_linked_memories(tmp_path):
+    manager = MemoryManager(
+        str(tmp_path / "memory.json"),
+        embedding_generator=ScoreEmbeddingGenerator(),
+    )
+    primary = MemoryEntry(
+        id="mem-release",
+        summary="릴리스 회의가 금요일에 있음",
+        original_messages=["릴리스 회의를 금요일에 하기로 했다."],
+        timestamp="2026-05-01T10:00:00",
+        embedding=[0.82],
+        linked_memory_ids=["mem-time"],
+    )
+    linked_detail = MemoryEntry(
+        id="mem-time",
+        summary="회의 시간은 오후 4시로 정리함",
+        original_messages=["회의 시간은 오후 4시가 좋겠다."],
+        timestamp="2026-05-01T10:05:00",
+        embedding=[0.1],
+    )
+    unrelated = MemoryEntry(
+        id="mem-unrelated",
+        summary="다른 작업 메모",
+        original_messages=["다른 작업을 정리했다."],
+        timestamp="2026-05-01T11:00:00",
+        embedding=[0.81],
+    )
+    manager.memories = [primary, linked_detail, unrelated]
+
+    results = asyncio.run(
+        manager.find_activated(
+            "릴리스 회의 시간",
+            top_k=3,
+            min_similarity=0.5,
+            expand_hops=1,
+        )
+    )
+
+    result_ids = [result.memory.id for result in results]
+    assert result_ids[0] == "mem-release"
+    assert "mem-time" in result_ids
+    assert next(result for result in results if result.memory.id == "mem-time").link_score > 0
+    assert linked_detail.retrieval_count == 1
+
+
+def test_find_activated_does_not_let_unrelated_link_displace_better_candidate(tmp_path):
+    manager = MemoryManager(
+        str(tmp_path / "memory.json"),
+        embedding_generator=ScoreEmbeddingGenerator(),
+    )
+    primary = MemoryEntry(
+        id="mem-release",
+        summary="릴리스 회의가 금요일에 있음",
+        original_messages=["릴리스 회의를 금요일에 하기로 했다."],
+        timestamp="2026-05-01T10:00:00",
+        embedding=[0.82],
+        activation_weight=1.2,
+        linked_memory_ids=["mem-unrelated-link"],
+    )
+    unrelated_link = MemoryEntry(
+        id="mem-unrelated-link",
+        summary="책상 정리 메모",
+        original_messages=["책상 위 물건을 정리하기로 했다."],
+        timestamp="2026-05-01T10:05:00",
+        embedding=[0.1],
+    )
+    better_candidate = MemoryEntry(
+        id="mem-time",
+        summary="릴리스 회의 시간은 오후 4시로 정리함",
+        original_messages=["릴리스 회의 시간은 오후 4시가 좋겠다."],
+        timestamp="2026-05-01T11:00:00",
+        embedding=[0.74],
+    )
+    manager.memories = [primary, unrelated_link, better_candidate]
+
+    results = asyncio.run(
+        manager.find_activated(
+            "릴리스 회의 시간",
+            top_k=2,
+            min_similarity=0.5,
+            expand_hops=1,
+        )
+    )
+
+    assert [result.memory.id for result in results] == ["mem-release", "mem-time"]
+    assert unrelated_link.retrieval_count == 0
+
+
 def test_save_and_reload_roundtrip_preserves_extended_memory_fields(tmp_path):
     memory_file = tmp_path / "memory.json"
     manager = MemoryManager(str(memory_file))
@@ -153,7 +311,12 @@ def test_save_and_reload_roundtrip_preserves_extended_memory_fields(tmp_path):
     assert restored.entity_names == ["ENE"]
     assert restored.conversation_id == "conv-1"
     assert restored.expires_at == "2026-04-09T00:00:00"
-    assert restored.schema_version == 3
+    assert restored.schema_version == 4
+    assert restored.aliases == []
+    assert restored.trigger_terms == []
+    assert restored.linked_memory_ids == []
+    assert restored.activation_weight == 1.0
+    assert restored.last_activated_at is None
 
 
 def test_load_legacy_memory_file_backfills_extended_fields(tmp_path):
@@ -190,7 +353,12 @@ def test_load_legacy_memory_file_backfills_extended_fields(tmp_path):
     assert restored.importance_reason == "promise"
     assert restored.retrieval_count == 0
     assert restored.user_confirmed is None
-    assert restored.schema_version == 3
+    assert restored.schema_version == 4
+    assert restored.aliases == []
+    assert restored.trigger_terms == []
+    assert restored.linked_memory_ids == []
+    assert restored.activation_weight == 1.0
+    assert restored.last_activated_at is None
 
 
 def test_load_legacy_memory_file_persists_migrated_schema(tmp_path):
@@ -219,9 +387,62 @@ def test_load_legacy_memory_file_persists_migrated_schema(tmp_path):
 
     migrated_payload = json.loads(memory_file.read_text(encoding="utf-8"))
     restored = migrated_payload["memories"][0]
-    assert restored["schema_version"] == 3
+    assert restored["schema_version"] == 4
     assert restored["source"] == "legacy"
     assert restored["memory_type"] == "preference"
+    assert restored["aliases"] == []
+    assert restored["trigger_terms"] == []
+    assert restored["linked_memory_ids"] == []
+    assert restored["activation_weight"] == 1.0
+    assert restored["last_activated_at"] is None
+
+
+def test_load_v4_memory_file_persists_canonical_activation_fields(tmp_path):
+    memory_file = tmp_path / "memory.json"
+    memory_file.write_text(
+        json.dumps(
+            {
+                "memories": [
+                    {
+                        "id": "mem-v4-noncanonical",
+                        "summary": "릴리스 회의는 금요일 오후로 정리함",
+                        "original_messages": ["릴리스 회의는 금요일 오후로 잡자."],
+                        "timestamp": "2026-05-01T10:00:00",
+                        "schema_version": 4,
+                        "source": "chat",
+                        "memory_type": "event",
+                        "importance_reason": "none",
+                        "retrieval_count": 0,
+                        "last_used_at": None,
+                        "confidence": 0.5,
+                        "user_confirmed": None,
+                        "entity_names": [],
+                        "conversation_id": "conv-1",
+                        "expires_at": None,
+                        "migration_meta": {},
+                        "aliases": " 릴리즈 회의 ",
+                        "trigger_terms": [" 배포 ", "배포"],
+                        "linked_memory_ids": [" mem-detail ", "mem-detail"],
+                        "activation_weight": 99,
+                        "last_activated_at": "",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    MemoryManager(str(memory_file))
+
+    migrated_payload = json.loads(memory_file.read_text(encoding="utf-8"))
+    restored = migrated_payload["memories"][0]
+    assert restored["aliases"] == ["릴리즈 회의"]
+    assert restored["trigger_terms"] == ["배포"]
+    assert restored["linked_memory_ids"] == ["mem-detail"]
+    assert restored["activation_weight"] == 3.0
+    assert restored["last_activated_at"] is None
 
 
 def test_add_summary_persists_memory_metadata_fields(tmp_path):
