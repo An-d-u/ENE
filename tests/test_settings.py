@@ -30,6 +30,7 @@ def test_load_missing_file_uses_default_config(tmp_path):
     assert settings.get("enable_ene_goals") is True
     assert settings.get("show_ene_goal_button") is True
     assert settings.get("ene_goal_state_file") == "ene_goals.json"
+    assert settings.get("live2d_parameter_overrides") == {}
     assert settings.get("model_json_path") == "assets/live2d_models/hiyori/runtime/hiyori_pro_t11.model3.json"
     assert settings.get("head_pat_active_emotion_default") == "normal"
     assert settings.get("head_pat_end_emotion_default") == "normal"

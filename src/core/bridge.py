@@ -19,6 +19,7 @@ from .bridge_mixins.attachments import AttachmentBridgeMixin
 from .bridge_mixins.away import AwayNudgeBridgeMixin
 from .bridge_mixins.chat_flow import ChatFlowBridgeMixin
 from .bridge_mixins.goals import GoalBridgeMixin
+from .bridge_mixins.live2d_parameters import Live2DParameterBridgeMixin
 from .bridge_mixins.memory_summary import MemorySummaryBridgeMixin
 from .bridge_mixins.mood import MoodBridgeMixin
 from .bridge_mixins.obsidian import ObsidianBridgeMixin
@@ -41,6 +42,7 @@ def _prompt_time_header(timestamp: str, language: str) -> str:
 class WebBridge(
     AwayNudgeBridgeMixin,
     AttachmentBridgeMixin,
+    Live2DParameterBridgeMixin,
     ChatFlowBridgeMixin,
     GoalBridgeMixin,
     MoodBridgeMixin,
