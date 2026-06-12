@@ -126,6 +126,17 @@ def test_live2d_parameter_runtime_loads_after_live2d_writers():
         assert script_order[dependency] < parameter_index
 
 
+def test_live2d_parameter_inspector_markup_exists():
+    html = (WEB_DIR / "index.html").read_text(encoding="utf-8-sig")
+
+    assert 'id="live2d-parameters-floating-btn"' in html
+    assert 'id="live2d-parameters-panel"' in html
+    assert 'id="live2d-parameters-search"' in html
+    assert 'id="live2d-parameters-list"' in html
+    assert 'id="live2d-parameters-save-btn"' in html
+    assert '장식 조절용입니다.' in html
+
+
 def test_live2d_parameter_runtime_applies_overrides_in_late_internal_model_hook():
     script = _script_text()
 

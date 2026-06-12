@@ -544,7 +544,8 @@ body.thought-feature-disabled .message-thought {
 #mood-toggle-floating-btn,
 #promise-reminders-floating-btn,
 #proactive-conversations-floating-btn,
-#goal-toggle-floating-btn {
+#goal-toggle-floating-btn,
+#live2d-parameters-floating-btn {
     z-index: 1200;
     padding: 8px 12px;
     border: 1px solid var(--ene-floating-panel-border);
@@ -639,9 +640,19 @@ body.thought-feature-disabled .message-thought {
     transform: translateY(-1px);
 }
 
+#live2d-parameters-floating-btn {
+    transition: background 0.2s ease, transform 0.2s ease;
+}
+
+#live2d-parameters-floating-btn:hover {
+    background: var(--ene-floating-panel-button-hover);
+    transform: translateY(-1px);
+}
+
 #promise-reminders-panel,
 #proactive-conversations-panel,
-#goal-status-panel {
+#goal-status-panel,
+#live2d-parameters-panel {
     position: fixed;
     right: 12px;
     top: 112px;
@@ -660,13 +671,15 @@ body.thought-feature-disabled .message-thought {
 
 #promise-reminders-panel.hidden,
 #proactive-conversations-panel.hidden,
-#goal-status-panel.hidden {
+#goal-status-panel.hidden,
+#live2d-parameters-panel.hidden {
     display: none;
 }
 
 #promise-reminders-panel-header,
 #proactive-conversations-panel-header,
-#goal-status-panel-header {
+#goal-status-panel-header,
+#live2d-parameters-panel-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -676,14 +689,16 @@ body.thought-feature-disabled .message-thought {
 
 #promise-reminders-panel-title,
 #proactive-conversations-panel-title,
-#goal-status-panel-title {
+#goal-status-panel-title,
+#live2d-parameters-panel-title {
     font-size: 13px;
     font-weight: 700;
 }
 
 #promise-reminders-close-btn,
 #proactive-conversations-close-btn,
-#goal-status-close-btn {
+#goal-status-close-btn,
+#live2d-parameters-close-btn {
     width: 22px;
     height: 22px;
     border: 1px solid var(--ene-floating-panel-border);
@@ -702,7 +717,8 @@ body.thought-feature-disabled .message-thought {
 
 #promise-reminders-close-btn:hover,
 #proactive-conversations-close-btn:hover,
-#goal-status-close-btn:hover {
+#goal-status-close-btn:hover,
+#live2d-parameters-close-btn:hover {
     background: var(--ene-floating-panel-button-hover);
 }
 
@@ -713,6 +729,102 @@ body.thought-feature-disabled .message-thought {
     flex-direction: column;
     max-height: min(292px, calc(100vh - 196px));
     overflow-y: auto;
+}
+
+#live2d-parameters-panel {
+    width: min(340px, calc(100vw - 24px));
+    min-height: 0;
+    max-height: min(520px, calc(100vh - 132px));
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+#live2d-parameters-panel.hidden {
+    display: none;
+}
+
+#live2d-parameters-panel-header {
+    margin-bottom: 0;
+}
+
+#live2d-parameters-warning {
+    padding: 8px;
+    border-radius: 8px;
+    background: rgba(255, 191, 118, 0.13);
+    color: var(--ene-floating-panel-muted-text);
+    font-size: 11px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+#live2d-parameters-search {
+    width: 100%;
+    border: 1px solid var(--ene-floating-panel-border);
+    border-radius: 8px;
+    background: var(--ene-floating-panel-button-bg);
+    color: var(--ene-floating-panel-text);
+    font-size: 12px;
+    line-height: 1.3;
+    padding: 8px 9px;
+    outline: none;
+    box-sizing: border-box;
+}
+
+#live2d-parameters-search::placeholder {
+    color: var(--ene-floating-panel-muted-text);
+}
+
+#live2d-parameters-tabs,
+#live2d-parameters-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.live2d-parameters-tab,
+#live2d-parameters-reset-btn,
+#live2d-parameters-save-btn {
+    min-height: 30px;
+    border: 1px solid var(--ene-floating-panel-border);
+    border-radius: 8px;
+    background: var(--ene-floating-panel-button-bg);
+    color: var(--ene-floating-panel-text);
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1.2;
+    padding: 6px 10px;
+}
+
+.live2d-parameters-tab {
+    flex: 1 1 0;
+}
+
+.live2d-parameters-tab:hover,
+#live2d-parameters-reset-btn:hover,
+#live2d-parameters-save-btn:hover {
+    background: var(--ene-floating-panel-button-hover);
+}
+
+.live2d-parameters-tab.is-active {
+    border-color: rgba(255, 255, 255, 0.28);
+    background: var(--ene-floating-panel-button-hover);
+    font-weight: 700;
+}
+
+#live2d-parameters-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 88px;
+    max-height: min(300px, calc(100vh - 312px));
+    overflow-y: auto;
+}
+
+#live2d-parameters-actions {
+    justify-content: flex-end;
 }
 
 .promise-reminder-item,

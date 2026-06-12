@@ -251,6 +251,10 @@ class OverlayWindow(QWidget):
                     "label": i18n.t("chat.actions.proactive"),
                     "title": i18n.t("chat.actions.proactive.title"),
                 },
+                "live2dParameters": {
+                    "label": i18n.t("chat.actions.live2dParameters.label"),
+                    "title": i18n.t("chat.actions.live2dParameters.title"),
+                },
                 "goals": {
                     "label": i18n.t("chat.actions.goals"),
                     "title": i18n.t("chat.actions.goals.title"),
@@ -275,6 +279,17 @@ class OverlayWindow(QWidget):
                 "inMinutes": i18n.t("chat.proactive.panel.in_minutes"),
                 "overdueMinutes": i18n.t("chat.proactive.panel.overdue_minutes"),
                 "remove": i18n.t("chat.proactive.panel.remove"),
+            },
+            "live2dParameters": {
+                "title": i18n.t("chat.live2dParameters.title"),
+                "warning": i18n.t("chat.live2dParameters.warning"),
+                "search": i18n.t("chat.live2dParameters.search"),
+                "recommended": i18n.t("chat.live2dParameters.recommended"),
+                "all": i18n.t("chat.live2dParameters.all"),
+                "pinned": i18n.t("chat.live2dParameters.pinned"),
+                "save": i18n.t("chat.live2dParameters.save"),
+                "reset": i18n.t("chat.live2dParameters.reset"),
+                "empty": i18n.t("chat.live2dParameters.empty"),
             },
             "goalPanel": {
                 "label": i18n.t("chat.goals.label"),

@@ -2321,6 +2321,8 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
           "chat.actions.promises.title": "Scheduled conversation promises",
           "chat.actions.proactive": "Proactive",
           "chat.actions.proactive.title": "Scheduled proactive conversations",
+          "chat.actions.live2dParameters.label": "Live2D",
+          "chat.actions.live2dParameters.title": "Live2D parameters",
           "chat.actions.goals": "Goals",
           "chat.actions.goals.title": "ENE goals",
           "chat.promise.notice.saved": "Conversation promise saved.",
@@ -2337,6 +2339,15 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
           "chat.proactive.panel.overdue_minutes": "{minutes} min late",
           "chat.proactive.panel.close": "Close",
           "chat.proactive.panel.remove": "Delete proactive conversation",
+          "chat.live2dParameters.title": "Live2D parameters",
+          "chat.live2dParameters.warning": "For decoration controls. Avoid expression, eye, mouth, head, and body motion parameters because they may conflict with expressions, lip-sync, and head pats.",
+          "chat.live2dParameters.search": "Search parameters",
+          "chat.live2dParameters.recommended": "Recommended",
+          "chat.live2dParameters.all": "All",
+          "chat.live2dParameters.pinned": "Pinned",
+          "chat.live2dParameters.save": "Save",
+          "chat.live2dParameters.reset": "Reset",
+          "chat.live2dParameters.empty": "No parameters to show.",
           "chat.goals.label": "Goals",
           "chat.goals.title": "ENE goals",
           "chat.goals.empty": "No active goals yet.",
@@ -2387,6 +2398,8 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
           "chat.actions.promises.title": "予定された会話の約束",
           "chat.actions.proactive": "先回り",
           "chat.actions.proactive.title": "予約された先回り会話",
+          "chat.actions.live2dParameters.label": "Live2D",
+          "chat.actions.live2dParameters.title": "Live2Dパラメータ",
           "chat.actions.goals": "目標",
           "chat.actions.goals.title": "エネの目標",
           "chat.promise.notice.saved": "会話の約束を保存しました。",
@@ -2403,6 +2416,15 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
           "chat.proactive.panel.overdue_minutes": "{minutes}分経過",
           "chat.proactive.panel.close": "閉じる",
           "chat.proactive.panel.remove": "先回り会話を削除",
+          "chat.live2dParameters.title": "Live2Dパラメータ",
+          "chat.live2dParameters.warning": "装飾調整用です。表情、目、口、頭、体の動きに関するパラメータは、表情、リップシンク、なで反応と競合する場合があるため、触らないことをおすすめします。",
+          "chat.live2dParameters.search": "パラメータを検索",
+          "chat.live2dParameters.recommended": "おすすめ",
+          "chat.live2dParameters.all": "すべて",
+          "chat.live2dParameters.pinned": "固定",
+          "chat.live2dParameters.save": "保存",
+          "chat.live2dParameters.reset": "リセット",
+          "chat.live2dParameters.empty": "表示するパラメータはありません。",
           "chat.goals.label": "目標",
           "chat.goals.title": "エネの目標",
           "chat.goals.empty": "進行中の目標はまだありません。",
@@ -2469,11 +2491,16 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
     assert '"promises": {' in captured[-1]
     assert '"proactive": {' in captured[-1]
     assert '"goals": {' in captured[-1]
+    assert '"live2dParameters": {' in captured[-1]
     assert '"label": "予定"' in captured[-1]
     assert '"label": "先回り"' in captured[-1]
+    assert '"label": "Live2D"' in captured[-1]
     assert '"proactivePanel": {' in captured[-1]
     assert '"proactivePanel": {"title": "先回り"' in captured[-1]
     assert '"remove": "先回り会話を削除"' in captured[-1]
+    assert '"live2dParameters": {"title": "Live2Dパラメータ"' in captured[-1]
+    assert '"warning": "装飾調整用です。表情、目、口、頭、体の動きに関するパラメータは、表情、リップシンク、なで反応と競合する場合があるため、触らないことをおすすめします。"' in captured[-1]
+    assert '"empty": "表示するパラメータはありません。"' in captured[-1]
     assert '"goalPanel": {' in captured[-1]
     assert '"goalPanel": {"label": "目標", "title": "エネの目標"' in captured[-1]
     assert '"title": "エネの目標"' in captured[-1]
@@ -2496,9 +2523,11 @@ def test_chat_web_script_has_runtime_i18n_hooks():
     assert "moodStatusLabel.textContent = formatMoodStatusText(label, temporaryState);" in content
     assert "promiseRemindersButton.textContent = currentUiStrings.actions.promises.label;" in content
     assert "proactiveConversationsButton.textContent = currentUiStrings.actions.proactive.label;" in content
+    assert "live2dParametersButton.textContent = currentUiStrings.actions.live2dParameters.label;" in content
     assert "goalButton.textContent = currentUiStrings.actions.goals.label;" in content
     assert "goalButton.setAttribute('aria-label', currentUiStrings.actions.goals.title);" in content
     assert "label: goalPanel.label || DEFAULT_UI_STRINGS.goalPanel.label" in content
+    assert "title: live2dParameters.title || DEFAULT_UI_STRINGS.live2dParameters.title" in content
     assert "window.setProactiveConversationButtonEnabled = function setProactiveConversationButtonEnabled(enabled)" in content
     assert "window.setProactiveConversationItems = function setProactiveConversationItems(items)" in content
     assert "window.setGoalButtonEnabled = function setGoalButtonEnabled(enabled)" in content
