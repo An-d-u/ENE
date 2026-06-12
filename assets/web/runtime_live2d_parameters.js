@@ -46,6 +46,10 @@ function isRecommendedLive2DParameter(paramId) {
     return !LIVE2D_PARAMETER_RECOMMENDED_EXCLUDE_KEYWORDS.some((keyword) => String(paramId || '').startsWith(keyword));
 }
 
+function isLive2DParameterOverrideAllowed(paramId) {
+    return isRecommendedLive2DParameter(paramId);
+}
+
 function getLive2DParameterElement(id) {
     if (typeof document === 'undefined' || !document || typeof document.getElementById !== 'function') {
         return null;
@@ -61,6 +65,14 @@ function showLive2DParameterToast(message, level = 'info') {
     if (window.showToast) {
         window.showToast(message, level);
     }
+}
+
+function getLive2DParameterUiString(key, fallback) {
+    const strings = (window.eneUiStrings && window.eneUiStrings.live2dParameters)
+        || (typeof currentUiStrings !== 'undefined' && currentUiStrings && currentUiStrings.live2dParameters)
+        || (typeof DEFAULT_UI_STRINGS !== 'undefined' && DEFAULT_UI_STRINGS.live2dParameters)
+        || {};
+    return strings[key] || fallback;
 }
 
 function normalizeLive2DParameterNumber(value, fallback = 0) {
@@ -244,7 +256,7 @@ function applyLive2DParameterOverrides(coreModel = getLive2DParameterCoreModel()
     }
     Object.entries(getLive2DParameterOverrideValues()).forEach(([paramId, value]) => {
         const numericValue = Number(value);
-        if (!paramId || !Number.isFinite(numericValue)) {
+        if (!paramId || !Number.isFinite(numericValue) || !isLive2DParameterOverrideAllowed(paramId)) {
             return;
         }
         try {
@@ -278,6 +290,9 @@ function setLive2DParameterMetadataStatus(status, message = '') {
 }
 
 function setLive2DParameterModelValue(paramId, value) {
+    if (!isLive2DParameterOverrideAllowed(paramId)) {
+        return false;
+    }
     const coreModel = getLive2DParameterCoreModel();
     if (!coreModel || typeof coreModel.setParameterValueById !== 'function') {
         return false;
@@ -302,6 +317,9 @@ function isLive2DParameterDirty(paramId) {
 
 function setLive2DParameterDirtyValue(paramId, value) {
     const metadata = getLive2DParameterMetadata(paramId);
+    if (!metadata || !isLive2DParameterOverrideAllowed(paramId)) {
+        return;
+    }
     const numericValue = normalizeLive2DParameterNumber(value, metadata ? metadata.current : 0);
     const baseline = Object.prototype.hasOwnProperty.call(live2dParameterState.values, paramId)
         ? normalizeLive2DParameterNumber(live2dParameterState.values[paramId], numericValue)
@@ -360,6 +378,7 @@ function updateLive2DParameterRowDirtyState(row, paramId) {
 function createLive2DParameterRow(item) {
     const row = document.createElement('div');
     row.className = 'live2d-parameter-row';
+    row.classList.toggle('is-blocked', !isLive2DParameterOverrideAllowed(item.id));
     updateLive2DParameterRowDirtyState(row, item.id);
 
     const header = document.createElement('div');
@@ -396,6 +415,7 @@ function createLive2DParameterRow(item) {
     range.step = '0.001';
     range.value = String(item.current);
     range.setAttribute('aria-label', `${item.id} 슬라이더`);
+    range.disabled = !isLive2DParameterOverrideAllowed(item.id);
 
     const number = document.createElement('input');
     number.type = 'number';
@@ -404,11 +424,13 @@ function createLive2DParameterRow(item) {
     number.step = '0.001';
     number.value = formatLive2DParameterValue(item.current);
     number.setAttribute('aria-label', `${item.id} 값`);
+    number.disabled = !isLive2DParameterOverrideAllowed(item.id);
 
     const resetButton = document.createElement('button');
     resetButton.type = 'button';
     resetButton.className = 'live2d-parameter-reset';
     resetButton.textContent = '초기화';
+    resetButton.disabled = !isLive2DParameterOverrideAllowed(item.id);
     resetButton.addEventListener('click', () => resetLive2DParameterOverride(item.id));
 
     const syncValue = (nextValue) => {
@@ -449,10 +471,10 @@ function renderLive2DParameterInspector() {
     }
     if (!ready) {
         const messages = {
-            idle: '파라미터 목록을 불러오기 전입니다.',
-            loading: '파라미터 목록을 불러오는 중입니다.',
-            unavailable: '현재 Live2D 모델에서 파라미터 목록을 읽을 수 없습니다.',
-            error: live2dParameterState.metadataError || '파라미터 목록을 불러오지 못했습니다.',
+            idle: getLive2DParameterUiString('statusIdle', '파라미터 목록을 불러오기 전입니다.'),
+            loading: getLive2DParameterUiString('statusLoading', '파라미터 목록을 불러오는 중입니다.'),
+            unavailable: getLive2DParameterUiString('statusUnavailable', '현재 Live2D 모델에서 파라미터 목록을 읽을 수 없습니다.'),
+            error: live2dParameterState.metadataError || getLive2DParameterUiString('statusError', '파라미터 목록을 불러오지 못했습니다.'),
         };
         live2dParametersList.textContent = messages[live2dParameterState.metadataStatus] || messages.idle;
         return;
@@ -467,7 +489,7 @@ function renderLive2DParameterInspector() {
         live2dParametersList.textContent = '';
     }
     if (!visibleItems.length) {
-        live2dParametersList.textContent = '표시할 파라미터가 없습니다.';
+        live2dParametersList.textContent = getLive2DParameterUiString('empty', '표시할 파라미터가 없습니다.');
         return;
     }
     visibleItems.forEach((item) => {
@@ -510,7 +532,7 @@ function refreshLive2DParameterInspector() {
     } catch (error) {
         console.warn('Failed to refresh Live2D parameter inspector:', error);
         live2dParameterState.metadata = [];
-        setLive2DParameterMetadataStatus('error', '파라미터 목록을 읽는 중 오류가 발생했습니다.');
+        setLive2DParameterMetadataStatus('error', getLive2DParameterUiString('statusError', '파라미터 목록을 읽는 중 오류가 발생했습니다.'));
     }
     renderLive2DParameterInspector();
 }
@@ -536,7 +558,7 @@ function buildLive2DParameterSavePayload() {
     });
     Object.keys(values).forEach((paramId) => {
         const numericValue = Number(values[paramId]);
-        if (!Number.isFinite(numericValue)) {
+        if (!Number.isFinite(numericValue) || !isLive2DParameterOverrideAllowed(paramId)) {
             delete values[paramId];
         } else {
             values[paramId] = numericValue;
@@ -544,25 +566,25 @@ function buildLive2DParameterSavePayload() {
     });
     return {
         values,
-        pinned: Array.from(live2dParameterState.pinned),
+        pinned: Array.from(live2dParameterState.pinned).filter(isLive2DParameterOverrideAllowed),
     };
 }
 
 function saveLive2DParameterOverrides() {
     if (live2dParameterState.metadataStatus !== 'ready') {
-        showLive2DParameterToast('파라미터 목록을 먼저 불러와야 합니다.', 'error');
+        showLive2DParameterToast(getLive2DParameterUiString('toastLoadFirst', '파라미터 목록을 먼저 불러와야 합니다.'), 'error');
         return;
     }
     const modelKey = String(live2dParameterState.modelKey || '').trim();
     if (!modelKey) {
-        showLive2DParameterToast('모델을 먼저 선택해야 저장할 수 있습니다.', 'error');
+        showLive2DParameterToast(getLive2DParameterUiString('toastMissingModel', '모델을 먼저 선택해야 저장할 수 있습니다.'), 'error');
         return;
     }
     if (
         !window.pyBridge
         || typeof window.pyBridge.save_live2d_parameter_overrides !== 'function'
     ) {
-        showLive2DParameterToast('저장 브리지를 사용할 수 없습니다.', 'error');
+        showLive2DParameterToast(getLive2DParameterUiString('toastMissingBridge', '저장 브리지를 사용할 수 없습니다.'), 'error');
         return;
     }
     const payload = buildLive2DParameterSavePayload();
@@ -572,11 +594,11 @@ function saveLive2DParameterOverrides() {
         live2dParameterState.dirtyValues = {};
         live2dParameterState.removedValues = new Set();
         live2dParameterState.pinned = new Set(payload.pinned);
-        showLive2DParameterToast('Live2D 파라미터를 저장했습니다.', 'success');
+        showLive2DParameterToast(getLive2DParameterUiString('toastSaveSuccess', 'Live2D 파라미터를 저장했습니다.'), 'success');
         renderLive2DParameterInspector();
     } catch (error) {
         console.warn('Failed to save Live2D parameter overrides:', error);
-        showLive2DParameterToast('Live2D 파라미터 저장에 실패했습니다.', 'error');
+        showLive2DParameterToast(getLive2DParameterUiString('toastSaveError', 'Live2D 파라미터 저장에 실패했습니다.'), 'error');
     }
 }
 

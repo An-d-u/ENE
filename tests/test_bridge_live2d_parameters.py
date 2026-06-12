@@ -189,6 +189,52 @@ def test_live2d_parameter_overrides_reject_empty_pinned_id_without_overwriting_e
     )
 
 
+def test_live2d_parameter_overrides_reject_oversized_model_key(tmp_path):
+    bridge, settings = _bridge_with_settings(tmp_path)
+
+    bridge.save_live2d_parameter_overrides(
+        "m" * 600,
+        json.dumps({"values": {"ParamRibbon": 1.0}, "pinned": ["ParamRibbon"]}, ensure_ascii=False),
+    )
+
+    assert settings.get("live2d_parameter_overrides") == {}
+
+
+def test_live2d_parameter_overrides_reject_oversized_parameter_id(tmp_path):
+    bridge, settings = _bridge_with_settings(tmp_path)
+    long_param_id = "Param" + ("Ribbon" * 30)
+
+    bridge.save_live2d_parameter_overrides(
+        "assets/live2d_models/model-a/runtime/model.model3.json",
+        json.dumps({"values": {long_param_id: 1.0}, "pinned": []}, ensure_ascii=False),
+    )
+
+    assert settings.get("live2d_parameter_overrides") == {}
+
+
+def test_live2d_parameter_overrides_reject_too_many_entries(tmp_path):
+    bridge, settings = _bridge_with_settings(tmp_path)
+    values = {f"ParamDecor{i}": 0.1 for i in range(300)}
+
+    bridge.save_live2d_parameter_overrides(
+        "assets/live2d_models/model-a/runtime/model.model3.json",
+        json.dumps({"values": values, "pinned": []}, ensure_ascii=False),
+    )
+
+    assert settings.get("live2d_parameter_overrides") == {}
+
+
+def test_live2d_parameter_overrides_reject_oversized_payload(tmp_path):
+    bridge, settings = _bridge_with_settings(tmp_path)
+
+    bridge.save_live2d_parameter_overrides(
+        "assets/live2d_models/model-a/runtime/model.model3.json",
+        '{"values":{"ParamRibbon":1.0},"pinned":[],"padding":"' + ("x" * 70000) + '"}',
+    )
+
+    assert settings.get("live2d_parameter_overrides") == {}
+
+
 def test_live2d_parameter_overrides_empty_payload_removes_only_that_model(tmp_path):
     bridge, settings = _bridge_with_settings(tmp_path)
 

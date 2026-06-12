@@ -8,12 +8,19 @@ from typing import Any
 from PyQt6.QtCore import pyqtSlot
 
 
+MAX_MODEL_KEY_LENGTH = 512
+MAX_PARAMETER_ID_LENGTH = 128
+MAX_PARAMETER_OVERRIDE_COUNT = 256
+MAX_PARAMETER_PAYLOAD_BYTES = 64 * 1024
+
+
 def _empty_payload() -> dict[str, Any]:
     return {"values": {}, "pinned": []}
 
 
 def _normalize_model_key(model_key: str) -> str:
-    return str(model_key or "").strip().replace("\\", "/")
+    key = str(model_key or "").strip().replace("\\", "/")
+    return key if len(key) <= MAX_MODEL_KEY_LENGTH else ""
 
 
 def _normalize_override_payload(payload: Any) -> dict[str, Any] | None:
@@ -23,11 +30,13 @@ def _normalize_override_payload(payload: Any) -> dict[str, Any] | None:
     raw_pinned = payload.get("pinned", [])
     if not isinstance(raw_values, dict) or not isinstance(raw_pinned, list):
         return None
+    if len(raw_values) > MAX_PARAMETER_OVERRIDE_COUNT or len(raw_pinned) > MAX_PARAMETER_OVERRIDE_COUNT:
+        return None
 
     values: dict[str, float] = {}
     for key, value in raw_values.items():
         param_id = str(key or "").strip()
-        if not param_id:
+        if not param_id or len(param_id) > MAX_PARAMETER_ID_LENGTH:
             return None
         if not isinstance(value, (int, float)) or isinstance(value, bool):
             return None
@@ -44,7 +53,7 @@ def _normalize_override_payload(payload: Any) -> dict[str, Any] | None:
         if not isinstance(item, str):
             return None
         param_id = item.strip()
-        if not param_id:
+        if not param_id or len(param_id) > MAX_PARAMETER_ID_LENGTH:
             return None
         if param_id in seen:
             continue
@@ -73,8 +82,11 @@ class Live2DParameterBridgeMixin:
         key = _normalize_model_key(model_key)
         if not key or not self.settings:
             return
+        payload_text = str(payload_json or "{}")
+        if len(payload_text.encode("utf-8")) > MAX_PARAMETER_PAYLOAD_BYTES:
+            return
         try:
-            raw_payload = json.loads(str(payload_json or "{}"))
+            raw_payload = json.loads(payload_text)
         except Exception:
             return
         payload = _normalize_override_payload(raw_payload)

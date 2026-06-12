@@ -832,6 +832,15 @@ body.thought-feature-disabled .message-thought {
     justify-content: flex-end;
 }
 
+.live2d-parameter-row.is-blocked {
+    opacity: 0.58;
+}
+
+.live2d-parameter-row.is-blocked input,
+.live2d-parameter-row.is-blocked .live2d-parameter-reset {
+    cursor: not-allowed;
+}
+
 .promise-reminder-item,
 .proactive-conversation-item {
     display: flex;

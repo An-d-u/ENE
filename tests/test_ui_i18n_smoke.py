@@ -2349,6 +2349,15 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
           "chat.live2dParameters.save": "Save",
           "chat.live2dParameters.reset": "Reset",
           "chat.live2dParameters.empty": "No parameters to show.",
+          "chat.live2dParameters.status_idle": "Parameter list has not loaded yet.",
+          "chat.live2dParameters.status_loading": "Loading parameter list.",
+          "chat.live2dParameters.status_unavailable": "This Live2D model does not expose readable parameters.",
+          "chat.live2dParameters.status_error": "Could not load parameter list.",
+          "chat.live2dParameters.toast_load_first": "Load the parameter list first.",
+          "chat.live2dParameters.toast_missing_model": "Select a model before saving.",
+          "chat.live2dParameters.toast_missing_bridge": "Save bridge is not available.",
+          "chat.live2dParameters.toast_save_success": "Live2D parameters saved.",
+          "chat.live2dParameters.toast_save_error": "Failed to save Live2D parameters.",
           "chat.goals.label": "Goals",
           "chat.goals.title": "ENE goals",
           "chat.goals.empty": "No active goals yet.",
@@ -2427,6 +2436,15 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
           "chat.live2dParameters.save": "保存",
           "chat.live2dParameters.reset": "リセット",
           "chat.live2dParameters.empty": "表示するパラメータはありません。",
+          "chat.live2dParameters.status_idle": "パラメータ一覧はまだ読み込まれていません。",
+          "chat.live2dParameters.status_loading": "パラメータ一覧を読み込んでいます。",
+          "chat.live2dParameters.status_unavailable": "現在のLive2Dモデルではパラメータ一覧を読み取れません。",
+          "chat.live2dParameters.status_error": "パラメータ一覧を読み込めませんでした。",
+          "chat.live2dParameters.toast_load_first": "先にパラメータ一覧を読み込んでください。",
+          "chat.live2dParameters.toast_missing_model": "保存する前にモデルを選択してください。",
+          "chat.live2dParameters.toast_missing_bridge": "保存ブリッジを使用できません。",
+          "chat.live2dParameters.toast_save_success": "Live2Dパラメータを保存しました。",
+          "chat.live2dParameters.toast_save_error": "Live2Dパラメータの保存に失敗しました。",
           "chat.goals.label": "目標",
           "chat.goals.title": "エネの目標",
           "chat.goals.empty": "進行中の目標はまだありません。",
@@ -2505,6 +2523,7 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
     assert '"search": "パラメータを検索"' in captured[-1]
     assert '"warning": "装飾調整用です。表情、目、口、頭、体の動きに関するパラメータは、表情、リップシンク、なで反応と競合する場合があるため、触らないことをおすすめします。"' in captured[-1]
     assert '"empty": "表示するパラメータはありません。"' in captured[-1]
+    assert '"toastSaveSuccess": "Live2Dパラメータを保存しました。"' in captured[-1]
     assert '"goalPanel": {' in captured[-1]
     assert '"goalPanel": {"label": "目標", "title": "エネの目標"' in captured[-1]
     assert '"title": "エネの目標"' in captured[-1]
