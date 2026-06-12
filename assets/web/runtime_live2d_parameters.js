@@ -295,6 +295,11 @@ function getLive2DParameterMetadata(paramId) {
     return live2dParameterState.metadata.find((item) => item.id === paramId) || null;
 }
 
+function isLive2DParameterDirty(paramId) {
+    return Object.prototype.hasOwnProperty.call(live2dParameterState.dirtyValues, paramId)
+        || live2dParameterState.removedValues.has(paramId);
+}
+
 function setLive2DParameterDirtyValue(paramId, value) {
     const metadata = getLive2DParameterMetadata(paramId);
     const numericValue = normalizeLive2DParameterNumber(value, metadata ? metadata.current : 0);
@@ -311,7 +316,6 @@ function setLive2DParameterDirtyValue(paramId, value) {
         metadata.current = numericValue;
     }
     setLive2DParameterModelValue(paramId, numericValue);
-    renderLive2DParameterInspector();
 }
 
 function resetLive2DParameterOverride(paramId) {
@@ -347,9 +351,16 @@ function formatLive2DParameterValue(value) {
     return String(Math.round(Number(value) * 1000) / 1000);
 }
 
+function updateLive2DParameterRowDirtyState(row, paramId) {
+    if (row && row.classList) {
+        row.classList.toggle('is-dirty', isLive2DParameterDirty(paramId));
+    }
+}
+
 function createLive2DParameterRow(item) {
     const row = document.createElement('div');
     row.className = 'live2d-parameter-row';
+    updateLive2DParameterRowDirtyState(row, item.id);
 
     const header = document.createElement('div');
     header.className = 'live2d-parameter-row-header';
@@ -405,6 +416,7 @@ function createLive2DParameterRow(item) {
         range.value = String(numericValue);
         number.value = formatLive2DParameterValue(numericValue);
         setLive2DParameterDirtyValue(item.id, numericValue);
+        updateLive2DParameterRowDirtyState(row, item.id);
     };
     range.addEventListener('input', () => syncValue(range.value));
     number.addEventListener('change', () => syncValue(number.value));
@@ -541,6 +553,11 @@ function saveLive2DParameterOverrides() {
         showLive2DParameterToast('파라미터 목록을 먼저 불러와야 합니다.', 'error');
         return;
     }
+    const modelKey = String(live2dParameterState.modelKey || '').trim();
+    if (!modelKey) {
+        showLive2DParameterToast('모델을 먼저 선택해야 저장할 수 있습니다.', 'error');
+        return;
+    }
     if (
         !window.pyBridge
         || typeof window.pyBridge.save_live2d_parameter_overrides !== 'function'
@@ -550,7 +567,7 @@ function saveLive2DParameterOverrides() {
     }
     const payload = buildLive2DParameterSavePayload();
     try {
-        window.pyBridge.save_live2d_parameter_overrides(live2dParameterState.modelKey, JSON.stringify(payload));
+        window.pyBridge.save_live2d_parameter_overrides(modelKey, JSON.stringify(payload));
         live2dParameterState.values = { ...payload.values };
         live2dParameterState.dirtyValues = {};
         live2dParameterState.removedValues = new Set();
@@ -647,11 +664,15 @@ function bindLive2DParameterOverrideHook() {
 
 window.applyLive2DParameterOverrides = applyLive2DParameterOverrides;
 window.onLive2DParameterModelChanged = function onLive2DParameterModelChanged(config = {}) {
-    live2dParameterState.modelKey = String(config.modelKey || '');
+    const nextModelKey = String(config.modelKey || '');
+    const modelKeyChanged = live2dParameterState.modelKey !== nextModelKey;
+    live2dParameterState.modelKey = nextModelKey;
     live2dParameterState.values = { ...((config.parameterOverrides && config.parameterOverrides.values) || {}) };
     live2dParameterState.pinned = new Set((config.parameterOverrides && config.parameterOverrides.pinned) || []);
-    live2dParameterState.dirtyValues = {};
-    live2dParameterState.removedValues = new Set();
+    if (modelKeyChanged) {
+        live2dParameterState.dirtyValues = {};
+        live2dParameterState.removedValues = new Set();
+    }
     bindLive2DParameterOverrideHook();
     applyLive2DParameterOverrides();
     if (live2dParameterState.panelOpen) {

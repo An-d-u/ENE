@@ -411,6 +411,214 @@ result = buildLive2DParameterSavePayload();
     }
 
 
+def test_live2d_parameter_same_model_update_preserves_unsaved_edits():
+    result = _run_live2d_parameter_runtime_case(
+        """
+const calls = [];
+window.live2dModel = {
+    internalModel: {
+        coreModel: {
+            getParameterIndex: () => 0,
+            getParameterCount: () => 3,
+            setParameterValueById: (paramId, value) => calls.push([paramId, value]),
+        },
+    },
+};
+
+window.onLive2DParameterModelChanged({
+    modelKey: 'same-model',
+    parameterOverrides: {
+        values: { ParamSaved: 1 },
+        pinned: ['ParamSaved'],
+    },
+});
+live2dParameterState.dirtyValues = { ParamDirty: 2 };
+live2dParameterState.removedValues = new Set(['ParamRemoved']);
+
+window.onLive2DParameterModelChanged({
+    modelKey: 'same-model',
+    parameterOverrides: {
+        values: { ParamSaved: 10 },
+        pinned: ['ParamNewPin'],
+    },
+});
+const sameModel = {
+    values: live2dParameterState.values,
+    pinned: Array.from(live2dParameterState.pinned),
+    dirtyValues: live2dParameterState.dirtyValues,
+    removedValues: Array.from(live2dParameterState.removedValues),
+    payload: buildLive2DParameterSavePayload(),
+};
+
+window.onLive2DParameterModelChanged({
+    modelKey: 'other-model',
+    parameterOverrides: {
+        values: { ParamOtherSaved: 3 },
+        pinned: ['ParamOtherSaved'],
+    },
+});
+
+result = {
+    sameModel,
+    changedModel: {
+        values: live2dParameterState.values,
+        pinned: Array.from(live2dParameterState.pinned),
+        dirtyValues: live2dParameterState.dirtyValues,
+        removedValues: Array.from(live2dParameterState.removedValues),
+    },
+};
+"""
+    )
+
+    assert result == {
+        "sameModel": {
+            "values": {"ParamSaved": 10},
+            "pinned": ["ParamNewPin"],
+            "dirtyValues": {"ParamDirty": 2},
+            "removedValues": ["ParamRemoved"],
+            "payload": {
+                "values": {
+                    "ParamSaved": 10,
+                    "ParamDirty": 2,
+                },
+                "pinned": ["ParamNewPin"],
+            },
+        },
+        "changedModel": {
+            "values": {"ParamOtherSaved": 3},
+            "pinned": ["ParamOtherSaved"],
+            "dirtyValues": {},
+            "removedValues": [],
+        },
+    }
+
+
+def test_live2d_parameter_input_updates_row_without_replacing_list():
+    result = _run_live2d_parameter_runtime_case(
+        """
+function makeElement(tagName) {
+    return {
+        tagName,
+        children: [],
+        listeners: {},
+        attributes: {},
+        className: '',
+        textContent: '',
+        type: '',
+        value: '',
+        min: '',
+        max: '',
+        step: '',
+        disabled: false,
+        classList: {
+            toggle() {},
+        },
+        setAttribute(name, value) {
+            this.attributes[name] = String(value);
+        },
+        addEventListener(name, callback) {
+            this.listeners[name] = callback;
+        },
+        appendChild(child) {
+            this.children.push(child);
+            return child;
+        },
+        replaceChildren(...children) {
+            this.children = children;
+        },
+    };
+}
+
+const elements = {
+    'live2d-parameters-list': makeElement('div'),
+    'live2d-parameters-search': makeElement('input'),
+    'live2d-parameters-reset-btn': makeElement('button'),
+    'live2d-parameters-save-btn': makeElement('button'),
+};
+document = {
+    getElementById: (id) => elements[id] || null,
+    createElement: makeElement,
+};
+const calls = [];
+window.live2dModel = {
+    internalModel: {
+        coreModel: {
+            setParameterValueById: (paramId, value) => calls.push([paramId, value]),
+        },
+    },
+};
+live2dParameterState.metadataStatus = 'ready';
+live2dParameterState.metadata = [
+    { id: 'ParamDecor', current: 0.2, default: 0, min: -1, max: 1, recommended: true },
+];
+
+renderLive2DParameterInspector();
+const firstRow = elements['live2d-parameters-list'].children[0];
+const controls = firstRow.children[1];
+const range = controls.children[0];
+const number = controls.children[1];
+range.value = '0.7';
+range.listeners.input();
+
+result = {
+    sameRow: elements['live2d-parameters-list'].children[0] === firstRow,
+    rowCount: elements['live2d-parameters-list'].children.length,
+    rangeValue: range.value,
+    numberValue: number.value,
+    dirtyValues: live2dParameterState.dirtyValues,
+    metadataCurrent: live2dParameterState.metadata[0].current,
+    calls,
+};
+"""
+    )
+
+    assert result == {
+        "sameRow": True,
+        "rowCount": 1,
+        "rangeValue": "0.7",
+        "numberValue": "0.7",
+        "dirtyValues": {"ParamDecor": 0.7},
+        "metadataCurrent": 0.7,
+        "calls": [["ParamDecor", 0.7]],
+    }
+
+
+def test_live2d_parameter_save_refuses_empty_model_key_without_clearing_dirty_state():
+    result = _run_live2d_parameter_runtime_case(
+        """
+const calls = [];
+const toasts = [];
+window.showToast = (message, type) => toasts.push([message, type]);
+window.pyBridge = {
+    save_live2d_parameter_overrides: (modelKey, payload) => calls.push([modelKey, payload]),
+};
+live2dParameterState.modelKey = '';
+live2dParameterState.metadataStatus = 'ready';
+live2dParameterState.values = { ParamSaved: 1 };
+live2dParameterState.dirtyValues = { ParamDirty: 2 };
+live2dParameterState.removedValues = new Set(['ParamRemoved']);
+
+saveLive2DParameterOverrides();
+
+result = {
+    calls,
+    toasts,
+    values: live2dParameterState.values,
+    dirtyValues: live2dParameterState.dirtyValues,
+    removedValues: Array.from(live2dParameterState.removedValues),
+};
+"""
+    )
+
+    assert result == {
+        "calls": [],
+        "toasts": [["모델을 먼저 선택해야 저장할 수 있습니다.", "error"]],
+        "values": {"ParamSaved": 1},
+        "dirtyValues": {"ParamDirty": 2},
+        "removedValues": ["ParamRemoved"],
+    }
+
+
 def test_live2d_parameter_save_refuses_non_ready_status_and_missing_bridge():
     result = _run_live2d_parameter_runtime_case(
         """
@@ -424,6 +632,7 @@ const afterIdle = {
 };
 
 toasts.length = 0;
+live2dParameterState.modelKey = 'model-a';
 live2dParameterState.metadataStatus = 'ready';
 window.pyBridge = {};
 saveLive2DParameterOverrides();
