@@ -47,6 +47,14 @@ def test_manual_summary_slot_is_exposed_to_qwebchannel():
     assert meta.indexOfMethod(b"summarize_now()") >= 0
 
 
+def test_live2d_parameter_slots_are_exposed_with_exact_qwebchannel_signatures():
+    bridge = WebBridge()
+    meta = bridge.metaObject()
+
+    assert meta.indexOfMethod(b"get_live2d_parameter_overrides(QString)") >= 0
+    assert meta.indexOfMethod(b"save_live2d_parameter_overrides(QString,QString)") >= 0
+
+
 def test_js_callable_bridge_methods_are_exposed_to_qwebchannel():
     bridge = WebBridge()
     exposed_methods = _qwebchannel_method_names(bridge)

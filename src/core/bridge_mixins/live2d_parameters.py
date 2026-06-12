@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 from typing import Any
 
 from PyQt6.QtCore import pyqtSlot
@@ -28,9 +29,10 @@ def _normalize_override_payload(payload: Any) -> dict[str, Any] | None:
         param_id = str(key or "").strip()
         if not param_id:
             return None
-        try:
-            numeric_value = float(value)
-        except Exception:
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            return None
+        numeric_value = float(value)
+        if not math.isfinite(numeric_value):
             return None
         if not (-1.0e9 < numeric_value < 1.0e9):
             return None

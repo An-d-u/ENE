@@ -103,6 +103,49 @@ def test_live2d_parameter_overrides_reject_non_numeric_value(tmp_path):
     }
 
 
+def test_live2d_parameter_overrides_reject_boolean_value(tmp_path):
+    bridge, settings = _bridge_with_settings(tmp_path)
+
+    bridge.save_live2d_parameter_overrides(
+        "assets/live2d_models/model-a/runtime/model.model3.json",
+        json.dumps({"values": {"ParamRibbon": True}, "pinned": ["ParamRibbon"]}, ensure_ascii=False),
+    )
+
+    assert settings.get("live2d_parameter_overrides") == {}
+    assert json.loads(
+        bridge.get_live2d_parameter_overrides("assets/live2d_models/model-a/runtime/model.model3.json")
+    ) == {
+        "values": {},
+        "pinned": [],
+    }
+
+
+def test_live2d_parameter_overrides_reject_numeric_string_without_overwriting_existing_payload(tmp_path):
+    bridge, settings = _bridge_with_settings(tmp_path)
+
+    bridge.save_live2d_parameter_overrides(
+        "assets/live2d_models/model-a/runtime/model.model3.json",
+        json.dumps({"values": {"ParamRibbon": 1.0}, "pinned": ["ParamRibbon"]}, ensure_ascii=False),
+    )
+    bridge.save_live2d_parameter_overrides(
+        "assets/live2d_models/model-a/runtime/model.model3.json",
+        json.dumps({"values": {"ParamRibbon": "1.25"}, "pinned": ["ParamRibbon"]}, ensure_ascii=False),
+    )
+
+    assert json.loads(
+        bridge.get_live2d_parameter_overrides("assets/live2d_models/model-a/runtime/model.model3.json")
+    ) == {
+        "values": {"ParamRibbon": 1.0},
+        "pinned": ["ParamRibbon"],
+    }
+    assert (
+        settings.get("live2d_parameter_overrides")[
+            "assets/live2d_models/model-a/runtime/model.model3.json"
+        ]["values"]["ParamRibbon"]
+        == 1.0
+    )
+
+
 def test_live2d_parameter_overrides_reject_non_string_pinned_item(tmp_path):
     bridge, settings = _bridge_with_settings(tmp_path)
 
@@ -117,4 +160,40 @@ def test_live2d_parameter_overrides_reject_non_string_pinned_item(tmp_path):
     ) == {
         "values": {},
         "pinned": [],
+    }
+
+
+def test_live2d_parameter_overrides_empty_payload_removes_only_that_model(tmp_path):
+    bridge, settings = _bridge_with_settings(tmp_path)
+
+    bridge.save_live2d_parameter_overrides(
+        "assets/live2d_models/model-a/runtime/model.model3.json",
+        json.dumps({"values": {"ParamRibbon": 1.0}, "pinned": ["ParamRibbon"]}, ensure_ascii=False),
+    )
+    bridge.save_live2d_parameter_overrides(
+        "assets/live2d_models/model-b/runtime/model.model3.json",
+        json.dumps({"values": {"ParamHat": 0.5}, "pinned": ["ParamHat"]}, ensure_ascii=False),
+    )
+    bridge.save_live2d_parameter_overrides(
+        "assets/live2d_models/model-a/runtime/model.model3.json",
+        json.dumps({"values": {}, "pinned": []}, ensure_ascii=False),
+    )
+
+    assert json.loads(
+        bridge.get_live2d_parameter_overrides("assets/live2d_models/model-a/runtime/model.model3.json")
+    ) == {
+        "values": {},
+        "pinned": [],
+    }
+    assert json.loads(
+        bridge.get_live2d_parameter_overrides("assets/live2d_models/model-b/runtime/model.model3.json")
+    ) == {
+        "values": {"ParamHat": 0.5},
+        "pinned": ["ParamHat"],
+    }
+    assert settings.get("live2d_parameter_overrides") == {
+        "assets/live2d_models/model-b/runtime/model.model3.json": {
+            "values": {"ParamHat": 0.5},
+            "pinned": ["ParamHat"],
+        }
     }
