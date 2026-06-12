@@ -174,3 +174,62 @@ def test_overlay_window_parameter_overrides_reject_malformed_saved_values_for_cu
             "values": {},
             "pinned": [],
         }
+
+
+def test_overlay_window_preview_settings_preserves_saved_parameter_overrides(tmp_path):
+    from src.core.overlay_window import OverlayWindow
+
+    model_key = "assets/live2d_models/sample/sample.model3.json"
+    model_path = tmp_path / "assets" / "live2d_models" / "sample" / "sample.model3.json"
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    model_path.write_text("{}", encoding="utf-8-sig")
+
+    emitted_scripts = []
+
+    class DummySettings:
+        config = {
+            "model_json_path": model_key,
+            "model_scale": 1.0,
+            "model_x_percent": 50,
+            "model_y_percent": 50,
+            "live2d_parameter_overrides": {
+                model_key: {
+                    "values": {"ParamAngleX": 12},
+                    "pinned": ["ParamAngleX"],
+                },
+            },
+        }
+
+        def get(self, key, default=None):
+            return self.config.get(key, default)
+
+    class DummyPage:
+        def runJavaScript(self, script):
+            emitted_scripts.append(script)
+
+    class DummyWebView:
+        def page(self):
+            return DummyPage()
+
+    window = OverlayWindow.__new__(OverlayWindow)
+    window.settings = DummySettings()
+    window._page_loaded = False
+    window._get_base_path = lambda: tmp_path
+    window._apply_drag_bar_theme = lambda settings_override=None: None
+    window.move = lambda *args: None
+    window.resize = lambda *args: None
+    window.drag_bar = type("DummyDragBar", (), {"setVisible": lambda self, visible: None})()
+    window.web_view = DummyWebView()
+
+    original_config = dict(window.settings.config)
+    OverlayWindow.preview_settings(
+        window,
+        {
+            "model_json_path": model_key,
+            "model_scale": 1.25,
+        },
+    )
+
+    assert window.settings.config == original_config
+    assert emitted_scripts
+    assert 'parameterOverrides: {"values": {"ParamAngleX": 12.0}, "pinned": ["ParamAngleX"]}' in emitted_scripts[0]
