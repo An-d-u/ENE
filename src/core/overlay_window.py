@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
 from ..ui.drag_bar import DragBar
 from .bridge import WebBridge
+from .bridge_mixins.live2d_parameters import _empty_payload, _normalize_override_payload
 from .i18n import I18n, get_i18n
 from .model_emotions import DEFAULT_MODEL_JSON_PATH, get_available_model_emotions, resolve_model_json_path
 
@@ -142,16 +143,9 @@ class OverlayWindow(QWidget):
         model_key = self._resolve_model_key(source)
         overrides = source.get("live2d_parameter_overrides", {})
         if not isinstance(overrides, dict):
-            return {"values": {}, "pinned": []}
+            return _empty_payload()
         payload = overrides.get(model_key, {})
-        if not isinstance(payload, dict):
-            return {"values": {}, "pinned": []}
-        values = payload.get("values", {})
-        pinned = payload.get("pinned", [])
-        return {
-            "values": values if isinstance(values, dict) else {},
-            "pinned": pinned if isinstance(pinned, list) else [],
-        }
+        return _normalize_override_payload(payload) or _empty_payload()
 
     def _normalize_theme_hex(self, raw_value: str, fallback: str) -> str:
         match = re.fullmatch(r"#?([0-9A-Fa-f]{6})", str(raw_value or "").strip())
