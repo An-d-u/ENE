@@ -434,6 +434,7 @@ window.onLive2DParameterModelChanged({
 });
 live2dParameterState.dirtyValues = { ParamDirty: 2 };
 live2dParameterState.removedValues = new Set(['ParamRemoved']);
+live2dParameterState.pinned.add('ParamLocalPin');
 
 window.onLive2DParameterModelChanged({
     modelKey: 'same-model',
@@ -473,7 +474,7 @@ result = {
     assert result == {
         "sameModel": {
             "values": {"ParamSaved": 10},
-            "pinned": ["ParamNewPin"],
+            "pinned": ["ParamSaved", "ParamLocalPin"],
             "dirtyValues": {"ParamDirty": 2},
             "removedValues": ["ParamRemoved"],
             "payload": {
@@ -481,7 +482,7 @@ result = {
                     "ParamSaved": 10,
                     "ParamDirty": 2,
                 },
-                "pinned": ["ParamNewPin"],
+                "pinned": ["ParamSaved", "ParamLocalPin"],
             },
         },
         "changedModel": {
@@ -489,6 +490,97 @@ result = {
             "pinned": ["ParamOtherSaved"],
             "dirtyValues": {},
             "removedValues": [],
+        },
+    }
+
+
+def test_live2d_parameter_same_model_update_preserves_unsaved_pin_add():
+    result = _run_live2d_parameter_runtime_case(
+        """
+window.onLive2DParameterModelChanged({
+    modelKey: 'model-a',
+    parameterOverrides: { values: {}, pinned: ['ParamSavedPin'] },
+});
+live2dParameterState.pinned.add('ParamLocalPin');
+
+window.onLive2DParameterModelChanged({
+    modelKey: 'model-a',
+    parameterOverrides: { values: {}, pinned: ['ParamSavedPin'] },
+});
+
+result = {
+    pinned: Array.from(live2dParameterState.pinned),
+    payload: buildLive2DParameterSavePayload(),
+};
+"""
+    )
+
+    assert result == {
+        "pinned": ["ParamSavedPin", "ParamLocalPin"],
+        "payload": {
+            "values": {},
+            "pinned": ["ParamSavedPin", "ParamLocalPin"],
+        },
+    }
+
+
+def test_live2d_parameter_same_model_update_preserves_unsaved_unpin():
+    result = _run_live2d_parameter_runtime_case(
+        """
+window.onLive2DParameterModelChanged({
+    modelKey: 'model-a',
+    parameterOverrides: { values: {}, pinned: ['ParamSavedPin', 'ParamOtherPin'] },
+});
+live2dParameterState.pinned.delete('ParamSavedPin');
+
+window.onLive2DParameterModelChanged({
+    modelKey: 'model-a',
+    parameterOverrides: { values: {}, pinned: ['ParamSavedPin', 'ParamOtherPin'] },
+});
+
+result = {
+    pinned: Array.from(live2dParameterState.pinned),
+    payload: buildLive2DParameterSavePayload(),
+};
+"""
+    )
+
+    assert result == {
+        "pinned": ["ParamOtherPin"],
+        "payload": {
+            "values": {},
+            "pinned": ["ParamOtherPin"],
+        },
+    }
+
+
+def test_live2d_parameter_changed_model_resets_pins_from_config():
+    result = _run_live2d_parameter_runtime_case(
+        """
+window.onLive2DParameterModelChanged({
+    modelKey: 'model-a',
+    parameterOverrides: { values: {}, pinned: ['ParamSavedPin'] },
+});
+live2dParameterState.pinned.add('ParamLocalPin');
+live2dParameterState.pinned.delete('ParamSavedPin');
+
+window.onLive2DParameterModelChanged({
+    modelKey: 'model-b',
+    parameterOverrides: { values: {}, pinned: ['ParamModelBPin'] },
+});
+
+result = {
+    pinned: Array.from(live2dParameterState.pinned),
+    payload: buildLive2DParameterSavePayload(),
+};
+"""
+    )
+
+    assert result == {
+        "pinned": ["ParamModelBPin"],
+        "payload": {
+            "values": {},
+            "pinned": ["ParamModelBPin"],
         },
     }
 
