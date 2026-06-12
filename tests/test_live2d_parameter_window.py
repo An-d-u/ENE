@@ -41,6 +41,7 @@ def test_live2d_parameter_window_is_independent_top_level_window():
     assert window.parent() is None
     assert window.isWindow()
     assert window.windowFlags() & Qt.WindowType.Window
+    assert window.windowFlags() & Qt.WindowType.FramelessWindowHint
     assert window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint
     assert window.windowFlags() & Qt.WindowType.Tool
 
@@ -55,6 +56,90 @@ def test_live2d_parameter_window_initial_position_stays_inside_screen():
     )
 
     assert position == QPoint(1164, 383)
+
+
+def test_live2d_parameter_window_uses_ene_style_header_bar():
+    _get_qapp()
+
+    window = Live2DParameterWindow(_FakeOverlay())
+
+    assert window.objectName() == "live2dParameterWindow"
+    assert window.header.objectName() == "parameterHeader"
+    assert window.title_label.parent() is window.header
+    assert window.refresh_button.parent() is window.header
+    assert window.header_close_button.parent() is window.header
+    assert window.refresh_button.property("headerAction") is True
+    assert window.header_close_button.property("headerClose") is True
+    assert "QFrame#parameterHeader" in window.styleSheet()
+    assert "rgba(0, 0, 0, 0.64)" in window.styleSheet()
+
+    window.deleteLater()
+
+
+def test_live2d_parameter_window_header_drags_frameless_window():
+    _get_qapp()
+
+    class _PointWrapper:
+        def __init__(self, point):
+            self._point = point
+
+        def toPoint(self):
+            return self._point
+
+    class _FakeMouseEvent:
+        def __init__(self, *, button, buttons, position, global_position):
+            self._button = button
+            self._buttons = buttons
+            self._position = _PointWrapper(position)
+            self._global_position = _PointWrapper(global_position)
+            self.accepted = False
+
+        def button(self):
+            return self._button
+
+        def buttons(self):
+            return self._buttons
+
+        def position(self):
+            return self._position
+
+        def globalPosition(self):
+            return self._global_position
+
+        def accept(self):
+            self.accepted = True
+
+    window = Live2DParameterWindow(_FakeOverlay())
+    window.move(100, 120)
+
+    press_event = _FakeMouseEvent(
+        button=Qt.MouseButton.LeftButton,
+        buttons=Qt.MouseButton.LeftButton,
+        position=QPoint(20, 12),
+        global_position=QPoint(130, 150),
+    )
+    window.mousePressEvent(press_event)
+    move_event = _FakeMouseEvent(
+        button=Qt.MouseButton.NoButton,
+        buttons=Qt.MouseButton.LeftButton,
+        position=QPoint(60, 12),
+        global_position=QPoint(190, 150),
+    )
+    window.mouseMoveEvent(move_event)
+    release_event = _FakeMouseEvent(
+        button=Qt.MouseButton.LeftButton,
+        buttons=Qt.MouseButton.NoButton,
+        position=QPoint(60, 12),
+        global_position=QPoint(190, 150),
+    )
+    window.mouseReleaseEvent(release_event)
+
+    assert press_event.accepted is True
+    assert move_event.accepted is True
+    assert release_event.accepted is True
+    assert window.pos() == QPoint(160, 120)
+
+    window.deleteLater()
 
 
 def test_live2d_parameter_window_batch_resets_visible_items_once():
