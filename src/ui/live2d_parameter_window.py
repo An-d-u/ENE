@@ -136,8 +136,11 @@ class Live2DParameterWindow(QWidget):
         self.filter_combo.addItem("전체", "all")
         self.filter_combo.addItem("고정", "pinned")
         self.filter_combo.currentIndexChanged.connect(self._render_rows)
+        self.show_all_parameters_checkbox = QCheckBox("전체 파라미터 표시", self)
+        self.show_all_parameters_checkbox.stateChanged.connect(self._render_rows)
         controls_layout.addWidget(self.search_input, 1)
         controls_layout.addWidget(self.filter_combo)
+        controls_layout.addWidget(self.show_all_parameters_checkbox)
         root_layout.addLayout(controls_layout)
 
         self.status_label = QLabel("파라미터 목록을 불러오기 전입니다.", self)
@@ -277,13 +280,17 @@ class Live2DParameterWindow(QWidget):
         query = self.search_input.text().strip().lower()
         filter_name = self.filter_combo.currentData()
         items: list[dict[str, Any]] = []
+        show_all_parameters = self.show_all_parameters_checkbox.isChecked()
         for item in self._items:
             param_id = str(item.get("id") or "")
-            if filter_name == "recommended" and not item.get("recommended"):
+            display_name = str(item.get("displayName") or "")
+            group_name = str(item.get("groupName") or "")
+            if not show_all_parameters and not item.get("recommended"):
                 continue
             if filter_name == "pinned" and param_id not in self._pinned:
                 continue
-            if query and query not in param_id.lower():
+            searchable = " ".join([param_id, display_name, group_name]).lower()
+            if query and query not in searchable:
                 continue
             items.append(item)
         return items
@@ -319,11 +326,17 @@ class Live2DParameterWindow(QWidget):
         pin_box = QCheckBox("고정", row)
         pin_box.setChecked(param_id in self._pinned)
         pin_box.stateChanged.connect(partial(self._set_pinned, param_id))
-        title = QLabel(param_id, row)
+        display_name = str(item.get("displayName") or "").strip()
+        group_name = str(item.get("groupName") or "").strip()
+        title = QLabel(display_name or param_id, row)
         title.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         header_layout.addWidget(title, 1)
         header_layout.addWidget(pin_box)
         row_layout.addLayout(header_layout)
+        if display_name or group_name:
+            detail_label = QLabel(" · ".join(part for part in [group_name, param_id] if part), row)
+            detail_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            row_layout.addWidget(detail_label)
 
         controls_layout = QHBoxLayout()
         slider = QSlider(Qt.Orientation.Horizontal, row)

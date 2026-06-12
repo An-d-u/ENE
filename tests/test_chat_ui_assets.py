@@ -406,6 +406,9 @@ result = {
                 "min": -0.5,
                 "max": 1.5,
                 "recommended": True,
+                "displayName": "",
+                "groupId": "",
+                "groupName": "",
             },
             {
                 "id": "ParamEyeLOpen",
@@ -414,6 +417,9 @@ result = {
                 "min": 0,
                 "max": 1,
                 "recommended": False,
+                "displayName": "",
+                "groupId": "",
+                "groupName": "",
             },
         ],
         "fallbackMetadata": [
@@ -424,9 +430,72 @@ result = {
                 "min": 0.1,
                 "max": 0.4,
                 "recommended": True,
+                "displayName": "",
+                "groupId": "",
+                "groupName": "",
             },
         ],
     }
+
+
+def test_live2d_parameter_metadata_uses_display_info_from_model_config():
+    result = _run_live2d_parameter_runtime_case(
+        """
+const coreModel = {
+    getParameterIds: () => ['ParamRibbon', 'ParamEyeLOpen'],
+    getParameterValueById: () => 0,
+};
+window.live2dModel = { internalModel: { coreModel } };
+window.onLive2DParameterModelChanged({
+    modelKey: 'model-a',
+    parameterDisplayInfo: {
+        parameters: {
+            ParamRibbon: {
+                name: '리본',
+                groupId: 'ParamGroupDecor',
+                groupName: '장식',
+            },
+            ParamEyeLOpen: {
+                name: '왼쪽 눈 뜨기',
+                groupId: 'ParamGroupEyes',
+                groupName: '눈',
+            },
+        },
+        groups: {
+            ParamGroupDecor: { name: '장식' },
+            ParamGroupEyes: { name: '눈' },
+        },
+    },
+});
+
+result = collectLive2DParameterMetadata();
+"""
+    )
+
+    assert result == [
+        {
+            "id": "ParamRibbon",
+            "current": 0,
+            "default": 0,
+            "min": -1,
+            "max": 1,
+            "recommended": True,
+            "displayName": "리본",
+            "groupId": "ParamGroupDecor",
+            "groupName": "장식",
+        },
+        {
+            "id": "ParamEyeLOpen",
+            "current": 0,
+            "default": 0,
+            "min": -1,
+            "max": 1,
+            "recommended": False,
+            "displayName": "왼쪽 눈 뜨기",
+            "groupId": "ParamGroupEyes",
+            "groupName": "눈",
+        },
+    ]
 
 
 def test_live2d_parameter_save_payload_keeps_only_saved_dirty_and_pinned_values():

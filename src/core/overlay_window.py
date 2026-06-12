@@ -155,6 +155,61 @@ class OverlayWindow(QWidget):
         payload = overrides.get(model_key, {})
         return _normalize_override_payload(payload) or _empty_payload()
 
+    def _resolve_live2d_parameter_display_info_payload(self, settings_source=None) -> dict:
+        source = settings_source if isinstance(settings_source, dict) else self.settings.config
+        model_path = resolve_model_json_path(
+            settings_source=source,
+            base_path=self._get_base_path(),
+        )
+        try:
+            model_payload = json.loads(model_path.read_text(encoding="utf-8-sig"))
+        except Exception:
+            model_payload = {}
+
+        display_info_path = None
+        file_references = model_payload.get("FileReferences", {}) if isinstance(model_payload, dict) else {}
+        raw_display_info = file_references.get("DisplayInfo") if isinstance(file_references, dict) else None
+        if isinstance(raw_display_info, str) and raw_display_info.strip():
+            display_info_path = (model_path.parent / raw_display_info).resolve()
+        else:
+            model_name = model_path.name
+            if model_name.endswith(".model3.json"):
+                display_info_path = model_path.with_name(f"{model_name[:-len('.model3.json')]}.cdi3.json")
+            else:
+                display_info_path = model_path.with_suffix(".cdi3.json")
+
+        try:
+            cdi_payload = json.loads(display_info_path.read_text(encoding="utf-8-sig"))
+        except Exception:
+            return {"parameters": {}, "groups": {}}
+
+        groups: dict[str, dict[str, str]] = {}
+        for item in cdi_payload.get("ParameterGroups", []) or []:
+            if not isinstance(item, dict):
+                continue
+            group_id = str(item.get("Id", "")).strip()
+            if not group_id:
+                continue
+            groups[group_id] = {
+                "name": str(item.get("Name", "")).strip(),
+                "parentGroupId": str(item.get("GroupId", "")).strip(),
+            }
+
+        parameters: dict[str, dict[str, str]] = {}
+        for item in cdi_payload.get("Parameters", []) or []:
+            if not isinstance(item, dict):
+                continue
+            param_id = str(item.get("Id", "")).strip()
+            if not param_id:
+                continue
+            group_id = str(item.get("GroupId", "")).strip()
+            parameters[param_id] = {
+                "name": str(item.get("Name", "")).strip(),
+                "groupId": group_id,
+                "groupName": groups.get(group_id, {}).get("name", ""),
+            }
+        return {"parameters": parameters, "groups": groups}
+
     def _normalize_theme_hex(self, raw_value: str, fallback: str) -> str:
         match = re.fullmatch(r"#?([0-9A-Fa-f]{6})", str(raw_value or "").strip())
         if not match:
@@ -486,6 +541,7 @@ class OverlayWindow(QWidget):
         path_payload = self._resolve_model_path_payload()
         model_key = self._resolve_model_key()
         parameter_overrides = self._resolve_live2d_parameter_overrides_payload()
+        parameter_display_info = self._resolve_live2d_parameter_display_info_payload()
 
         js_code = f"""
         (function() {{
@@ -497,7 +553,8 @@ class OverlayWindow(QWidget):
                 emotionsBasePath: {json.dumps(path_payload["emotionsBasePath"])},
                 availableEmotions: {json.dumps(path_payload["availableEmotions"])},
                 modelKey: {json.dumps(model_key)},
-                parameterOverrides: {json.dumps(parameter_overrides)}
+                parameterOverrides: {json.dumps(parameter_overrides)},
+                parameterDisplayInfo: {json.dumps(parameter_display_info, ensure_ascii=False)}
             }};
 
             function applyModelSettings() {{
@@ -581,6 +638,7 @@ class OverlayWindow(QWidget):
         path_payload = self._resolve_model_path_payload(preview_source)
         model_key = self._resolve_model_key(preview_source)
         parameter_overrides = self._resolve_live2d_parameter_overrides_payload(preview_source)
+        parameter_display_info = self._resolve_live2d_parameter_display_info_payload(preview_source)
         js_code = f"""
         (function() {{
             window.eneModelConfig = {{
@@ -591,7 +649,8 @@ class OverlayWindow(QWidget):
                 emotionsBasePath: {json.dumps(path_payload["emotionsBasePath"])},
                 availableEmotions: {json.dumps(path_payload["availableEmotions"])},
                 modelKey: {json.dumps(model_key)},
-                parameterOverrides: {json.dumps(parameter_overrides)}
+                parameterOverrides: {json.dumps(parameter_overrides)},
+                parameterDisplayInfo: {json.dumps(parameter_display_info, ensure_ascii=False)}
             }};
             if (typeof window.applyENEModelSettings === 'function') {{
                 window.applyENEModelSettings(window.eneModelConfig);
