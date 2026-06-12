@@ -103,8 +103,8 @@ def test_overlay_window_resolves_parameter_overrides_for_current_model_key():
                 "model_json_path": r"assets\live2d_models\sample\sample.model3.json",
                 "live2d_parameter_overrides": {
                     model_key: {
-                        "values": {"ParamAngleX": 7},
-                        "pinned": ["ParamAngleX"],
+                        "values": {"ParamAngleX": 7, " ParamAngleY ": 1.5},
+                        "pinned": ["ParamAngleX", " ParamAngleY "],
                     },
                 },
             },
@@ -113,8 +113,8 @@ def test_overlay_window_resolves_parameter_overrides_for_current_model_key():
 
     assert OverlayWindow._resolve_model_key(window) == model_key
     assert OverlayWindow._resolve_live2d_parameter_overrides_payload(window) == {
-        "values": {"ParamAngleX": 7},
-        "pinned": ["ParamAngleX"],
+        "values": {"ParamAngleX": 7.0, "ParamAngleY": 1.5},
+        "pinned": ["ParamAngleX", "ParamAngleY"],
     }
 
 
@@ -144,6 +144,32 @@ def test_overlay_window_parameter_overrides_fall_back_when_missing_or_malformed(
     ]
 
     for source in malformed_sources:
+        assert OverlayWindow._resolve_live2d_parameter_overrides_payload(window, source) == {
+            "values": {},
+            "pinned": [],
+        }
+
+
+def test_overlay_window_parameter_overrides_reject_malformed_saved_values_for_current_model():
+    from src.core.overlay_window import OverlayWindow
+
+    model_key = "assets/live2d_models/sample/sample.model3.json"
+    window = OverlayWindow.__new__(OverlayWindow)
+    window.settings = type("DummySettings", (), {"config": {}})()
+    malformed_payloads = [
+        {"values": {"ParamX": True}, "pinned": []},
+        {"values": {"ParamX": "1.0"}, "pinned": []},
+        {"values": {}, "pinned": [123]},
+        {"values": {}, "pinned": [""]},
+    ]
+
+    for payload in malformed_payloads:
+        source = {
+            "model_json_path": model_key,
+            "live2d_parameter_overrides": {
+                model_key: payload,
+            },
+        }
         assert OverlayWindow._resolve_live2d_parameter_overrides_payload(window, source) == {
             "values": {},
             "pinned": [],
