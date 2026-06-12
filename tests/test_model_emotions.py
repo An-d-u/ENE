@@ -64,7 +64,7 @@ def test_default_model_json_path_points_to_bundled_hiyori_model():
     from src.core.model_emotions import DEFAULT_MODEL_JSON_PATH, get_available_model_emotions
 
     assert DEFAULT_MODEL_JSON_PATH == "assets/live2d_models/hiyori/runtime/hiyori_pro_t11.model3.json"
-    root = Path(__file__).resolve().parents[1]
+    root = __import__("pathlib").Path(__file__).resolve().parents[1]
     assert (root / DEFAULT_MODEL_JSON_PATH).exists()
     assert get_available_model_emotions(
         settings_source={"model_json_path": DEFAULT_MODEL_JSON_PATH},
@@ -87,9 +87,6 @@ def test_existing_model_without_emotions_uses_normal_only_even_with_fallback(tmp
     )
 
     assert emotions == ["normal"]
-from pathlib import Path
-
-
 def test_overlay_window_resolves_parameter_overrides_for_current_model_key():
     from src.core.overlay_window import OverlayWindow
 
@@ -115,6 +112,76 @@ def test_overlay_window_resolves_parameter_overrides_for_current_model_key():
     assert OverlayWindow._resolve_live2d_parameter_overrides_payload(window) == {
         "values": {"ParamAngleX": 7.0, "ParamAngleY": 1.5},
         "pinned": ["ParamAngleX", "ParamAngleY"],
+    }
+
+
+def test_overlay_window_resolves_live2d_parameter_display_info(tmp_path):
+    from src.core.overlay_window import OverlayWindow
+
+    json_module = __import__("json")
+    model_path = tmp_path / "assets" / "live2d_models" / "sample" / "sample.model3.json"
+    model_path.parent.mkdir(parents=True)
+    model_path.write_text(
+        json_module.dumps(
+            {
+                "Version": 3,
+                "FileReferences": {
+                    "DisplayInfo": "sample.cdi3.json",
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8-sig",
+    )
+    model_path.with_name("sample.cdi3.json").write_text(
+        json_module.dumps(
+            {
+                "Version": 3,
+                "Parameters": [
+                    {"Id": "ParamRibbon", "GroupId": "ParamGroupDecor", "Name": "리본"},
+                    {"Id": "ParamEyeLOpen", "GroupId": "ParamGroupEyes", "Name": "왼쪽 눈 뜨기"},
+                ],
+                "ParameterGroups": [
+                    {"Id": "ParamGroupDecor", "GroupId": "", "Name": "장식"},
+                    {"Id": "ParamGroupEyes", "GroupId": "", "Name": "눈"},
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8-sig",
+    )
+
+    window = OverlayWindow.__new__(OverlayWindow)
+    window.settings = type(
+        "DummySettings",
+        (),
+        {"config": {"model_json_path": "assets/live2d_models/sample/sample.model3.json"}},
+    )()
+    window._get_base_path = lambda: tmp_path
+
+    assert OverlayWindow._resolve_live2d_parameter_display_info_payload(window) == {
+        "parameters": {
+            "ParamRibbon": {
+                "name": "리본",
+                "groupId": "ParamGroupDecor",
+                "groupName": "장식",
+            },
+            "ParamEyeLOpen": {
+                "name": "왼쪽 눈 뜨기",
+                "groupId": "ParamGroupEyes",
+                "groupName": "눈",
+            },
+        },
+        "groups": {
+            "ParamGroupDecor": {
+                "name": "장식",
+                "parentGroupId": "",
+            },
+            "ParamGroupEyes": {
+                "name": "눈",
+                "parentGroupId": "",
+            },
+        },
     }
 
 

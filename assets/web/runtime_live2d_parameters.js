@@ -26,6 +26,7 @@ const live2dParameterState = {
     activeTab: 'recommended',
     searchQuery: '',
     panelOpen: false,
+    parameterDisplayInfo: { parameters: {}, groups: {} },
     applyHookModel: null,
     hookedInternalModels: new WeakSet(),
     drag: null,
@@ -80,6 +81,30 @@ function getLive2DParameterUiString(key, fallback) {
 function normalizeLive2DParameterNumber(value, fallback = 0) {
     const numericValue = Number(value);
     return Number.isFinite(numericValue) ? numericValue : fallback;
+}
+
+function normalizeLive2DParameterDisplayInfo(displayInfo) {
+    const parameters = displayInfo && typeof displayInfo.parameters === 'object' && displayInfo.parameters
+        ? displayInfo.parameters
+        : {};
+    const groups = displayInfo && typeof displayInfo.groups === 'object' && displayInfo.groups
+        ? displayInfo.groups
+        : {};
+    return { parameters, groups };
+}
+
+function getLive2DParameterDisplayInfo(paramId) {
+    const displayInfo = live2dParameterState.parameterDisplayInfo || {};
+    const parameters = displayInfo.parameters || {};
+    const groups = displayInfo.groups || {};
+    const item = parameters[paramId] || {};
+    const groupId = String(item.groupId || '');
+    const group = groups[groupId] || {};
+    return {
+        displayName: String(item.name || ''),
+        groupId,
+        groupName: String(item.groupName || group.name || ''),
+    };
 }
 
 function readLive2DParameterArray(coreModel, names) {
@@ -233,6 +258,7 @@ function collectLive2DParameterMetadata() {
             ['maximumValues', 'maxValues', 'maxes', 'parameterMaximumValues'],
             Math.max(value, defaultValue, 1),
         );
+        const displayInfo = getLive2DParameterDisplayInfo(paramId);
         return {
             id: paramId,
             current: value,
@@ -240,6 +266,9 @@ function collectLive2DParameterMetadata() {
             min: Math.min(rawMin, value, defaultValue),
             max: Math.max(rawMax, value, defaultValue),
             recommended: isRecommendedLive2DParameter(paramId),
+            displayName: displayInfo.displayName,
+            groupId: displayInfo.groupId,
+            groupName: displayInfo.groupName,
         };
     });
 }
@@ -745,6 +774,9 @@ function buildLive2DParameterInspectorSnapshot() {
             min: normalizeLive2DParameterNumber(item.min, 0),
             max: normalizeLive2DParameterNumber(item.max, 1),
             recommended: Boolean(item.recommended),
+            displayName: String(item.displayName || ''),
+            groupId: String(item.groupId || ''),
+            groupName: String(item.groupName || ''),
         })),
     };
 }
@@ -909,6 +941,7 @@ window.onLive2DParameterModelChanged = function onLive2DParameterModelChanged(co
     const nextModelKey = String(config.modelKey || '');
     const modelKeyChanged = live2dParameterState.modelKey !== nextModelKey;
     live2dParameterState.modelKey = nextModelKey;
+    live2dParameterState.parameterDisplayInfo = normalizeLive2DParameterDisplayInfo(config.parameterDisplayInfo);
     live2dParameterState.values = { ...((config.parameterOverrides && config.parameterOverrides.values) || {}) };
     if (modelKeyChanged) {
         live2dParameterState.pinned = new Set((config.parameterOverrides && config.parameterOverrides.pinned) || []);

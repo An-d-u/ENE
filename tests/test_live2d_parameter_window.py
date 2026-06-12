@@ -84,6 +84,38 @@ def test_live2d_parameter_window_batch_resets_visible_items_once():
     window.deleteLater()
 
 
+def test_live2d_parameter_window_show_all_toggle_controls_detailed_parameters():
+    _get_qapp()
+
+    window = Live2DParameterWindow(_FakeOverlay())
+    window._items = [
+        {
+            "id": "ParamRibbon",
+            "displayName": "리본",
+            "groupName": "장식",
+            "recommended": True,
+        },
+        {
+            "id": "ParamEyeLOpen",
+            "displayName": "왼쪽 눈 뜨기",
+            "groupName": "눈",
+            "recommended": False,
+        },
+    ]
+
+    assert [item["id"] for item in window._filtered_items()] == ["ParamRibbon"]
+
+    window.show_all_parameters_checkbox.setChecked(True)
+
+    assert [item["id"] for item in window._filtered_items()] == ["ParamRibbon", "ParamEyeLOpen"]
+
+    window.search_input.setText("눈")
+
+    assert [item["id"] for item in window._filtered_items()] == ["ParamEyeLOpen"]
+
+    window.deleteLater()
+
+
 def test_overlay_shutdown_disposes_live2d_parameter_window():
     class _FakeSignal:
         def disconnect(self, _handler):
