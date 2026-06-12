@@ -76,6 +76,7 @@ class Settings:
         "idle_motion_strength": 1.0,  # 0.2 ~ 2.0
         "idle_motion_speed": 1.0,  # 0.5 ~ 2.0
         "idle_motion_dynamic_mode": False,
+        "live2d_parameter_overrides": {},
         "enable_head_pat": True,
         "head_pat_strength": 1.0,  # 0.5 ~ 2.5
         "head_pat_fade_in_ms": 180,
