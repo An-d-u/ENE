@@ -668,8 +668,8 @@ window.onLive2DParameterModelChanged = function onLive2DParameterModelChanged(co
     const modelKeyChanged = live2dParameterState.modelKey !== nextModelKey;
     live2dParameterState.modelKey = nextModelKey;
     live2dParameterState.values = { ...((config.parameterOverrides && config.parameterOverrides.values) || {}) };
-    live2dParameterState.pinned = new Set((config.parameterOverrides && config.parameterOverrides.pinned) || []);
     if (modelKeyChanged) {
+        live2dParameterState.pinned = new Set((config.parameterOverrides && config.parameterOverrides.pinned) || []);
         live2dParameterState.dirtyValues = {};
         live2dParameterState.removedValues = new Set();
     }
