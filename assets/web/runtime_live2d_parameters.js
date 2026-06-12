@@ -24,9 +24,13 @@ const live2dParameterState = {
     metadataStatus: 'idle',
     metadataError: '',
     applyHookModel: null,
+    hookedInternalModels: new WeakSet(),
 };
 
-function getLive2DParameterCoreModel() {
+function getLive2DParameterCoreModel(internalModel = null) {
+    if (internalModel && internalModel.coreModel) {
+        return internalModel.coreModel;
+    }
     const model = window.live2dModel;
     return model && model.internalModel && model.internalModel.coreModel
         ? model.internalModel.coreModel
@@ -45,8 +49,7 @@ function getLive2DParameterOverrideValues() {
     return merged;
 }
 
-function applyLive2DParameterOverrides() {
-    const coreModel = getLive2DParameterCoreModel();
+function applyLive2DParameterOverrides(coreModel = getLive2DParameterCoreModel()) {
     if (!coreModel || typeof coreModel.setParameterValueById !== 'function') {
         return false;
     }
@@ -56,8 +59,14 @@ function applyLive2DParameterOverrides() {
             return;
         }
         try {
-            if (typeof coreModel.getParameterIndex === 'function' && coreModel.getParameterIndex(paramId) < 0) {
-                return;
+            if (typeof coreModel.getParameterIndex === 'function') {
+                const parameterIndex = coreModel.getParameterIndex(paramId);
+                if (parameterIndex < 0) {
+                    return;
+                }
+                if (typeof coreModel.getParameterCount === 'function' && parameterIndex >= coreModel.getParameterCount()) {
+                    return;
+                }
             }
             coreModel.setParameterValueById(paramId, numericValue);
         } catch (error) {
@@ -73,12 +82,18 @@ function bindLive2DParameterOverrideHook() {
     if (!internalModel || typeof internalModel.on !== 'function') {
         return false;
     }
-    if (live2dParameterState.applyHookModel === internalModel) {
+    if (live2dParameterState.hookedInternalModels.has(internalModel)) {
+        live2dParameterState.applyHookModel = internalModel;
         return true;
     }
+    const coreModel = getLive2DParameterCoreModel(internalModel);
     internalModel.on('beforeModelUpdate', () => {
-        applyLive2DParameterOverrides();
+        const currentModel = window.live2dModel;
+        if (currentModel && currentModel.internalModel === internalModel) {
+            applyLive2DParameterOverrides(coreModel);
+        }
     });
+    live2dParameterState.hookedInternalModels.add(internalModel);
     live2dParameterState.applyHookModel = internalModel;
     return true;
 }

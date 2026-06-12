@@ -1,5 +1,7 @@
 ﻿from pathlib import Path
+import json
 import re
+import subprocess
 
 
 WEB_DIR = Path(__file__).resolve().parents[1] / "assets" / "web"
@@ -47,6 +49,36 @@ def _script_text() -> str:
     if runtime_paths:
         return "\n".join((WEB_DIR / path).read_text(encoding="utf-8-sig") for path in runtime_paths)
     return SCRIPT_PATH.read_text(encoding="utf-8-sig")
+
+
+def _run_live2d_parameter_runtime_case(case_script: str) -> dict:
+    node_script = f"""
+const fs = require('fs');
+const vm = require('vm');
+
+const runtimeSource = fs.readFileSync({json.dumps(str(WEB_DIR / "runtime_live2d_parameters.js"))}, 'utf8');
+const caseSource = {json.dumps(case_script)};
+const context = {{
+    window: {{}},
+    console: {{
+        warn: () => {{}},
+    }},
+    result: null,
+}};
+
+vm.createContext(context);
+vm.runInContext(runtimeSource + '\\n' + caseSource, context, {{
+    filename: 'runtime_live2d_parameters.js',
+}});
+process.stdout.write(JSON.stringify(context.result));
+"""
+    completed = subprocess.run(
+        ["node", "-e", node_script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return json.loads(completed.stdout)
 
 
 def test_web_runtime_is_split_into_ordered_scripts():
@@ -100,14 +132,131 @@ def test_live2d_parameter_runtime_applies_overrides_in_late_internal_model_hook(
     assert "const LIVE2D_PARAMETER_RECOMMENDED_EXCLUDE_KEYWORDS = [" in script
     assert "'ParamEye'," in script
     assert "'ParamMouth'," in script
-    assert "function applyLive2DParameterOverrides()" in script
+    assert "function applyLive2DParameterOverrides(coreModel = getLive2DParameterCoreModel())" in script
     assert "removedValues: new Set()" in script
     assert "live2dParameterState.removedValues.forEach" in script
     assert "applyHookModel: null" in script
+    assert "hookedInternalModels: new WeakSet()" in script
     assert "internalModel.on('beforeModelUpdate', () => {" in script
-    assert "live2dParameterState.applyHookModel === internalModel" in script
-    assert "applyLive2DParameterOverrides();" in script
+    assert "currentModel && currentModel.internalModel === internalModel" in script
+    assert "applyLive2DParameterOverrides(coreModel);" in script
     assert "window.onLive2DParameterModelChanged = function" in script
+
+
+def test_live2d_parameter_runtime_merges_dirty_removes_and_skips_invalid_values():
+    result = _run_live2d_parameter_runtime_case(
+        """
+const calls = [];
+const validIds = [
+    'ParamDecorSaved',
+    'ParamDecorDirty',
+    'ParamDecorRemoved',
+    'ParamDecorNonFinite',
+];
+window.live2dModel = {
+    internalModel: {
+        coreModel: {
+            getParameterIndex: (paramId) => (
+                paramId === 'ParamDecorVirtualMissing'
+                    ? validIds.length
+                    : validIds.indexOf(paramId)
+            ),
+            getParameterCount: () => validIds.length,
+            setParameterValueById: (paramId, value) => calls.push([paramId, value]),
+        },
+    },
+};
+
+live2dParameterState.values = {
+    ParamDecorSaved: 1,
+    ParamDecorDirty: 2,
+    ParamDecorRemoved: 3,
+    ParamDecorNonFinite: 'not-a-number',
+    ParamDecorVirtualMissing: 4,
+};
+live2dParameterState.dirtyValues = {
+    ParamDecorDirty: 20,
+};
+live2dParameterState.removedValues = new Set(['ParamDecorRemoved']);
+
+window.applyLive2DParameterOverrides();
+result = { calls };
+"""
+    )
+
+    assert result == {
+        "calls": [
+            ["ParamDecorSaved", 1],
+            ["ParamDecorDirty", 20],
+        ],
+    }
+
+
+def test_live2d_parameter_runtime_hooks_each_model_once_and_ignores_stale_hooks():
+    result = _run_live2d_parameter_runtime_case(
+        """
+function makeModel() {
+    const coreModel = {
+        calls: [],
+        getParameterIndex: () => 0,
+        getParameterCount: () => 1,
+        setParameterValueById(paramId, value) {
+            this.calls.push([paramId, value]);
+        },
+    };
+    const internalModel = {
+        coreModel,
+        listeners: [],
+        on(eventName, callback) {
+            if (eventName === 'beforeModelUpdate') {
+                this.listeners.push(callback);
+            }
+        },
+    };
+    return { internalModel };
+}
+
+const modelA = makeModel();
+const modelB = makeModel();
+
+window.live2dModel = modelA;
+window.onLive2DParameterModelChanged({
+    modelKey: 'A',
+    parameterOverrides: { values: { ParamDecor: 1 } },
+});
+
+window.live2dModel = modelB;
+window.onLive2DParameterModelChanged({
+    modelKey: 'B',
+    parameterOverrides: { values: { ParamDecor: 2 } },
+});
+
+window.live2dModel = modelA;
+window.onLive2DParameterModelChanged({
+    modelKey: 'A-again',
+    parameterOverrides: { values: { ParamDecor: 3 } },
+});
+
+window.live2dModel = modelB;
+window.onLive2DParameterModelChanged({
+    modelKey: 'B-current',
+    parameterOverrides: { values: { ParamDecor: 4 } },
+});
+
+const bCallCountBeforeStaleAUpdate = modelB.internalModel.coreModel.calls.length;
+modelA.internalModel.listeners[0]();
+
+result = {
+    aListenerCount: modelA.internalModel.listeners.length,
+    bCallsFromStaleAUpdate: modelB.internalModel.coreModel.calls.length - bCallCountBeforeStaleAUpdate,
+};
+"""
+    )
+
+    assert result == {
+        "aListenerCount": 1,
+        "bCallsFromStaleAUpdate": 0,
+    }
 
 
 def test_chat_container_uses_roomier_bounded_height():
