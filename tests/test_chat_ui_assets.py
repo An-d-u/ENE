@@ -929,6 +929,105 @@ result = {
     }
 
 
+def test_live2d_parameter_panel_header_drags_panel_within_viewport():
+    result = _run_live2d_parameter_runtime_case(
+        """
+function makeElement(id) {
+    return {
+        id,
+        listeners: {},
+        style: {},
+        classList: {
+            values: [],
+            add(name) {
+                if (this.values.indexOf(name) < 0) this.values.push(name);
+            },
+            remove(name) {
+                this.values = this.values.filter((value) => value !== name);
+            },
+            contains(name) {
+                return this.values.indexOf(name) >= 0;
+            },
+            toggle() {},
+        },
+        addEventListener(name, callback) {
+            this.listeners[name] = callback;
+        },
+        setPointerCapture(pointerId) {
+            this.capturedPointerId = pointerId;
+        },
+        releasePointerCapture(pointerId) {
+            this.releasedPointerId = pointerId;
+        },
+        getBoundingClientRect() {
+            return this.rect || { left: 280, top: 112, width: 340, height: 420 };
+        },
+        setAttribute() {},
+    };
+}
+
+const panel = makeElement('live2d-parameters-panel');
+const header = makeElement('live2d-parameters-panel-header');
+panel.rect = { left: 280, top: 112, width: 340, height: 420 };
+window.innerWidth = 640;
+window.innerHeight = 480;
+window.listeners = {};
+window.addEventListener = (name, callback) => {
+    window.listeners[name] = callback;
+};
+window.removeEventListener = () => {};
+document = {
+    getElementById: (id) => ({
+        'live2d-parameters-panel': panel,
+        'live2d-parameters-panel-header': header,
+    }[id] || null),
+};
+
+bindLive2DParameterEvents();
+header.listeners.pointerdown({
+    button: 0,
+    pointerId: 7,
+    clientX: 300,
+    clientY: 132,
+    preventDefault() {},
+});
+window.listeners.pointermove({
+    pointerId: 7,
+    clientX: 20,
+    clientY: 16,
+    preventDefault() {},
+});
+window.listeners.pointerup({ pointerId: 7 });
+
+result = {
+    left: panel.style.left,
+    top: panel.style.top,
+    right: panel.style.right,
+    dragging: header.classList.contains('is-dragging'),
+    capturedPointerId: header.capturedPointerId,
+    releasedPointerId: header.releasedPointerId,
+};
+"""
+    )
+
+    assert result == {
+        "left": "8px",
+        "top": "8px",
+        "right": "auto",
+        "dragging": False,
+        "capturedPointerId": 7,
+        "releasedPointerId": 7,
+    }
+
+
+def test_live2d_parameter_panel_drag_css_uses_move_cursor():
+    css = STYLE_PATH.read_text(encoding="utf-8-sig")
+
+    assert "#live2d-parameters-panel-header" in css
+    assert "cursor: move;" in css
+    assert "#live2d-parameters-panel-header.is-dragging" in css
+
+
 def test_chat_container_uses_roomier_bounded_height():
     block = _rule_block("#chat-container")
     assert "overflow: hidden;" in block

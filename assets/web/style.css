@@ -747,6 +747,13 @@ body.thought-feature-disabled .message-thought {
 
 #live2d-parameters-panel-header {
     margin-bottom: 0;
+    cursor: move;
+    user-select: none;
+    touch-action: none;
+}
+
+#live2d-parameters-panel-header.is-dragging {
+    cursor: grabbing;
 }
 
 #live2d-parameters-warning {

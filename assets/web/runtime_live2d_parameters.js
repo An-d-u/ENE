@@ -28,9 +28,11 @@ const live2dParameterState = {
     panelOpen: false,
     applyHookModel: null,
     hookedInternalModels: new WeakSet(),
+    drag: null,
 };
 
 const LIVE2D_PARAMETER_TABS = ['recommended', 'all', 'pinned'];
+const LIVE2D_PARAMETER_PANEL_MARGIN = 8;
 
 function getLive2DParameterCoreModel(internalModel = null) {
     if (internalModel && internalModel.coreModel) {
@@ -551,6 +553,97 @@ function setLive2DParameterPanelOpen(open) {
     }
 }
 
+function clampLive2DParameterPanelPosition(left, top, width, height) {
+    const viewportWidth = Number(window.innerWidth || 0);
+    const viewportHeight = Number(window.innerHeight || 0);
+    const maxLeft = Math.max(LIVE2D_PARAMETER_PANEL_MARGIN, viewportWidth - width - LIVE2D_PARAMETER_PANEL_MARGIN);
+    const maxTop = Math.max(LIVE2D_PARAMETER_PANEL_MARGIN, viewportHeight - height - LIVE2D_PARAMETER_PANEL_MARGIN);
+    return {
+        left: Math.min(Math.max(left, LIVE2D_PARAMETER_PANEL_MARGIN), maxLeft),
+        top: Math.min(Math.max(top, LIVE2D_PARAMETER_PANEL_MARGIN), maxTop),
+    };
+}
+
+function setLive2DParameterPanelPosition(left, top) {
+    const panel = getLive2DParameterElement('live2d-parameters-panel');
+    if (!panel || typeof panel.getBoundingClientRect !== 'function') {
+        return;
+    }
+    const rect = panel.getBoundingClientRect();
+    const position = clampLive2DParameterPanelPosition(left, top, rect.width || 0, rect.height || 0);
+    panel.style.left = `${Math.round(position.left)}px`;
+    panel.style.top = `${Math.round(position.top)}px`;
+    panel.style.right = 'auto';
+}
+
+function finishLive2DParameterPanelDrag(pointerId = null) {
+    const drag = live2dParameterState.drag;
+    if (!drag || (pointerId !== null && drag.pointerId !== pointerId)) {
+        return;
+    }
+    live2dParameterState.drag = null;
+    const header = getLive2DParameterElement('live2d-parameters-panel-header');
+    if (header && header.classList) {
+        header.classList.remove('is-dragging');
+    }
+    if (header && pointerId !== null && typeof header.releasePointerCapture === 'function') {
+        try {
+            header.releasePointerCapture(pointerId);
+        } catch (error) {
+            console.warn('Failed to release Live2D parameter panel drag capture:', error);
+        }
+    }
+}
+
+function onLive2DParameterPanelDragMove(event) {
+    const drag = live2dParameterState.drag;
+    if (!drag || event.pointerId !== drag.pointerId) {
+        return;
+    }
+    if (typeof event.preventDefault === 'function') {
+        event.preventDefault();
+    }
+    const nextLeft = drag.startLeft + (Number(event.clientX) - drag.startPointerX);
+    const nextTop = drag.startTop + (Number(event.clientY) - drag.startPointerY);
+    setLive2DParameterPanelPosition(nextLeft, nextTop);
+}
+
+function onLive2DParameterPanelDragEnd(event) {
+    finishLive2DParameterPanelDrag(event && event.pointerId !== undefined ? event.pointerId : null);
+}
+
+function onLive2DParameterPanelDragStart(event) {
+    if (event.pointerType === 'mouse' && event.button !== 0) {
+        return;
+    }
+    const panel = getLive2DParameterElement('live2d-parameters-panel');
+    const header = getLive2DParameterElement('live2d-parameters-panel-header');
+    if (!panel || !header || typeof panel.getBoundingClientRect !== 'function') {
+        return;
+    }
+    if (typeof event.preventDefault === 'function') {
+        event.preventDefault();
+    }
+    const rect = panel.getBoundingClientRect();
+    live2dParameterState.drag = {
+        pointerId: event.pointerId,
+        startPointerX: Number(event.clientX),
+        startPointerY: Number(event.clientY),
+        startLeft: rect.left,
+        startTop: rect.top,
+    };
+    if (header.classList) {
+        header.classList.add('is-dragging');
+    }
+    if (typeof header.setPointerCapture === 'function') {
+        try {
+            header.setPointerCapture(event.pointerId);
+        } catch (error) {
+            console.warn('Failed to capture Live2D parameter panel drag pointer:', error);
+        }
+    }
+}
+
 function buildLive2DParameterSavePayload() {
     const values = { ...live2dParameterState.values, ...live2dParameterState.dirtyValues };
     live2dParameterState.removedValues.forEach((paramId) => {
@@ -620,6 +713,7 @@ function resetVisibleLive2DParameterOverrides() {
 
 function bindLive2DParameterEvents() {
     const live2dParametersButton = getLive2DParameterElement('live2d-parameters-floating-btn');
+    const live2dParametersHeader = getLive2DParameterElement('live2d-parameters-panel-header');
     const live2dParametersCloseButton = getLive2DParameterElement('live2d-parameters-close-btn');
     const live2dParametersSearch = getLive2DParameterElement('live2d-parameters-search');
     const live2dParametersSaveButton = getLive2DParameterElement('live2d-parameters-save-btn');
@@ -629,6 +723,16 @@ function bindLive2DParameterEvents() {
         live2dParametersButton.addEventListener('click', () => {
             setLive2DParameterPanelOpen(!live2dParameterState.panelOpen);
         });
+    }
+
+    if (live2dParametersHeader) {
+        live2dParametersHeader.addEventListener('pointerdown', onLive2DParameterPanelDragStart);
+    }
+
+    if (window && typeof window.addEventListener === 'function') {
+        window.addEventListener('pointermove', onLive2DParameterPanelDragMove, { passive: false });
+        window.addEventListener('pointerup', onLive2DParameterPanelDragEnd, { passive: true });
+        window.addEventListener('pointercancel', onLive2DParameterPanelDragEnd, { passive: true });
     }
 
     if (live2dParametersCloseButton) {
