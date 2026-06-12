@@ -41,10 +41,14 @@ class Live2DParameterWindow(QWidget):
         self._parameter_update_timer.setInterval(16)
         self._parameter_update_timer.setSingleShot(True)
         self._parameter_update_timer.timeout.connect(self._flush_parameter_value_updates)
+        self._dragging = False
+        self._drag_offset = QPoint()
 
         self.setWindowTitle("Live2D 파라미터")
+        self.setObjectName("live2dParameterWindow")
         self.setWindowFlags(
             Qt.WindowType.Window
+            | Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
             | Qt.WindowType.Tool
         )
@@ -58,9 +62,20 @@ class Live2DParameterWindow(QWidget):
                 font-family: 'Malgun Gothic', 'Segoe UI', sans-serif;
                 font-size: 12px;
             }
+            QWidget#live2dParameterWindow {
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 10px;
+            }
+            QFrame#parameterHeader {
+                background: rgba(0, 0, 0, 0.64);
+                border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+                border-top-left-radius: 10px;
+                border-top-right-radius: 10px;
+            }
             QLabel#titleLabel {
                 font-size: 15px;
                 font-weight: 700;
+                background: transparent;
             }
             QLabel#warningLabel {
                 color: #f5d58a;
@@ -85,6 +100,31 @@ class Live2DParameterWindow(QWidget):
             }
             QPushButton:hover {
                 background: #344258;
+            }
+            QPushButton[headerAction="true"] {
+                min-height: 26px;
+                padding: 3px 10px;
+                border-radius: 13px;
+                background: rgba(255, 255, 255, 0.10);
+                border: 1px solid rgba(255, 255, 255, 0.18);
+            }
+            QPushButton[headerAction="true"]:hover {
+                background: rgba(255, 255, 255, 0.18);
+            }
+            QPushButton[headerClose="true"] {
+                min-width: 26px;
+                max-width: 26px;
+                min-height: 26px;
+                max-height: 26px;
+                padding: 0;
+                border-radius: 13px;
+                background: rgba(255, 255, 255, 0.10);
+                border: 1px solid rgba(255, 255, 255, 0.18);
+                font-size: 14px;
+                font-weight: 700;
+            }
+            QPushButton[headerClose="true"]:hover {
+                background: rgba(255, 255, 255, 0.18);
             }
             QPushButton:disabled {
                 color: #7f8996;
@@ -112,17 +152,33 @@ class Live2DParameterWindow(QWidget):
 
     def _setup_ui(self) -> None:
         root_layout = QVBoxLayout(self)
-        root_layout.setContentsMargins(12, 12, 12, 12)
-        root_layout.setSpacing(10)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
 
-        header_layout = QHBoxLayout()
-        self.title_label = QLabel("Live2D 파라미터", self)
+        self.header = QFrame(self)
+        self.header.setObjectName("parameterHeader")
+        header_layout = QHBoxLayout(self.header)
+        header_layout.setContentsMargins(12, 7, 10, 7)
+        header_layout.setSpacing(8)
+        self.title_label = QLabel("Live2D 파라미터", self.header)
         self.title_label.setObjectName("titleLabel")
-        self.refresh_button = QPushButton("새로고침", self)
+        self.refresh_button = QPushButton("새로고침", self.header)
+        self.refresh_button.setProperty("headerAction", True)
         self.refresh_button.clicked.connect(self.refresh)
+        self.header_close_button = QPushButton("×", self.header)
+        self.header_close_button.setProperty("headerClose", True)
+        self.header_close_button.setToolTip("닫기")
+        self.header_close_button.clicked.connect(self.hide)
         header_layout.addWidget(self.title_label, 1)
         header_layout.addWidget(self.refresh_button)
-        root_layout.addLayout(header_layout)
+        header_layout.addWidget(self.header_close_button)
+        root_layout.addWidget(self.header)
+
+        content = QWidget(self)
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(12, 12, 12, 12)
+        content_layout.setSpacing(10)
+        root_layout.addWidget(content, 1)
 
         self.warning_label = QLabel(
             "장식물 변경용 창입니다. 표정, 입, 눈, 몸 각도처럼 감정 표현이나 쓰다듬 기능이 사용하는 파라미터는 건드리지 않는 것을 추천합니다.",
@@ -130,7 +186,7 @@ class Live2DParameterWindow(QWidget):
         )
         self.warning_label.setObjectName("warningLabel")
         self.warning_label.setWordWrap(True)
-        root_layout.addWidget(self.warning_label)
+        content_layout.addWidget(self.warning_label)
 
         controls_layout = QHBoxLayout()
         self.search_input = QLineEdit(self)
@@ -146,10 +202,10 @@ class Live2DParameterWindow(QWidget):
         controls_layout.addWidget(self.search_input, 1)
         controls_layout.addWidget(self.filter_combo)
         controls_layout.addWidget(self.show_all_parameters_checkbox)
-        root_layout.addLayout(controls_layout)
+        content_layout.addLayout(controls_layout)
 
         self.status_label = QLabel("파라미터 목록을 불러오기 전입니다.", self)
-        root_layout.addWidget(self.status_label)
+        content_layout.addWidget(self.status_label)
 
         self.scroll_area = QScrollArea(self)
         self.scroll_area.setWidgetResizable(True)
@@ -159,7 +215,7 @@ class Live2DParameterWindow(QWidget):
         self.rows_layout.setSpacing(8)
         self.rows_layout.addStretch(1)
         self.scroll_area.setWidget(self.rows_container)
-        root_layout.addWidget(self.scroll_area, 1)
+        content_layout.addWidget(self.scroll_area, 1)
 
         footer_layout = QHBoxLayout()
         self.reset_button = QPushButton("보이는 항목 초기화", self)
@@ -172,7 +228,7 @@ class Live2DParameterWindow(QWidget):
         footer_layout.addStretch(1)
         footer_layout.addWidget(self.save_button)
         footer_layout.addWidget(self.close_button)
-        root_layout.addLayout(footer_layout)
+        content_layout.addLayout(footer_layout)
 
     def show_and_refresh(self) -> None:
         if not self._positioned:
@@ -199,6 +255,28 @@ class Live2DParameterWindow(QWidget):
     def closeEvent(self, event) -> None:
         event.ignore()
         self.hide()
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton and self.header.geometry().contains(event.position().toPoint()):
+            self._dragging = True
+            self._drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        if self._dragging and (event.buttons() & Qt.MouseButton.LeftButton):
+            self.move(event.globalPosition().toPoint() - self._drag_offset)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton and self._dragging:
+            self._dragging = False
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
     def _position_near_overlay(self) -> None:
         overlay = self.overlay_window
