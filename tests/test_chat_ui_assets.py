@@ -356,16 +356,16 @@ result = {
         "getterMetadata": [
             {
                 "id": "ParamDecorA",
-                "value": 0.75,
-                "defaultValue": 0.25,
+                "current": 0.75,
+                "default": 0.25,
                 "min": -0.5,
                 "max": 1.5,
                 "recommended": True,
             },
             {
                 "id": "ParamEyeLOpen",
-                "value": 1,
-                "defaultValue": 1,
+                "current": 1,
+                "default": 1,
                 "min": 0,
                 "max": 1,
                 "recommended": False,
@@ -374,8 +374,8 @@ result = {
         "fallbackMetadata": [
             {
                 "id": "ParamDecorB",
-                "value": 0.4,
-                "defaultValue": 0.1,
+                "current": 0.4,
+                "default": 0.1,
                 "min": 0.1,
                 "max": 0.4,
                 "recommended": True,
@@ -388,10 +388,10 @@ def test_live2d_parameter_save_payload_keeps_only_saved_dirty_and_pinned_values(
     result = _run_live2d_parameter_runtime_case(
         """
 live2dParameterState.metadata = [
-    { id: 'ParamVisibleOnly', value: 0.5, defaultValue: 0, min: -1, max: 1, recommended: true },
-    { id: 'ParamSaved', value: 0.2, defaultValue: 0, min: -1, max: 1, recommended: true },
-    { id: 'ParamDirty', value: 0.3, defaultValue: 0, min: -1, max: 1, recommended: true },
-    { id: 'ParamRemoved', value: 0.4, defaultValue: 0, min: -1, max: 1, recommended: true },
+    { id: 'ParamVisibleOnly', current: 0.5, default: 0, min: -1, max: 1, recommended: true },
+    { id: 'ParamSaved', current: 0.2, default: 0, min: -1, max: 1, recommended: true },
+    { id: 'ParamDirty', current: 0.3, default: 0, min: -1, max: 1, recommended: true },
+    { id: 'ParamRemoved', current: 0.4, default: 0, min: -1, max: 1, recommended: true },
 ];
 live2dParameterState.values = { ParamSaved: 1, ParamRemoved: 2 };
 live2dParameterState.dirtyValues = { ParamDirty: 3 };
@@ -453,7 +453,7 @@ window.live2dModel = {
     },
 };
 live2dParameterState.metadata = [
-    { id: 'ParamSaved', value: 0.8, defaultValue: 0.1, min: -1, max: 1, recommended: true },
+    { id: 'ParamSaved', current: 0.8, default: 0.1, min: -1, max: 1, recommended: true },
 ];
 live2dParameterState.metadataStatus = 'ready';
 live2dParameterState.values = { ParamSaved: 0.8 };
@@ -466,6 +466,7 @@ result = {
     values: live2dParameterState.values,
     dirtyValues: live2dParameterState.dirtyValues,
     removedValues: Array.from(live2dParameterState.removedValues),
+    metadataCurrent: live2dParameterState.metadata[0].current,
     calls,
     payload: buildLive2DParameterSavePayload(),
 };
@@ -476,6 +477,7 @@ result = {
         "values": {},
         "dirtyValues": {},
         "removedValues": ["ParamSaved"],
+        "metadataCurrent": 0.1,
         "calls": [["ParamSaved", 0.1]],
         "payload": {
             "values": {},
