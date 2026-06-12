@@ -268,6 +268,9 @@ window.applyENEModelSettings = async function applyENEModelSettings(config) {
 
     currentEmotionsBasePath = nextEmotionsBasePath;
     applyCurrentModelPlacement();
+    if (typeof window.onLive2DParameterModelChanged === 'function') {
+        window.onLive2DParameterModelChanged(window.eneModelConfig);
+    }
 };
 
 // Live2D 모델 파일을 로드하고 초기 배치/초기 모션을 적용한다.
@@ -321,6 +324,9 @@ async function loadModel() {
         window.live2dModel = model;
 
         console.log("=== Model setup complete ===\n");
+        if (typeof window.onLive2DParameterModelChanged === 'function') {
+            window.onLive2DParameterModelChanged(window.eneModelConfig);
+        }
 
     } catch (error) {
         console.error("Failed to load Live2D model");

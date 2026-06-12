@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import QVBoxLayout, QWidget
 from ..ui.drag_bar import DragBar
 from .bridge import WebBridge
 from .i18n import I18n, get_i18n
-from .model_emotions import get_available_model_emotions, resolve_model_json_path
+from .model_emotions import DEFAULT_MODEL_JSON_PATH, get_available_model_emotions, resolve_model_json_path
 
 
 class OverlayWindow(QWidget):
@@ -128,6 +128,29 @@ class OverlayWindow(QWidget):
             "modelPath": model_path.as_uri(),
             "emotionsBasePath": model_path.parent.joinpath("emotions").resolve().as_uri().rstrip("/") + "/",
             "availableEmotions": available_emotions,
+        }
+
+    def _resolve_model_key(self, settings_source=None) -> str:
+        source = settings_source if isinstance(settings_source, dict) else self.settings.config
+        raw_path = str(source.get("model_json_path", "") or "").strip()
+        if raw_path:
+            return raw_path.replace("\\", "/")
+        return DEFAULT_MODEL_JSON_PATH
+
+    def _resolve_live2d_parameter_overrides_payload(self, settings_source=None) -> dict:
+        source = settings_source if isinstance(settings_source, dict) else self.settings.config
+        model_key = self._resolve_model_key(source)
+        overrides = source.get("live2d_parameter_overrides", {})
+        if not isinstance(overrides, dict):
+            return {"values": {}, "pinned": []}
+        payload = overrides.get(model_key, {})
+        if not isinstance(payload, dict):
+            return {"values": {}, "pinned": []}
+        values = payload.get("values", {})
+        pinned = payload.get("pinned", [])
+        return {
+            "values": values if isinstance(values, dict) else {},
+            "pinned": pinned if isinstance(pinned, list) else [],
         }
 
     def _normalize_theme_hex(self, raw_value: str, fallback: str) -> str:
@@ -434,6 +457,8 @@ class OverlayWindow(QWidget):
         x_percent = self.settings.get("model_x_percent", 50)
         y_percent = self.settings.get("model_y_percent", 50)
         path_payload = self._resolve_model_path_payload()
+        model_key = self._resolve_model_key()
+        parameter_overrides = self._resolve_live2d_parameter_overrides_payload()
 
         js_code = f"""
         (function() {{
@@ -443,7 +468,9 @@ class OverlayWindow(QWidget):
                 yPercent: {y_percent},
                 modelPath: {json.dumps(path_payload["modelPath"])},
                 emotionsBasePath: {json.dumps(path_payload["emotionsBasePath"])},
-                availableEmotions: {json.dumps(path_payload["availableEmotions"])}
+                availableEmotions: {json.dumps(path_payload["availableEmotions"])},
+                modelKey: {json.dumps(model_key)},
+                parameterOverrides: {json.dumps(parameter_overrides)}
             }};
 
             function applyModelSettings() {{
@@ -523,6 +550,8 @@ class OverlayWindow(QWidget):
         x_percent = new_settings.get("model_x_percent", self.settings.get("model_x_percent", 50))
         y_percent = new_settings.get("model_y_percent", self.settings.get("model_y_percent", 50))
         path_payload = self._resolve_model_path_payload(new_settings)
+        model_key = self._resolve_model_key(new_settings)
+        parameter_overrides = self._resolve_live2d_parameter_overrides_payload(new_settings)
         js_code = f"""
         (function() {{
             window.eneModelConfig = {{
@@ -531,7 +560,9 @@ class OverlayWindow(QWidget):
                 yPercent: {y_percent},
                 modelPath: {json.dumps(path_payload["modelPath"])},
                 emotionsBasePath: {json.dumps(path_payload["emotionsBasePath"])},
-                availableEmotions: {json.dumps(path_payload["availableEmotions"])}
+                availableEmotions: {json.dumps(path_payload["availableEmotions"])},
+                modelKey: {json.dumps(model_key)},
+                parameterOverrides: {json.dumps(parameter_overrides)}
             }};
             if (typeof window.applyENEModelSettings === 'function') {{
                 window.applyENEModelSettings(window.eneModelConfig);

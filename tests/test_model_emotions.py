@@ -88,3 +88,63 @@ def test_existing_model_without_emotions_uses_normal_only_even_with_fallback(tmp
 
     assert emotions == ["normal"]
 from pathlib import Path
+
+
+def test_overlay_window_resolves_parameter_overrides_for_current_model_key():
+    from src.core.overlay_window import OverlayWindow
+
+    model_key = "assets/live2d_models/sample/sample.model3.json"
+    window = OverlayWindow.__new__(OverlayWindow)
+    window.settings = type(
+        "DummySettings",
+        (),
+        {
+            "config": {
+                "model_json_path": r"assets\live2d_models\sample\sample.model3.json",
+                "live2d_parameter_overrides": {
+                    model_key: {
+                        "values": {"ParamAngleX": 7},
+                        "pinned": ["ParamAngleX"],
+                    },
+                },
+            },
+        },
+    )()
+
+    assert OverlayWindow._resolve_model_key(window) == model_key
+    assert OverlayWindow._resolve_live2d_parameter_overrides_payload(window) == {
+        "values": {"ParamAngleX": 7},
+        "pinned": ["ParamAngleX"],
+    }
+
+
+def test_overlay_window_parameter_overrides_fall_back_when_missing_or_malformed():
+    from src.core.overlay_window import OverlayWindow
+
+    window = OverlayWindow.__new__(OverlayWindow)
+    window.settings = type("DummySettings", (), {"config": {}})()
+    malformed_sources = [
+        {},
+        {"live2d_parameter_overrides": []},
+        {
+            "model_json_path": "assets/live2d_models/sample/sample.model3.json",
+            "live2d_parameter_overrides": {
+                "assets/live2d_models/sample/sample.model3.json": [],
+            },
+        },
+        {
+            "model_json_path": "assets/live2d_models/sample/sample.model3.json",
+            "live2d_parameter_overrides": {
+                "assets/live2d_models/sample/sample.model3.json": {
+                    "values": [],
+                    "pinned": {},
+                },
+            },
+        },
+    ]
+
+    for source in malformed_sources:
+        assert OverlayWindow._resolve_live2d_parameter_overrides_payload(window, source) == {
+            "values": {},
+            "pinned": [],
+        }

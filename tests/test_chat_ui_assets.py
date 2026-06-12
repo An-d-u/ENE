@@ -143,6 +143,14 @@ def test_live2d_parameter_runtime_applies_overrides_in_late_internal_model_hook(
     assert "window.onLive2DParameterModelChanged = function" in script
 
 
+def test_live2d_model_notifies_parameter_runtime_after_model_load():
+    script = _script_text()
+
+    assert "window.onLive2DParameterModelChanged(window.eneModelConfig);" in script
+    assert "parameterOverrides" in script
+    assert "modelKey" in script
+
+
 def test_live2d_parameter_runtime_merges_dirty_removes_and_skips_invalid_values():
     result = _run_live2d_parameter_runtime_case(
         """
