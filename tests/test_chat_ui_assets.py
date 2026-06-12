@@ -1196,6 +1196,47 @@ result = {
     }
 
 
+def test_live2d_parameter_native_value_update_does_not_rerender_dom_panel():
+    result = _run_live2d_parameter_runtime_case(
+        """
+let renderCalls = 0;
+renderLive2DParameterInspector = () => {
+    renderCalls += 1;
+};
+window.live2dModel = {
+    internalModel: {
+        coreModel: {
+            setParameterValueById() {},
+        },
+    },
+};
+live2dParameterState.metadataStatus = 'ready';
+live2dParameterState.metadata = [
+    { id: 'ParamRibbon', current: 0.2, default: 0, min: 0, max: 1, recommended: true },
+];
+live2dParameterState.values = {};
+live2dParameterState.dirtyValues = {};
+live2dParameterState.removedValues = new Set();
+
+const changed = window.setLive2DParameterInspectorValue('ParamRibbon', 0.75);
+
+result = {
+    changed,
+    renderCalls,
+    current: live2dParameterState.metadata[0].current,
+    dirtyValues: live2dParameterState.dirtyValues,
+};
+"""
+    )
+
+    assert result == {
+        "changed": True,
+        "renderCalls": 0,
+        "current": 0.75,
+        "dirtyValues": {"ParamRibbon": 0.75},
+    }
+
+
 def test_chat_container_uses_roomier_bounded_height():
     block = _rule_block("#chat-container")
     assert "overflow: hidden;" in block
