@@ -1028,6 +1028,105 @@ def test_live2d_parameter_panel_drag_css_uses_move_cursor():
     assert "#live2d-parameters-panel-header.is-dragging" in css
 
 
+def test_live2d_parameter_button_prefers_native_inspector_when_bridge_available():
+    result = _run_live2d_parameter_runtime_case(
+        """
+const calls = [];
+const button = {
+    listeners: {},
+    addEventListener(name, callback) {
+        this.listeners[name] = callback;
+    },
+};
+const panel = {
+    classList: {
+        toggle() {},
+    },
+};
+window.pyBridge = {
+    open_live2d_parameter_inspector: () => calls.push('native'),
+};
+document = {
+    getElementById: (id) => ({
+        'live2d-parameters-floating-btn': button,
+        'live2d-parameters-panel': panel,
+    }[id] || null),
+};
+
+bindLive2DParameterEvents();
+button.listeners.click();
+
+result = {
+    calls,
+    panelOpen: live2dParameterState.panelOpen,
+};
+"""
+    )
+
+    assert result == {
+        "calls": ["native"],
+        "panelOpen": False,
+    }
+
+
+def test_live2d_parameter_native_inspector_commands_update_runtime_state():
+    result = _run_live2d_parameter_runtime_case(
+        """
+const calls = [];
+window.live2dModel = {
+    internalModel: {
+        coreModel: {
+            setParameterValueById: (paramId, value) => calls.push([paramId, value]),
+        },
+    },
+};
+live2dParameterState.metadataStatus = 'ready';
+live2dParameterState.modelKey = 'model-a';
+live2dParameterState.metadata = [
+    { id: 'ParamRibbon', current: 0.2, default: 0, min: 0, max: 1, recommended: true },
+    { id: 'ParamMouthOpenY', current: 0.3, default: 0, min: 0, max: 1, recommended: false },
+];
+live2dParameterState.values = { ParamRibbon: 0.2 };
+live2dParameterState.pinned = new Set();
+live2dParameterState.dirtyValues = {};
+live2dParameterState.removedValues = new Set();
+
+const before = JSON.parse(window.getLive2DParameterInspectorSnapshot());
+const changed = window.setLive2DParameterInspectorValue('ParamRibbon', 0.75);
+const blocked = window.setLive2DParameterInspectorValue('ParamMouthOpenY', 0.9);
+window.setLive2DParameterInspectorPinned('ParamRibbon', true);
+window.resetLive2DParameterInspectorValue('ParamRibbon');
+const after = JSON.parse(window.getLive2DParameterInspectorSnapshot());
+
+result = {
+    beforeStatus: before.metadataStatus,
+    beforeModelKey: before.modelKey,
+    beforeCount: before.metadata.length,
+    changed,
+    blocked,
+    calls,
+    afterPinned: after.pinned,
+    afterValues: after.savePayload.values,
+    afterRemoved: Array.from(live2dParameterState.removedValues),
+    afterCurrent: after.metadata.find((item) => item.id === 'ParamRibbon').current,
+};
+"""
+    )
+
+    assert result == {
+        "beforeStatus": "ready",
+        "beforeModelKey": "model-a",
+        "beforeCount": 2,
+        "changed": True,
+        "blocked": False,
+        "calls": [["ParamRibbon", 0.75], ["ParamRibbon", 0]],
+        "afterPinned": ["ParamRibbon"],
+        "afterValues": {},
+        "afterRemoved": ["ParamRibbon"],
+        "afterCurrent": 0,
+    }
+
+
 def test_chat_container_uses_roomier_bounded_height():
     block = _rule_block("#chat-container")
     assert "overflow: hidden;" in block
