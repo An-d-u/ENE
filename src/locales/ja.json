@@ -269,6 +269,7 @@
   "chat.proactive.panel.overdue_minutes": "{minutes}分経過",
   "chat.proactive.panel.remove": "先回り会話を削除",
   "chat.live2dParameters.title": "Live2Dパラメータ",
+  "chat.live2dParameters.close": "Live2Dパラメータパネルを閉じる",
   "chat.live2dParameters.warning": "装飾調整用です。表情、目、口、頭、体の動きに関するパラメータは、表情、リップシンク、なで反応と競合する場合があるため、触らないことをおすすめします。",
   "chat.live2dParameters.search": "パラメータを検索",
   "chat.live2dParameters.recommended": "おすすめ",

@@ -282,6 +282,7 @@ class OverlayWindow(QWidget):
             },
             "live2dParameters": {
                 "title": i18n.t("chat.live2dParameters.title"),
+                "close": i18n.t("chat.live2dParameters.close"),
                 "warning": i18n.t("chat.live2dParameters.warning"),
                 "search": i18n.t("chat.live2dParameters.search"),
                 "recommended": i18n.t("chat.live2dParameters.recommended"),

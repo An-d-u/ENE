@@ -54,7 +54,7 @@
             <button id="promise-reminders-floating-btn" title="예정된 대화 약속">예정</button>
             <button id="proactive-conversations-floating-btn" title="예약된 선제 대화" aria-label="예약된 선제 대화">선제</button>
             <button id="goal-toggle-floating-btn" title="에네 목표" aria-label="에네 목표">목표</button>
-            <button id="live2d-parameters-floating-btn" title="Live2D 파라미터">Live2D</button>
+            <button id="live2d-parameters-floating-btn" type="button" title="Live2D 파라미터" aria-label="Live2D 파라미터">Live2D</button>
             <button id="settings-floating-btn" type="button" title="설정 열기" aria-label="설정 열기">
                 <svg class="lucide-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" />
@@ -90,13 +90,13 @@
             <button id="live2d-parameters-close-btn" type="button" title="닫기" aria-label="닫기">×</button>
         </div>
         <div id="live2d-parameters-warning">장식 조절용입니다. 표정, 눈, 입, 머리, 몸 움직임 관련 파라미터는 표정/립싱크/쓰다듬기와 충돌할 수 있으므로 건드리지 않는 것을 추천합니다.</div>
-        <input id="live2d-parameters-search" type="search" placeholder="파라미터 검색">
+        <input id="live2d-parameters-search" type="search" placeholder="파라미터 검색" aria-label="파라미터 검색">
         <div id="live2d-parameters-tabs" role="tablist">
-            <button class="live2d-parameters-tab is-active" type="button" data-live2d-parameter-tab="recommended">추천</button>
-            <button class="live2d-parameters-tab" type="button" data-live2d-parameter-tab="all">전체</button>
-            <button class="live2d-parameters-tab" type="button" data-live2d-parameter-tab="pinned">고정</button>
+            <button id="live2d-parameters-tab-recommended" class="live2d-parameters-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="live2d-parameters-list" data-live2d-parameter-tab="recommended">추천</button>
+            <button id="live2d-parameters-tab-all" class="live2d-parameters-tab" type="button" role="tab" aria-selected="false" aria-controls="live2d-parameters-list" data-live2d-parameter-tab="all">전체</button>
+            <button id="live2d-parameters-tab-pinned" class="live2d-parameters-tab" type="button" role="tab" aria-selected="false" aria-controls="live2d-parameters-list" data-live2d-parameter-tab="pinned">고정</button>
         </div>
-        <div id="live2d-parameters-list"></div>
+        <div id="live2d-parameters-list" role="tabpanel" aria-labelledby="live2d-parameters-tab-recommended"></div>
         <div id="live2d-parameters-actions">
             <button id="live2d-parameters-reset-btn" type="button">초기화</button>
             <button id="live2d-parameters-save-btn" type="button">저장</button>

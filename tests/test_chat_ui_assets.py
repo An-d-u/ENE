@@ -128,13 +128,22 @@ def test_live2d_parameter_runtime_loads_after_live2d_writers():
 
 def test_live2d_parameter_inspector_markup_exists():
     html = (WEB_DIR / "index.html").read_text(encoding="utf-8-sig")
+    css = STYLE_PATH.read_text(encoding="utf-8-sig")
 
-    assert 'id="live2d-parameters-floating-btn"' in html
+    assert 'id="live2d-parameters-floating-btn" type="button"' in html
+    assert 'aria-label="Live2D 파라미터"' in html
     assert 'id="live2d-parameters-panel"' in html
-    assert 'id="live2d-parameters-search"' in html
-    assert 'id="live2d-parameters-list"' in html
+    assert 'id="live2d-parameters-search" type="search" placeholder="파라미터 검색" aria-label="파라미터 검색"' in html
+    assert 'id="live2d-parameters-tabs" role="tablist"' in html
+    assert 'id="live2d-parameters-tab-recommended"' in html
+    assert 'role="tab" aria-selected="true" aria-controls="live2d-parameters-list"' in html
+    assert 'id="live2d-parameters-tab-all"' in html
+    assert 'role="tab" aria-selected="false" aria-controls="live2d-parameters-list"' in html
+    assert 'id="live2d-parameters-tab-pinned"' in html
+    assert 'id="live2d-parameters-list" role="tabpanel" aria-labelledby="live2d-parameters-tab-recommended"' in html
     assert 'id="live2d-parameters-save-btn"' in html
     assert '장식 조절용입니다.' in html
+    assert "#live2d-parameters-search:focus-visible" in css
 
 
 def test_live2d_parameter_runtime_applies_overrides_in_late_internal_model_hook():

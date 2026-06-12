@@ -269,6 +269,7 @@
   "chat.proactive.panel.overdue_minutes": "{minutes} min late",
   "chat.proactive.panel.remove": "Delete proactive conversation",
   "chat.live2dParameters.title": "Live2D parameters",
+  "chat.live2dParameters.close": "Close Live2D parameter panel",
   "chat.live2dParameters.warning": "For decoration controls. Avoid expression, eye, mouth, head, and body motion parameters because they may conflict with expressions, lip-sync, and head pats.",
   "chat.live2dParameters.search": "Search parameters",
   "chat.live2dParameters.recommended": "Recommended",
