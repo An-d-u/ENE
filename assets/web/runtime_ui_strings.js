@@ -13,7 +13,16 @@ DEFAULT_UI_STRINGS.live2dParameters = DEFAULT_UI_STRINGS.live2dParameters || {
     pinned: 'Pinned',
     save: 'Save',
     reset: 'Reset',
-    empty: 'No parameters to show.'
+    empty: 'No parameters to show.',
+    statusIdle: 'Parameter list has not loaded yet.',
+    statusLoading: 'Loading parameter list.',
+    statusUnavailable: 'This Live2D model does not expose readable parameters.',
+    statusError: 'Could not load parameter list.',
+    toastLoadFirst: 'Load the parameter list first.',
+    toastMissingModel: 'Select a model before saving.',
+    toastMissingBridge: 'Save bridge is not available.',
+    toastSaveSuccess: 'Live2D parameters saved.',
+    toastSaveError: 'Failed to save Live2D parameters.'
 };
 
 function mergeUiStrings(config) {
@@ -108,7 +117,16 @@ function mergeUiStrings(config) {
             pinned: live2dParameters.pinned || DEFAULT_UI_STRINGS.live2dParameters.pinned,
             save: live2dParameters.save || DEFAULT_UI_STRINGS.live2dParameters.save,
             reset: live2dParameters.reset || DEFAULT_UI_STRINGS.live2dParameters.reset,
-            empty: live2dParameters.empty || DEFAULT_UI_STRINGS.live2dParameters.empty
+            empty: live2dParameters.empty || DEFAULT_UI_STRINGS.live2dParameters.empty,
+            statusIdle: live2dParameters.statusIdle || DEFAULT_UI_STRINGS.live2dParameters.statusIdle,
+            statusLoading: live2dParameters.statusLoading || DEFAULT_UI_STRINGS.live2dParameters.statusLoading,
+            statusUnavailable: live2dParameters.statusUnavailable || DEFAULT_UI_STRINGS.live2dParameters.statusUnavailable,
+            statusError: live2dParameters.statusError || DEFAULT_UI_STRINGS.live2dParameters.statusError,
+            toastLoadFirst: live2dParameters.toastLoadFirst || DEFAULT_UI_STRINGS.live2dParameters.toastLoadFirst,
+            toastMissingModel: live2dParameters.toastMissingModel || DEFAULT_UI_STRINGS.live2dParameters.toastMissingModel,
+            toastMissingBridge: live2dParameters.toastMissingBridge || DEFAULT_UI_STRINGS.live2dParameters.toastMissingBridge,
+            toastSaveSuccess: live2dParameters.toastSaveSuccess || DEFAULT_UI_STRINGS.live2dParameters.toastSaveSuccess,
+            toastSaveError: live2dParameters.toastSaveError || DEFAULT_UI_STRINGS.live2dParameters.toastSaveError
         },
         mood: {
             label: mood.label || DEFAULT_UI_STRINGS.mood.label,

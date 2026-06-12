@@ -255,6 +255,38 @@ result = { calls };
     }
 
 
+def test_live2d_parameter_runtime_never_applies_expression_sensitive_overrides():
+    result = _run_live2d_parameter_runtime_case(
+        """
+const calls = [];
+const validIds = ['ParamRibbon', 'ParamEyeLOpen', 'ParamMouthOpenY', 'ParamAngleX'];
+window.live2dModel = {
+    internalModel: {
+        coreModel: {
+            getParameterIndex: (paramId) => validIds.indexOf(paramId),
+            getParameterCount: () => validIds.length,
+            setParameterValueById: (paramId, value) => calls.push([paramId, value]),
+        },
+    },
+};
+
+live2dParameterState.values = {
+    ParamRibbon: 0.8,
+    ParamEyeLOpen: 0,
+    ParamMouthOpenY: 1,
+    ParamAngleX: 30,
+};
+
+window.applyLive2DParameterOverrides();
+result = { calls };
+"""
+    )
+
+    assert result == {
+        "calls": [["ParamRibbon", 0.8]],
+    }
+
+
 def test_live2d_parameter_runtime_hooks_each_model_once_and_ignores_stale_hooks():
     result = _run_live2d_parameter_runtime_case(
         """
@@ -421,6 +453,33 @@ result = buildLive2DParameterSavePayload();
             "ParamDirty": 3,
         },
         "pinned": ["ParamVisibleOnly", "ParamDirty"],
+    }
+
+
+def test_live2d_parameter_save_payload_drops_expression_sensitive_parameters():
+    result = _run_live2d_parameter_runtime_case(
+        """
+live2dParameterState.values = {
+    ParamRibbon: 0.75,
+    ParamEyeLOpen: 0,
+    ParamMouthOpenY: 1,
+};
+live2dParameterState.dirtyValues = {
+    ParamAngleX: 20,
+    ParamHat: 0.5,
+};
+live2dParameterState.pinned = new Set(['ParamRibbon', 'ParamEyeLOpen', 'ParamHat']);
+
+result = buildLive2DParameterSavePayload();
+"""
+    )
+
+    assert result == {
+        "values": {
+            "ParamRibbon": 0.75,
+            "ParamHat": 0.5,
+        },
+        "pinned": ["ParamRibbon", "ParamHat"],
     }
 
 
