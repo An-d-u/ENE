@@ -24,6 +24,7 @@ EXPECTED_RUNTIME_SCRIPTS = [
     "runtime_chat_flow.js",
     "runtime_bridge.js",
     "runtime_lipsync.js",
+    "runtime_live2d_parameters.js",
     "script.js",
 ]
 
@@ -77,6 +78,36 @@ def test_web_runtime_initializers_load_after_called_dependencies():
         "runtime_goal_panel.js",
     ]:
         assert script_order[dependency] < mood_initializer_index
+
+
+def test_live2d_parameter_runtime_loads_after_live2d_writers():
+    script_order = {script_name: index for index, script_name in enumerate(EXPECTED_RUNTIME_SCRIPTS)}
+    parameter_index = script_order["runtime_live2d_parameters.js"]
+    for dependency in [
+        "runtime_live2d_model.js",
+        "runtime_motion_state.js",
+        "runtime_head_pat.js",
+        "runtime_auto_blink_tracking.js",
+        "runtime_expression.js",
+        "runtime_lipsync.js",
+    ]:
+        assert script_order[dependency] < parameter_index
+
+
+def test_live2d_parameter_runtime_applies_overrides_in_late_internal_model_hook():
+    script = _script_text()
+
+    assert "const LIVE2D_PARAMETER_RECOMMENDED_EXCLUDE_KEYWORDS = [" in script
+    assert "'ParamEye'," in script
+    assert "'ParamMouth'," in script
+    assert "function applyLive2DParameterOverrides()" in script
+    assert "removedValues: new Set()" in script
+    assert "live2dParameterState.removedValues.forEach" in script
+    assert "applyHookModel: null" in script
+    assert "internalModel.on('beforeModelUpdate', () => {" in script
+    assert "live2dParameterState.applyHookModel === internalModel" in script
+    assert "applyLive2DParameterOverrides();" in script
+    assert "window.onLive2DParameterModelChanged = function" in script
 
 
 def test_chat_container_uses_roomier_bounded_height():
