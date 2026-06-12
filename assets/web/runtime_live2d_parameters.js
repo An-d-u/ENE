@@ -596,49 +596,53 @@ function resetVisibleLive2DParameterOverrides() {
     renderLive2DParameterInspector();
 }
 
-const live2dParametersButton = getLive2DParameterElement('live2d-parameters-floating-btn');
-const live2dParametersCloseButton = getLive2DParameterElement('live2d-parameters-close-btn');
-const live2dParametersSearch = getLive2DParameterElement('live2d-parameters-search');
-const live2dParametersSaveButton = getLive2DParameterElement('live2d-parameters-save-btn');
-const live2dParametersResetButton = getLive2DParameterElement('live2d-parameters-reset-btn');
+function bindLive2DParameterEvents() {
+    const live2dParametersButton = getLive2DParameterElement('live2d-parameters-floating-btn');
+    const live2dParametersCloseButton = getLive2DParameterElement('live2d-parameters-close-btn');
+    const live2dParametersSearch = getLive2DParameterElement('live2d-parameters-search');
+    const live2dParametersSaveButton = getLive2DParameterElement('live2d-parameters-save-btn');
+    const live2dParametersResetButton = getLive2DParameterElement('live2d-parameters-reset-btn');
 
-if (live2dParametersButton) {
-    live2dParametersButton.addEventListener('click', () => {
-        setLive2DParameterPanelOpen(!live2dParameterState.panelOpen);
-    });
-}
-
-if (live2dParametersCloseButton) {
-    live2dParametersCloseButton.addEventListener('click', () => {
-        setLive2DParameterPanelOpen(false);
-    });
-}
-
-if (live2dParametersSearch) {
-    live2dParametersSearch.addEventListener('input', () => {
-        live2dParameterState.searchQuery = live2dParametersSearch.value || '';
-        renderLive2DParameterInspector();
-    });
-}
-
-LIVE2D_PARAMETER_TABS.forEach((tab) => {
-    const tabButton = getLive2DParameterElement(`live2d-parameters-tab-${tab}`);
-    if (tabButton) {
-        tabButton.addEventListener('click', () => setLive2DParameterActiveTab(tab));
+    if (live2dParametersButton) {
+        live2dParametersButton.addEventListener('click', () => {
+            setLive2DParameterPanelOpen(!live2dParameterState.panelOpen);
+        });
     }
-});
 
-if (live2dParametersSaveButton) {
-    live2dParametersSaveButton.addEventListener('click', () => {
-        saveLive2DParameterOverrides();
+    if (live2dParametersCloseButton) {
+        live2dParametersCloseButton.addEventListener('click', () => {
+            setLive2DParameterPanelOpen(false);
+        });
+    }
+
+    if (live2dParametersSearch) {
+        live2dParametersSearch.addEventListener('input', () => {
+            live2dParameterState.searchQuery = live2dParametersSearch.value || '';
+            renderLive2DParameterInspector();
+        });
+    }
+
+    LIVE2D_PARAMETER_TABS.forEach((tab) => {
+        const tabButton = getLive2DParameterElement(`live2d-parameters-tab-${tab}`);
+        if (tabButton) {
+            tabButton.addEventListener('click', () => setLive2DParameterActiveTab(tab));
+        }
     });
+
+    if (live2dParametersSaveButton) {
+        live2dParametersSaveButton.addEventListener('click', () => {
+            saveLive2DParameterOverrides();
+        });
+    }
+
+    if (live2dParametersResetButton) {
+        live2dParametersResetButton.addEventListener('click', () => {
+            resetVisibleLive2DParameterOverrides();
+        });
+    }
 }
 
-if (live2dParametersResetButton) {
-    live2dParametersResetButton.addEventListener('click', () => {
-        resetVisibleLive2DParameterOverrides();
-    });
-}
+bindLive2DParameterEvents();
 
 function bindLive2DParameterOverrideHook() {
     const model = window.live2dModel;

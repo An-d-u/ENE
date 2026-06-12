@@ -126,6 +126,19 @@ def test_live2d_parameter_runtime_loads_after_live2d_writers():
         assert script_order[dependency] < parameter_index
 
 
+def test_live2d_parameter_runtime_does_not_redeclare_chat_state_globals():
+    runtime = (WEB_DIR / "runtime_live2d_parameters.js").read_text(encoding="utf-8-sig")
+
+    for name in [
+        "live2dParametersButton",
+        "live2dParametersSearch",
+        "live2dParametersSaveButton",
+        "live2dParametersResetButton",
+        "live2dParametersCloseButton",
+    ]:
+        assert not re.search(rf"^(?:const|let)\s+{name}\s*=", runtime, re.MULTILINE)
+
+
 def test_live2d_parameter_inspector_markup_exists():
     html = (WEB_DIR / "index.html").read_text(encoding="utf-8-sig")
     css = STYLE_PATH.read_text(encoding="utf-8-sig")
