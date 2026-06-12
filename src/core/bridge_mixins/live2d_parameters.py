@@ -44,7 +44,9 @@ def _normalize_override_payload(payload: Any) -> dict[str, Any] | None:
         if not isinstance(item, str):
             return None
         param_id = item.strip()
-        if not param_id or param_id in seen:
+        if not param_id:
+            return None
+        if param_id in seen:
             continue
         seen.add(param_id)
         pinned.append(param_id)
