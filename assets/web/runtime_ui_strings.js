@@ -10,7 +10,7 @@ DEFAULT_UI_STRINGS.live2dParameters = DEFAULT_UI_STRINGS.live2dParameters || {
     search: 'Search parameters',
     recommended: 'Recommended',
     all: 'All',
-    pinned: 'Pinned',
+    pinned: 'Favorites',
     save: 'Save',
     reset: 'Reset',
     empty: 'No parameters to show.',

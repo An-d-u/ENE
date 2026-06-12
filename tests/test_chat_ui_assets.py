@@ -148,12 +148,12 @@ def test_live2d_parameter_inspector_markup_exists():
     assert 'id="live2d-parameters-panel"' in html
     assert 'id="live2d-parameters-search" type="search" placeholder="파라미터 검색" aria-label="파라미터 검색"' in html
     assert 'id="live2d-parameters-tabs" role="tablist"' in html
-    assert 'id="live2d-parameters-tab-recommended"' in html
+    assert 'id="live2d-parameters-tab-recommended"' not in html
     assert 'role="tab" aria-selected="true" aria-controls="live2d-parameters-list"' in html
     assert 'id="live2d-parameters-tab-all"' in html
-    assert 'role="tab" aria-selected="false" aria-controls="live2d-parameters-list"' in html
     assert 'id="live2d-parameters-tab-pinned"' in html
-    assert 'id="live2d-parameters-list" role="tabpanel" aria-labelledby="live2d-parameters-tab-recommended"' in html
+    assert '>즐겨찾기</button>' in html
+    assert 'id="live2d-parameters-list" role="tabpanel" aria-labelledby="live2d-parameters-tab-all"' in html
     assert 'id="live2d-parameters-save-btn"' in html
     assert '장식 조절용입니다.' in html
     assert "#live2d-parameters-search:focus-visible" in css
@@ -970,7 +970,6 @@ function makeElement(id) {
 }
 
 const elements = {
-    'live2d-parameters-tab-recommended': makeElement('live2d-parameters-tab-recommended'),
     'live2d-parameters-tab-all': makeElement('live2d-parameters-tab-all'),
     'live2d-parameters-tab-pinned': makeElement('live2d-parameters-tab-pinned'),
     'live2d-parameters-list': makeElement('live2d-parameters-list'),
@@ -982,7 +981,7 @@ document = {
 setLive2DParameterActiveTab('pinned');
 
 result = {
-    recommendedSelected: elements['live2d-parameters-tab-recommended'].getAttribute('aria-selected'),
+    allSelected: elements['live2d-parameters-tab-all'].getAttribute('aria-selected'),
     pinnedSelected: elements['live2d-parameters-tab-pinned'].getAttribute('aria-selected'),
     pinnedActive: elements['live2d-parameters-tab-pinned'].classList.contains('is-active'),
     label: elements['live2d-parameters-list'].getAttribute('aria-labelledby'),
@@ -991,7 +990,7 @@ result = {
     )
 
     assert result == {
-        "recommendedSelected": "false",
+        "allSelected": "false",
         "pinnedSelected": "true",
         "pinnedActive": True,
         "label": "live2d-parameters-tab-pinned",

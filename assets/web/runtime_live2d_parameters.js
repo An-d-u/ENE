@@ -23,7 +23,7 @@ const live2dParameterState = {
     removedValues: new Set(),
     metadataStatus: 'idle',
     metadataError: '',
-    activeTab: 'recommended',
+    activeTab: 'all',
     searchQuery: '',
     panelOpen: false,
     parameterDisplayInfo: { parameters: {}, groups: {} },
@@ -32,7 +32,7 @@ const live2dParameterState = {
     drag: null,
 };
 
-const LIVE2D_PARAMETER_TABS = ['recommended', 'all', 'pinned'];
+const LIVE2D_PARAMETER_TABS = ['all', 'pinned'];
 const LIVE2D_PARAMETER_PANEL_MARGIN = 8;
 
 function getLive2DParameterCoreModel(internalModel = null) {
@@ -393,9 +393,6 @@ function resetLive2DParameterOverride(paramId) {
 function getVisibleLive2DParameterMetadata() {
     const searchQuery = live2dParameterState.searchQuery.trim().toLowerCase();
     return live2dParameterState.metadata.filter((item) => {
-        if (live2dParameterState.activeTab === 'recommended' && !item.recommended) {
-            return false;
-        }
         if (live2dParameterState.activeTab === 'pinned' && !live2dParameterState.pinned.has(item.id)) {
             return false;
         }
@@ -430,7 +427,7 @@ function createLive2DParameterRow(item) {
     pinButton.type = 'button';
     pinButton.className = 'live2d-parameter-pin';
     pinButton.textContent = live2dParameterState.pinned.has(item.id) ? '★' : '☆';
-    pinButton.setAttribute('aria-label', `${item.id} 고정`);
+    pinButton.setAttribute('aria-label', `${item.id} 즐겨찾기`);
     pinButton.addEventListener('click', () => {
         if (live2dParameterState.pinned.has(item.id)) {
             live2dParameterState.pinned.delete(item.id);
