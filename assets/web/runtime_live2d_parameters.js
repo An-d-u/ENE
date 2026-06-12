@@ -221,8 +221,8 @@ function collectLive2DParameterMetadata() {
         );
         return {
             id: paramId,
-            value,
-            defaultValue,
+            current: value,
+            default: defaultValue,
             min: Math.min(rawMin, value, defaultValue),
             max: Math.max(rawMax, value, defaultValue),
             recommended: isRecommendedLive2DParameter(paramId),
@@ -297,10 +297,10 @@ function getLive2DParameterMetadata(paramId) {
 
 function setLive2DParameterDirtyValue(paramId, value) {
     const metadata = getLive2DParameterMetadata(paramId);
-    const numericValue = normalizeLive2DParameterNumber(value, metadata ? metadata.value : 0);
+    const numericValue = normalizeLive2DParameterNumber(value, metadata ? metadata.current : 0);
     const baseline = Object.prototype.hasOwnProperty.call(live2dParameterState.values, paramId)
         ? normalizeLive2DParameterNumber(live2dParameterState.values[paramId], numericValue)
-        : normalizeLive2DParameterNumber(metadata ? metadata.defaultValue : numericValue, numericValue);
+        : normalizeLive2DParameterNumber(metadata ? metadata.default : numericValue, numericValue);
     live2dParameterState.removedValues.delete(paramId);
     if (Math.abs(numericValue - baseline) < 0.0001) {
         delete live2dParameterState.dirtyValues[paramId];
@@ -308,7 +308,7 @@ function setLive2DParameterDirtyValue(paramId, value) {
         live2dParameterState.dirtyValues[paramId] = numericValue;
     }
     if (metadata) {
-        metadata.value = numericValue;
+        metadata.current = numericValue;
     }
     setLive2DParameterModelValue(paramId, numericValue);
     renderLive2DParameterInspector();
@@ -322,9 +322,9 @@ function resetLive2DParameterOverride(paramId) {
     delete live2dParameterState.dirtyValues[paramId];
     delete live2dParameterState.values[paramId];
     live2dParameterState.removedValues.add(paramId);
-    const defaultValue = metadata ? metadata.defaultValue : 0;
+    const defaultValue = metadata ? metadata.default : 0;
     if (metadata) {
-        metadata.value = defaultValue;
+        metadata.current = defaultValue;
     }
     setLive2DParameterModelValue(paramId, defaultValue);
     renderLive2DParameterInspector();
@@ -383,7 +383,7 @@ function createLive2DParameterRow(item) {
     range.min = String(item.min);
     range.max = String(item.max);
     range.step = '0.001';
-    range.value = String(item.value);
+    range.value = String(item.current);
     range.setAttribute('aria-label', `${item.id} 슬라이더`);
 
     const number = document.createElement('input');
@@ -391,7 +391,7 @@ function createLive2DParameterRow(item) {
     number.min = String(item.min);
     number.max = String(item.max);
     number.step = '0.001';
-    number.value = formatLive2DParameterValue(item.value);
+    number.value = formatLive2DParameterValue(item.current);
     number.setAttribute('aria-label', `${item.id} 값`);
 
     const resetButton = document.createElement('button');
@@ -401,7 +401,7 @@ function createLive2DParameterRow(item) {
     resetButton.addEventListener('click', () => resetLive2DParameterOverride(item.id));
 
     const syncValue = (nextValue) => {
-        const numericValue = normalizeLive2DParameterNumber(nextValue, item.value);
+        const numericValue = normalizeLive2DParameterNumber(nextValue, item.current);
         range.value = String(numericValue);
         number.value = formatLive2DParameterValue(numericValue);
         setLive2DParameterDirtyValue(item.id, numericValue);
@@ -572,8 +572,8 @@ function resetVisibleLive2DParameterOverrides() {
             delete live2dParameterState.values[item.id];
             delete live2dParameterState.dirtyValues[item.id];
             live2dParameterState.removedValues.add(item.id);
-            item.value = item.defaultValue;
-            setLive2DParameterModelValue(item.id, item.defaultValue);
+            item.current = item.default;
+            setLive2DParameterModelValue(item.id, item.default);
         }
     });
     renderLive2DParameterInspector();
