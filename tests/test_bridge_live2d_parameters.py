@@ -163,6 +163,32 @@ def test_live2d_parameter_overrides_reject_non_string_pinned_item(tmp_path):
     }
 
 
+def test_live2d_parameter_overrides_reject_empty_pinned_id_without_overwriting_existing_payload(tmp_path):
+    bridge, settings = _bridge_with_settings(tmp_path)
+
+    bridge.save_live2d_parameter_overrides(
+        "assets/live2d_models/model-a/runtime/model.model3.json",
+        json.dumps({"values": {"ParamRibbon": 1.0}, "pinned": ["ParamRibbon"]}, ensure_ascii=False),
+    )
+    bridge.save_live2d_parameter_overrides(
+        "assets/live2d_models/model-a/runtime/model.model3.json",
+        json.dumps({"values": {"ParamRibbon": 0.5}, "pinned": ["   "]}, ensure_ascii=False),
+    )
+
+    assert json.loads(
+        bridge.get_live2d_parameter_overrides("assets/live2d_models/model-a/runtime/model.model3.json")
+    ) == {
+        "values": {"ParamRibbon": 1.0},
+        "pinned": ["ParamRibbon"],
+    }
+    assert (
+        settings.get("live2d_parameter_overrides")[
+            "assets/live2d_models/model-a/runtime/model.model3.json"
+        ]["values"]["ParamRibbon"]
+        == 1.0
+    )
+
+
 def test_live2d_parameter_overrides_empty_payload_removes_only_that_model(tmp_path):
     bridge, settings = _bridge_with_settings(tmp_path)
 
