@@ -540,12 +540,14 @@ class OverlayWindow(QWidget):
         self.drag_bar.setVisible(new_settings.get("show_drag_bar", self.settings.get("show_drag_bar", True)))
         self._apply_drag_bar_theme(new_settings)
 
-        scale = new_settings.get("model_scale", self.settings.get("model_scale", 1.0))
-        x_percent = new_settings.get("model_x_percent", self.settings.get("model_x_percent", 50))
-        y_percent = new_settings.get("model_y_percent", self.settings.get("model_y_percent", 50))
-        path_payload = self._resolve_model_path_payload(new_settings)
-        model_key = self._resolve_model_key(new_settings)
-        parameter_overrides = self._resolve_live2d_parameter_overrides_payload(new_settings)
+        preview_source = dict(self.settings.config)
+        preview_source.update(new_settings)
+        scale = preview_source.get("model_scale", 1.0)
+        x_percent = preview_source.get("model_x_percent", 50)
+        y_percent = preview_source.get("model_y_percent", 50)
+        path_payload = self._resolve_model_path_payload(preview_source)
+        model_key = self._resolve_model_key(preview_source)
+        parameter_overrides = self._resolve_live2d_parameter_overrides_payload(preview_source)
         js_code = f"""
         (function() {{
             window.eneModelConfig = {{
