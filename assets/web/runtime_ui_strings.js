@@ -1,4 +1,20 @@
 ﻿
+DEFAULT_UI_STRINGS.actions.live2dParameters = DEFAULT_UI_STRINGS.actions.live2dParameters || {
+    label: 'Live2D',
+    title: 'Live2D parameters'
+};
+DEFAULT_UI_STRINGS.live2dParameters = DEFAULT_UI_STRINGS.live2dParameters || {
+    title: 'Live2D parameters',
+    warning: 'For decoration controls. Avoid expression, eye, mouth, head, and body motion parameters because they may conflict with expressions, lip-sync, and head pats.',
+    search: 'Search parameters',
+    recommended: 'Recommended',
+    all: 'All',
+    pinned: 'Pinned',
+    save: 'Save',
+    reset: 'Reset',
+    empty: 'No parameters to show.'
+};
+
 function mergeUiStrings(config) {
     const source = config || {};
     const input = source.input || {};
@@ -12,6 +28,7 @@ function mergeUiStrings(config) {
     const promisePanel = source.promisePanel || {};
     const proactivePanel = source.proactivePanel || {};
     const goalPanel = source.goalPanel || {};
+    const live2dParameters = source.live2dParameters || {};
     const thoughts = source.thoughts || {};
 
     return {
@@ -40,6 +57,10 @@ function mergeUiStrings(config) {
             proactive: {
                 label: (actions.proactive && actions.proactive.label) || DEFAULT_UI_STRINGS.actions.proactive.label,
                 title: (actions.proactive && actions.proactive.title) || DEFAULT_UI_STRINGS.actions.proactive.title
+            },
+            live2dParameters: {
+                label: (actions.live2dParameters && actions.live2dParameters.label) || DEFAULT_UI_STRINGS.actions.live2dParameters.label,
+                title: (actions.live2dParameters && actions.live2dParameters.title) || DEFAULT_UI_STRINGS.actions.live2dParameters.title
             },
             goals: {
                 label: (actions.goals && actions.goals.label) || DEFAULT_UI_STRINGS.actions.goals.label,
@@ -75,6 +96,17 @@ function mergeUiStrings(config) {
             empty: goalPanel.empty || DEFAULT_UI_STRINGS.goalPanel.empty,
             shortTerm: goalPanel.shortTerm || DEFAULT_UI_STRINGS.goalPanel.shortTerm,
             longTerm: goalPanel.longTerm || DEFAULT_UI_STRINGS.goalPanel.longTerm
+        },
+        live2dParameters: {
+            title: live2dParameters.title || DEFAULT_UI_STRINGS.live2dParameters.title,
+            warning: live2dParameters.warning || DEFAULT_UI_STRINGS.live2dParameters.warning,
+            search: live2dParameters.search || DEFAULT_UI_STRINGS.live2dParameters.search,
+            recommended: live2dParameters.recommended || DEFAULT_UI_STRINGS.live2dParameters.recommended,
+            all: live2dParameters.all || DEFAULT_UI_STRINGS.live2dParameters.all,
+            pinned: live2dParameters.pinned || DEFAULT_UI_STRINGS.live2dParameters.pinned,
+            save: live2dParameters.save || DEFAULT_UI_STRINGS.live2dParameters.save,
+            reset: live2dParameters.reset || DEFAULT_UI_STRINGS.live2dParameters.reset,
+            empty: live2dParameters.empty || DEFAULT_UI_STRINGS.live2dParameters.empty
         },
         mood: {
             label: mood.label || DEFAULT_UI_STRINGS.mood.label,
@@ -169,6 +201,11 @@ function applyUiStringsToStaticNodes() {
         proactiveConversationsButton.title = currentUiStrings.actions.proactive.title;
         proactiveConversationsButton.setAttribute('aria-label', currentUiStrings.actions.proactive.title);
     }
+    if (live2dParametersButton) {
+        live2dParametersButton.textContent = currentUiStrings.actions.live2dParameters.label;
+        live2dParametersButton.title = currentUiStrings.actions.live2dParameters.title;
+        live2dParametersButton.setAttribute('aria-label', currentUiStrings.actions.live2dParameters.title);
+    }
     if (goalButton) {
         goalButton.textContent = currentUiStrings.actions.goals.label;
         goalButton.title = currentUiStrings.actions.goals.title;
@@ -194,6 +231,34 @@ function applyUiStringsToStaticNodes() {
     if (goalPanelCloseButton) {
         goalPanelCloseButton.title = currentUiStrings.goalPanel.close;
         goalPanelCloseButton.setAttribute('aria-label', currentUiStrings.goalPanel.close);
+    }
+    if (live2dParametersPanelTitle) {
+        live2dParametersPanelTitle.textContent = currentUiStrings.live2dParameters.title;
+    }
+    if (live2dParametersCloseButton) {
+        live2dParametersCloseButton.title = currentUiStrings.goalPanel.close;
+        live2dParametersCloseButton.setAttribute('aria-label', currentUiStrings.goalPanel.close);
+    }
+    if (live2dParametersWarning) {
+        live2dParametersWarning.textContent = currentUiStrings.live2dParameters.warning;
+    }
+    if (live2dParametersSearch) {
+        live2dParametersSearch.placeholder = currentUiStrings.live2dParameters.search;
+    }
+    if (live2dParametersTabs) {
+        const tabLabels = currentUiStrings.live2dParameters;
+        live2dParametersTabs.querySelectorAll('[data-live2d-parameter-tab]').forEach((tab) => {
+            const key = tab.dataset.live2dParameterTab;
+            if (tabLabels[key]) {
+                tab.textContent = tabLabels[key];
+            }
+        });
+    }
+    if (live2dParametersSaveButton) {
+        live2dParametersSaveButton.textContent = currentUiStrings.live2dParameters.save;
+    }
+    if (live2dParametersResetButton) {
+        live2dParametersResetButton.textContent = currentUiStrings.live2dParameters.reset;
     }
     if (moodMeterNameValence) moodMeterNameValence.textContent = currentUiStrings.mood.axis.valence;
     if (moodMeterNameBond) moodMeterNameBond.textContent = currentUiStrings.mood.axis.bond;
