@@ -1,6 +1,6 @@
 ﻿import json
 
-from PyQt6.QtCore import QPoint, QRect, QSize, Qt
+from PyQt6.QtCore import QEventLoop, QPoint, QRect, QSize, Qt, QTimer
 from PyQt6.QtWidgets import QApplication
 
 if QApplication.instance() is None:
@@ -20,6 +20,12 @@ def _get_qapp():
         app = QApplication([])
     _QAPP = app
     return app
+
+
+def _wait_for_qt_timer(milliseconds=50):
+    loop = QEventLoop()
+    QTimer.singleShot(milliseconds, loop.quit)
+    loop.exec()
 
 
 class _FakeOverlay:
@@ -80,6 +86,35 @@ def test_live2d_parameter_window_batch_resets_visible_items_once():
     assert "window.resetLive2DParameterInspectorValues" in script
     assert json.loads(script.split("(", 1)[1].rsplit(")", 1)[0]) == ["ParamRibbon", "ParamHat"]
     assert callback is not None
+
+    window.deleteLater()
+
+
+def test_live2d_parameter_window_coalesces_repeated_value_updates():
+    _get_qapp()
+    calls = []
+
+    class _FakePage:
+        def runJavaScript(self, script, callback=None):
+            calls.append(script)
+
+    class _FakeWebView:
+        def page(self):
+            return _FakePage()
+
+    class _Overlay(_FakeOverlay):
+        web_view = _FakeWebView()
+
+    window = Live2DParameterWindow(_Overlay())
+
+    window._queue_parameter_value("ParamRibbon", 0.1)
+    window._queue_parameter_value("ParamRibbon", 0.2)
+    _wait_for_qt_timer()
+
+    assert len(calls) == 1
+    assert "ParamRibbon" in calls[0]
+    assert "0.2" in calls[0]
+    assert "0.1" not in calls[0]
 
     window.deleteLater()
 

@@ -5,7 +5,7 @@ import json
 from functools import partial
 from typing import Any
 
-from PyQt6.QtCore import QPoint, QRect, QSize, Qt
+from PyQt6.QtCore import QPoint, QRect, QSize, Qt, QTimer
 from PyQt6.QtGui import QGuiApplication
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -36,6 +36,11 @@ class Live2DParameterWindow(QWidget):
         self._row_controls: dict[str, tuple[QSlider, QDoubleSpinBox]] = {}
         self._syncing_controls = False
         self._positioned = False
+        self._pending_parameter_values: dict[str, float] = {}
+        self._parameter_update_timer = QTimer(self)
+        self._parameter_update_timer.setInterval(16)
+        self._parameter_update_timer.setSingleShot(True)
+        self._parameter_update_timer.timeout.connect(self._flush_parameter_value_updates)
 
         self.setWindowTitle("Live2D 파라미터")
         self.setWindowFlags(
@@ -375,13 +380,13 @@ class Live2DParameterWindow(QWidget):
             return
         value = raw_value / self.SLIDER_SCALE
         self._sync_control_value(param_id, value)
-        self._set_parameter_value(param_id, value)
+        self._queue_parameter_value(param_id, value)
 
     def _on_spin_changed(self, param_id: str, value: float) -> None:
         if self._syncing_controls:
             return
         self._sync_control_value(param_id, value)
-        self._set_parameter_value(param_id, value)
+        self._queue_parameter_value(param_id, value)
 
     def _sync_control_value(self, param_id: str, value: float) -> None:
         controls = self._row_controls.get(param_id)
@@ -403,6 +408,17 @@ class Live2DParameterWindow(QWidget):
             f" && window.setLive2DParameterInspectorValue({json.dumps(param_id)}, {json.dumps(float(value))})"
         )
         self._run_live2d_js(script)
+
+    def _queue_parameter_value(self, param_id: str, value: float) -> None:
+        self._pending_parameter_values[param_id] = float(value)
+        if not self._parameter_update_timer.isActive():
+            self._parameter_update_timer.start()
+
+    def _flush_parameter_value_updates(self) -> None:
+        pending_values = dict(self._pending_parameter_values)
+        self._pending_parameter_values.clear()
+        for param_id, value in pending_values.items():
+            self._set_parameter_value(param_id, value)
 
     def _set_pinned(self, param_id: str, state: int) -> None:
         pinned = state == Qt.CheckState.Checked.value

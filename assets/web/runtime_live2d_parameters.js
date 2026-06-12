@@ -800,7 +800,6 @@ function setLive2DParameterInspectorValue(paramId, value) {
         maxValue,
     );
     setLive2DParameterDirtyValue(paramId, numericValue);
-    renderLive2DParameterInspector();
     return true;
 }
 
