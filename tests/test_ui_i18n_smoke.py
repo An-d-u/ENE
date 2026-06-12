@@ -2340,6 +2340,7 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
           "chat.proactive.panel.close": "Close",
           "chat.proactive.panel.remove": "Delete proactive conversation",
           "chat.live2dParameters.title": "Live2D parameters",
+          "chat.live2dParameters.close": "Close Live2D parameter panel",
           "chat.live2dParameters.warning": "For decoration controls. Avoid expression, eye, mouth, head, and body motion parameters because they may conflict with expressions, lip-sync, and head pats.",
           "chat.live2dParameters.search": "Search parameters",
           "chat.live2dParameters.recommended": "Recommended",
@@ -2417,6 +2418,7 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
           "chat.proactive.panel.close": "閉じる",
           "chat.proactive.panel.remove": "先回り会話を削除",
           "chat.live2dParameters.title": "Live2Dパラメータ",
+          "chat.live2dParameters.close": "Live2Dパラメータパネルを閉じる",
           "chat.live2dParameters.warning": "装飾調整用です。表情、目、口、頭、体の動きに関するパラメータは、表情、リップシンク、なで反応と競合する場合があるため、触らないことをおすすめします。",
           "chat.live2dParameters.search": "パラメータを検索",
           "chat.live2dParameters.recommended": "おすすめ",
@@ -2499,6 +2501,8 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
     assert '"proactivePanel": {"title": "先回り"' in captured[-1]
     assert '"remove": "先回り会話を削除"' in captured[-1]
     assert '"live2dParameters": {"title": "Live2Dパラメータ"' in captured[-1]
+    assert '"close": "Live2Dパラメータパネルを閉じる"' in captured[-1]
+    assert '"search": "パラメータを検索"' in captured[-1]
     assert '"warning": "装飾調整用です。表情、目、口、頭、体の動きに関するパラメータは、表情、リップシンク、なで反応と競合する場合があるため、触らないことをおすすめします。"' in captured[-1]
     assert '"empty": "表示するパラメータはありません。"' in captured[-1]
     assert '"goalPanel": {' in captured[-1]
@@ -2528,6 +2532,9 @@ def test_chat_web_script_has_runtime_i18n_hooks():
     assert "goalButton.setAttribute('aria-label', currentUiStrings.actions.goals.title);" in content
     assert "label: goalPanel.label || DEFAULT_UI_STRINGS.goalPanel.label" in content
     assert "title: live2dParameters.title || DEFAULT_UI_STRINGS.live2dParameters.title" in content
+    assert "close: live2dParameters.close || DEFAULT_UI_STRINGS.live2dParameters.close" in content
+    assert "live2dParametersCloseButton.title = currentUiStrings.live2dParameters.close;" in content
+    assert "live2dParametersSearch.setAttribute('aria-label', currentUiStrings.live2dParameters.search);" in content
     assert "window.setProactiveConversationButtonEnabled = function setProactiveConversationButtonEnabled(enabled)" in content
     assert "window.setProactiveConversationItems = function setProactiveConversationItems(items)" in content
     assert "window.setGoalButtonEnabled = function setGoalButtonEnabled(enabled)" in content

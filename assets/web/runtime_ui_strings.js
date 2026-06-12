@@ -5,6 +5,7 @@ DEFAULT_UI_STRINGS.actions.live2dParameters = DEFAULT_UI_STRINGS.actions.live2dP
 };
 DEFAULT_UI_STRINGS.live2dParameters = DEFAULT_UI_STRINGS.live2dParameters || {
     title: 'Live2D parameters',
+    close: 'Close Live2D parameter panel',
     warning: 'For decoration controls. Avoid expression, eye, mouth, head, and body motion parameters because they may conflict with expressions, lip-sync, and head pats.',
     search: 'Search parameters',
     recommended: 'Recommended',
@@ -99,6 +100,7 @@ function mergeUiStrings(config) {
         },
         live2dParameters: {
             title: live2dParameters.title || DEFAULT_UI_STRINGS.live2dParameters.title,
+            close: live2dParameters.close || DEFAULT_UI_STRINGS.live2dParameters.close,
             warning: live2dParameters.warning || DEFAULT_UI_STRINGS.live2dParameters.warning,
             search: live2dParameters.search || DEFAULT_UI_STRINGS.live2dParameters.search,
             recommended: live2dParameters.recommended || DEFAULT_UI_STRINGS.live2dParameters.recommended,
@@ -236,14 +238,15 @@ function applyUiStringsToStaticNodes() {
         live2dParametersPanelTitle.textContent = currentUiStrings.live2dParameters.title;
     }
     if (live2dParametersCloseButton) {
-        live2dParametersCloseButton.title = currentUiStrings.goalPanel.close;
-        live2dParametersCloseButton.setAttribute('aria-label', currentUiStrings.goalPanel.close);
+        live2dParametersCloseButton.title = currentUiStrings.live2dParameters.close;
+        live2dParametersCloseButton.setAttribute('aria-label', currentUiStrings.live2dParameters.close);
     }
     if (live2dParametersWarning) {
         live2dParametersWarning.textContent = currentUiStrings.live2dParameters.warning;
     }
     if (live2dParametersSearch) {
         live2dParametersSearch.placeholder = currentUiStrings.live2dParameters.search;
+        live2dParametersSearch.setAttribute('aria-label', currentUiStrings.live2dParameters.search);
     }
     if (live2dParametersTabs) {
         const tabLabels = currentUiStrings.live2dParameters;

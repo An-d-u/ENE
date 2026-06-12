@@ -777,6 +777,11 @@ body.thought-feature-disabled .message-thought {
     color: var(--ene-floating-panel-muted-text);
 }
 
+#live2d-parameters-search:focus-visible {
+    border-color: rgba(255, 255, 255, 0.5);
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.18);
+}
+
 #live2d-parameters-tabs,
 #live2d-parameters-actions {
     display: flex;
