@@ -274,7 +274,7 @@
   "chat.live2dParameters.search": "パラメータを検索",
   "chat.live2dParameters.recommended": "おすすめ",
   "chat.live2dParameters.all": "すべて",
-  "chat.live2dParameters.pinned": "固定",
+  "chat.live2dParameters.pinned": "お気に入り",
   "chat.live2dParameters.save": "保存",
   "chat.live2dParameters.reset": "リセット",
   "chat.live2dParameters.empty": "表示するパラメータはありません。",

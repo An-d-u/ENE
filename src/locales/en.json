@@ -274,7 +274,7 @@
   "chat.live2dParameters.search": "Search parameters",
   "chat.live2dParameters.recommended": "Recommended",
   "chat.live2dParameters.all": "All",
-  "chat.live2dParameters.pinned": "Pinned",
+  "chat.live2dParameters.pinned": "Favorites",
   "chat.live2dParameters.save": "Save",
   "chat.live2dParameters.reset": "Reset",
   "chat.live2dParameters.empty": "No parameters to show.",

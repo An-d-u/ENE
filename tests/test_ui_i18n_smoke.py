@@ -2345,7 +2345,7 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
           "chat.live2dParameters.search": "Search parameters",
           "chat.live2dParameters.recommended": "Recommended",
           "chat.live2dParameters.all": "All",
-          "chat.live2dParameters.pinned": "Pinned",
+          "chat.live2dParameters.pinned": "Favorites",
           "chat.live2dParameters.save": "Save",
           "chat.live2dParameters.reset": "Reset",
           "chat.live2dParameters.empty": "No parameters to show.",
@@ -2432,7 +2432,7 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
           "chat.live2dParameters.search": "パラメータを検索",
           "chat.live2dParameters.recommended": "おすすめ",
           "chat.live2dParameters.all": "すべて",
-          "chat.live2dParameters.pinned": "固定",
+          "chat.live2dParameters.pinned": "お気に入り",
           "chat.live2dParameters.save": "保存",
           "chat.live2dParameters.reset": "リセット",
           "chat.live2dParameters.empty": "表示するパラメータはありません。",
@@ -2521,6 +2521,7 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
     assert '"live2dParameters": {"title": "Live2Dパラメータ"' in captured[-1]
     assert '"close": "Live2Dパラメータパネルを閉じる"' in captured[-1]
     assert '"search": "パラメータを検索"' in captured[-1]
+    assert '"pinned": "お気に入り"' in captured[-1]
     assert '"warning": "装飾調整用です。表情、目、口、頭、体の動きに関するパラメータは、表情、リップシンク、なで反応と競合する場合があるため、触らないことをおすすめします。"' in captured[-1]
     assert '"empty": "表示するパラメータはありません。"' in captured[-1]
     assert '"toastSaveSuccess": "Live2Dパラメータを保存しました。"' in captured[-1]
@@ -2534,6 +2535,20 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
     assert '"tense": "警戒気味"' in captured[-1]
     assert '"drained": "ぐったり"' in captured[-1]
     assert '"lonely"' not in captured[-1]
+
+
+def test_live2d_parameter_favorites_label_is_localized_in_bundled_locales():
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+
+    assert json.loads((locales_dir / "ko.json").read_text(encoding="utf-8-sig"))[
+        "chat.live2dParameters.pinned"
+    ] == "즐겨찾기"
+    assert json.loads((locales_dir / "en.json").read_text(encoding="utf-8-sig"))[
+        "chat.live2dParameters.pinned"
+    ] == "Favorites"
+    assert json.loads((locales_dir / "ja.json").read_text(encoding="utf-8-sig"))[
+        "chat.live2dParameters.pinned"
+    ] == "お気に入り"
 
 
 def test_chat_web_script_has_runtime_i18n_hooks():

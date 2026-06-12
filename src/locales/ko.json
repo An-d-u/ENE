@@ -276,7 +276,7 @@
   "chat.live2dParameters.search": "파라미터 검색",
   "chat.live2dParameters.recommended": "추천",
   "chat.live2dParameters.all": "전체",
-  "chat.live2dParameters.pinned": "고정",
+  "chat.live2dParameters.pinned": "즐겨찾기",
   "chat.live2dParameters.save": "저장",
   "chat.live2dParameters.reset": "초기화",
   "chat.live2dParameters.empty": "표시할 파라미터가 없습니다.",
