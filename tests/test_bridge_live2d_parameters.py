@@ -1,5 +1,7 @@
 ﻿import json
 
+from PyQt6.QtCore import QObject
+
 from src.core.bridge import WebBridge
 from src.core.settings import Settings
 
@@ -269,3 +271,19 @@ def test_live2d_parameter_overrides_empty_payload_removes_only_that_model(tmp_pa
             "pinned": ["ParamHat"],
         }
     }
+
+
+def test_live2d_parameter_bridge_opens_parent_native_inspector(tmp_path):
+    bridge, _settings = _bridge_with_settings(tmp_path)
+    calls = []
+
+    class _Parent(QObject):
+        def open_live2d_parameter_inspector(self):
+            calls.append("opened")
+
+    parent = _Parent()
+    bridge.setParent(parent)
+
+    bridge.open_live2d_parameter_inspector()
+
+    assert calls == ["opened"]

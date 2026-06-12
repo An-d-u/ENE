@@ -66,6 +66,13 @@ def _normalize_override_payload(payload: Any) -> dict[str, Any] | None:
 class Live2DParameterBridgeMixin:
     """JS에서 Live2D 파라미터 저장값을 읽고 저장하는 슬롯."""
 
+    @pyqtSlot()
+    def open_live2d_parameter_inspector(self) -> None:
+        parent = self.parent()
+        opener = getattr(parent, "open_live2d_parameter_inspector", None)
+        if callable(opener):
+            opener()
+
     @pyqtSlot(str, result=str)
     def get_live2d_parameter_overrides(self, model_key: str) -> str:
         key = _normalize_model_key(model_key)

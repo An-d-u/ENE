@@ -28,6 +28,7 @@ class OverlayWindow(QWidget):
         self._shutting_down = False
         self._last_sent_mouse_pos = None
         self._mouse_send_min_delta = 2
+        self._live2d_parameter_window = None
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -110,6 +111,13 @@ class OverlayWindow(QWidget):
         self._sync_thought_feature_settings_to_js()
         self._sync_chat_panel_height_to_js()
         print("Web page loaded")
+
+    def open_live2d_parameter_inspector(self) -> None:
+        from ..ui.live2d_parameter_window import Live2DParameterWindow
+
+        if self._live2d_parameter_window is None:
+            self._live2d_parameter_window = Live2DParameterWindow(self)
+        self._live2d_parameter_window.show_and_refresh()
 
     def _get_base_path(self) -> Path:
         if getattr(sys, "frozen", False):
@@ -657,6 +665,11 @@ class OverlayWindow(QWidget):
         self._shutting_down = True
         self._page_loaded = False
         self._last_sent_mouse_pos = None
+
+        if self._live2d_parameter_window is not None:
+            self._live2d_parameter_window.hide()
+            self._live2d_parameter_window.deleteLater()
+            self._live2d_parameter_window = None
 
         if hasattr(self, "mouse_tracking_timer") and self.mouse_tracking_timer.isActive():
             self.mouse_tracking_timer.stop()

@@ -338,9 +338,9 @@ function setLive2DParameterDirtyValue(paramId, value) {
     setLive2DParameterModelValue(paramId, numericValue);
 }
 
-function resetLive2DParameterOverride(paramId) {
+function resetLive2DParameterOverrideState(paramId) {
     if (!paramId) {
-        return;
+        return false;
     }
     const metadata = getLive2DParameterMetadata(paramId);
     delete live2dParameterState.dirtyValues[paramId];
@@ -351,6 +351,13 @@ function resetLive2DParameterOverride(paramId) {
         metadata.current = defaultValue;
     }
     setLive2DParameterModelValue(paramId, defaultValue);
+    return true;
+}
+
+function resetLive2DParameterOverride(paramId) {
+    if (!resetLive2DParameterOverrideState(paramId)) {
+        return;
+    }
     renderLive2DParameterInspector();
 }
 
@@ -553,6 +560,17 @@ function setLive2DParameterPanelOpen(open) {
     }
 }
 
+function openNativeLive2DParameterInspectorIfAvailable() {
+    if (
+        window.pyBridge
+        && typeof window.pyBridge.open_live2d_parameter_inspector === 'function'
+    ) {
+        window.pyBridge.open_live2d_parameter_inspector();
+        return true;
+    }
+    return false;
+}
+
 function clampLive2DParameterPanelPosition(left, top, width, height) {
     const viewportWidth = Number(window.innerWidth || 0);
     const viewportHeight = Number(window.innerHeight || 0);
@@ -711,6 +729,91 @@ function resetVisibleLive2DParameterOverrides() {
     renderLive2DParameterInspector();
 }
 
+function buildLive2DParameterInspectorSnapshot() {
+    return {
+        modelKey: live2dParameterState.modelKey,
+        metadataStatus: live2dParameterState.metadataStatus,
+        metadataError: live2dParameterState.metadataError,
+        activeTab: live2dParameterState.activeTab,
+        searchQuery: live2dParameterState.searchQuery,
+        pinned: Array.from(live2dParameterState.pinned),
+        savePayload: buildLive2DParameterSavePayload(),
+        metadata: live2dParameterState.metadata.map((item) => ({
+            id: item.id,
+            current: normalizeLive2DParameterNumber(item.current, item.default),
+            default: normalizeLive2DParameterNumber(item.default, 0),
+            min: normalizeLive2DParameterNumber(item.min, 0),
+            max: normalizeLive2DParameterNumber(item.max, 1),
+            recommended: Boolean(item.recommended),
+        })),
+    };
+}
+
+function getLive2DParameterInspectorSnapshot() {
+    if (live2dParameterState.metadataStatus !== 'ready') {
+        refreshLive2DParameterInspector();
+    }
+    return JSON.stringify(buildLive2DParameterInspectorSnapshot());
+}
+
+function setLive2DParameterInspectorValue(paramId, value) {
+    const item = getLive2DParameterMetadata(paramId);
+    if (!item || !isLive2DParameterOverrideAllowed(paramId)) {
+        return false;
+    }
+    const minValue = normalizeLive2DParameterNumber(item.min, value);
+    const maxValue = normalizeLive2DParameterNumber(item.max, value);
+    const numericValue = Math.min(
+        Math.max(normalizeLive2DParameterNumber(value, item.current), minValue),
+        maxValue,
+    );
+    setLive2DParameterDirtyValue(paramId, numericValue);
+    renderLive2DParameterInspector();
+    return true;
+}
+
+function setLive2DParameterInspectorPinned(paramId, pinned) {
+    if (!paramId) {
+        return false;
+    }
+    if (pinned) {
+        live2dParameterState.pinned.add(paramId);
+    } else {
+        live2dParameterState.pinned.delete(paramId);
+    }
+    renderLive2DParameterInspector();
+    return true;
+}
+
+function resetLive2DParameterInspectorValue(paramId) {
+    if (!getLive2DParameterMetadata(paramId)) {
+        return false;
+    }
+    resetLive2DParameterOverride(paramId);
+    return true;
+}
+
+function resetLive2DParameterInspectorValues(paramIds) {
+    if (!Array.isArray(paramIds)) {
+        return false;
+    }
+    let changed = false;
+    paramIds.forEach((paramId) => {
+        if (getLive2DParameterMetadata(paramId) && resetLive2DParameterOverrideState(paramId)) {
+            changed = true;
+        }
+    });
+    if (changed) {
+        renderLive2DParameterInspector();
+    }
+    return changed;
+}
+
+function saveLive2DParameterInspectorOverrides() {
+    saveLive2DParameterOverrides();
+    return true;
+}
+
 function bindLive2DParameterEvents() {
     const live2dParametersButton = getLive2DParameterElement('live2d-parameters-floating-btn');
     const live2dParametersHeader = getLive2DParameterElement('live2d-parameters-panel-header');
@@ -721,6 +824,9 @@ function bindLive2DParameterEvents() {
 
     if (live2dParametersButton) {
         live2dParametersButton.addEventListener('click', () => {
+            if (openNativeLive2DParameterInspectorIfAvailable()) {
+                return;
+            }
             setLive2DParameterPanelOpen(!live2dParameterState.panelOpen);
         });
     }
@@ -793,6 +899,12 @@ function bindLive2DParameterOverrideHook() {
 }
 
 window.applyLive2DParameterOverrides = applyLive2DParameterOverrides;
+window.getLive2DParameterInspectorSnapshot = getLive2DParameterInspectorSnapshot;
+window.setLive2DParameterInspectorValue = setLive2DParameterInspectorValue;
+window.setLive2DParameterInspectorPinned = setLive2DParameterInspectorPinned;
+window.resetLive2DParameterInspectorValue = resetLive2DParameterInspectorValue;
+window.resetLive2DParameterInspectorValues = resetLive2DParameterInspectorValues;
+window.saveLive2DParameterInspectorOverrides = saveLive2DParameterInspectorOverrides;
 window.onLive2DParameterModelChanged = function onLive2DParameterModelChanged(config = {}) {
     const nextModelKey = String(config.modelKey || '');
     const modelKeyChanged = live2dParameterState.modelKey !== nextModelKey;
