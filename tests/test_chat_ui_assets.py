@@ -163,6 +163,28 @@ def test_live2d_parameter_runtime_applies_overrides_in_late_internal_model_hook(
     assert "window.onLive2DParameterModelChanged = function" in script
 
 
+def test_live2d_parameter_runtime_renders_inspector_controls():
+    script = _script_text()
+
+    assert "function collectLive2DParameterMetadata()" in script
+    assert "function readLive2DParameterIndexedValue(" in script
+    assert "getParameterDefaultValue" in script
+    assert "getParameterMinimumValue" in script
+    assert "getParameterMaximumValue" in script
+    assert "coreModel._model && coreModel._model.parameters" in script
+    assert "function renderLive2DParameterInspector()" in script
+    assert "function setLive2DParameterMetadataStatus(" in script
+    assert "function setLive2DParameterPanelOpen(open)" in script
+    assert "function saveLive2DParameterOverrides()" in script
+    assert "function buildLive2DParameterSavePayload()" in script
+    assert "function resetLive2DParameterOverride(paramId)" in script
+    assert "live2dParameterState.removedValues.add(paramId);" in script
+    assert "live2dParametersSaveButton.disabled = live2dParameterState.metadataStatus !== 'ready';" in script
+    assert "live2dParametersSearch.addEventListener('input'" in script
+    assert "live2dParametersSaveButton.addEventListener('click'" in script
+    assert "window.pyBridge.save_live2d_parameter_overrides" in script
+
+
 def test_live2d_model_notifies_parameter_runtime_after_model_load():
     script = _script_text()
 
@@ -284,6 +306,251 @@ result = {
     assert result == {
         "aListenerCount": 1,
         "bCallsFromStaleAUpdate": 0,
+    }
+
+
+def test_live2d_parameter_metadata_reads_getters_and_parameter_fallbacks():
+    result = _run_live2d_parameter_runtime_case(
+        """
+const getterCoreModel = {
+    getParameterIds: () => ['ParamDecorA', 'ParamEyeLOpen'],
+    getParameterValueById: (paramId) => ({ ParamDecorA: 0.75, ParamEyeLOpen: 1 }[paramId]),
+    getParameterDefaultValue: (index) => {
+        if (typeof index !== 'number') throw new Error('index required');
+        return [0.25, 1][index];
+    },
+    getParameterMinimumValue: (index) => {
+        if (typeof index !== 'number') throw new Error('index required');
+        return [-0.5, 0][index];
+    },
+    getParameterMaximumValue: (index) => {
+        if (typeof index !== 'number') throw new Error('index required');
+        return [1.5, 1][index];
+    },
+};
+window.live2dModel = { internalModel: { coreModel: getterCoreModel } };
+const getterMetadata = collectLive2DParameterMetadata();
+
+const fallbackCoreModel = {
+    _model: {
+        parameters: {
+            ids: ['ParamDecorB'],
+            values: [0.4],
+            defaultValues: [0.1],
+            minimumValues: [0.2],
+            maximumValues: [0.3],
+        },
+    },
+};
+window.live2dModel = { internalModel: { coreModel: fallbackCoreModel } };
+const fallbackMetadata = collectLive2DParameterMetadata();
+
+result = {
+    getterMetadata,
+    fallbackMetadata,
+};
+"""
+    )
+
+    assert result == {
+        "getterMetadata": [
+            {
+                "id": "ParamDecorA",
+                "value": 0.75,
+                "defaultValue": 0.25,
+                "min": -0.5,
+                "max": 1.5,
+                "recommended": True,
+            },
+            {
+                "id": "ParamEyeLOpen",
+                "value": 1,
+                "defaultValue": 1,
+                "min": 0,
+                "max": 1,
+                "recommended": False,
+            },
+        ],
+        "fallbackMetadata": [
+            {
+                "id": "ParamDecorB",
+                "value": 0.4,
+                "defaultValue": 0.1,
+                "min": 0.1,
+                "max": 0.4,
+                "recommended": True,
+            },
+        ],
+    }
+
+
+def test_live2d_parameter_save_payload_keeps_only_saved_dirty_and_pinned_values():
+    result = _run_live2d_parameter_runtime_case(
+        """
+live2dParameterState.metadata = [
+    { id: 'ParamVisibleOnly', value: 0.5, defaultValue: 0, min: -1, max: 1, recommended: true },
+    { id: 'ParamSaved', value: 0.2, defaultValue: 0, min: -1, max: 1, recommended: true },
+    { id: 'ParamDirty', value: 0.3, defaultValue: 0, min: -1, max: 1, recommended: true },
+    { id: 'ParamRemoved', value: 0.4, defaultValue: 0, min: -1, max: 1, recommended: true },
+];
+live2dParameterState.values = { ParamSaved: 1, ParamRemoved: 2 };
+live2dParameterState.dirtyValues = { ParamDirty: 3 };
+live2dParameterState.removedValues = new Set(['ParamRemoved']);
+live2dParameterState.pinned = new Set(['ParamVisibleOnly', 'ParamDirty']);
+
+result = buildLive2DParameterSavePayload();
+"""
+    )
+
+    assert result == {
+        "values": {
+            "ParamSaved": 1,
+            "ParamDirty": 3,
+        },
+        "pinned": ["ParamVisibleOnly", "ParamDirty"],
+    }
+
+
+def test_live2d_parameter_save_refuses_non_ready_status_and_missing_bridge():
+    result = _run_live2d_parameter_runtime_case(
+        """
+const toasts = [];
+window.showToast = (message, type) => toasts.push([message, type]);
+
+live2dParameterState.metadataStatus = 'idle';
+saveLive2DParameterOverrides();
+const afterIdle = {
+    toasts: toasts.slice(),
+};
+
+toasts.length = 0;
+live2dParameterState.metadataStatus = 'ready';
+window.pyBridge = {};
+saveLive2DParameterOverrides();
+
+result = {
+    afterIdle,
+    afterMissingBridge: {
+        toasts: toasts.slice(),
+    },
+};
+"""
+    )
+
+    assert result["afterIdle"]["toasts"] == [["파라미터 목록을 먼저 불러와야 합니다.", "error"]]
+    assert result["afterMissingBridge"]["toasts"] == [["저장 브리지를 사용할 수 없습니다.", "error"]]
+
+
+def test_live2d_parameter_reset_removes_saved_param_and_restores_default():
+    result = _run_live2d_parameter_runtime_case(
+        """
+const calls = [];
+window.live2dModel = {
+    internalModel: {
+        coreModel: {
+            setParameterValueById: (paramId, value) => calls.push([paramId, value]),
+        },
+    },
+};
+live2dParameterState.metadata = [
+    { id: 'ParamSaved', value: 0.8, defaultValue: 0.1, min: -1, max: 1, recommended: true },
+];
+live2dParameterState.metadataStatus = 'ready';
+live2dParameterState.values = { ParamSaved: 0.8 };
+live2dParameterState.dirtyValues = { ParamSaved: 0.9 };
+live2dParameterState.removedValues = new Set();
+
+resetLive2DParameterOverride('ParamSaved');
+
+result = {
+    values: live2dParameterState.values,
+    dirtyValues: live2dParameterState.dirtyValues,
+    removedValues: Array.from(live2dParameterState.removedValues),
+    calls,
+    payload: buildLive2DParameterSavePayload(),
+};
+"""
+    )
+
+    assert result == {
+        "values": {},
+        "dirtyValues": {},
+        "removedValues": ["ParamSaved"],
+        "calls": [["ParamSaved", 0.1]],
+        "payload": {
+            "values": {},
+            "pinned": [],
+        },
+    }
+
+
+def test_live2d_parameter_tab_changes_update_selected_and_tabpanel_label():
+    result = _run_live2d_parameter_runtime_case(
+        """
+function makeElement(id) {
+    return {
+        id,
+        attributes: {},
+        classList: {
+            values: [],
+            toggle(name, active) {
+                this.values = this.values.filter((value) => value !== name);
+                if (active) {
+                    this.values.push(name);
+                }
+            },
+            contains(name) {
+                return this.values.indexOf(name) >= 0;
+            },
+            add(name) {
+                if (!this.contains(name)) this.values.push(name);
+            },
+            remove(name) {
+                this.values = this.values.filter((value) => value !== name);
+            },
+        },
+        setAttribute(name, value) {
+            this.attributes[name] = String(value);
+        },
+        getAttribute(name) {
+            return this.attributes[name];
+        },
+        addEventListener() {},
+        appendChild() {},
+        replaceChildren() {},
+        dataset: {},
+        disabled: false,
+        value: '',
+        textContent: '',
+    };
+}
+
+const elements = {
+    'live2d-parameters-tab-recommended': makeElement('live2d-parameters-tab-recommended'),
+    'live2d-parameters-tab-all': makeElement('live2d-parameters-tab-all'),
+    'live2d-parameters-tab-pinned': makeElement('live2d-parameters-tab-pinned'),
+    'live2d-parameters-list': makeElement('live2d-parameters-list'),
+};
+document = {
+    getElementById: (id) => elements[id] || null,
+};
+
+setLive2DParameterActiveTab('pinned');
+
+result = {
+    recommendedSelected: elements['live2d-parameters-tab-recommended'].getAttribute('aria-selected'),
+    pinnedSelected: elements['live2d-parameters-tab-pinned'].getAttribute('aria-selected'),
+    pinnedActive: elements['live2d-parameters-tab-pinned'].classList.contains('is-active'),
+    label: elements['live2d-parameters-list'].getAttribute('aria-labelledby'),
+};
+"""
+    )
+
+    assert result == {
+        "recommendedSelected": "false",
+        "pinnedSelected": "true",
+        "pinnedActive": True,
+        "label": "live2d-parameters-tab-pinned",
     }
 
 
