@@ -2343,9 +2343,8 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
           "chat.live2dParameters.close": "Close Live2D parameter panel",
           "chat.live2dParameters.warning": "For decoration controls. Avoid expression, eye, mouth, head, and body motion parameters because they may conflict with expressions, lip-sync, and head pats.",
           "chat.live2dParameters.search": "Search parameters",
-          "chat.live2dParameters.recommended": "Recommended",
           "chat.live2dParameters.all": "All",
-          "chat.live2dParameters.pinned": "Favorites",
+          "chat.live2dParameters.favorites": "Favorites",
           "chat.live2dParameters.save": "Save",
           "chat.live2dParameters.reset": "Reset",
           "chat.live2dParameters.empty": "No parameters to show.",
@@ -2430,9 +2429,8 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
           "chat.live2dParameters.close": "Live2Dパラメータパネルを閉じる",
           "chat.live2dParameters.warning": "装飾調整用です。表情、目、口、頭、体の動きに関するパラメータは、表情、リップシンク、なで反応と競合する場合があるため、触らないことをおすすめします。",
           "chat.live2dParameters.search": "パラメータを検索",
-          "chat.live2dParameters.recommended": "おすすめ",
           "chat.live2dParameters.all": "すべて",
-          "chat.live2dParameters.pinned": "お気に入り",
+          "chat.live2dParameters.favorites": "お気に入り",
           "chat.live2dParameters.save": "保存",
           "chat.live2dParameters.reset": "リセット",
           "chat.live2dParameters.empty": "表示するパラメータはありません。",
@@ -2521,7 +2519,7 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
     assert '"live2dParameters": {"title": "Live2Dパラメータ"' in captured[-1]
     assert '"close": "Live2Dパラメータパネルを閉じる"' in captured[-1]
     assert '"search": "パラメータを検索"' in captured[-1]
-    assert '"pinned": "お気に入り"' in captured[-1]
+    assert '"favorites": "お気に入り"' in captured[-1]
     assert '"warning": "装飾調整用です。表情、目、口、頭、体の動きに関するパラメータは、表情、リップシンク、なで反応と競合する場合があるため、触らないことをおすすめします。"' in captured[-1]
     assert '"empty": "表示するパラメータはありません。"' in captured[-1]
     assert '"toastSaveSuccess": "Live2Dパラメータを保存しました。"' in captured[-1]
@@ -2541,13 +2539,13 @@ def test_live2d_parameter_favorites_label_is_localized_in_bundled_locales():
     locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
 
     assert json.loads((locales_dir / "ko.json").read_text(encoding="utf-8-sig"))[
-        "chat.live2dParameters.pinned"
+        "chat.live2dParameters.favorites"
     ] == "즐겨찾기"
     assert json.loads((locales_dir / "en.json").read_text(encoding="utf-8-sig"))[
-        "chat.live2dParameters.pinned"
+        "chat.live2dParameters.favorites"
     ] == "Favorites"
     assert json.loads((locales_dir / "ja.json").read_text(encoding="utf-8-sig"))[
-        "chat.live2dParameters.pinned"
+        "chat.live2dParameters.favorites"
     ] == "お気に入り"
 
 

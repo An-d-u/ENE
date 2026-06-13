@@ -13,8 +13,11 @@ from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
 from ..ui.drag_bar import DragBar
 from .bridge import WebBridge
-from .bridge_mixins.live2d_parameters import _empty_payload, _normalize_override_payload
 from .i18n import I18n, get_i18n
+from .live2d_parameter_overrides import (
+    empty_live2d_parameter_payload,
+    normalize_live2d_parameter_override_payload,
+)
 from .model_emotions import DEFAULT_MODEL_JSON_PATH, get_available_model_emotions, resolve_model_json_path
 
 
@@ -151,9 +154,9 @@ class OverlayWindow(QWidget):
         model_key = self._resolve_model_key(source)
         overrides = source.get("live2d_parameter_overrides", {})
         if not isinstance(overrides, dict):
-            return _empty_payload()
+            return empty_live2d_parameter_payload()
         payload = overrides.get(model_key, {})
-        return _normalize_override_payload(payload) or _empty_payload()
+        return normalize_live2d_parameter_override_payload(payload) or empty_live2d_parameter_payload()
 
     def _resolve_live2d_parameter_display_info_payload(self, settings_source=None) -> dict:
         source = settings_source if isinstance(settings_source, dict) else self.settings.config
@@ -348,9 +351,8 @@ class OverlayWindow(QWidget):
                 "close": i18n.t("chat.live2dParameters.close"),
                 "warning": i18n.t("chat.live2dParameters.warning"),
                 "search": i18n.t("chat.live2dParameters.search"),
-                "recommended": i18n.t("chat.live2dParameters.recommended"),
                 "all": i18n.t("chat.live2dParameters.all"),
-                "pinned": i18n.t("chat.live2dParameters.pinned"),
+                "favorites": i18n.t("chat.live2dParameters.favorites"),
                 "save": i18n.t("chat.live2dParameters.save"),
                 "reset": i18n.t("chat.live2dParameters.reset"),
                 "empty": i18n.t("chat.live2dParameters.empty"),

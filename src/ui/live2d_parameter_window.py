@@ -32,7 +32,7 @@ class Live2DParameterWindow(QWidget):
         super().__init__(None)
         self.overlay_window = overlay_window
         self._items: list[dict[str, Any]] = []
-        self._pinned: set[str] = set()
+        self._favorites: set[str] = set()
         self._row_controls: dict[str, tuple[QSlider, QDoubleSpinBox]] = {}
         self._syncing_controls = False
         self._positioned = False
@@ -194,7 +194,7 @@ class Live2DParameterWindow(QWidget):
         self.search_input.textChanged.connect(self._render_rows)
         self.filter_combo = QComboBox(self)
         self.filter_combo.addItem("전체", "all")
-        self.filter_combo.addItem("즐겨찾기", "pinned")
+        self.filter_combo.addItem("즐겨찾기", "favorites")
         self.filter_combo.currentIndexChanged.connect(self._render_rows)
         self.show_all_parameters_checkbox = QCheckBox("세부 파라미터 표시", self)
         self.show_all_parameters_checkbox.stateChanged.connect(self._render_rows)
@@ -333,7 +333,8 @@ class Live2DParameterWindow(QWidget):
             for item in payload.get("metadata", [])
             if isinstance(item, dict) and item.get("id")
         ]
-        self._pinned = {str(item) for item in payload.get("pinned", []) if item}
+        raw_favorites = payload.get("favorites", payload.get("pinned", []))
+        self._favorites = {str(item) for item in raw_favorites if item}
         self.save_button.setEnabled(status == "ready")
         self.reset_button.setEnabled(status == "ready")
 
@@ -369,7 +370,7 @@ class Live2DParameterWindow(QWidget):
             group_name = str(item.get("groupName") or "")
             if not show_all_parameters and not item.get("recommended"):
                 continue
-            if filter_name == "pinned" and param_id not in self._pinned:
+            if filter_name == "favorites" and param_id not in self._favorites:
                 continue
             searchable = " ".join([param_id, display_name, group_name]).lower()
             if query and query not in searchable:
@@ -405,15 +406,15 @@ class Live2DParameterWindow(QWidget):
         row_layout.setSpacing(6)
 
         header_layout = QHBoxLayout()
-        pin_box = QCheckBox("즐겨찾기", row)
-        pin_box.setChecked(param_id in self._pinned)
-        pin_box.stateChanged.connect(partial(self._set_pinned, param_id))
+        favorite_box = QCheckBox("즐겨찾기", row)
+        favorite_box.setChecked(param_id in self._favorites)
+        favorite_box.stateChanged.connect(partial(self._set_favorites, param_id))
         display_name = str(item.get("displayName") or "").strip()
         group_name = str(item.get("groupName") or "").strip()
         title = QLabel(display_name or param_id, row)
         title.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         header_layout.addWidget(title, 1)
-        header_layout.addWidget(pin_box)
+        header_layout.addWidget(favorite_box)
         row_layout.addLayout(header_layout)
         if display_name or group_name:
             detail_label = QLabel(" · ".join(part for part in [group_name, param_id] if part), row)
@@ -497,18 +498,18 @@ class Live2DParameterWindow(QWidget):
         for param_id, value in pending_values.items():
             self._set_parameter_value(param_id, value)
 
-    def _set_pinned(self, param_id: str, state: int) -> None:
-        pinned = state == Qt.CheckState.Checked.value
-        if pinned:
-            self._pinned.add(param_id)
+    def _set_favorites(self, param_id: str, state: int) -> None:
+        favorites = state == Qt.CheckState.Checked.value
+        if favorites:
+            self._favorites.add(param_id)
         else:
-            self._pinned.discard(param_id)
+            self._favorites.discard(param_id)
         script = (
-            "window.setLive2DParameterInspectorPinned"
-            f" && window.setLive2DParameterInspectorPinned({json.dumps(param_id)}, {json.dumps(pinned)})"
+            "window.setLive2DParameterInspectorFavorite"
+            f" && window.setLive2DParameterInspectorFavorite({json.dumps(param_id)}, {json.dumps(favorites)})"
         )
         self._run_live2d_js(script)
-        if self.filter_combo.currentData() == "pinned":
+        if self.filter_combo.currentData() == "favorites":
             self._render_rows()
 
     def _reset_parameter(self, param_id: str) -> None:

@@ -101,7 +101,7 @@ def test_overlay_window_resolves_parameter_overrides_for_current_model_key():
                 "live2d_parameter_overrides": {
                     model_key: {
                         "values": {"ParamAngleX": 7, " ParamAngleY ": 1.5},
-                        "pinned": ["ParamAngleX", " ParamAngleY "],
+                        "favorites": ["ParamAngleX", " ParamAngleY "],
                     },
                 },
             },
@@ -111,7 +111,7 @@ def test_overlay_window_resolves_parameter_overrides_for_current_model_key():
     assert OverlayWindow._resolve_model_key(window) == model_key
     assert OverlayWindow._resolve_live2d_parameter_overrides_payload(window) == {
         "values": {"ParamAngleX": 7.0, "ParamAngleY": 1.5},
-        "pinned": ["ParamAngleX", "ParamAngleY"],
+        "favorites": ["ParamAngleX", "ParamAngleY"],
     }
 
 
@@ -204,7 +204,7 @@ def test_overlay_window_parameter_overrides_fall_back_when_missing_or_malformed(
             "live2d_parameter_overrides": {
                 "assets/live2d_models/sample/sample.model3.json": {
                     "values": [],
-                    "pinned": {},
+                    "favorites": {},
                 },
             },
         },
@@ -213,7 +213,7 @@ def test_overlay_window_parameter_overrides_fall_back_when_missing_or_malformed(
     for source in malformed_sources:
         assert OverlayWindow._resolve_live2d_parameter_overrides_payload(window, source) == {
             "values": {},
-            "pinned": [],
+            "favorites": [],
         }
 
 
@@ -224,10 +224,10 @@ def test_overlay_window_parameter_overrides_reject_malformed_saved_values_for_cu
     window = OverlayWindow.__new__(OverlayWindow)
     window.settings = type("DummySettings", (), {"config": {}})()
     malformed_payloads = [
-        {"values": {"ParamX": True}, "pinned": []},
-        {"values": {"ParamX": "1.0"}, "pinned": []},
-        {"values": {}, "pinned": [123]},
-        {"values": {}, "pinned": [""]},
+        {"values": {"ParamX": True}, "favorites": []},
+        {"values": {"ParamX": "1.0"}, "favorites": []},
+        {"values": {}, "favorites": [123]},
+        {"values": {}, "favorites": [""]},
     ]
 
     for payload in malformed_payloads:
@@ -239,7 +239,7 @@ def test_overlay_window_parameter_overrides_reject_malformed_saved_values_for_cu
         }
         assert OverlayWindow._resolve_live2d_parameter_overrides_payload(window, source) == {
             "values": {},
-            "pinned": [],
+            "favorites": [],
         }
 
 
@@ -262,7 +262,7 @@ def test_overlay_window_preview_settings_preserves_saved_parameter_overrides(tmp
             "live2d_parameter_overrides": {
                 model_key: {
                     "values": {"ParamAngleX": 12},
-                    "pinned": ["ParamAngleX"],
+                    "favorites": ["ParamAngleX"],
                 },
             },
         }
@@ -299,4 +299,4 @@ def test_overlay_window_preview_settings_preserves_saved_parameter_overrides(tmp
 
     assert window.settings.config == original_config
     assert emitted_scripts
-    assert 'parameterOverrides: {"values": {"ParamAngleX": 12.0}, "pinned": ["ParamAngleX"]}' in emitted_scripts[0]
+    assert 'parameterOverrides: {"values": {"ParamAngleX": 12.0}, "favorites": ["ParamAngleX"]}' in emitted_scripts[0]

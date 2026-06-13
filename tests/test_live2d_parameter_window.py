@@ -86,7 +86,7 @@ def test_live2d_parameter_window_uses_all_and_favorites_filters():
         for index in range(window.filter_combo.count())
     ]
 
-    assert filters == [("전체", "all"), ("즐겨찾기", "pinned")]
+    assert filters == [("전체", "all"), ("즐겨찾기", "favorites")]
     assert window.show_all_parameters_checkbox.text() == "세부 파라미터 표시"
 
     window.deleteLater()
