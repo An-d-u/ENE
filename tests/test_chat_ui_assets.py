@@ -26,6 +26,8 @@ EXPECTED_RUNTIME_SCRIPTS = [
     "runtime_chat_flow.js",
     "runtime_bridge.js",
     "runtime_lipsync.js",
+    "runtime_live2d_parameter_core.js",
+    "runtime_live2d_parameter_ui.js",
     "runtime_live2d_parameters.js",
     "script.js",
 ]
@@ -51,12 +53,28 @@ def _script_text() -> str:
     return SCRIPT_PATH.read_text(encoding="utf-8-sig")
 
 
+def _live2d_parameter_runtime_text() -> str:
+    return "\n".join(
+        (WEB_DIR / path).read_text(encoding="utf-8-sig")
+        for path in [
+            "runtime_live2d_parameter_core.js",
+            "runtime_live2d_parameter_ui.js",
+            "runtime_live2d_parameters.js",
+        ]
+    )
+
+
 def _run_live2d_parameter_runtime_case(case_script: str) -> dict:
+    runtime_paths = [
+        str(WEB_DIR / "runtime_live2d_parameter_core.js"),
+        str(WEB_DIR / "runtime_live2d_parameter_ui.js"),
+        str(WEB_DIR / "runtime_live2d_parameters.js"),
+    ]
     node_script = f"""
 const fs = require('fs');
 const vm = require('vm');
 
-const runtimeSource = fs.readFileSync({json.dumps(str(WEB_DIR / "runtime_live2d_parameters.js"))}, 'utf8');
+const runtimeSource = {json.dumps(runtime_paths)}.map((path) => fs.readFileSync(path, 'utf8')).join('\\n');
 const caseSource = {json.dumps(case_script)};
 const context = {{
     window: {{}},
@@ -114,7 +132,7 @@ def test_web_runtime_initializers_load_after_called_dependencies():
 
 def test_live2d_parameter_runtime_loads_after_live2d_writers():
     script_order = {script_name: index for index, script_name in enumerate(EXPECTED_RUNTIME_SCRIPTS)}
-    parameter_index = script_order["runtime_live2d_parameters.js"]
+    parameter_index = script_order["runtime_live2d_parameter_core.js"]
     for dependency in [
         "runtime_live2d_model.js",
         "runtime_motion_state.js",
@@ -124,10 +142,12 @@ def test_live2d_parameter_runtime_loads_after_live2d_writers():
         "runtime_lipsync.js",
     ]:
         assert script_order[dependency] < parameter_index
+    assert script_order["runtime_live2d_parameter_core.js"] < script_order["runtime_live2d_parameter_ui.js"]
+    assert script_order["runtime_live2d_parameter_ui.js"] < script_order["runtime_live2d_parameters.js"]
 
 
 def test_live2d_parameter_runtime_does_not_redeclare_chat_state_globals():
-    runtime = (WEB_DIR / "runtime_live2d_parameters.js").read_text(encoding="utf-8-sig")
+    runtime = _live2d_parameter_runtime_text()
 
     for name in [
         "live2dParametersButton",
@@ -151,7 +171,7 @@ def test_live2d_parameter_inspector_markup_exists():
     assert 'id="live2d-parameters-tab-recommended"' not in html
     assert 'role="tab" aria-selected="true" aria-controls="live2d-parameters-list"' in html
     assert 'id="live2d-parameters-tab-all"' in html
-    assert 'id="live2d-parameters-tab-pinned"' in html
+    assert 'id="live2d-parameters-tab-favorites"' in html
     assert '>즐겨찾기</button>' in html
     assert 'id="live2d-parameters-list" role="tabpanel" aria-labelledby="live2d-parameters-tab-all"' in html
     assert 'id="live2d-parameters-save-btn"' in html
@@ -498,7 +518,7 @@ result = collectLive2DParameterMetadata();
     ]
 
 
-def test_live2d_parameter_save_payload_keeps_only_saved_dirty_and_pinned_values():
+def test_live2d_parameter_save_payload_keeps_only_saved_dirty_and_favorites_values():
     result = _run_live2d_parameter_runtime_case(
         """
 live2dParameterState.metadata = [
@@ -510,7 +530,7 @@ live2dParameterState.metadata = [
 live2dParameterState.values = { ParamSaved: 1, ParamRemoved: 2 };
 live2dParameterState.dirtyValues = { ParamDirty: 3 };
 live2dParameterState.removedValues = new Set(['ParamRemoved']);
-live2dParameterState.pinned = new Set(['ParamVisibleOnly', 'ParamDirty']);
+live2dParameterState.favorites = new Set(['ParamVisibleOnly', 'ParamDirty']);
 
 result = buildLive2DParameterSavePayload();
 """
@@ -521,7 +541,7 @@ result = buildLive2DParameterSavePayload();
             "ParamSaved": 1,
             "ParamDirty": 3,
         },
-        "pinned": ["ParamVisibleOnly", "ParamDirty"],
+        "favorites": ["ParamVisibleOnly", "ParamDirty"],
     }
 
 
@@ -537,7 +557,7 @@ live2dParameterState.dirtyValues = {
     ParamAngleX: 20,
     ParamHat: 0.5,
 };
-live2dParameterState.pinned = new Set(['ParamRibbon', 'ParamEyeLOpen', 'ParamHat']);
+live2dParameterState.favorites = new Set(['ParamRibbon', 'ParamEyeLOpen', 'ParamHat']);
 
 result = buildLive2DParameterSavePayload();
 """
@@ -548,7 +568,7 @@ result = buildLive2DParameterSavePayload();
             "ParamRibbon": 0.75,
             "ParamHat": 0.5,
         },
-        "pinned": ["ParamRibbon", "ParamHat"],
+        "favorites": ["ParamRibbon", "ParamHat"],
     }
 
 
@@ -570,23 +590,23 @@ window.onLive2DParameterModelChanged({
     modelKey: 'same-model',
     parameterOverrides: {
         values: { ParamSaved: 1 },
-        pinned: ['ParamSaved'],
+        favorites: ['ParamSaved'],
     },
 });
 live2dParameterState.dirtyValues = { ParamDirty: 2 };
 live2dParameterState.removedValues = new Set(['ParamRemoved']);
-live2dParameterState.pinned.add('ParamLocalPin');
+live2dParameterState.favorites.add('ParamLocalFavorite');
 
 window.onLive2DParameterModelChanged({
     modelKey: 'same-model',
     parameterOverrides: {
         values: { ParamSaved: 10 },
-        pinned: ['ParamNewPin'],
+        favorites: ['ParamNewFavorite'],
     },
 });
 const sameModel = {
     values: live2dParameterState.values,
-    pinned: Array.from(live2dParameterState.pinned),
+    favorites: Array.from(live2dParameterState.favorites),
     dirtyValues: live2dParameterState.dirtyValues,
     removedValues: Array.from(live2dParameterState.removedValues),
     payload: buildLive2DParameterSavePayload(),
@@ -596,7 +616,7 @@ window.onLive2DParameterModelChanged({
     modelKey: 'other-model',
     parameterOverrides: {
         values: { ParamOtherSaved: 3 },
-        pinned: ['ParamOtherSaved'],
+        favorites: ['ParamOtherSaved'],
     },
 });
 
@@ -604,7 +624,7 @@ result = {
     sameModel,
     changedModel: {
         values: live2dParameterState.values,
-        pinned: Array.from(live2dParameterState.pinned),
+        favorites: Array.from(live2dParameterState.favorites),
         dirtyValues: live2dParameterState.dirtyValues,
         removedValues: Array.from(live2dParameterState.removedValues),
     },
@@ -615,7 +635,7 @@ result = {
     assert result == {
         "sameModel": {
             "values": {"ParamSaved": 10},
-            "pinned": ["ParamSaved", "ParamLocalPin"],
+            "favorites": ["ParamSaved", "ParamLocalFavorite"],
             "dirtyValues": {"ParamDirty": 2},
             "removedValues": ["ParamRemoved"],
             "payload": {
@@ -623,106 +643,132 @@ result = {
                     "ParamSaved": 10,
                     "ParamDirty": 2,
                 },
-                "pinned": ["ParamSaved", "ParamLocalPin"],
+                "favorites": ["ParamSaved", "ParamLocalFavorite"],
             },
         },
         "changedModel": {
             "values": {"ParamOtherSaved": 3},
-            "pinned": ["ParamOtherSaved"],
+            "favorites": ["ParamOtherSaved"],
             "dirtyValues": {},
             "removedValues": [],
         },
     }
 
 
-def test_live2d_parameter_same_model_update_preserves_unsaved_pin_add():
+def test_live2d_parameter_same_model_update_preserves_unsaved_favorite_add():
     result = _run_live2d_parameter_runtime_case(
         """
 window.onLive2DParameterModelChanged({
     modelKey: 'model-a',
-    parameterOverrides: { values: {}, pinned: ['ParamSavedPin'] },
+    parameterOverrides: { values: {}, favorites: ['ParamSavedFavorite'] },
 });
-live2dParameterState.pinned.add('ParamLocalPin');
+live2dParameterState.favorites.add('ParamLocalFavorite');
 
 window.onLive2DParameterModelChanged({
     modelKey: 'model-a',
-    parameterOverrides: { values: {}, pinned: ['ParamSavedPin'] },
+    parameterOverrides: { values: {}, favorites: ['ParamSavedFavorite'] },
 });
 
 result = {
-    pinned: Array.from(live2dParameterState.pinned),
+    favorites: Array.from(live2dParameterState.favorites),
     payload: buildLive2DParameterSavePayload(),
 };
 """
     )
 
     assert result == {
-        "pinned": ["ParamSavedPin", "ParamLocalPin"],
+        "favorites": ["ParamSavedFavorite", "ParamLocalFavorite"],
         "payload": {
             "values": {},
-            "pinned": ["ParamSavedPin", "ParamLocalPin"],
+            "favorites": ["ParamSavedFavorite", "ParamLocalFavorite"],
         },
     }
 
 
-def test_live2d_parameter_same_model_update_preserves_unsaved_unpin():
+def test_live2d_parameter_same_model_update_preserves_unsaved_favorite_removal():
     result = _run_live2d_parameter_runtime_case(
         """
 window.onLive2DParameterModelChanged({
     modelKey: 'model-a',
-    parameterOverrides: { values: {}, pinned: ['ParamSavedPin', 'ParamOtherPin'] },
+    parameterOverrides: { values: {}, favorites: ['ParamSavedFavorite', 'ParamOtherFavorite'] },
 });
-live2dParameterState.pinned.delete('ParamSavedPin');
+live2dParameterState.favorites.delete('ParamSavedFavorite');
 
 window.onLive2DParameterModelChanged({
     modelKey: 'model-a',
-    parameterOverrides: { values: {}, pinned: ['ParamSavedPin', 'ParamOtherPin'] },
+    parameterOverrides: { values: {}, favorites: ['ParamSavedFavorite', 'ParamOtherFavorite'] },
 });
 
 result = {
-    pinned: Array.from(live2dParameterState.pinned),
+    favorites: Array.from(live2dParameterState.favorites),
     payload: buildLive2DParameterSavePayload(),
 };
 """
     )
 
     assert result == {
-        "pinned": ["ParamOtherPin"],
+        "favorites": ["ParamOtherFavorite"],
         "payload": {
             "values": {},
-            "pinned": ["ParamOtherPin"],
+            "favorites": ["ParamOtherFavorite"],
         },
     }
 
 
-def test_live2d_parameter_changed_model_resets_pins_from_config():
+def test_live2d_parameter_changed_model_resets_favorites_from_config():
     result = _run_live2d_parameter_runtime_case(
         """
 window.onLive2DParameterModelChanged({
     modelKey: 'model-a',
-    parameterOverrides: { values: {}, pinned: ['ParamSavedPin'] },
+    parameterOverrides: { values: {}, favorites: ['ParamSavedFavorite'] },
 });
-live2dParameterState.pinned.add('ParamLocalPin');
-live2dParameterState.pinned.delete('ParamSavedPin');
+live2dParameterState.favorites.add('ParamLocalFavorite');
+live2dParameterState.favorites.delete('ParamSavedFavorite');
 
 window.onLive2DParameterModelChanged({
     modelKey: 'model-b',
-    parameterOverrides: { values: {}, pinned: ['ParamModelBPin'] },
+    parameterOverrides: { values: {}, favorites: ['ParamModelBFavorite'] },
 });
 
 result = {
-    pinned: Array.from(live2dParameterState.pinned),
+    favorites: Array.from(live2dParameterState.favorites),
     payload: buildLive2DParameterSavePayload(),
 };
 """
     )
 
     assert result == {
-        "pinned": ["ParamModelBPin"],
+        "favorites": ["ParamModelBFavorite"],
         "payload": {
             "values": {},
-            "pinned": ["ParamModelBPin"],
+            "favorites": ["ParamModelBFavorite"],
         },
+    }
+
+
+def test_live2d_parameter_changed_model_migrates_legacy_pinned_config_to_favorites():
+    result = _run_live2d_parameter_runtime_case(
+        """
+window.onLive2DParameterModelChanged({
+    modelKey: 'model-a',
+    parameterOverrides: { values: {}, pinned: ['ParamAccessoryFavorite'] },
+});
+
+result = {
+    favorites: Array.from(live2dParameterState.favorites),
+    payload: buildLive2DParameterSavePayload(),
+    aliasAvailable: window.setLive2DParameterInspectorPinned === window.setLive2DParameterInspectorFavorite,
+};
+"""
+    )
+
+    assert result == {
+        "favorites": ["ParamAccessoryFavorite"],
+        "payload": {
+            "values": {},
+            "favorites": ["ParamAccessoryFavorite"],
+        },
+        "aliasAvailable": True,
     }
 
 
@@ -923,7 +969,7 @@ result = {
         "calls": [["ParamSaved", 0.1]],
         "payload": {
             "values": {},
-            "pinned": [],
+            "favorites": [],
         },
     }
 
@@ -971,19 +1017,19 @@ function makeElement(id) {
 
 const elements = {
     'live2d-parameters-tab-all': makeElement('live2d-parameters-tab-all'),
-    'live2d-parameters-tab-pinned': makeElement('live2d-parameters-tab-pinned'),
+    'live2d-parameters-tab-favorites': makeElement('live2d-parameters-tab-favorites'),
     'live2d-parameters-list': makeElement('live2d-parameters-list'),
 };
 document = {
     getElementById: (id) => elements[id] || null,
 };
 
-setLive2DParameterActiveTab('pinned');
+setLive2DParameterActiveTab('favorites');
 
 result = {
     allSelected: elements['live2d-parameters-tab-all'].getAttribute('aria-selected'),
-    pinnedSelected: elements['live2d-parameters-tab-pinned'].getAttribute('aria-selected'),
-    pinnedActive: elements['live2d-parameters-tab-pinned'].classList.contains('is-active'),
+    favoritesSelected: elements['live2d-parameters-tab-favorites'].getAttribute('aria-selected'),
+    favoritesActive: elements['live2d-parameters-tab-favorites'].classList.contains('is-active'),
     label: elements['live2d-parameters-list'].getAttribute('aria-labelledby'),
 };
 """
@@ -991,9 +1037,9 @@ result = {
 
     assert result == {
         "allSelected": "false",
-        "pinnedSelected": "true",
-        "pinnedActive": True,
-        "label": "live2d-parameters-tab-pinned",
+        "favoritesSelected": "true",
+        "favoritesActive": True,
+        "label": "live2d-parameters-tab-favorites",
     }
 
 
@@ -1155,14 +1201,14 @@ live2dParameterState.metadata = [
     { id: 'ParamMouthOpenY', current: 0.3, default: 0, min: 0, max: 1, recommended: false },
 ];
 live2dParameterState.values = { ParamRibbon: 0.2 };
-live2dParameterState.pinned = new Set();
+live2dParameterState.favorites = new Set();
 live2dParameterState.dirtyValues = {};
 live2dParameterState.removedValues = new Set();
 
 const before = JSON.parse(window.getLive2DParameterInspectorSnapshot());
 const changed = window.setLive2DParameterInspectorValue('ParamRibbon', 0.75);
 const blocked = window.setLive2DParameterInspectorValue('ParamMouthOpenY', 0.9);
-window.setLive2DParameterInspectorPinned('ParamRibbon', true);
+window.setLive2DParameterInspectorFavorite('ParamRibbon', true);
 window.resetLive2DParameterInspectorValue('ParamRibbon');
 const after = JSON.parse(window.getLive2DParameterInspectorSnapshot());
 
@@ -1173,7 +1219,7 @@ result = {
     changed,
     blocked,
     calls,
-    afterPinned: after.pinned,
+    afterFavorite: after.favorites,
     afterValues: after.savePayload.values,
     afterRemoved: Array.from(live2dParameterState.removedValues),
     afterCurrent: after.metadata.find((item) => item.id === 'ParamRibbon').current,
@@ -1188,7 +1234,7 @@ result = {
         "changed": True,
         "blocked": False,
         "calls": [["ParamRibbon", 0.75], ["ParamRibbon", 0]],
-        "afterPinned": ["ParamRibbon"],
+        "afterFavorite": ["ParamRibbon"],
         "afterValues": {},
         "afterRemoved": ["ParamRibbon"],
         "afterCurrent": 0,
