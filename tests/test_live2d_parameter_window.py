@@ -72,6 +72,25 @@ def test_live2d_parameter_window_uses_ene_style_header_bar():
     assert window.header_close_button.property("headerClose") is True
     assert "QFrame#parameterHeader" in window.styleSheet()
     assert "rgba(0, 0, 0, 0.64)" in window.styleSheet()
+    margins = window.header.layout().contentsMargins()
+    assert margins.top() == 4
+    assert margins.bottom() == 4
+    assert "min-height: 22px;" in window.styleSheet()
+    assert "max-height: 22px;" in window.styleSheet()
+
+    window.deleteLater()
+
+
+def test_live2d_parameter_window_header_transparency_reaches_desktop_background():
+    _get_qapp()
+
+    window = Live2DParameterWindow(_FakeOverlay())
+
+    assert window.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground) is True
+    assert "QWidget#live2dParameterWindow {\n                background: transparent;" in window.styleSheet()
+    assert window.content.objectName() == "parameterContent"
+    assert "QFrame#parameterContent" in window.styleSheet()
+    assert "QFrame#parameterContent {\n                background: #15181f;" in window.styleSheet()
 
     window.deleteLater()
 
