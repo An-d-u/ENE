@@ -52,17 +52,19 @@ class Live2DParameterWindow(QWidget):
             | Qt.WindowType.WindowStaysOnTopHint
             | Qt.WindowType.Tool
         )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setMinimumSize(460, 560)
         self.resize(520, 680)
         self.setStyleSheet(
             """
             QWidget {
-                background: #15181f;
+                background: transparent;
                 color: #eef3f8;
                 font-family: 'Malgun Gothic', 'Segoe UI', sans-serif;
                 font-size: 12px;
             }
             QWidget#live2dParameterWindow {
+                background: transparent;
                 border: 1px solid rgba(255, 255, 255, 0.12);
                 border-radius: 10px;
             }
@@ -71,6 +73,11 @@ class Live2DParameterWindow(QWidget):
                 border-bottom: 1px solid rgba(255, 255, 255, 0.12);
                 border-top-left-radius: 10px;
                 border-top-right-radius: 10px;
+            }
+            QFrame#parameterContent {
+                background: #15181f;
+                border-bottom-left-radius: 10px;
+                border-bottom-right-radius: 10px;
             }
             QLabel#titleLabel {
                 font-size: 15px;
@@ -102,9 +109,9 @@ class Live2DParameterWindow(QWidget):
                 background: #344258;
             }
             QPushButton[headerAction="true"] {
-                min-height: 26px;
-                padding: 3px 10px;
-                border-radius: 13px;
+                min-height: 22px;
+                padding: 2px 9px;
+                border-radius: 11px;
                 background: rgba(255, 255, 255, 0.10);
                 border: 1px solid rgba(255, 255, 255, 0.18);
             }
@@ -112,12 +119,12 @@ class Live2DParameterWindow(QWidget):
                 background: rgba(255, 255, 255, 0.18);
             }
             QPushButton[headerClose="true"] {
-                min-width: 26px;
-                max-width: 26px;
-                min-height: 26px;
-                max-height: 26px;
+                min-width: 22px;
+                max-width: 22px;
+                min-height: 22px;
+                max-height: 22px;
                 padding: 0;
-                border-radius: 13px;
+                border-radius: 11px;
                 background: rgba(255, 255, 255, 0.10);
                 border: 1px solid rgba(255, 255, 255, 0.18);
                 font-size: 14px;
@@ -158,7 +165,7 @@ class Live2DParameterWindow(QWidget):
         self.header = QFrame(self)
         self.header.setObjectName("parameterHeader")
         header_layout = QHBoxLayout(self.header)
-        header_layout.setContentsMargins(12, 7, 10, 7)
+        header_layout.setContentsMargins(12, 4, 10, 4)
         header_layout.setSpacing(8)
         self.title_label = QLabel("Live2D 파라미터", self.header)
         self.title_label.setObjectName("titleLabel")
@@ -174,11 +181,12 @@ class Live2DParameterWindow(QWidget):
         header_layout.addWidget(self.header_close_button)
         root_layout.addWidget(self.header)
 
-        content = QWidget(self)
-        content_layout = QVBoxLayout(content)
+        self.content = QFrame(self)
+        self.content.setObjectName("parameterContent")
+        content_layout = QVBoxLayout(self.content)
         content_layout.setContentsMargins(12, 12, 12, 12)
         content_layout.setSpacing(10)
-        root_layout.addWidget(content, 1)
+        root_layout.addWidget(self.content, 1)
 
         self.warning_label = QLabel(
             "장식물 변경용 창입니다. 표정, 입, 눈, 몸 각도처럼 감정 표현이나 쓰다듬 기능이 사용하는 파라미터는 건드리지 않는 것을 추천합니다.",
