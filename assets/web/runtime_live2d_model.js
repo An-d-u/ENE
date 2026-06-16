@@ -259,6 +259,23 @@ window.applyENEModelSettings = async function applyENEModelSettings(config) {
     const nextEmotionsBasePath = resolveEmotionsBasePathFromConfig();
     syncAvailableEmotionsFromConfig();
 
+    if (isImageAvatarMode()) {
+        currentModelLoadToken++;
+        removeCurrentModelArtifacts();
+        currentModelPath = '';
+        currentEmotionsBasePath = '';
+        applyImageAvatarSettings(window.eneModelConfig);
+        if (typeof syncLive2DParameterVisibilityForAvatarMode === 'function') {
+            syncLive2DParameterVisibilityForAvatarMode();
+        }
+        return;
+    }
+
+    removeImageAvatarArtifacts();
+    if (typeof syncLive2DParameterVisibilityForAvatarMode === 'function') {
+        syncLive2DParameterVisibilityForAvatarMode();
+    }
+
     if (nextModelPath !== currentModelPath) {
         currentModelPath = nextModelPath;
         currentEmotionsBasePath = nextEmotionsBasePath;
@@ -283,9 +300,27 @@ async function loadModel() {
         console.log(`\n=== Loading model ===`);
         console.log(`Path: ${modelPath}`);
         console.log(`Absolute path: ${absoluteModelPath}`);
+        if (isImageAvatarMode()) {
+            removeCurrentModelArtifacts();
+            currentModelPath = '';
+            currentEmotionsBasePath = '';
+            applyImageAvatarSettings(window.eneModelConfig);
+            if (typeof syncLive2DParameterVisibilityForAvatarMode === 'function') {
+                syncLive2DParameterVisibilityForAvatarMode();
+            }
+            return;
+        }
+        removeImageAvatarArtifacts();
         removeCurrentModelArtifacts();
         console.log("Calling PIXI.live2d.Live2DModel.from()...");
         const model = await PIXI.live2d.Live2DModel.from(modelPath);
+        if (isImageAvatarMode()) {
+            if (typeof model.destroy === 'function') {
+                model.destroy();
+            }
+            return;
+        }
+
         if (requestToken !== currentModelLoadToken) {
             if (typeof model.destroy === 'function') {
                 model.destroy();
@@ -362,6 +397,9 @@ window.addEventListener('resize', () => {
     if (window.live2dModel) {
         applyCurrentModelPlacement();
         console.log("Window resized, model repositioned");
+    }
+    if (isImageAvatarMode()) {
+        applyImageAvatarPlacement();
     }
     if (chatPanelHeightPx !== null) {
         applyChatPanelHeight(chatPanelHeightPx);

@@ -32,6 +32,10 @@ function setModelParameterValue(paramId, value) {
 
 // 립싱크 시 ParamMouthOpenY 값을 업데이트한다.
 function setMouthOpen(value) {
+    if (isImageAvatarMode()) {
+        applyImageAvatarMouthValue(value);
+        return;
+    }
     setModelParameterValue('ParamMouthOpenY', value);
 }
 

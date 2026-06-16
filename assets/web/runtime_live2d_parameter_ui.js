@@ -182,6 +182,9 @@ function refreshLive2DParameterInspector() {
 }
 
 function setLive2DParameterPanelOpen(open) {
+    if (typeof isImageAvatarMode === 'function' && isImageAvatarMode()) {
+        open = false;
+    }
     live2dParameterState.panelOpen = Boolean(open);
     const live2dParametersPanel = getLive2DParameterElement('live2d-parameters-panel');
     if (live2dParametersPanel) {
@@ -451,6 +454,19 @@ function saveLive2DParameterInspectorOverrides() {
     return true;
 }
 
+function syncLive2DParameterVisibilityForAvatarMode() {
+    if (typeof isImageAvatarMode !== 'function') {
+        return;
+    }
+    const live2dParametersButton = getLive2DParameterElement('live2d-parameters-floating-btn');
+    if (live2dParametersButton) {
+        live2dParametersButton.style.display = isImageAvatarMode() ? 'none' : 'inline-flex';
+    }
+    if (isImageAvatarMode()) {
+        setLive2DParameterPanelOpen(false);
+    }
+}
+
 function bindLive2DParameterEvents() {
     const live2dParametersButton = getLive2DParameterElement('live2d-parameters-floating-btn');
     const live2dParametersHeader = getLive2DParameterElement('live2d-parameters-panel-header');
@@ -458,6 +474,8 @@ function bindLive2DParameterEvents() {
     const live2dParametersSearch = getLive2DParameterElement('live2d-parameters-search');
     const live2dParametersSaveButton = getLive2DParameterElement('live2d-parameters-save-btn');
     const live2dParametersResetButton = getLive2DParameterElement('live2d-parameters-reset-btn');
+
+    syncLive2DParameterVisibilityForAvatarMode();
 
     if (live2dParametersButton) {
         live2dParametersButton.addEventListener('click', () => {

@@ -234,6 +234,12 @@ function applyCurrentExpressionState() {
 
 // 감정 태그에 맞는 exp3 표정 파일을 로드/보간 적용한다.
 async function changeExpression(emotion, options = {}) {
+    if (isImageAvatarMode()) {
+        changeImageAvatarEmotion(emotion);
+        currentEmotionTag = normalizeImageAvatarEmotion(emotion);
+        return;
+    }
+
     const model = window.live2dModel;
     if (!model) {
         console.warn("Model not loaded, cannot change expression");
