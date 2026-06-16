@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import QVBoxLayout, QWidget
 from ..ui.drag_bar import DragBar
 from .bridge import WebBridge
 from .i18n import I18n, get_i18n
+from .image_avatar import build_image_avatar_payload
 from .live2d_parameter_overrides import (
     empty_live2d_parameter_payload,
     normalize_live2d_parameter_override_payload,
@@ -130,16 +131,28 @@ class OverlayWindow(QWidget):
     def _resolve_model_path_payload(self, settings_source=None) -> dict:
         source = settings_source if isinstance(settings_source, dict) else self.settings.config
         base_path = self._get_base_path()
+        avatar_mode = str(source.get("avatar_mode", "live2d") or "live2d").strip().lower()
+        if avatar_mode != "image":
+            avatar_mode = "live2d"
+
         model_path = resolve_model_json_path(settings_source=source, base_path=base_path)
-        available_emotions = get_available_model_emotions(
+        image_avatar_payload = build_image_avatar_payload(source, base_path=base_path)
+        model_emotions = get_available_model_emotions(
             settings_source=source,
             base_path=base_path,
         )
+        available_emotions = (
+            image_avatar_payload.get("availableEmotions", ["normal"])
+            if avatar_mode == "image"
+            else model_emotions
+        )
 
         return {
+            "avatarMode": avatar_mode,
             "modelPath": model_path.as_uri(),
             "emotionsBasePath": model_path.parent.joinpath("emotions").resolve().as_uri().rstrip("/") + "/",
             "availableEmotions": available_emotions,
+            "imageAvatar": image_avatar_payload,
         }
 
     def _resolve_model_key(self, settings_source=None) -> str:
@@ -212,6 +225,41 @@ class OverlayWindow(QWidget):
                 "groupName": groups.get(group_id, {}).get("name", ""),
             }
         return {"parameters": parameters, "groups": groups}
+
+    def _resolve_model_config_payload(self, settings_source=None) -> dict:
+        source = settings_source if isinstance(settings_source, dict) else self.settings.config
+        path_payload = self._resolve_model_path_payload(source)
+        return {
+            "scale": source.get("model_scale", 1.0),
+            "xPercent": source.get("model_x_percent", 50),
+            "yPercent": source.get("model_y_percent", 50),
+            "avatarMode": path_payload["avatarMode"],
+            "modelPath": path_payload["modelPath"],
+            "emotionsBasePath": path_payload["emotionsBasePath"],
+            "availableEmotions": path_payload["availableEmotions"],
+            "imageAvatar": path_payload["imageAvatar"],
+            "modelKey": self._resolve_model_key(source),
+            "parameterOverrides": self._resolve_live2d_parameter_overrides_payload(source),
+            "parameterDisplayInfo": self._resolve_live2d_parameter_display_info_payload(source),
+        }
+
+    def _format_model_config_js_object(self, payload: dict) -> str:
+        return (
+            "{\n"
+            f"                scale: {json.dumps(payload['scale'])},\n"
+            f"                xPercent: {json.dumps(payload['xPercent'])},\n"
+            f"                yPercent: {json.dumps(payload['yPercent'])},\n"
+            f"                avatarMode: {json.dumps(payload['avatarMode'])},\n"
+            f"                modelPath: {json.dumps(payload['modelPath'])},\n"
+            f"                emotionsBasePath: {json.dumps(payload['emotionsBasePath'])},\n"
+            f"                availableEmotions: {json.dumps(payload['availableEmotions'])},\n"
+            f"                imageAvatar: {json.dumps(payload['imageAvatar'], ensure_ascii=False)},\n"
+            f"                modelKey: {json.dumps(payload['modelKey'])},\n"
+            f"                parameterOverrides: {json.dumps(payload['parameterOverrides'])},\n"
+            "                parameterDisplayInfo: "
+            f"{json.dumps(payload['parameterDisplayInfo'], ensure_ascii=False)}\n"
+            "            }"
+        )
 
     def _normalize_theme_hex(self, raw_value: str, fallback: str) -> str:
         match = re.fullmatch(r"#?([0-9A-Fa-f]{6})", str(raw_value or "").strip())
@@ -537,27 +585,15 @@ class OverlayWindow(QWidget):
         self.drag_bar.apply_theme(background, text_color, border_color)
 
     def _apply_model_settings(self):
-        scale = self.settings.get("model_scale", 1.0)
-        x_percent = self.settings.get("model_x_percent", 50)
-        y_percent = self.settings.get("model_y_percent", 50)
-        path_payload = self._resolve_model_path_payload()
-        model_key = self._resolve_model_key()
-        parameter_overrides = self._resolve_live2d_parameter_overrides_payload()
-        parameter_display_info = self._resolve_live2d_parameter_display_info_payload()
+        model_config = self._resolve_model_config_payload()
+        scale = model_config["scale"]
+        x_percent = model_config["xPercent"]
+        y_percent = model_config["yPercent"]
+        model_config_js = self._format_model_config_js_object(model_config)
 
         js_code = f"""
         (function() {{
-            window.eneModelConfig = {{
-                scale: {scale},
-                xPercent: {x_percent},
-                yPercent: {y_percent},
-                modelPath: {json.dumps(path_payload["modelPath"])},
-                emotionsBasePath: {json.dumps(path_payload["emotionsBasePath"])},
-                availableEmotions: {json.dumps(path_payload["availableEmotions"])},
-                modelKey: {json.dumps(model_key)},
-                parameterOverrides: {json.dumps(parameter_overrides)},
-                parameterDisplayInfo: {json.dumps(parameter_display_info, ensure_ascii=False)}
-            }};
+            window.eneModelConfig = {model_config_js};
 
             function applyModelSettings() {{
                 if (typeof window.applyENEModelSettings === 'function') {{
@@ -634,26 +670,12 @@ class OverlayWindow(QWidget):
 
         preview_source = dict(self.settings.config)
         preview_source.update(new_settings)
-        scale = preview_source.get("model_scale", 1.0)
-        x_percent = preview_source.get("model_x_percent", 50)
-        y_percent = preview_source.get("model_y_percent", 50)
-        path_payload = self._resolve_model_path_payload(preview_source)
-        model_key = self._resolve_model_key(preview_source)
-        parameter_overrides = self._resolve_live2d_parameter_overrides_payload(preview_source)
-        parameter_display_info = self._resolve_live2d_parameter_display_info_payload(preview_source)
+        model_config_js = self._format_model_config_js_object(
+            self._resolve_model_config_payload(preview_source)
+        )
         js_code = f"""
         (function() {{
-            window.eneModelConfig = {{
-                scale: {scale},
-                xPercent: {x_percent},
-                yPercent: {y_percent},
-                modelPath: {json.dumps(path_payload["modelPath"])},
-                emotionsBasePath: {json.dumps(path_payload["emotionsBasePath"])},
-                availableEmotions: {json.dumps(path_payload["availableEmotions"])},
-                modelKey: {json.dumps(model_key)},
-                parameterOverrides: {json.dumps(parameter_overrides)},
-                parameterDisplayInfo: {json.dumps(parameter_display_info, ensure_ascii=False)}
-            }};
+            window.eneModelConfig = {model_config_js};
             if (typeof window.applyENEModelSettings === 'function') {{
                 window.applyENEModelSettings(window.eneModelConfig);
             }}

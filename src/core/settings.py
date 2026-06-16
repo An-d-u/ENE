@@ -54,6 +54,10 @@ class Settings:
         "model_scale": 1.0,
         "model_x_percent": 50,  # 0-100%
         "model_y_percent": 50,  # 0-100%
+        "avatar_mode": "live2d",
+        "image_avatar_folder": "",
+        "image_avatar_placements": {},
+        "image_avatar_preview_emotion": "normal",
         "model_json_path": "assets/live2d_models/hiyori/runtime/hiyori_pro_t11.model3.json",
         "theme_accent_color": "#0071E3",
         "settings_window_bg_color": "#EEF1F5",

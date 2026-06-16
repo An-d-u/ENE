@@ -44,6 +44,58 @@ def test_overlay_window_resolve_model_path_payload_includes_available_emotions(t
     assert payload["emotionsBasePath"].endswith("/emotions/")
 
 
+def test_overlay_window_model_payload_includes_image_avatar_payload(tmp_path):
+    from src.core.overlay_window import OverlayWindow
+
+    avatar_dir = tmp_path / "avatar_images" / "sample"
+    avatar_dir.mkdir(parents=True)
+    (avatar_dir / "normal.png").write_bytes(b"fake")
+
+    window = OverlayWindow.__new__(OverlayWindow)
+    window.settings = type("DummySettings", (), {"config": {}})()
+    window._get_base_path = lambda: tmp_path
+
+    payload = OverlayWindow._resolve_model_path_payload(
+        window,
+        {"avatar_mode": "image", "image_avatar_folder": "avatar_images/sample"},
+    )
+
+    assert payload["avatarMode"] == "image"
+    assert payload["imageAvatar"]["availableEmotions"] == ["normal"]
+    assert payload["availableEmotions"] == ["normal"]
+
+
+def test_overlay_window_live2d_payload_preserves_model_paths_and_adds_avatar_mode(tmp_path):
+    from src.core.overlay_window import OverlayWindow
+
+    model_path = tmp_path / "assets" / "live2d_models" / "sample" / "sample.model3.json"
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    model_path.write_text("{}", encoding="utf-8-sig")
+
+    emotions_dir = model_path.parent / "emotions"
+    emotions_dir.mkdir(parents=True, exist_ok=True)
+    (emotions_dir / "normal.exp3.json").write_text("{}", encoding="utf-8-sig")
+    (emotions_dir / "joy.exp3.json").write_text("{}", encoding="utf-8-sig")
+
+    window = OverlayWindow.__new__(OverlayWindow)
+    window.settings = type("DummySettings", (), {"config": {}})()
+    window._get_base_path = lambda: tmp_path
+
+    payload = OverlayWindow._resolve_model_path_payload(
+        window,
+        {
+            "avatar_mode": "live2d",
+            "model_json_path": "assets/live2d_models/sample/sample.model3.json",
+        },
+    )
+
+    assert payload["avatarMode"] == "live2d"
+    assert payload["modelPath"] == model_path.resolve().as_uri()
+    assert payload["emotionsBasePath"].endswith("/emotions/")
+    assert payload["availableEmotions"] == ["normal", "joy"]
+    assert isinstance(payload["imageAvatar"], dict)
+
+
 def test_resolve_model_json_path_falls_back_to_bundle_root_when_user_copy_is_missing(tmp_path):
     from src.core.model_emotions import resolve_model_json_path
 
@@ -300,6 +352,103 @@ def test_overlay_window_preview_settings_preserves_saved_parameter_overrides(tmp
     assert window.settings.config == original_config
     assert emitted_scripts
     assert 'parameterOverrides: {"values": {"ParamAngleX": 12.0}, "favorites": ["ParamAngleX"]}' in emitted_scripts[0]
+
+
+def test_overlay_window_preview_settings_includes_image_avatar_config(tmp_path):
+    from src.core.overlay_window import OverlayWindow
+
+    avatar_dir = tmp_path / "avatar_images" / "sample"
+    avatar_dir.mkdir(parents=True)
+    (avatar_dir / "normal.png").write_bytes(b"fake")
+
+    emitted_scripts = []
+
+    class DummySettings:
+        config = {
+            "avatar_mode": "live2d",
+            "image_avatar_folder": "",
+            "model_scale": 1.0,
+            "model_x_percent": 50,
+            "model_y_percent": 50,
+            "live2d_parameter_overrides": {},
+        }
+
+        def get(self, key, default=None):
+            return self.config.get(key, default)
+
+    class DummyPage:
+        def runJavaScript(self, script):
+            emitted_scripts.append(script)
+
+    class DummyWebView:
+        def page(self):
+            return DummyPage()
+
+    window = OverlayWindow.__new__(OverlayWindow)
+    window.settings = DummySettings()
+    window._page_loaded = False
+    window._get_base_path = lambda: tmp_path
+    window._apply_drag_bar_theme = lambda settings_override=None: None
+    window.move = lambda *args: None
+    window.resize = lambda *args: None
+    window.drag_bar = type("DummyDragBar", (), {"setVisible": lambda self, visible: None})()
+    window.web_view = DummyWebView()
+
+    OverlayWindow.preview_settings(
+        window,
+        {
+            "avatar_mode": "image",
+            "image_avatar_folder": "avatar_images/sample",
+        },
+    )
+
+    assert emitted_scripts
+    assert 'avatarMode: "image"' in emitted_scripts[0]
+    assert "imageAvatar: {" in emitted_scripts[0]
+    assert 'availableEmotions: ["normal"]' in emitted_scripts[0]
+
+
+def test_overlay_window_apply_model_settings_includes_image_avatar_config(tmp_path):
+    from src.core.overlay_window import OverlayWindow
+
+    avatar_dir = tmp_path / "avatar_images" / "sample"
+    avatar_dir.mkdir(parents=True)
+    (avatar_dir / "normal.png").write_bytes(b"fake")
+
+    emitted_scripts = []
+
+    class DummySettings:
+        config = {
+            "avatar_mode": "image",
+            "image_avatar_folder": "avatar_images/sample",
+            "model_scale": 1.0,
+            "model_x_percent": 50,
+            "model_y_percent": 50,
+            "live2d_parameter_overrides": {},
+        }
+
+        def get(self, key, default=None):
+            return self.config.get(key, default)
+
+    class DummyPage:
+        def runJavaScript(self, script):
+            emitted_scripts.append(script)
+
+    class DummyWebView:
+        def page(self):
+            return DummyPage()
+
+    window = OverlayWindow.__new__(OverlayWindow)
+    window.settings = DummySettings()
+    window._get_base_path = lambda: tmp_path
+    window.web_view = DummyWebView()
+
+    OverlayWindow._apply_model_settings(window)
+
+    assert emitted_scripts
+    assert 'avatarMode: "image"' in emitted_scripts[0]
+    assert "imageAvatar: {" in emitted_scripts[0]
+    assert 'availableEmotions: ["normal"]' in emitted_scripts[0]
 
 
 def test_discover_image_avatar_emotions_reads_supported_image_files(tmp_path):
