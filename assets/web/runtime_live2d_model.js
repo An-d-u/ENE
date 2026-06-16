@@ -364,6 +364,9 @@ async function loadModel() {
         }
 
     } catch (error) {
+        if (requestToken !== currentModelLoadToken || isImageAvatarMode()) {
+            return;
+        }
         console.error("Failed to load Live2D model");
         console.error("Error:", error);
         console.error("Error type:", error.constructor.name);

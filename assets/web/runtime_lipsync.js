@@ -77,6 +77,11 @@ function applyMouthPose(pose) {
     const poseSource = normalizeMouthPoseSource(pose.source);
     const open = normalizeMouthPoseNumber(Number(pose.open));
 
+    if (isImageAvatarMode()) {
+        applyImageAvatarMouthValue(open);
+        return;
+    }
+
     lastSpeechAt = performance.now();
     mouthExpressionState.source = poseSource;
     mouthExpressionState.lastPoseAt = lastSpeechAt;
