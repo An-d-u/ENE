@@ -280,6 +280,18 @@ def test_image_avatar_mode_invalidates_pending_live2d_model_loads():
     ) in script
 
 
+def test_stale_live2d_load_failure_does_not_show_error_in_image_avatar_mode():
+    script = _script_text()
+
+    assert (
+        "} catch (error) {\n"
+        "        if (requestToken !== currentModelLoadToken || isImageAvatarMode()) {\n"
+        "            return;\n"
+        "        }\n"
+        "        console.error(\"Failed to load Live2D model\");"
+    ) in script
+
+
 def test_expression_change_routes_to_image_avatar_in_image_mode():
     script = _script_text()
 
@@ -292,6 +304,20 @@ def test_lipsync_routes_mouth_value_to_image_avatar_bounce():
 
     assert "if (isImageAvatarMode())" in script
     assert "applyImageAvatarMouthValue(value);" in script
+
+
+def test_apply_mouth_pose_routes_image_avatar_before_live2d_mouth_state():
+    script = _script_text()
+
+    assert (
+        "const poseSource = normalizeMouthPoseSource(pose.source);\n"
+        "    const open = normalizeMouthPoseNumber(Number(pose.open));\n\n"
+        "    if (isImageAvatarMode()) {\n"
+        "        applyImageAvatarMouthValue(open);\n"
+        "        return;\n"
+        "    }\n\n"
+        "    lastSpeechAt = performance.now();"
+    ) in script
 
 
 def test_live2d_parameter_button_hides_in_image_avatar_mode():
