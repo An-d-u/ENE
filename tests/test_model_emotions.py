@@ -430,6 +430,59 @@ def test_overlay_window_preview_settings_includes_image_avatar_config(tmp_path):
     assert 'availableEmotions: ["normal"]' in emitted_scripts[0]
 
 
+def test_overlay_window_preview_settings_includes_selected_image_avatar_emotion(tmp_path):
+    from src.core.overlay_window import OverlayWindow
+
+    avatar_dir = tmp_path / "avatar_images" / "sample"
+    avatar_dir.mkdir(parents=True)
+    (avatar_dir / "normal.png").write_bytes(b"fake")
+    (avatar_dir / "smile.png").write_bytes(b"fake")
+
+    emitted_scripts = []
+
+    class DummySettings:
+        config = {
+            "avatar_mode": "image",
+            "image_avatar_folder": "avatar_images/sample",
+            "image_avatar_preview_emotion": "normal",
+            "model_scale": 1.0,
+            "model_x_percent": 50,
+            "model_y_percent": 50,
+            "live2d_parameter_overrides": {},
+        }
+
+        def get(self, key, default=None):
+            return self.config.get(key, default)
+
+    class DummyPage:
+        def runJavaScript(self, script):
+            emitted_scripts.append(script)
+
+    class DummyWebView:
+        def page(self):
+            return DummyPage()
+
+    window = OverlayWindow.__new__(OverlayWindow)
+    window.settings = DummySettings()
+    window._page_loaded = False
+    window._get_base_path = lambda: tmp_path
+    window._apply_drag_bar_theme = lambda settings_override=None: None
+    window.move = lambda *args: None
+    window.resize = lambda *args: None
+    window.drag_bar = type("DummyDragBar", (), {"setVisible": lambda self, visible: None})()
+    window.web_view = DummyWebView()
+
+    OverlayWindow.preview_settings(
+        window,
+        {
+            "image_avatar_preview_emotion": "smile",
+        },
+    )
+
+    assert emitted_scripts
+    assert 'imageAvatarPreviewEmotion: "smile"' in emitted_scripts[0]
+
+
 def test_overlay_window_apply_model_settings_includes_image_avatar_config(tmp_path):
     from src.core.overlay_window import OverlayWindow
 
