@@ -65,6 +65,28 @@ def test_overlay_window_model_payload_includes_image_avatar_payload(tmp_path):
     assert payload["availableEmotions"] == ["normal"]
 
 
+def test_overlay_window_model_payload_uses_settings_source_object_config(tmp_path):
+    from src.core.overlay_window import OverlayWindow
+
+    avatar_dir = tmp_path / "avatar_images" / "sample"
+    avatar_dir.mkdir(parents=True)
+    (avatar_dir / "normal.png").write_bytes(b"fake")
+
+    window = OverlayWindow.__new__(OverlayWindow)
+    window.settings = type("DummySettings", (), {"config": {"avatar_mode": "live2d"}})()
+    window._get_base_path = lambda: tmp_path
+    settings_source = type(
+        "PreviewSettings",
+        (),
+        {"config": {"avatar_mode": "image", "image_avatar_folder": "avatar_images/sample"}},
+    )()
+
+    payload = OverlayWindow._resolve_model_path_payload(window, settings_source)
+
+    assert payload["avatarMode"] == "image"
+    assert payload["availableEmotions"] == ["normal"]
+
+
 def test_overlay_window_live2d_payload_preserves_model_paths_and_adds_avatar_mode(tmp_path):
     from src.core.overlay_window import OverlayWindow
 
@@ -449,6 +471,41 @@ def test_overlay_window_apply_model_settings_includes_image_avatar_config(tmp_pa
     assert 'avatarMode: "image"' in emitted_scripts[0]
     assert "imageAvatar: {" in emitted_scripts[0]
     assert 'availableEmotions: ["normal"]' in emitted_scripts[0]
+
+
+def test_overlay_window_image_model_config_uses_empty_live2d_parameter_payloads(tmp_path):
+    from src.core.overlay_window import OverlayWindow
+
+    avatar_dir = tmp_path / "avatar_images" / "sample"
+    avatar_dir.mkdir(parents=True)
+    (avatar_dir / "normal.png").write_bytes(b"fake")
+
+    window = OverlayWindow.__new__(OverlayWindow)
+    window.settings = type("DummySettings", (), {"config": {"avatar_mode": "live2d"}})()
+    window._get_base_path = lambda: tmp_path
+
+    def fail_if_live2d_payload_is_resolved(settings_source=None):
+        raise AssertionError("이미지 모드에서는 Live2D 파라미터 payload를 계산하지 않아야 합니다.")
+
+    window._resolve_live2d_parameter_overrides_payload = fail_if_live2d_payload_is_resolved
+    window._resolve_live2d_parameter_display_info_payload = fail_if_live2d_payload_is_resolved
+    settings_source = type(
+        "PreviewSettings",
+        (),
+        {
+            "config": {
+                "avatar_mode": "image",
+                "image_avatar_folder": "avatar_images/sample",
+                "model_json_path": "missing.model3.json",
+            }
+        },
+    )()
+
+    payload = OverlayWindow._resolve_model_config_payload(window, settings_source)
+
+    assert payload["avatarMode"] == "image"
+    assert payload["parameterOverrides"] == {"values": {}, "favorites": []}
+    assert payload["parameterDisplayInfo"] == {"parameters": {}, "groups": {}}
 
 
 def test_discover_image_avatar_emotions_reads_supported_image_files(tmp_path):
