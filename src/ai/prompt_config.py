@@ -12,7 +12,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from ..core.model_emotions import get_available_model_emotions
+from ..core.model_emotions import get_available_avatar_emotions
 from ..core.app_paths import get_bundle_prompts_defaults_dir, get_bundle_root, get_user_prompts_dir
 from .prompt_language import resolve_prompt_language
 
@@ -312,7 +312,7 @@ def get_runtime_emotions(
 ) -> list[str]:
     """현재 모델 기준 실제 사용 가능한 감정 목록을 반환한다."""
     config = load_prompt_config()
-    return get_available_model_emotions(
+    return get_available_avatar_emotions(
         settings_source=settings_source,
         base_path=base_path,
         fallback_emotions=list(config.get("emotions", [])),

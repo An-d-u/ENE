@@ -300,3 +300,142 @@ def test_overlay_window_preview_settings_preserves_saved_parameter_overrides(tmp
     assert window.settings.config == original_config
     assert emitted_scripts
     assert 'parameterOverrides: {"values": {"ParamAngleX": 12.0}, "favorites": ["ParamAngleX"]}' in emitted_scripts[0]
+
+
+def test_discover_image_avatar_emotions_reads_supported_image_files(tmp_path):
+    from src.core.image_avatar import discover_image_avatar_emotions
+
+    avatar_dir = tmp_path / "avatar_images" / "sample"
+    avatar_dir.mkdir(parents=True)
+    (avatar_dir / "sad.webp").write_bytes(b"fake")
+    (avatar_dir / "joy.png").write_bytes(b"fake")
+    (avatar_dir / "normal.png").write_bytes(b"fake")
+    (avatar_dir / "ignore.txt").write_text("x", encoding="utf-8-sig")
+
+    emotions = discover_image_avatar_emotions(avatar_dir)
+
+    assert emotions == ["normal", "joy", "sad"]
+
+
+def test_build_image_avatar_payload_prefers_png_and_includes_file_placements(tmp_path):
+    from src.core.image_avatar import build_image_avatar_payload
+
+    avatar_dir = tmp_path / "avatar_images" / "sample"
+    avatar_dir.mkdir(parents=True)
+    (avatar_dir / "normal.webp").write_bytes(b"fake")
+    (avatar_dir / "normal.png").write_bytes(b"fake")
+    (avatar_dir / "joy.jpg").write_bytes(b"fake")
+
+    payload = build_image_avatar_payload(
+        {
+            "image_avatar_folder": "avatar_images/sample",
+            "image_avatar_placements": {
+                "avatar_images/sample/joy.jpg": {
+                    "scale": 1.2,
+                    "x_percent": 55,
+                    "y_percent": 45,
+                }
+            },
+        },
+        base_path=tmp_path,
+    )
+
+    assert payload["availableEmotions"] == ["normal", "joy"]
+    assert payload["images"]["normal"]["path"].endswith("/normal.png")
+    assert payload["images"]["normal"]["storageKey"] == "avatar_images/sample/normal.png"
+    assert payload["images"]["joy"]["placement"] == {"scale": 1.2, "xPercent": 55, "yPercent": 45}
+    assert payload["error"] == ""
+
+
+def test_build_image_avatar_payload_reports_missing_normal(tmp_path):
+    from src.core.image_avatar import build_image_avatar_payload
+
+    avatar_dir = tmp_path / "avatar_images" / "sample"
+    avatar_dir.mkdir(parents=True)
+    (avatar_dir / "joy.png").write_bytes(b"fake")
+
+    payload = build_image_avatar_payload(
+        {"image_avatar_folder": "avatar_images/sample"},
+        base_path=tmp_path,
+    )
+
+    assert payload["availableEmotions"] == ["normal"]
+    assert payload["images"] == {}
+    assert payload["error"] == "missing_normal"
+
+
+def test_build_image_avatar_payload_clamps_saved_placements(tmp_path):
+    from src.core.image_avatar import build_image_avatar_payload
+
+    avatar_dir = tmp_path / "avatar_images" / "sample"
+    avatar_dir.mkdir(parents=True)
+    (avatar_dir / "normal.png").write_bytes(b"fake")
+
+    payload = build_image_avatar_payload(
+        {
+            "image_avatar_folder": "avatar_images/sample",
+            "image_avatar_placements": {
+                "avatar_images/sample/normal.png": {
+                    "scale": 3.0,
+                    "x_percent": -150,
+                    "y_percent": 250,
+                }
+            },
+        },
+        base_path=tmp_path,
+    )
+
+    assert payload["images"]["normal"]["placement"] == {
+        "scale": 2.0,
+        "xPercent": -100,
+        "yPercent": 200,
+    }
+
+
+def test_build_image_avatar_payload_ignores_non_finite_saved_placements(tmp_path):
+    from src.core.image_avatar import build_image_avatar_payload
+
+    avatar_dir = tmp_path / "avatar_images" / "sample"
+    avatar_dir.mkdir(parents=True)
+    (avatar_dir / "normal.png").write_bytes(b"fake")
+
+    payload = build_image_avatar_payload(
+        {
+            "image_avatar_folder": "avatar_images/sample",
+            "image_avatar_placements": {
+                "avatar_images/sample/normal.png": {
+                    "scale": "nan",
+                    "x_percent": "inf",
+                    "y_percent": "-inf",
+                }
+            },
+        },
+        base_path=tmp_path,
+    )
+
+    assert payload["images"]["normal"]["placement"] == {
+        "scale": 1.0,
+        "xPercent": 50,
+        "yPercent": 50,
+    }
+
+
+def test_get_available_avatar_emotions_uses_image_avatar_folder_when_image_mode_is_enabled(tmp_path):
+    from src.core.model_emotions import get_available_avatar_emotions
+
+    avatar_dir = tmp_path / "avatar_images" / "sample"
+    avatar_dir.mkdir(parents=True)
+    (avatar_dir / "normal.png").write_bytes(b"fake")
+    (avatar_dir / "joy.png").write_bytes(b"fake")
+
+    emotions = get_available_avatar_emotions(
+        settings_source={
+            "avatar_mode": "image",
+            "image_avatar_folder": "avatar_images/sample",
+            "model_json_path": "missing.model3.json",
+        },
+        base_path=tmp_path,
+        fallback_emotions=["normal", "fallback"],
+    )
+
+    assert emotions == ["normal", "joy"]

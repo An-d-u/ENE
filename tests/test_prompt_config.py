@@ -530,6 +530,40 @@ def test_analysis_appendix_includes_conversation_promise_rules():
     assert "plain mention of the current time" in default_appendix
 
 
+def test_runtime_emotions_use_image_avatar_folder_when_image_mode_is_enabled(tmp_path, monkeypatch):
+    from src.ai import prompt_config
+
+    default_dir = tmp_path / "prompts" / "defaults"
+    local_dir = tmp_path / "prompts"
+    _write_prompt_markdown_files(default_dir, _sample_prompt_payload())
+
+    monkeypatch.setattr(prompt_config, "PROMPT_CONFIG_DIR", local_dir)
+    monkeypatch.setattr(prompt_config, "DEFAULT_PROMPT_CONFIG_DIR", default_dir)
+    monkeypatch.setattr(prompt_config, "BASE_SYSTEM_PROMPT_PATH", local_dir / "base_system_prompt.md")
+    monkeypatch.setattr(prompt_config, "SUB_PROMPT_BODY_PATH", local_dir / "sub_prompt_body.md")
+    monkeypatch.setattr(prompt_config, "ANALYSIS_SYSTEM_APPENDIX_PATH", local_dir / "analysis_system_appendix.md")
+    monkeypatch.setattr(prompt_config, "EMOTION_GUIDES_PATH", local_dir / "emotion_guides.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_BASE_SYSTEM_PROMPT_PATH", default_dir / "base_system_prompt.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_SUB_PROMPT_BODY_PATH", default_dir / "sub_prompt_body.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH", default_dir / "analysis_system_appendix.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_EMOTION_GUIDES_PATH", default_dir / "emotion_guides.md")
+
+    avatar_dir = tmp_path / "avatar_images" / "sample"
+    avatar_dir.mkdir(parents=True)
+    (avatar_dir / "normal.png").write_bytes(b"fake")
+    (avatar_dir / "joy.png").write_bytes(b"fake")
+
+    emotions = prompt_config.get_runtime_emotions(
+        settings_source={
+            "avatar_mode": "image",
+            "image_avatar_folder": "avatar_images/sample",
+        },
+        base_path=tmp_path,
+    )
+
+    assert emotions == ["normal", "joy"]
+
+
 def test_runtime_prompt_uses_model_emotions_instead_of_saved_emotion_list(tmp_path, monkeypatch):
     from src.ai import prompt as prompt_module
     from src.ai import prompt_config
