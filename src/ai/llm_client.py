@@ -20,6 +20,7 @@ from .memory_context_builder import (
 )
 from .persona_names import resolve_prompt_persona_names
 from .prompt import build_runtime_system_prompt, get_parseable_emotions
+from .prompt_config import get_runtime_emotions
 from .prompt_language import resolve_prompt_language
 from .response_cleanup import extract_goal_update_metadata, extract_thought_metadata
 from .runtime_prompt_settings import build_runtime_prompt_settings_source
@@ -101,9 +102,13 @@ class GeminiClient:
         source = self._runtime_prompt_settings_source()
         proactive_enabled = True
         keys = []
+        avatar_mode = "live2d"
+        image_avatar_folder = ""
         if isinstance(source, dict):
             proactive_enabled = bool(source.get("enable_proactive_conversation", True))
             keys = list(source.get("proactive_available_cooldown_keys") or [])
+            avatar_mode = str(source.get("avatar_mode", "live2d") or "live2d").strip().lower()
+            image_avatar_folder = str(source.get("image_avatar_folder", "") or "").strip()
         else:
             getter = getattr(source, "get", None)
             if callable(getter):
@@ -111,10 +116,30 @@ class GeminiClient:
                     proactive_enabled = bool(getter("enable_proactive_conversation", True))
                 except Exception:
                     proactive_enabled = True
+                try:
+                    avatar_mode = str(getter("avatar_mode", "live2d") or "live2d").strip().lower()
+                except Exception:
+                    avatar_mode = "live2d"
+                try:
+                    image_avatar_folder = str(getter("image_avatar_folder", "") or "").strip()
+                except Exception:
+                    image_avatar_folder = ""
             config = getattr(source, "config", None)
             if isinstance(config, dict):
                 proactive_enabled = bool(config.get("enable_proactive_conversation", proactive_enabled))
-        return (proactive_enabled, tuple(str(key) for key in keys))
+                avatar_mode = str(config.get("avatar_mode", avatar_mode) or avatar_mode).strip().lower()
+                image_avatar_folder = str(config.get("image_avatar_folder", image_avatar_folder) or "").strip()
+        try:
+            runtime_emotions = tuple(get_runtime_emotions(settings_source=source))
+        except Exception:
+            runtime_emotions = ()
+        return (
+            proactive_enabled,
+            tuple(str(key) for key in keys),
+            avatar_mode,
+            image_avatar_folder,
+            runtime_emotions,
+        )
 
     def _refresh_chat_session_for_runtime_prompt_if_needed(self) -> None:
         signature = self._runtime_prompt_signature()
@@ -728,7 +753,7 @@ class GeminiClient:
         return parse_llm_response(
             response_text,
             settings_source=getattr(self, "settings", None),
-            available_emotions=get_parseable_emotions(),
+            available_emotions=get_parseable_emotions(settings_source=getattr(self, "settings", None)),
             log_event=print,
         )
     

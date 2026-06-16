@@ -225,7 +225,7 @@ def build_model_tab(dialog):
         "예: avatar_images",
     )
     self.image_avatar_folder_edit.textChanged.connect(self._on_setting_changed)
-    self.image_avatar_folder_edit.editingFinished.connect(self._refresh_image_avatar_emotion_list)
+    self.image_avatar_folder_edit.editingFinished.connect(self._on_image_avatar_folder_editing_finished)
     image_path_row.addWidget(self.image_avatar_folder_edit, 1)
 
     self.image_avatar_browse_button = QPushButton("찾아보기")

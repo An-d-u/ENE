@@ -87,6 +87,24 @@ def test_overlay_window_model_payload_uses_settings_source_object_config(tmp_pat
     assert payload["availableEmotions"] == ["normal"]
 
 
+def test_available_avatar_emotions_use_settings_source_object_config(tmp_path):
+    from src.core.model_emotions import get_available_avatar_emotions
+
+    avatar_dir = tmp_path / "avatar_images" / "sample"
+    avatar_dir.mkdir(parents=True)
+    (avatar_dir / "normal.png").write_bytes(b"fake")
+    (avatar_dir / "happy.png").write_bytes(b"fake")
+    settings_source = type(
+        "PreviewSettings",
+        (),
+        {"config": {"avatar_mode": "image", "image_avatar_folder": "avatar_images/sample"}},
+    )()
+
+    emotions = get_available_avatar_emotions(settings_source=settings_source, base_path=tmp_path)
+
+    assert emotions == ["normal", "happy"]
+
+
 def test_overlay_window_live2d_payload_preserves_model_paths_and_adds_avatar_mode(tmp_path):
     from src.core.overlay_window import OverlayWindow
 

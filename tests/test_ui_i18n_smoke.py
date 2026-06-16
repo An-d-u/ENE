@@ -1162,6 +1162,89 @@ def test_settings_dialog_preview_exports_selected_image_avatar_emotion(monkeypat
         dialog.close()
 
 
+def test_settings_dialog_folder_editing_refreshes_preview_after_selected_emotion_changes(monkeypatch, tmp_path):
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+    first_dir = tmp_path / "first_avatar_images"
+    second_dir = tmp_path / "second_avatar_images"
+    first_dir.mkdir()
+    second_dir.mkdir()
+    (first_dir / "normal.png").write_bytes(b"synthetic image placeholder")
+    (first_dir / "smile.png").write_bytes(b"synthetic image placeholder")
+    (second_dir / "normal.png").write_bytes(b"synthetic image placeholder")
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        monkeypatch.setattr(SettingsDialog, "_load_prompt_configuration", lambda self: None)
+
+        dialog = SettingsDialog(
+            {
+                "ui_language": "ko",
+                "llm_provider": "gemini",
+                "tts_provider": "gpt_sovits_http",
+                "enable_tts": True,
+                "avatar_mode": "image",
+                "image_avatar_folder": str(first_dir),
+            }
+        )
+        captured = []
+        dialog.settings_preview.connect(captured.append)
+
+        dialog.image_avatar_emotion_list.setCurrentRow(1)
+        captured.clear()
+        dialog.image_avatar_folder_edit.setText(str(second_dir))
+        dialog.image_avatar_folder_edit.editingFinished.emit()
+
+        assert dialog.image_avatar_emotion_list.currentItem().text() == "normal"
+        assert captured
+        assert captured[-1]["image_avatar_preview_emotion"] == "normal"
+
+        dialog.close()
+
+
+def test_settings_dialog_empty_image_avatar_folder_browse_starts_from_avatar_images(monkeypatch, tmp_path):
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+
+    with _stub_prompt_module():
+        from src.ui import settings_dialog_values
+        from src.ui.settings_dialog import SettingsDialog
+
+        monkeypatch.setattr(SettingsDialog, "_load_prompt_configuration", lambda self: None)
+
+        dialog = SettingsDialog(
+            {
+                "ui_language": "ko",
+                "llm_provider": "gemini",
+                "tts_provider": "gpt_sovits_http",
+                "enable_tts": True,
+                "avatar_mode": "image",
+                "image_avatar_folder": "",
+            }
+        )
+        user_avatar_dir = tmp_path / "user" / "avatar_images"
+        bundle_avatar_dir = tmp_path / "bundle" / "avatar_images"
+        user_avatar_dir.mkdir(parents=True)
+        bundle_avatar_dir.mkdir(parents=True)
+        dialog._user_data_root = tmp_path / "user"
+        dialog._bundle_root = tmp_path / "bundle"
+        starts = []
+        monkeypatch.setattr(
+            settings_dialog_values.QFileDialog,
+            "getExistingDirectory",
+            lambda _parent, _title, start_dir: starts.append(start_dir) or "",
+        )
+
+        dialog._browse_image_avatar_folder()
+
+        assert starts == [str(user_avatar_dir)]
+
+        dialog.close()
+
+
 def test_settings_dialog_clamps_away_input_grace_to_idle_minutes():
     _get_qapp()
     locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"

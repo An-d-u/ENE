@@ -503,7 +503,7 @@ class _CommonMixin:
         return parse_llm_response(
             response_text,
             settings_source=getattr(self, "settings", None),
-            available_emotions=get_parseable_emotions(),
+            available_emotions=get_parseable_emotions(settings_source=getattr(self, "settings", None)),
         )
 
     def _parse_summary_response(self, response_text: str) -> tuple[str, list[str], list[str], dict]:
