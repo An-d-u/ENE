@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .settings import Settings
 from .app_paths import get_bundle_root, resolve_runtime_resource_path
+from .image_avatar import build_image_avatar_payload
 
 
 DEFAULT_MODEL_JSON_PATH = "assets/live2d_models/hiyori/runtime/hiyori_pro_t11.model3.json"
@@ -99,3 +100,23 @@ def get_available_model_emotions(
     if model_path.exists():
         return ["normal"]
     return _normalize_fallback_emotions(fallback_emotions)
+
+
+def get_available_avatar_emotions(
+    settings_source: dict | None = None,
+    base_path: Path | None = None,
+    fallback_emotions: list[str] | None = None,
+) -> list[str]:
+    """아바타 모드에 맞는 실제 사용 가능 감정 목록을 반환한다."""
+    source = _resolve_settings_source(settings_source)
+    avatar_mode = str(source.get("avatar_mode", "live2d") or "live2d").strip().lower()
+    if avatar_mode == "image":
+        payload = build_image_avatar_payload(source, base_path=base_path)
+        emotions = payload.get("availableEmotions", [])
+        return _normalize_fallback_emotions(emotions)
+
+    return get_available_model_emotions(
+        settings_source=source,
+        base_path=base_path,
+        fallback_emotions=fallback_emotions,
+    )
