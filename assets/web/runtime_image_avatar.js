@@ -21,7 +21,7 @@ const imageAvatarState = {
     mouthValue: 0,
     bounceOffset: 0,
     boundErrorBaseTextures: new WeakSet(),
-    failedImagePaths: new Set()
+    failedBaseTextures: new WeakSet()
 };
 
 function isImageAvatarMode() {
@@ -115,7 +115,9 @@ function showImageAvatarError(message) {
 }
 
 function handleImageAvatarTextureError(texture, imagePath, error) {
-    imageAvatarState.failedImagePaths.add(imagePath);
+    if (texture && texture.baseTexture) {
+        imageAvatarState.failedBaseTextures.add(texture.baseTexture);
+    }
     if (!imageAvatarState.sprite || imageAvatarState.sprite.texture !== texture) {
         console.warn(`Stale image avatar texture failed to load: ${imagePath}`, error);
         return;
@@ -182,15 +184,15 @@ function renderImageAvatarEmotion(emotion) {
         showImageAvatarError('이미지 아바타 이미지를 찾지 못했습니다. normal 이미지를 확인해 주세요.');
         return false;
     }
-    if (imageAvatarState.failedImagePaths.has(imagePath)) {
-        removeImageAvatarArtifacts();
-        showImageAvatarError(`이미지 아바타 로드 실패\n\n경로: ${imagePath}`);
-        return false;
-    }
 
     try {
         removeImageAvatarErrorText();
         const texture = PIXI.Texture.from(imagePath);
+        if (texture && texture.baseTexture && imageAvatarState.failedBaseTextures.has(texture.baseTexture)) {
+            removeImageAvatarArtifacts();
+            showImageAvatarError(`이미지 아바타 로드 실패\n\n경로: ${imagePath}`);
+            return false;
+        }
         if (!imageAvatarState.sprite) {
             imageAvatarState.sprite = new PIXI.Sprite(texture);
             app.stage.addChild(imageAvatarState.sprite);
@@ -199,7 +201,6 @@ function renderImageAvatarEmotion(emotion) {
         }
         bindImageAvatarTextureError(texture, imagePath);
         applyImageAvatarPlacement(imageInfo);
-        imageAvatarState.failedImagePaths.delete(imagePath);
         return true;
     } catch (error) {
         removeImageAvatarArtifacts();
