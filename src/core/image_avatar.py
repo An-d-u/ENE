@@ -82,6 +82,11 @@ def discover_image_avatar_emotions(folder_path: str | Path) -> list[str]:
 
 
 def _normalize_storage_key(raw_folder: str, image_path: Path, base_path: Path) -> str:
+    try:
+        return str(image_path.resolve().relative_to(base_path.resolve())).replace("\\", "/")
+    except Exception:
+        pass
+
     raw_folder = str(raw_folder or "").strip()
     if raw_folder:
         normalized_folder = raw_folder.replace("\\", "/").rstrip("/")
@@ -91,10 +96,7 @@ def _normalize_storage_key(raw_folder: str, image_path: Path, base_path: Path) -
         if folder_key:
             return f"{folder_key}/{image_path.name}"
 
-    try:
-        return str(image_path.resolve().relative_to(base_path.resolve())).replace("\\", "/")
-    except Exception:
-        return str(image_path.resolve()).replace("\\", "/")
+    return str(image_path.resolve()).replace("\\", "/")
 
 
 def _clamp_number(value: Any, default: float, minimum: float, maximum: float) -> float:
