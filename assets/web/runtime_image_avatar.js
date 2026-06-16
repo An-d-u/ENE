@@ -149,6 +149,14 @@ function bindImageAvatarTextureError(texture, imagePath) {
     return false;
 }
 
+function isImageAvatarTextureUsable(texture) {
+    if (!texture || typeof texture !== 'object') {
+        return false;
+    }
+    const baseTexture = texture.baseTexture;
+    return texture.valid === true || (baseTexture && baseTexture.valid === true);
+}
+
 function applyImageAvatarPlacement(imageInfo = getImageAvatarImageForEmotion(imageAvatarState.currentEmotion)) {
     const sprite = imageAvatarState.sprite;
     if (!sprite) {
@@ -189,9 +197,12 @@ function renderImageAvatarEmotion(emotion) {
         removeImageAvatarErrorText();
         const texture = PIXI.Texture.from(imagePath);
         if (texture && texture.baseTexture && imageAvatarState.failedBaseTextures.has(texture.baseTexture)) {
-            removeImageAvatarArtifacts();
-            showImageAvatarError(`이미지 아바타 로드 실패\n\n경로: ${imagePath}`);
-            return false;
+            if (!isImageAvatarTextureUsable(texture)) {
+                removeImageAvatarArtifacts();
+                showImageAvatarError(`이미지 아바타 로드 실패\n\n경로: ${imagePath}`);
+                return false;
+            }
+            imageAvatarState.failedBaseTextures.delete(texture.baseTexture);
         }
         if (!imageAvatarState.sprite) {
             imageAvatarState.sprite = new PIXI.Sprite(texture);
