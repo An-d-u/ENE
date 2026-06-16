@@ -4,11 +4,15 @@
 
 from __future__ import annotations
 
-from PyQt6.QtWidgets import QApplication, QFileDialog, QMessageBox
+from pathlib import Path
+
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QApplication, QFileDialog, QListWidgetItem, QMessageBox
 
 from ..ai.llm_provider import LLMFormat
 from ..core.app_paths import relativize_for_storage
 from ..core.hotkey_utils import normalize_hotkey_text
+from ..core.image_avatar import build_image_avatar_payload
 from ..core.system_theme import THEME_PRESETS, get_windows_theme_mode
 
 
@@ -36,6 +40,137 @@ class SettingsDialogValuesMixin:
         if not selected:
             return
         self.model_json_path_edit.setText(self._normalize_path_for_storage(selected))
+
+    def _browse_image_avatar_folder(self):
+        start_dir = Path(self.image_avatar_folder_edit.text().strip()).expanduser()
+        if not start_dir.exists() or not start_dir.is_dir():
+            start_dir = self._user_data_root / "avatar_images"
+        if not start_dir.exists():
+            start_dir = self._bundle_root / "avatar_images"
+
+        selected = QFileDialog.getExistingDirectory(
+            self,
+            self._translated_text("settings.model.image.path.dialog.title", "이미지 아바타 폴더 선택"),
+            str(start_dir),
+        )
+        if not selected:
+            return
+        self.image_avatar_folder_edit.setText(self._normalize_path_for_storage(selected))
+        self._refresh_image_avatar_emotion_list()
+        self._on_setting_changed()
+
+    def _on_avatar_mode_changed(self, *_):
+        self._sync_avatar_mode_visibility()
+        self._on_setting_changed()
+
+    def _sync_avatar_mode_visibility(self):
+        if not hasattr(self, "avatar_mode_combo"):
+            return
+        avatar_mode = str(self.avatar_mode_combo.currentData() or "live2d")
+        is_image_mode = avatar_mode == "image"
+        if hasattr(self, "live2d_model_group"):
+            self.live2d_model_group.setVisible(not is_image_mode)
+        if hasattr(self, "image_avatar_group"):
+            self.image_avatar_group.setVisible(is_image_mode)
+
+    def _selected_image_avatar_emotion(self) -> str:
+        if not hasattr(self, "image_avatar_emotion_list"):
+            return "normal"
+        item = self.image_avatar_emotion_list.currentItem()
+        if item is None:
+            return str(getattr(self, "_image_avatar_preview_emotion", "normal") or "normal")
+        return str(item.data(Qt.ItemDataRole.UserRole + 1) or item.text() or "normal")
+
+    def _read_selected_image_avatar_placement(self) -> dict:
+        return {
+            "scale": round(float(self.image_avatar_scale_spin.value()), 2),
+            "x_percent": int(self.image_avatar_x_slider.value()),
+            "y_percent": int(self.image_avatar_y_slider.value()),
+        }
+
+    def _write_selected_image_avatar_placement(self, item: QListWidgetItem | None = None):
+        if not hasattr(self, "image_avatar_emotion_list"):
+            return
+        target_item = item or self.image_avatar_emotion_list.currentItem()
+        if target_item is None:
+            return
+        storage_key = str(target_item.data(Qt.ItemDataRole.UserRole) or "").strip()
+        if not storage_key:
+            return
+        self._image_avatar_placements[storage_key] = self._read_selected_image_avatar_placement()
+
+    def _normalized_image_avatar_placement(self, storage_key: str) -> dict:
+        raw = self._image_avatar_placements.get(storage_key, {})
+        if not isinstance(raw, dict):
+            raw = {}
+
+        def clamp_number(value, default, minimum, maximum):
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                number = default
+            return min(max(number, minimum), maximum)
+
+        return {
+            "scale": clamp_number(raw.get("scale"), 1.0, 0.1, 2.0),
+            "x_percent": int(clamp_number(raw.get("x_percent"), 50, -100, 200)),
+            "y_percent": int(clamp_number(raw.get("y_percent"), 50, -100, 200)),
+        }
+
+    def _load_image_avatar_placement_controls(self, item: QListWidgetItem | None):
+        storage_key = str(item.data(Qt.ItemDataRole.UserRole) or "").strip() if item is not None else ""
+        placement = self._normalized_image_avatar_placement(storage_key)
+        was_loading = self._loading
+        self._loading = True
+        try:
+            self.image_avatar_scale_spin.setValue(float(placement["scale"]))
+            self.image_avatar_x_slider.setValue(int(placement["x_percent"]))
+            self.image_avatar_y_slider.setValue(int(placement["y_percent"]))
+        finally:
+            self._loading = was_loading
+
+    def _refresh_image_avatar_emotion_list(self):
+        if not hasattr(self, "image_avatar_emotion_list"):
+            return
+        self._write_selected_image_avatar_placement()
+        selected_emotion = self._selected_image_avatar_emotion()
+        if not selected_emotion:
+            selected_emotion = str(getattr(self, "_image_avatar_preview_emotion", "normal") or "normal")
+
+        payload = build_image_avatar_payload(
+            {
+                "image_avatar_folder": self.image_avatar_folder_edit.text().strip(),
+                "image_avatar_placements": self._image_avatar_placements,
+            },
+            base_path=self._bundle_root,
+        )
+        images = payload.get("images", {})
+        emotions = payload.get("availableEmotions", ["normal"])
+
+        self.image_avatar_emotion_list.blockSignals(True)
+        try:
+            self.image_avatar_emotion_list.clear()
+            target_row = 0
+            for row, emotion in enumerate(emotions):
+                item = QListWidgetItem(str(emotion))
+                image_info = images.get(emotion, {}) if isinstance(images, dict) else {}
+                item.setData(Qt.ItemDataRole.UserRole, str(image_info.get("storageKey", "")))
+                item.setData(Qt.ItemDataRole.UserRole + 1, str(emotion))
+                self.image_avatar_emotion_list.addItem(item)
+                if str(emotion) == selected_emotion:
+                    target_row = row
+            if self.image_avatar_emotion_list.count():
+                self.image_avatar_emotion_list.setCurrentRow(target_row)
+        finally:
+            self.image_avatar_emotion_list.blockSignals(False)
+
+        self._load_image_avatar_placement_controls(self.image_avatar_emotion_list.currentItem())
+
+    def _on_image_avatar_emotion_selected(self, current, previous):
+        if previous is not None:
+            self._write_selected_image_avatar_placement(previous)
+        self._load_image_avatar_placement_controls(current)
+        self._on_setting_changed()
 
     def _on_ui_language_changed(self, *_):
         if self._loading:
@@ -387,6 +522,28 @@ class SettingsDialogValuesMixin:
                     str(self._original_settings.get("model_json_path", "assets/live2d_models/hiyori/runtime/hiyori_pro_t11.model3.json"))
                 )
             )
+            avatar_mode = str(self._original_settings.get("avatar_mode", "live2d") or "live2d").strip().lower()
+            if avatar_mode not in {"live2d", "image"}:
+                avatar_mode = "live2d"
+            avatar_mode_index = self.avatar_mode_combo.findData(avatar_mode)
+            self.avatar_mode_combo.setCurrentIndex(avatar_mode_index if avatar_mode_index >= 0 else 0)
+            self.image_avatar_folder_edit.setText(
+                self._normalize_path_for_storage(
+                    str(self._original_settings.get("image_avatar_folder", ""))
+                )
+            )
+            raw_image_avatar_placements = self._original_settings.get("image_avatar_placements", {})
+            self._image_avatar_placements = (
+                dict(raw_image_avatar_placements)
+                if isinstance(raw_image_avatar_placements, dict)
+                else {}
+            )
+            self._image_avatar_preview_emotion = (
+                str(self._original_settings.get("image_avatar_preview_emotion", "normal") or "normal").strip()
+                or "normal"
+            )
+            self._refresh_image_avatar_emotion_list()
+            self._sync_avatar_mode_visibility()
 
             llm_provider = str(self._original_settings.get("llm_provider", "gemini")).strip().lower()
             loaded_keys = self._original_settings.get("llm_api_keys", {})
@@ -496,6 +653,7 @@ class SettingsDialogValuesMixin:
         self.model_y_slider.setValue(int(y_percent))
 
     def _get_current_values(self):
+        self._write_selected_image_avatar_placement()
         current_provider = str(self.llm_provider_combo.currentData() or "gemini")
         self._llm_api_keys[current_provider] = self.llm_api_key_edit.text()
         self._llm_models[current_provider] = self.llm_model_edit.text().strip()
@@ -625,6 +783,10 @@ class SettingsDialogValuesMixin:
             "model_x_percent": self.model_x_slider.value(),
             "model_y_percent": self.model_y_slider.value(),
             "model_json_path": self._normalize_path_for_storage(self.model_json_path_edit.text()),
+            "avatar_mode": str(self.avatar_mode_combo.currentData() or "live2d"),
+            "image_avatar_folder": self._normalize_path_for_storage(self.image_avatar_folder_edit.text()),
+            "image_avatar_placements": dict(self._image_avatar_placements),
+            "image_avatar_preview_emotion": self._selected_image_avatar_emotion(),
             "llm_provider": str(self.llm_provider_combo.currentData() or "gemini"),
             "llm_model": self.llm_model_edit.text().strip() or "gemini-3-flash-preview",
             "llm_models": dict(self._llm_models),

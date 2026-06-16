@@ -559,6 +559,11 @@
       }
     },
     "model": {
+      "avatar_mode": {
+        "title": "아바타 모드",
+        "live2d": "Live2D",
+        "image": "이미지"
+      },
       "quick": {
         "title": "빠른 배치",
         "hint": "자주 쓰는 위치를 먼저 고른 뒤, 아래 슬라이더로 세밀하게 맞추면 더 편합니다.",
@@ -590,6 +595,24 @@
         "dialog": {
           "title": "Live2D 모델 파일 선택",
           "filter": "Live2D 모델 (*.model3.json);;JSON 파일 (*.json);;모든 파일 (*.*)"
+        }
+      },
+      "image": {
+        "title": "이미지 아바타",
+        "path": {
+          "title": "이미지 폴더",
+          "hint": "normal.png를 포함한 감정별 이미지 파일이 들어 있는 폴더를 선택합니다.",
+          "placeholder": "예: avatar_images",
+          "dialog": {
+            "title": "이미지 아바타 폴더 선택"
+          }
+        },
+        "emotions": {
+          "title": "감정 이미지"
+        },
+        "placement": {
+          "title": "이미지 위치와 크기",
+          "scale": "스케일:"
         }
       }
     },

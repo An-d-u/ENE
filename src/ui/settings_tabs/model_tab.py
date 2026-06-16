@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
+    QComboBox,
     QDoubleSpinBox,
     QFormLayout,
     QFrame,
@@ -13,6 +14,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
     QPushButton,
     QScrollArea,
     QSlider,
@@ -32,6 +34,19 @@ def build_model_tab(dialog):
     layout = QVBoxLayout(widget)
     layout.setSpacing(12)
     layout.setContentsMargins(10, 10, 10, 10)
+
+    avatar_mode_group = QGroupBox("아바타 모드")
+    self._bind_group_title(avatar_mode_group, "settings.model.avatar_mode.title", "아바타 모드")
+    avatar_mode_layout = QFormLayout(avatar_mode_group)
+    avatar_mode_layout.setSpacing(8)
+    self.avatar_mode_combo = QComboBox()
+    self.avatar_mode_combo.addItem("Live2D", "live2d")
+    self._bind_combo_item(self.avatar_mode_combo, 0, "settings.model.avatar_mode.live2d", "Live2D")
+    self.avatar_mode_combo.addItem("이미지", "image")
+    self._bind_combo_item(self.avatar_mode_combo, 1, "settings.model.avatar_mode.image", "이미지")
+    self.avatar_mode_combo.currentIndexChanged.connect(self._on_avatar_mode_changed)
+    avatar_mode_layout.addRow(self.avatar_mode_combo)
+    layout.addWidget(avatar_mode_group)
 
     preset_group = QGroupBox("빠른 배치")
     self._bind_group_title(preset_group, "settings.model.quick.title", "빠른 배치")
@@ -156,6 +171,7 @@ def build_model_tab(dialog):
     layout.addWidget(y_group)
 
     model_path_group = QGroupBox("Live2D 모델 파일")
+    self.live2d_model_group = model_path_group
     self._bind_group_title(model_path_group, "settings.model.path.title", "Live2D 모델 파일")
     model_path_layout = QVBoxLayout(model_path_group)
     model_path_layout.setSpacing(10)
@@ -183,6 +199,107 @@ def build_model_tab(dialog):
     model_path_row.addWidget(browse_model_btn)
     model_path_layout.addLayout(model_path_row)
     layout.addWidget(model_path_group)
+
+    image_avatar_group = QGroupBox("이미지 아바타")
+    self.image_avatar_group = image_avatar_group
+    self._bind_group_title(image_avatar_group, "settings.model.image.title", "이미지 아바타")
+    image_avatar_layout = QVBoxLayout(image_avatar_group)
+    image_avatar_layout.setSpacing(12)
+
+    image_path_title = QLabel("이미지 폴더")
+    self._bind_widget_text(image_path_title, "settings.model.image.path.title", "이미지 폴더")
+    image_avatar_layout.addWidget(image_path_title)
+    image_avatar_layout.addWidget(
+        self._build_hint_label(
+            "normal.png를 포함한 감정별 이미지 파일이 들어 있는 폴더를 선택합니다.",
+            key="settings.model.image.path.hint",
+        )
+    )
+
+    image_path_row = QHBoxLayout()
+    image_path_row.setSpacing(8)
+    self.image_avatar_folder_edit = QLineEdit()
+    self._bind_placeholder(
+        self.image_avatar_folder_edit,
+        "settings.model.image.path.placeholder",
+        "예: avatar_images",
+    )
+    self.image_avatar_folder_edit.textChanged.connect(self._on_setting_changed)
+    self.image_avatar_folder_edit.editingFinished.connect(self._refresh_image_avatar_emotion_list)
+    image_path_row.addWidget(self.image_avatar_folder_edit, 1)
+
+    self.image_avatar_browse_button = QPushButton("찾아보기")
+    self._bind_widget_text(self.image_avatar_browse_button, "settings.common.browse", "찾아보기")
+    self.image_avatar_browse_button.clicked.connect(self._browse_image_avatar_folder)
+    image_path_row.addWidget(self.image_avatar_browse_button)
+    image_avatar_layout.addLayout(image_path_row)
+
+    emotions_title = QLabel("감정 이미지")
+    self._bind_widget_text(emotions_title, "settings.model.image.emotions.title", "감정 이미지")
+    image_avatar_layout.addWidget(emotions_title)
+    self.image_avatar_emotion_list = QListWidget()
+    self.image_avatar_emotion_list.setMinimumHeight(120)
+    self.image_avatar_emotion_list.currentItemChanged.connect(self._on_image_avatar_emotion_selected)
+    image_avatar_layout.addWidget(self.image_avatar_emotion_list)
+
+    placement_title = QLabel("이미지 위치와 크기")
+    self._bind_widget_text(placement_title, "settings.model.image.placement.title", "이미지 위치와 크기")
+    image_avatar_layout.addWidget(placement_title)
+    placement_form = QFormLayout()
+    placement_form.setSpacing(8)
+    self.image_avatar_scale_spin = QDoubleSpinBox()
+    self.image_avatar_scale_spin.setRange(0.1, 2.0)
+    self.image_avatar_scale_spin.setSingleStep(0.05)
+    self.image_avatar_scale_spin.setDecimals(2)
+    self.image_avatar_scale_spin.setSuffix("x")
+    self.image_avatar_scale_spin.valueChanged.connect(self._on_setting_changed)
+    self._add_form_row(
+        placement_form,
+        "settings.model.image.placement.scale",
+        "스케일:",
+        self.image_avatar_scale_spin,
+    )
+    image_avatar_layout.addLayout(placement_form)
+
+    image_x_info = QHBoxLayout()
+    image_x_left_label = QLabel("왼쪽")
+    self._bind_widget_text(image_x_left_label, "settings.model.position_x.left", "왼쪽")
+    image_x_info.addWidget(image_x_left_label)
+    image_x_info.addStretch()
+    self.image_avatar_x_value_label = QLabel("50%")
+    self.image_avatar_x_value_label.setObjectName("ValueBadge")
+    image_x_info.addWidget(self.image_avatar_x_value_label)
+    image_x_info.addStretch()
+    image_x_right_label = QLabel("오른쪽")
+    self._bind_widget_text(image_x_right_label, "settings.model.position_x.right", "오른쪽")
+    image_x_info.addWidget(image_x_right_label)
+    image_avatar_layout.addLayout(image_x_info)
+    self.image_avatar_x_slider = QSlider(Qt.Orientation.Horizontal)
+    self.image_avatar_x_slider.setRange(-100, 200)
+    self.image_avatar_x_slider.valueChanged.connect(lambda v: self.image_avatar_x_value_label.setText(f"{v}%"))
+    self.image_avatar_x_slider.valueChanged.connect(self._on_setting_changed)
+    image_avatar_layout.addWidget(self.image_avatar_x_slider)
+
+    image_y_info = QHBoxLayout()
+    image_y_top_label = QLabel("위쪽")
+    self._bind_widget_text(image_y_top_label, "settings.model.position_y.top", "위쪽")
+    image_y_info.addWidget(image_y_top_label)
+    image_y_info.addStretch()
+    self.image_avatar_y_value_label = QLabel("50%")
+    self.image_avatar_y_value_label.setObjectName("ValueBadge")
+    image_y_info.addWidget(self.image_avatar_y_value_label)
+    image_y_info.addStretch()
+    image_y_bottom_label = QLabel("아래쪽")
+    self._bind_widget_text(image_y_bottom_label, "settings.model.position_y.bottom", "아래쪽")
+    image_y_info.addWidget(image_y_bottom_label)
+    image_avatar_layout.addLayout(image_y_info)
+    self.image_avatar_y_slider = QSlider(Qt.Orientation.Horizontal)
+    self.image_avatar_y_slider.setRange(-100, 200)
+    self.image_avatar_y_slider.valueChanged.connect(lambda v: self.image_avatar_y_value_label.setText(f"{v}%"))
+    self.image_avatar_y_slider.valueChanged.connect(self._on_setting_changed)
+    image_avatar_layout.addWidget(self.image_avatar_y_slider)
+
+    layout.addWidget(image_avatar_group)
 
     layout.addStretch()
     scroll.setWidget(widget)
