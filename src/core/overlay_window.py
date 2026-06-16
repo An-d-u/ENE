@@ -128,8 +128,16 @@ class OverlayWindow(QWidget):
             return Path(sys._MEIPASS)
         return Path(__file__).parent.parent.parent
 
+    def _resolve_settings_source(self, settings_source=None) -> dict:
+        if isinstance(settings_source, dict):
+            return settings_source
+        config = getattr(settings_source, "config", None)
+        if isinstance(config, dict):
+            return config
+        return self.settings.config
+
     def _resolve_model_path_payload(self, settings_source=None) -> dict:
-        source = settings_source if isinstance(settings_source, dict) else self.settings.config
+        source = self._resolve_settings_source(settings_source)
         base_path = self._get_base_path()
         avatar_mode = str(source.get("avatar_mode", "live2d") or "live2d").strip().lower()
         if avatar_mode != "image":
@@ -137,15 +145,13 @@ class OverlayWindow(QWidget):
 
         model_path = resolve_model_json_path(settings_source=source, base_path=base_path)
         image_avatar_payload = build_image_avatar_payload(source, base_path=base_path)
-        model_emotions = get_available_model_emotions(
-            settings_source=source,
-            base_path=base_path,
-        )
-        available_emotions = (
-            image_avatar_payload.get("availableEmotions", ["normal"])
-            if avatar_mode == "image"
-            else model_emotions
-        )
+        if avatar_mode == "image":
+            available_emotions = image_avatar_payload.get("availableEmotions", ["normal"])
+        else:
+            available_emotions = get_available_model_emotions(
+                settings_source=source,
+                base_path=base_path,
+            )
 
         return {
             "avatarMode": avatar_mode,
@@ -156,14 +162,14 @@ class OverlayWindow(QWidget):
         }
 
     def _resolve_model_key(self, settings_source=None) -> str:
-        source = settings_source if isinstance(settings_source, dict) else self.settings.config
+        source = self._resolve_settings_source(settings_source)
         raw_path = str(source.get("model_json_path", "") or "").strip()
         if raw_path:
             return raw_path.replace("\\", "/")
         return DEFAULT_MODEL_JSON_PATH
 
     def _resolve_live2d_parameter_overrides_payload(self, settings_source=None) -> dict:
-        source = settings_source if isinstance(settings_source, dict) else self.settings.config
+        source = self._resolve_settings_source(settings_source)
         model_key = self._resolve_model_key(source)
         overrides = source.get("live2d_parameter_overrides", {})
         if not isinstance(overrides, dict):
@@ -172,7 +178,7 @@ class OverlayWindow(QWidget):
         return normalize_live2d_parameter_override_payload(payload) or empty_live2d_parameter_payload()
 
     def _resolve_live2d_parameter_display_info_payload(self, settings_source=None) -> dict:
-        source = settings_source if isinstance(settings_source, dict) else self.settings.config
+        source = self._resolve_settings_source(settings_source)
         model_path = resolve_model_json_path(
             settings_source=source,
             base_path=self._get_base_path(),
@@ -227,8 +233,14 @@ class OverlayWindow(QWidget):
         return {"parameters": parameters, "groups": groups}
 
     def _resolve_model_config_payload(self, settings_source=None) -> dict:
-        source = settings_source if isinstance(settings_source, dict) else self.settings.config
+        source = self._resolve_settings_source(settings_source)
         path_payload = self._resolve_model_path_payload(source)
+        if path_payload["avatarMode"] == "image":
+            parameter_overrides = empty_live2d_parameter_payload()
+            parameter_display_info = {"parameters": {}, "groups": {}}
+        else:
+            parameter_overrides = self._resolve_live2d_parameter_overrides_payload(source)
+            parameter_display_info = self._resolve_live2d_parameter_display_info_payload(source)
         return {
             "scale": source.get("model_scale", 1.0),
             "xPercent": source.get("model_x_percent", 50),
@@ -239,8 +251,8 @@ class OverlayWindow(QWidget):
             "availableEmotions": path_payload["availableEmotions"],
             "imageAvatar": path_payload["imageAvatar"],
             "modelKey": self._resolve_model_key(source),
-            "parameterOverrides": self._resolve_live2d_parameter_overrides_payload(source),
-            "parameterDisplayInfo": self._resolve_live2d_parameter_display_info_payload(source),
+            "parameterOverrides": parameter_overrides,
+            "parameterDisplayInfo": parameter_display_info,
         }
 
     def _format_model_config_js_object(self, payload: dict) -> str:
