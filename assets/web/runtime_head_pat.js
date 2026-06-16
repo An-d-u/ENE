@@ -16,6 +16,25 @@ function lerp(a, b, t) {
 
 // 포인터가 머리 쓰다듬기 유효 영역에 들어왔는지 판정한다.
 function isHeadPatPoint(pointerX, pointerY) {
+    if (typeof isImageAvatarMode === 'function' && isImageAvatarMode()) {
+        const state = window.imageAvatarState || (typeof imageAvatarState !== 'undefined' ? imageAvatarState : null);
+        const sprite = state && state.sprite;
+        if (!sprite || typeof sprite.getBounds !== 'function') return false;
+
+        try {
+            const bounds = sprite.getBounds();
+            if (!bounds || !Number.isFinite(bounds.width) || !Number.isFinite(bounds.height)) return false;
+            if (bounds.width <= 0 || bounds.height <= 0) return false;
+            const minX = bounds.x;
+            const maxX = bounds.x + bounds.width;
+            const minY = bounds.y;
+            const maxY = bounds.y + bounds.height;
+            return pointerX >= minX && pointerX <= maxX && pointerY >= minY && pointerY <= maxY;
+        } catch (_) {
+            return false;
+        }
+    }
+
     const model = window.live2dModel;
     if (!model) return false;
 
