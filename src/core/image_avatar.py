@@ -8,6 +8,7 @@ import math
 from pathlib import Path
 from typing import Any
 
+from . import app_paths
 from .app_paths import get_bundle_root, resolve_runtime_resource_path
 
 
@@ -84,6 +85,12 @@ def discover_image_avatar_emotions(folder_path: str | Path) -> list[str]:
 def _normalize_storage_key(raw_folder: str, image_path: Path, base_path: Path) -> str:
     try:
         return str(image_path.resolve().relative_to(base_path.resolve())).replace("\\", "/")
+    except Exception:
+        pass
+
+    try:
+        user_root = app_paths.get_user_data_dir()
+        return str(image_path.resolve().relative_to(user_root.resolve())).replace("\\", "/")
     except Exception:
         pass
 
