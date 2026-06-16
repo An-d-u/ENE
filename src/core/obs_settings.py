@@ -14,7 +14,7 @@ class ObsSettings:
     DEFAULT_CONFIG = {
         "checked_files": [],
         "expanded_dirs": [],
-        "panel_visible": True,
+        "panel_visible": False,
         "floating_window_x": 40,
         "floating_window_y": 120,
         "floating_window_width": 360,

@@ -81,8 +81,6 @@ class ENEApplication(QObject):
         self.overlay_window.bridge.set_obs_panel_window(self.obsidian_panel_window)
 
         self.overlay_window.show()
-        if bool(self.overlay_window.bridge.obs_settings.get("panel_visible", True)):
-            self.obsidian_panel_window.show()
         
         # 트레이 아이콘 생성
         self.tray_icon = TrayIcon(
