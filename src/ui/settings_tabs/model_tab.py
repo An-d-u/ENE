@@ -224,7 +224,6 @@ def build_model_tab(dialog):
         "settings.model.image.path.placeholder",
         "예: avatar_images",
     )
-    self.image_avatar_folder_edit.textChanged.connect(self._on_setting_changed)
     self.image_avatar_folder_edit.editingFinished.connect(self._on_image_avatar_folder_editing_finished)
     image_path_row.addWidget(self.image_avatar_folder_edit, 1)
 

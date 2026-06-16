@@ -1195,11 +1195,13 @@ def test_settings_dialog_folder_editing_refreshes_preview_after_selected_emotion
         dialog.image_avatar_emotion_list.setCurrentRow(1)
         captured.clear()
         dialog.image_avatar_folder_edit.setText(str(second_dir))
+
+        assert captured == []
+
         dialog.image_avatar_folder_edit.editingFinished.emit()
 
         assert dialog.image_avatar_emotion_list.currentItem().text() == "normal"
-        assert captured
-        assert captured[-1]["image_avatar_preview_emotion"] == "normal"
+        assert [item["image_avatar_preview_emotion"] for item in captured] == ["normal"]
 
         dialog.close()
 
