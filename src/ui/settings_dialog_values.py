@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 from PyQt6.QtCore import Qt
@@ -108,6 +109,8 @@ class SettingsDialogValuesMixin:
             try:
                 number = float(value)
             except (TypeError, ValueError):
+                number = default
+            if not math.isfinite(number):
                 number = default
             return min(max(number, minimum), maximum)
 
