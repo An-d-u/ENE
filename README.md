@@ -128,6 +128,16 @@ Common files:
 8. Enable and tune TTS only after text chat is working.
 9. Enable Obsidian CLI integration only if you want ENE to work with local notes.
 
+## Image Avatar Mode
+
+ENE can use image avatar mode in addition to Live2D models. Place multiple emotion images for the same character in a folder, then switch the avatar mode to `image` in the settings window to show a static-image companion. This is useful for generated-image workflows where keeping a character identical across a full Live2D asset set is difficult.
+
+Prepare the image folder with emotion-based file names. A `normal` image is required, and file names should use English emotion keys such as `normal.png`, `happy.png`, `sad.png`, or `angry.webp`. Supported extensions are `.png`, `.webp`, `.jpg`, and `.jpeg`.
+
+Registered emotion file names are reflected in the available emotion list used by the internal prompt, so the model can be guided to choose only emotions that exist in the folder.
+
+In the settings window, you can choose the image folder, preview each emotion image, and independently adjust scale, x, and y placement for each image. During TTS playback, ENE expresses speaking with a gentle vertical bounce instead of swapping mouth-open and mouth-closed images.
+
 ## Prompt Files
 
 ENE uses Markdown prompt files so character behavior can be edited without changing Python code.
