@@ -412,6 +412,42 @@ def test_build_image_avatar_payload_uses_relative_storage_key_for_default_folder
     assert payload["error"] == ""
 
 
+def test_build_image_avatar_payload_uses_normalized_absolute_storage_key_for_external_folder(tmp_path):
+    from src.core.image_avatar import build_image_avatar_payload
+
+    bundle_root = tmp_path / "bundle"
+    external_dir = tmp_path / "external" / "avatars"
+    bundle_root.mkdir(parents=True)
+    external_dir.mkdir(parents=True)
+    (external_dir / "normal.png").write_bytes(b"fake")
+    raw_folder = str(external_dir / ".." / "avatars").replace("\\", "/")
+    storage_key = f"{raw_folder}/normal.png"
+
+    payload = build_image_avatar_payload(
+        {
+            "image_avatar_folder": raw_folder,
+            "image_avatar_placements": {
+                storage_key: {
+                    "scale": 1.4,
+                    "x_percent": 70,
+                    "y_percent": 30,
+                }
+            },
+        },
+        base_path=bundle_root,
+    )
+
+    assert payload["availableEmotions"] == ["normal"]
+    assert payload["images"]["normal"]["path"] == (external_dir / "normal.png").resolve().as_uri()
+    assert payload["images"]["normal"]["storageKey"] == storage_key
+    assert payload["images"]["normal"]["placement"] == {
+        "scale": 1.4,
+        "xPercent": 70,
+        "yPercent": 30,
+    }
+    assert payload["error"] == ""
+
+
 def test_build_image_avatar_payload_reports_missing_normal(tmp_path):
     from src.core.image_avatar import build_image_avatar_payload
 

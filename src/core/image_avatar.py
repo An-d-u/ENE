@@ -82,10 +82,14 @@ def discover_image_avatar_emotions(folder_path: str | Path) -> list[str]:
 
 
 def _normalize_storage_key(raw_folder: str, image_path: Path, base_path: Path) -> str:
+    raw_folder = str(raw_folder or "").strip()
     if raw_folder:
-        folder_key = str(Path(raw_folder)).replace("\\", "/").strip("/")
-        if not Path(raw_folder).is_absolute():
-            return f"{folder_key}/{image_path.name}" if folder_key else image_path.name
+        normalized_folder = raw_folder.replace("\\", "/").rstrip("/")
+        if Path(raw_folder).expanduser().is_absolute():
+            return f"{normalized_folder}/{image_path.name}"
+        folder_key = normalized_folder.strip("/")
+        if folder_key:
+            return f"{folder_key}/{image_path.name}"
 
     try:
         return str(image_path.resolve().relative_to(base_path.resolve())).replace("\\", "/")
