@@ -555,6 +555,11 @@
       }
     },
     "model": {
+      "avatar_mode": {
+        "title": "アバターモード",
+        "live2d": "Live2D",
+        "image": "画像"
+      },
       "quick": {
         "title": "Quick placement",
         "hint": "Pick a common position first, then fine-tune it with the sliders below.",
@@ -586,6 +591,24 @@
         "dialog": {
           "title": "Choose a Live2D model file",
           "filter": "Live2D model (*.model3.json);;JSON files (*.json);;All files (*.*)"
+        }
+      },
+      "image": {
+        "title": "画像アバター",
+        "path": {
+          "title": "画像フォルダー",
+          "hint": "normal.png と感情ごとの画像ファイルが入っているフォルダーを選択します。",
+          "placeholder": "例: avatar_images",
+          "dialog": {
+            "title": "画像アバターフォルダーを選択"
+          }
+        },
+        "emotions": {
+          "title": "感情画像"
+        },
+        "placement": {
+          "title": "画像の位置とサイズ",
+          "scale": "スケール:"
         }
       }
     },

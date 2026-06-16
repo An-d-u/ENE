@@ -557,6 +557,11 @@
       }
     },
     "model": {
+      "avatar_mode": {
+        "title": "Avatar mode",
+        "live2d": "Live2D",
+        "image": "Image"
+      },
       "quick": {
         "title": "Quick placement",
         "hint": "Pick a common position first, then fine-tune it with the sliders below.",
@@ -588,6 +593,24 @@
         "dialog": {
           "title": "Choose a Live2D model file",
           "filter": "Live2D model (*.model3.json);;JSON files (*.json);;All files (*.*)"
+        }
+      },
+      "image": {
+        "title": "Image avatar",
+        "path": {
+          "title": "Image folder",
+          "hint": "Choose a folder that contains normal.png and emotion-specific image files.",
+          "placeholder": "e.g. avatar_images",
+          "dialog": {
+            "title": "Choose an image avatar folder"
+          }
+        },
+        "emotions": {
+          "title": "Emotion images"
+        },
+        "placement": {
+          "title": "Image position and size",
+          "scale": "Scale:"
         }
       }
     },

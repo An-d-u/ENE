@@ -925,6 +925,194 @@ def test_settings_dialog_ptt_language_selection_is_saved_to_stt_language():
         dialog.close()
 
 
+def test_settings_dialog_exposes_image_avatar_controls_and_toggles_mode_groups(monkeypatch, tmp_path):
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+    avatar_dir = tmp_path / "avatar_images"
+    avatar_dir.mkdir()
+    (avatar_dir / "normal.png").write_bytes(b"synthetic image placeholder")
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        monkeypatch.setattr(SettingsDialog, "_load_prompt_configuration", lambda self: None)
+
+        dialog = SettingsDialog(
+            {
+                "ui_language": "ko",
+                "llm_provider": "gemini",
+                "tts_provider": "gpt_sovits_http",
+                "enable_tts": True,
+                "avatar_mode": "live2d",
+                "image_avatar_folder": str(avatar_dir),
+            }
+        )
+
+        for attr_name in (
+            "avatar_mode_combo",
+            "image_avatar_folder_edit",
+            "image_avatar_browse_button",
+            "image_avatar_emotion_list",
+            "image_avatar_scale_spin",
+            "image_avatar_x_slider",
+            "image_avatar_y_slider",
+        ):
+            assert hasattr(dialog, attr_name)
+
+        assert [dialog.avatar_mode_combo.itemData(index) for index in range(dialog.avatar_mode_combo.count())] == [
+            "live2d",
+            "image",
+        ]
+        assert dialog.live2d_model_group.isHidden() is False
+        assert dialog.image_avatar_group.isHidden() is True
+
+        dialog.avatar_mode_combo.setCurrentIndex(dialog.avatar_mode_combo.findData("image"))
+
+        assert dialog.avatar_mode_combo.currentData() == "image"
+        assert dialog.live2d_model_group.isHidden() is True
+        assert dialog.image_avatar_group.isHidden() is False
+
+        dialog.close()
+
+
+def test_settings_dialog_collects_image_avatar_values_and_selected_placement(monkeypatch, tmp_path):
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+    avatar_dir = tmp_path / "avatar_images"
+    avatar_dir.mkdir()
+    (avatar_dir / "normal.png").write_bytes(b"synthetic image placeholder")
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        monkeypatch.setattr(SettingsDialog, "_load_prompt_configuration", lambda self: None)
+
+        dialog = SettingsDialog(
+            {
+                "ui_language": "ko",
+                "llm_provider": "gemini",
+                "tts_provider": "gpt_sovits_http",
+                "enable_tts": True,
+                "avatar_mode": "image",
+                "image_avatar_folder": str(avatar_dir),
+            }
+        )
+
+        dialog.image_avatar_scale_spin.setValue(1.25)
+        dialog.image_avatar_x_slider.setValue(80)
+        dialog.image_avatar_y_slider.setValue(30)
+
+        current_item = dialog.image_avatar_emotion_list.currentItem()
+        storage_key = current_item.data(Qt.ItemDataRole.UserRole)
+        values = dialog._get_current_values()
+
+        assert values["avatar_mode"] == "image"
+        assert values["image_avatar_folder"] == str(avatar_dir).replace("\\", "/")
+        assert values["image_avatar_preview_emotion"] == "normal"
+        assert values["image_avatar_placements"][storage_key] == {
+            "scale": 1.25,
+            "x_percent": 80,
+            "y_percent": 30,
+        }
+
+        dialog.close()
+
+
+def test_settings_dialog_saves_previous_image_placement_before_loading_new_emotion(monkeypatch, tmp_path):
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+    avatar_dir = tmp_path / "avatar_images"
+    avatar_dir.mkdir()
+    (avatar_dir / "normal.png").write_bytes(b"synthetic image placeholder")
+    (avatar_dir / "smile.png").write_bytes(b"synthetic image placeholder")
+
+    with _stub_prompt_module():
+        from src.core.image_avatar import build_image_avatar_payload
+        from src.ui.settings_dialog import SettingsDialog
+
+        monkeypatch.setattr(SettingsDialog, "_load_prompt_configuration", lambda self: None)
+
+        payload = build_image_avatar_payload({"image_avatar_folder": str(avatar_dir)})
+        normal_key = payload["images"]["normal"]["storageKey"]
+        smile_key = payload["images"]["smile"]["storageKey"]
+
+        dialog = SettingsDialog(
+            {
+                "ui_language": "ko",
+                "llm_provider": "gemini",
+                "tts_provider": "gpt_sovits_http",
+                "enable_tts": True,
+                "avatar_mode": "image",
+                "image_avatar_folder": str(avatar_dir),
+                "image_avatar_placements": {
+                    smile_key: {"scale": 1.4, "x_percent": 20, "y_percent": 30},
+                },
+            }
+        )
+
+        dialog.image_avatar_scale_spin.setValue(0.8)
+        dialog.image_avatar_x_slider.setValue(11)
+        dialog.image_avatar_y_slider.setValue(22)
+        dialog.image_avatar_emotion_list.setCurrentRow(1)
+
+        assert dialog._image_avatar_placements[normal_key] == {
+            "scale": 0.8,
+            "x_percent": 11,
+            "y_percent": 22,
+        }
+        assert dialog.image_avatar_emotion_list.currentItem().text() == "smile"
+        assert dialog.image_avatar_scale_spin.value() == 1.4
+        assert dialog.image_avatar_x_slider.value() == 20
+        assert dialog.image_avatar_y_slider.value() == 30
+
+        values = dialog._get_current_values()
+        assert values["image_avatar_placements"][smile_key] == {
+            "scale": 1.4,
+            "x_percent": 20,
+            "y_percent": 30,
+        }
+
+        dialog.close()
+
+
+def test_settings_dialog_preview_exports_selected_image_avatar_emotion(monkeypatch, tmp_path):
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+    avatar_dir = tmp_path / "avatar_images"
+    avatar_dir.mkdir()
+    (avatar_dir / "normal.png").write_bytes(b"synthetic image placeholder")
+    (avatar_dir / "smile.png").write_bytes(b"synthetic image placeholder")
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        monkeypatch.setattr(SettingsDialog, "_load_prompt_configuration", lambda self: None)
+
+        dialog = SettingsDialog(
+            {
+                "ui_language": "ko",
+                "llm_provider": "gemini",
+                "tts_provider": "gpt_sovits_http",
+                "enable_tts": True,
+                "avatar_mode": "image",
+                "image_avatar_folder": str(avatar_dir),
+            }
+        )
+        captured = []
+        dialog.settings_preview.connect(captured.append)
+
+        dialog.image_avatar_emotion_list.setCurrentRow(1)
+        dialog._preview_settings()
+
+        assert captured[-1]["image_avatar_preview_emotion"] == "smile"
+
+        dialog.close()
+
+
 def test_settings_dialog_clamps_away_input_grace_to_idle_minutes():
     _get_qapp()
     locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
@@ -2547,6 +2735,34 @@ def test_live2d_parameter_favorites_label_is_localized_in_bundled_locales():
     assert json.loads((locales_dir / "ja.json").read_text(encoding="utf-8-sig"))[
         "chat.live2dParameters.favorites"
     ] == "お気に入り"
+
+
+def test_image_avatar_settings_locale_keys_exist_in_bundled_locales():
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    required_keys = [
+        "settings.model.avatar_mode.title",
+        "settings.model.avatar_mode.live2d",
+        "settings.model.avatar_mode.image",
+        "settings.model.image.path.title",
+        "settings.model.image.path.hint",
+        "settings.model.image.path.dialog.title",
+        "settings.model.image.emotions.title",
+        "settings.model.image.placement.title",
+    ]
+
+    def resolve_key(locale_data, dotted_key):
+        current = locale_data
+        for part in dotted_key.split("."):
+            assert isinstance(current, dict), dotted_key
+            assert part in current, dotted_key
+            current = current[part]
+        assert isinstance(current, str), dotted_key
+        assert current.strip(), dotted_key
+
+    for language in ("ko", "en", "ja"):
+        locale_data = json.loads((locales_dir / f"{language}.json").read_text(encoding="utf-8-sig"))
+        for key in required_keys:
+            resolve_key(locale_data, key)
 
 
 def test_chat_web_script_has_runtime_i18n_hooks():
