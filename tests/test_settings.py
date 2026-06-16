@@ -3,6 +3,13 @@
 from src.core.settings import Settings
 
 
+def test_image_avatar_defaults_are_present():
+    assert Settings.DEFAULT_CONFIG["avatar_mode"] == "live2d"
+    assert Settings.DEFAULT_CONFIG["image_avatar_folder"] == ""
+    assert Settings.DEFAULT_CONFIG["image_avatar_placements"] == {}
+    assert Settings.DEFAULT_CONFIG["image_avatar_preview_emotion"] == "normal"
+
+
 def test_load_missing_file_uses_default_config(tmp_path):
     config_path = tmp_path / "config.json"
     secret_path = tmp_path / "api_keys.json"
