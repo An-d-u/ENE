@@ -347,6 +347,32 @@ def test_build_image_avatar_payload_prefers_png_and_includes_file_placements(tmp
     assert payload["error"] == ""
 
 
+def test_build_image_avatar_payload_prefers_user_data_for_relative_folder(tmp_path, monkeypatch):
+    from src.core import app_paths
+    from src.core.image_avatar import build_image_avatar_payload
+
+    user_root = tmp_path / "user_data"
+    bundle_root = tmp_path / "bundle"
+    avatar_dir = user_root / "avatar_images" / "sample"
+    avatar_dir.mkdir(parents=True)
+    bundle_root.mkdir(parents=True)
+    (avatar_dir / "normal.png").write_bytes(b"fake")
+
+    monkeypatch.setenv("ENE_USER_DATA_DIR", str(user_root))
+    monkeypatch.setattr(app_paths, "get_user_data_dir", lambda app_name=app_paths.APP_NAME: user_root)
+
+    payload = build_image_avatar_payload(
+        {"image_avatar_folder": "avatar_images/sample"},
+        base_path=bundle_root,
+    )
+
+    assert payload["availableEmotions"] == ["normal"]
+    assert payload["images"]["normal"]["path"] == (avatar_dir / "normal.png").resolve().as_uri()
+    assert payload["images"]["normal"]["storageKey"] == "avatar_images/sample/normal.png"
+    assert payload["folderPath"] == avatar_dir.resolve().as_uri()
+    assert payload["error"] == ""
+
+
 def test_build_image_avatar_payload_reports_missing_normal(tmp_path):
     from src.core.image_avatar import build_image_avatar_payload
 
