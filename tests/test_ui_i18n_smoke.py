@@ -1078,6 +1078,55 @@ def test_settings_dialog_saves_previous_image_placement_before_loading_new_emoti
         dialog.close()
 
 
+def test_settings_dialog_image_avatar_placement_ignores_non_finite_saved_values(monkeypatch, tmp_path):
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+    avatar_dir = tmp_path / "avatar_images"
+    avatar_dir.mkdir()
+    (avatar_dir / "normal.png").write_bytes(b"synthetic image placeholder")
+
+    with _stub_prompt_module():
+        from src.core.image_avatar import build_image_avatar_payload
+        from src.ui.settings_dialog import SettingsDialog
+
+        monkeypatch.setattr(SettingsDialog, "_load_prompt_configuration", lambda self: None)
+
+        payload = build_image_avatar_payload({"image_avatar_folder": str(avatar_dir)})
+        normal_key = payload["images"]["normal"]["storageKey"]
+
+        dialog = SettingsDialog(
+            {
+                "ui_language": "ko",
+                "llm_provider": "gemini",
+                "tts_provider": "gpt_sovits_http",
+                "enable_tts": True,
+                "avatar_mode": "image",
+                "image_avatar_folder": str(avatar_dir),
+                "image_avatar_placements": {
+                    normal_key: {
+                        "scale": "nan",
+                        "x_percent": "nan",
+                        "y_percent": "inf",
+                    },
+                },
+            }
+        )
+
+        assert dialog.image_avatar_scale_spin.value() == 1.0
+        assert dialog.image_avatar_x_slider.value() == 50
+        assert dialog.image_avatar_y_slider.value() == 50
+
+        values = dialog._get_current_values()
+        assert values["image_avatar_placements"][normal_key] == {
+            "scale": 1.0,
+            "x_percent": 50,
+            "y_percent": 50,
+        }
+
+        dialog.close()
+
+
 def test_settings_dialog_preview_exports_selected_image_avatar_emotion(monkeypatch, tmp_path):
     _get_qapp()
     locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
