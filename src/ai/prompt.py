@@ -50,7 +50,17 @@ def get_available_emotions() -> list[str]:
     return list(config.get("emotions", []))
 
 
-def get_parseable_emotions() -> list[str]:
+def get_parseable_emotions(settings_source: dict | None = None) -> list[str]:
     """응답 파서가 하위 호환으로 인식할 수 있는 감정 목록 반환."""
-    config = load_prompt_config()
-    return list(config.get("emotions", []))
+    saved_config = load_prompt_config()
+    runtime_config = load_runtime_prompt_config(settings_source=settings_source)
+    emotions: list[str] = []
+    seen: set[str] = set()
+    for item in list(saved_config.get("emotions", [])) + list(runtime_config.get("emotions", [])):
+        emotion = str(item or "").strip().lower()
+        if emotion and emotion not in seen:
+            seen.add(emotion)
+            emotions.append(emotion)
+    if not emotions:
+        emotions = ["normal"]
+    return emotions

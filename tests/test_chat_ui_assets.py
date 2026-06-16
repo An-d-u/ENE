@@ -619,6 +619,70 @@ result = { listenerCount };
     assert result == {"listenerCount": 1}
 
 
+def test_image_avatar_repeated_texture_failure_keeps_error_visible():
+    result = _run_image_avatar_runtime_case(
+        """
+let errorCallback = null;
+let listenerCount = 0;
+const failedTexture = {
+    path: 'missing.png',
+    baseTexture: {
+        on(eventName, callback) {
+            if (eventName === 'error') {
+                listenerCount += 1;
+                errorCallback = callback;
+            }
+        },
+    },
+};
+PIXI.Texture.from = () => failedTexture;
+applyImageAvatarSettings({
+    avatarMode: 'image',
+    imageAvatar: {
+        images: {
+            normal: 'missing.png',
+        },
+    },
+});
+if (errorCallback) {
+    errorCallback(new Error('missing file'));
+}
+const afterFirstFailure = {
+    listenerCount,
+    spriteRemoved: imageAvatarState.sprite === null,
+    errorTextShown: Boolean(imageAvatarState.errorText),
+};
+applyImageAvatarSettings({
+    avatarMode: 'image',
+    imageAvatar: {
+        images: {
+            normal: 'missing.png',
+        },
+    },
+});
+const afterRetry = {
+    listenerCount,
+    spriteRemoved: imageAvatarState.sprite === null,
+    errorTextShown: Boolean(imageAvatarState.errorText),
+};
+result = { afterFirstFailure, afterRetry };
+"""
+    )
+
+    assert result == {
+        "afterFirstFailure": {
+            "listenerCount": 1,
+            "spriteRemoved": True,
+            "errorTextShown": True,
+        },
+        "afterRetry": {
+            "listenerCount": 1,
+            "spriteRemoved": True,
+            "errorTextShown": True,
+        },
+    }
+
+
 def test_head_pat_uses_whole_image_avatar_sprite_bounds_in_image_mode():
     result = _run_head_pat_runtime_case(
         """

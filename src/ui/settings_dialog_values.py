@@ -43,8 +43,9 @@ class SettingsDialogValuesMixin:
         self.model_json_path_edit.setText(self._normalize_path_for_storage(selected))
 
     def _browse_image_avatar_folder(self):
-        start_dir = Path(self.image_avatar_folder_edit.text().strip()).expanduser()
-        if not start_dir.exists() or not start_dir.is_dir():
+        raw_folder = self.image_avatar_folder_edit.text().strip()
+        start_dir = Path(raw_folder).expanduser() if raw_folder else None
+        if start_dir is None or not start_dir.exists() or not start_dir.is_dir():
             start_dir = self._user_data_root / "avatar_images"
         if not start_dir.exists():
             start_dir = self._bundle_root / "avatar_images"
@@ -62,6 +63,10 @@ class SettingsDialogValuesMixin:
 
     def _on_avatar_mode_changed(self, *_):
         self._sync_avatar_mode_visibility()
+        self._on_setting_changed()
+
+    def _on_image_avatar_folder_editing_finished(self):
+        self._refresh_image_avatar_emotion_list()
         self._on_setting_changed()
 
     def _sync_avatar_mode_visibility(self):

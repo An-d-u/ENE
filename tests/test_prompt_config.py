@@ -359,7 +359,7 @@ def test_gemini_runtime_prompt_refreshes_when_proactive_setting_changes():
     GeminiClient._refresh_chat_session_for_runtime_prompt_if_needed(client)
 
     assert recreated == [_Chat.history]
-    assert client._last_runtime_prompt_signature == (False, ("quiet-checkin",))
+    assert client._last_runtime_prompt_signature[:2] == (False, ("quiet-checkin",))
 
 
 def test_gemini_runtime_prompt_does_not_refresh_when_signature_is_unchanged():
@@ -381,6 +381,58 @@ def test_gemini_runtime_prompt_does_not_refresh_when_signature_is_unchanged():
     GeminiClient._refresh_chat_session_for_runtime_prompt_if_needed(client)
 
     assert recreated == []
+
+
+def test_gemini_runtime_prompt_refreshes_when_image_avatar_emotions_change(tmp_path, monkeypatch):
+    from src.ai import prompt_config
+    from src.ai.llm_client import GeminiClient
+
+    default_dir = tmp_path / "prompts" / "defaults"
+    local_dir = tmp_path / "prompts"
+    _write_prompt_markdown_files(default_dir, _sample_prompt_payload())
+
+    monkeypatch.setattr(prompt_config, "PROMPT_CONFIG_DIR", local_dir)
+    monkeypatch.setattr(prompt_config, "DEFAULT_PROMPT_CONFIG_DIR", default_dir)
+    monkeypatch.setattr(prompt_config, "BASE_SYSTEM_PROMPT_PATH", local_dir / "base_system_prompt.md")
+    monkeypatch.setattr(prompt_config, "SUB_PROMPT_BODY_PATH", local_dir / "sub_prompt_body.md")
+    monkeypatch.setattr(prompt_config, "ANALYSIS_SYSTEM_APPENDIX_PATH", local_dir / "analysis_system_appendix.md")
+    monkeypatch.setattr(prompt_config, "EMOTION_GUIDES_PATH", local_dir / "emotion_guides.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_BASE_SYSTEM_PROMPT_PATH", default_dir / "base_system_prompt.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_SUB_PROMPT_BODY_PATH", default_dir / "sub_prompt_body.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH", default_dir / "analysis_system_appendix.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_EMOTION_GUIDES_PATH", default_dir / "emotion_guides.md")
+
+    first_dir = tmp_path / "avatar_images" / "first"
+    second_dir = tmp_path / "avatar_images" / "second"
+    first_dir.mkdir(parents=True)
+    second_dir.mkdir(parents=True)
+    (first_dir / "normal.png").write_bytes(b"fake")
+    (first_dir / "happy.png").write_bytes(b"fake")
+    (second_dir / "normal.png").write_bytes(b"fake")
+    (second_dir / "calm.png").write_bytes(b"fake")
+
+    class _Chat:
+        history = [{"role": "user", "parts": [{"text": "테스트 메시지"}]}]
+
+    client = GeminiClient.__new__(GeminiClient)
+    client.settings = {
+        "avatar_mode": "image",
+        "image_avatar_folder": str(first_dir),
+        "enable_proactive_conversation": True,
+    }
+    client.proactive_manager = None
+    client.chat = _Chat()
+    client.model_name = "gemini-test"
+    client.client = object()
+    recreated = []
+    client._create_chat_session = lambda history=None: recreated.append(history) or _Chat()
+    client._last_runtime_prompt_signature = GeminiClient._runtime_prompt_signature(client)
+
+    client.settings["image_avatar_folder"] = str(second_dir)
+    GeminiClient._refresh_chat_session_for_runtime_prompt_if_needed(client)
+
+    assert recreated == [_Chat.history]
+    assert ("normal", "calm") in client._last_runtime_prompt_signature
 
 
 def test_runtime_thought_rules_are_localized(tmp_path, monkeypatch):
@@ -562,6 +614,89 @@ def test_runtime_emotions_use_image_avatar_folder_when_image_mode_is_enabled(tmp
     )
 
     assert emotions == ["normal", "joy"]
+
+
+def test_parseable_emotions_include_runtime_image_avatar_emotions(tmp_path, monkeypatch):
+    from src.ai import prompt as prompt_module
+    from src.ai import prompt_config
+    from src.ai.response_parser import parse_llm_response
+
+    default_dir = tmp_path / "prompts" / "defaults"
+    local_dir = tmp_path / "prompts"
+    payload = _sample_prompt_payload()
+    payload["emotions"] = ["normal", "saved_only"]
+    payload["emotion_guides"] = {
+        "normal": "기본 상태",
+        "saved_only": "저장된 프롬프트 전용 감정",
+    }
+    _write_prompt_markdown_files(default_dir, payload)
+
+    monkeypatch.setattr(prompt_config, "PROMPT_CONFIG_DIR", local_dir)
+    monkeypatch.setattr(prompt_config, "DEFAULT_PROMPT_CONFIG_DIR", default_dir)
+    monkeypatch.setattr(prompt_config, "BASE_SYSTEM_PROMPT_PATH", local_dir / "base_system_prompt.md")
+    monkeypatch.setattr(prompt_config, "SUB_PROMPT_BODY_PATH", local_dir / "sub_prompt_body.md")
+    monkeypatch.setattr(prompt_config, "ANALYSIS_SYSTEM_APPENDIX_PATH", local_dir / "analysis_system_appendix.md")
+    monkeypatch.setattr(prompt_config, "EMOTION_GUIDES_PATH", local_dir / "emotion_guides.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_BASE_SYSTEM_PROMPT_PATH", default_dir / "base_system_prompt.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_SUB_PROMPT_BODY_PATH", default_dir / "sub_prompt_body.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH", default_dir / "analysis_system_appendix.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_EMOTION_GUIDES_PATH", default_dir / "emotion_guides.md")
+
+    avatar_dir = tmp_path / "avatar_images" / "sample"
+    avatar_dir.mkdir(parents=True)
+    (avatar_dir / "normal.png").write_bytes(b"fake")
+    (avatar_dir / "happy.png").write_bytes(b"fake")
+    settings_source = {
+        "avatar_mode": "image",
+        "image_avatar_folder": str(avatar_dir),
+    }
+
+    parseable = prompt_module.get_parseable_emotions(settings_source=settings_source)
+    parsed = parse_llm_response(
+        "좋은 소식이에요. [happy]",
+        available_emotions=parseable,
+    )
+
+    assert parseable == ["normal", "saved_only", "happy"]
+    assert parsed[1] == "happy"
+
+
+def test_gemini_parse_response_preserves_image_avatar_emotion(tmp_path, monkeypatch):
+    from src.ai import prompt_config
+    from src.ai.llm_client import GeminiClient
+
+    default_dir = tmp_path / "prompts" / "defaults"
+    local_dir = tmp_path / "prompts"
+    payload = _sample_prompt_payload()
+    payload["emotions"] = ["normal"]
+    payload["emotion_guides"] = {"normal": "기본 상태"}
+    _write_prompt_markdown_files(default_dir, payload)
+
+    monkeypatch.setattr(prompt_config, "PROMPT_CONFIG_DIR", local_dir)
+    monkeypatch.setattr(prompt_config, "DEFAULT_PROMPT_CONFIG_DIR", default_dir)
+    monkeypatch.setattr(prompt_config, "BASE_SYSTEM_PROMPT_PATH", local_dir / "base_system_prompt.md")
+    monkeypatch.setattr(prompt_config, "SUB_PROMPT_BODY_PATH", local_dir / "sub_prompt_body.md")
+    monkeypatch.setattr(prompt_config, "ANALYSIS_SYSTEM_APPENDIX_PATH", local_dir / "analysis_system_appendix.md")
+    monkeypatch.setattr(prompt_config, "EMOTION_GUIDES_PATH", local_dir / "emotion_guides.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_BASE_SYSTEM_PROMPT_PATH", default_dir / "base_system_prompt.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_SUB_PROMPT_BODY_PATH", default_dir / "sub_prompt_body.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH", default_dir / "analysis_system_appendix.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_EMOTION_GUIDES_PATH", default_dir / "emotion_guides.md")
+
+    avatar_dir = tmp_path / "avatar_images" / "sample"
+    avatar_dir.mkdir(parents=True)
+    (avatar_dir / "normal.png").write_bytes(b"fake")
+    (avatar_dir / "happy.png").write_bytes(b"fake")
+
+    client = GeminiClient.__new__(GeminiClient)
+    client.settings = {
+        "avatar_mode": "image",
+        "image_avatar_folder": str(avatar_dir),
+    }
+
+    _text, emotion, *_rest = client._parse_response("좋은 소식이에요. [happy]")
+
+    assert emotion == "happy"
 
 
 def test_runtime_prompt_uses_model_emotions_instead_of_saved_emotion_list(tmp_path, monkeypatch):

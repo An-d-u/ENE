@@ -25,6 +25,9 @@ def get_base_path() -> Path:
 def _resolve_settings_source(settings_source: dict | None = None) -> dict:
     if isinstance(settings_source, dict):
         return settings_source
+    config = getattr(settings_source, "config", None)
+    if isinstance(config, dict):
+        return config
     try:
         return dict(Settings().config)
     except Exception:
