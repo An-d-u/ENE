@@ -186,6 +186,86 @@ process.stdout.write(JSON.stringify(context.result));
     return json.loads(completed.stdout)
 
 
+def _run_head_pat_runtime_case(case_script: str) -> dict:
+    runtime_paths = [
+        str(WEB_DIR / "runtime_motion_state.js"),
+        str(WEB_DIR / "runtime_head_pat.js"),
+    ]
+    node_script = f"""
+const fs = require('fs');
+const vm = require('vm');
+
+const runtimeSource = {json.dumps(runtime_paths)}.map((path) => fs.readFileSync(path, 'utf8')).join('\\n');
+const preludeSource = 'function isImageAvatarMode() {{ return Boolean(window.imageMode); }}';
+const caseSource = {json.dumps(case_script)};
+const changeCalls = [];
+const timeoutCallbacks = [];
+let headPatCount = 0;
+const context = {{
+    window: {{
+        live2dModel: null,
+        pyBridge: {{
+            increment_head_pat_count_from_js() {{
+                headPatCount += 1;
+            }},
+        }},
+    }},
+    document: {{
+        getElementById(id) {{
+            if (id === 'chat-container') {{
+                return {{
+                    contains() {{
+                        return false;
+                    }},
+                }};
+            }}
+            return null;
+        }},
+    }},
+    performance: {{
+        now() {{
+            return 1000;
+        }},
+    }},
+    setTimeout(callback) {{
+        timeoutCallbacks.push(callback);
+        return timeoutCallbacks.length;
+    }},
+    clearTimeout() {{}},
+    changeExpression(emotion, options) {{
+        changeCalls.push({{ emotion, options: options || {{}} }});
+    }},
+    console: {{
+        warn: () => {{}},
+        log: () => {{}},
+    }},
+    imageAvatarState: {{
+        sprite: null,
+    }},
+    changeCalls,
+    timeoutCallbacks,
+    getHeadPatCount() {{
+        return headPatCount;
+    }},
+    result: null,
+}};
+context.window.imageAvatarState = context.imageAvatarState;
+
+vm.createContext(context);
+vm.runInContext(preludeSource + '\\n' + runtimeSource + '\\n' + caseSource + '\\nresult = {{ ...result, changeCalls, headPatCount: getHeadPatCount(), timeoutCount: timeoutCallbacks.length }};', context, {{
+    filename: 'runtime_head_pat.js',
+}});
+process.stdout.write(JSON.stringify(context.result));
+"""
+    completed = subprocess.run(
+        ["node", "-e", node_script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return json.loads(completed.stdout)
+
+
 def test_web_runtime_is_split_into_ordered_scripts():
     html = (WEB_DIR / "index.html").read_text(encoding="utf-8-sig")
     runtime_scripts = [
@@ -537,6 +617,63 @@ result = { listenerCount };
     )
 
     assert result == {"listenerCount": 1}
+
+
+def test_head_pat_uses_whole_image_avatar_sprite_bounds_in_image_mode():
+    result = _run_head_pat_runtime_case(
+        """
+window.imageMode = true;
+headPatActiveEmotion = 'pat_start';
+headPatEndEmotion = 'pat_end';
+currentEmotionTag = 'normal';
+imageAvatarState.sprite = {
+    getBounds() {
+        return { x: 100, y: 80, width: 240, height: 360 };
+    },
+};
+const inside = isHeadPatPoint(220, 250);
+const outside = isHeadPatPoint(360, 250);
+let prevented = false;
+const eventTarget = {
+    setPointerCapture() {},
+    releasePointerCapture() {},
+};
+onHeadPatPointerDown({
+    pointerType: 'mouse',
+    button: 0,
+    pointerId: 7,
+    clientX: 220,
+    clientY: 250,
+    target: eventTarget,
+    preventDefault() {
+        prevented = true;
+    },
+});
+onHeadPatPointerUp({
+    pointerId: 7,
+    target: eventTarget,
+});
+result = {
+    inside,
+    outside,
+    prevented,
+    isHeadPatting,
+};
+"""
+    )
+
+    assert result == {
+        "inside": True,
+        "outside": False,
+        "prevented": True,
+        "isHeadPatting": False,
+        "changeCalls": [
+            {"emotion": "pat_start", "options": {"durationMs": 180}},
+            {"emotion": "pat_end", "options": {"durationMs": 220}},
+        ],
+        "headPatCount": 1,
+        "timeoutCount": 1,
+    }
 
 
 def test_live2d_parameter_runtime_does_not_redeclare_chat_state_globals():
