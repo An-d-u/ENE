@@ -30,6 +30,9 @@ It is not meant to be a generic chat window. ENE is built around presence: a cha
 > [!IMPORTANT]
 > The memory embedding workflow has been tested most reliably with Voyage. Other providers may be added or improved later.
 
+> [!TIP]
+> If you want a practical default setup, the currently recommended combination is `Google Gemini` for the main LLM and `GPT-SoVITS HTTP` for TTS.
+
 ## Preview
 
 | Desktop companion | Chat and controls |
@@ -60,8 +63,11 @@ ENE is in active development with a practical local workflow:
 
 - The bundled default Live2D model is `hiyori`.
 - User-selected model paths are preserved after restart.
+- Image avatar mode is now available alongside Live2D mode, including emotion-based image switching and per-image placement controls.
+- ENE can keep goal state through `ene_goals.json`, so companion behavior can reflect short-term and long-term goal context.
 - LLM provider creation is split into provider-specific modules behind a compatibility facade.
 - App startup responsibilities are separated into focused bootstrap modules.
+- Large bridge responsibilities are being moved into smaller bridge mixins and service boundaries for better reliability.
 - CI runs on Linux and Windows with Python 3.11.
 - The selected CI coverage gate is currently `80%`.
 
@@ -127,6 +133,56 @@ Common files:
 7. Configure Voyage embeddings if you want the most reliable memory setup.
 8. Enable and tune TTS only after text chat is working.
 9. Enable Obsidian CLI integration only if you want ENE to work with local notes.
+
+## Recommended Provider Setup
+
+If you want a simple starting point that fits ENE well, this is the recommended baseline:
+
+- `LLM provider`: `Google Gemini API`
+- `TTS provider`: `GPT-SoVITS HTTP`
+- `Embedding provider`: `Voyage`
+
+This combination keeps setup relatively straightforward while still giving ENE strong general chat quality, stable memory behavior, and a more character-like spoken voice path.
+
+For the LLM side, select `Google Gemini API` in the settings window, enter your Gemini API key, and start with the default Gemini model unless you already know you want something else.
+
+For the TTS side, make sure your GPT-SoVITS server is already running before you test speech output inside ENE.
+
+## GPT-SoVITS Quick Setup
+
+GPT-SoVITS is a good fit for ENE when you want speech that feels more character-like and more personal than a generic default TTS voice. In practice, it is usually the easiest way to make ENE sound like a companion instead of a plain assistant.
+
+If you want ENE to speak through GPT-SoVITS:
+
+1. Start your GPT-SoVITS HTTP server first.
+2. Open ENE and go to the settings window from the tray icon.
+3. In the TTS section, set the provider to `GPT-SoVITS HTTP`.
+4. Fill in the server address in `API URL`.
+5. Set a valid reference voice file path in `Reference Audio Path`.
+6. Add the matching reference transcript in `Reference Text`.
+7. Confirm the reference language and target language values, then save your settings.
+8. Test normal text chat and basic speech playback first before turning on extra options.
+
+For the best first result, use a short and clean reference audio sample with a transcript that matches the spoken content exactly. If the reference audio, transcript, or language settings do not match each other, speech quality usually drops very quickly.
+
+If you want ENE's spoken replies to stay closer to the current default companion style, Japanese is still the easiest language to start with for GPT-SoVITS in this project.
+
+### Enable Streaming Mode
+
+To enable streaming mode, turn on the `Use GPT-SoVITS streaming TTS` option in the TTS settings.
+
+Streaming can make spoken replies feel more immediate because ENE can start speaking earlier instead of waiting for the full result first. It is useful when you want the companion to feel more responsive in back-and-forth conversation.
+
+That said, it is still best to confirm that normal GPT-SoVITS playback works first before enabling streaming. Once the basic non-streaming path is stable, then turn on streaming and test again.
+
+### Common GPT-SoVITS Setup Problems
+
+- `No speech at all`: Usually the GPT-SoVITS server is not running, the `API URL` is wrong, or the selected TTS provider is not actually set to `GPT-SoVITS HTTP`.
+- `Speech sounds wrong or unstable`: The reference audio, reference transcript, and language settings often do not match each other closely enough.
+- `Text chat works but ENE does not speak`: Check that TTS itself is enabled, not only the provider settings.
+- `Streaming feels broken or delayed`: Turn streaming off first and verify that normal playback works. After that, re-enable streaming and test again.
+- `Voice quality is weak`: Try a cleaner reference audio sample, a more accurate transcript, and language values that match the sample exactly.
+- `The voice works but does not feel like ENE`: Adjust the spoken style through `sub_prompt_body.md`, then review the TTS settings again.
 
 ## Image Avatar Mode
 
