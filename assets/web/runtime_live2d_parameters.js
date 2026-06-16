@@ -31,6 +31,7 @@ window.setLive2DParameterInspectorPinned = setLive2DParameterInspectorFavorite;
 window.resetLive2DParameterInspectorValue = resetLive2DParameterInspectorValue;
 window.resetLive2DParameterInspectorValues = resetLive2DParameterInspectorValues;
 window.saveLive2DParameterInspectorOverrides = saveLive2DParameterInspectorOverrides;
+window.syncLive2DParameterVisibilityForAvatarMode = syncLive2DParameterVisibilityForAvatarMode;
 
 function readLive2DParameterFavorites(parameterOverrides) {
     if (parameterOverrides && Array.isArray(parameterOverrides.favorites)) {
@@ -43,6 +44,7 @@ function readLive2DParameterFavorites(parameterOverrides) {
 }
 
 window.onLive2DParameterModelChanged = function onLive2DParameterModelChanged(config = {}) {
+    syncLive2DParameterVisibilityForAvatarMode();
     const nextModelKey = String(config.modelKey || '');
     const modelKeyChanged = live2dParameterState.modelKey !== nextModelKey;
     const parameterOverrides = config.parameterOverrides || {};

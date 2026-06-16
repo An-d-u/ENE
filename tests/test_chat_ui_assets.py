@@ -10,6 +10,7 @@ SCRIPT_PATH = WEB_DIR / "script.js"
 EXPECTED_RUNTIME_SCRIPTS = [
     "runtime_bootstrap.js",
     "runtime_live2d_model.js",
+    "runtime_image_avatar.js",
     "runtime_motion_state.js",
     "runtime_head_pat.js",
     "runtime_auto_blink_tracking.js",
@@ -99,6 +100,92 @@ process.stdout.write(JSON.stringify(context.result));
     return json.loads(completed.stdout)
 
 
+def _run_image_avatar_runtime_case(case_script: str) -> dict:
+    runtime_path = str(WEB_DIR / "runtime_image_avatar.js")
+    node_script = f"""
+const fs = require('fs');
+const vm = require('vm');
+
+const runtimeSource = fs.readFileSync({json.dumps(runtime_path)}, 'utf8');
+const caseSource = {json.dumps(case_script)};
+const stageChildren = [];
+function makePoint() {{
+    return {{
+        x: 0,
+        y: 0,
+        set(x, y) {{
+            this.x = x;
+            this.y = y === undefined ? x : y;
+        }},
+    }};
+}}
+const context = {{
+    window: {{
+        innerWidth: 1000,
+        innerHeight: 800,
+        eneModelConfig: {{}},
+    }},
+    PIXI: {{
+        Sprite: class {{
+            constructor(texture) {{
+                this.texture = texture;
+                this.anchor = makePoint();
+                this.scale = makePoint();
+                this.destroyed = false;
+            }}
+            destroy() {{
+                this.destroyed = true;
+            }}
+        }},
+        Texture: {{
+            from: (path) => ({{ path }}),
+        }},
+        Text: class {{
+            constructor(text) {{
+                this.text = text;
+                this.anchor = makePoint();
+            }}
+            destroy() {{}}
+        }},
+    }},
+    app: {{
+        stage: {{
+            children: stageChildren,
+            addChild(child) {{
+                stageChildren.push(child);
+            }},
+            removeChild(child) {{
+                const index = stageChildren.indexOf(child);
+                if (index >= 0) {{
+                    stageChildren.splice(index, 1);
+                }}
+            }},
+        }},
+    }},
+    console: {{
+        warn: () => {{}},
+        log: () => {{}},
+    }},
+    result: null,
+}};
+context.window.PIXI = context.PIXI;
+context.window.app = context.app;
+
+vm.createContext(context);
+vm.runInContext(runtimeSource + '\\n' + caseSource, context, {{
+    filename: 'runtime_image_avatar.js',
+}});
+process.stdout.write(JSON.stringify(context.result));
+"""
+    completed = subprocess.run(
+        ["node", "-e", node_script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return json.loads(completed.stdout)
+
+
 def test_web_runtime_is_split_into_ordered_scripts():
     html = (WEB_DIR / "index.html").read_text(encoding="utf-8-sig")
     runtime_scripts = [
@@ -144,6 +231,220 @@ def test_live2d_parameter_runtime_loads_after_live2d_writers():
         assert script_order[dependency] < parameter_index
     assert script_order["runtime_live2d_parameter_core.js"] < script_order["runtime_live2d_parameter_ui.js"]
     assert script_order["runtime_live2d_parameter_ui.js"] < script_order["runtime_live2d_parameters.js"]
+
+
+def test_image_avatar_runtime_loads_between_model_and_motion_state():
+    script_order = {script_name: index for index, script_name in enumerate(EXPECTED_RUNTIME_SCRIPTS)}
+
+    assert script_order["runtime_live2d_model.js"] < script_order["runtime_image_avatar.js"]
+    assert script_order["runtime_image_avatar.js"] < script_order["runtime_motion_state.js"]
+
+
+def test_image_avatar_runtime_exposes_mode_hooks():
+    script = _script_text()
+
+    assert "const imageAvatarState = {" in script
+    assert "function isImageAvatarMode()" in script
+    assert "function applyImageAvatarSettings(config)" in script
+    assert "function changeImageAvatarEmotion(emotion)" in script
+    assert "function applyImageAvatarMouthValue(value)" in script
+    assert "window.applyImageAvatarSettings = applyImageAvatarSettings;" in script
+
+
+def test_live2d_loader_skips_model_when_image_avatar_mode_is_active():
+    script = _script_text()
+
+    assert "if (isImageAvatarMode())" in script
+    assert "removeCurrentModelArtifacts();" in script
+    assert "applyImageAvatarSettings(window.eneModelConfig);" in script
+
+
+def test_live2d_loader_forces_reload_after_switching_back_from_image_avatar_mode():
+    script = _script_text()
+
+    assert "currentModelPath = '';\n        currentEmotionsBasePath = '';" in script
+
+
+def test_image_avatar_mode_invalidates_pending_live2d_model_loads():
+    script = _script_text()
+
+    assert "currentModelLoadToken++;\n        removeCurrentModelArtifacts();" in script
+    assert (
+        "if (isImageAvatarMode()) {\n"
+        "            if (typeof model.destroy === 'function') {\n"
+        "                model.destroy();\n"
+        "            }\n"
+        "            return;\n"
+        "        }\n\n"
+        "        if (requestToken !== currentModelLoadToken)"
+    ) in script
+
+
+def test_expression_change_routes_to_image_avatar_in_image_mode():
+    script = _script_text()
+
+    assert "if (isImageAvatarMode())" in script
+    assert "changeImageAvatarEmotion(emotion);" in script
+
+
+def test_lipsync_routes_mouth_value_to_image_avatar_bounce():
+    script = _script_text()
+
+    assert "if (isImageAvatarMode())" in script
+    assert "applyImageAvatarMouthValue(value);" in script
+
+
+def test_live2d_parameter_button_hides_in_image_avatar_mode():
+    script = _script_text()
+
+    assert "function syncLive2DParameterVisibilityForAvatarMode()" in script
+    assert "live2dParametersButton.style.display = isImageAvatarMode() ? 'none' : 'inline-flex';" in script
+
+
+def test_image_avatar_runtime_falls_back_to_normal_emotion_image():
+    result = _run_image_avatar_runtime_case(
+        """
+applyImageAvatarSettings({
+    avatarMode: 'image',
+    imageAvatar: {
+        images: {
+            normal: 'normal.png',
+        },
+    },
+});
+result = {
+    joy: getImageAvatarImageForEmotion('joy'),
+    normal: getImageAvatarImageForEmotion('normal'),
+};
+"""
+    )
+
+    assert result == {
+        "joy": "normal.png",
+        "normal": "normal.png",
+    }
+
+
+def test_image_avatar_mouth_value_bounces_y_without_changing_saved_placement():
+    result = _run_image_avatar_runtime_case(
+        """
+applyImageAvatarSettings({
+    avatarMode: 'image',
+    imageAvatar: {
+        images: {
+            normal: 'normal.png',
+        },
+        placement: {
+            scale: 1.5,
+            xPercent: 25,
+            yPercent: 75,
+        },
+    },
+});
+const before = {
+    baseX: imageAvatarState.baseX,
+    baseY: imageAvatarState.baseY,
+    scale: imageAvatarState.scale,
+    spriteY: imageAvatarState.sprite.y,
+};
+applyImageAvatarMouthValue(0.5);
+const during = {
+    baseX: imageAvatarState.baseX,
+    baseY: imageAvatarState.baseY,
+    scale: imageAvatarState.scale,
+    spriteY: imageAvatarState.sprite.y,
+};
+applyImageAvatarMouthValue(0);
+const after = {
+    baseX: imageAvatarState.baseX,
+    baseY: imageAvatarState.baseY,
+    scale: imageAvatarState.scale,
+    spriteY: imageAvatarState.sprite.y,
+};
+result = { before, during, after };
+"""
+    )
+
+    assert result == {
+        "before": {"baseX": 250, "baseY": 600, "scale": 1.5, "spriteY": 600},
+        "during": {"baseX": 250, "baseY": 600, "scale": 1.5, "spriteY": 595},
+        "after": {"baseX": 250, "baseY": 600, "scale": 1.5, "spriteY": 600},
+    }
+
+
+def test_image_avatar_texture_error_removes_sprite_and_shows_error_text():
+    result = _run_image_avatar_runtime_case(
+        """
+let errorCallback = null;
+PIXI.Texture.from = (path) => ({
+    path,
+    baseTexture: {
+        on(eventName, callback) {
+            if (eventName === 'error') {
+                errorCallback = callback;
+            }
+        },
+    },
+});
+applyImageAvatarSettings({
+    avatarMode: 'image',
+    imageAvatar: {
+        images: {
+            normal: 'missing.png',
+        },
+    },
+});
+const registered = Boolean(errorCallback);
+if (errorCallback) {
+    errorCallback(new Error('missing file'));
+}
+result = {
+    registered,
+    spriteRemoved: imageAvatarState.sprite === null,
+    errorTextShown: Boolean(imageAvatarState.errorText),
+    childCount: app.stage.children.length,
+};
+"""
+    )
+
+    assert result == {
+        "registered": True,
+        "spriteRemoved": True,
+        "errorTextShown": True,
+        "childCount": 1,
+    }
+
+
+def test_image_avatar_texture_error_listener_is_bound_once_per_texture():
+    result = _run_image_avatar_runtime_case(
+        """
+let listenerCount = 0;
+const texture = {
+    path: 'normal.png',
+    baseTexture: {
+        on(eventName, callback) {
+            if (eventName === 'error') {
+                listenerCount += 1;
+            }
+        },
+    },
+};
+PIXI.Texture.from = () => texture;
+applyImageAvatarSettings({
+    avatarMode: 'image',
+    imageAvatar: {
+        images: {
+            normal: 'normal.png',
+        },
+    },
+});
+changeImageAvatarEmotion('normal');
+changeImageAvatarEmotion('normal');
+result = { listenerCount };
+"""
+    )
+
+    assert result == {"listenerCount": 1}
 
 
 def test_live2d_parameter_runtime_does_not_redeclare_chat_state_globals():
