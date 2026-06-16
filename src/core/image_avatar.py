@@ -8,7 +8,7 @@ import math
 from pathlib import Path
 from typing import Any
 
-from .app_paths import get_bundle_root
+from .app_paths import get_bundle_root, resolve_runtime_resource_path
 
 
 SUPPORTED_IMAGE_EXTENSIONS = (".png", ".webp", ".jpg", ".jpeg")
@@ -36,12 +36,12 @@ def _resolve_avatar_folder(settings_source: Any | None, base_path: str | Path | 
     source = _resolve_settings_source(settings_source)
     raw_folder = str(source.get("image_avatar_folder", "") or "").strip()
     if not raw_folder:
-        return (_resolve_base_path(base_path) / "avatar_images").resolve()
+        raw_folder = "avatar_images"
 
     folder = Path(raw_folder).expanduser()
     if folder.is_absolute():
         return folder.resolve()
-    return (_resolve_base_path(base_path) / folder).resolve()
+    return resolve_runtime_resource_path(raw_folder, bundle_root=_resolve_base_path(base_path))
 
 
 def _extension_rank(path: Path) -> int:
