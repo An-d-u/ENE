@@ -398,6 +398,72 @@ result = { before, during, after };
     }
 
 
+def test_image_avatar_settings_preview_emotion_uses_selected_image_and_keeps_runtime_changes():
+    result = _run_image_avatar_runtime_case(
+        """
+applyImageAvatarSettings({
+    avatarMode: 'image',
+    imageAvatarPreviewEmotion: 'smile',
+    imageAvatar: {
+        images: {
+            normal: {
+                path: 'normal.png',
+                storageKey: 'avatar_images/sample/normal.png',
+                placement: {
+                    scale: 1,
+                    xPercent: 50,
+                    yPercent: 50,
+                },
+            },
+            smile: {
+                path: 'smile.png',
+                storageKey: 'avatar_images/sample/smile.png',
+                placement: {
+                    scale: 1.4,
+                    xPercent: 25,
+                    yPercent: 75,
+                },
+            },
+        },
+    },
+});
+const preview = {
+    emotion: imageAvatarState.currentEmotion,
+    texturePath: imageAvatarState.sprite.texture.path,
+    baseX: imageAvatarState.baseX,
+    baseY: imageAvatarState.baseY,
+    scale: imageAvatarState.scale,
+};
+changeImageAvatarEmotion('normal');
+const runtime = {
+    emotion: imageAvatarState.currentEmotion,
+    texturePath: imageAvatarState.sprite.texture.path,
+    baseX: imageAvatarState.baseX,
+    baseY: imageAvatarState.baseY,
+    scale: imageAvatarState.scale,
+};
+result = { preview, runtime };
+"""
+    )
+
+    assert result == {
+        "preview": {
+            "emotion": "smile",
+            "texturePath": "smile.png",
+            "baseX": 250,
+            "baseY": 600,
+            "scale": 1.4,
+        },
+        "runtime": {
+            "emotion": "normal",
+            "texturePath": "normal.png",
+            "baseX": 500,
+            "baseY": 400,
+            "scale": 1,
+        },
+    }
+
+
 def test_image_avatar_texture_error_removes_sprite_and_shows_error_text():
     result = _run_image_avatar_runtime_case(
         """

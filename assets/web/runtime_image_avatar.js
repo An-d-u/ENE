@@ -201,7 +201,8 @@ function renderImageAvatarEmotion(emotion) {
 }
 
 function applyImageAvatarSettings(config) {
-    window.eneModelConfig = { ...(window.eneModelConfig || {}), ...(config || {}) };
+    const incomingConfig = config || {};
+    window.eneModelConfig = { ...(window.eneModelConfig || {}), ...incomingConfig };
     imageAvatarState.config = window.eneModelConfig;
     imageAvatarState.imageAvatar = window.eneModelConfig.imageAvatar || {};
     imageAvatarState.active = isImageAvatarMode();
@@ -215,7 +216,10 @@ function applyImageAvatarSettings(config) {
         return false;
     }
 
-    const emotion = imageAvatarState.currentEmotion || 'normal';
+    const hasPreviewEmotion = Object.prototype.hasOwnProperty.call(incomingConfig, 'imageAvatarPreviewEmotion');
+    const emotion = hasPreviewEmotion
+        ? normalizeImageAvatarEmotion(incomingConfig.imageAvatarPreviewEmotion)
+        : imageAvatarState.currentEmotion || 'normal';
     return renderImageAvatarEmotion(emotion);
 }
 

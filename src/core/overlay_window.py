@@ -232,7 +232,12 @@ class OverlayWindow(QWidget):
             }
         return {"parameters": parameters, "groups": groups}
 
-    def _resolve_model_config_payload(self, settings_source=None) -> dict:
+    def _resolve_model_config_payload(
+        self,
+        settings_source=None,
+        *,
+        include_image_avatar_preview_emotion: bool = False,
+    ) -> dict:
         source = self._resolve_settings_source(settings_source)
         path_payload = self._resolve_model_path_payload(source)
         if path_payload["avatarMode"] == "image":
@@ -241,7 +246,7 @@ class OverlayWindow(QWidget):
         else:
             parameter_overrides = self._resolve_live2d_parameter_overrides_payload(source)
             parameter_display_info = self._resolve_live2d_parameter_display_info_payload(source)
-        return {
+        payload = {
             "scale": source.get("model_scale", 1.0),
             "xPercent": source.get("model_x_percent", 50),
             "yPercent": source.get("model_y_percent", 50),
@@ -254,8 +259,19 @@ class OverlayWindow(QWidget):
             "parameterOverrides": parameter_overrides,
             "parameterDisplayInfo": parameter_display_info,
         }
+        if include_image_avatar_preview_emotion:
+            payload["imageAvatarPreviewEmotion"] = str(
+                source.get("image_avatar_preview_emotion", "normal") or "normal"
+            ).strip() or "normal"
+        return payload
 
     def _format_model_config_js_object(self, payload: dict) -> str:
+        preview_emotion_line = ""
+        if "imageAvatarPreviewEmotion" in payload:
+            preview_emotion_line = (
+                "                imageAvatarPreviewEmotion: "
+                f"{json.dumps(payload['imageAvatarPreviewEmotion'])},\n"
+            )
         return (
             "{\n"
             f"                scale: {json.dumps(payload['scale'])},\n"
@@ -266,6 +282,7 @@ class OverlayWindow(QWidget):
             f"                emotionsBasePath: {json.dumps(payload['emotionsBasePath'])},\n"
             f"                availableEmotions: {json.dumps(payload['availableEmotions'])},\n"
             f"                imageAvatar: {json.dumps(payload['imageAvatar'], ensure_ascii=False)},\n"
+            f"{preview_emotion_line}"
             f"                modelKey: {json.dumps(payload['modelKey'])},\n"
             f"                parameterOverrides: {json.dumps(payload['parameterOverrides'])},\n"
             "                parameterDisplayInfo: "
@@ -683,7 +700,10 @@ class OverlayWindow(QWidget):
         preview_source = dict(self.settings.config)
         preview_source.update(new_settings)
         model_config_js = self._format_model_config_js_object(
-            self._resolve_model_config_payload(preview_source)
+            self._resolve_model_config_payload(
+                preview_source,
+                include_image_avatar_preview_emotion=True,
+            )
         )
         js_code = f"""
         (function() {{
