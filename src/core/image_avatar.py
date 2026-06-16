@@ -128,7 +128,7 @@ def build_image_avatar_payload(settings_source: Any | None, base_path: str | Pat
     source = _resolve_settings_source(settings_source)
     resolved_base_path = _resolve_base_path(base_path)
     folder_path = _resolve_avatar_folder(source, resolved_base_path)
-    raw_folder = str(source.get("image_avatar_folder", "") or "").strip()
+    raw_folder = str(source.get("image_avatar_folder", "") or "").strip() or "avatar_images"
     image_paths = _discover_image_paths(folder_path)
     available_emotions = _order_emotions(set(image_paths))
 

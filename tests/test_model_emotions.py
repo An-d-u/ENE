@@ -373,6 +373,45 @@ def test_build_image_avatar_payload_prefers_user_data_for_relative_folder(tmp_pa
     assert payload["error"] == ""
 
 
+def test_build_image_avatar_payload_uses_relative_storage_key_for_default_folder(tmp_path, monkeypatch):
+    from src.core import app_paths
+    from src.core.image_avatar import build_image_avatar_payload
+
+    user_root = tmp_path / "user_data"
+    bundle_root = tmp_path / "bundle"
+    avatar_dir = user_root / "avatar_images"
+    avatar_dir.mkdir(parents=True)
+    bundle_root.mkdir(parents=True)
+    (avatar_dir / "normal.png").write_bytes(b"fake")
+
+    monkeypatch.setenv("ENE_USER_DATA_DIR", str(user_root))
+    monkeypatch.setattr(app_paths, "get_user_data_dir", lambda app_name=app_paths.APP_NAME: user_root)
+
+    payload = build_image_avatar_payload(
+        {
+            "image_avatar_placements": {
+                "avatar_images/normal.png": {
+                    "scale": 1.25,
+                    "x_percent": 60,
+                    "y_percent": 40,
+                }
+            },
+        },
+        base_path=bundle_root,
+    )
+
+    assert payload["availableEmotions"] == ["normal"]
+    assert payload["images"]["normal"]["path"] == (avatar_dir / "normal.png").resolve().as_uri()
+    assert payload["images"]["normal"]["storageKey"] == "avatar_images/normal.png"
+    assert payload["images"]["normal"]["placement"] == {
+        "scale": 1.25,
+        "xPercent": 60,
+        "yPercent": 40,
+    }
+    assert payload["folderPath"] == avatar_dir.resolve().as_uri()
+    assert payload["error"] == ""
+
+
 def test_build_image_avatar_payload_reports_missing_normal(tmp_path):
     from src.core.image_avatar import build_image_avatar_payload
 
