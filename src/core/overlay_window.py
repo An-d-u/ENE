@@ -20,6 +20,7 @@ from .live2d_parameter_overrides import (
     normalize_live2d_parameter_override_payload,
 )
 from .model_emotions import DEFAULT_MODEL_JSON_PATH, get_available_model_emotions, resolve_model_json_path
+from .model_tracking_params import load_model_tracking_parameter_map_for_model_json
 
 
 class OverlayWindow(QWidget):
@@ -243,9 +244,15 @@ class OverlayWindow(QWidget):
         if path_payload["avatarMode"] == "image":
             parameter_overrides = empty_live2d_parameter_payload()
             parameter_display_info = {"parameters": {}, "groups": {}}
+            tracking_parameter_map = {}
         else:
             parameter_overrides = self._resolve_live2d_parameter_overrides_payload(source)
             parameter_display_info = self._resolve_live2d_parameter_display_info_payload(source)
+            model_path = resolve_model_json_path(
+                settings_source=source,
+                base_path=self._get_base_path(),
+            )
+            tracking_parameter_map = load_model_tracking_parameter_map_for_model_json(model_path)
         payload = {
             "scale": source.get("model_scale", 1.0),
             "xPercent": source.get("model_x_percent", 50),
@@ -258,6 +265,7 @@ class OverlayWindow(QWidget):
             "modelKey": self._resolve_model_key(source),
             "parameterOverrides": parameter_overrides,
             "parameterDisplayInfo": parameter_display_info,
+            "trackingParameterMap": tracking_parameter_map,
         }
         if include_image_avatar_preview_emotion:
             payload["imageAvatarPreviewEmotion"] = str(
@@ -286,7 +294,9 @@ class OverlayWindow(QWidget):
             f"                modelKey: {json.dumps(payload['modelKey'])},\n"
             f"                parameterOverrides: {json.dumps(payload['parameterOverrides'])},\n"
             "                parameterDisplayInfo: "
-            f"{json.dumps(payload['parameterDisplayInfo'], ensure_ascii=False)}\n"
+            f"{json.dumps(payload['parameterDisplayInfo'], ensure_ascii=False)},\n"
+            "                trackingParameterMap: "
+            f"{json.dumps(payload.get('trackingParameterMap', {}), ensure_ascii=False)}\n"
             "            }"
         )
 
