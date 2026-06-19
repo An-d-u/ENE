@@ -126,13 +126,22 @@ function detectTrackingParams(coreModel) {
         }
     };
 
+    const configuredMap = (window.eneModelConfig && window.eneModelConfig.trackingParameterMap) || {};
+    const resolveParam = (key, fallbackId) => {
+        const configuredId = typeof configuredMap[key] === 'string' ? configuredMap[key].trim() : '';
+        if (configuredId && hasParam(configuredId)) {
+            return configuredId;
+        }
+        return hasParam(fallbackId) ? fallbackId : '';
+    };
+
     trackingParamSupport = {
-        angleX: hasParam('ParamAngleX'),
-        angleY: hasParam('ParamAngleY'),
-        bodyAngleX: hasParam('ParamBodyAngleX'),
-        eyeBallX: hasParam('ParamEyeBallX'),
-        eyeBallY: hasParam('ParamEyeBallY'),
-        breath: hasParam('ParamBreath'),
+        angleX: resolveParam('angleX', 'ParamAngleX'),
+        angleY: resolveParam('angleY', 'ParamAngleY'),
+        bodyAngleX: resolveParam('bodyAngleX', 'ParamBodyAngleX'),
+        eyeBallX: resolveParam('eyeBallX', 'ParamEyeBallX'),
+        eyeBallY: resolveParam('eyeBallY', 'ParamEyeBallY'),
+        breath: resolveParam('breath', 'ParamBreath'),
     };
 
     return trackingParamSupport;
@@ -145,11 +154,11 @@ function applyTrackingParams(coreModel, x, y, idleOffsets = null) {
     const idleAngleY = idleOffsets ? idleOffsets.angleY : 0;
     const idleBodyX = idleOffsets ? idleOffsets.bodyX : 0;
     const idleEyeY = idleOffsets && Number.isFinite(idleOffsets.eyeY) ? idleOffsets.eyeY : 0;
-    if (support.angleX) coreModel.setParameterValueById('ParamAngleX', (x * 15) + idleAngleX);
-    if (support.angleY) coreModel.setParameterValueById('ParamAngleY', (-y * 15) + idleAngleY);
-    if (support.bodyAngleX) coreModel.setParameterValueById('ParamBodyAngleX', (x * 5) + idleBodyX);
-    if (support.eyeBallX) coreModel.setParameterValueById('ParamEyeBallX', x * 0.8);
-    if (support.eyeBallY) coreModel.setParameterValueById('ParamEyeBallY', (-y * 0.8) + idleEyeY);
+    if (support.angleX) coreModel.setParameterValueById(support.angleX, (x * 15) + idleAngleX);
+    if (support.angleY) coreModel.setParameterValueById(support.angleY, (-y * 15) + idleAngleY);
+    if (support.bodyAngleX) coreModel.setParameterValueById(support.bodyAngleX, (x * 5) + idleBodyX);
+    if (support.eyeBallX) coreModel.setParameterValueById(support.eyeBallX, x * 0.8);
+    if (support.eyeBallY) coreModel.setParameterValueById(support.eyeBallY, (-y * 0.8) + idleEyeY);
 }
 
 // 유휴 모션이 제공하는 호흡 파라미터를 모델이 지원할 때 함께 반영한다.
@@ -160,7 +169,7 @@ function applyIdleBreathParam(coreModel, idleOffsets = null) {
     }
 
     const idleBreath = idleOffsets && Number.isFinite(idleOffsets.breath) ? idleOffsets.breath : 0;
-    coreModel.setParameterValueById('ParamBreath', idleBreath);
+    coreModel.setParameterValueById(support.breath, idleBreath);
 }
 
 // 쓰다듬기 시 눈 감기 오버라이드에 필요한 파라미터 지원 여부를 확인한다.
