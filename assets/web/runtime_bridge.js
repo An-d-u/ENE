@@ -53,7 +53,9 @@ if (typeof QWebChannel !== 'undefined') {
         }
         if (window.pyBridge.gesture_requested) {
             window.pyBridge.gesture_requested.connect(function (gesture) {
-                if (typeof window.playSyntheticGesture === 'function') {
+                if (typeof window.scheduleSyntheticGestureDuringSpeech === 'function') {
+                    window.scheduleSyntheticGestureDuringSpeech(gesture);
+                } else if (typeof window.playSyntheticGesture === 'function') {
                     window.playSyntheticGesture(gesture);
                 }
             });
@@ -85,6 +87,9 @@ if (typeof QWebChannel !== 'undefined') {
         if (window.pyBridge.lip_sync_update) {
             window.pyBridge.lip_sync_update.connect(function (mouthValue) {
                 setMouthOpen(mouthValue);
+                if (Number(mouthValue) > 0.01 && typeof window.notifySyntheticGestureSpeechActivity === 'function') {
+                    window.notifySyntheticGestureSpeechActivity();
+                }
             });
             console.log("Lip sync signal connected");
         }
@@ -93,6 +98,9 @@ if (typeof QWebChannel !== 'undefined') {
                 try {
                     const pose = (typeof payload === 'string') ? JSON.parse(payload) : payload;
                     applyMouthPose(pose);
+                    if (pose && Number(pose.open) > 0.01 && typeof window.notifySyntheticGestureSpeechActivity === 'function') {
+                        window.notifySyntheticGestureSpeechActivity();
+                    }
                 } catch (e) {
                     console.warn("Failed to parse mouth pose payload:", e);
                 }

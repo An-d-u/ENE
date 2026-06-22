@@ -3,8 +3,14 @@
 // ==========================================
 const GESTURE_INTENSITY = 1.0;
 const GESTURE_SPEED = 0.75;
+const SPEECH_GESTURE_MIN_DELAY_MS = 700;
+const SPEECH_GESTURE_MAX_DELAY_MS = 3200;
+const SPEECH_GESTURE_FALLBACK_DELAY_MS = 700;
 let activeGestureFrame = 0;
 let activeGestureKey = "";
+let pendingSpeechGestureKey = "";
+let pendingSpeechGestureTimer = 0;
+let pendingSpeechGestureFallbackTimer = 0;
 
 function easeGestureInOut(t) {
     const clamped = Math.max(0, Math.min(1, t));
@@ -129,7 +135,68 @@ const GESTURE_ALIASES = {
     angry: "shake",
 };
 
+function clearPendingSyntheticSpeechGesture() {
+    pendingSpeechGestureKey = "";
+    if (pendingSpeechGestureTimer) {
+        clearTimeout(pendingSpeechGestureTimer);
+        pendingSpeechGestureTimer = 0;
+    }
+    if (pendingSpeechGestureFallbackTimer) {
+        clearTimeout(pendingSpeechGestureFallbackTimer);
+        pendingSpeechGestureFallbackTimer = 0;
+    }
+}
+
+function playPendingSyntheticSpeechGesture() {
+    const gestureKey = pendingSpeechGestureKey;
+    clearPendingSyntheticSpeechGesture();
+    if (!gestureKey) {
+        return false;
+    }
+    return playSyntheticGesture(gestureKey);
+}
+
+function queuePendingSyntheticSpeechGesture(delayMs) {
+    if (!pendingSpeechGestureKey || pendingSpeechGestureTimer) {
+        return false;
+    }
+    const normalizedDelayMs = Math.max(0, Number(delayMs) || 0);
+    pendingSpeechGestureTimer = setTimeout(function () {
+        pendingSpeechGestureTimer = 0;
+        playPendingSyntheticSpeechGesture();
+    }, normalizedDelayMs);
+    return true;
+}
+
+function scheduleSyntheticGestureDuringSpeech(rawKey) {
+    const requestedKey = String(rawKey || "").trim();
+    if (!requestedKey) {
+        return false;
+    }
+
+    clearPendingSyntheticSpeechGesture();
+    pendingSpeechGestureKey = requestedKey;
+    pendingSpeechGestureFallbackTimer = setTimeout(function () {
+        pendingSpeechGestureFallbackTimer = 0;
+        queuePendingSyntheticSpeechGesture(0);
+    }, SPEECH_GESTURE_FALLBACK_DELAY_MS);
+    return true;
+}
+
+function notifySyntheticGestureSpeechActivity() {
+    if (!pendingSpeechGestureKey || pendingSpeechGestureTimer) {
+        return false;
+    }
+    if (pendingSpeechGestureFallbackTimer) {
+        clearTimeout(pendingSpeechGestureFallbackTimer);
+        pendingSpeechGestureFallbackTimer = 0;
+    }
+    const delayMs = SPEECH_GESTURE_MIN_DELAY_MS + (Math.random() * (SPEECH_GESTURE_MAX_DELAY_MS - SPEECH_GESTURE_MIN_DELAY_MS));
+    return queuePendingSyntheticSpeechGesture(delayMs);
+}
+
 function stopSyntheticGesture() {
+    clearPendingSyntheticSpeechGesture();
     activeGestureKey = "";
     if (activeGestureFrame) {
         cancelAnimationFrame(activeGestureFrame);
@@ -179,4 +246,6 @@ function playSyntheticGesture(rawKey) {
 }
 
 window.playSyntheticGesture = playSyntheticGesture;
+window.scheduleSyntheticGestureDuringSpeech = scheduleSyntheticGestureDuringSpeech;
+window.notifySyntheticGestureSpeechActivity = notifySyntheticGestureSpeechActivity;
 window.stopSyntheticGesture = stopSyntheticGesture;
