@@ -8,9 +8,16 @@ __pycache__/
 *.egg-info/
 venv/
 .venv/
+.venv*/
 env/
 ENV/
 .pytest_cache/
+.pytest_tmp*/
+pytest_tmp*/
+codex_pytest_tmp/
+.codex-pytest-tmp/
+.tmp312/
+tmp312*/
 .ruff_cache/
 .mypy_cache/
 .hypothesis/
