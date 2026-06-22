@@ -1,4 +1,5 @@
 ﻿from src.core import app as app_module
+from src.core.app_memory_bootstrap import MemoryProfileRuntime
 
 
 class _DummySettings:
@@ -92,6 +93,17 @@ def test_app_initializes_goal_manager_without_llm_api_key(monkeypatch):
     monkeypatch.setattr(app_module, "ObsidianPanelWindow", _DummyObsPanelWindow)
     monkeypatch.setattr(app_module, "TrayIcon", _DummyTrayIcon)
     monkeypatch.setattr(app_module.ENEApplication, "_apply_followed_system_theme", lambda self, save=False: False)
+    monkeypatch.setattr(app_module, "build_memory_manager", lambda settings: "memory-manager")
+    monkeypatch.setattr(
+        app_module,
+        "build_profile_runtime",
+        lambda: MemoryProfileRuntime(
+            memory_manager=None,
+            user_profile="user-profile",
+            ene_profile="ene-profile",
+        ),
+    )
+    monkeypatch.setattr(app_module.ENEApplication, "_init_mood_manager", lambda self: setattr(self, "mood_manager", "mood-manager"))
     monkeypatch.setattr(app_module.ENEApplication, "_init_calendar_manager", lambda self: setattr(self, "calendar_manager", None))
     monkeypatch.setattr(app_module.ENEApplication, "_init_promise_manager", lambda self: setattr(self, "promise_manager", None))
     monkeypatch.setattr(app_module.ENEApplication, "_connect_signals", lambda self: None)
@@ -101,6 +113,10 @@ def test_app_initializes_goal_manager_without_llm_api_key(monkeypatch):
     app = app_module.ENEApplication()
 
     assert app.llm_client is None
+    assert app.memory_manager == "memory-manager"
+    assert app.user_profile == "user-profile"
+    assert app.ene_profile == "ene-profile"
+    assert app.mood_manager == "mood-manager"
     assert isinstance(app.goal_manager, _DummyGoalManager)
     assert app.goal_manager.state_file == "test_ene_goals.json"
     assert app.overlay_window.bridge.goal_manager is app.goal_manager
@@ -122,6 +138,13 @@ def test_app_start_does_not_restore_obsidian_panel_visibility(monkeypatch):
     monkeypatch.setattr(app_module, "ObsidianPanelWindow", _DummyObsPanelWindow)
     monkeypatch.setattr(app_module, "TrayIcon", _DummyTrayIcon)
     monkeypatch.setattr(app_module.ENEApplication, "_apply_followed_system_theme", lambda self, save=False: False)
+    monkeypatch.setattr(app_module.ENEApplication, "_init_memory_manager", lambda self: setattr(self, "memory_manager", None))
+    monkeypatch.setattr(
+        app_module.ENEApplication,
+        "_init_profiles",
+        lambda self: (setattr(self, "user_profile", None), setattr(self, "ene_profile", None)),
+    )
+    monkeypatch.setattr(app_module.ENEApplication, "_init_mood_manager", lambda self: setattr(self, "mood_manager", None))
     monkeypatch.setattr(app_module.ENEApplication, "_init_calendar_manager", lambda self: setattr(self, "calendar_manager", None))
     monkeypatch.setattr(app_module.ENEApplication, "_init_promise_manager", lambda self: setattr(self, "promise_manager", None))
     monkeypatch.setattr(app_module.ENEApplication, "_connect_signals", lambda self: None)
