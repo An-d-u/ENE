@@ -44,6 +44,9 @@ class ENEApplication(QObject):
         self._apply_followed_system_theme(save=True)
         self.interrupt_tts_on_ptt = bool(self.settings.get("interrupt_tts_on_ptt", True))
         self._init_goal_manager()
+        self._init_memory_manager()
+        self._init_profiles()
+        self._init_mood_manager()
         
         # LLM 클라이언트 초기화
         self._init_llm_client()
@@ -106,15 +109,7 @@ class ENEApplication(QObject):
             if not llm_config.api_key:
                 print(f"WARNING: LLM API 키가 비어있습니다. provider={llm_config.provider}")
                 self.llm_client = None
-                self.memory_manager = None
                 return
-            
-            # 메모리 매니저를 먼저 초기화
-            self._init_memory_manager()
-            
-            # 사용자 프로필 초기화
-            self._init_profiles()
-            self._init_mood_manager()
             
             self.llm_client = create_llm_runtime_client(
                 llm_config,
@@ -140,7 +135,6 @@ class ENEApplication(QObject):
             import traceback
             traceback.print_exc()
             self.llm_client = None
-            self.memory_manager = None
 
     def _init_mood_manager(self):
         """기분 매니저 초기화"""
