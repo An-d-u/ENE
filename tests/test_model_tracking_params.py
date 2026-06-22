@@ -58,6 +58,48 @@ def test_tracking_parameter_map_prefers_vtube_face_angle_outputs():
     assert mapping["eyeBallX"] == "ParamEyeBallX"
 
 
+def test_tracking_parameter_map_includes_body_y_and_z_defaults():
+    with _workspace_tmp("body-defaults") as model_dir:
+        model_path = model_dir / "sample.model3.json"
+        _write_json(model_path, {"Version": 3})
+        _write_json(
+            model_dir / "sample.cdi3.json",
+            {
+                "Parameters": [
+                    {"Id": "ParamBodyAngleX"},
+                    {"Id": "ParamBodyAngleY"},
+                    {"Id": "ParamBodyAngleZ"},
+                ]
+            },
+        )
+
+        mapping = load_model_tracking_parameter_map_for_model_json(model_path)
+
+    assert mapping["bodyAngleX"] == "ParamBodyAngleX"
+    assert mapping["bodyAngleY"] == "ParamBodyAngleY"
+    assert mapping["bodyAngleZ"] == "ParamBodyAngleZ"
+
+
+def test_tracking_parameter_map_uses_display_names_for_nonstandard_body_params():
+    with _workspace_tmp("body-display-names") as model_dir:
+        model_path = model_dir / "Mechanical_Girl_Zero.model3.json"
+        _write_json(model_path, {"Version": 3})
+        _write_json(
+            model_dir / "Mechanical_Girl_Zero.cdi3.json",
+            {
+                "Parameters": [
+                    {"Id": "ParamBodyAngleY3", "Name": "Body Rotation Y"},
+                    {"Id": "ParamBodyAngleZ5", "Name": "Body Twist Z"},
+                ]
+            },
+        )
+
+        mapping = load_model_tracking_parameter_map_for_model_json(model_path)
+
+    assert mapping["bodyAngleY"] == "ParamBodyAngleY3"
+    assert mapping["bodyAngleZ"] == "ParamBodyAngleZ5"
+
+
 def test_tracking_parameter_map_falls_back_to_standard_angle_params():
     with _workspace_tmp("hiyori") as model_dir:
         model_path = model_dir / "hiyori.model3.json"

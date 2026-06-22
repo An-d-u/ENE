@@ -54,6 +54,10 @@ def _script_text() -> str:
     return SCRIPT_PATH.read_text(encoding="utf-8-sig")
 
 
+def _runtime_motion_state_text() -> str:
+    return (WEB_DIR / "runtime_motion_state.js").read_text(encoding="utf-8-sig")
+
+
 def _live2d_parameter_runtime_text() -> str:
     return "\n".join(
         (WEB_DIR / path).read_text(encoding="utf-8-sig")
@@ -264,6 +268,15 @@ process.stdout.write(JSON.stringify(context.result));
         text=True,
     )
     return json.loads(completed.stdout)
+
+
+def test_tracking_runtime_supports_body_y_and_z_parameter_map():
+    script = _runtime_motion_state_text()
+
+    assert "bodyAngleY: resolveParam('bodyAngleY', 'ParamBodyAngleY')" in script
+    assert "bodyAngleZ: resolveParam('bodyAngleZ', 'ParamBodyAngleZ')" in script
+    assert "if (support.bodyAngleY) coreModel.setParameterValueById(support.bodyAngleY, idleBodyY);" in script
+    assert "if (support.bodyAngleZ) coreModel.setParameterValueById(support.bodyAngleZ, idleBodyZ);" in script
 
 
 def test_web_runtime_is_split_into_ordered_scripts():
