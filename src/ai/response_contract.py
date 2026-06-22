@@ -33,6 +33,11 @@ def is_proactive_conversation_enabled(settings_source: object | None = None) -> 
     return bool(_read_setting(settings_source, "enable_proactive_conversation", True))
 
 
+def is_synthetic_gesture_enabled(settings_source: object | None = None) -> bool:
+    """설정에서 합성 제스처 기능 활성화 여부를 읽는다."""
+    return bool(_read_setting(settings_source, "enable_synthetic_gestures", True))
+
+
 def _available_proactive_cooldown_keys(settings_source: object | None = None) -> list[str]:
     raw_keys = _read_setting(settings_source, "proactive_available_cooldown_keys", None)
     if raw_keys is None:
@@ -54,6 +59,21 @@ _RESPONSE_CONTRACT_BY_LANGUAGE = {
         "proactive": "- 선제 대화 기능이 켜져 있으면 원칙적으로 모든 일반 대화 응답에서 `[proactive_conversation]...[/proactive_conversation]` 블록을 1개 출력하세요.",
         "tts": "- TTS 언어가 응답 언어와 다르면 답변 본문 뒤에 `[tts]...[/tts]` 블록을 추가하세요. TTS 언어가 같으면 TTS 블록을 만들지 마세요.",
         "subconscious": "- 생각 기능이 켜져 있으면 목표 블록 뒤, 사용자에게 보일 답변 앞에 `[subconscious]...[/subconscious]` 블록을 출력하세요.",
+        "gesture": "\n".join(
+            [
+                "- 필요한 경우에만, 제스처 태그는 감정 표현을 보조할 때 답변 감정 태그 뒤에 `[gesture:<name>]` 형식으로 한 번 붙이세요.",
+                "- 필요 없으면 제스처 태그를 출력하지 마세요. 대사가 짧고 자연스러워도 생략하세요.",
+                "- 한 응답에는 gesture 태그를 최대 1개만 사용하세요.",
+                "- 감정 태그와 gesture가 어울리지 않으면 gesture를 출력하지 마세요.",
+                "- 사용 가능한 gesture:",
+                "- nod: 동의, 안심, 기쁜 수긍, 부드러운 긍정",
+                "- bow: 미안함, 슬픔, 조심스러운 사과, 풀이 죽은 반응",
+                "- shake: 부정, 당황한 거절, 화남, \"그건 아니야\"라는 반응",
+                "- surprise: 놀람, 갑작스러운 깨달음, 예상 밖의 반응",
+                "- tilt: 궁금함, 혼란, 귀엽게 갸웃하는 반응",
+                "- sway: 장난스러움, 기분 좋음, 가벼운 애교나 여유",
+            ]
+        ),
         "reply": "한국어 답변 [emotion]",
         "thought_sample": "짧은 내면 반응",
         "tts_samples": {
@@ -72,6 +92,21 @@ _RESPONSE_CONTRACT_BY_LANGUAGE = {
         "proactive": "- When proactive conversation is enabled, output exactly one `[proactive_conversation]...[/proactive_conversation]` block for normal chat replies by default.",
         "tts": "- If the TTS language differs from the response language, add a `[tts]...[/tts]` block after the visible reply. If they match, do not add a TTS block.",
         "subconscious": "- When the thought feature is enabled, output a `[subconscious]...[/subconscious]` block after the goal block and before the visible reply.",
+        "gesture": "\n".join(
+            [
+                "- Use a gesture tag only when it supports the emotional delivery, and place it once after the reply emotion tag.",
+                "- If it is not needed, the line is short, or the reply already feels natural, do not output a gesture tag.",
+                "- Use at most one gesture tag per reply.",
+                "- If the emotion tag and gesture do not fit together, do not output a gesture tag.",
+                "- Available gestures:",
+                "- nod: agreement, reassurance, happy acknowledgement, gentle affirmation",
+                "- bow: apology, sadness, careful remorse, subdued reaction",
+                "- shake: denial, flustered refusal, anger, a clear \"that's not it\" reaction",
+                "- surprise: surprise, sudden realization, unexpected reaction",
+                "- tilt: curiosity, confusion, cute questioning tilt",
+                "- sway: playfulness, good mood, light affection, relaxed teasing",
+            ]
+        ),
         "reply": "English reply [emotion]",
         "thought_sample": "짧은 내면 반응",
         "tts_samples": {
@@ -90,6 +125,21 @@ _RESPONSE_CONTRACT_BY_LANGUAGE = {
         "proactive": "- 先回り会話が有効な場合、通常の会話返答では原則として `[proactive_conversation]...[/proactive_conversation]` ブロックを1つ出力してください。",
         "tts": "- TTS言語が返答言語と異なる場合だけ、ユーザーに見える返答の後に `[tts]...[/tts]` ブロックを追加してください。同じ場合はTTSブロックを作らないでください。",
         "subconscious": "- 思考表示機能が有効な場合、目標ブロックの後、ユーザーに見える返答の前に `[subconscious]...[/subconscious]` ブロックを出力してください。",
+        "gesture": "\n".join(
+            [
+                "- ジェスチャータグは感情表現を補助する場合だけ、返答の感情タグの後に1回だけ付けてください。",
+                "- 不要な場合、短い返答で自然な場合はジェスチャータグを出力しないでください。",
+                "- 1つの返答で使えるgestureタグは最大1つです。",
+                "- 感情タグとgestureが合わない場合はgestureを出力しないでください。",
+                "- 使用できるgesture:",
+                "- nod: 同意、安心、うれしい相づち、やわらかい肯定",
+                "- bow: 謝罪、悲しみ、控えめな反省、しょんぼりした反応",
+                "- shake: 否定、戸惑った拒否、怒り、「それは違う」という反応",
+                "- surprise: 驚き、急な気づき、予想外の反応",
+                "- tilt: 好奇心、混乱、かわいく首をかしげる反応",
+                "- sway: いたずらっぽさ、上機嫌、軽い甘え、余裕のある反応",
+            ]
+        ),
         "reply": "日本語返答 [emotion]",
         "thought_sample": "짧은 내면 반응",
         "tts_samples": {
@@ -155,6 +205,7 @@ def build_response_contract_appendix(settings_source: object | None = None) -> s
     names = resolve_prompt_persona_names(settings_source=settings_source, language=language)
     goal_enabled = is_goal_prompt_enabled(settings_source)
     thought_enabled = is_thought_prompt_enabled(settings_source)
+    gesture_enabled = is_synthetic_gesture_enabled(settings_source)
     proactive_cooldown_keys = _available_proactive_cooldown_keys(settings_source)
     proactive_enabled = is_proactive_conversation_enabled(settings_source) and bool(proactive_cooldown_keys)
 
@@ -174,6 +225,8 @@ def build_response_contract_appendix(settings_source: object | None = None) -> s
     if thought_enabled:
         lines.append(contract["subconscious"])
         lines.extend(build_thought_rules(language=language))
+    if gesture_enabled:
+        lines.append(contract["gesture"])
     if proactive_enabled:
         lines.append(contract["proactive"])
         lines.extend(_build_proactive_conversation_rules(language=language, cooldown_keys=proactive_cooldown_keys))

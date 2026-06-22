@@ -12,6 +12,7 @@ EXPECTED_RUNTIME_SCRIPTS = [
     "runtime_live2d_model.js",
     "runtime_image_avatar.js",
     "runtime_motion_state.js",
+    "runtime_gesture_engine.js",
     "runtime_head_pat.js",
     "runtime_auto_blink_tracking.js",
     "runtime_expression.js",
@@ -56,6 +57,10 @@ def _script_text() -> str:
 
 def _runtime_motion_state_text() -> str:
     return (WEB_DIR / "runtime_motion_state.js").read_text(encoding="utf-8-sig")
+
+
+def _gesture_runtime_text() -> str:
+    return (WEB_DIR / "runtime_gesture_engine.js").read_text(encoding="utf-8-sig")
 
 
 def _live2d_parameter_runtime_text() -> str:
@@ -275,8 +280,31 @@ def test_tracking_runtime_supports_body_y_and_z_parameter_map():
 
     assert "bodyAngleY: resolveParam('bodyAngleY', 'ParamBodyAngleY')" in script
     assert "bodyAngleZ: resolveParam('bodyAngleZ', 'ParamBodyAngleZ')" in script
-    assert "if (support.bodyAngleY) coreModel.setParameterValueById(support.bodyAngleY, idleBodyY);" in script
-    assert "if (support.bodyAngleZ) coreModel.setParameterValueById(support.bodyAngleZ, idleBodyZ);" in script
+    assert "if (support.bodyAngleY) coreModel.setParameterValueById(support.bodyAngleY, idleBodyY + gestureBodyY);" in script
+    assert "if (support.bodyAngleZ) coreModel.setParameterValueById(support.bodyAngleZ, idleBodyZ + gestureBodyZ);" in script
+
+
+def test_tracking_runtime_supports_synthetic_gesture_offsets():
+    script = _runtime_motion_state_text()
+
+    assert "window.setSyntheticGestureOffsets = function (offsets = {})" in script
+    assert "angleZ: resolveParam('angleZ', 'ParamAngleZ')" in script
+    assert "const gestureOffsets = syntheticGestureOffsets || createEmptySyntheticGestureOffsets();" in script
+    assert "if (support.angleZ) coreModel.setParameterValueById(support.angleZ, gestureAngleZ);" in script
+    assert "if (support.eyeBallX) coreModel.setParameterValueById(support.eyeBallX, (x * 0.8) + gestureEyeX);" in script
+
+
+def test_gesture_engine_exposes_chat_gesture_player():
+    script = _gesture_runtime_text()
+
+    assert "const GESTURE_INTENSITY = 1.0;" in script
+    assert "const GESTURE_SPEED = 0.75;" in script
+    assert "const SYNTHETIC_GESTURES = {" in script
+    for gesture in ["nod", "bow", "shake", "surprise", "tilt", "sway"]:
+        assert f"{gesture}:" in script
+    assert "window.playSyntheticGesture = playSyntheticGesture;" in script
+    assert "window.stopSyntheticGesture = stopSyntheticGesture;" in script
+    assert "durationMs / GESTURE_SPEED" in script
 
 
 def test_web_runtime_is_split_into_ordered_scripts():
@@ -308,6 +336,20 @@ def test_web_runtime_initializers_load_after_called_dependencies():
         "runtime_goal_panel.js",
     ]:
         assert script_order[dependency] < mood_initializer_index
+
+
+def test_gesture_runtime_loads_after_motion_state_and_before_bridge():
+    script_order = {script_name: index for index, script_name in enumerate(EXPECTED_RUNTIME_SCRIPTS)}
+
+    assert script_order["runtime_motion_state.js"] < script_order["runtime_gesture_engine.js"]
+    assert script_order["runtime_gesture_engine.js"] < script_order["runtime_bridge.js"]
+
+
+def test_bridge_connects_gesture_signal_to_runtime_player():
+    script = (WEB_DIR / "runtime_bridge.js").read_text(encoding="utf-8-sig")
+
+    assert "window.pyBridge.gesture_requested.connect(function (gesture)" in script
+    assert "window.playSyntheticGesture(gesture);" in script
 
 
 def test_live2d_parameter_runtime_loads_after_live2d_writers():
@@ -2399,7 +2441,7 @@ def test_chat_script_applies_idle_breath_param_when_model_supports_it():
     script = _script_text()
     assert "breath: resolveParam('breath', 'ParamBreath')" in script
     assert "function applyIdleBreathParam(coreModel, idleOffsets = null)" in script
-    assert "coreModel.setParameterValueById(support.breath, idleBreath);" in script
+    assert "coreModel.setParameterValueById(support.breath, idleBreath + gestureBreath);" in script
     assert "applyIdleBreathParam(coreModel, patOffsetsApplied);" in script
     assert "applyIdleBreathParam(coreModel, idleOffsets);" in script
 

@@ -13,7 +13,7 @@ def test_parse_response_keeps_multiline_japanese_for_tts():
 二行目です。
 """.strip()
 
-    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive = client._parse_response(response_text)
+    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive, _gesture = client._parse_response(response_text)
 
     assert text == "한국어 본문입니다."
     assert emotion == "smile"
@@ -36,7 +36,7 @@ confidence=0.86
 はい、わかりました。
 """.strip()
 
-    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive = client._parse_response(response_text)
+    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive, _gesture = client._parse_response(response_text)
 
     assert text == "네, 알겠어요."
     assert emotion == "smile"
@@ -66,7 +66,7 @@ confidence=0.8
 大丈夫です。ゆっくりでいいですよ。
 """.strip()
 
-    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive = client._parse_response(response_text)
+    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive, _gesture = client._parse_response(response_text)
 
     assert text == "괜찮아요. 천천히 해도 돼요."
     assert emotion == "smile"
@@ -92,7 +92,7 @@ confidence=0.8
 大丈夫です。ゆっくりでいいですよ。
 """.strip()
 
-    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive = client._parse_response(response_text)
+    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive, _gesture = client._parse_response(response_text)
 
     assert text == "괜찮아요. 천천히 해도 돼요."
     assert emotion == "smile"
@@ -118,7 +118,7 @@ confidence=0.8
 大丈夫です。ゆっくりでいいですよ。
 """.strip()
 
-    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive = client._parse_response(response_text)
+    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive, _gesture = client._parse_response(response_text)
 
     assert text == "괜찮아요. 천천히 해도 돼요."
     assert emotion == "smile"
@@ -139,7 +139,7 @@ def test_parse_response_extracts_korean_thought_block_alias():
 わかりました。もう一度確認してみます。
 """.strip()
 
-    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive = client._parse_response(response_text)
+    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive, _gesture = client._parse_response(response_text)
 
     assert text == "알겠어요. 제가 다시 확인해볼게요."
     assert emotion == "smile"
@@ -159,7 +159,7 @@ def test_parse_response_extracts_leading_thought_metadata_line():
 はい、そこからもう一度見直します。
 """.strip()
 
-    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive = client._parse_response(response_text)
+    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive, _gesture = client._parse_response(response_text)
 
     assert text == "네, 그 부분부터 다시 잡아볼게요."
     assert emotion == "smile"
@@ -179,7 +179,7 @@ def test_parse_response_keeps_reply_when_model_wraps_everything_as_thought():
 [/thought]
 """.strip()
 
-    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive = client._parse_response(response_text)
+    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive, _gesture = client._parse_response(response_text)
 
     assert text == "괜찮아요. 천천히 해도 돼요."
     assert emotion == "smile"
@@ -207,7 +207,7 @@ flags=greeting
 こんばんは。
 """.strip()
 
-    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive = client._parse_response(response_text)
+    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive, _gesture = client._parse_response(response_text)
 
     assert text == "좋은 저녁이에요."
     assert emotion == "smile"
@@ -229,7 +229,7 @@ def test_parse_response_extracts_explicit_tts_block_without_leaking_to_text():
 [/tts]
 """.strip()
 
-    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive = client._parse_response(response_text)
+    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive, _gesture = client._parse_response(response_text)
 
     assert text == "좋은 저녁이에요."
     assert emotion == "smile"
@@ -245,7 +245,7 @@ def test_parse_response_keeps_japanese_visible_when_tts_language_matches_respons
     client.settings = {"ui_language": "ja", "tts_language": "ja"}
     response_text = "こんばんは。もう少しだけ確認します。 [smile]"
 
-    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive = client._parse_response(response_text)
+    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive, _gesture = client._parse_response(response_text)
 
     assert text == "こんばんは。もう少しだけ確認します。"
     assert emotion == "smile"
@@ -261,7 +261,7 @@ def test_parse_response_uses_visible_text_for_tts_when_korean_tts_matches_respon
     client.settings = {"ui_language": "ko", "tts_language": "ko"}
     response_text = "좋은 저녁이에요. [smile]"
 
-    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive = client._parse_response(response_text)
+    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive, _gesture = client._parse_response(response_text)
 
     assert text == "좋은 저녁이에요."
     assert emotion == "smile"
@@ -282,7 +282,7 @@ def test_parse_response_removes_japanese_lines_even_when_not_at_end():
 아까 정리하던 문서, 지금은 거의 마무리된 상태인가요?
 """.strip()
 
-    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive = client._parse_response(response_text)
+    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive, _gesture = client._parse_response(response_text)
 
     assert text == (
         "좋은 저녁이에요.\n\n"
@@ -306,7 +306,7 @@ def test_parse_response_removes_thinking_tags_before_extracting_tts_text():
 こんばんは。
 """.strip()
 
-    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive = client._parse_response(response_text)
+    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive, _gesture = client._parse_response(response_text)
 
     assert text == "좋은 저녁이에요."
     assert emotion == "smile"
@@ -325,7 +325,7 @@ def test_parse_response_removes_leading_orphan_thinking_close_tag():
 こんばんは。
 """.strip()
 
-    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive = client._parse_response(response_text)
+    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive, _gesture = client._parse_response(response_text)
 
     assert text == "좋은 저녁이에요."
     assert emotion == "smile"

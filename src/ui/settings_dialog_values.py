@@ -406,6 +406,9 @@ class SettingsDialogValuesMixin:
             self.enable_proactive_conversation_check.setChecked(
                 self._original_settings.get("enable_proactive_conversation", True)
             )
+            self.enable_synthetic_gestures_check.setChecked(
+                self._original_settings.get("enable_synthetic_gestures", True)
+            )
             try:
                 thought_context_limit = int(self._original_settings.get("ene_thought_context_limit", 2) or 0)
             except Exception:
@@ -722,6 +725,7 @@ class SettingsDialogValuesMixin:
             "message_split_enabled": self.message_split_check.isChecked(),
             "enable_ene_thoughts": self.enable_ene_thoughts_check.isChecked(),
             "enable_proactive_conversation": self.enable_proactive_conversation_check.isChecked(),
+            "enable_synthetic_gestures": self.enable_synthetic_gestures_check.isChecked(),
             "enable_ene_goals": self.enable_ene_goals_check.isChecked(),
             "include_ene_thoughts_in_context": self.include_ene_thoughts_in_context_check.isChecked(),
             "ene_thought_context_limit": self.ene_thought_context_limit_spin.value(),

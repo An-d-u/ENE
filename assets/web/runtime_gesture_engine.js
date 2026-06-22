@@ -1,0 +1,182 @@
+﻿// ==========================================
+// 합성 Live2D 제스처 엔진
+// ==========================================
+const GESTURE_INTENSITY = 1.0;
+const GESTURE_SPEED = 0.75;
+let activeGestureFrame = 0;
+let activeGestureKey = "";
+
+function easeGestureInOut(t) {
+    const clamped = Math.max(0, Math.min(1, t));
+    return clamped * clamped * (3 - (2 * clamped));
+}
+
+function gestureEnvelope(t) {
+    if (t <= 0.08) {
+        return easeGestureInOut(t / 0.08);
+    }
+    if (t >= 0.88) {
+        return 1 - easeGestureInOut((t - 0.88) / 0.12);
+    }
+    return 1;
+}
+
+function scaleGestureOffsets(offsets, scale) {
+    const scaled = {};
+    Object.keys(offsets || {}).forEach((key) => {
+        scaled[key] = Number(offsets[key] || 0) * scale * GESTURE_INTENSITY;
+    });
+    return scaled;
+}
+
+function sampleKeyframes(frames, t) {
+    if (!frames.length) {
+        return {};
+    }
+    if (t <= frames[0].t) {
+        return frames[0].value;
+    }
+    for (let index = 1; index < frames.length; index += 1) {
+        const previous = frames[index - 1];
+        const next = frames[index];
+        if (t <= next.t) {
+            const span = Math.max(0.0001, next.t - previous.t);
+            const localT = easeGestureInOut((t - previous.t) / span);
+            const value = {};
+            const keys = new Set([...Object.keys(previous.value), ...Object.keys(next.value)]);
+            keys.forEach((key) => {
+                const fromValue = Number(previous.value[key] || 0);
+                const toValue = Number(next.value[key] || 0);
+                value[key] = fromValue + ((toValue - fromValue) * localT);
+            });
+            return value;
+        }
+    }
+    return frames[frames.length - 1].value;
+}
+
+const SYNTHETIC_GESTURES = {
+    nod: {
+        durationMs: 1180,
+        frames: [
+            { t: 0.00, value: {} },
+            { t: 0.16, value: { angleY: -13, bodyY: -1.2, eyeY: -0.2 } },
+            { t: 0.34, value: { angleY: 9, bodyY: 0.8, eyeY: 0.12 } },
+            { t: 0.50, value: { angleY: -10, bodyY: -1.0, eyeY: -0.15 } },
+            { t: 0.68, value: { angleY: 7, bodyY: 0.6, eyeY: 0.1 } },
+            { t: 1.00, value: {} },
+        ],
+    },
+    bow: {
+        durationMs: 1680,
+        frames: [
+            { t: 0.00, value: {} },
+            { t: 0.24, value: { angleY: -17, bodyY: -3.0, eyeY: -0.35 } },
+            { t: 0.70, value: { angleY: -18, bodyY: -3.2, eyeY: -0.38 } },
+            { t: 1.00, value: {} },
+        ],
+    },
+    shake: {
+        durationMs: 1480,
+        frames: [
+            { t: 0.00, value: {} },
+            { t: 0.17, value: { angleX: -15, angleZ: 1.4, bodyX: -0.45, eyeX: -0.18 } },
+            { t: 0.34, value: { angleX: 15, angleZ: -1.4, bodyX: 0.45, eyeX: 0.18 } },
+            { t: 0.51, value: { angleX: -14, angleZ: 1.2, bodyX: -0.35, eyeX: -0.15 } },
+            { t: 0.68, value: { angleX: 14, angleZ: -1.2, bodyX: 0.35, eyeX: 0.15 } },
+            { t: 1.00, value: {} },
+        ],
+    },
+    surprise: {
+        durationMs: 1260,
+        frames: [
+            { t: 0.00, value: {} },
+            { t: 0.10, value: { angleY: 20, bodyY: 4.2, eyeY: 0.45, breath: 0.7 } },
+            { t: 0.24, value: { angleY: 11, bodyY: 2.0, eyeY: 0.22, breath: 0.3 } },
+            { t: 0.58, value: { angleY: 10, bodyY: 1.8, eyeY: 0.18 } },
+            { t: 1.00, value: {} },
+        ],
+    },
+    tilt: {
+        durationMs: 1520,
+        frames: [
+            { t: 0.00, value: {} },
+            { t: 0.24, value: { angleX: -7, angleY: 4, angleZ: -15, bodyX: -0.8, eyeX: 0.12 } },
+            { t: 0.60, value: { angleX: -8, angleY: 5, angleZ: -16, bodyX: -0.8, eyeX: 0.14 } },
+            { t: 0.78, value: { angleX: -4, angleY: 3, angleZ: -9, bodyX: -0.35, eyeX: 0.08 } },
+            { t: 1.00, value: {} },
+        ],
+    },
+    sway: {
+        durationMs: 2480,
+        frames: [
+            { t: 0.00, value: {} },
+            { t: 0.16, value: { angleX: -8, angleZ: -4, bodyX: -7.0, bodyZ: -2.5 } },
+            { t: 0.32, value: { angleX: 8, angleZ: 4, bodyX: 7.0, bodyZ: 2.5 } },
+            { t: 0.48, value: { angleX: -8, angleZ: -4, bodyX: -7.0, bodyZ: -2.5 } },
+            { t: 0.64, value: { angleX: 8, angleZ: 4, bodyX: 7.0, bodyZ: 2.5 } },
+            { t: 1.00, value: {} },
+        ],
+    },
+};
+
+const GESTURE_ALIASES = {
+    yes: "nod",
+    no: "shake",
+    sad: "bow",
+    confused: "tilt",
+    happy: "nod",
+    angry: "shake",
+};
+
+function stopSyntheticGesture() {
+    activeGestureKey = "";
+    if (activeGestureFrame) {
+        cancelAnimationFrame(activeGestureFrame);
+        activeGestureFrame = 0;
+    }
+    if (typeof window.clearSyntheticGestureOffsets === "function") {
+        window.clearSyntheticGestureOffsets();
+    }
+}
+
+function playSyntheticGesture(rawKey) {
+    const requestedKey = String(rawKey || "").trim().toLowerCase().replace("_", "-");
+    const key = GESTURE_ALIASES[requestedKey] || requestedKey;
+    const gesture = SYNTHETIC_GESTURES[key];
+    if (!gesture || typeof window.setSyntheticGestureOffsets !== "function") {
+        return false;
+    }
+    if (typeof window.isHeadPatEffectActive === "function" && window.isHeadPatEffectActive()) {
+        return false;
+    }
+
+    stopSyntheticGesture();
+    activeGestureKey = key;
+    const startedAt = performance.now();
+    const durationMs = Math.max(300, Number(gesture.durationMs / GESTURE_SPEED) || (1000 / GESTURE_SPEED));
+
+    const tick = (nowMs) => {
+        if (activeGestureKey !== key) {
+            return;
+        }
+        if (typeof window.isHeadPatEffectActive === "function" && window.isHeadPatEffectActive()) {
+            stopSyntheticGesture();
+            return;
+        }
+        const t = Math.max(0, Math.min(1, (nowMs - startedAt) / durationMs));
+        const offsets = scaleGestureOffsets(sampleKeyframes(gesture.frames, t), gestureEnvelope(t));
+        window.setSyntheticGestureOffsets(offsets);
+        if (t >= 1) {
+            stopSyntheticGesture();
+            return;
+        }
+        activeGestureFrame = requestAnimationFrame(tick);
+    };
+
+    activeGestureFrame = requestAnimationFrame(tick);
+    return true;
+}
+
+window.playSyntheticGesture = playSyntheticGesture;
+window.stopSyntheticGesture = stopSyntheticGesture;

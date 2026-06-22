@@ -29,6 +29,15 @@ ANALYSIS_KEYS = {
     "flags",
 }
 
+AVAILABLE_GESTURES = {
+    "nod",
+    "bow",
+    "shake",
+    "surprise",
+    "tilt",
+    "sway",
+}
+
 LLM_RESPONSE_TUPLE = Tuple[
     str,
     str,
@@ -39,6 +48,7 @@ LLM_RESPONSE_TUPLE = Tuple[
     str,
     Dict[str, str],
     List[Dict],
+    str,
 ]
 
 PROACTIVE_CONVERSATION_KEYS = {
@@ -207,6 +217,18 @@ def extract_tts_text(text: str, settings_source: object | None = None) -> tuple[
     return clean_text.strip(), None
 
 
+def extract_gesture_metadata(response_text: str) -> tuple[str, str]:
+    """표시 텍스트에서 선택적 제스처 태그를 제거하고 허용된 제스처만 반환한다."""
+    pattern = r"\[\s*gesture\s*:\s*([A-Za-z0-9_-]+)\s*\]"
+    gesture = ""
+    for match in re.finditer(pattern, response_text, re.IGNORECASE):
+        candidate = match.group(1).strip().lower().replace("_", "-")
+        if candidate in AVAILABLE_GESTURES and not gesture:
+            gesture = candidate
+    cleaned = re.sub(pattern, "", response_text, flags=re.IGNORECASE).strip()
+    return cleaned, gesture
+
+
 def parse_llm_response(
     response_text: str,
     *,
@@ -255,6 +277,7 @@ def parse_llm_response(
     response_text = re.sub(promise_pattern, "", response_text)
 
     response_text, explicit_tts_text = extract_tts_metadata(response_text)
+    response_text, gesture = extract_gesture_metadata(response_text)
 
     emotion_pattern = r"\[(\w+)\]"
     matches = re.findall(emotion_pattern, response_text)
@@ -273,4 +296,4 @@ def parse_llm_response(
     else:
         clean_text, tts_text = extract_tts_text(clean_text, settings_source=settings_source)
 
-    return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations
+    return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture

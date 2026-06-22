@@ -107,6 +107,13 @@ def build_behavior_tab(dialog):
     self.enable_proactive_conversation_check.toggled.connect(self._on_setting_changed)
     display_layout.addWidget(self.enable_proactive_conversation_check)
 
+    self.enable_synthetic_gestures_check = self._create_toggle(
+        "응답 제스처 사용",
+        key="settings.behavior.display.synthetic_gestures",
+    )
+    self.enable_synthetic_gestures_check.toggled.connect(self._on_setting_changed)
+    display_layout.addWidget(self.enable_synthetic_gestures_check)
+
     thought_context_layout = QFormLayout()
     thought_context_layout.setContentsMargins(0, 0, 0, 0)
     thought_context_layout.setSpacing(8)
