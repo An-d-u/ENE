@@ -175,6 +175,7 @@ def test_ai_worker_normalize_response_payload_returns_goal_update_for_new_and_le
         "속마음",
         {"action": "none"},
         [],
+        "",
     )
     assert AIWorker._normalize_response_payload(
         worker,
@@ -189,6 +190,7 @@ def test_ai_worker_normalize_response_payload_returns_goal_update_for_new_and_le
             "속마음",
             {},
             [],
+            "",
         )
     assert AIWorker._normalize_response_payload(
         worker,
@@ -203,4 +205,5 @@ def test_ai_worker_normalize_response_payload_returns_goal_update_for_new_and_le
             "",
             {},
             [],
+            "",
         )
