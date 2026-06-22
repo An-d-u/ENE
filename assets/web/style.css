@@ -1215,6 +1215,26 @@ body.thought-feature-disabled .message-thought {
     box-shadow: 0 16px 38px rgba(0, 0, 0, 0.48);
 }
 
+#summary-review-dialog::-webkit-scrollbar,
+.summary-review-facts::-webkit-scrollbar {
+    width: 6px;
+}
+
+#summary-review-dialog::-webkit-scrollbar-track,
+.summary-review-facts::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+#summary-review-dialog::-webkit-scrollbar-thumb,
+.summary-review-facts::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 3px;
+}
+
+#summary-review-dialog::-webkit-scrollbar-thumb:hover,
+.summary-review-facts::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
 #summary-review-header {
     display: flex;
     align-items: flex-start;
