@@ -8,6 +8,8 @@ TRACKING_DEFAULT_PARAMS = {
     "angleY": "ParamAngleY",
     "angleZ": "ParamAngleZ",
     "bodyAngleX": "ParamBodyAngleX",
+    "bodyAngleY": "ParamBodyAngleY",
+    "bodyAngleZ": "ParamBodyAngleZ",
     "eyeBallX": "ParamEyeBallX",
     "eyeBallY": "ParamEyeBallY",
     "breath": "ParamBreath",
@@ -23,6 +25,28 @@ DISPLAY_NAME_HINTS = {
     "angleX": ("angle x", "anglex", "?? x", "??x"),
     "angleY": ("angle y", "angley", "?? y", "??y"),
     "angleZ": ("angle z", "anglez", "?? z", "??z"),
+    "bodyAngleX": (
+        "body angle x",
+        "body anglex",
+        "body rotation x",
+        "body x",
+        "bodyx",
+    ),
+    "bodyAngleY": (
+        "body angle y",
+        "body angley",
+        "body rotation y",
+        "body y",
+        "bodyy",
+    ),
+    "bodyAngleZ": (
+        "body angle z",
+        "body anglez",
+        "body rotation z",
+        "body twist z",
+        "body z",
+        "bodyz",
+    ),
 }
 
 
@@ -108,7 +132,7 @@ def _apply_vtube_face_angle_mapping(mapping: dict[str, str], model_path: Path, a
 
 
 def _normalize_display_name(value: str) -> str:
-    return re.sub(r"s+", " ", value.strip().lower())
+    return re.sub(r"\s+", " ", value.strip().lower())
 
 
 def _apply_display_name_fallback(mapping: dict[str, str], model_path: Path, available_ids: set[str]) -> None:

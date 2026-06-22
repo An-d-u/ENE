@@ -139,6 +139,8 @@ function detectTrackingParams(coreModel) {
         angleX: resolveParam('angleX', 'ParamAngleX'),
         angleY: resolveParam('angleY', 'ParamAngleY'),
         bodyAngleX: resolveParam('bodyAngleX', 'ParamBodyAngleX'),
+        bodyAngleY: resolveParam('bodyAngleY', 'ParamBodyAngleY'),
+        bodyAngleZ: resolveParam('bodyAngleZ', 'ParamBodyAngleZ'),
         eyeBallX: resolveParam('eyeBallX', 'ParamEyeBallX'),
         eyeBallY: resolveParam('eyeBallY', 'ParamEyeBallY'),
         breath: resolveParam('breath', 'ParamBreath'),
@@ -153,10 +155,14 @@ function applyTrackingParams(coreModel, x, y, idleOffsets = null) {
     const idleAngleX = idleOffsets ? idleOffsets.angleX : 0;
     const idleAngleY = idleOffsets ? idleOffsets.angleY : 0;
     const idleBodyX = idleOffsets ? idleOffsets.bodyX : 0;
+    const idleBodyY = idleOffsets && Number.isFinite(idleOffsets.bodyY) ? idleOffsets.bodyY : 0;
+    const idleBodyZ = idleOffsets && Number.isFinite(idleOffsets.bodyZ) ? idleOffsets.bodyZ : 0;
     const idleEyeY = idleOffsets && Number.isFinite(idleOffsets.eyeY) ? idleOffsets.eyeY : 0;
     if (support.angleX) coreModel.setParameterValueById(support.angleX, (x * 15) + idleAngleX);
     if (support.angleY) coreModel.setParameterValueById(support.angleY, (-y * 15) + idleAngleY);
     if (support.bodyAngleX) coreModel.setParameterValueById(support.bodyAngleX, (x * 5) + idleBodyX);
+    if (support.bodyAngleY) coreModel.setParameterValueById(support.bodyAngleY, idleBodyY);
+    if (support.bodyAngleZ) coreModel.setParameterValueById(support.bodyAngleZ, idleBodyZ);
     if (support.eyeBallX) coreModel.setParameterValueById(support.eyeBallX, x * 0.8);
     if (support.eyeBallY) coreModel.setParameterValueById(support.eyeBallY, (-y * 0.8) + idleEyeY);
 }
