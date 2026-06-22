@@ -299,10 +299,14 @@ def test_gesture_engine_exposes_chat_gesture_player():
 
     assert "const GESTURE_INTENSITY = 1.0;" in script
     assert "const GESTURE_SPEED = 0.75;" in script
+    assert "const SPEECH_GESTURE_MIN_DELAY_MS = 700;" in script
+    assert "const SPEECH_GESTURE_MAX_DELAY_MS = 3200;" in script
     assert "const SYNTHETIC_GESTURES = {" in script
     for gesture in ["nod", "bow", "shake", "surprise", "tilt", "sway"]:
         assert f"{gesture}:" in script
     assert "window.playSyntheticGesture = playSyntheticGesture;" in script
+    assert "window.scheduleSyntheticGestureDuringSpeech = scheduleSyntheticGestureDuringSpeech;" in script
+    assert "window.notifySyntheticGestureSpeechActivity = notifySyntheticGestureSpeechActivity;" in script
     assert "window.stopSyntheticGesture = stopSyntheticGesture;" in script
     assert "durationMs / GESTURE_SPEED" in script
 
@@ -349,7 +353,9 @@ def test_bridge_connects_gesture_signal_to_runtime_player():
     script = (WEB_DIR / "runtime_bridge.js").read_text(encoding="utf-8-sig")
 
     assert "window.pyBridge.gesture_requested.connect(function (gesture)" in script
+    assert "window.scheduleSyntheticGestureDuringSpeech(gesture);" in script
     assert "window.playSyntheticGesture(gesture);" in script
+    assert "window.notifySyntheticGestureSpeechActivity();" in script
 
 
 def test_live2d_parameter_runtime_loads_after_live2d_writers():
