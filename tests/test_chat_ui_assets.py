@@ -2500,12 +2500,12 @@ def test_chat_script_overlaps_expression_fade_in_and_fade_out_weights():
     assert "toWeight: fadeInWeight," in script
 
 
-def test_chat_script_skips_head_pat_eye_override_when_active_expression_already_closes_eyes():
+def test_chat_script_keeps_head_pat_eye_override_during_release_fade():
     script = _script_text()
     assert "function shouldUseHeadPatEyeCloseOverride()" in script
     assert "return resolveExpressionEmotion(headPatActiveEmotion) !== 'eyeclose';" in script
     assert "function shouldApplyHeadPatEyeOverrideNow(hasHeadPatEffect)" in script
-    assert "return hasHeadPatEffect && patBlendMode !== 'out' && shouldUseHeadPatEyeCloseOverride();" in script
+    assert "return hasHeadPatEffect && shouldUseHeadPatEyeCloseOverride();" in script
     assert "const shouldApplyHeadPatEyeOverride = shouldApplyHeadPatEyeOverrideNow(hasHeadPatEffect);" in script
 
 
@@ -2517,7 +2517,7 @@ def test_chat_script_extracts_expression_transition_duration_and_state_helpers()
     assert "expressionRuntimeState.transition = {" in script
 
 
-def test_chat_script_stops_head_pat_eye_override_during_fade_out_expression_transition():
+def test_chat_script_applies_head_pat_eye_override_with_fading_blend():
     script = _script_text()
     assert "if (shouldApplyHeadPatEyeOverride) {" in script
     assert "applyHeadPatEyeCloseOverride(coreModel, patBlend);" in script

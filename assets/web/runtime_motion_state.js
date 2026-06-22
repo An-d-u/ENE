@@ -278,7 +278,7 @@ function shouldUseHeadPatEyeCloseOverride() {
 
 // 현재 프레임에서 쓰다듬기 눈 오버라이드를 실제로 적용할지 판정한다.
 function shouldApplyHeadPatEyeOverrideNow(hasHeadPatEffect) {
-    return hasHeadPatEffect && patBlendMode !== 'out' && shouldUseHeadPatEyeCloseOverride();
+    return hasHeadPatEffect && shouldUseHeadPatEyeCloseOverride();
 }
 
 // 립싱크 직후 구간인지 판정해 idle 모션 간섭을 줄인다.
