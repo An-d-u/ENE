@@ -59,6 +59,7 @@ class WebBridge(
     
     # Python -> JavaScript 시그널
     message_received = pyqtSignal(str, str, str)  # (텍스트, 감정, 생각)
+    gesture_requested = pyqtSignal(str)  # 합성 Live2D 제스처 키
     request_pending_changed = pyqtSignal(bool)  # LLM 응답 생성 진행 상태
     expression_changed = pyqtSignal(str)     # 표정 변경
     lip_sync_update = pyqtSignal(float)      # 립싱크 업데이트 (mouth_value)

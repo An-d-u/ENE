@@ -661,6 +661,34 @@ def test_parseable_emotions_include_runtime_image_avatar_emotions(tmp_path, monk
     assert parsed[1] == "happy"
 
 
+def test_response_contract_includes_optional_gesture_instruction():
+    from src.ai.response_contract import build_response_contract_appendix
+
+    appendix = build_response_contract_appendix({"ui_language": "ko", "tts_language": "ko"})
+
+    assert "[gesture:<name>]" in appendix
+    assert "필요한 경우에만" in appendix
+    assert "필요 없으면 제스처 태그를 출력하지 마세요" in appendix
+    assert "한 응답에는 gesture 태그를 최대 1개만 사용하세요" in appendix
+    assert "- nod: 동의, 안심, 기쁜 수긍, 부드러운 긍정" in appendix
+    assert "- bow: 미안함, 슬픔, 조심스러운 사과, 풀이 죽은 반응" in appendix
+    assert "- shake: 부정, 당황한 거절, 화남, \"그건 아니야\"라는 반응" in appendix
+    assert "- surprise: 놀람, 갑작스러운 깨달음, 예상 밖의 반응" in appendix
+    assert "- tilt: 궁금함, 혼란, 귀엽게 갸웃하는 반응" in appendix
+    assert "- sway: 장난스러움, 기분 좋음, 가벼운 애교나 여유" in appendix
+
+
+def test_response_contract_omits_gesture_instruction_when_disabled():
+    from src.ai.response_contract import build_response_contract_appendix
+
+    appendix = build_response_contract_appendix(
+        {"ui_language": "ko", "tts_language": "ko", "enable_synthetic_gestures": False}
+    )
+
+    assert "[gesture:<name>]" not in appendix
+    assert "nod, bow, shake, surprise, tilt, sway" not in appendix
+
+
 def test_gemini_parse_response_preserves_image_avatar_emotion(tmp_path, monkeypatch):
     from src.ai import prompt_config
     from src.ai.llm_client import GeminiClient

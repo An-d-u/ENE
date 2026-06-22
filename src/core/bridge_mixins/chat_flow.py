@@ -579,6 +579,7 @@ class ChatFlowBridgeMixin:
         thought: str = "",
         goal_update_payload: str = "",
         proactive_conversations: list | None = None,
+        gesture: str = "",
     ):
         """AI 응답 준비 완료"""
         completed_promise_id = str(getattr(self, "_active_promise_id", "") or "").strip()
@@ -600,6 +601,7 @@ class ChatFlowBridgeMixin:
                 drain_proactive_queue()
             return
         text = self._sanitize_visible_response_text(text)
+        gesture = ChatFlowBridgeMixin._normalize_response_gesture(self, gesture)
         sanitize_thought = getattr(self, "_sanitize_visible_thought_text", None)
         thought = sanitize_thought(thought) if callable(sanitize_thought) else str(thought or "").strip()
         thoughts_enabled = getattr(self, "_are_ene_thoughts_enabled", None)
@@ -685,7 +687,7 @@ class ChatFlowBridgeMixin:
         if tts_text and self.enable_tts and self.tts_client and self.audio_player:
             print(f"[Bridge] TTS 활성화 - 텍스트 보류 중, TTS 생성 시작")
             # 텍스트를 보류하고 TTS 완료 대기
-            self.pending_response = (text, emotion, thought)
+            self.pending_response = (text, emotion, thought, gesture)
             self.pending_token_usage_payload = resolved_token_usage_payload
             self._pending_response_completion = {
                 "promise_id": completed_promise_id,
@@ -698,6 +700,7 @@ class ChatFlowBridgeMixin:
             print(f"[Bridge] TTS 비활성화 - 텍스트 즉시 전송")
             ChatFlowBridgeMixin._emit_request_pending_changed(self, False)
             self.message_received.emit(text, emotion, thought)
+            ChatFlowBridgeMixin._emit_gesture_requested(self, gesture)
             self.token_usage_ready.emit(resolved_token_usage_payload)
             if self._is_rerolling:
                 self._is_rerolling = False
@@ -713,6 +716,36 @@ class ChatFlowBridgeMixin:
             ChatFlowBridgeMixin._finalize_pending_response_completion_if_any(self)
             return
         ChatFlowBridgeMixin._finalize_completed_runtime_items(self, completed_promise_id, completed_proactive_id)
+
+    def _normalize_response_gesture(self, gesture: str) -> str:
+        """LLM 응답에서 온 제스처 키를 런타임 허용 목록으로 제한한다."""
+        normalized = str(gesture or "").strip().lower().replace("_", "-")
+        allowed = {"nod", "bow", "shake", "surprise", "tilt", "sway"}
+        return normalized if normalized in allowed else ""
+
+    def _emit_gesture_requested(self, gesture: str) -> None:
+        """제스처가 있을 때만 프론트엔드에 요청한다."""
+        if not ChatFlowBridgeMixin._is_synthetic_gesture_enabled(self):
+            return
+        normalized = ChatFlowBridgeMixin._normalize_response_gesture(self, gesture)
+        if normalized:
+            self.gesture_requested.emit(normalized)
+
+    def _is_synthetic_gesture_enabled(self) -> bool:
+        """설정에서 합성 제스처 재생 허용 여부를 읽는다."""
+        settings = getattr(self, "settings", None)
+        if isinstance(settings, dict):
+            return bool(settings.get("enable_synthetic_gestures", True))
+        getter = getattr(settings, "get", None)
+        if callable(getter):
+            try:
+                return bool(getter("enable_synthetic_gestures", True))
+            except Exception:
+                return True
+        config = getattr(settings, "config", None)
+        if isinstance(config, dict):
+            return bool(config.get("enable_synthetic_gestures", True))
+        return True
 
     def _finalize_completed_runtime_items(self, completed_promise_id: str = "", completed_proactive_id: str = ""):
         """사용자에게 응답을 보낸 뒤 예약/큐 상태를 마무리한다."""

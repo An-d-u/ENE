@@ -51,6 +51,13 @@ if (typeof QWebChannel !== 'undefined') {
                 setRequestPending(Boolean(active));
             });
         }
+        if (window.pyBridge.gesture_requested) {
+            window.pyBridge.gesture_requested.connect(function (gesture) {
+                if (typeof window.playSyntheticGesture === 'function') {
+                    window.playSyntheticGesture(gesture);
+                }
+            });
+        }
         window.pyBridge.message_received.connect(function (text, emotion, thought) {
             console.log(`Received from Python: "${text}" [${emotion}]`);
             setRequestPending(false);

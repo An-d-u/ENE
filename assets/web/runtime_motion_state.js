@@ -62,6 +62,7 @@ let patFadeElapsedMs = 0;
 let patOffsetsCurrent = { angleX: 0, angleY: 0, bodyX: 0, eyeY: 0, breath: 0 };
 let patOffsetsApplied = { angleX: 0, angleY: 0, bodyX: 0, eyeY: 0, breath: 0 };
 let lastNonPatTrackingState = { angleX: 0, angleY: 0, bodyX: 0, eyeY: 0, breath: 0 };
+let syntheticGestureOffsets = createEmptySyntheticGestureOffsets();
 let previousEmotionBeforePat = 'normal';
 let currentEmotionTag = 'normal';
 let baseEmotionTag = 'normal';
@@ -103,6 +104,51 @@ let idleMotionAngleY = IDLE_MOTION_BASE_ANGLE_Y;
 let idleMotionBodyX = IDLE_MOTION_BASE_BODY_X;
 let idleMotionBreath = IDLE_MOTION_BASE_BREATH;
 
+function finiteOrZero(value) {
+    return Number.isFinite(value) ? value : 0;
+}
+
+function createEmptySyntheticGestureOffsets() {
+    return {
+        angleX: 0,
+        angleY: 0,
+        angleZ: 0,
+        bodyX: 0,
+        bodyY: 0,
+        bodyZ: 0,
+        eyeX: 0,
+        eyeY: 0,
+        breath: 0,
+    };
+}
+
+function normalizeSyntheticGestureOffsets(offsets = {}) {
+    const source = offsets || {};
+    return {
+        angleX: finiteOrZero(Number(source.angleX)),
+        angleY: finiteOrZero(Number(source.angleY)),
+        angleZ: finiteOrZero(Number(source.angleZ)),
+        bodyX: finiteOrZero(Number(source.bodyX ?? source.bodyAngleX)),
+        bodyY: finiteOrZero(Number(source.bodyY ?? source.bodyAngleY)),
+        bodyZ: finiteOrZero(Number(source.bodyZ ?? source.bodyAngleZ)),
+        eyeX: finiteOrZero(Number(source.eyeX ?? source.eyeBallX)),
+        eyeY: finiteOrZero(Number(source.eyeY ?? source.eyeBallY)),
+        breath: finiteOrZero(Number(source.breath)),
+    };
+}
+
+window.setSyntheticGestureOffsets = function (offsets = {}) {
+    syntheticGestureOffsets = normalizeSyntheticGestureOffsets(offsets);
+};
+
+window.clearSyntheticGestureOffsets = function () {
+    syntheticGestureOffsets = createEmptySyntheticGestureOffsets();
+};
+
+window.isHeadPatEffectActive = function () {
+    return Boolean(isHeadPatting || patBlend > 0.001 || patBlendMode !== 'idle');
+};
+
 // 마우스 트래킹에 사용할 Live2D coreModel 인스턴스를 가져온다.
 function getTrackingCoreModel() {
     const model = window.live2dModel;
@@ -138,6 +184,7 @@ function detectTrackingParams(coreModel) {
     trackingParamSupport = {
         angleX: resolveParam('angleX', 'ParamAngleX'),
         angleY: resolveParam('angleY', 'ParamAngleY'),
+        angleZ: resolveParam('angleZ', 'ParamAngleZ'),
         bodyAngleX: resolveParam('bodyAngleX', 'ParamBodyAngleX'),
         bodyAngleY: resolveParam('bodyAngleY', 'ParamBodyAngleY'),
         bodyAngleZ: resolveParam('bodyAngleZ', 'ParamBodyAngleZ'),
@@ -152,19 +199,29 @@ function detectTrackingParams(coreModel) {
 // 정규화된 시선 입력값을 실제 Live2D 파라미터 값으로 변환해 적용한다.
 function applyTrackingParams(coreModel, x, y, idleOffsets = null) {
     const support = detectTrackingParams(coreModel);
+    const gestureOffsets = syntheticGestureOffsets || createEmptySyntheticGestureOffsets();
     const idleAngleX = idleOffsets ? idleOffsets.angleX : 0;
     const idleAngleY = idleOffsets ? idleOffsets.angleY : 0;
     const idleBodyX = idleOffsets ? idleOffsets.bodyX : 0;
     const idleBodyY = idleOffsets && Number.isFinite(idleOffsets.bodyY) ? idleOffsets.bodyY : 0;
     const idleBodyZ = idleOffsets && Number.isFinite(idleOffsets.bodyZ) ? idleOffsets.bodyZ : 0;
     const idleEyeY = idleOffsets && Number.isFinite(idleOffsets.eyeY) ? idleOffsets.eyeY : 0;
-    if (support.angleX) coreModel.setParameterValueById(support.angleX, (x * 15) + idleAngleX);
-    if (support.angleY) coreModel.setParameterValueById(support.angleY, (-y * 15) + idleAngleY);
-    if (support.bodyAngleX) coreModel.setParameterValueById(support.bodyAngleX, (x * 5) + idleBodyX);
-    if (support.bodyAngleY) coreModel.setParameterValueById(support.bodyAngleY, idleBodyY);
-    if (support.bodyAngleZ) coreModel.setParameterValueById(support.bodyAngleZ, idleBodyZ);
-    if (support.eyeBallX) coreModel.setParameterValueById(support.eyeBallX, x * 0.8);
-    if (support.eyeBallY) coreModel.setParameterValueById(support.eyeBallY, (-y * 0.8) + idleEyeY);
+    const gestureAngleX = finiteOrZero(gestureOffsets.angleX);
+    const gestureAngleY = finiteOrZero(gestureOffsets.angleY);
+    const gestureAngleZ = finiteOrZero(gestureOffsets.angleZ);
+    const gestureBodyX = finiteOrZero(gestureOffsets.bodyX);
+    const gestureBodyY = finiteOrZero(gestureOffsets.bodyY);
+    const gestureBodyZ = finiteOrZero(gestureOffsets.bodyZ);
+    const gestureEyeX = finiteOrZero(gestureOffsets.eyeX);
+    const gestureEyeY = finiteOrZero(gestureOffsets.eyeY);
+    if (support.angleX) coreModel.setParameterValueById(support.angleX, (x * 15) + idleAngleX + gestureAngleX);
+    if (support.angleY) coreModel.setParameterValueById(support.angleY, (-y * 15) + idleAngleY + gestureAngleY);
+    if (support.angleZ) coreModel.setParameterValueById(support.angleZ, gestureAngleZ);
+    if (support.bodyAngleX) coreModel.setParameterValueById(support.bodyAngleX, (x * 5) + idleBodyX + gestureBodyX);
+    if (support.bodyAngleY) coreModel.setParameterValueById(support.bodyAngleY, idleBodyY + gestureBodyY);
+    if (support.bodyAngleZ) coreModel.setParameterValueById(support.bodyAngleZ, idleBodyZ + gestureBodyZ);
+    if (support.eyeBallX) coreModel.setParameterValueById(support.eyeBallX, (x * 0.8) + gestureEyeX);
+    if (support.eyeBallY) coreModel.setParameterValueById(support.eyeBallY, (-y * 0.8) + idleEyeY + gestureEyeY);
 }
 
 // 유휴 모션이 제공하는 호흡 파라미터를 모델이 지원할 때 함께 반영한다.
@@ -175,7 +232,8 @@ function applyIdleBreathParam(coreModel, idleOffsets = null) {
     }
 
     const idleBreath = idleOffsets && Number.isFinite(idleOffsets.breath) ? idleOffsets.breath : 0;
-    coreModel.setParameterValueById(support.breath, idleBreath);
+    const gestureBreath = finiteOrZero(syntheticGestureOffsets.breath);
+    coreModel.setParameterValueById(support.breath, idleBreath + gestureBreath);
 }
 
 // 쓰다듬기 시 눈 감기 오버라이드에 필요한 파라미터 지원 여부를 확인한다.
