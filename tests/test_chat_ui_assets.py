@@ -2384,9 +2384,9 @@ def test_chat_script_defines_fallback_auto_eye_blink_runtime():
 
 def test_chat_script_applies_idle_breath_param_when_model_supports_it():
     script = _script_text()
-    assert "breath: hasParam('ParamBreath')" in script
+    assert "breath: resolveParam('breath', 'ParamBreath')" in script
     assert "function applyIdleBreathParam(coreModel, idleOffsets = null)" in script
-    assert "coreModel.setParameterValueById('ParamBreath', idleBreath);" in script
+    assert "coreModel.setParameterValueById(support.breath, idleBreath);" in script
     assert "applyIdleBreathParam(coreModel, patOffsetsApplied);" in script
     assert "applyIdleBreathParam(coreModel, idleOffsets);" in script
 
