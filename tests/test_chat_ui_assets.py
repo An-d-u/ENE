@@ -2161,11 +2161,16 @@ def test_summary_review_modal_uses_bounded_scroll_layout():
     overlay_block = _rule_block("#summary-review-overlay")
     dialog_block = _rule_block("#summary-review-dialog")
     textarea_block = _rule_block("#summary-review-textarea")
+    css = STYLE_PATH.read_text(encoding="utf-8-sig")
 
     assert "position: fixed;" in overlay_block
     assert "max-height: calc(100vh - 32px);" in dialog_block
     assert "overflow: auto;" in dialog_block
     assert "resize: vertical;" in textarea_block
+    assert "#summary-review-dialog::-webkit-scrollbar" in css
+    assert ".summary-review-facts::-webkit-scrollbar" in css
+    assert "#summary-review-dialog::-webkit-scrollbar-thumb" in css
+    assert "background: rgba(255, 255, 255, 0.2);" in css
 
 
 def test_inline_edit_save_button_reflects_request_pending_state():
