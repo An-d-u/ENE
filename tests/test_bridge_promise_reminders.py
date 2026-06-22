@@ -115,6 +115,7 @@ def test_ai_worker_normalize_response_payload_supports_promises():
         "",
         {},
         [],
+        "",
     )
 
 
@@ -145,6 +146,7 @@ def test_ai_worker_normalize_response_payload_keeps_goal_update_for_runtime_flow
         "속마음",
         {"action": "none"},
         [],
+        "",
     )
 
 

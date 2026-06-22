@@ -40,9 +40,10 @@ def test_llm_client_protocol_parsed_response_methods_include_goal_update_and_pro
 
     for method_name in method_names:
         return_type = get_type_hints(getattr(LLMClientProtocol, method_name))["return"]
-        assert len(return_type.__args__) == 9
-        assert return_type.__args__[-2] == Dict[str, str]
-        assert return_type.__args__[-1] == List[Dict]
+        assert len(return_type.__args__) == 10
+        assert return_type.__args__[-3] == Dict[str, str]
+        assert return_type.__args__[-2] == List[Dict]
+        assert return_type.__args__[-1] == str
 
 
 def test_register_provider_and_create_client():
