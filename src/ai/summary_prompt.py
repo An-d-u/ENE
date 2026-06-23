@@ -243,6 +243,9 @@ def build_summary_prompt_from_text(
 - importance_reason: user_marked | promise | repeated_topic | long_term_preference | none
 - confidence: number from 0.0 to 1.0
 - entity_names: name1, name2
+- aliases: alternate name 1, alternate name 2
+- trigger_terms: keyword1, keyword2
+- aliases/trigger_terms must be short labels only; do not copy full conversation sentences.
 
 [ALLOW]
 - basic: stable information such as identity, job, education, environment, or relationships
@@ -317,6 +320,9 @@ def build_summary_prompt_from_text(
 - importance_reason: user_marked | promise | repeated_topic | long_term_preference | none
 - confidence: 0.0〜1.0の数値
 - entity_names: 名前1, 名前2
+- aliases: 別名1, 別名2
+- trigger_terms: キーワード1, キーワード2
+- aliases/trigger_termsは短いラベルだけにし、会話文をそのままコピーしないでください。
 
 [ALLOW]
 - basic: 身元、職業、学歴、環境、関係などの安定した情報
@@ -391,6 +397,9 @@ def build_summary_prompt_from_text(
 - importance_reason: user_marked | promise | repeated_topic | long_term_preference | none
 - confidence: 0.0~1.0 사이 숫자
 - entity_names: 이름1, 이름2
+- aliases: 별칭1, 별칭2
+- trigger_terms: 키워드1, 키워드2
+- aliases/trigger_terms는 짧은 라벨만 쓰고, 대화 문장을 그대로 복사하지 마세요.
 
 [ALLOW]
 - basic: 신상/직업/학력/환경/관계 같은 정적 정보

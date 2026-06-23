@@ -206,6 +206,8 @@ class MemorySummaryBridgeMixin:
             importance_reason=str(memory_meta.get("importance_reason")).strip() if memory_meta.get("importance_reason") else None,
             confidence=memory_meta.get("confidence"),
             entity_names=memory_meta.get("entity_names") or [],
+            aliases=memory_meta.get("aliases") or [],
+            trigger_terms=memory_meta.get("trigger_terms") or [],
         )
 
         if user_facts and hasattr(self, 'user_profile') and self.user_profile:
@@ -379,6 +381,8 @@ class MemorySummaryBridgeMixin:
                 importance_reason=str(memory_meta.get("importance_reason")).strip() if memory_meta.get("importance_reason") else None,
                 confidence=memory_meta.get("confidence"),
                 entity_names=memory_meta.get("entity_names") or [],
+                aliases=memory_meta.get("aliases") or [],
+                trigger_terms=memory_meta.get("trigger_terms") or [],
             )
             
             # 사용자 정보 저장

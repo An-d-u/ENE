@@ -169,6 +169,8 @@ class MemoryManager:
         importance_reason: Optional[str] = None,
         confidence: Optional[float] = None,
         entity_names: Optional[List[str]] = None,
+        aliases: Optional[List[str]] = None,
+        trigger_terms: Optional[List[str]] = None,
     ) -> MemoryEntry:
         """
         새 요약 추가
@@ -183,6 +185,8 @@ class MemoryManager:
             importance_reason: 중요도 이유
             confidence: 기억 신뢰도
             entity_names: 연관 엔티티 이름 목록
+            aliases: 기억을 다르게 부를 수 있는 별칭 목록
+            trigger_terms: 기억 활성화에 사용할 짧은 키워드 목록
             
         Returns:
             생성된 MemoryEntry
@@ -208,6 +212,8 @@ class MemoryManager:
             importance_reason=importance_reason,
             confidence=confidence,
             entity_names=entity_names,
+            aliases=aliases,
+            trigger_terms=trigger_terms,
         )
         
         self.memories.append(memory)

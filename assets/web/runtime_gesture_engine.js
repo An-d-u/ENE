@@ -148,8 +148,8 @@ const SYNTHETIC_GESTURES = {
         durationMs: 1500,
         frames: [
             { t: 0.00, value: {} },
-            { t: 0.28, value: { angleX: -5, eyeX: -0.18 } },
-            { t: 0.58, value: { angleX: 5, eyeX: 0.18 } },
+            { t: 0.28, value: { angleX: -8, eyeX: -0.28 } },
+            { t: 0.58, value: { angleX: 8, eyeX: 0.28 } },
             { t: 1.00, value: {} },
         ],
     },
@@ -157,8 +157,8 @@ const SYNTHETIC_GESTURES = {
         durationMs: 1200,
         frames: [
             { t: 0.00, value: {} },
-            { t: 0.36, value: { angleY: -4, eyeY: -0.08 } },
-            { t: 0.68, value: { angleY: 3, eyeY: 0.05 } },
+            { t: 0.36, value: { angleY: -7, eyeY: -0.12 } },
+            { t: 0.68, value: { angleY: 5, eyeY: 0.08 } },
             { t: 1.00, value: {} },
         ],
     },
@@ -166,8 +166,8 @@ const SYNTHETIC_GESTURES = {
         durationMs: 1600,
         frames: [
             { t: 0.00, value: {} },
-            { t: 0.38, value: { angleX: -4, angleZ: -7, eyeX: 0.08 } },
-            { t: 0.72, value: { angleX: -3, angleZ: -6, eyeX: 0.05 } },
+            { t: 0.38, value: { angleX: -6, angleZ: -11, eyeX: 0.12 } },
+            { t: 0.72, value: { angleX: -5, angleZ: -9, eyeX: 0.08 } },
             { t: 1.00, value: {} },
         ],
     },

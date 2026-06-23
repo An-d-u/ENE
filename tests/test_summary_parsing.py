@@ -1,4 +1,4 @@
-import pytest
+﻿import pytest
 
 pytest.importorskip("google.genai")
 
@@ -24,6 +24,8 @@ def test_parse_summary_response_extracts_summary_and_facts():
 - importance_reason: repeated_topic
 - confidence: 0.82
 - entity_names: ENE, Obsidian
+- aliases: 릴리즈 후보, release candidate
+- trigger_terms: 릴리스, 후보, 일정
 """.strip()
 
     summary, user_facts, ene_facts, memory_meta = client._parse_summary_response(response_text)
@@ -38,6 +40,8 @@ def test_parse_summary_response_extracts_summary_and_facts():
         "importance_reason": "repeated_topic",
         "confidence": 0.82,
         "entity_names": ["ENE", "Obsidian"],
+        "aliases": ["릴리즈 후보", "release candidate"],
+        "trigger_terms": ["릴리스", "후보", "일정"],
     }
 
 
