@@ -245,6 +245,11 @@ def build_summary_prompt_from_text(
 - entity_names: name1, name2
 - aliases: alternate name 1, alternate name 2
 - trigger_terms: keyword1, keyword2
+- entity_names are distinctive subjects, projects, tools, people, or places only; omit broad conversation participants such as the user, assistant, {prompt_user_name}, or {prompt_assistant_name} unless the memory is specifically about them.
+- aliases are short nicknames or noun phrases, not summaries; use how the user might briefly refer to this memory later.
+- trigger_terms are search cues, not subjects; use short words a future query might contain.
+- Do not use one-off dates, times, weekdays, or relative dates as trigger_terms; allow time-related terms only for recurring routines or when the deadline/event name itself is the core memory.
+- Do not use durations, elapsed times, countdown periods, or numeric-only time cues as trigger_terms; keep stable topical words instead.
 - aliases/trigger_terms must be short labels only; do not copy full conversation sentences.
 
 [ALLOW]
@@ -322,6 +327,11 @@ def build_summary_prompt_from_text(
 - entity_names: 名前1, 名前2
 - aliases: 別名1, 別名2
 - trigger_terms: キーワード1, キーワード2
+- entity_namesは固有の対象、プロジェクト、ツール、人物、場所だけにし、ユーザー、アシスタント、{prompt_user_name}、{prompt_assistant_name}のような会話全体の参加者は、その対象自体についての記憶でない限り省いてください。
+- aliasesは要約ではなく、短い呼び名や名詞句にしてください。後でユーザーがその記憶を短く呼ぶときの表現を使ってください。
+- trigger_termsは対象名ではなく検索の手がかりです。将来の質問に出そうな短い語を使ってください。
+- 一度きりの日付、時刻、曜日、相対日付はtrigger_termsに入れないでください。時間に関する語は、繰り返しのルーティン、または締切・イベント名そのものが記憶の中心である場合だけ許可します。
+- 期間、経過時間、カウントダウン、数字だけの時間の手がかりはtrigger_termsに入れず、安定した話題語を残してください。
 - aliases/trigger_termsは短いラベルだけにし、会話文をそのままコピーしないでください。
 
 [ALLOW]
@@ -399,6 +409,11 @@ def build_summary_prompt_from_text(
 - entity_names: 이름1, 이름2
 - aliases: 별칭1, 별칭2
 - trigger_terms: 키워드1, 키워드2
+- entity_names는 고유한 대상, 프로젝트, 도구, 인물, 장소만 쓰고, 사용자, 어시스턴트, {prompt_user_name}, {prompt_assistant_name}처럼 대화 전체에 흔한 참여자는 그 자체가 기억의 주제일 때만 쓰세요.
+- aliases는 요약문이 아니라 짧은 별명이나 명사구로 쓰세요. 사용자가 나중에 그 기억을 짧게 부를 법한 표현을 사용하세요.
+- trigger_terms는 대상명이 아니라 검색 단서입니다. 나중 질문에 나올 법한 짧은 단어를 쓰세요.
+- 일회성 날짜, 시간, 요일, 상대 시점은 trigger_terms에 넣지 마세요. 시간 관련 단어는 반복 루틴이거나 마감/이벤트명 자체가 기억의 핵심일 때만 허용하세요.
+- 기간, 경과 시간, 카운트다운, 숫자만 남는 시간 단서는 trigger_terms에 넣지 말고 안정적인 주제어만 남기세요.
 - aliases/trigger_terms는 짧은 라벨만 쓰고, 대화 문장을 그대로 복사하지 마세요.
 
 [ALLOW]

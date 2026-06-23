@@ -33,6 +33,11 @@ def test_summary_prompt_localizes_human_instructions_but_keeps_parser_tokens():
     assert "memory_type: fact | preference | promise | event | relationship | task | general" in prompt
     assert "aliases: alternate name 1, alternate name 2" in prompt
     assert "trigger_terms: keyword1, keyword2" in prompt
+    assert "entity_names are distinctive subjects, projects, tools, people, or places only" in prompt
+    assert "aliases are short nicknames or noun phrases, not summaries" in prompt
+    assert "trigger_terms are search cues, not subjects" in prompt
+    assert "Do not use one-off dates, times, weekdays, or relative dates as trigger_terms" in prompt
+    assert "Do not use durations, elapsed times, countdown periods, or numeric-only time cues as trigger_terms" in prompt
 
 
 def test_summary_prompt_uses_custom_prompt_names_but_keeps_parser_tokens():

@@ -55,6 +55,7 @@ class MemoryActivationResult:
     keyword_score: float
     recent_context_score: float
     link_score: float = 0.0
+    direct_match_score: float = 0.0
 
 
 class MemoryManager:
@@ -333,23 +334,44 @@ class MemoryManager:
             top_k=candidate_k,
             min_similarity=min_similarity,
         )
-        if not similar_candidates:
-            return []
-
+        direct_match_scores = self._direct_activation_match_scores(latest_query)
         ranked: list[MemoryActivationResult] = []
         raw_similarity_by_id = {
             str(getattr(memory, "id", "") or "").strip(): raw_similarity
             for memory, _, raw_similarity in similar_candidates
         }
+        ranked_memory_ids: set[str] = set()
         for memory, _, raw_similarity in similar_candidates:
+            memory_id = str(getattr(memory, "id", "") or "").strip()
+            if memory_id:
+                ranked_memory_ids.add(memory_id)
             ranked.append(
                 self._build_activation_result(
                     memory=memory,
                     similarity_score=raw_similarity,
                     latest_query=latest_query,
                     recent_context=recent_context,
+                    direct_match_score=direct_match_scores.get(memory_id, 0.0),
                 )
             )
+        direct_only_candidates = [
+            (memory, score)
+            for memory, score in self._direct_activation_candidates(direct_match_scores)
+            if str(getattr(memory, "id", "") or "").strip() not in ranked_memory_ids
+        ]
+        for memory, direct_match_score in direct_only_candidates:
+            ranked.append(
+                self._build_activation_result(
+                    memory=memory,
+                    similarity_score=0.0,
+                    latest_query=latest_query,
+                    recent_context=recent_context,
+                    direct_match_score=direct_match_score,
+                )
+            )
+
+        if not ranked:
+            return []
 
         ranked.sort(key=lambda item: item.activation_score, reverse=True)
         selected = self._select_activation_results(
@@ -382,14 +404,17 @@ class MemoryManager:
         latest_query: str,
         recent_context: str,
         link_score: float = 0.0,
+        direct_match_score: float = 0.0,
     ) -> MemoryActivationResult:
         """단일 기억의 활성화 점수와 근거를 계산한다."""
         activation_text = self._memory_activation_text(memory)
         keyword_score = self._keyword_overlap_score(latest_query, activation_text)
         recent_context_score = self._keyword_overlap_score(recent_context, activation_text)
         weight = self._activation_weight(memory)
+        bounded_direct_match_score = max(0.0, min(1.0, float(direct_match_score)))
         activation_score = (
             (max(0.0, float(similarity_score)) * 0.64)
+            + (bounded_direct_match_score * 0.42)
             + (keyword_score * 0.22)
             + (recent_context_score * 0.10)
             + (link_score * 0.04)
@@ -401,6 +426,7 @@ class MemoryManager:
             keyword_score=keyword_score,
             recent_context_score=recent_context_score,
             link_score=link_score,
+            direct_match_score=bounded_direct_match_score,
         )
 
     def _memory_activation_text(self, memory: MemoryEntry) -> str:
@@ -492,7 +518,11 @@ class MemoryManager:
                 recent_context=recent_context,
                 link_score=link_score,
             )
-            if direct_similarity is None and linked_result.keyword_score <= 0.0 and linked_result.recent_context_score <= 0.0:
+            if (
+                direct_similarity is None
+                and linked_result.keyword_score <= 0.0
+                and linked_result.recent_context_score <= 0.0
+            ):
                 continue
             linked_results.append(linked_result)
         return linked_results
@@ -517,6 +547,122 @@ class MemoryManager:
             memory.last_used_at = now_iso
             memory.last_activated_at = now_iso
         self.save()
+
+    def _direct_activation_candidates(
+        self,
+        direct_match_scores: dict[str, float],
+    ) -> list[tuple[MemoryEntry, float]]:
+        """별칭/대상/트리거가 직접 맞은 기억 후보를 점수순으로 반환한다."""
+        candidates: list[tuple[MemoryEntry, float]] = []
+        for memory in self.memories:
+            memory_id = str(getattr(memory, "id", "") or "").strip()
+            score = direct_match_scores.get(memory_id, 0.0)
+            if score <= 0.0:
+                continue
+            candidates.append((memory, score))
+        candidates.sort(
+            key=lambda item: (
+                item[1],
+                str(getattr(item[0], "timestamp", "") or ""),
+            ),
+            reverse=True,
+        )
+        return candidates
+
+    def _direct_activation_match_scores(self, query: str) -> dict[str, float]:
+        """현재 질문과 직접 맞는 별칭/대상/트리거 점수를 계산한다."""
+        normalized_query = self._normalize_direct_match_text(query)
+        compact_query = normalized_query.replace(" ", "")
+        if not compact_query:
+            return {}
+
+        scores: dict[str, float] = {}
+        for memory in self.memories:
+            memory_id = str(getattr(memory, "id", "") or "").strip()
+            if not memory_id:
+                continue
+
+            alias_match_count = sum(
+                1
+                for term in getattr(memory, "aliases", []) or []
+                if self._direct_phrase_matches(normalized_query, compact_query, term)
+            )
+            entity_match_count = sum(
+                1
+                for term in getattr(memory, "entity_names", []) or []
+                if self._direct_phrase_matches(normalized_query, compact_query, term)
+            )
+            trigger_matches = [
+                term
+                for term in getattr(memory, "trigger_terms", []) or []
+                if self._direct_phrase_matches(normalized_query, compact_query, term)
+            ]
+
+            score = 0.0
+            if alias_match_count > 0:
+                score = 1.0
+            elif entity_match_count > 0:
+                score = 0.62
+            elif self._has_conservative_trigger_match(trigger_matches):
+                score = min(0.85, 0.45 + (0.15 * len(trigger_matches)))
+
+            if score > 0.0:
+                scores[memory_id] = score
+        return scores
+
+    def _normalize_direct_match_text(self, text: str) -> str:
+        """직접 매칭용으로 대소문자와 구두점을 정규화한다."""
+        normalized = re.sub(r"[^0-9a-z가-힣]+", " ", str(text or "").lower())
+        return re.sub(r"\s+", " ", normalized).strip()
+
+    def _direct_phrase_matches(
+        self,
+        normalized_query: str,
+        compact_query: str,
+        term: str,
+    ) -> bool:
+        """공백 차이를 허용해 짧은 별칭/트리거가 질문에 들어있는지 본다."""
+        normalized_term = self._normalize_direct_match_text(term)
+        compact_term = normalized_term.replace(" ", "")
+        if len(compact_term) < 2:
+            return False
+        if re.search(r"[a-z0-9]", compact_term):
+            return self._ascii_term_matches(normalized_query, normalized_term)
+        return normalized_term in normalized_query or compact_term in compact_query
+
+    def _ascii_term_matches(self, normalized_query: str, normalized_term: str) -> bool:
+        """영문/숫자 포함 용어는 다른 단어 내부 부분문자열로 보지 않는다."""
+        term_tokens = normalized_term.split()
+        if not term_tokens:
+            return False
+        query_tokens = normalized_query.split()
+        if len(term_tokens) == 1:
+            return term_tokens[0] in query_tokens
+        window_size = len(term_tokens)
+        return any(
+            query_tokens[index : index + window_size] == term_tokens
+            for index in range(0, len(query_tokens) - window_size + 1)
+        )
+
+    def _has_conservative_trigger_match(self, trigger_matches: list[str]) -> bool:
+        """짧은 트리거 하나만으로 직접 후보가 되는 일을 막는다."""
+        normalized_matches = [
+            self._normalize_direct_match_text(term).replace(" ", "")
+            for term in trigger_matches
+        ]
+        normalized_matches = [term for term in normalized_matches if len(term) >= 2]
+        return (
+            any(self._is_strong_single_trigger_term(term) for term in normalized_matches)
+            or len(normalized_matches) >= 2
+        )
+
+    def _is_strong_single_trigger_term(self, normalized_term: str) -> bool:
+        """단독 직접 후보가 될 만큼 구체적인 트리거인지 판단한다."""
+        if re.fullmatch(r"[a-z0-9]+", normalized_term):
+            return len(normalized_term) >= 3
+        if re.fullmatch(r"[가-힣]+", normalized_term):
+            return len(normalized_term) >= 3
+        return len(normalized_term) >= 4
 
     def build_raw_chunks(self, memory: MemoryEntry, chunk_turns: int = 6) -> List[MemoryChunk]:
         """기억 원문에서 고정 길이 turn window chunk를 생성한다."""
