@@ -1,4 +1,4 @@
-﻿import json
+import json
 
 from src.core.settings import Settings
 
@@ -334,6 +334,8 @@ def test_update_merges_multiple_values(tmp_path):
     settings.update({"window_x": 10, "window_y": 20})
     settings.save()
 
+    assert not config_path.read_bytes().startswith(b"\xef\xbb\xbf")
+    assert not secret_path.read_bytes().startswith(b"\xef\xbb\xbf")
     loaded_data = json.loads(config_path.read_text(encoding="utf-8-sig"))
     assert loaded_data["window_x"] == 10
     assert loaded_data["window_y"] == 20

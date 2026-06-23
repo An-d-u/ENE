@@ -1,4 +1,4 @@
-﻿"""
+"""
 /diary 명령 파싱 및 마크다운 파일 저장 서비스
 """
 from __future__ import annotations
@@ -124,7 +124,7 @@ class DiaryService:
 
         file_path = self.base_dir / file_name
         content = (markdown_text or "").strip()
-        file_path.write_text(content + "\n", encoding="utf-8-sig")
+        file_path.write_text(content + "\n", encoding="utf-8")
 
         return DiaryWriteResult(
             relative_path=file_path.as_posix(),

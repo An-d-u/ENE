@@ -284,7 +284,7 @@ def save_json_data(
     path_like: str | Path,
     payload,
     *,
-    encoding: str = "utf-8-sig",
+    encoding: str = "utf-8",
     indent: int = 2,
     ensure_ascii: bool = False,
     trailing_newline: bool = False,
@@ -305,7 +305,7 @@ def write_text_data(
     path_like: str | Path,
     text: str,
     *,
-    encoding: str = "utf-8-sig",
+    encoding: str = "utf-8",
     user_root: Path | None = None,
 ) -> Path:
     """Store Python 경로 가상화를 고려해 텍스트 파일을 저장한다."""

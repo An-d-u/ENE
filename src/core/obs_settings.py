@@ -1,4 +1,4 @@
-﻿"""
+"""
 Obsidian 전용 상태(obs_config.json) 관리
 """
 from __future__ import annotations
@@ -28,7 +28,7 @@ class ObsSettings:
 
     def load(self) -> dict:
         try:
-            loaded = load_json_data(self.config_path, encoding="utf-8")
+            loaded = load_json_data(self.config_path, encoding="utf-8-sig")
             if isinstance(loaded, dict):
                 merged = dict(self.DEFAULT_CONFIG)
                 merged.update(loaded)

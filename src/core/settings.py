@@ -1,4 +1,4 @@
-﻿"""
+"""
 ENE settings manager.
 Loads and saves user settings to JSON.
 """
@@ -468,7 +468,7 @@ class Settings:
             save_json_data(
                 self.config_path,
                 self.config,
-                encoding="utf-8-sig",
+                encoding="utf-8",
                 indent=2,
                 ensure_ascii=False,
             )
@@ -478,7 +478,7 @@ class Settings:
             save_json_data(
                 self.secret_path,
                 self.secret_config,
-                encoding="utf-8-sig",
+                encoding="utf-8",
                 indent=2,
                 ensure_ascii=False,
             )

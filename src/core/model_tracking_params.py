@@ -1,4 +1,4 @@
-﻿import json
+import json
 import re
 from pathlib import Path
 
@@ -22,9 +22,9 @@ VTUBE_FACE_INPUTS = {
 }
 
 DISPLAY_NAME_HINTS = {
-    "angleX": ("angle x", "anglex", "?? x", "??x"),
-    "angleY": ("angle y", "angley", "?? y", "??y"),
-    "angleZ": ("angle z", "anglez", "?? z", "??z"),
+    "angleX": ("angle x", "anglex", "각도 x", "각도x"),
+    "angleY": ("angle y", "angley", "각도 y", "각도y"),
+    "angleZ": ("angle z", "anglez", "각도 z", "각도z"),
     "bodyAngleX": (
         "body angle x",
         "body anglex",

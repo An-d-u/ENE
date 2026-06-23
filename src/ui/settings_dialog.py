@@ -1,4 +1,4 @@
-﻿"""
+"""
 Settings dialog for ENE.
 Provides live preview without immediate persistence.
 """
@@ -594,7 +594,7 @@ class SettingsDialog(
 
     def _write_text_file(self, path: Path, text: str) -> None:
         normalized = text.replace("\r\n", "\n")
-        write_text_data(path, normalized, encoding="utf-8-sig")
+        write_text_data(path, normalized, encoding="utf-8")
 
     def closeEvent(self, event):
         self._stop_ptt_hotkey_capture()

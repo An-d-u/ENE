@@ -1,4 +1,25 @@
-﻿from src.ai.mood_manager import MoodManager
+import json
+
+from src.ai.mood_manager import MoodManager
+
+
+def test_load_reads_existing_utf8_bom_mood_state(tmp_path):
+    state_file = tmp_path / "mood.json"
+    payload = {
+        "version": 2,
+        "profile": "affectionate",
+        "axes": {"valence": 0.2, "energy": 0.1, "bond": 0.36, "stress": -0.1},
+        "current_mood": "affectionate",
+        "temporary_state": "steady",
+        "updated_at": "2999-06-23T10:00:00",
+        "recent_events": [],
+    }
+    state_file.write_bytes(json.dumps(payload, ensure_ascii=False).encode("utf-8-sig"))
+
+    manager = MoodManager(state_file=str(state_file))
+
+    assert manager.get_snapshot()["current_mood"] == "affectionate"
+    assert manager.get_snapshot()["bond"] == 0.36
 
 
 def test_repeated_positive_affection_meta_has_reduced_effect(tmp_path):

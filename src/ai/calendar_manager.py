@@ -1,4 +1,4 @@
-﻿"""
+"""
 캘린더 관리 시스템
 일정 추가/조회 및 대화 횟수 추적
 """
@@ -51,7 +51,7 @@ class CalendarManager:
     def load(self):
         """캘린더 데이터 로드"""
         try:
-            data = load_json_data(self.calendar_file, encoding="utf-8")
+            data = load_json_data(self.calendar_file, encoding="utf-8-sig")
             self.events = [CalendarEvent.from_dict(e) for e in data.get('events', [])]
             self.conversation_counts = data.get('conversation_counts', {})
             self.head_pat_counts = data.get('head_pat_counts', {})

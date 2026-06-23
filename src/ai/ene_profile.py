@@ -84,7 +84,7 @@ class EneProfile:
             save_json_data(
                 self.profile_file,
                 payload,
-                encoding="utf-8-sig",
+                encoding="utf-8",
                 indent=2,
                 ensure_ascii=False,
                 trailing_newline=True,

@@ -1,4 +1,4 @@
-﻿assets/live2d_models/
+assets/live2d_models/
 assets/ref_audio/
 
 # Python
@@ -43,6 +43,10 @@ prompts/analysis_system_appendix.md
 prompts/emotion_guides.md
 mood_state.json
 obs_config.json
+ene_profile.json
+ene_goals.json
+proactive_conversations.json
+promise_reminders.json
 docs/prototypes/
 docs/preview/
 docs/mockups/

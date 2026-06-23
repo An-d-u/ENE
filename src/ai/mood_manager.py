@@ -1,4 +1,4 @@
-﻿"""
+"""
 ENE 기분 상태 관리자.
 LLM 분석 메타와 환경 신호를 기반으로 장기 기분과 단기 반응 성향을 관리한다.
 """
@@ -64,7 +64,7 @@ class MoodManager:
 
     def _load_state(self) -> dict[str, Any]:
         try:
-            loaded = load_json_data(self.state_path, encoding="utf-8")
+            loaded = load_json_data(self.state_path, encoding="utf-8-sig")
             merged = self._default_state()
             merged.update(loaded)
             merged["axes"] = {**self._default_state()["axes"], **(loaded.get("axes") or {})}
