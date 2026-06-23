@@ -1,4 +1,4 @@
-﻿import asyncio
+import asyncio
 import io
 import wave
 import aiohttp

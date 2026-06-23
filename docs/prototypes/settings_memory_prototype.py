@@ -1,4 +1,4 @@
-﻿"""UTF-8 with BOM
+"""UTF-8 with BOM
 설정/기억 관리 데스크톱 다이얼로그.
 """
 from __future__ import annotations

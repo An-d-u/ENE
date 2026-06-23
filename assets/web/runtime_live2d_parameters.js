@@ -1,4 +1,4 @@
-﻿// Live2D 장식 파라미터 런타임 진입점.
+// Live2D 장식 파라미터 런타임 진입점.
 bindLive2DParameterEvents();
 
 function bindLive2DParameterOverrideHook() {

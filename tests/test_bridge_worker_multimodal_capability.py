@@ -1,4 +1,4 @@
-﻿from PyQt6.QtCore import QCoreApplication
+from PyQt6.QtCore import QCoreApplication
 
 from src.core.bridge_workers import AIWorker
 

@@ -1,4 +1,4 @@
-﻿from src.core.attachment_session import AttachmentSession
+from src.core.attachment_session import AttachmentSession
 
 
 def test_attachment_session_reuses_cached_items_and_prepares_only_missing():

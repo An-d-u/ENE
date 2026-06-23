@@ -1,4 +1,4 @@
-﻿from src.core import app as app_module
+from src.core import app as app_module
 from src.core.app_memory_bootstrap import MemoryProfileRuntime
 
 

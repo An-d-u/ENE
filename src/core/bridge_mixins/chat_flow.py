@@ -1,4 +1,4 @@
-﻿"""
+"""
 WebBridge의 일반 채팅 요청, 재시도, 응답 완료 흐름.
 """
 import json

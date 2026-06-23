@@ -1,4 +1,4 @@
-﻿import pytest
+import pytest
 
 pytest.importorskip("google.genai")
 

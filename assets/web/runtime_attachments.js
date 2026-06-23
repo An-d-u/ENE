@@ -1,4 +1,4 @@
-﻿
+
 function createAttachmentId() {
     if (window.crypto && typeof window.crypto.randomUUID === 'function') {
         return window.crypto.randomUUID();

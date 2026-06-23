@@ -1,4 +1,4 @@
-﻿from src.ai.llm_client import GeminiClient
+from src.ai.llm_client import GeminiClient
 
 
 class _DummyChat:

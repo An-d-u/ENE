@@ -1,4 +1,4 @@
-﻿"""
+"""
 WebBridge의 첨부파일 프리뷰, 전송, 삭제 로직.
 """
 import json

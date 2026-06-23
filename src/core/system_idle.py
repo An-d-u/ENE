@@ -1,4 +1,4 @@
-﻿"""
+"""
 운영체제의 마지막 마우스/키보드 입력 시간을 읽는 도우미.
 """
 from __future__ import annotations

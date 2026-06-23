@@ -1,4 +1,4 @@
-﻿
+
 function createTextMessageBubble() {
     const bubble = document.createElement('div');
     bubble.className = 'message-bubble';

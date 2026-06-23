@@ -1,4 +1,4 @@
-﻿from src.ai.memory_types import MemoryEntry, MemoryMessage, create_memory_entry
+from src.ai.memory_types import MemoryEntry, MemoryMessage, create_memory_entry
 
 
 def test_create_memory_entry_sets_defaults():

@@ -1,4 +1,4 @@
-﻿"""
+"""
 앱 시작 시 TTS 클라이언트와 오디오 플레이어를 생성하는 유틸리티.
 """
 from __future__ import annotations

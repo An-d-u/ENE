@@ -1,4 +1,4 @@
-﻿from src.core.app_memory_bootstrap import (
+from src.core.app_memory_bootstrap import (
     MemoryProfileRuntime,
     build_memory_manager,
     build_profile_runtime,

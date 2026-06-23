@@ -1,4 +1,4 @@
-﻿"""Live2D 파라미터 저장 브리지."""
+"""Live2D 파라미터 저장 브리지."""
 from __future__ import annotations
 
 import json

@@ -1,4 +1,4 @@
-﻿from src.ai.persona_names import resolve_prompt_persona_names, role_label_for_prompt
+from src.ai.persona_names import resolve_prompt_persona_names, role_label_for_prompt
 
 
 def test_resolve_prompt_persona_names_uses_language_defaults():

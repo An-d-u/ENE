@@ -1,4 +1,4 @@
-﻿"""
+"""
 앱 시작 시 메모리와 프로필 런타임을 생성하는 유틸리티.
 """
 from __future__ import annotations

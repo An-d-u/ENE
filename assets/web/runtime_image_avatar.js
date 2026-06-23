@@ -1,4 +1,4 @@
-﻿// 이미지 아바타 렌더링 런타임.
+// 이미지 아바타 렌더링 런타임.
 const IMAGE_AVATAR_TTS_BOUNCE_PX = 10;
 const DEFAULT_IMAGE_AVATAR_PLACEMENT = {
     scale: 1.0,

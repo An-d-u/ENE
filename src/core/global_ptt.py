@@ -1,4 +1,4 @@
-﻿"""
+"""
 전역 Push-to-Talk + faster-whisper STT 컨트롤러.
 """
 

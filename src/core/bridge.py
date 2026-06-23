@@ -1,4 +1,4 @@
-﻿"""
+"""
 Python-JavaScript 브릿지 (QWebChannel)
 """
 from PyQt6.QtCore import (

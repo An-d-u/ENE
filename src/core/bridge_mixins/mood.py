@@ -1,4 +1,4 @@
-﻿"""
+"""
 WebBridge의 기분 UI 상태와 쓰다듬기 이벤트 로직.
 """
 import json

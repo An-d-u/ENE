@@ -1,4 +1,4 @@
-﻿from datetime import datetime
+from datetime import datetime
 
 from src.core.promise_runtime import (
     build_promise_nudge_prompt,

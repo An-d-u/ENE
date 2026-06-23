@@ -1,4 +1,4 @@
-﻿"""
+"""
 Gemini 외 공급자용 HTTP 기반 LLM 클라이언트.
 OpenAI 호환, Anthropic, Ollama 경로를 제공한다.
 """

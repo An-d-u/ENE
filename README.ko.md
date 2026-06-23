@@ -1,4 +1,4 @@
-﻿# <p align="center"><img src="assets/icons/tray_icon.png" alt="ENE 아이콘" width="96" /></p>
+# <p align="center"><img src="assets/icons/tray_icon.png" alt="ENE 아이콘" width="96" /></p>
 
 <h1 align="center">ENE</h1>
 

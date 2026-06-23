@@ -1,4 +1,4 @@
-﻿from src.core.bridge_mixins import chat_flow
+from src.core.bridge_mixins import chat_flow
 from src.core.bridge import WebBridge
 from src.core.bridge_mixins.chat_flow import ChatFlowBridgeMixin
 from src.core.bridge_mixins.memory_summary import MemorySummaryBridgeMixin

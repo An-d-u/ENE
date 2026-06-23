@@ -1,4 +1,4 @@
-﻿"""
+"""
 Obsidian CLI 기반 연동 매니저
 """
 from __future__ import annotations

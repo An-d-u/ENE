@@ -1,4 +1,4 @@
-﻿"""
+"""
 WebBridge의 TTS, 립싱크, 스트리밍 음성 출력을 담당한다.
 """
 import json

@@ -1,4 +1,4 @@
-﻿"""
+"""
 다중 TTS 공급자 추상화 레이어.
 현재 ENE는 GPT-SoVITS HTTP, OpenAI Audio Speech,
 OpenAI Compatible Audio Speech, ElevenLabs를 지원한다.

@@ -1,4 +1,4 @@
-﻿import json
+import json
 
 from PyQt6.QtCore import QCoreApplication
 

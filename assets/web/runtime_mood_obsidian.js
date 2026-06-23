@@ -1,4 +1,4 @@
-﻿
+
 // -1~1 축값을 게이지 표시용 0~1 값으로 정규화한다.
 function normalizeMoodAxis(value) {
     const n = Number(value);

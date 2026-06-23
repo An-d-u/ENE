@@ -1,4 +1,4 @@
-﻿"""
+"""
 ENE 프로젝트 Setup 스크립트 - 수정 버전
 Cubism 4만 지원하는 pixi-live2d-display 버전 사용
 """

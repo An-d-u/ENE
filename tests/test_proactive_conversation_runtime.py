@@ -1,4 +1,4 @@
-﻿from datetime import datetime
+from datetime import datetime
 
 from src.core.proactive_conversation_runtime import (
     build_proactive_conversation_prompt,

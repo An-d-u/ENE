@@ -1,4 +1,4 @@
-﻿"""
+"""
 자리 비움 감지 응답을 위한 프롬프트 생성 도우미.
 """
 from ..ai.persona_names import korean_subject_particle

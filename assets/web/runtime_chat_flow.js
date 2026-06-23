@@ -1,4 +1,4 @@
-﻿
+
 // UI가 먼저 그려진 뒤 Python 브리지 호출이 실행되도록 한 프레임 뒤로 넘긴다.
 function dispatchBridgeCall(task, onError) {
     const scheduleFrame = window.requestAnimationFrame

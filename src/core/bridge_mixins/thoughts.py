@@ -1,4 +1,4 @@
-﻿"""
+"""
 WebBridge의 ENE thought 저장과 표시 흐름을 담당한다.
 """
 import re

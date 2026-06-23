@@ -1,4 +1,4 @@
-﻿
+
 function isEyeCloseExpressionActive(sample) {
     if (!sample) {
         return false;

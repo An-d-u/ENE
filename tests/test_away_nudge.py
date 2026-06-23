@@ -1,4 +1,4 @@
-﻿from src.core.away_nudge import build_away_nudge_prompt
+from src.core.away_nudge import build_away_nudge_prompt
 
 
 def test_build_away_nudge_prompt_for_no_recent_korean_input():

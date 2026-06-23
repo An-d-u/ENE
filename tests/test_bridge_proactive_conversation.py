@@ -1,4 +1,4 @@
-﻿import sys
+import sys
 import json
 import types
 from typing import get_args

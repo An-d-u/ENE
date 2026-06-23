@@ -1,4 +1,4 @@
-﻿
+
 function getActiveGoalItems(type) {
     const active = (eneGoalSnapshot && eneGoalSnapshot.active) || {};
     const items = active[type];
