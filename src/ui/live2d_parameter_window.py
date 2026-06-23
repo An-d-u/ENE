@@ -1,4 +1,4 @@
-﻿"""Live2D 파라미터를 ENE 창 밖에서 조절하는 네이티브 패널."""
+"""Live2D 파라미터를 ENE 창 밖에서 조절하는 네이티브 패널."""
 from __future__ import annotations
 
 import json

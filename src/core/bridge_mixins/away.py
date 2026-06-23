@@ -1,4 +1,4 @@
-﻿"""
+"""
 WebBridge의 자리 비움 감지와 화면 캡처 로직.
 """
 from datetime import datetime

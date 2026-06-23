@@ -1,4 +1,4 @@
-﻿"""
+"""
 Obsidian 파일 트리 전용 플로팅 패널
 """
 from __future__ import annotations

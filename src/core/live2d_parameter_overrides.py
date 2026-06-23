@@ -1,4 +1,4 @@
-﻿"""Live2D 파라미터 오버라이드 저장 payload 정규화."""
+"""Live2D 파라미터 오버라이드 저장 payload 정규화."""
 from __future__ import annotations
 
 import math

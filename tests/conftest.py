@@ -1,4 +1,4 @@
-﻿import pytest
+import pytest
 
 
 _HTTP_LLM_TEST_MODULES = {

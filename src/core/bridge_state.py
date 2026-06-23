@@ -1,4 +1,4 @@
-﻿"""
+"""
 WebBridge의 런타임 상태를 도메인별 객체로 묶는다.
 """
 from __future__ import annotations

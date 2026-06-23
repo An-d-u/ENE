@@ -1,4 +1,4 @@
-﻿from src.ai.markdown_document_prompt import build_markdown_document_prompt
+from src.ai.markdown_document_prompt import build_markdown_document_prompt
 from src.ai.summary_prompt import _format_now_for_language, build_summary_prompt_from_text
 from src.ai.http_llm_clients import _build_summary_prompt
 

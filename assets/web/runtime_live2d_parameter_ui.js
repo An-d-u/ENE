@@ -1,4 +1,4 @@
-﻿// Live2D 장식 파라미터 UI 런타임.
+// Live2D 장식 파라미터 UI 런타임.
 function getVisibleLive2DParameterMetadata() {
     const searchQuery = live2dParameterState.searchQuery.trim().toLowerCase();
     return live2dParameterState.metadata.filter((item) => {

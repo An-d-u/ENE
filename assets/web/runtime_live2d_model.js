@@ -1,4 +1,4 @@
-﻿
+
 function removeCurrentModelArtifacts() {
     detachExpressionUpdateHook();
     if (window.live2dModel) {

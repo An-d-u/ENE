@@ -1,4 +1,4 @@
-﻿from types import SimpleNamespace
+from types import SimpleNamespace
 
 from PyQt6.QtWidgets import QMessageBox
 

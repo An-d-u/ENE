@@ -1,4 +1,4 @@
-﻿from types import SimpleNamespace
+from types import SimpleNamespace
 
 from src.core import system_idle
 from src.core.system_idle import _elapsed_milliseconds_since_last_input

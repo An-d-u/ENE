@@ -1,4 +1,4 @@
-﻿
+
 function formatPromiseReminderTemplate(template, minutes) {
     return String(template || '').replace('{minutes}', String(minutes));
 }

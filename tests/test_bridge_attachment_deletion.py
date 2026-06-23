@@ -1,4 +1,4 @@
-﻿from src.core.bridge import WebBridge
+from src.core.bridge import WebBridge
 
 
 class _DummySignal:

@@ -1,4 +1,4 @@
-﻿from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 from src.ai.proactive_conversation_manager import (
     ALLOWED_COOLDOWN_KEYS,

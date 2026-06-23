@@ -1,4 +1,4 @@
-﻿from src.core.bridge_mixins.away import AwayNudgeBridgeMixin
+from src.core.bridge_mixins.away import AwayNudgeBridgeMixin
 
 
 class _DummyAwayBridge(AwayNudgeBridgeMixin):

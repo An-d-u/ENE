@@ -1,4 +1,4 @@
-﻿"""
+"""
 WebBridge의 선제 대화 예약과 실행 흐름을 담당한다.
 """
 import json

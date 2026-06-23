@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 
 
 README_PATH = Path(__file__).resolve().parents[1] / "README.md"

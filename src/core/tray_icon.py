@@ -1,4 +1,4 @@
-﻿"""
+"""
 시스템 트레이 아이콘 및 메뉴
 """
 from PyQt6.QtWidgets import QSystemTrayIcon, QMenu

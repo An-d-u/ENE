@@ -1,4 +1,4 @@
-﻿// Live2D 장식 파라미터 오버라이드 런타임.
+// Live2D 장식 파라미터 오버라이드 런타임.
 const LIVE2D_PARAMETER_RECOMMENDED_EXCLUDE_KEYWORDS = [
     'ParamEye',
     'ParamMouth',

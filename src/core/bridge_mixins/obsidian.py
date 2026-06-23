@@ -1,4 +1,4 @@
-﻿"""
+"""
 WebBridge의 Obsidian 패널, 명령, 컨텍스트 연동을 담당한다.
 """
 import json

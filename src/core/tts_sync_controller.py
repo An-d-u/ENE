@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from src.ai.viseme_stream_analyzer import VisemeFrame
 

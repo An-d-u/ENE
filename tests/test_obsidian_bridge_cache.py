@@ -1,4 +1,4 @@
-﻿import json
+import json
 
 from src.core.bridge_mixins.obsidian import ObsidianBridgeMixin
 

@@ -1,4 +1,4 @@
-﻿import shutil
+import shutil
 from pathlib import Path
 
 from PyQt6.QtWidgets import QMessageBox

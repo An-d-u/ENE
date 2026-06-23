@@ -1,4 +1,4 @@
-﻿import asyncio
+import asyncio
 import json
 
 from src.ai.embedding import EmbeddingGenerator

@@ -1,4 +1,4 @@
-﻿# Obsidian CLI Commands Reference (for ENE `/note`)
+# Obsidian CLI Commands Reference (for ENE `/note`)
 
 아래 목록은 `/note` 오케스트레이터가 사용할 수 있도록 정리한 Obsidian CLI 명령군입니다.  
 의도 추론 시 먼저 이 문서를 참고하고, 최소 명령 수로 작업을 끝내는 것을 권장합니다.

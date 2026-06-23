@@ -1,4 +1,4 @@
-﻿
+
 // 수동 요약 확인 모달을 연다.
 function showSummaryConfirm() {
     if (!summaryConfirmOverlay) return;

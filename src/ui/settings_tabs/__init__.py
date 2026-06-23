@@ -1,1 +1,1 @@
-﻿"""SettingsDialog 탭 빌더 모듈."""
+"""SettingsDialog 탭 빌더 모듈."""

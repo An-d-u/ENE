@@ -1,4 +1,4 @@
-﻿"""
+"""
 대화 약속 실행 상태를 판단하는 순수 함수 모음.
 """
 from datetime import datetime

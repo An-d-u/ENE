@@ -1,4 +1,4 @@
-﻿from src.ai.goal_prompt import build_goal_update_rules, is_goal_prompt_enabled
+from src.ai.goal_prompt import build_goal_update_rules, is_goal_prompt_enabled
 from src.ai.response_contract import build_response_contract_appendix, is_proactive_conversation_enabled
 from src.ai.thought_prompt import is_thought_prompt_enabled
 

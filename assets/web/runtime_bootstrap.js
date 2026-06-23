@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Live2D 렌더링, 표정/립싱크, 채팅 UI 이벤트를 함께 제어하는 메인 스크립트.
  */
 console.log("=== Live2D script loaded ===");

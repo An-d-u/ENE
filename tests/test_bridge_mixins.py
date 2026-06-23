@@ -1,4 +1,4 @@
-﻿from src.core.bridge import WebBridge
+from src.core.bridge import WebBridge
 
 
 def test_web_bridge_uses_feature_mixins_for_large_internal_domains():

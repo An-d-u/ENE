@@ -1,4 +1,4 @@
-﻿"""
+"""
 Gemini LLM 클라이언트 (google-genai SDK 사용)
 """
 from datetime import datetime

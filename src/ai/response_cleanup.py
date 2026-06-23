@@ -1,4 +1,4 @@
-﻿"""LLM 응답을 화면/TTS 파싱 전에 정리하는 공통 유틸리티."""
+"""LLM 응답을 화면/TTS 파싱 전에 정리하는 공통 유틸리티."""
 
 from __future__ import annotations
 

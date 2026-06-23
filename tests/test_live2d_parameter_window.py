@@ -1,4 +1,4 @@
-﻿import json
+import json
 
 from PyQt6.QtCore import QEventLoop, QPoint, QRect, QSize, Qt, QTimer
 from PyQt6.QtWidgets import QApplication

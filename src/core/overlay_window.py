@@ -1,4 +1,4 @@
-﻿"""
+"""
 Transparent overlay window for Live2D.
 """
 import json

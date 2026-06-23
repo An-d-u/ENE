@@ -1,4 +1,4 @@
-﻿
+
 DEFAULT_UI_STRINGS.actions.live2dParameters = DEFAULT_UI_STRINGS.actions.live2dParameters || {
     label: 'Live2D',
     title: 'Live2D parameters'

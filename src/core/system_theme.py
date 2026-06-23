@@ -1,4 +1,4 @@
-﻿"""
+"""
 윈도우 시스템 테마(라이트/다크) 조회와 ENE 테마 프리셋 정의.
 """
 from __future__ import annotations

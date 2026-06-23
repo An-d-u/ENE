@@ -1,4 +1,4 @@
-﻿from src.ai.note_service import NoteService
+from src.ai.note_service import NoteService
 
 
 def test_parse_markdown_plan():

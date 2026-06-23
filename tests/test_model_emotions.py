@@ -1,4 +1,4 @@
-﻿def test_get_available_model_emotions_reads_model_emotions_folder(tmp_path):
+def test_get_available_model_emotions_reads_model_emotions_folder(tmp_path):
     from src.core.model_emotions import get_available_model_emotions
 
     model_path = tmp_path / "assets" / "live2d_models" / "sample" / "sample.model3.json"

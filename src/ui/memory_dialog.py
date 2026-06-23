@@ -1,4 +1,4 @@
-﻿"""
+"""
 기억 관리 다이얼로그
 """
 from datetime import datetime

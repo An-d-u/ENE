@@ -1,4 +1,4 @@
-﻿"""
+"""
 ENE - AI Desktop Partner
 Live2D 기반 데스크톱 AI 어시스턴트
 """

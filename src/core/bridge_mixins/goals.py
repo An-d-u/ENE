@@ -1,4 +1,4 @@
-﻿"""
+"""
 WebBridge의 목표 UI 상태와 수동 목표 조작 로직.
 """
 import json

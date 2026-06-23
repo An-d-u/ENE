@@ -1,4 +1,4 @@
-﻿import subprocess
+import subprocess
 
 from src.ai.obsidian_manager import ObsidianManager
 from src.core.bridge_workers import ObsidianCheckedFilesWorker

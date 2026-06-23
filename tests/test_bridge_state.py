@@ -1,4 +1,4 @@
-﻿from src.core.bridge_state import (
+from src.core.bridge_state import (
     AwayBridgeState,
     BridgeStateAliasMixin,
     ChatBridgeState,

@@ -1,4 +1,4 @@
-﻿from src.core.app_tts_bootstrap import (
+from src.core.app_tts_bootstrap import (
     TTSRuntime,
     apply_tts_runtime_to_bridge,
     build_tts_runtime,
