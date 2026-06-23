@@ -183,6 +183,271 @@ def test_find_activated_reports_raw_similarity_without_metadata_bonus(tmp_path):
     assert results[0].similarity_score == 0.6
 
 
+def test_find_activated_includes_direct_alias_candidate_below_similarity_threshold(tmp_path):
+    manager = MemoryManager(
+        str(tmp_path / "memory.json"),
+        embedding_generator=ScoreEmbeddingGenerator(),
+    )
+    alias_match = MemoryEntry(
+        id="mem-soundboard",
+        summary="오디오 도구 설정을 정리함",
+        original_messages=["도구 설정값을 따로 적어 두기로 했다."],
+        timestamp="2026-05-01T10:00:00",
+        embedding=[0.1],
+        aliases=["사운드보드 설정"],
+    )
+    manager.memories = [alias_match]
+
+    results = asyncio.run(
+        manager.find_activated(
+            "사운드보드 설정 다시 알려줘",
+            top_k=1,
+            min_similarity=0.5,
+            expand_hops=0,
+        )
+    )
+
+    assert len(results) == 1
+    assert results[0].memory.id == "mem-soundboard"
+    assert results[0].similarity_score == 0.0
+    assert results[0].direct_match_score > 0
+    assert alias_match.retrieval_count == 1
+
+
+def test_find_activated_prioritizes_exact_alias_over_weak_semantic_candidate(tmp_path):
+    manager = MemoryManager(
+        str(tmp_path / "memory.json"),
+        embedding_generator=ScoreEmbeddingGenerator(),
+    )
+    weak_semantic = MemoryEntry(
+        id="mem-weak-semantic",
+        summary="다른 작업의 점검 내용을 정리함",
+        original_messages=["작업 점검표를 확인했다."],
+        timestamp="2026-05-01T09:00:00",
+        embedding=[0.55],
+    )
+    alias_match = MemoryEntry(
+        id="mem-soundboard",
+        summary="오디오 도구 설정을 정리함",
+        original_messages=["도구 설정값을 따로 적어 두기로 했다."],
+        timestamp="2026-05-01T10:00:00",
+        embedding=[0.1],
+        aliases=["사운드보드 설정"],
+    )
+    manager.memories = [weak_semantic, alias_match]
+
+    results = asyncio.run(
+        manager.find_activated(
+            "사운드보드 설정",
+            top_k=1,
+            min_similarity=0.5,
+            expand_hops=0,
+        )
+    )
+
+    assert len(results) == 1
+    assert results[0].memory.id == "mem-soundboard"
+    assert weak_semantic.retrieval_count == 0
+
+
+def test_find_activated_uses_conservative_trigger_direct_candidates(tmp_path):
+    manager = MemoryManager(
+        str(tmp_path / "memory.json"),
+        embedding_generator=ScoreEmbeddingGenerator(),
+    )
+    single_short_trigger = MemoryEntry(
+        id="mem-single-trigger",
+        summary="짧은 단일 트리거만 있는 기억",
+        original_messages=["짧은 검색 단서 하나만 남겼다."],
+        timestamp="2026-05-01T09:00:00",
+        embedding=[0.1],
+        trigger_terms=["배포"],
+    )
+    paired_trigger = MemoryEntry(
+        id="mem-paired-trigger",
+        summary="배포 체크 절차를 정리함",
+        original_messages=["배포 전에 체크 절차를 보기로 했다."],
+        timestamp="2026-05-01T10:00:00",
+        embedding=[0.1],
+        trigger_terms=["배포", "체크"],
+    )
+    manager.memories = [single_short_trigger, paired_trigger]
+
+    single_results = asyncio.run(
+        manager.find_activated(
+            "배포",
+            top_k=1,
+            min_similarity=0.5,
+            expand_hops=0,
+        )
+    )
+    paired_results = asyncio.run(
+        manager.find_activated(
+            "배포 체크",
+            top_k=1,
+            min_similarity=0.5,
+            expand_hops=0,
+        )
+    )
+
+    assert single_results == []
+    assert len(paired_results) == 1
+    assert paired_results[0].memory.id == "mem-paired-trigger"
+
+
+def test_find_activated_does_not_match_ascii_entity_inside_other_words(tmp_path):
+    manager = MemoryManager(
+        str(tmp_path / "memory.json"),
+        embedding_generator=ScoreEmbeddingGenerator(),
+    )
+    entity_match = MemoryEntry(
+        id="mem-entity",
+        summary="프로젝트 이름을 정리함",
+        original_messages=["프로젝트 이름을 따로 남겼다."],
+        timestamp="2026-05-01T10:00:00",
+        embedding=[0.1],
+        entity_names=["ENE"],
+    )
+    manager.memories = [entity_match]
+
+    results = asyncio.run(
+        manager.find_activated(
+            "scene 설정 알려줘",
+            top_k=1,
+            min_similarity=0.5,
+            expand_hops=0,
+        )
+    )
+
+    assert results == []
+    assert entity_match.retrieval_count == 0
+
+
+def test_find_activated_prefers_alias_over_newer_entity_match(tmp_path):
+    manager = MemoryManager(
+        str(tmp_path / "memory.json"),
+        embedding_generator=ScoreEmbeddingGenerator(),
+    )
+    alias_match = MemoryEntry(
+        id="mem-alias",
+        summary="도구 설정을 정리함",
+        original_messages=["도구 설정값을 남겼다."],
+        timestamp="2026-05-01T10:00:00",
+        embedding=[0.1],
+        aliases=["사운드보드 설정"],
+    )
+    entity_match = MemoryEntry(
+        id="mem-entity",
+        summary="사운드보드라는 대상 이름만 있는 기억",
+        original_messages=["대상 이름을 기록했다."],
+        timestamp="2026-05-02T10:00:00",
+        embedding=[0.1],
+        entity_names=["사운드보드"],
+    )
+    manager.memories = [entity_match, alias_match]
+
+    results = asyncio.run(
+        manager.find_activated(
+            "사운드보드 설정",
+            top_k=1,
+            min_similarity=0.5,
+            expand_hops=0,
+        )
+    )
+
+    assert len(results) == 1
+    assert results[0].memory.id == "mem-alias"
+
+
+def test_find_activated_uses_direct_match_without_embedding_generator(tmp_path):
+    manager = MemoryManager(str(tmp_path / "memory.json"))
+    alias_match = MemoryEntry(
+        id="mem-direct-only",
+        summary="오디오 도구 설정을 정리함",
+        original_messages=["도구 설정값을 따로 적어 두기로 했다."],
+        timestamp="2026-05-01T10:00:00",
+        aliases=["사운드보드 설정"],
+    )
+    manager.memories = [alias_match]
+
+    results = asyncio.run(
+        manager.find_activated(
+            "사운드보드 설정 다시 알려줘",
+            top_k=1,
+            min_similarity=0.5,
+            expand_hops=0,
+        )
+    )
+
+    assert len(results) == 1
+    assert results[0].memory.id == "mem-direct-only"
+    assert results[0].similarity_score == 0.0
+    assert results[0].direct_match_score > 0
+
+
+def test_find_activated_matches_korean_three_syllable_and_ascii_acronym_triggers(tmp_path):
+    manager = MemoryManager(
+        str(tmp_path / "memory.json"),
+        embedding_generator=ScoreEmbeddingGenerator(),
+    )
+    korean_trigger = MemoryEntry(
+        id="mem-korean-trigger",
+        summary="검색어 설정을 정리함",
+        original_messages=["검색어 설정을 남겼다."],
+        timestamp="2026-05-01T10:00:00",
+        embedding=[0.1],
+        trigger_terms=["검색어"],
+    )
+    api_trigger = MemoryEntry(
+        id="mem-api-trigger",
+        summary="API 설정을 정리함",
+        original_messages=["API 설정을 남겼다."],
+        timestamp="2026-05-01T10:01:00",
+        embedding=[0.1],
+        trigger_terms=["API"],
+    )
+    data_trigger = MemoryEntry(
+        id="mem-data-trigger",
+        summary="데이터 설정을 정리함",
+        original_messages=["데이터 설정을 남겼다."],
+        timestamp="2026-05-01T10:02:00",
+        embedding=[0.1],
+        trigger_terms=["data"],
+    )
+    manager.memories = [korean_trigger, api_trigger, data_trigger]
+
+    korean_results = asyncio.run(
+        manager.find_activated(
+            "검색어 다시 알려줘",
+            top_k=1,
+            min_similarity=0.5,
+            expand_hops=0,
+        )
+    )
+    api_results = asyncio.run(
+        manager.find_activated(
+            "API 설정 다시 알려줘",
+            top_k=1,
+            min_similarity=0.5,
+            expand_hops=0,
+        )
+    )
+    metadata_results = asyncio.run(
+        manager.find_activated(
+            "metadata 설정 다시 알려줘",
+            top_k=1,
+            min_similarity=0.5,
+            expand_hops=0,
+        )
+    )
+
+    assert len(korean_results) == 1
+    assert korean_results[0].memory.id == "mem-korean-trigger"
+    assert len(api_results) == 1
+    assert api_results[0].memory.id == "mem-api-trigger"
+    assert metadata_results == []
+
+
 def test_find_activated_expands_linked_memories(tmp_path):
     manager = MemoryManager(
         str(tmp_path / "memory.json"),
@@ -314,8 +579,8 @@ def test_save_and_reload_roundtrip_preserves_extended_memory_fields(tmp_path):
     assert restored.conversation_id == "conv-1"
     assert restored.expires_at == "2026-04-09T00:00:00"
     assert restored.schema_version == 4
-    assert restored.aliases == []
-    assert restored.trigger_terms == []
+    assert restored.aliases == ["에네 구조"]
+    assert restored.trigger_terms == ["ENE", "구조"]
     assert restored.linked_memory_ids == []
     assert restored.activation_weight == 1.0
     assert restored.last_activated_at is None
@@ -459,6 +724,8 @@ def test_add_summary_persists_memory_metadata_fields(tmp_path):
             importance_reason="repeated_topic",
             confidence=0.85,
             entity_names=["ENE"],
+            aliases=["에네 구조"],
+            trigger_terms=["ENE", "구조"],
         )
     )
 
