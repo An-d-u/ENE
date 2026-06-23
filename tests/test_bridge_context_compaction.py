@@ -1,4 +1,4 @@
-﻿# ruff: noqa: E402
+# ruff: noqa: E402
 import asyncio
 from datetime import datetime
 import sys
@@ -45,6 +45,8 @@ class _DummyMemoryManager:
         importance_reason=None,
         confidence=0.5,
         entity_names=None,
+        aliases=None,
+        trigger_terms=None,
     ):
         self.calls.append(
             {
@@ -57,6 +59,8 @@ class _DummyMemoryManager:
                 "importance_reason": importance_reason,
                 "confidence": confidence,
                 "entity_names": list(entity_names or []),
+                "aliases": list(aliases or []),
+                "trigger_terms": list(trigger_terms or []),
             }
         )
 

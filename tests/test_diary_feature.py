@@ -1,4 +1,4 @@
-﻿import asyncio
+import asyncio
 import builtins
 from pathlib import Path
 import sys
@@ -90,7 +90,7 @@ def test_note_command_parse():
     assert body3 == ""
 
 
-def test_diary_save_markdown_creates_utf8_bom_file(tmp_path: Path):
+def test_diary_save_markdown_creates_utf8_file_without_bom(tmp_path: Path):
     service = DiaryService(tmp_path / "diary")
     result = service.save_markdown("기획서 초안을 써줘", "# 제목\n\n본문")
 
@@ -100,7 +100,7 @@ def test_diary_save_markdown_creates_utf8_bom_file(tmp_path: Path):
     assert saved_path.suffix == ".md"
 
     data = saved_path.read_bytes()
-    assert data.startswith(b"\xef\xbb\xbf")
+    assert not data.startswith(b"\xef\xbb\xbf")
 
 
 def test_diary_save_local_only_when_cli_disabled(tmp_path: Path):
@@ -185,7 +185,7 @@ def test_diary_save_cli_primary_failure_fallback_local(tmp_path: Path, monkeypat
     assert "mock fail" in result.obsidian_cli_error
     saved_files = list((tmp_path / "diary").glob("*.md"))
     assert len(saved_files) == 1
-    assert saved_files[0].read_bytes().startswith(b"\xef\xbb\xbf")
+    assert not saved_files[0].read_bytes().startswith(b"\xef\xbb\xbf")
 
 
 def test_bridge_handles_diary_without_conversation_buffer(monkeypatch):

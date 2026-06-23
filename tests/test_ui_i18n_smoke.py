@@ -1,4 +1,4 @@
-﻿import json
+import json
 import re
 import sys
 import types
@@ -340,7 +340,7 @@ def test_settings_dialog_write_text_file_uses_app_paths_bridge(tmp_path, monkeyp
 
         settings_dialog_module.SettingsDialog._write_text_file(object(), runtime_path, "a\r\nb")
 
-        assert calls == [(runtime_path, "a\nb", "utf-8-sig")]
+        assert calls == [(runtime_path, "a\nb", "utf-8")]
 
 
 def test_settings_dialog_translates_metadata_in_english():

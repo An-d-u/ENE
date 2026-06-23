@@ -106,7 +106,8 @@ def test_save_json_data_mirrors_visible_roaming_under_store_python(tmp_path, mon
 
     monkeypatch.setattr(app_paths, "_write_file_bytes_via_powershell", _capture_write)
 
-    app_paths.save_json_data(runtime_path, payload, encoding="utf-8-sig")
+    app_paths.save_json_data(runtime_path, payload)
 
-    assert json.loads(runtime_path.read_text(encoding="utf-8-sig")) == payload
+    assert not runtime_path.read_bytes().startswith(b"\xef\xbb\xbf")
+    assert json.loads(runtime_path.read_text(encoding="utf-8")) == payload
     assert mirrored == [(visible_path, payload)]

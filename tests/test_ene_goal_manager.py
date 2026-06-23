@@ -1,4 +1,4 @@
-﻿import json
+import json
 
 from src.ai.ene_goal_manager import EneGoalManager
 
@@ -408,7 +408,9 @@ def test_settings_state_file_is_used_when_explicit_file_is_missing(tmp_path, mon
 
     manager.add_manual_goal("short_term", "설정 경로 사용", "")
 
-    saved = json.loads((tmp_path / "custom_goals.json").read_text(encoding="utf-8-sig"))
+    saved_path = tmp_path / "custom_goals.json"
+    assert not saved_path.read_bytes().startswith(b"\xef\xbb\xbf")
+    saved = json.loads(saved_path.read_text(encoding="utf-8-sig"))
     assert saved["active"]["short_term"][0]["title"] == "설정 경로 사용"
 
 

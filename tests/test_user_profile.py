@@ -1,4 +1,4 @@
-﻿import json
+import json
 
 from src.ai.user_profile import ProfileFact, UserProfile
 
@@ -70,7 +70,7 @@ def test_add_preference_fact_normalizes_persists_and_updates_likes(tmp_path):
     assert profile.facts[0].category == "preference"
     assert profile.facts[0].source == "chat"
     assert profile.preferences["likes"] == ["녹차와 조용한 재즈 음악을 좋아해요"]
-    assert profile_path.read_bytes().startswith(b"\xef\xbb\xbf")
+    assert not profile_path.read_bytes().startswith(b"\xef\xbb\xbf")
 
     saved = json.loads(profile_path.read_text(encoding="utf-8-sig"))
     assert saved["facts"][0]["content"] == "녹차와 조용한 재즈 음악을 좋아해요"

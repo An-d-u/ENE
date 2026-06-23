@@ -1,4 +1,4 @@
-﻿"""
+"""
 ENE 프롬프트 설정 Markdown 로더
 """
 
@@ -73,7 +73,7 @@ def _read_text_file(path: Path) -> str:
 def _write_text_file(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     normalized = str(text or "").replace("\r\n", "\n").strip("\n")
-    path.write_text(normalized, encoding="utf-8-sig")
+    path.write_text(normalized, encoding="utf-8")
 
 
 def _strip_generated_sub_prompt_sections(text: str) -> str:
@@ -154,7 +154,7 @@ def _copy_default_if_missing(target: Path, default: Path) -> None:
     if default.exists():
         shutil.copyfile(default, target)
     else:
-        target.write_text("", encoding="utf-8-sig")
+        target.write_text("", encoding="utf-8")
 
 
 def _is_windows_store_python_runtime() -> bool:

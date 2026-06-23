@@ -1,4 +1,4 @@
-﻿"""
+"""
 장기기억 관리 시스템
 """
 from __future__ import annotations
@@ -86,7 +86,7 @@ class MemoryManager:
     def load(self):
         """JSON 파일에서 기억 로드"""
         try:
-            data = load_json_data(self.memory_file, encoding="utf-8")
+            data = load_json_data(self.memory_file, encoding="utf-8-sig")
             raw_entries = data.get('memories', [])
             if not isinstance(raw_entries, list):
                 raw_entries = []

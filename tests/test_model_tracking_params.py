@@ -1,4 +1,4 @@
-﻿import json
+import json
 import shutil
 from contextlib import contextmanager
 from pathlib import Path
@@ -120,6 +120,28 @@ def test_tracking_parameter_map_falls_back_to_standard_angle_params():
     assert mapping["angleX"] == "ParamAngleX"
     assert mapping["angleY"] == "ParamAngleY"
     assert mapping["angleZ"] == "ParamAngleZ"
+
+
+def test_tracking_parameter_map_uses_korean_display_names_for_face_angles():
+    with _workspace_tmp("korean-angle-display-names") as model_dir:
+        model_path = model_dir / "sample.model3.json"
+        _write_json(model_path, {"Version": 3})
+        _write_json(
+            model_dir / "sample.cdi3.json",
+            {
+                "Parameters": [
+                    {"Id": "CustomFaceAngleX", "Name": "각도 X"},
+                    {"Id": "CustomFaceAngleY", "Name": "각도 Y"},
+                    {"Id": "CustomFaceAngleZ", "Name": "각도 Z"},
+                ]
+            },
+        )
+
+        mapping = load_model_tracking_parameter_map_for_model_json(model_path)
+
+    assert mapping["angleX"] == "CustomFaceAngleX"
+    assert mapping["angleY"] == "CustomFaceAngleY"
+    assert mapping["angleZ"] == "CustomFaceAngleZ"
 
 
 def test_tracking_parameter_map_prefers_face_angle_output_over_body_duplicate():

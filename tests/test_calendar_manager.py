@@ -1,6 +1,22 @@
-﻿from datetime import datetime, timedelta
+import json
+from datetime import datetime, timedelta
 
 from src.ai.calendar_manager import CalendarManager
+
+
+def test_load_reads_existing_utf8_bom_calendar_file(tmp_path):
+    calendar_file = tmp_path / "calendar.json"
+    payload = {
+        "events": [],
+        "conversation_counts": {"2026-06-23": 3},
+        "head_pat_counts": {"2026-06-23": 2},
+    }
+    calendar_file.write_bytes(json.dumps(payload, ensure_ascii=False).encode("utf-8-sig"))
+
+    manager = CalendarManager(calendar_file=str(calendar_file))
+
+    assert manager.conversation_counts == {"2026-06-23": 3}
+    assert manager.head_pat_counts == {"2026-06-23": 2}
 
 
 def test_recent_or_latest_returns_recent_window_when_available(tmp_path):

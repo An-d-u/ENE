@@ -1,4 +1,4 @@
-﻿"""
+"""
 ENE 현재 목표 관리자.
 LLM이 제안한 목표 업데이트를 작게 검증하고 활성 목표/이력 상태로 저장한다.
 """
@@ -67,7 +67,7 @@ class EneGoalManager:
             save_json_data(
                 self.state_path,
                 self.state,
-                encoding="utf-8-sig",
+                encoding="utf-8",
                 indent=2,
                 ensure_ascii=False,
             )

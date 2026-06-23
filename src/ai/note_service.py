@@ -1,4 +1,4 @@
-﻿"""
+"""
 /note 명령 오케스트레이션 보조 서비스
 """
 from __future__ import annotations
@@ -790,4 +790,4 @@ class NoteService:
                 for r in results
             ],
         }
-        target.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8-sig")
+        target.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
