@@ -107,13 +107,6 @@ def build_behavior_tab(dialog):
     self.enable_proactive_conversation_check.toggled.connect(self._on_setting_changed)
     display_layout.addWidget(self.enable_proactive_conversation_check)
 
-    self.enable_synthetic_gestures_check = self._create_toggle(
-        "응답 제스처 사용",
-        key="settings.behavior.display.synthetic_gestures",
-    )
-    self.enable_synthetic_gestures_check.toggled.connect(self._on_setting_changed)
-    display_layout.addWidget(self.enable_synthetic_gestures_check)
-
     thought_context_layout = QFormLayout()
     thought_context_layout.setContentsMargins(0, 0, 0, 0)
     thought_context_layout.setSpacing(8)
@@ -350,6 +343,67 @@ def build_behavior_tab(dialog):
         self.obsidian_checked_total_max_chars_spin,
     )
     layout.addWidget(note_group)
+
+    gesture_group = QGroupBox("응답 제스처")
+    self._bind_group_title(gesture_group, "settings.behavior.gesture.title", "응답 제스처")
+    gesture_layout = QFormLayout(gesture_group)
+    gesture_layout.setSpacing(8)
+    gesture_layout.setContentsMargins(10, 15, 10, 10)
+
+    self.enable_synthetic_gestures_check = self._create_toggle(
+        "응답 제스처 사용",
+        key="settings.behavior.gesture.enable",
+    )
+    self.enable_synthetic_gestures_check.toggled.connect(self._on_setting_changed)
+    gesture_layout.addRow(self.enable_synthetic_gestures_check)
+
+    self.synthetic_gesture_scale_spin = QDoubleSpinBox()
+    self.synthetic_gesture_scale_spin.setRange(0.5, 3.0)
+    self.synthetic_gesture_scale_spin.setSingleStep(0.1)
+    self.synthetic_gesture_scale_spin.setDecimals(2)
+    self.synthetic_gesture_scale_spin.setSuffix("x")
+    self.synthetic_gesture_scale_spin.valueChanged.connect(self._on_setting_changed)
+    self._add_form_row(
+        gesture_layout,
+        "settings.behavior.gesture.scale",
+        "동작 배율:",
+        self.synthetic_gesture_scale_spin,
+    )
+
+    self.enable_idle_synthetic_gestures_check = self._create_toggle(
+        "유휴 제스처 사용",
+        key="settings.behavior.gesture.idle_enable",
+    )
+    self.enable_idle_synthetic_gestures_check.toggled.connect(self._on_setting_changed)
+    gesture_layout.addRow(self.enable_idle_synthetic_gestures_check)
+
+    self.idle_synthetic_gesture_frequency_combo = QComboBox()
+    for key, fallback, value in [
+        ("settings.behavior.gesture.idle_frequency.low", "낮음", "low"),
+        ("settings.behavior.gesture.idle_frequency.normal", "보통", "normal"),
+        ("settings.behavior.gesture.idle_frequency.high", "높음", "high"),
+    ]:
+        self.idle_synthetic_gesture_frequency_combo.addItem(self._translated_text(key, fallback), value)
+        self._bind_combo_item(
+            self.idle_synthetic_gesture_frequency_combo,
+            self.idle_synthetic_gesture_frequency_combo.count() - 1,
+            key,
+            fallback,
+        )
+    self.idle_synthetic_gesture_frequency_combo.currentIndexChanged.connect(self._on_setting_changed)
+    self._add_form_row(
+        gesture_layout,
+        "settings.behavior.gesture.idle_frequency.label",
+        "유휴 제스처 빈도:",
+        self.idle_synthetic_gesture_frequency_combo,
+    )
+    gesture_layout.addRow(
+        self._build_hint_label(
+            "아직 시험 기능입니다. 모델에 따라 어색하거나 제대로 작동하지 않을 수 있습니다.",
+            key="settings.behavior.gesture.hint",
+        )
+    )
+    layout.addWidget(gesture_group)
 
     idle_group = QGroupBox("유휴 모션")
     self._bind_group_title(idle_group, "settings.behavior.idle.title", "유휴 모션")

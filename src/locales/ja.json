@@ -881,6 +881,19 @@
         "mouse_tracking": "Enable mouse tracking",
         "hint": "Manage core surface visibility and mouse interaction together."
       },
+      "gesture": {
+        "title": "返答ジェスチャー",
+        "enable": "返答ジェスチャーを有効化",
+        "scale": "動作倍率:",
+        "idle_enable": "待機中ジェスチャーを有効化",
+        "idle_frequency": {
+          "label": "待機中ジェスチャー頻度:",
+          "low": "低",
+          "normal": "普通",
+          "high": "高"
+        },
+        "hint": "まだ試験的な機能です。モデルによっては不自然に見えたり、正しく動作しない場合があります。"
+      },
       "actions": {
         "title": "Conversation and helper buttons",
         "manual_summary": "Show manual summary button",
