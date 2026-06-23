@@ -318,6 +318,19 @@ def test_gesture_engine_exposes_chat_gesture_player():
     assert "durationMs / GESTURE_SPEED" in script
 
 
+def test_idle_synthetic_gestures_are_visible_but_settle_stays_subtle():
+    script = _gesture_runtime_text()
+
+    assert '{ t: 0.28, value: { angleX: -8, eyeX: -0.28 } }' in script
+    assert '{ t: 0.58, value: { angleX: 8, eyeX: 0.28 } }' in script
+    assert '{ t: 0.36, value: { angleY: -7, eyeY: -0.12 } }' in script
+    assert '{ t: 0.68, value: { angleY: 5, eyeY: 0.08 } }' in script
+    assert '{ t: 0.38, value: { angleX: -6, angleZ: -11, eyeX: 0.12 } }' in script
+    assert '{ t: 0.72, value: { angleX: -5, angleZ: -9, eyeX: 0.08 } }' in script
+    assert '{ t: 0.35, value: { bodyY: -0.8, breath: 0.2 } }' in script
+    assert '{ t: 0.70, value: { bodyY: 0.4, breath: 0.1 } }' in script
+
+
 def test_web_runtime_is_split_into_ordered_scripts():
     html = (WEB_DIR / "index.html").read_text(encoding="utf-8-sig")
     runtime_scripts = [

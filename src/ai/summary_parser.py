@@ -12,6 +12,8 @@ SUMMARY_MEMORY_META_KEYS = {
     "importance_reason",
     "confidence",
     "entity_names",
+    "aliases",
+    "trigger_terms",
 }
 
 
@@ -46,15 +48,15 @@ def parse_summary_memory_meta(meta_lines: list[str]) -> dict:
                 continue
             continue
 
-        if normalized_key == "entity_names":
+        if normalized_key in {"entity_names", "aliases", "trigger_terms"}:
             cleaned_value = normalized_value.strip("[]")
-            entity_names = [
-                item.strip().strip("'\"")
+            values = [
+                item.strip().strip('\'"')
                 for item in cleaned_value.split(",")
-                if item.strip().strip("'\"")
+                if item.strip().strip('\'"')
             ]
-            if entity_names:
-                memory_meta[normalized_key] = entity_names
+            if values:
+                memory_meta[normalized_key] = values
             continue
 
         memory_meta[normalized_key] = normalized_value

@@ -291,6 +291,8 @@ def test_save_and_reload_roundtrip_preserves_extended_memory_fields(tmp_path):
             confidence=0.8,
             user_confirmed=True,
             entity_names=["ENE"],
+            aliases=["에네 구조"],
+            trigger_terms=["ENE", "구조"],
             conversation_id="conv-1",
             expires_at="2026-04-09T00:00:00",
             schema_version=3,
@@ -465,6 +467,8 @@ def test_add_summary_persists_memory_metadata_fields(tmp_path):
     assert created.importance_reason == "repeated_topic"
     assert created.confidence == 0.85
     assert created.entity_names == ["ENE"]
+    assert created.aliases == ["에네 구조"]
+    assert created.trigger_terms == ["ENE", "구조"]
 
 
 def test_save_and_reload_roundtrip_preserves_structured_original_messages(tmp_path):

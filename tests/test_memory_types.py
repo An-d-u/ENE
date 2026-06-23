@@ -12,6 +12,18 @@ def test_create_memory_entry_sets_defaults():
     assert isinstance(entry.timestamp, str)
 
 
+
+def test_create_memory_entry_accepts_activation_metadata():
+    entry = create_memory_entry(
+        "릴리스 회의 요약",
+        ["릴리스 회의는 금요일 오후로 정리했다."],
+        aliases=[" 릴리즈 회의 ", "release meeting"],
+        trigger_terms=[" 배포 ", "릴리스", "배포"],
+    )
+
+    assert entry.aliases == ["릴리즈 회의", "release meeting"]
+    assert entry.trigger_terms == ["배포", "릴리스"]
+
 def test_memory_entry_roundtrip_dict():
     original = MemoryEntry(
         id="mem-1",

@@ -32,6 +32,8 @@ class _DummyLLMClient:
                 "importance_reason": "repeated_topic",
                 "confidence": 0.81,
                 "entity_names": ["ENE"],
+                "aliases": ["릴리즈 후보"],
+                "trigger_terms": ["릴리스", "후보"],
             },
         )
 
@@ -64,6 +66,8 @@ class _ReviewLLMClient:
                 "importance_reason": "repeated_topic",
                 "confidence": 0.81,
                 "entity_names": ["ENE"],
+                "aliases": ["요약 후보"],
+                "trigger_terms": ["요약", "후보"],
             },
         )
 
@@ -94,6 +98,8 @@ def test_auto_summarize_persists_structured_original_messages():
 
     asyncio.run(WebBridge._auto_summarize(dummy))
 
+    assert dummy.memory_manager.calls[0]["aliases"] == ["릴리즈 후보"]
+    assert dummy.memory_manager.calls[0]["trigger_terms"] == ["릴리스", "후보"]
     assert dummy.memory_manager.calls[0]["original_messages"] == [
         {
             "role": "user",
@@ -218,6 +224,8 @@ def test_approve_summary_review_persists_edited_summary_and_selected_facts():
                     "importance_reason": "user_marked",
                     "confidence": 0.92,
                     "entity_names": ["ENE", "Project"],
+                    "aliases": ["프로젝트 릴리즈"],
+                    "trigger_terms": ["프로젝트", "릴리스"],
                 },
             },
             ensure_ascii=False,
@@ -229,6 +237,8 @@ def test_approve_summary_review_persists_edited_summary_and_selected_facts():
     assert dummy.memory_manager.calls[0]["importance_reason"] == "user_marked"
     assert dummy.memory_manager.calls[0]["confidence"] == 0.92
     assert dummy.memory_manager.calls[0]["entity_names"] == ["ENE", "Project"]
+    assert dummy.memory_manager.calls[0]["aliases"] == ["프로젝트 릴리즈"]
+    assert dummy.memory_manager.calls[0]["trigger_terms"] == ["프로젝트", "릴리스"]
     assert dummy.user_profile.calls == [
         {
             "content": "[goal] 저장할 사용자 정보",

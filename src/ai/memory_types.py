@@ -692,6 +692,8 @@ def create_memory_entry(
     importance_reason: str | None = None,
     confidence: float | None = None,
     entity_names: list[str] | None = None,
+    aliases: list[str] | None = None,
+    trigger_terms: list[str] | None = None,
 ) -> MemoryEntry:
     """새 기억 항목을 생성한다."""
     import uuid
@@ -743,6 +745,8 @@ def create_memory_entry(
         importance_reason=resolved_importance_reason,
         confidence=resolved_confidence,
         entity_names=resolved_entity_names,
+        aliases=aliases or [],
+        trigger_terms=trigger_terms or [],
         conversation_id=conversation_id,
         schema_version=CURRENT_MEMORY_SCHEMA_VERSION,
         migration_meta=migration_meta,
