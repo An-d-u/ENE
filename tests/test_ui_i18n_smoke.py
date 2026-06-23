@@ -1377,7 +1377,7 @@ def test_settings_dialog_exposes_proactive_conversation_toggle_and_saves_value()
         dialog.close()
 
 
-def test_settings_dialog_exposes_synthetic_gesture_toggle_and_saves_value():
+def test_settings_dialog_exposes_synthetic_gesture_controls_and_saves_values():
     _get_qapp()
     locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
     configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
@@ -1392,15 +1392,28 @@ def test_settings_dialog_exposes_synthetic_gesture_toggle_and_saves_value():
                 "tts_provider": "gpt_sovits_http",
                 "enable_tts": True,
                 "enable_synthetic_gestures": False,
+                "synthetic_gesture_scale": 1.4,
+                "enable_idle_synthetic_gestures": True,
+                "idle_synthetic_gesture_frequency": "high",
             }
         )
 
         assert dialog.enable_synthetic_gestures_check.isChecked() is False
+        assert dialog.synthetic_gesture_scale_spin.value() == 1.4
+        assert dialog.enable_idle_synthetic_gestures_check.isChecked() is True
+        assert dialog.idle_synthetic_gesture_frequency_combo.currentData() == "high"
 
         dialog.enable_synthetic_gestures_check.setChecked(True)
+        dialog.synthetic_gesture_scale_spin.setValue(1.8)
+        dialog.enable_idle_synthetic_gestures_check.setChecked(False)
+        low_index = dialog.idle_synthetic_gesture_frequency_combo.findData("low")
+        dialog.idle_synthetic_gesture_frequency_combo.setCurrentIndex(low_index)
 
         current_values = dialog._get_current_values()
         assert current_values["enable_synthetic_gestures"] is True
+        assert current_values["synthetic_gesture_scale"] == 1.8
+        assert current_values["enable_idle_synthetic_gestures"] is False
+        assert current_values["idle_synthetic_gesture_frequency"] == "low"
 
         dialog.close()
 
@@ -2989,6 +3002,80 @@ def test_overlay_window_syncs_message_split_settings_to_webview(tmp_path):
     assert captured
     assert 'window.eneMessageSplitConfig = {"enabled": true};' in captured[-1]
     assert "window.setMessageSplitConfig(window.eneMessageSplitConfig);" in captured[-1]
+
+
+def test_overlay_window_syncs_synthetic_gesture_scale_to_webview(tmp_path):
+    _get_qapp()
+    locales_dir = tmp_path / "locales"
+    locales_dir.mkdir(parents=True, exist_ok=True)
+    (locales_dir / "en.json").write_text("{}", encoding="utf-8-sig")
+    (locales_dir / "ja.json").write_text("{}", encoding="utf-8-sig")
+    (locales_dir / "ko.json").write_text("{}", encoding="utf-8-sig")
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+
+    from src.core.overlay_window import OverlayWindow
+
+    captured = []
+
+    class _FakePage:
+        def runJavaScript(self, code):
+            captured.append(code)
+
+    class _FakeWebView:
+        def __init__(self):
+            self._page = _FakePage()
+
+        def page(self):
+            return self._page
+
+    overlay = OverlayWindow.__new__(OverlayWindow)
+    overlay.settings = _DummySettings({"synthetic_gesture_scale": 1.0})
+    overlay.web_view = _FakeWebView()
+    overlay._page_loaded = True
+
+    OverlayWindow._sync_idle_motion_settings_to_js(overlay, {"synthetic_gesture_scale": 1.7})
+
+    assert any("window.setSyntheticGestureScale(1.700);" in code for code in captured)
+
+
+def test_overlay_window_syncs_idle_synthetic_gesture_settings_to_webview(tmp_path):
+    _get_qapp()
+    locales_dir = tmp_path / "locales"
+    locales_dir.mkdir(parents=True, exist_ok=True)
+    (locales_dir / "en.json").write_text("{}", encoding="utf-8-sig")
+    (locales_dir / "ja.json").write_text("{}", encoding="utf-8-sig")
+    (locales_dir / "ko.json").write_text("{}", encoding="utf-8-sig")
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+
+    from src.core.overlay_window import OverlayWindow
+
+    captured = []
+
+    class _FakePage:
+        def runJavaScript(self, code):
+            captured.append(code)
+
+    class _FakeWebView:
+        def __init__(self):
+            self._page = _FakePage()
+
+        def page(self):
+            return self._page
+
+    overlay = OverlayWindow.__new__(OverlayWindow)
+    overlay.settings = _DummySettings({})
+    overlay.web_view = _FakeWebView()
+    overlay._page_loaded = True
+
+    OverlayWindow._sync_idle_motion_settings_to_js(
+        overlay,
+        {
+            "enable_idle_synthetic_gestures": True,
+            "idle_synthetic_gesture_frequency": "high",
+        },
+    )
+
+    assert any('window.setIdleSyntheticGestureConfig(true, "high");' in code for code in captured)
 
 
 def test_overlay_window_syncs_goal_button_visibility_to_webview(tmp_path):

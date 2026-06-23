@@ -6,11 +6,25 @@ const GESTURE_SPEED = 0.75;
 const SPEECH_GESTURE_MIN_DELAY_MS = 700;
 const SPEECH_GESTURE_MAX_DELAY_MS = 3200;
 const SPEECH_GESTURE_FALLBACK_DELAY_MS = 700;
+const IDLE_SYNTHETIC_GESTURE_FREQUENCIES = {
+    low: { minMs: 20000, maxMs: 45000 },
+    normal: { minMs: 12000, maxMs: 28000 },
+    high: { minMs: 7000, maxMs: 16000 },
+};
+const IDLE_SYNTHETIC_GESTURES = ["idle-look-around", "idle-tiny-nod", "idle-cute-tilt", "idle-settle"];
+const IDLE_SYNTHETIC_GESTURE_SPEECH_GRACE_MS = 1800;
+const IDLE_SYNTHETIC_GESTURE_FINISH_COOLDOWN_MS = 3000;
 let activeGestureFrame = 0;
 let activeGestureKey = "";
 let pendingSpeechGestureKey = "";
 let pendingSpeechGestureTimer = 0;
 let pendingSpeechGestureFallbackTimer = 0;
+let syntheticGestureScale = 1.0;
+let idleSyntheticGestureEnabled = false;
+let idleSyntheticGestureFrequency = "normal";
+let idleSyntheticGestureTimer = 0;
+let lastSyntheticSpeechActivityAt = 0;
+let lastSyntheticGestureFinishedAt = 0;
 
 function easeGestureInOut(t) {
     const clamped = Math.max(0, Math.min(1, t));
@@ -30,9 +44,15 @@ function gestureEnvelope(t) {
 function scaleGestureOffsets(offsets, scale) {
     const scaled = {};
     Object.keys(offsets || {}).forEach((key) => {
-        scaled[key] = Number(offsets[key] || 0) * scale * GESTURE_INTENSITY;
+        scaled[key] = Number(offsets[key] || 0) * scale * GESTURE_INTENSITY * syntheticGestureScale;
     });
     return scaled;
+}
+
+function setSyntheticGestureScale(scale) {
+    const numericScale = Number(scale);
+    syntheticGestureScale = Number.isFinite(numericScale) ? Math.max(0.5, Math.min(3.0, numericScale)) : 1.0;
+    return syntheticGestureScale;
 }
 
 function sampleKeyframes(frames, t) {
@@ -124,6 +144,42 @@ const SYNTHETIC_GESTURES = {
             { t: 1.00, value: {} },
         ],
     },
+    "idle-look-around": {
+        durationMs: 1500,
+        frames: [
+            { t: 0.00, value: {} },
+            { t: 0.28, value: { angleX: -5, eyeX: -0.18 } },
+            { t: 0.58, value: { angleX: 5, eyeX: 0.18 } },
+            { t: 1.00, value: {} },
+        ],
+    },
+    "idle-tiny-nod": {
+        durationMs: 1200,
+        frames: [
+            { t: 0.00, value: {} },
+            { t: 0.36, value: { angleY: -4, eyeY: -0.08 } },
+            { t: 0.68, value: { angleY: 3, eyeY: 0.05 } },
+            { t: 1.00, value: {} },
+        ],
+    },
+    "idle-cute-tilt": {
+        durationMs: 1600,
+        frames: [
+            { t: 0.00, value: {} },
+            { t: 0.38, value: { angleX: -4, angleZ: -7, eyeX: 0.08 } },
+            { t: 0.72, value: { angleX: -3, angleZ: -6, eyeX: 0.05 } },
+            { t: 1.00, value: {} },
+        ],
+    },
+    "idle-settle": {
+        durationMs: 1400,
+        frames: [
+            { t: 0.00, value: {} },
+            { t: 0.35, value: { bodyY: -0.8, breath: 0.2 } },
+            { t: 0.70, value: { bodyY: 0.4, breath: 0.1 } },
+            { t: 1.00, value: {} },
+        ],
+    },
 };
 
 const GESTURE_ALIASES = {
@@ -184,6 +240,10 @@ function scheduleSyntheticGestureDuringSpeech(rawKey) {
 }
 
 function notifySyntheticGestureSpeechActivity() {
+    lastSyntheticSpeechActivityAt = performance.now();
+    if (IDLE_SYNTHETIC_GESTURES.includes(activeGestureKey)) {
+        stopSyntheticGesture({ clearPending: false });
+    }
     if (!pendingSpeechGestureKey || pendingSpeechGestureTimer) {
         return false;
     }
@@ -195,8 +255,11 @@ function notifySyntheticGestureSpeechActivity() {
     return queuePendingSyntheticSpeechGesture(delayMs);
 }
 
-function stopSyntheticGesture() {
-    clearPendingSyntheticSpeechGesture();
+function stopSyntheticGesture(options = {}) {
+    const hadActiveGesture = Boolean(activeGestureKey);
+    if (options.clearPending !== false) {
+        clearPendingSyntheticSpeechGesture();
+    }
     activeGestureKey = "";
     if (activeGestureFrame) {
         cancelAnimationFrame(activeGestureFrame);
@@ -205,6 +268,79 @@ function stopSyntheticGesture() {
     if (typeof window.clearSyntheticGestureOffsets === "function") {
         window.clearSyntheticGestureOffsets();
     }
+    if (hadActiveGesture) {
+        lastSyntheticGestureFinishedAt = performance.now();
+    }
+}
+
+function clearIdleSyntheticGestureTimer() {
+    if (idleSyntheticGestureTimer) {
+        clearTimeout(idleSyntheticGestureTimer);
+        idleSyntheticGestureTimer = 0;
+    }
+}
+
+function normalizeIdleSyntheticGestureFrequency(frequency) {
+    const key = String(frequency || "normal").trim().toLowerCase();
+    return IDLE_SYNTHETIC_GESTURE_FREQUENCIES[key] ? key : "normal";
+}
+
+function canPlayIdleSyntheticGesture() {
+    if (!idleSyntheticGestureEnabled) {
+        return false;
+    }
+    if (activeGestureKey || pendingSpeechGestureKey || pendingSpeechGestureTimer || pendingSpeechGestureFallbackTimer) {
+        return false;
+    }
+    if (typeof window.setSyntheticGestureOffsets !== "function") {
+        return false;
+    }
+    if (typeof window.isHeadPatEffectActive === "function" && window.isHeadPatEffectActive()) {
+        return false;
+    }
+    const nowMs = performance.now();
+    if (nowMs - lastSyntheticSpeechActivityAt < IDLE_SYNTHETIC_GESTURE_SPEECH_GRACE_MS) {
+        return false;
+    }
+    if (nowMs - lastSyntheticGestureFinishedAt < IDLE_SYNTHETIC_GESTURE_FINISH_COOLDOWN_MS) {
+        return false;
+    }
+    return true;
+}
+
+function pickIdleSyntheticGesture() {
+    const index = Math.floor(Math.random() * IDLE_SYNTHETIC_GESTURES.length);
+    return IDLE_SYNTHETIC_GESTURES[index] || "idle-look-around";
+}
+
+function scheduleNextIdleSyntheticGesture() {
+    clearIdleSyntheticGestureTimer();
+    if (!idleSyntheticGestureEnabled) {
+        return false;
+    }
+    const preset = IDLE_SYNTHETIC_GESTURE_FREQUENCIES[idleSyntheticGestureFrequency] || IDLE_SYNTHETIC_GESTURE_FREQUENCIES.normal;
+    const delayMs = preset.minMs + (Math.random() * (preset.maxMs - preset.minMs));
+    idleSyntheticGestureTimer = setTimeout(function () {
+        idleSyntheticGestureTimer = 0;
+        if (canPlayIdleSyntheticGesture()) {
+            playSyntheticGesture(pickIdleSyntheticGesture());
+        }
+        scheduleNextIdleSyntheticGesture();
+    }, delayMs);
+    return true;
+}
+
+function setIdleSyntheticGestureConfig(enabled, frequency) {
+    idleSyntheticGestureEnabled = Boolean(enabled);
+    idleSyntheticGestureFrequency = normalizeIdleSyntheticGestureFrequency(frequency);
+    clearIdleSyntheticGestureTimer();
+    if (!idleSyntheticGestureEnabled && IDLE_SYNTHETIC_GESTURES.includes(activeGestureKey)) {
+        stopSyntheticGesture({ clearPending: false });
+    }
+    if (idleSyntheticGestureEnabled) {
+        scheduleNextIdleSyntheticGesture();
+    }
+    return { enabled: idleSyntheticGestureEnabled, frequency: idleSyntheticGestureFrequency };
 }
 
 function playSyntheticGesture(rawKey) {
@@ -248,4 +384,6 @@ function playSyntheticGesture(rawKey) {
 window.playSyntheticGesture = playSyntheticGesture;
 window.scheduleSyntheticGestureDuringSpeech = scheduleSyntheticGestureDuringSpeech;
 window.notifySyntheticGestureSpeechActivity = notifySyntheticGestureSpeechActivity;
+window.setSyntheticGestureScale = setSyntheticGestureScale;
+window.setIdleSyntheticGestureConfig = setIdleSyntheticGestureConfig;
 window.stopSyntheticGesture = stopSyntheticGesture;

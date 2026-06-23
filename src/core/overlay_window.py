@@ -864,6 +864,15 @@ class OverlayWindow(QWidget):
         auto_eye_blink_enabled = "true" if bool(source.get("enable_auto_eye_blink", True)) else "false"
         strength = float(source.get("idle_motion_strength", 1.0))
         speed = float(source.get("idle_motion_speed", 1.0))
+        synthetic_gesture_scale = max(0.5, min(3.0, float(source.get("synthetic_gesture_scale", 1.0) or 1.0)))
+        idle_synthetic_gestures_enabled = (
+            "true" if bool(source.get("enable_idle_synthetic_gestures", False)) else "false"
+        )
+        idle_synthetic_gesture_frequency = str(
+            source.get("idle_synthetic_gesture_frequency", "normal")
+        ).strip().lower()
+        if idle_synthetic_gesture_frequency not in {"low", "normal", "high"}:
+            idle_synthetic_gesture_frequency = "normal"
         head_pat_enabled = "true" if bool(source.get("enable_head_pat", True)) else "false"
         head_pat_strength = float(source.get("head_pat_strength", 1.0))
         head_pat_fade_in_ms = int(source.get("head_pat_fade_in_ms", 180))
@@ -903,6 +912,21 @@ class OverlayWindow(QWidget):
             "(function(){"
             "if (typeof window.setIdleMotionConfig === 'function') {"
             f"window.setIdleMotionConfig({strength:.3f}, {speed:.3f});"
+            "}"
+            "})();"
+        )
+        self.web_view.page().runJavaScript(
+            "(function(){"
+            "if (typeof window.setSyntheticGestureScale === 'function') {"
+            f"window.setSyntheticGestureScale({synthetic_gesture_scale:.3f});"
+            "}"
+            "})();"
+        )
+        self.web_view.page().runJavaScript(
+            "(function(){"
+            "if (typeof window.setIdleSyntheticGestureConfig === 'function') {"
+            f"window.setIdleSyntheticGestureConfig({idle_synthetic_gestures_enabled}, "
+            f"{json.dumps(idle_synthetic_gesture_frequency)});"
             "}"
             "})();"
         )

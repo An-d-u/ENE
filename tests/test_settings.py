@@ -36,6 +36,9 @@ def test_load_missing_file_uses_default_config(tmp_path):
     assert settings.get("ene_thought_context_limit") == 2
     assert settings.get("enable_ene_goals") is True
     assert settings.get("enable_synthetic_gestures") is True
+    assert settings.get("synthetic_gesture_scale") == 1.0
+    assert settings.get("enable_idle_synthetic_gestures") is False
+    assert settings.get("idle_synthetic_gesture_frequency") == "normal"
     assert settings.get("show_ene_goal_button") is True
     assert settings.get("ene_goal_state_file") == "ene_goals.json"
     assert settings.get("live2d_parameter_overrides") == {}

@@ -409,6 +409,21 @@ class SettingsDialogValuesMixin:
             self.enable_synthetic_gestures_check.setChecked(
                 self._original_settings.get("enable_synthetic_gestures", True)
             )
+            self.synthetic_gesture_scale_spin.setValue(
+                float(self._original_settings.get("synthetic_gesture_scale", 1.0))
+            )
+            self.enable_idle_synthetic_gestures_check.setChecked(
+                self._original_settings.get("enable_idle_synthetic_gestures", False)
+            )
+            idle_frequency = str(
+                self._original_settings.get("idle_synthetic_gesture_frequency", "normal")
+            ).strip().lower()
+            if idle_frequency not in {"low", "normal", "high"}:
+                idle_frequency = "normal"
+            idle_frequency_index = self.idle_synthetic_gesture_frequency_combo.findData(idle_frequency)
+            self.idle_synthetic_gesture_frequency_combo.setCurrentIndex(
+                idle_frequency_index if idle_frequency_index >= 0 else 1
+            )
             try:
                 thought_context_limit = int(self._original_settings.get("ene_thought_context_limit", 2) or 0)
             except Exception:
@@ -726,6 +741,11 @@ class SettingsDialogValuesMixin:
             "enable_ene_thoughts": self.enable_ene_thoughts_check.isChecked(),
             "enable_proactive_conversation": self.enable_proactive_conversation_check.isChecked(),
             "enable_synthetic_gestures": self.enable_synthetic_gestures_check.isChecked(),
+            "synthetic_gesture_scale": self.synthetic_gesture_scale_spin.value(),
+            "enable_idle_synthetic_gestures": self.enable_idle_synthetic_gestures_check.isChecked(),
+            "idle_synthetic_gesture_frequency": str(
+                self.idle_synthetic_gesture_frequency_combo.currentData() or "normal"
+            ),
             "enable_ene_goals": self.enable_ene_goals_check.isChecked(),
             "include_ene_thoughts_in_context": self.include_ene_thoughts_in_context_check.isChecked(),
             "ene_thought_context_limit": self.ene_thought_context_limit_spin.value(),

@@ -307,6 +307,13 @@ def test_gesture_engine_exposes_chat_gesture_player():
     assert "window.playSyntheticGesture = playSyntheticGesture;" in script
     assert "window.scheduleSyntheticGestureDuringSpeech = scheduleSyntheticGestureDuringSpeech;" in script
     assert "window.notifySyntheticGestureSpeechActivity = notifySyntheticGestureSpeechActivity;" in script
+    assert "window.setSyntheticGestureScale = setSyntheticGestureScale;" in script
+    assert "const IDLE_SYNTHETIC_GESTURE_FREQUENCIES = {" in script
+    assert "const IDLE_SYNTHETIC_GESTURES = [" in script
+    assert "function setIdleSyntheticGestureConfig(enabled, frequency)" in script
+    assert "function scheduleNextIdleSyntheticGesture()" in script
+    assert "window.setIdleSyntheticGestureConfig = setIdleSyntheticGestureConfig;" in script
+    assert "lastSyntheticSpeechActivityAt" in script
     assert "window.stopSyntheticGesture = stopSyntheticGesture;" in script
     assert "durationMs / GESTURE_SPEED" in script
 

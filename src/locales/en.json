@@ -933,6 +933,19 @@
         "mouse_tracking": "Enable mouse tracking",
         "hint": "Manage core surface visibility and mouse interaction together."
       },
+      "gesture": {
+        "title": "Response gestures",
+        "enable": "Enable response gestures",
+        "scale": "Motion scale:",
+        "idle_enable": "Enable idle gestures",
+        "idle_frequency": {
+          "label": "Idle gesture frequency:",
+          "low": "Low",
+          "normal": "Normal",
+          "high": "High"
+        },
+        "hint": "This is still experimental. Depending on the model, it may look awkward or may not work correctly."
+      },
       "actions": {
         "title": "Conversation and helper buttons",
         "manual_summary": "Show manual summary button",
