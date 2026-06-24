@@ -69,6 +69,20 @@ class _DummyPromiseManager:
         return len(self.items) != before
 
 
+class _DummyCalendarManager:
+    def __init__(self):
+        self.added = []
+
+    def add_event(self, **payload):
+        self.added.append(dict(payload))
+        return type("CalendarEvent", (), payload)()
+
+
+class _Settings:
+    def __init__(self, **config):
+        self.config = dict(config)
+
+
 class _RunningWorker:
     def isRunning(self):
         return True
@@ -178,6 +192,89 @@ def test_store_scheduled_promises_persists_items_and_emits_notice():
         }
     ]
     assert dummy.promise_notice.emitted[-1] == ("대화 약속이 저장되었습니다.", "success")
+
+
+def test_promise_storage_respects_conversation_promise_setting():
+    dummy = type("BridgeDummy", (), {})()
+    dummy.settings = _Settings(enable_conversation_promises=False)
+    dummy.promise_manager = _DummyPromiseManager()
+    dummy.promise_notice = _DummySignal()
+    dummy.promise_items_updated = _DummySignal()
+
+    scheduled = WebBridge._store_scheduled_promises(
+        dummy,
+        [
+            {
+                "title": "다시 시작",
+                "trigger_at": "2026-04-06T21:10:00+09:00",
+                "source": "user",
+                "source_excerpt": "이따 다시 할게",
+            }
+        ],
+    )
+    fallback = WebBridge._store_local_promise_candidates(
+        dummy,
+        "3분 뒤 일기 써야지",
+        "2026-04-06 21:00",
+        source="user",
+    )
+
+    assert scheduled == []
+    assert fallback == []
+    assert dummy.promise_manager.added == []
+    assert dummy.promise_notice.emitted == []
+
+
+def test_response_ready_respects_schedule_recognition_setting_for_direct_events():
+    dummy = type("BridgeDummy", (), {})()
+    dummy.settings = _Settings(enable_schedule_recognition=False, enable_synthetic_gestures=False)
+    dummy.calendar_manager = _DummyCalendarManager()
+    dummy.promise_manager = None
+    dummy.mood_manager = None
+    dummy.message_received = _DummySignal()
+    dummy.token_usage_ready = _DummySignal()
+    dummy.reroll_state_changed = _DummySignal()
+    dummy.request_pending_changed = _DummySignal()
+    dummy.gesture_requested = _DummySignal()
+    dummy.conversation_buffer = []
+    dummy.enable_tts = False
+    dummy.tts_client = None
+    dummy.audio_player = None
+    dummy.pending_response = None
+    dummy.pending_token_usage_payload = ""
+    dummy._is_rerolling = False
+    dummy._active_promise_id = ""
+    dummy._active_proactive_id = ""
+    dummy._last_assistant_response = None
+    dummy._emit_mood_changed = lambda snapshot: None
+    dummy._sanitize_visible_response_text = lambda text: text
+    dummy._resolve_token_usage_payload = lambda payload="": payload
+    dummy._append_conversation = lambda role, text, timestamp=None: dummy.conversation_buffer.append(
+        (role, text, timestamp or "2026-04-06 21:00")
+    )
+    dummy._refresh_llm_history_from_visible_conversation = lambda: None
+    dummy._check_auto_summarize = lambda: None
+    dummy._store_scheduled_promises = lambda items: []
+    dummy._maybe_store_user_promise_candidates = lambda scheduled_promises=None: []
+    dummy._maybe_store_assistant_promise_candidates = lambda source_text: []
+    dummy._collect_promise_ids = lambda stored: []
+    dummy._remember_tracked_promise_ids = lambda promise_ids: None
+    dummy._store_proactive_conversations = lambda items, suppress=False: []
+    dummy._collect_proactive_ids = lambda stored: []
+    dummy._remember_tracked_proactive_ids = lambda proactive_ids: None
+
+    WebBridge._handle_response_ready(
+        dummy,
+        "알겠어요.",
+        "smile",
+        "",
+        [{"date": "2026-03-15", "title": "병원 예약", "description": ""}],
+        "",
+        "",
+        [],
+    )
+
+    assert dummy.calendar_manager.added == []
 
 
 def test_store_scheduled_promises_emits_notice_in_selected_ui_language():

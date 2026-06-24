@@ -6,6 +6,7 @@ import json
 from PyQt6.QtCore import pyqtSlot
 
 from ...ai.chat_commands import parse_diary_command, parse_note_command
+from ...ai.analysis_prompt import is_schedule_recognition_enabled
 from ...ai.persona_names import role_label_for_prompt
 from ...ai.prompt_language import resolve_prompt_language
 from ..bridge_workers import AIWorker
@@ -639,7 +640,12 @@ class ChatFlowBridgeMixin:
         self._refresh_llm_history_from_visible_conversation()
         
         # 일정 저장 (CalendarManager가 있으면)
-        if events and hasattr(self, 'calendar_manager') and self.calendar_manager:
+        if (
+            events
+            and is_schedule_recognition_enabled(getattr(self, "settings", None))
+            and hasattr(self, 'calendar_manager')
+            and self.calendar_manager
+        ):
             for event_data in events:
                 try:
                     event = self.calendar_manager.add_event(
@@ -813,4 +819,3 @@ class ChatFlowBridgeMixin:
         drain_proactive_queue = getattr(self, "_drain_proactive_queue_if_idle", None)
         if callable(drain_proactive_queue):
             drain_proactive_queue()
-

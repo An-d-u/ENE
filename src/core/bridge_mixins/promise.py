@@ -7,6 +7,7 @@ from datetime import datetime
 
 from PyQt6.QtCore import pyqtSlot
 
+from ...ai.analysis_prompt import is_conversation_promise_enabled
 from ...ai.persona_names import resolve_prompt_persona_names
 from ...ai.prompt_language import resolve_prompt_language
 from ...ai.promise_reminder_manager import GENERIC_PROMISE_TITLE, extract_promise_candidates
@@ -21,6 +22,10 @@ from ..promise_runtime import (
 
 
 class PromiseBridgeMixin:
+    def _is_conversation_promise_recognition_enabled(self) -> bool:
+        """설정에서 대화 약속 인식 활성화 여부를 읽는다."""
+        return is_conversation_promise_enabled(getattr(self, "settings", None))
+
     def _promise_notice_text(self, key: str) -> str:
         """현재 UI 언어에 맞는 promise 알림 문구를 읽는다."""
         language = resolve_prompt_language(settings_source=getattr(self, "settings", None))
@@ -35,6 +40,8 @@ class PromiseBridgeMixin:
 
     def _store_scheduled_promises(self, scheduled_promises: list | None) -> list:
         """응답 메타에 포함된 대화 약속을 저장하고 알림을 보낸다."""
+        if not PromiseBridgeMixin._is_conversation_promise_recognition_enabled(self):
+            return []
         if not scheduled_promises or not self.promise_manager:
             return []
 
@@ -98,6 +105,8 @@ class PromiseBridgeMixin:
         source: str = "user",
     ) -> list:
         """LLM 태그가 없어도 사용자 원문에서 약속을 보수적으로 추출해 저장한다."""
+        if not PromiseBridgeMixin._is_conversation_promise_recognition_enabled(self):
+            return []
         if not self.promise_manager:
             return []
 
