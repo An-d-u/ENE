@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 import json
 import re
 import subprocess
@@ -2250,6 +2250,8 @@ def test_summary_review_modal_uses_bounded_scroll_layout():
     assert "resize: vertical;" in textarea_block
     assert "#summary-review-dialog::-webkit-scrollbar" in css
     assert ".summary-review-facts::-webkit-scrollbar" in css
+    assert "#summary-review-textarea::-webkit-scrollbar" in css
+    assert ".summary-review-fact-input::-webkit-scrollbar" in css
     assert "#summary-review-dialog::-webkit-scrollbar-thumb" in css
     assert "background: rgba(255, 255, 255, 0.2);" in css
 
