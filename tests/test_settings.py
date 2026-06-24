@@ -32,6 +32,9 @@ def test_load_missing_file_uses_default_config(tmp_path):
     assert settings.get("typing_effect_speed") == "normal"
     assert settings.get("message_split_enabled") is False
     assert settings.get("enable_ene_thoughts") is True
+    assert settings.get("enable_response_analysis") is True
+    assert settings.get("enable_schedule_recognition") is True
+    assert settings.get("enable_conversation_promises") is True
     assert settings.get("include_ene_thoughts_in_context") is False
     assert settings.get("ene_thought_context_limit") == 2
     assert settings.get("enable_ene_goals") is True
@@ -251,6 +254,9 @@ def test_save_and_reload_roundtrip(tmp_path):
     settings.set("message_split_enabled", True)
     settings.set("enable_ene_thoughts", False)
     settings.set("enable_proactive_conversation", False)
+    settings.set("enable_response_analysis", False)
+    settings.set("enable_schedule_recognition", False)
+    settings.set("enable_conversation_promises", False)
     settings.set("include_ene_thoughts_in_context", True)
     settings.set("ene_thought_context_limit", 4)
     settings.set("chat_panel_height", 388)
@@ -271,6 +277,9 @@ def test_save_and_reload_roundtrip(tmp_path):
     assert reloaded.get("message_split_enabled") is True
     assert reloaded.get("enable_ene_thoughts") is False
     assert reloaded.get("enable_proactive_conversation") is False
+    assert reloaded.get("enable_response_analysis") is False
+    assert reloaded.get("enable_schedule_recognition") is False
+    assert reloaded.get("enable_conversation_promises") is False
     assert reloaded.get("include_ene_thoughts_in_context") is True
     assert reloaded.get("ene_thought_context_limit") == 4
     assert reloaded.get("chat_panel_height") == 388

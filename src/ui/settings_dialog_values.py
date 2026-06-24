@@ -322,6 +322,18 @@ class SettingsDialogValuesMixin:
         self._refresh_ene_thought_context_controls()
         self._on_setting_changed()
 
+    def _refresh_mood_button_controls(self):
+        analysis_enabled = bool(
+            self.enable_response_analysis_check
+            and self.enable_response_analysis_check.isChecked()
+        )
+        if self.show_mood_toggle_button_check is not None:
+            self.show_mood_toggle_button_check.setEnabled(analysis_enabled)
+
+    def _on_response_analysis_toggle(self, checked: bool):
+        self._refresh_mood_button_controls()
+        self._on_setting_changed()
+
     def _on_note_context_toggle(self, checked: bool):
         self.note_recent_context_turns_spin.setEnabled(bool(checked))
         self._on_setting_changed()
@@ -406,6 +418,15 @@ class SettingsDialogValuesMixin:
             self.enable_proactive_conversation_check.setChecked(
                 self._original_settings.get("enable_proactive_conversation", True)
             )
+            self.enable_response_analysis_check.setChecked(
+                self._original_settings.get("enable_response_analysis", True)
+            )
+            self.enable_schedule_recognition_check.setChecked(
+                self._original_settings.get("enable_schedule_recognition", True)
+            )
+            self.enable_conversation_promises_check.setChecked(
+                self._original_settings.get("enable_conversation_promises", True)
+            )
             self.enable_synthetic_gestures_check.setChecked(
                 self._original_settings.get("enable_synthetic_gestures", True)
             )
@@ -445,6 +466,7 @@ class SettingsDialogValuesMixin:
             self.show_mood_toggle_button_check.setChecked(
                 self._original_settings.get("show_mood_toggle_button", True)
             )
+            self._refresh_mood_button_controls()
             self.show_ene_goal_button_check.setChecked(
                 self._original_settings.get("show_ene_goal_button", True)
             )
@@ -740,6 +762,9 @@ class SettingsDialogValuesMixin:
             "message_split_enabled": self.message_split_check.isChecked(),
             "enable_ene_thoughts": self.enable_ene_thoughts_check.isChecked(),
             "enable_proactive_conversation": self.enable_proactive_conversation_check.isChecked(),
+            "enable_response_analysis": self.enable_response_analysis_check.isChecked(),
+            "enable_schedule_recognition": self.enable_schedule_recognition_check.isChecked(),
+            "enable_conversation_promises": self.enable_conversation_promises_check.isChecked(),
             "enable_synthetic_gestures": self.enable_synthetic_gestures_check.isChecked(),
             "synthetic_gesture_scale": self.synthetic_gesture_scale_spin.value(),
             "enable_idle_synthetic_gestures": self.enable_idle_synthetic_gestures_check.isChecked(),

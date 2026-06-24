@@ -3,6 +3,11 @@ import json
 from src.ai.mood_manager import MoodManager
 
 
+class _Settings:
+    def __init__(self, **config):
+        self.config = dict(config)
+
+
 def test_load_reads_existing_utf8_bom_mood_state(tmp_path):
     state_file = tmp_path / "mood.json"
     payload = {
@@ -20,6 +25,37 @@ def test_load_reads_existing_utf8_bom_mood_state(tmp_path):
 
     assert manager.get_snapshot()["current_mood"] == "affectionate"
     assert manager.get_snapshot()["bond"] == 0.36
+
+
+def test_response_analysis_disabled_disables_mood_updates_and_context(tmp_path):
+    manager = MoodManager(
+        state_file=str(tmp_path / "mood.json"),
+        settings=_Settings(enable_mood_system=True, enable_response_analysis=False),
+    )
+    before = manager.get_snapshot()
+
+    manager.on_user_message("오늘은 질문이 있어?", image_count=0)
+    manager.on_user_analysis(
+        {
+            "user_emotion": "affectionate",
+            "user_intent": "affection",
+            "bond_delta_hint": "high_positive",
+            "valence_delta_hint": "low_positive",
+            "stress_delta_hint": "low_negative",
+            "energy_delta_hint": "none",
+            "confidence": "0.95",
+            "flags": "",
+        }
+    )
+    manager.on_assistant_emotion("joy")
+    after = manager.get_snapshot()
+
+    assert after["valence"] == before["valence"]
+    assert after["energy"] == before["energy"]
+    assert after["bond"] == before["bond"]
+    assert after["stress"] == before["stress"]
+    assert after["temporary_state"] == before["temporary_state"]
+    assert manager.build_context_block() == ""
 
 
 def test_repeated_positive_affection_meta_has_reduced_effect(tmp_path):

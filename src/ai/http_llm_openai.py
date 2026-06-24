@@ -152,7 +152,7 @@ class OpenAICompatibleClient(_CommonMixin):
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
         prompt = self._build_summary_prompt_for_messages(messages)
-        response_text = self._request_one_shot_raw(prompt)
+        response_text = self._request_one_shot_raw(prompt, include_sub_prompt=False)
         return self._parse_summary_response(response_text)
 
 
@@ -349,7 +349,7 @@ class OpenAIResponseAPIClient(_CommonMixin):
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
         prompt = self._build_summary_prompt_for_messages(messages)
-        response_text = self._request_one_shot_raw(prompt)
+        response_text = self._request_one_shot_raw(prompt, include_sub_prompt=False)
         return self._parse_summary_response(response_text)
 
 

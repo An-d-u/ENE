@@ -105,6 +105,7 @@ process.stdout.write(JSON.stringify(context.result));
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     return json.loads(completed.stdout)
 
@@ -191,6 +192,7 @@ process.stdout.write(JSON.stringify(context.result));
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     return json.loads(completed.stdout)
 
@@ -271,6 +273,7 @@ process.stdout.write(JSON.stringify(context.result));
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     return json.loads(completed.stdout)
 

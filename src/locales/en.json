@@ -918,6 +918,9 @@
         "ene_goals": "Enable ENE goals",
         "ene_thought_context": "Reflect ENE thoughts in the next reply",
         "proactive_conversation": "Enable proactive conversation",
+        "response_analysis": "Enable response analysis block",
+        "schedule_recognition": "Enable schedule recognition",
+        "conversation_promises": "Enable conversation promise recognition",
         "synthetic_gestures": "Enable response gestures",
         "ene_thought_context_limit": {
           "label": "Thoughts to reflect:",

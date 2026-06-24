@@ -18,14 +18,12 @@ def _sample_prompt_payload() -> dict:
             "normal": "기본 상태",
             "smile": "기분이 좋을 때",
         },
-        "analysis_system_appendix": "### [분석 규칙]\n- 분석을 붙이세요.",
     }
 
 
 def _write_prompt_markdown_files(directory: Path, payload: dict) -> None:
     _write_text(directory / "base_system_prompt.md", payload["base_system_prompt"])
     _write_text(directory / "sub_prompt_body.md", payload["sub_prompt_body"])
-    _write_text(directory / "analysis_system_appendix.md", payload["analysis_system_appendix"])
 
     lines = ["### [감정 사용 가이드]"]
     for emotion in payload["emotions"]:
@@ -45,22 +43,20 @@ def test_load_prompt_config_creates_local_markdown_files_from_default(tmp_path, 
     monkeypatch.setattr(prompt_config, "DEFAULT_PROMPT_CONFIG_DIR", default_dir)
     monkeypatch.setattr(prompt_config, "BASE_SYSTEM_PROMPT_PATH", local_dir / "base_system_prompt.md")
     monkeypatch.setattr(prompt_config, "SUB_PROMPT_BODY_PATH", local_dir / "sub_prompt_body.md")
-    monkeypatch.setattr(prompt_config, "ANALYSIS_SYSTEM_APPENDIX_PATH", local_dir / "analysis_system_appendix.md")
     monkeypatch.setattr(prompt_config, "EMOTION_GUIDES_PATH", local_dir / "emotion_guides.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_BASE_SYSTEM_PROMPT_PATH", default_dir / "base_system_prompt.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_SUB_PROMPT_BODY_PATH", default_dir / "sub_prompt_body.md")
-    monkeypatch.setattr(prompt_config, "DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH", default_dir / "analysis_system_appendix.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_EMOTION_GUIDES_PATH", default_dir / "emotion_guides.md")
 
     loaded = prompt_config.load_prompt_config()
 
     assert loaded["base_system_prompt"] == payload["base_system_prompt"]
     assert loaded["sub_prompt_body"] == payload["sub_prompt_body"]
-    assert loaded["analysis_system_appendix"] == payload["analysis_system_appendix"]
     assert loaded["emotions"] == payload["emotions"]
     assert loaded["emotion_guides"] == payload["emotion_guides"]
     assert (local_dir / "base_system_prompt.md").exists()
     assert (local_dir / "emotion_guides.md").exists()
+    assert not (local_dir / "analysis_system_appendix.md").exists()
 
 
 def test_load_prompt_config_strips_generated_emotion_sections_in_both_languages(tmp_path, monkeypatch):
@@ -98,16 +94,40 @@ def test_load_prompt_config_strips_generated_emotion_sections_in_both_languages(
     monkeypatch.setattr(prompt_config, "DEFAULT_PROMPT_CONFIG_DIR", default_dir)
     monkeypatch.setattr(prompt_config, "BASE_SYSTEM_PROMPT_PATH", local_dir / "base_system_prompt.md")
     monkeypatch.setattr(prompt_config, "SUB_PROMPT_BODY_PATH", local_dir / "sub_prompt_body.md")
-    monkeypatch.setattr(prompt_config, "ANALYSIS_SYSTEM_APPENDIX_PATH", local_dir / "analysis_system_appendix.md")
     monkeypatch.setattr(prompt_config, "EMOTION_GUIDES_PATH", local_dir / "emotion_guides.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_BASE_SYSTEM_PROMPT_PATH", default_dir / "base_system_prompt.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_SUB_PROMPT_BODY_PATH", default_dir / "sub_prompt_body.md")
-    monkeypatch.setattr(prompt_config, "DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH", default_dir / "analysis_system_appendix.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_EMOTION_GUIDES_PATH", default_dir / "emotion_guides.md")
 
     loaded = prompt_config.load_prompt_config()
 
     assert loaded["sub_prompt_body"] == "### [일본어 표기 규칙]\n- Keep this section."
+
+
+def test_prompt_config_no_longer_creates_analysis_appendix_markdown(tmp_path, monkeypatch):
+    from src.ai import prompt_config
+
+    default_dir = tmp_path / "prompts" / "defaults"
+    local_dir = tmp_path / "prompts"
+    default_dir.mkdir(parents=True, exist_ok=True)
+
+    _write_text(default_dir / "base_system_prompt.md", "베이스")
+    _write_text(default_dir / "sub_prompt_body.md", "서브")
+    _write_text(default_dir / "emotion_guides.md", "### [감정 사용 가이드]\n- normal: 기본 상태\n")
+
+    monkeypatch.setattr(prompt_config, "PROMPT_CONFIG_DIR", local_dir)
+    monkeypatch.setattr(prompt_config, "DEFAULT_PROMPT_CONFIG_DIR", default_dir)
+    monkeypatch.setattr(prompt_config, "BASE_SYSTEM_PROMPT_PATH", local_dir / "base_system_prompt.md")
+    monkeypatch.setattr(prompt_config, "SUB_PROMPT_BODY_PATH", local_dir / "sub_prompt_body.md")
+    monkeypatch.setattr(prompt_config, "EMOTION_GUIDES_PATH", local_dir / "emotion_guides.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_BASE_SYSTEM_PROMPT_PATH", default_dir / "base_system_prompt.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_SUB_PROMPT_BODY_PATH", default_dir / "sub_prompt_body.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_EMOTION_GUIDES_PATH", default_dir / "emotion_guides.md")
+
+    loaded = prompt_config.load_prompt_config()
+
+    assert "analysis_system_appendix" not in loaded
+    assert not (local_dir / "analysis_system_appendix.md").exists()
 
 
 def test_parse_emotion_guides_accepts_backtick_wrapped_names():
@@ -140,25 +160,15 @@ def test_default_prompt_templates_keep_output_format_in_runtime_contract(tmp_pat
 
     shutil.copyfile(prompt_config.DEFAULT_BASE_SYSTEM_PROMPT_PATH, default_dir / "base_system_prompt.md")
     shutil.copyfile(prompt_config.DEFAULT_SUB_PROMPT_BODY_PATH, default_dir / "sub_prompt_body.md")
-    shutil.copyfile(
-        prompt_config.DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH,
-        default_dir / "analysis_system_appendix.md",
-    )
     shutil.copyfile(prompt_config.DEFAULT_EMOTION_GUIDES_PATH, default_dir / "emotion_guides.md")
 
     monkeypatch.setattr(prompt_config, "PROMPT_CONFIG_DIR", local_dir)
     monkeypatch.setattr(prompt_config, "DEFAULT_PROMPT_CONFIG_DIR", default_dir)
     monkeypatch.setattr(prompt_config, "BASE_SYSTEM_PROMPT_PATH", local_dir / "base_system_prompt.md")
     monkeypatch.setattr(prompt_config, "SUB_PROMPT_BODY_PATH", local_dir / "sub_prompt_body.md")
-    monkeypatch.setattr(prompt_config, "ANALYSIS_SYSTEM_APPENDIX_PATH", local_dir / "analysis_system_appendix.md")
     monkeypatch.setattr(prompt_config, "EMOTION_GUIDES_PATH", local_dir / "emotion_guides.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_BASE_SYSTEM_PROMPT_PATH", default_dir / "base_system_prompt.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_SUB_PROMPT_BODY_PATH", default_dir / "sub_prompt_body.md")
-    monkeypatch.setattr(
-        prompt_config,
-        "DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH",
-        default_dir / "analysis_system_appendix.md",
-    )
     monkeypatch.setattr(prompt_config, "DEFAULT_EMOTION_GUIDES_PATH", default_dir / "emotion_guides.md")
     monkeypatch.setattr(prompt_config, "get_runtime_emotions", lambda **kwargs: ["normal", "smile"])
 
@@ -203,11 +213,9 @@ def test_runtime_prompt_adds_korean_response_contract_from_code_when_enabled(tmp
     monkeypatch.setattr(prompt_config, "DEFAULT_PROMPT_CONFIG_DIR", default_dir)
     monkeypatch.setattr(prompt_config, "BASE_SYSTEM_PROMPT_PATH", local_dir / "base_system_prompt.md")
     monkeypatch.setattr(prompt_config, "SUB_PROMPT_BODY_PATH", local_dir / "sub_prompt_body.md")
-    monkeypatch.setattr(prompt_config, "ANALYSIS_SYSTEM_APPENDIX_PATH", local_dir / "analysis_system_appendix.md")
     monkeypatch.setattr(prompt_config, "EMOTION_GUIDES_PATH", local_dir / "emotion_guides.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_BASE_SYSTEM_PROMPT_PATH", default_dir / "base_system_prompt.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_SUB_PROMPT_BODY_PATH", default_dir / "sub_prompt_body.md")
-    monkeypatch.setattr(prompt_config, "DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH", default_dir / "analysis_system_appendix.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_EMOTION_GUIDES_PATH", default_dir / "emotion_guides.md")
     monkeypatch.setattr(prompt_config, "get_runtime_emotions", lambda **kwargs: ["normal", "smile"])
 
@@ -233,7 +241,9 @@ def test_runtime_prompt_adds_korean_response_contract_from_code_when_enabled(tmp
     assert "[/subconscious]\n[proactive_conversation]" in runtime_prompt
     assert "[/proactive_conversation]\n한국어 답변 [emotion]\n[tts]\n일본어 TTS 문장\n[/tts]" in runtime_prompt
     assert "본문을 subconscious 블록 안에 넣지 마세요" in runtime_prompt
-    assert runtime_prompt.index("### [분석 규칙]") < runtime_prompt.index("### [최종 응답 형식]")
+    assert "### [내부 분석 출력 규칙]" in runtime_prompt
+    assert "분석을 붙이세요" not in runtime_prompt
+    assert runtime_prompt.index("### [내부 분석 출력 규칙]") < runtime_prompt.index("### [최종 응답 형식]")
 
 
 def test_runtime_prompt_omits_optional_response_contract_sections_when_settings_are_disabled(tmp_path, monkeypatch):
@@ -249,11 +259,9 @@ def test_runtime_prompt_omits_optional_response_contract_sections_when_settings_
     monkeypatch.setattr(prompt_config, "DEFAULT_PROMPT_CONFIG_DIR", default_dir)
     monkeypatch.setattr(prompt_config, "BASE_SYSTEM_PROMPT_PATH", local_dir / "base_system_prompt.md")
     monkeypatch.setattr(prompt_config, "SUB_PROMPT_BODY_PATH", local_dir / "sub_prompt_body.md")
-    monkeypatch.setattr(prompt_config, "ANALYSIS_SYSTEM_APPENDIX_PATH", local_dir / "analysis_system_appendix.md")
     monkeypatch.setattr(prompt_config, "EMOTION_GUIDES_PATH", local_dir / "emotion_guides.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_BASE_SYSTEM_PROMPT_PATH", default_dir / "base_system_prompt.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_SUB_PROMPT_BODY_PATH", default_dir / "sub_prompt_body.md")
-    monkeypatch.setattr(prompt_config, "DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH", default_dir / "analysis_system_appendix.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_EMOTION_GUIDES_PATH", default_dir / "emotion_guides.md")
     monkeypatch.setattr(prompt_config, "get_runtime_emotions", lambda **kwargs: ["normal", "smile"])
 
@@ -395,11 +403,9 @@ def test_gemini_runtime_prompt_refreshes_when_image_avatar_emotions_change(tmp_p
     monkeypatch.setattr(prompt_config, "DEFAULT_PROMPT_CONFIG_DIR", default_dir)
     monkeypatch.setattr(prompt_config, "BASE_SYSTEM_PROMPT_PATH", local_dir / "base_system_prompt.md")
     monkeypatch.setattr(prompt_config, "SUB_PROMPT_BODY_PATH", local_dir / "sub_prompt_body.md")
-    monkeypatch.setattr(prompt_config, "ANALYSIS_SYSTEM_APPENDIX_PATH", local_dir / "analysis_system_appendix.md")
     monkeypatch.setattr(prompt_config, "EMOTION_GUIDES_PATH", local_dir / "emotion_guides.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_BASE_SYSTEM_PROMPT_PATH", default_dir / "base_system_prompt.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_SUB_PROMPT_BODY_PATH", default_dir / "sub_prompt_body.md")
-    monkeypatch.setattr(prompt_config, "DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH", default_dir / "analysis_system_appendix.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_EMOTION_GUIDES_PATH", default_dir / "emotion_guides.md")
 
     first_dir = tmp_path / "avatar_images" / "first"
@@ -448,11 +454,9 @@ def test_runtime_thought_rules_are_localized(tmp_path, monkeypatch):
     monkeypatch.setattr(prompt_config, "DEFAULT_PROMPT_CONFIG_DIR", default_dir)
     monkeypatch.setattr(prompt_config, "BASE_SYSTEM_PROMPT_PATH", local_dir / "base_system_prompt.md")
     monkeypatch.setattr(prompt_config, "SUB_PROMPT_BODY_PATH", local_dir / "sub_prompt_body.md")
-    monkeypatch.setattr(prompt_config, "ANALYSIS_SYSTEM_APPENDIX_PATH", local_dir / "analysis_system_appendix.md")
     monkeypatch.setattr(prompt_config, "EMOTION_GUIDES_PATH", local_dir / "emotion_guides.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_BASE_SYSTEM_PROMPT_PATH", default_dir / "base_system_prompt.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_SUB_PROMPT_BODY_PATH", default_dir / "sub_prompt_body.md")
-    monkeypatch.setattr(prompt_config, "DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH", default_dir / "analysis_system_appendix.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_EMOTION_GUIDES_PATH", default_dir / "emotion_guides.md")
     monkeypatch.setattr(prompt_config, "get_runtime_emotions", lambda **kwargs: ["normal", "smile"])
 
@@ -500,11 +504,9 @@ def test_runtime_prompt_omits_tts_block_when_tts_language_matches_response_langu
     monkeypatch.setattr(prompt_config, "DEFAULT_PROMPT_CONFIG_DIR", default_dir)
     monkeypatch.setattr(prompt_config, "BASE_SYSTEM_PROMPT_PATH", local_dir / "base_system_prompt.md")
     monkeypatch.setattr(prompt_config, "SUB_PROMPT_BODY_PATH", local_dir / "sub_prompt_body.md")
-    monkeypatch.setattr(prompt_config, "ANALYSIS_SYSTEM_APPENDIX_PATH", local_dir / "analysis_system_appendix.md")
     monkeypatch.setattr(prompt_config, "EMOTION_GUIDES_PATH", local_dir / "emotion_guides.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_BASE_SYSTEM_PROMPT_PATH", default_dir / "base_system_prompt.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_SUB_PROMPT_BODY_PATH", default_dir / "sub_prompt_body.md")
-    monkeypatch.setattr(prompt_config, "DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH", default_dir / "analysis_system_appendix.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_EMOTION_GUIDES_PATH", default_dir / "emotion_guides.md")
     monkeypatch.setattr(prompt_config, "get_runtime_emotions", lambda **kwargs: ["normal", "smile"])
 
@@ -533,18 +535,17 @@ def test_get_system_prompt_reads_from_markdown_files(tmp_path, monkeypatch):
         "calm": "차분할 때",
         "focus": "집중할 때",
     }
-    payload["analysis_system_appendix"] = "### [분석 부록]\n- MD 기반 부록"
     _write_prompt_markdown_files(default_dir, payload)
+    _write_text(default_dir / "analysis_system_appendix.md", "### [분석 부록]\n- 기본 stale 부록")
+    _write_text(local_dir / "analysis_system_appendix.md", "### [분석 부록]\n- 사용자 stale 부록")
 
     monkeypatch.setattr(prompt_config, "PROMPT_CONFIG_DIR", local_dir)
     monkeypatch.setattr(prompt_config, "DEFAULT_PROMPT_CONFIG_DIR", default_dir)
     monkeypatch.setattr(prompt_config, "BASE_SYSTEM_PROMPT_PATH", local_dir / "base_system_prompt.md")
     monkeypatch.setattr(prompt_config, "SUB_PROMPT_BODY_PATH", local_dir / "sub_prompt_body.md")
-    monkeypatch.setattr(prompt_config, "ANALYSIS_SYSTEM_APPENDIX_PATH", local_dir / "analysis_system_appendix.md")
     monkeypatch.setattr(prompt_config, "EMOTION_GUIDES_PATH", local_dir / "emotion_guides.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_BASE_SYSTEM_PROMPT_PATH", default_dir / "base_system_prompt.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_SUB_PROMPT_BODY_PATH", default_dir / "sub_prompt_body.md")
-    monkeypatch.setattr(prompt_config, "DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH", default_dir / "analysis_system_appendix.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_EMOTION_GUIDES_PATH", default_dir / "emotion_guides.md")
     monkeypatch.setattr(prompt_config, "get_runtime_emotions", lambda **kwargs: ["calm", "focus"])
 
@@ -561,25 +562,73 @@ def test_get_system_prompt_reads_from_markdown_files(tmp_path, monkeypatch):
     assert "calm, focus" in prompt_with_sub
     assert "차분할 때" in prompt_with_sub
     assert prompt_without_sub == "JSON이 아니라 MD 베이스"
-    assert "### [분석 부록]" in runtime_prompt
+    assert "### [내부 분석 출력 규칙]" in runtime_prompt
+    assert "기본 stale 부록" not in runtime_prompt
+    assert "사용자 stale 부록" not in runtime_prompt
+    assert "### [분석 부록]" not in runtime_prompt
     assert prompt_module.get_available_emotions() == ["calm", "focus"]
 
 
-def test_analysis_appendix_includes_conversation_promise_rules():
-    from src.ai import prompt_config
+def test_analysis_appendix_is_built_from_code_and_localized():
+    from src.ai.analysis_prompt import build_analysis_system_appendix
 
-    prompt_config.ensure_prompt_config_exists()
-    repo_appendix = prompt_config.ANALYSIS_SYSTEM_APPENDIX_PATH.read_text(encoding="utf-8-sig")
-    default_appendix = prompt_config.DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH.read_text(encoding="utf-8-sig")
+    korean = build_analysis_system_appendix({"ui_language": "ko"})
+    english = build_analysis_system_appendix({"ui_language": "en"})
+    japanese = build_analysis_system_appendix({"ui_language": "ja"})
 
-    for appendix in (repo_appendix, default_appendix):
+    for appendix in (korean, english, japanese):
+        assert "[event:" in appendix
         assert "[약속:" in appendix
-        assert ("상대 시간" in appendix) or ("relative time" in appendix)
-        assert ("절대 시간" in appendix) or ("absolute time" in appendix)
-        assert ("감정 태그보다 먼저" in appendix) or ("before the emotion tag" in appendix)
+        assert ("상대 시간" in appendix) or ("relative time" in appendix) or ("相対時間" in appendix)
+        assert ("절대 시간" in appendix) or ("absolute time" in appendix) or ("絶対時間" in appendix)
+        assert ("감정 태그보다 먼저" in appendix) or ("before the emotion tag" in appendix) or ("感情タグより前" in appendix)
         assert ("assistant" in appendix) or ("에네가 응답에서 구체적인 시간을 새로 제안" in appendix)
-        assert ("문장 일부를 그대로 복사하지 말고" in appendix) or ("Do not copy a long sentence fragment" in appendix)
-    assert "plain mention of the current time" in default_appendix
+        assert (
+            ("문장 일부를 그대로 복사하지 말고" in appendix)
+            or ("Do not copy a long sentence fragment" in appendix)
+            or ("長い文の一部をそのままコピー" in appendix)
+        )
+    assert "### [내부 분석 출력 규칙]" in korean
+    assert "### [Internal Analysis Output Rules]" in english
+    assert "### [内部分析出力ルール]" in japanese
+    assert "plain mention of the current time" in english
+
+
+def test_analysis_appendix_respects_prompt_feature_toggles():
+    from src.ai.analysis_prompt import build_analysis_system_appendix
+
+    disabled = build_analysis_system_appendix(
+        {
+            "ui_language": "ko",
+            "enable_response_analysis": False,
+            "enable_schedule_recognition": False,
+            "enable_conversation_promises": False,
+        }
+    )
+    schedule_only = build_analysis_system_appendix(
+        {
+            "ui_language": "ko",
+            "enable_response_analysis": False,
+            "enable_schedule_recognition": True,
+            "enable_conversation_promises": False,
+        }
+    )
+    promise_only = build_analysis_system_appendix(
+        {
+            "ui_language": "ko",
+            "enable_response_analysis": False,
+            "enable_schedule_recognition": False,
+            "enable_conversation_promises": True,
+        }
+    )
+
+    assert disabled == ""
+    assert "### [내부 분석 출력 규칙]" not in schedule_only
+    assert "[event:" in schedule_only
+    assert "[약속:" not in schedule_only
+    assert "### [내부 분석 출력 규칙]" not in promise_only
+    assert "[event:" not in promise_only
+    assert "[약속:" in promise_only
 
 
 def test_runtime_emotions_use_image_avatar_folder_when_image_mode_is_enabled(tmp_path, monkeypatch):
@@ -593,11 +642,9 @@ def test_runtime_emotions_use_image_avatar_folder_when_image_mode_is_enabled(tmp
     monkeypatch.setattr(prompt_config, "DEFAULT_PROMPT_CONFIG_DIR", default_dir)
     monkeypatch.setattr(prompt_config, "BASE_SYSTEM_PROMPT_PATH", local_dir / "base_system_prompt.md")
     monkeypatch.setattr(prompt_config, "SUB_PROMPT_BODY_PATH", local_dir / "sub_prompt_body.md")
-    monkeypatch.setattr(prompt_config, "ANALYSIS_SYSTEM_APPENDIX_PATH", local_dir / "analysis_system_appendix.md")
     monkeypatch.setattr(prompt_config, "EMOTION_GUIDES_PATH", local_dir / "emotion_guides.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_BASE_SYSTEM_PROMPT_PATH", default_dir / "base_system_prompt.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_SUB_PROMPT_BODY_PATH", default_dir / "sub_prompt_body.md")
-    monkeypatch.setattr(prompt_config, "DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH", default_dir / "analysis_system_appendix.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_EMOTION_GUIDES_PATH", default_dir / "emotion_guides.md")
 
     avatar_dir = tmp_path / "avatar_images" / "sample"
@@ -635,11 +682,9 @@ def test_parseable_emotions_include_runtime_image_avatar_emotions(tmp_path, monk
     monkeypatch.setattr(prompt_config, "DEFAULT_PROMPT_CONFIG_DIR", default_dir)
     monkeypatch.setattr(prompt_config, "BASE_SYSTEM_PROMPT_PATH", local_dir / "base_system_prompt.md")
     monkeypatch.setattr(prompt_config, "SUB_PROMPT_BODY_PATH", local_dir / "sub_prompt_body.md")
-    monkeypatch.setattr(prompt_config, "ANALYSIS_SYSTEM_APPENDIX_PATH", local_dir / "analysis_system_appendix.md")
     monkeypatch.setattr(prompt_config, "EMOTION_GUIDES_PATH", local_dir / "emotion_guides.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_BASE_SYSTEM_PROMPT_PATH", default_dir / "base_system_prompt.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_SUB_PROMPT_BODY_PATH", default_dir / "sub_prompt_body.md")
-    monkeypatch.setattr(prompt_config, "DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH", default_dir / "analysis_system_appendix.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_EMOTION_GUIDES_PATH", default_dir / "emotion_guides.md")
 
     avatar_dir = tmp_path / "avatar_images" / "sample"
@@ -704,11 +749,9 @@ def test_gemini_parse_response_preserves_image_avatar_emotion(tmp_path, monkeypa
     monkeypatch.setattr(prompt_config, "DEFAULT_PROMPT_CONFIG_DIR", default_dir)
     monkeypatch.setattr(prompt_config, "BASE_SYSTEM_PROMPT_PATH", local_dir / "base_system_prompt.md")
     monkeypatch.setattr(prompt_config, "SUB_PROMPT_BODY_PATH", local_dir / "sub_prompt_body.md")
-    monkeypatch.setattr(prompt_config, "ANALYSIS_SYSTEM_APPENDIX_PATH", local_dir / "analysis_system_appendix.md")
     monkeypatch.setattr(prompt_config, "EMOTION_GUIDES_PATH", local_dir / "emotion_guides.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_BASE_SYSTEM_PROMPT_PATH", default_dir / "base_system_prompt.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_SUB_PROMPT_BODY_PATH", default_dir / "sub_prompt_body.md")
-    monkeypatch.setattr(prompt_config, "DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH", default_dir / "analysis_system_appendix.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_EMOTION_GUIDES_PATH", default_dir / "emotion_guides.md")
 
     avatar_dir = tmp_path / "avatar_images" / "sample"
@@ -746,11 +789,9 @@ def test_runtime_prompt_uses_model_emotions_instead_of_saved_emotion_list(tmp_pa
     monkeypatch.setattr(prompt_config, "DEFAULT_PROMPT_CONFIG_DIR", default_dir)
     monkeypatch.setattr(prompt_config, "BASE_SYSTEM_PROMPT_PATH", local_dir / "base_system_prompt.md")
     monkeypatch.setattr(prompt_config, "SUB_PROMPT_BODY_PATH", local_dir / "sub_prompt_body.md")
-    monkeypatch.setattr(prompt_config, "ANALYSIS_SYSTEM_APPENDIX_PATH", local_dir / "analysis_system_appendix.md")
     monkeypatch.setattr(prompt_config, "EMOTION_GUIDES_PATH", local_dir / "emotion_guides.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_BASE_SYSTEM_PROMPT_PATH", default_dir / "base_system_prompt.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_SUB_PROMPT_BODY_PATH", default_dir / "sub_prompt_body.md")
-    monkeypatch.setattr(prompt_config, "DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH", default_dir / "analysis_system_appendix.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_EMOTION_GUIDES_PATH", default_dir / "emotion_guides.md")
     monkeypatch.setattr(prompt_config, "get_runtime_emotions", lambda **kwargs: ["normal", "joy"])
 
@@ -773,11 +814,9 @@ def test_settings_dialog_saves_prompt_configuration_to_markdown_files(tmp_path, 
     monkeypatch.setattr(prompt_config, "DEFAULT_PROMPT_CONFIG_DIR", default_dir)
     monkeypatch.setattr(prompt_config, "BASE_SYSTEM_PROMPT_PATH", local_dir / "base_system_prompt.md")
     monkeypatch.setattr(prompt_config, "SUB_PROMPT_BODY_PATH", local_dir / "sub_prompt_body.md")
-    monkeypatch.setattr(prompt_config, "ANALYSIS_SYSTEM_APPENDIX_PATH", local_dir / "analysis_system_appendix.md")
     monkeypatch.setattr(prompt_config, "EMOTION_GUIDES_PATH", local_dir / "emotion_guides.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_BASE_SYSTEM_PROMPT_PATH", default_dir / "base_system_prompt.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_SUB_PROMPT_BODY_PATH", default_dir / "sub_prompt_body.md")
-    monkeypatch.setattr(prompt_config, "DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH", default_dir / "analysis_system_appendix.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_EMOTION_GUIDES_PATH", default_dir / "emotion_guides.md")
     monkeypatch.setattr(QMessageBox, "information", lambda *args, **kwargs: QMessageBox.StandardButton.Ok)
     monkeypatch.setattr(QMessageBox, "warning", lambda *args, **kwargs: QMessageBox.StandardButton.Ok)
@@ -1018,18 +1057,15 @@ def test_save_prompt_config_writes_readable_markdown_files(tmp_path, monkeypatch
     monkeypatch.setattr(prompt_config, "DEFAULT_PROMPT_CONFIG_DIR", default_dir)
     monkeypatch.setattr(prompt_config, "BASE_SYSTEM_PROMPT_PATH", local_dir / "base_system_prompt.md")
     monkeypatch.setattr(prompt_config, "SUB_PROMPT_BODY_PATH", local_dir / "sub_prompt_body.md")
-    monkeypatch.setattr(prompt_config, "ANALYSIS_SYSTEM_APPENDIX_PATH", local_dir / "analysis_system_appendix.md")
     monkeypatch.setattr(prompt_config, "EMOTION_GUIDES_PATH", local_dir / "emotion_guides.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_BASE_SYSTEM_PROMPT_PATH", default_dir / "base_system_prompt.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_SUB_PROMPT_BODY_PATH", default_dir / "sub_prompt_body.md")
-    monkeypatch.setattr(prompt_config, "DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH", default_dir / "analysis_system_appendix.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_EMOTION_GUIDES_PATH", default_dir / "emotion_guides.md")
 
     prompt_config.save_prompt_config(
         {
             "base_system_prompt": "첫 줄\n\n둘째 줄",
             "sub_prompt_body": "가\n나",
-            "analysis_system_appendix": "부록 한 줄",
             "emotions": ["normal"],
             "emotion_guides": {"normal": "기본 상태"},
         }
@@ -1037,7 +1073,7 @@ def test_save_prompt_config_writes_readable_markdown_files(tmp_path, monkeypatch
 
     assert (local_dir / "base_system_prompt.md").read_text(encoding="utf-8-sig") == "첫 줄\n\n둘째 줄"
     assert (local_dir / "sub_prompt_body.md").read_text(encoding="utf-8-sig") == "가\n나"
-    assert (local_dir / "analysis_system_appendix.md").read_text(encoding="utf-8-sig") == "부록 한 줄"
+    assert not (local_dir / "analysis_system_appendix.md").exists()
 
 
 def test_load_prompt_config_prefers_visible_roaming_prompts_under_store_python(tmp_path, monkeypatch):
@@ -1051,7 +1087,6 @@ def test_load_prompt_config_prefers_visible_roaming_prompts_under_store_python(t
     visible_payload = _sample_prompt_payload()
     visible_payload["base_system_prompt"] = "실제 Roaming 프롬프트"
     visible_payload["sub_prompt_body"] = "### [응답 형식]\n- 실제 Roaming 규칙"
-    visible_payload["analysis_system_appendix"] = "### [분석 규칙]\n- 실제 Roaming 부록"
     visible_payload["emotion_guides"] = {
         "normal": "실제 기본 상태",
         "smile": "실제 미소 상태",
@@ -1064,11 +1099,9 @@ def test_load_prompt_config_prefers_visible_roaming_prompts_under_store_python(t
     monkeypatch.setattr(prompt_config, "DEFAULT_PROMPT_CONFIG_DIR", default_dir)
     monkeypatch.setattr(prompt_config, "BASE_SYSTEM_PROMPT_PATH", runtime_dir / "base_system_prompt.md")
     monkeypatch.setattr(prompt_config, "SUB_PROMPT_BODY_PATH", runtime_dir / "sub_prompt_body.md")
-    monkeypatch.setattr(prompt_config, "ANALYSIS_SYSTEM_APPENDIX_PATH", runtime_dir / "analysis_system_appendix.md")
     monkeypatch.setattr(prompt_config, "EMOTION_GUIDES_PATH", runtime_dir / "emotion_guides.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_BASE_SYSTEM_PROMPT_PATH", default_dir / "base_system_prompt.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_SUB_PROMPT_BODY_PATH", default_dir / "sub_prompt_body.md")
-    monkeypatch.setattr(prompt_config, "DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH", default_dir / "analysis_system_appendix.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_EMOTION_GUIDES_PATH", default_dir / "emotion_guides.md")
     monkeypatch.setattr(prompt_config, "_is_windows_store_python_runtime", lambda: True, raising=False)
     monkeypatch.setattr(prompt_config, "_should_sync_store_python_prompt_dirs", lambda: True, raising=False)
@@ -1078,7 +1111,7 @@ def test_load_prompt_config_prefers_visible_roaming_prompts_under_store_python(t
 
     assert loaded["base_system_prompt"] == "실제 Roaming 프롬프트"
     assert loaded["sub_prompt_body"] == "### [응답 형식]\n- 실제 Roaming 규칙"
-    assert loaded["analysis_system_appendix"] == "### [분석 규칙]\n- 실제 Roaming 부록"
+    assert "analysis_system_appendix" not in loaded
     assert loaded["emotion_guides"] == visible_payload["emotion_guides"]
 
 
@@ -1095,11 +1128,9 @@ def test_save_prompt_config_mirrors_visible_roaming_prompts_under_store_python(t
     monkeypatch.setattr(prompt_config, "DEFAULT_PROMPT_CONFIG_DIR", default_dir)
     monkeypatch.setattr(prompt_config, "BASE_SYSTEM_PROMPT_PATH", runtime_dir / "base_system_prompt.md")
     monkeypatch.setattr(prompt_config, "SUB_PROMPT_BODY_PATH", runtime_dir / "sub_prompt_body.md")
-    monkeypatch.setattr(prompt_config, "ANALYSIS_SYSTEM_APPENDIX_PATH", runtime_dir / "analysis_system_appendix.md")
     monkeypatch.setattr(prompt_config, "EMOTION_GUIDES_PATH", runtime_dir / "emotion_guides.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_BASE_SYSTEM_PROMPT_PATH", default_dir / "base_system_prompt.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_SUB_PROMPT_BODY_PATH", default_dir / "sub_prompt_body.md")
-    monkeypatch.setattr(prompt_config, "DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH", default_dir / "analysis_system_appendix.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_EMOTION_GUIDES_PATH", default_dir / "emotion_guides.md")
     monkeypatch.setattr(prompt_config, "_is_windows_store_python_runtime", lambda: True, raising=False)
     monkeypatch.setattr(prompt_config, "_should_sync_store_python_prompt_dirs", lambda: True, raising=False)
@@ -1109,7 +1140,6 @@ def test_save_prompt_config_mirrors_visible_roaming_prompts_under_store_python(t
         {
             "base_system_prompt": "실제 Roaming으로도 나가야 하는 베이스",
             "sub_prompt_body": "### [응답 형식]\n- 저장 후 동기화",
-            "analysis_system_appendix": "### [분석 규칙]\n- 저장 후 동기화",
             "emotions": ["normal"],
             "emotion_guides": {"normal": "실제 Roaming 동기화"},
         }
@@ -1117,7 +1147,7 @@ def test_save_prompt_config_mirrors_visible_roaming_prompts_under_store_python(t
 
     assert (visible_dir / "base_system_prompt.md").read_text(encoding="utf-8-sig") == "실제 Roaming으로도 나가야 하는 베이스"
     assert (visible_dir / "sub_prompt_body.md").read_text(encoding="utf-8-sig") == "### [응답 형식]\n- 저장 후 동기화"
-    assert (visible_dir / "analysis_system_appendix.md").read_text(encoding="utf-8-sig") == "### [분석 규칙]\n- 저장 후 동기화"
+    assert not (visible_dir / "analysis_system_appendix.md").exists()
     assert "실제 Roaming 동기화" in (visible_dir / "emotion_guides.md").read_text(encoding="utf-8-sig")
 
 

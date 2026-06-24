@@ -645,6 +645,38 @@ def test_settings_dialog_loads_saves_and_disables_goal_controls(monkeypatch):
         dialog.close()
 
 
+def test_settings_dialog_disables_mood_button_setting_when_response_analysis_is_disabled(monkeypatch):
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        monkeypatch.setattr(SettingsDialog, "_load_prompt_configuration", lambda self: None)
+
+        dialog = SettingsDialog(
+            {
+                "ui_language": "ko",
+                "llm_provider": "gemini",
+                "tts_provider": "gpt_sovits_http",
+                "enable_tts": True,
+                "enable_response_analysis": False,
+                "show_mood_toggle_button": True,
+            }
+        )
+
+        assert dialog.enable_response_analysis_check.isChecked() is False
+        assert dialog.show_mood_toggle_button_check.isChecked() is True
+        assert dialog.show_mood_toggle_button_check.isEnabled() is False
+
+        dialog.enable_response_analysis_check.setChecked(True)
+
+        assert dialog.show_mood_toggle_button_check.isEnabled() is True
+
+        dialog.close()
+
+
 def test_settings_dialog_renders_goal_items_and_calls_bridge_handlers(monkeypatch):
     _get_qapp()
     locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
@@ -1373,6 +1405,42 @@ def test_settings_dialog_exposes_proactive_conversation_toggle_and_saves_value()
 
         current_values = dialog._get_current_values()
         assert current_values["enable_proactive_conversation"] is True
+
+        dialog.close()
+
+
+def test_settings_dialog_exposes_prompt_feature_toggles_and_saves_values():
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        dialog = SettingsDialog(
+            {
+                "ui_language": "ko",
+                "llm_provider": "gemini",
+                "tts_provider": "gpt_sovits_http",
+                "enable_tts": True,
+                "enable_response_analysis": False,
+                "enable_schedule_recognition": False,
+                "enable_conversation_promises": True,
+            }
+        )
+
+        assert dialog.enable_response_analysis_check.isChecked() is False
+        assert dialog.enable_schedule_recognition_check.isChecked() is False
+        assert dialog.enable_conversation_promises_check.isChecked() is True
+
+        dialog.enable_response_analysis_check.setChecked(True)
+        dialog.enable_schedule_recognition_check.setChecked(True)
+        dialog.enable_conversation_promises_check.setChecked(False)
+
+        current_values = dialog._get_current_values()
+        assert current_values["enable_response_analysis"] is True
+        assert current_values["enable_schedule_recognition"] is True
+        assert current_values["enable_conversation_promises"] is False
 
         dialog.close()
 
@@ -3165,6 +3233,55 @@ def test_overlay_window_syncs_proactive_button_visibility_to_webview(tmp_path):
     assert captured == [
         "window.setProactiveConversationButtonEnabled(false);",
         "window.setProactiveConversationButtonEnabled(true);",
+    ]
+
+
+def test_overlay_window_hides_mood_button_when_response_analysis_is_disabled(tmp_path):
+    _get_qapp()
+    locales_dir = tmp_path / "locales"
+    locales_dir.mkdir(parents=True, exist_ok=True)
+    (locales_dir / "en.json").write_text("{}", encoding="utf-8-sig")
+    (locales_dir / "ja.json").write_text("{}", encoding="utf-8-sig")
+    (locales_dir / "ko.json").write_text("{}", encoding="utf-8-sig")
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+
+    from src.core.overlay_window import OverlayWindow
+
+    captured = []
+
+    class _FakePage:
+        def runJavaScript(self, code):
+            captured.append(code)
+
+    class _FakeWebView:
+        def __init__(self):
+            self._page = _FakePage()
+
+        def page(self):
+            return self._page
+
+    overlay = OverlayWindow.__new__(OverlayWindow)
+    overlay.settings = _DummySettings({"show_mood_toggle_button": True, "enable_response_analysis": True})
+    overlay.web_view = _FakeWebView()
+    overlay._page_loaded = True
+
+    OverlayWindow._sync_mood_toggle_button_visibility_to_js(
+        overlay,
+        {"show_mood_toggle_button": True, "enable_response_analysis": False},
+    )
+    OverlayWindow._sync_mood_toggle_button_visibility_to_js(
+        overlay,
+        {"show_mood_toggle_button": True, "enable_response_analysis": True},
+    )
+    OverlayWindow._sync_mood_toggle_button_visibility_to_js(
+        overlay,
+        {"show_mood_toggle_button": False, "enable_response_analysis": True},
+    )
+
+    assert captured == [
+        "window.setMoodToggleButtonEnabled(false);",
+        "window.setMoodToggleButtonEnabled(true);",
+        "window.setMoodToggleButtonEnabled(false);",
     ]
 
 

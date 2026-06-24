@@ -107,6 +107,27 @@ def build_behavior_tab(dialog):
     self.enable_proactive_conversation_check.toggled.connect(self._on_setting_changed)
     display_layout.addWidget(self.enable_proactive_conversation_check)
 
+    self.enable_response_analysis_check = self._create_toggle(
+        "응답 분석 블록 사용",
+        key="settings.behavior.display.response_analysis",
+    )
+    self.enable_response_analysis_check.toggled.connect(self._on_response_analysis_toggle)
+    display_layout.addWidget(self.enable_response_analysis_check)
+
+    self.enable_schedule_recognition_check = self._create_toggle(
+        "일정 인식 사용",
+        key="settings.behavior.display.schedule_recognition",
+    )
+    self.enable_schedule_recognition_check.toggled.connect(self._on_setting_changed)
+    display_layout.addWidget(self.enable_schedule_recognition_check)
+
+    self.enable_conversation_promises_check = self._create_toggle(
+        "대화 약속 인식 사용",
+        key="settings.behavior.display.conversation_promises",
+    )
+    self.enable_conversation_promises_check.toggled.connect(self._on_setting_changed)
+    display_layout.addWidget(self.enable_conversation_promises_check)
+
     thought_context_layout = QFormLayout()
     thought_context_layout.setContentsMargins(0, 0, 0, 0)
     thought_context_layout.setSpacing(8)
@@ -574,4 +595,3 @@ def build_behavior_tab(dialog):
     layout.addStretch()
     scroll.setWidget(widget)
     return scroll
-
