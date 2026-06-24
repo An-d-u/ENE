@@ -7,6 +7,7 @@ from __future__ import annotations
 import re
 from typing import Callable, Dict, List, Tuple
 
+from .analysis_prompt import is_conversation_promise_enabled, is_schedule_recognition_enabled
 from .prompt_language import resolve_prompt_language, resolve_tts_language
 from .response_cleanup import (
     extract_goal_update_metadata,
@@ -243,12 +244,13 @@ def parse_llm_response(
     response_text, thought = extract_thought_metadata(response_text)
     response_text, proactive_conversations = extract_proactive_conversation_blocks(response_text)
 
+    schedule_enabled = is_schedule_recognition_enabled(settings_source)
     events = []
-    event_pattern = r"\[이벤트:([^\]]+)\]"
+    event_pattern = r"\[(?:event|이벤트):([^\]]+)\]"
     event_matches = re.findall(event_pattern, response_text)
     for match in event_matches:
         parts = [p.strip() for p in match.split("|")]
-        if len(parts) >= 2:
+        if schedule_enabled and len(parts) >= 2:
             events.append(
                 {
                     "date": parts[0],
@@ -260,12 +262,13 @@ def parse_llm_response(
                 log_event(f"[LLM] 일정 추출: {parts[0]} - {parts[1]}")
     response_text = re.sub(event_pattern, "", response_text)
 
+    promises_enabled = is_conversation_promise_enabled(settings_source)
     promises = []
     promise_pattern = r"\[약속:([^\]]+)\]"
     promise_matches = re.findall(promise_pattern, response_text)
     for match in promise_matches:
         parts = [p.strip() for p in match.split("|")]
-        if len(parts) >= 2:
+        if promises_enabled and len(parts) >= 2:
             promises.append(
                 {
                     "trigger_at": parts[0],
