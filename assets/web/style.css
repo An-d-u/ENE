@@ -1,4 +1,4 @@
-* {
+﻿* {
     margin: 0;
     padding: 0;
     box-sizing: border-box;
@@ -1216,25 +1216,34 @@ body.thought-feature-disabled .message-thought {
 }
 
 #summary-review-dialog::-webkit-scrollbar,
-.summary-review-facts::-webkit-scrollbar {
+.summary-review-facts::-webkit-scrollbar,
+#summary-review-textarea::-webkit-scrollbar,
+.summary-review-fact-input::-webkit-scrollbar {
     width: 6px;
 }
 
 #summary-review-dialog::-webkit-scrollbar-track,
-.summary-review-facts::-webkit-scrollbar-track {
+.summary-review-facts::-webkit-scrollbar-track,
+#summary-review-textarea::-webkit-scrollbar-track,
+.summary-review-fact-input::-webkit-scrollbar-track {
     background: rgba(255, 255, 255, 0.05);
 }
 
 #summary-review-dialog::-webkit-scrollbar-thumb,
-.summary-review-facts::-webkit-scrollbar-thumb {
+.summary-review-facts::-webkit-scrollbar-thumb,
+#summary-review-textarea::-webkit-scrollbar-thumb,
+.summary-review-fact-input::-webkit-scrollbar-thumb {
     background: rgba(255, 255, 255, 0.2);
     border-radius: 3px;
 }
 
 #summary-review-dialog::-webkit-scrollbar-thumb:hover,
-.summary-review-facts::-webkit-scrollbar-thumb:hover {
+.summary-review-facts::-webkit-scrollbar-thumb:hover,
+#summary-review-textarea::-webkit-scrollbar-thumb:hover,
+.summary-review-fact-input::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.3);
 }
+
 #summary-review-header {
     display: flex;
     align-items: flex-start;
