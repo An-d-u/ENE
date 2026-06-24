@@ -65,6 +65,22 @@ def test_response_contract_keeps_analysis_when_goal_and_thought_sections_are_dis
     assert "[subconscious]" not in appendix
 
 
+def test_response_contract_omits_analysis_when_disabled():
+    appendix = build_response_contract_appendix(
+        {
+            "ui_language": "ko",
+            "enable_response_analysis": False,
+            "enable_ene_goals": True,
+            "enable_ene_thoughts": False,
+            "enable_proactive_conversation": False,
+        }
+    )
+
+    assert "[analysis]" not in appendix
+    assert "[ene_goal_update]" in appendix
+    assert "블록 뒤에" not in appendix
+
+
 def test_response_contract_prefers_proactive_conversation_rules_when_enabled():
     appendix = build_response_contract_appendix(
         {"ui_language": "ko", "enable_ene_goals": False, "enable_ene_thoughts": False}

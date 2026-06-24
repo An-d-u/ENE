@@ -207,9 +207,8 @@ Core files:
 - `base_system_prompt.md` - ENE's identity, relationship, and core behavior
 - `sub_prompt_body.md` - speaking style and extra behavior rules
 - `emotion_guides.md` - emotion keys and usage guidance
-- `analysis_system_appendix.md` - optional internal analysis guidance
 
-Normal chat prompt assembly uses the base prompt, generated runtime contract, sub-prompt body, model-aware emotion guidance, and optional analysis appendix. `/note` planning uses a more constrained context and does not follow the normal sub-prompt path in the same way.
+Normal chat prompt assembly uses the base prompt, code-generated analysis/schedule/promise rules, generated runtime contract, sub-prompt body, and model-aware emotion guidance. `/note` planning uses a more constrained context and does not follow the normal sub-prompt path in the same way.
 
 ## Voice, TTS, and Lip-Sync
 

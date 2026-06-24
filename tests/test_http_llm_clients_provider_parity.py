@@ -532,7 +532,7 @@ def test_provider_summarize_conversation_uses_one_shot_request_without_chat_hist
     assert memory_meta["memory_type"] == "general"
     assert "요약 대상 대화" in captured["prompt"]
     assert "오래된 히스토리" not in captured["prompt"]
-    assert captured["include_sub_prompt"] is True
+    assert captured["include_sub_prompt"] is False
     assert client.get_conversation_history() == original_history
 
 

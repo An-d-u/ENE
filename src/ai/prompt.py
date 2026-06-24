@@ -3,6 +3,7 @@ ENE AI 시스템 프롬프트 로더
 """
 
 from .prompt_config import load_prompt_config, load_runtime_prompt_config
+from .analysis_prompt import build_analysis_system_appendix
 from .response_contract import build_response_contract_appendix
 
 
@@ -31,11 +32,10 @@ def build_runtime_system_prompt(
     settings_source: dict | None = None,
 ) -> str:
     """실제 모델 호출에 사용할 시스템 프롬프트를 조립한다."""
-    config = load_runtime_prompt_config(settings_source=settings_source)
     system_prompt = get_system_prompt(include_sub_prompt=include_sub_prompt, settings_source=settings_source)
-    analysis_system_appendix = str(config.get("analysis_system_appendix", "") or "").strip()
     parts = [system_prompt]
-    if include_analysis_appendix and include_sub_prompt and analysis_system_appendix:
+    if include_analysis_appendix and include_sub_prompt:
+        analysis_system_appendix = build_analysis_system_appendix(settings_source=settings_source).strip()
         parts.append(analysis_system_appendix)
     if include_sub_prompt:
         response_contract_appendix = build_response_contract_appendix(settings_source=settings_source).strip()

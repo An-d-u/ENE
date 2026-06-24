@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from .analysis_prompt import is_response_analysis_enabled
 from .goal_prompt import build_goal_update_rules, is_goal_prompt_enabled
 from .persona_names import resolve_prompt_persona_names
 from .prompt_language import resolve_prompt_language, resolve_tts_language
@@ -56,6 +57,7 @@ _RESPONSE_CONTRACT_BY_LANGUAGE = {
         "names": "- 사용자에게 보이는 답변에서는 캐릭터 자신을 `{assistant_name}`로, 사용자를 `{user_name}`로 부르세요.",
         "names_with_tts": "- 사용자에게 보이는 답변과 `[tts]` 블록에서는 캐릭터 자신을 `{assistant_name}`로, 사용자를 `{user_name}`로 부르세요.",
         "goal": "- 목표 기능이 켜져 있으면 `[analysis]` 블록 뒤에 `[ene_goal_update]...[/ene_goal_update]` 블록을 출력하세요.",
+        "goal_without_analysis": "- 목표 기능이 켜져 있으면 사용자에게 보일 답변 앞에 `[ene_goal_update]...[/ene_goal_update]` 블록을 출력하세요.",
         "proactive": "- 선제 대화 기능이 켜져 있으면 원칙적으로 모든 일반 대화 응답에서 `[proactive_conversation]...[/proactive_conversation]` 블록을 1개 출력하세요.",
         "tts": "- TTS 언어가 응답 언어와 다르면 답변 본문 뒤에 `[tts]...[/tts]` 블록을 추가하세요. TTS 언어가 같으면 TTS 블록을 만들지 마세요.",
         "subconscious": "- 생각 기능이 켜져 있으면 목표 블록 뒤, 사용자에게 보일 답변 앞에 `[subconscious]...[/subconscious]` 블록을 출력하세요.",
@@ -89,6 +91,7 @@ _RESPONSE_CONTRACT_BY_LANGUAGE = {
         "names": "- In the visible reply, refer to the assistant persona as `{assistant_name}` and address the user as `{user_name}`.",
         "names_with_tts": "- In the visible reply and any `[tts]` block, refer to the assistant persona as `{assistant_name}` and address the user as `{user_name}`.",
         "goal": "- When the goal feature is enabled, output an `[ene_goal_update]...[/ene_goal_update]` block after `[analysis]`.",
+        "goal_without_analysis": "- When the goal feature is enabled, output an `[ene_goal_update]...[/ene_goal_update]` block before the visible reply.",
         "proactive": "- When proactive conversation is enabled, output exactly one `[proactive_conversation]...[/proactive_conversation]` block for normal chat replies by default.",
         "tts": "- If the TTS language differs from the response language, add a `[tts]...[/tts]` block after the visible reply. If they match, do not add a TTS block.",
         "subconscious": "- When the thought feature is enabled, output a `[subconscious]...[/subconscious]` block after the goal block and before the visible reply.",
@@ -122,6 +125,7 @@ _RESPONSE_CONTRACT_BY_LANGUAGE = {
         "names": "- ユーザーに見える返答では、キャラクター自身を `{assistant_name}`、ユーザーを `{user_name}` と呼んでください。",
         "names_with_tts": "- ユーザーに見える返答と `[tts]` ブロックでは、キャラクター自身を `{assistant_name}`、ユーザーを `{user_name}` と呼んでください。",
         "goal": "- 目標機能が有効な場合、`[analysis]` ブロックの後に `[ene_goal_update]...[/ene_goal_update]` ブロックを出力してください。",
+        "goal_without_analysis": "- 目標機能が有効な場合、ユーザーに見える返答の前に `[ene_goal_update]...[/ene_goal_update]` ブロックを出力してください。",
         "proactive": "- 先回り会話が有効な場合、通常の会話返答では原則として `[proactive_conversation]...[/proactive_conversation]` ブロックを1つ出力してください。",
         "tts": "- TTS言語が返答言語と異なる場合だけ、ユーザーに見える返答の後に `[tts]...[/tts]` ブロックを追加してください。同じ場合はTTSブロックを作らないでください。",
         "subconscious": "- 思考表示機能が有効な場合、目標ブロックの後、ユーザーに見える返答の前に `[subconscious]...[/subconscious]` ブロックを出力してください。",
@@ -153,6 +157,7 @@ _RESPONSE_CONTRACT_BY_LANGUAGE = {
 
 def _build_format_block(
     contract: dict,
+    analysis_enabled: bool,
     goal_enabled: bool,
     thought_enabled: bool,
     proactive_enabled: bool,
@@ -160,7 +165,9 @@ def _build_format_block(
     response_language: str,
     tts_language: str,
 ) -> str:
-    lines = ["```", "[analysis]", "...", "[/analysis]"]
+    lines = ["```"]
+    if analysis_enabled:
+        lines.extend(["[analysis]", "...", "[/analysis]"])
     if goal_enabled:
         lines.extend(
             [
@@ -203,6 +210,7 @@ def build_response_contract_appendix(settings_source: object | None = None) -> s
     tts_language = resolve_tts_language(settings_source=settings_source, response_language=language)
     contract = _RESPONSE_CONTRACT_BY_LANGUAGE.get(language, _RESPONSE_CONTRACT_BY_LANGUAGE["en"])
     names = resolve_prompt_persona_names(settings_source=settings_source, language=language)
+    analysis_enabled = is_response_analysis_enabled(settings_source)
     goal_enabled = is_goal_prompt_enabled(settings_source)
     thought_enabled = is_thought_prompt_enabled(settings_source)
     gesture_enabled = is_synthetic_gesture_enabled(settings_source)
@@ -214,11 +222,12 @@ def build_response_contract_appendix(settings_source: object | None = None) -> s
     lines = [
         contract["header"],
         contract["intro"],
-        contract["analysis"],
         contract[names_key].format(assistant_name=names.assistant, user_name=names.user),
     ]
+    if analysis_enabled:
+        lines.insert(2, contract["analysis"])
     if goal_enabled:
-        lines.append(contract["goal"])
+        lines.append(contract["goal"] if analysis_enabled else contract["goal_without_analysis"])
         lines.extend(build_goal_update_rules(language=language))
     if tts_language != language:
         lines.append(contract["tts"])
@@ -233,6 +242,7 @@ def build_response_contract_appendix(settings_source: object | None = None) -> s
     lines.append(
         _build_format_block(
             contract,
+            analysis_enabled,
             goal_enabled,
             thought_enabled,
             proactive_enabled,

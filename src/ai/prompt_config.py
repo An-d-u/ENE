@@ -23,18 +23,15 @@ DEFAULT_PROMPT_CONFIG_DIR = get_bundle_prompts_defaults_dir()
 
 BASE_SYSTEM_PROMPT_PATH = PROMPT_CONFIG_DIR / "base_system_prompt.md"
 SUB_PROMPT_BODY_PATH = PROMPT_CONFIG_DIR / "sub_prompt_body.md"
-ANALYSIS_SYSTEM_APPENDIX_PATH = PROMPT_CONFIG_DIR / "analysis_system_appendix.md"
 EMOTION_GUIDES_PATH = PROMPT_CONFIG_DIR / "emotion_guides.md"
 
 DEFAULT_BASE_SYSTEM_PROMPT_PATH = DEFAULT_PROMPT_CONFIG_DIR / "base_system_prompt.md"
 DEFAULT_SUB_PROMPT_BODY_PATH = DEFAULT_PROMPT_CONFIG_DIR / "sub_prompt_body.md"
-DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH = DEFAULT_PROMPT_CONFIG_DIR / "analysis_system_appendix.md"
 DEFAULT_EMOTION_GUIDES_PATH = DEFAULT_PROMPT_CONFIG_DIR / "emotion_guides.md"
 
 PROMPT_MARKDOWN_FILENAMES = (
     "base_system_prompt.md",
     "sub_prompt_body.md",
-    "analysis_system_appendix.md",
     "emotion_guides.md",
 )
 
@@ -287,7 +284,6 @@ def ensure_prompt_config_exists() -> Path:
     _sync_visible_roaming_prompt_files_to_runtime()
     _copy_default_if_missing(BASE_SYSTEM_PROMPT_PATH, DEFAULT_BASE_SYSTEM_PROMPT_PATH)
     _copy_default_if_missing(SUB_PROMPT_BODY_PATH, DEFAULT_SUB_PROMPT_BODY_PATH)
-    _copy_default_if_missing(ANALYSIS_SYSTEM_APPENDIX_PATH, DEFAULT_ANALYSIS_SYSTEM_APPENDIX_PATH)
     _copy_default_if_missing(EMOTION_GUIDES_PATH, DEFAULT_EMOTION_GUIDES_PATH)
     return PROMPT_CONFIG_DIR
 
@@ -302,7 +298,6 @@ def load_prompt_config() -> dict:
         ),
         "emotions": emotions,
         "emotion_guides": emotion_guides,
-        "analysis_system_appendix": _read_text_file(ANALYSIS_SYSTEM_APPENDIX_PATH),
     }
 
 
@@ -339,7 +334,6 @@ def load_runtime_prompt_config(
         "sub_prompt_body": config.get("sub_prompt_body", ""),
         "emotions": runtime_emotions,
         "emotion_guides": runtime_guides,
-        "analysis_system_appendix": config.get("analysis_system_appendix", ""),
     }
 
 
@@ -374,12 +368,10 @@ def save_prompt_config(config: dict) -> dict:
         ),
         "emotions": emotions,
         "emotion_guides": emotion_guides,
-        "analysis_system_appendix": str(merged.get("analysis_system_appendix", "") or "").strip("\n"),
     }
 
     _write_text_file(BASE_SYSTEM_PROMPT_PATH, normalized["base_system_prompt"])
     _write_text_file(SUB_PROMPT_BODY_PATH, normalized["sub_prompt_body"])
-    _write_text_file(ANALYSIS_SYSTEM_APPENDIX_PATH, normalized["analysis_system_appendix"])
     _write_text_file(
         EMOTION_GUIDES_PATH,
         _serialize_emotion_guides(normalized["emotions"], normalized["emotion_guides"]),

@@ -978,7 +978,10 @@ class OverlayWindow(QWidget):
         if not self._page_loaded:
             return
         source = settings_override if settings_override is not None else self.settings.config
-        enabled = "true" if bool(source.get("show_mood_toggle_button", True)) else "false"
+        enabled = "true" if (
+            bool(source.get("show_mood_toggle_button", True))
+            and bool(source.get("enable_response_analysis", True))
+        ) else "false"
         self.web_view.page().runJavaScript(f"window.setMoodToggleButtonEnabled({enabled});")
 
     def _sync_proactive_conversation_button_visibility_to_js(self, settings_override: dict | None = None):

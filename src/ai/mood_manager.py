@@ -124,7 +124,10 @@ class MoodManager:
 
     def _is_enabled(self) -> bool:
         if self.settings and hasattr(self.settings, "config"):
-            return bool(self.settings.config.get("enable_mood_system", True))
+            return (
+                bool(self.settings.config.get("enable_mood_system", True))
+                and bool(self.settings.config.get("enable_response_analysis", True))
+            )
         return True
 
     def _parse_time(self, value: str | None) -> datetime | None:
@@ -618,6 +621,8 @@ class MoodManager:
         return snapshot
 
     def build_context_block(self, language: str | None = None) -> str:
+        if not self._is_enabled():
+            return ""
         resolved_language = resolve_prompt_language(language, settings_source=self.settings)
         names = resolve_prompt_persona_names(settings_source=self.settings, language=resolved_language)
         snapshot = self.get_snapshot()
