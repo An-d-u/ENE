@@ -936,6 +936,12 @@
         "mouse_tracking": "Enable mouse tracking",
         "hint": "Manage core surface visibility and mouse interaction together."
       },
+      "motion": {
+        "title": "Motion settings",
+        "response_title": "Response motion",
+        "idle_title": "Ambient and idle motion",
+        "interaction_title": "Interaction"
+      },
       "gesture": {
         "title": "Response gestures",
         "enable": "Enable response gestures",
@@ -1015,7 +1021,12 @@
         "auto_eye_blink_enable": "Enable automatic eye blink",
         "dynamic": "Enable dynamic idle motion mode",
         "strength": "Idle motion strength:",
-        "speed": "Idle motion speed:"
+        "speed": "Idle motion speed:",
+        "expressive_enable": "Enable expressive motion",
+        "expressive_strength": "Expressive motion strength:",
+        "expressive_speed": "Expressive motion speed:",
+        "expressive_speech_boost": "Speech response:",
+        "expressive_hint": "Experimental motion that keeps the character subtly alive. Depending on the model, it may look too strong or too subtle."
       },
       "head_pat": {
         "title": "Head pat",

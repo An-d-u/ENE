@@ -365,11 +365,20 @@ def build_behavior_tab(dialog):
     )
     layout.addWidget(note_group)
 
-    gesture_group = QGroupBox("응답 제스처")
-    self._bind_group_title(gesture_group, "settings.behavior.gesture.title", "응답 제스처")
-    gesture_layout = QFormLayout(gesture_group)
+    self.motion_group = QGroupBox("동작 설정")
+    self._bind_group_title(self.motion_group, "settings.behavior.motion.title", "동작 설정")
+    motion_layout = QVBoxLayout(self.motion_group)
+    motion_layout.setSpacing(12)
+    motion_layout.setContentsMargins(10, 15, 10, 10)
+
+    self.motion_response_label = QLabel("응답 동작")
+    self._bind_widget_text(self.motion_response_label, "settings.behavior.motion.response_title", "응답 동작")
+    motion_layout.addWidget(self.motion_response_label)
+
+    gesture_widget = QWidget()
+    gesture_layout = QFormLayout(gesture_widget)
     gesture_layout.setSpacing(8)
-    gesture_layout.setContentsMargins(10, 15, 10, 10)
+    gesture_layout.setContentsMargins(0, 0, 0, 0)
 
     self.enable_synthetic_gestures_check = self._create_toggle(
         "응답 제스처 사용",
@@ -424,13 +433,16 @@ def build_behavior_tab(dialog):
             key="settings.behavior.gesture.hint",
         )
     )
-    layout.addWidget(gesture_group)
+    motion_layout.addWidget(gesture_widget)
 
-    idle_group = QGroupBox("유휴 모션")
-    self._bind_group_title(idle_group, "settings.behavior.idle.title", "유휴 모션")
-    idle_layout = QFormLayout(idle_group)
+    self.motion_idle_label = QLabel("상시/대기 동작")
+    self._bind_widget_text(self.motion_idle_label, "settings.behavior.motion.idle_title", "상시/대기 동작")
+    motion_layout.addWidget(self.motion_idle_label)
+
+    idle_widget = QWidget()
+    idle_layout = QFormLayout(idle_widget)
     idle_layout.setSpacing(8)
-    idle_layout.setContentsMargins(10, 15, 10, 10)
+    idle_layout.setContentsMargins(0, 0, 0, 0)
     self.idle_motion_check = self._create_toggle(
         "유휴 모션 활성화 (말하지 않을 때 자동 움직임)",
         key="settings.behavior.idle.enable",
@@ -469,7 +481,7 @@ def build_behavior_tab(dialog):
     self._add_form_row(idle_layout, "settings.behavior.idle.speed", "유휴 모션 속도:", self.idle_motion_speed_spin)
 
     self.expressive_motion_check = self._create_toggle(
-        "Enable soft broadcast motion",
+        "생동감 모션 사용",
         key="settings.behavior.idle.expressive_enable",
     )
     self.expressive_motion_check.toggled.connect(self._on_setting_changed)
@@ -484,7 +496,7 @@ def build_behavior_tab(dialog):
     self._add_form_row(
         idle_layout,
         "settings.behavior.idle.expressive_strength",
-        "Broadcast motion scale:",
+        "생동감 모션 강도:",
         self.expressive_motion_strength_spin,
     )
 
@@ -497,7 +509,7 @@ def build_behavior_tab(dialog):
     self._add_form_row(
         idle_layout,
         "settings.behavior.idle.expressive_speed",
-        "Broadcast motion speed:",
+        "생동감 모션 속도:",
         self.expressive_motion_speed_spin,
     )
 
@@ -510,22 +522,25 @@ def build_behavior_tab(dialog):
     self._add_form_row(
         idle_layout,
         "settings.behavior.idle.expressive_speech_boost",
-        "Speech motion boost:",
+        "말할 때 반응:",
         self.expressive_motion_speech_boost_spin,
     )
     idle_layout.addRow(
         self._build_hint_label(
-            "Experimental head-focused soft sway inspired by streaming avatars. Depending on the model, it may look too strong or too subtle.",
+            "캐릭터에 계속 작은 생동감을 더하는 시험 기능입니다. 모델에 따라 강하거나 약하게 보일 수 있습니다.",
             key="settings.behavior.idle.expressive_hint",
         )
     )
-    layout.addWidget(idle_group)
+    motion_layout.addWidget(idle_widget)
 
-    pat_group = QGroupBox("머리 쓰다듬기")
-    self._bind_group_title(pat_group, "settings.behavior.head_pat.title", "머리 쓰다듬기")
-    pat_layout = QFormLayout(pat_group)
+    self.motion_interaction_label = QLabel("상호작용")
+    self._bind_widget_text(self.motion_interaction_label, "settings.behavior.motion.interaction_title", "상호작용")
+    motion_layout.addWidget(self.motion_interaction_label)
+
+    pat_widget = QWidget()
+    pat_layout = QFormLayout(pat_widget)
     pat_layout.setSpacing(8)
-    pat_layout.setContentsMargins(10, 15, 10, 10)
+    pat_layout.setContentsMargins(0, 0, 0, 0)
     self.head_pat_check = self._create_toggle(
         "머리 쓰다듬기 활성화",
         key="settings.behavior.head_pat.enable",
@@ -604,7 +619,8 @@ def build_behavior_tab(dialog):
     self.head_pat_end_emotion_duration_spin.setSuffix(" s")
     self.head_pat_end_emotion_duration_spin.valueChanged.connect(self._on_setting_changed)
     self._add_form_row(pat_layout, "settings.behavior.head_pat.end_duration", "감정 유지 시간:", self.head_pat_end_emotion_duration_spin)
-    layout.addWidget(pat_group)
+    motion_layout.addWidget(pat_widget)
+    layout.addWidget(self.motion_group)
 
     away_group = QGroupBox("자리 비움/유휴 감지")
     self._bind_group_title(away_group, "settings.behavior.away.title", "자리 비움/유휴 감지")
