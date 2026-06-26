@@ -224,8 +224,13 @@ function updateMouseTracking(nowMs) {
         ? addMotionOffsets(idleOffsets, expressiveOffsets)
         : (idleOffsets || expressiveOffsets);
     const baseTrackingOffsets = trackingOffsets || { angleX: 0, angleY: 0, bodyX: 0, eyeY: 0, breath: 0 };
+    const activeTrackingOffsets = hasHeadPatEffect ? lastNonPatTrackingState : trackingOffsets;
+    const motionFadeScale = hasHeadPatEffect ? Math.max(0, 1 - patBlend) : 1;
+    const fadedTrackingOffsets = motionFadeScale < 0.999 && typeof scaleMotionOffsets === 'function'
+        ? scaleMotionOffsets(activeTrackingOffsets, motionFadeScale)
+        : activeTrackingOffsets;
     if (typeof window.setLive2DRootMotionOffsets === 'function') {
-        window.setLive2DRootMotionOffsets(hasHeadPatEffect ? null : trackingOffsets);
+        window.setLive2DRootMotionOffsets(fadedTrackingOffsets);
     }
     if (!hasHeadPatEffect) {
         lastNonPatTrackingState = { ...baseTrackingOffsets };
