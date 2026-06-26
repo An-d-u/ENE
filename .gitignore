@@ -18,6 +18,7 @@ codex_pytest_tmp/
 .codex-pytest-tmp/
 .tmp312/
 tmp312*/
+tmp/
 .ruff_cache/
 .mypy_cache/
 .hypothesis/
