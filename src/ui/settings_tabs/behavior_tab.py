@@ -1,4 +1,4 @@
-"""
+﻿"""
 동작 설정 탭 빌더.
 """
 
@@ -467,6 +467,58 @@ def build_behavior_tab(dialog):
     self.idle_motion_speed_spin.setSuffix("x")
     self.idle_motion_speed_spin.valueChanged.connect(self._on_setting_changed)
     self._add_form_row(idle_layout, "settings.behavior.idle.speed", "유휴 모션 속도:", self.idle_motion_speed_spin)
+
+    self.expressive_motion_check = self._create_toggle(
+        "Enable soft broadcast motion",
+        key="settings.behavior.idle.expressive_enable",
+    )
+    self.expressive_motion_check.toggled.connect(self._on_setting_changed)
+    idle_layout.addRow(self.expressive_motion_check)
+
+    self.expressive_motion_strength_spin = QDoubleSpinBox()
+    self.expressive_motion_strength_spin.setRange(0.2, 2.5)
+    self.expressive_motion_strength_spin.setSingleStep(0.1)
+    self.expressive_motion_strength_spin.setDecimals(2)
+    self.expressive_motion_strength_spin.setSuffix("x")
+    self.expressive_motion_strength_spin.valueChanged.connect(self._on_setting_changed)
+    self._add_form_row(
+        idle_layout,
+        "settings.behavior.idle.expressive_strength",
+        "Broadcast motion scale:",
+        self.expressive_motion_strength_spin,
+    )
+
+    self.expressive_motion_speed_spin = QDoubleSpinBox()
+    self.expressive_motion_speed_spin.setRange(0.4, 2.0)
+    self.expressive_motion_speed_spin.setSingleStep(0.1)
+    self.expressive_motion_speed_spin.setDecimals(2)
+    self.expressive_motion_speed_spin.setSuffix("x")
+    self.expressive_motion_speed_spin.valueChanged.connect(self._on_setting_changed)
+    self._add_form_row(
+        idle_layout,
+        "settings.behavior.idle.expressive_speed",
+        "Broadcast motion speed:",
+        self.expressive_motion_speed_spin,
+    )
+
+    self.expressive_motion_speech_boost_spin = QDoubleSpinBox()
+    self.expressive_motion_speech_boost_spin.setRange(0.0, 2.5)
+    self.expressive_motion_speech_boost_spin.setSingleStep(0.1)
+    self.expressive_motion_speech_boost_spin.setDecimals(2)
+    self.expressive_motion_speech_boost_spin.setSuffix("x")
+    self.expressive_motion_speech_boost_spin.valueChanged.connect(self._on_setting_changed)
+    self._add_form_row(
+        idle_layout,
+        "settings.behavior.idle.expressive_speech_boost",
+        "Speech motion boost:",
+        self.expressive_motion_speech_boost_spin,
+    )
+    idle_layout.addRow(
+        self._build_hint_label(
+            "Experimental head-focused soft sway inspired by streaming avatars. Depending on the model, it may look too strong or too subtle.",
+            key="settings.behavior.idle.expressive_hint",
+        )
+    )
     layout.addWidget(idle_group)
 
     pat_group = QGroupBox("머리 쓰다듬기")

@@ -6,6 +6,19 @@ const GESTURE_SPEED = 0.75;
 const SPEECH_GESTURE_MIN_DELAY_MS = 700;
 const SPEECH_GESTURE_MAX_DELAY_MS = 3200;
 const SPEECH_GESTURE_FALLBACK_DELAY_MS = 700;
+const SPEECH_GESTURE_ECHO_THRESHOLDS_MS = [3800, 7200, 11200];
+const SPEECH_GESTURE_ECHO_ACTIVITY_GRACE_MS = 900;
+const SPEECH_GESTURE_ECHO_RETRY_MS = 340;
+const SPEECH_GESTURE_ECHO_MIN_GAP_MS = 1700;
+const SPEECH_GESTURE_ECHO_SCALES = [0.58, 0.48, 0.40];
+const SPEECH_GESTURE_ECHO_LIMITS = {
+    nod: 3,
+    tilt: 2,
+    bow: 2,
+    sway: 2,
+    shake: 1,
+    surprise: 1,
+};
 const IDLE_SYNTHETIC_GESTURE_FREQUENCIES = {
     low: { minMs: 20000, maxMs: 45000 },
     normal: { minMs: 12000, maxMs: 28000 },
@@ -19,6 +32,13 @@ let activeGestureKey = "";
 let pendingSpeechGestureKey = "";
 let pendingSpeechGestureTimer = 0;
 let pendingSpeechGestureFallbackTimer = 0;
+let currentSpeechGestureKey = "";
+let speechGestureActivityStartedAt = 0;
+let speechGesturePrimaryPlayed = false;
+let speechGestureEchoCount = 0;
+let speechGestureEchoTimer = 0;
+let speechGestureInactivityTimer = 0;
+let lastSpeechGestureEchoAt = 0;
 let syntheticGestureScale = 1.0;
 let idleSyntheticGestureEnabled = false;
 let idleSyntheticGestureFrequency = "normal";
@@ -191,6 +211,35 @@ const GESTURE_ALIASES = {
     angry: "shake",
 };
 
+function normalizeSyntheticGestureKey(rawKey) {
+    const requestedKey = String(rawKey || "").trim().toLowerCase().replace("_", "-");
+    return GESTURE_ALIASES[requestedKey] || requestedKey;
+}
+
+function clearSyntheticGestureEchoTimer() {
+    if (speechGestureEchoTimer) {
+        clearTimeout(speechGestureEchoTimer);
+        speechGestureEchoTimer = 0;
+    }
+}
+
+function clearSyntheticGestureInactivityTimer() {
+    if (speechGestureInactivityTimer) {
+        clearTimeout(speechGestureInactivityTimer);
+        speechGestureInactivityTimer = 0;
+    }
+}
+
+function resetSyntheticSpeechGestureSession() {
+    currentSpeechGestureKey = "";
+    speechGestureActivityStartedAt = 0;
+    speechGesturePrimaryPlayed = false;
+    speechGestureEchoCount = 0;
+    lastSpeechGestureEchoAt = 0;
+    clearSyntheticGestureEchoTimer();
+    clearSyntheticGestureInactivityTimer();
+}
+
 function clearPendingSyntheticSpeechGesture() {
     pendingSpeechGestureKey = "";
     if (pendingSpeechGestureTimer) {
@@ -209,7 +258,12 @@ function playPendingSyntheticSpeechGesture() {
     if (!gestureKey) {
         return false;
     }
-    return playSyntheticGesture(gestureKey);
+    const played = playSyntheticGesture(gestureKey, { clearPending: false });
+    if (played) {
+        currentSpeechGestureKey = gestureKey;
+        speechGesturePrimaryPlayed = true;
+    }
+    return played;
 }
 
 function queuePendingSyntheticSpeechGesture(delayMs) {
@@ -225,13 +279,15 @@ function queuePendingSyntheticSpeechGesture(delayMs) {
 }
 
 function scheduleSyntheticGestureDuringSpeech(rawKey) {
-    const requestedKey = String(rawKey || "").trim();
-    if (!requestedKey) {
+    const requestedKey = normalizeSyntheticGestureKey(rawKey);
+    if (!requestedKey || !SYNTHETIC_GESTURES[requestedKey] || IDLE_SYNTHETIC_GESTURES.includes(requestedKey)) {
         return false;
     }
 
     clearPendingSyntheticSpeechGesture();
+    resetSyntheticSpeechGestureSession();
     pendingSpeechGestureKey = requestedKey;
+    currentSpeechGestureKey = requestedKey;
     pendingSpeechGestureFallbackTimer = setTimeout(function () {
         pendingSpeechGestureFallbackTimer = 0;
         queuePendingSyntheticSpeechGesture(0);
@@ -239,13 +295,90 @@ function scheduleSyntheticGestureDuringSpeech(rawKey) {
     return true;
 }
 
+function getSyntheticGestureEchoLimit(key) {
+    return Math.max(0, Number(SPEECH_GESTURE_ECHO_LIMITS[key] ?? 2) || 0);
+}
+
+function getSyntheticGestureEchoScale(index) {
+    const scale = SPEECH_GESTURE_ECHO_SCALES[Math.max(0, index)] ?? SPEECH_GESTURE_ECHO_SCALES[SPEECH_GESTURE_ECHO_SCALES.length - 1];
+    return Math.max(0.25, Math.min(0.75, Number(scale) || 0.45));
+}
+
+function playSyntheticGestureEchoIfReady() {
+    speechGestureEchoTimer = 0;
+    if (!currentSpeechGestureKey || !speechGesturePrimaryPlayed) {
+        return false;
+    }
+    const nowMs = performance.now();
+    if (nowMs - lastSyntheticSpeechActivityAt > SPEECH_GESTURE_ECHO_ACTIVITY_GRACE_MS) {
+        return false;
+    }
+    if (activeGestureKey) {
+        speechGestureEchoTimer = setTimeout(playSyntheticGestureEchoIfReady, SPEECH_GESTURE_ECHO_RETRY_MS);
+        return true;
+    }
+    const echoLimit = getSyntheticGestureEchoLimit(currentSpeechGestureKey);
+    if (speechGestureEchoCount >= echoLimit) {
+        return false;
+    }
+    const scale = getSyntheticGestureEchoScale(speechGestureEchoCount);
+    speechGestureEchoCount += 1;
+    lastSpeechGestureEchoAt = nowMs;
+    return playSyntheticGesture(currentSpeechGestureKey, { scale, clearPending: false });
+}
+
+function queueSyntheticGestureEcho(delayMs) {
+    if (speechGestureEchoTimer || !currentSpeechGestureKey || !speechGesturePrimaryPlayed) {
+        return false;
+    }
+    const normalizedDelayMs = Math.max(0, Number(delayMs) || 0);
+    speechGestureEchoTimer = setTimeout(playSyntheticGestureEchoIfReady, normalizedDelayMs);
+    return true;
+}
+
+function maybeScheduleSyntheticGestureEcho(nowMs) {
+    if (!currentSpeechGestureKey || !speechGesturePrimaryPlayed || pendingSpeechGestureKey || pendingSpeechGestureTimer) {
+        return false;
+    }
+    const echoLimit = getSyntheticGestureEchoLimit(currentSpeechGestureKey);
+    if (speechGestureEchoCount >= echoLimit || speechGestureEchoTimer) {
+        return false;
+    }
+    const startedAt = speechGestureActivityStartedAt || nowMs;
+    const elapsedMs = nowMs - startedAt;
+    const thresholdMs = SPEECH_GESTURE_ECHO_THRESHOLDS_MS[speechGestureEchoCount] || SPEECH_GESTURE_ECHO_THRESHOLDS_MS[SPEECH_GESTURE_ECHO_THRESHOLDS_MS.length - 1];
+    if (elapsedMs < thresholdMs) {
+        return false;
+    }
+    if (lastSpeechGestureEchoAt && nowMs - lastSpeechGestureEchoAt < SPEECH_GESTURE_ECHO_MIN_GAP_MS) {
+        return false;
+    }
+    const delayMs = 260 + (Math.random() * 780);
+    return queueSyntheticGestureEcho(delayMs);
+}
+
+function scheduleSyntheticGestureSpeechInactivityReset() {
+    clearSyntheticGestureInactivityTimer();
+    speechGestureInactivityTimer = setTimeout(function () {
+        speechGestureInactivityTimer = 0;
+        if (performance.now() - lastSyntheticSpeechActivityAt > SPEECH_GESTURE_ECHO_ACTIVITY_GRACE_MS) {
+            resetSyntheticSpeechGestureSession();
+        }
+    }, SPEECH_GESTURE_ECHO_ACTIVITY_GRACE_MS + 80);
+}
+
 function notifySyntheticGestureSpeechActivity() {
-    lastSyntheticSpeechActivityAt = performance.now();
+    const nowMs = performance.now();
+    lastSyntheticSpeechActivityAt = nowMs;
+    if (!speechGestureActivityStartedAt && (currentSpeechGestureKey || pendingSpeechGestureKey)) {
+        speechGestureActivityStartedAt = nowMs;
+    }
+    scheduleSyntheticGestureSpeechInactivityReset();
     if (IDLE_SYNTHETIC_GESTURES.includes(activeGestureKey)) {
         stopSyntheticGesture({ clearPending: false });
     }
     if (!pendingSpeechGestureKey || pendingSpeechGestureTimer) {
-        return false;
+        return maybeScheduleSyntheticGestureEcho(nowMs);
     }
     if (pendingSpeechGestureFallbackTimer) {
         clearTimeout(pendingSpeechGestureFallbackTimer);
@@ -255,10 +388,14 @@ function notifySyntheticGestureSpeechActivity() {
     return queuePendingSyntheticSpeechGesture(delayMs);
 }
 
+function isSyntheticGestureActive() {
+    return Boolean(activeGestureKey || pendingSpeechGestureKey || pendingSpeechGestureTimer || pendingSpeechGestureFallbackTimer || speechGestureEchoTimer);
+}
 function stopSyntheticGesture(options = {}) {
     const hadActiveGesture = Boolean(activeGestureKey);
     if (options.clearPending !== false) {
         clearPendingSyntheticSpeechGesture();
+        resetSyntheticSpeechGestureSession();
     }
     activeGestureKey = "";
     if (activeGestureFrame) {
@@ -289,7 +426,7 @@ function canPlayIdleSyntheticGesture() {
     if (!idleSyntheticGestureEnabled) {
         return false;
     }
-    if (activeGestureKey || pendingSpeechGestureKey || pendingSpeechGestureTimer || pendingSpeechGestureFallbackTimer) {
+    if (activeGestureKey || pendingSpeechGestureKey || pendingSpeechGestureTimer || pendingSpeechGestureFallbackTimer || speechGestureEchoTimer) {
         return false;
     }
     if (typeof window.setSyntheticGestureOffsets !== "function") {
@@ -343,9 +480,8 @@ function setIdleSyntheticGestureConfig(enabled, frequency) {
     return { enabled: idleSyntheticGestureEnabled, frequency: idleSyntheticGestureFrequency };
 }
 
-function playSyntheticGesture(rawKey) {
-    const requestedKey = String(rawKey || "").trim().toLowerCase().replace("_", "-");
-    const key = GESTURE_ALIASES[requestedKey] || requestedKey;
+function playSyntheticGesture(rawKey, options = {}) {
+    const key = normalizeSyntheticGestureKey(rawKey);
     const gesture = SYNTHETIC_GESTURES[key];
     if (!gesture || typeof window.setSyntheticGestureOffsets !== "function") {
         return false;
@@ -354,24 +490,26 @@ function playSyntheticGesture(rawKey) {
         return false;
     }
 
-    stopSyntheticGesture();
+    stopSyntheticGesture({ clearPending: options.clearPending !== false });
     activeGestureKey = key;
     const startedAt = performance.now();
     const durationMs = Math.max(300, Number(gesture.durationMs / GESTURE_SPEED) || (1000 / GESTURE_SPEED));
+    const instanceScale = Math.max(0.1, Math.min(1.25, Number(options.scale) || 1.0));
+    const clearPendingOnFinish = options.clearPending !== false;
 
     const tick = (nowMs) => {
         if (activeGestureKey !== key) {
             return;
         }
         if (typeof window.isHeadPatEffectActive === "function" && window.isHeadPatEffectActive()) {
-            stopSyntheticGesture();
+            stopSyntheticGesture({ clearPending: clearPendingOnFinish });
             return;
         }
         const t = Math.max(0, Math.min(1, (nowMs - startedAt) / durationMs));
-        const offsets = scaleGestureOffsets(sampleKeyframes(gesture.frames, t), gestureEnvelope(t));
+        const offsets = scaleGestureOffsets(sampleKeyframes(gesture.frames, t), gestureEnvelope(t) * instanceScale);
         window.setSyntheticGestureOffsets(offsets);
         if (t >= 1) {
-            stopSyntheticGesture();
+            stopSyntheticGesture({ clearPending: clearPendingOnFinish });
             return;
         }
         activeGestureFrame = requestAnimationFrame(tick);
@@ -387,3 +525,4 @@ window.notifySyntheticGestureSpeechActivity = notifySyntheticGestureSpeechActivi
 window.setSyntheticGestureScale = setSyntheticGestureScale;
 window.setIdleSyntheticGestureConfig = setIdleSyntheticGestureConfig;
 window.stopSyntheticGesture = stopSyntheticGesture;
+window.isSyntheticGestureActive = isSyntheticGestureActive;

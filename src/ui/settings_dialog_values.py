@@ -1,4 +1,4 @@
-"""
+﻿"""
 설정 대화상자 값 로드/저장 mixin.
 """
 
@@ -528,6 +528,12 @@ class SettingsDialogValuesMixin:
             )
             self.idle_motion_strength_spin.setValue(float(self._original_settings.get("idle_motion_strength", 1.0)))
             self.idle_motion_speed_spin.setValue(float(self._original_settings.get("idle_motion_speed", 1.0)))
+            self.expressive_motion_check.setChecked(self._original_settings.get("enable_expressive_motion", False))
+            self.expressive_motion_strength_spin.setValue(float(self._original_settings.get("expressive_motion_strength", 1.0)))
+            self.expressive_motion_speed_spin.setValue(float(self._original_settings.get("expressive_motion_speed", 1.0)))
+            self.expressive_motion_speech_boost_spin.setValue(
+                float(self._original_settings.get("expressive_motion_speech_boost", 1.0))
+            )
 
             self.head_pat_check.setChecked(self._original_settings.get("enable_head_pat", True))
             self.head_pat_strength_spin.setValue(float(self._original_settings.get("head_pat_strength", 1.0)))
@@ -818,6 +824,10 @@ class SettingsDialogValuesMixin:
             "enable_auto_eye_blink": self.auto_eye_blink_check.isChecked(),
             "idle_motion_strength": self.idle_motion_strength_spin.value(),
             "idle_motion_speed": self.idle_motion_speed_spin.value(),
+            "enable_expressive_motion": self.expressive_motion_check.isChecked(),
+            "expressive_motion_strength": self.expressive_motion_strength_spin.value(),
+            "expressive_motion_speed": self.expressive_motion_speed_spin.value(),
+            "expressive_motion_speech_boost": self.expressive_motion_speech_boost_spin.value(),
             "enable_head_pat": self.head_pat_check.isChecked(),
             "head_pat_strength": self.head_pat_strength_spin.value(),
             "head_pat_fade_in_ms": self.head_pat_fade_in_spin.value(),

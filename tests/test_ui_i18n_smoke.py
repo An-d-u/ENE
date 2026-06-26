@@ -1,4 +1,4 @@
-import json
+﻿import json
 import re
 import sys
 import types
@@ -1463,6 +1463,10 @@ def test_settings_dialog_exposes_synthetic_gesture_controls_and_saves_values():
                 "synthetic_gesture_scale": 1.4,
                 "enable_idle_synthetic_gestures": True,
                 "idle_synthetic_gesture_frequency": "high",
+                "enable_expressive_motion": True,
+                "expressive_motion_strength": 1.2,
+                "expressive_motion_speed": 0.8,
+                "expressive_motion_speech_boost": 1.5,
             }
         )
 
@@ -1470,10 +1474,18 @@ def test_settings_dialog_exposes_synthetic_gesture_controls_and_saves_values():
         assert dialog.synthetic_gesture_scale_spin.value() == 1.4
         assert dialog.enable_idle_synthetic_gestures_check.isChecked() is True
         assert dialog.idle_synthetic_gesture_frequency_combo.currentData() == "high"
+        assert dialog.expressive_motion_check.isChecked() is True
+        assert dialog.expressive_motion_strength_spin.value() == 1.2
+        assert dialog.expressive_motion_speed_spin.value() == 0.8
+        assert dialog.expressive_motion_speech_boost_spin.value() == 1.5
 
         dialog.enable_synthetic_gestures_check.setChecked(True)
         dialog.synthetic_gesture_scale_spin.setValue(1.8)
         dialog.enable_idle_synthetic_gestures_check.setChecked(False)
+        dialog.expressive_motion_check.setChecked(False)
+        dialog.expressive_motion_strength_spin.setValue(1.8)
+        dialog.expressive_motion_speed_spin.setValue(1.3)
+        dialog.expressive_motion_speech_boost_spin.setValue(0.6)
         low_index = dialog.idle_synthetic_gesture_frequency_combo.findData("low")
         dialog.idle_synthetic_gesture_frequency_combo.setCurrentIndex(low_index)
 
@@ -1482,6 +1494,10 @@ def test_settings_dialog_exposes_synthetic_gesture_controls_and_saves_values():
         assert current_values["synthetic_gesture_scale"] == 1.8
         assert current_values["enable_idle_synthetic_gestures"] is False
         assert current_values["idle_synthetic_gesture_frequency"] == "low"
+        assert current_values["enable_expressive_motion"] is False
+        assert current_values["expressive_motion_strength"] == 1.8
+        assert current_values["expressive_motion_speed"] == 1.3
+        assert current_values["expressive_motion_speech_boost"] == 0.6
 
         dialog.close()
 
@@ -3104,6 +3120,44 @@ def test_overlay_window_syncs_synthetic_gesture_scale_to_webview(tmp_path):
     OverlayWindow._sync_idle_motion_settings_to_js(overlay, {"synthetic_gesture_scale": 1.7})
 
     assert any("window.setSyntheticGestureScale(1.700);" in code for code in captured)
+
+
+def test_overlay_window_syncs_expressive_motion_settings_to_webview():
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+
+    from src.core.overlay_window import OverlayWindow
+
+    captured = []
+
+    class _FakePage:
+        def runJavaScript(self, code):
+            captured.append(code)
+
+    class _FakeWebView:
+        def __init__(self):
+            self._page = _FakePage()
+
+        def page(self):
+            return self._page
+
+    overlay = OverlayWindow.__new__(OverlayWindow)
+    overlay.settings = _DummySettings({})
+    overlay.web_view = _FakeWebView()
+    overlay._page_loaded = True
+
+    OverlayWindow._sync_idle_motion_settings_to_js(
+        overlay,
+        {
+            "enable_expressive_motion": True,
+            "expressive_motion_strength": 1.4,
+            "expressive_motion_speed": 0.8,
+            "expressive_motion_speech_boost": 0.0,
+        },
+    )
+
+    assert any("window.setExpressiveMotionConfig(true, 1.400, 0.800, 0.000);" in code for code in captured)
 
 
 def test_overlay_window_syncs_idle_synthetic_gesture_settings_to_webview(tmp_path):

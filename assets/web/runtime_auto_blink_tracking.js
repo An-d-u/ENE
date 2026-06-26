@@ -1,4 +1,4 @@
-
+﻿
 function isEyeCloseExpressionActive(sample) {
     if (!sample) {
         return false;
@@ -217,7 +217,16 @@ function updateMouseTracking(nowMs) {
         };
     }
 
-    const baseTrackingOffsets = idleOffsets || { angleX: 0, angleY: 0, bodyX: 0, eyeY: 0, breath: 0 };
+    const expressiveOffsets = !hasHeadPatEffect && typeof buildExpressiveStyleMotionOffsets === 'function'
+        ? buildExpressiveStyleMotionOffsets(nowMs, dtMs)
+        : null;
+    const trackingOffsets = typeof addMotionOffsets === 'function'
+        ? addMotionOffsets(idleOffsets, expressiveOffsets)
+        : (idleOffsets || expressiveOffsets);
+    const baseTrackingOffsets = trackingOffsets || { angleX: 0, angleY: 0, bodyX: 0, eyeY: 0, breath: 0 };
+    if (typeof window.setLive2DRootMotionOffsets === 'function') {
+        window.setLive2DRootMotionOffsets(hasHeadPatEffect ? null : trackingOffsets);
+    }
     if (!hasHeadPatEffect) {
         lastNonPatTrackingState = { ...baseTrackingOffsets };
     }
@@ -238,8 +247,9 @@ function updateMouseTracking(nowMs) {
                 applyHeadPatEyeCloseOverride(coreModel, patBlend);
             }
         } else {
-            applyTrackingParams(coreModel, currentMouseX, currentMouseY, idleOffsets);
-            applyIdleBreathParam(coreModel, idleOffsets);
+            applyTrackingParams(coreModel, currentMouseX, currentMouseY, trackingOffsets);
+            applyIdleBreathParam(coreModel, trackingOffsets);
+            applyExpressiveExpressionOverlay(coreModel, trackingOffsets);
         }
     } catch (_) {
     }
