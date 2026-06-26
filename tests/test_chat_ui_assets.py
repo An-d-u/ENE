@@ -300,6 +300,7 @@ def test_tracking_runtime_supports_synthetic_gesture_offsets():
 def test_tracking_runtime_exposes_expressive_style_motion_layer():
     script = _runtime_motion_state_text()
     tracking_script = (WEB_DIR / "runtime_auto_blink_tracking.js").read_text(encoding="utf-8-sig")
+    head_pat_script = (WEB_DIR / "runtime_head_pat.js").read_text(encoding="utf-8-sig")
     live2d_script = (WEB_DIR / "runtime_live2d_model.js").read_text(encoding="utf-8-sig")
     lipsync_script = (WEB_DIR / "runtime_lipsync.js").read_text(encoding="utf-8-sig")
 
@@ -486,7 +487,12 @@ def test_tracking_runtime_exposes_expressive_style_motion_layer():
     assert "function addMotionOffsets" in script
     assert "buildExpressiveStyleMotionOffsets(nowMs, dtMs)" in tracking_script
     assert "addMotionOffsets(idleOffsets, expressiveOffsets)" in tracking_script
-    assert "window.setLive2DRootMotionOffsets(hasHeadPatEffect ? null : trackingOffsets);" in tracking_script
+    assert "const motionFadeScale = hasHeadPatEffect ? Math.max(0, 1 - patBlend) : 1;" in tracking_script
+    assert "const fadedTrackingOffsets = motionFadeScale < 0.999 && typeof scaleMotionOffsets === 'function'" in tracking_script
+    assert "window.setLive2DRootMotionOffsets(fadedTrackingOffsets);" in tracking_script
+    assert "lastNonPatTrackingState = { ...baseTrackingOffsets };" in tracking_script
+    assert "lastNonPatTrackingState = { ...patOffsetsApplied };" not in tracking_script
+    assert "lastNonPatTrackingState = { ...patOffsetsApplied };" not in head_pat_script
     assert "window.setLive2DRootMotionOffsets = function" in live2d_script
     assert "const resolvedScale = Math.max(0.05, scale * (1 + rootOffsets.rootScale));" in live2d_script
     assert "model.x = window.innerWidth * (resolvedXPercent / 100);" in live2d_script

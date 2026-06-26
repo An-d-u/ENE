@@ -98,7 +98,6 @@ function onHeadPatPointerDown(event) {
     patRawIntensity = Math.max(patRawIntensity, 0.12);
     patBlendMode = 'in';
     patFadeElapsedMs = 0;
-    lastNonPatTrackingState = { ...patOffsetsApplied };
     if (event.target && typeof event.target.setPointerCapture === 'function') {
         try {
             event.target.setPointerCapture(event.pointerId);
