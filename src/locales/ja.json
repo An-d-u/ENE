@@ -884,6 +884,12 @@
         "mouse_tracking": "Enable mouse tracking",
         "hint": "Manage core surface visibility and mouse interaction together."
       },
+      "motion": {
+        "title": "動作設定",
+        "response_title": "返答動作",
+        "idle_title": "常時/待機動作",
+        "interaction_title": "インタラクション"
+      },
       "gesture": {
         "title": "返答ジェスチャー",
         "enable": "返答ジェスチャーを有効化",
@@ -963,7 +969,12 @@
         "auto_eye_blink_enable": "自動まばたきを有効化",
         "dynamic": "Enable dynamic idle motion mode",
         "strength": "Idle motion strength:",
-        "speed": "Idle motion speed:"
+        "speed": "Idle motion speed:",
+        "expressive_enable": "表情豊かな動作を有効化",
+        "expressive_strength": "表情豊かな動作の強さ:",
+        "expressive_speed": "表情豊かな動作の速度:",
+        "expressive_speech_boost": "発話中の反応:",
+        "expressive_hint": "キャラクターに小さな動きを加える試験的な機能です。モデルによって強すぎたり弱すぎたりする場合があります。"
       },
       "head_pat": {
         "title": "Head pat",

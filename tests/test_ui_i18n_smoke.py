@@ -1470,6 +1470,10 @@ def test_settings_dialog_exposes_synthetic_gesture_controls_and_saves_values():
             }
         )
 
+        assert dialog.motion_group.title() == "동작 설정"
+        assert dialog.motion_response_label.text() == "응답 동작"
+        assert dialog.motion_idle_label.text() == "상시/대기 동작"
+        assert dialog.motion_interaction_label.text() == "상호작용"
         assert dialog.enable_synthetic_gestures_check.isChecked() is False
         assert dialog.synthetic_gesture_scale_spin.value() == 1.4
         assert dialog.enable_idle_synthetic_gestures_check.isChecked() is True

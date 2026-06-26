@@ -938,6 +938,12 @@
         "mouse_tracking": "마우스 트래킹 활성화",
         "hint": "기본 노출 요소와 마우스 상호작용을 한 묶음으로 관리합니다."
       },
+      "motion": {
+        "title": "동작 설정",
+        "response_title": "응답 동작",
+        "idle_title": "상시/대기 동작",
+        "interaction_title": "상호작용"
+      },
       "gesture": {
         "title": "응답 제스처",
         "enable": "응답 제스처 사용",
@@ -1017,7 +1023,12 @@
         "auto_eye_blink_enable": "자동 눈 깜빡임 활성화",
         "dynamic": "유휴 모션 다이나믹 모드",
         "strength": "유휴 모션 강도:",
-        "speed": "유휴 모션 속도:"
+        "speed": "유휴 모션 속도:",
+        "expressive_enable": "생동감 모션 사용",
+        "expressive_strength": "생동감 모션 강도:",
+        "expressive_speed": "생동감 모션 속도:",
+        "expressive_speech_boost": "말할 때 반응:",
+        "expressive_hint": "캐릭터에 계속 작은 생동감을 더하는 시험 기능입니다. 모델에 따라 강하거나 약하게 보일 수 있습니다."
       },
       "head_pat": {
         "title": "머리 쓰다듬기",
