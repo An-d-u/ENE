@@ -297,6 +297,203 @@ def test_tracking_runtime_supports_synthetic_gesture_offsets():
     assert "if (support.eyeBallX) coreModel.setParameterValueById(support.eyeBallX, (x * 0.8) + gestureEyeX);" in script
 
 
+def test_tracking_runtime_exposes_expressive_style_motion_layer():
+    script = _runtime_motion_state_text()
+    tracking_script = (WEB_DIR / "runtime_auto_blink_tracking.js").read_text(encoding="utf-8-sig")
+    live2d_script = (WEB_DIR / "runtime_live2d_model.js").read_text(encoding="utf-8-sig")
+    lipsync_script = (WEB_DIR / "runtime_lipsync.js").read_text(encoding="utf-8-sig")
+
+    assert "const EXPRESSIVE_MOTION_POSES = [" in script
+    assert "function buildExpressiveStyleMotionOffsets" in script
+    assert "rootXPercent" in script
+    assert "rootYPercent" in script
+    assert "rootScale" in script
+    assert "eyeOpen" in script
+    assert "eyeSmile" in script
+    assert "eyeOpen: 0,\n        eyeSmile: 0,\n        rootXPercent: 0," in script
+    for pose_name in ["lean-in", "settle-back", "drift-left-counter", "look-up-curious", "look-down-soft", "shy-side-hold"]:
+        assert f'name: "{pose_name}"' in script
+    assert 'name: "soft-left"' not in script
+    assert 'name: "soft-right"' not in script
+    assert "const EXPRESSIVE_CHANNEL_RESPONSE_HZ = {" in script
+    assert "const EXPRESSIVE_TORSO_MOTION_RESPONSE_HZ = { idle: 2.1, speech: 4.4 };" in script
+    assert "let expressiveTorsoMotionLaggedOffsets = createEmptySyntheticGestureOffsets();" in script
+    assert "function buildExpressiveTorsoMotionOffsets(motionModeBlend, speechBob, dtSeconds)" in script
+    assert "const torsoOffsets = buildExpressiveTorsoMotionOffsets(motionModeBlend, speechBob, dtSeconds);" in script
+    assert "const torsoTargetOffsets = {" in script
+    assert "bodyY: (softBounce * 0.72) + (speechPulse * 1.05)" in script
+    assert "bodyZ: (softSway * 0.64) + (speechPulse * 0.42)" in script
+    assert "breath: (softBounce * 0.24) + (speechPulse * 0.52)" in script
+    assert "const poseOffsets = attenuateExpressiveSpeechLateralPoseOffsets(expressiveMotionCurrentPose, motionModeBlend);" in script
+    assert "const combinedMotionOffsets = addMotionOffsets(poseOffsets, wave, speechOffsets, torsoOffsets, accentOffsets, microGazeOffsets);" in script
+    assert "let expressiveMotionLaggedOffsets = createEmptySyntheticGestureOffsets();" in script
+    assert "const EXPRESSIVE_MICRO_GAZE_SCHEDULE = {" in script
+    assert "idle: { minMs: 2200, maxMs: 4200, chance: 0.70 }" in script
+    assert "speech: { minMs: 700, maxMs: 1500, chance: 0.88 }" in script
+    assert "let expressiveMicroGazeState = createExpressiveMicroGazeState();" in script
+    assert "function createExpressiveMicroGazeState()" in script
+    assert "function scheduleNextExpressiveMicroGazeEvent(nowMs, speechActive)" in script
+    assert "function startExpressiveMicroGazeEvent(nowMs, speechActive)" in script
+    assert "function buildExpressiveMicroGazeOffsets(nowMs, speechActive)" in script
+    assert "const microGazeOffsets = buildExpressiveMicroGazeOffsets(nowMs, speechActive);" in script
+    assert "const combinedMotionOffsets = addMotionOffsets(poseOffsets, wave, speechOffsets, torsoOffsets, accentOffsets, microGazeOffsets);" in script
+    assert "eyeX: direction * randomBetween(0.032, speechActive ? 0.070 : 0.052)" in script
+    assert "eyeY: randomBetween(-0.024, 0.036)" in script
+    assert "eyeOpen: -randomBetween(0.006, 0.026)" in script
+    assert "{ t: 0.62, value: { eyeX: target.eyeX * 0.92, eyeY: target.eyeY * 0.82, eyeOpen: target.eyeOpen * 0.62, eyeSmile: target.eyeSmile * 0.70 } }" in script
+    assert "eyeX: -0.09" not in script
+    assert "eyeX: 0.09" not in script
+    assert "function applyExpressiveChannelLag(targetOffsets, dtSeconds)" in script
+    assert "root: ['rootXPercent', 'rootYPercent', 'rootScale']" in script
+    assert "expression: ['eyeOpen', 'eyeSmile']" in script
+    assert "const laggedMotionOffsets = applyExpressiveChannelLag(rawMotionOffsets, dtSeconds);" in script
+    assert "const EXPRESSIVE_ACCENT_MOTIONS = [" in script
+    assert "const EXPRESSIVE_STAGED_ACCENT_EYE_LEAD_T = 0.14;" in script
+    assert "function createExpressiveStagedAccentFrames" in script
+    assert "function applyExpressiveExpressionOverlay(coreModel, offsets = null)" in script
+    assert 'interpolation: "cubic"' in script
+    assert "function interpolateExpressiveAccentOffsetsCubic(frames, previousIndex, nextIndex, t)" in script
+    assert "rootXPercent: -0.72" in script
+    assert "bodyX: -7.2" in script
+    assert "rootScale: 0.016" in script
+    assert "bodyY: 3.7" in script
+    assert "rootXPercent: -5.4" not in script
+    assert "rootScale: 0.095" not in script
+    assert "eyeX: -0.16, eyeY: 0.19" not in script
+    assert "eyeY: -0.17" not in script
+    assert "eyeX: 0.16" not in script
+    assert "eyeX: -0.07, eyeY: 0.10" not in script
+    assert "eyeX: 0.08" not in script
+    assert "eyeY: 0.13" not in script
+    assert "eyeY: -0.08" not in script
+    assert "speech: { minMs: 1200, maxMs: 3000, chance: 0.96 }" in script
+    assert "idle: { x: 0.8, y: 0.55, scale: 0.008 }" in script
+    assert "speech: { x: 1.0, y: 0.75, scale: 0.010 }" in script
+    assert "const gain = speechActive ? 0.18 : 0.14;" in script
+    for accent_name in ["big-sway", "lean-peek", "curious-look", "question-tilt", "soft-bounce", "talk-bounce-lift", "talk-bounce-double", "talk-bounce-triple", "talk-hop-recoil", "idle-breath-lift", "talk-tilt-left-hold", "talk-tilt-right-hold", "idle-soft-attention", "side-hold", "glance-left-return", "glance-right-return", "settle-shift", "rhythm-sway", "bounce-groove-small", "bounce-groove-large"]:
+        assert f'name: "{accent_name}"' in script
+    assert "{ t: 0.40, value: { eyeX: -0.014, eyeY: 0.012, angleZ: -10.4, angleX: -0.8, bodyX: -7.2, bodyY: 1.5, bodyZ: -5.4, breath: 0.72, eyeOpen: -0.08, eyeSmile: 0.10, rootXPercent: -0.72, rootYPercent: -0.16, rootScale: 0.004 } }" in script
+    assert "{ t: 0.84, value: { eyeX: 0.014, eyeY: 0.012, angleZ: 11.2, angleX: 0.9, bodyX: 8.0, bodyY: 1.6, bodyZ: 6.0, breath: 0.74, eyeOpen: -0.08, eyeSmile: 0.10, rootXPercent: 0.84, rootYPercent: -0.16, rootScale: 0.004 } }" in script
+    assert "{ t: EXPRESSIVE_STAGED_ACCENT_EYE_LEAD_T, value: { eyeX: -0.02, eyeY: 0.04 } }" in script
+    assert "name: \"glance-left-return\"" in script
+    assert "name: \"glance-right-return\"" in script
+    assert "durationMs: 2450" in script
+    assert "speechWeight: 0.12" in script
+    assert "eyeX: -0.14" not in script
+    assert "eyeX: 0.14" not in script
+    assert "durationMs: 1850" not in script
+    assert "{ t: 0.26, value: { eyeX: -0.06, eyeY: 0.02 } }" in script
+    assert "{ t: 0.52, value: { eyeX: -0.05, eyeY: 0.01, angleZ: 0.2 } }" in script
+    assert "{ t: 0.84, value: { eyeX: 0, eyeY: 0, angleZ: 0 } }" in script
+    assert "{ t: 0.26, value: { eyeX: 0.06, eyeY: 0.02 } }" in script
+    assert "durationMs: 3800" in script
+    assert "{ t: 0.20, value: { bodyX: -1.8, bodyY: 1.1, bodyZ: -2.8, breath: 0.34, rootXPercent: -0.4, rootYPercent: -0.2 } }" in script
+    assert "{ t: 0.28, value: { angleX: 1.4, angleY: -1.0, angleZ: -5.2, eyeX: 0, eyeY: 0, eyeOpen: -0.08, eyeSmile: 0.08 } }" in script
+    assert "{ t: 0.58, value: { angleX: -1.2, angleY: -0.8, angleZ: 5.0, eyeX: 0, eyeY: 0, eyeOpen: -0.10, eyeSmile: 0.10 } }" in script
+    assert "durationMs: 2850" in script
+    assert "name: \"bounce-groove-small\"" in script
+    assert "name: \"bounce-groove-large\"" in script
+    assert "durationMs: 3250" in script
+    assert "speechWeight: 4.60" in script
+    assert "{ t: 0.18, value: { bodyY: 7.2, bodyZ: 1.2, breath: 1.12, rootYPercent: -0.55, rootScale: 0.007 } }" in script
+    assert "{ t: 0.28, value: { angleY: 6.8, angleZ: -1.1, eyeX: 0, eyeY: 0.01, eyeOpen: -0.15, eyeSmile: 0.14 } }" in script
+    assert "{ t: 0.44, value: { bodyY: -1.8, bodyZ: -1.0, breath: 0.26, rootYPercent: 0.2, rootScale: -0.002 } }" in script
+    assert "speechWeight: 0.45" in script
+    assert "speechWeight: 2.40" in script
+    assert "speechWeight: 4.20" in script
+    assert "speechWeight: 4.80" in script
+    assert "speechWeight: 0.45" in script
+    assert "speechWeight: 0.18" in script
+    assert "idleWeight: 1.25" in script
+    assert "name: \"talk-bounce-lift\"" in script
+    assert "name: \"talk-bounce-double\"" in script
+    assert "name: \"talk-bounce-triple\"" in script
+    assert "name: \"talk-hop-recoil\"" in script
+    assert "name: \"idle-breath-lift\"" in script
+    assert "{ t: 0.18, value: { eyeX: 0, eyeY: 0.02, angleY: 5.8, angleZ: 0.2, bodyY: 5.6, bodyZ: 0.8, breath: 0.88, rootYPercent: -0.45, rootScale: 0.005 } }" in script
+    assert "{ t: 0.58, value: { eyeX: 0, eyeY: 0.02, angleY: 5.2, angleZ: -0.2, bodyY: 5.0, bodyZ: 0.6, breath: 0.78, rootYPercent: -0.40, rootScale: 0.004 } }" in script
+    assert "speechWeight: 4.10" in script
+    assert "{ t: 0.16, value: { eyeX: 0, eyeY: 0.02, angleY: 4.8, angleZ: 0.1, bodyY: 4.8, bodyZ: 0.6, breath: 0.72, rootYPercent: -0.34, rootScale: 0.004 } }" in script
+    assert "{ t: 0.46, value: { eyeX: 0, eyeY: 0.02, angleY: 5.2, angleZ: -0.1, bodyY: 5.2, bodyZ: 0.6, breath: 0.78, rootYPercent: -0.38, rootScale: 0.004 } }" in script
+    assert "{ t: 0.74, value: { eyeX: 0, eyeY: 0.01, angleY: 4.4, angleZ: 0, bodyY: 4.4, bodyZ: 0.4, breath: 0.64, rootYPercent: -0.30, rootScale: 0.003 } }" in script
+    assert "{ t: 0.16, value: { eyeX: 0, eyeY: 0.03, angleY: 8.4, angleZ: 0.6, bodyY: 8.4, bodyZ: 1.4, breath: 1.18, eyeOpen: -0.10, rootYPercent: -0.62, rootScale: 0.008 } }" in script
+    assert "{ t: 0.42, value: { eyeX: 0, eyeY: -0.01, angleY: -3.4, angleZ: -0.2, bodyY: -2.8, bodyZ: -0.9, breath: 0.18, rootYPercent: 0.22, rootScale: -0.003 } }" in script
+    assert "{ t: 0.32, value: { eyeX: 0, eyeY: 0.01, angleY: 2.4, angleZ: 0.3, bodyY: 3.8, bodyZ: 0.6, breath: 0.74, rootYPercent: -0.32, rootScale: 0.004 } }" in script
+    assert "{ t: 0.68, value: { eyeX: 0, eyeY: 0, angleY: 1.8, angleZ: -0.2, bodyY: 2.8, bodyZ: 0.4, breath: 0.58, rootYPercent: -0.24, rootScale: 0.003 } }" in script
+    assert "name: \"talk-tilt-left-hold\"" in script
+    assert "name: \"talk-tilt-right-hold\"" in script
+    assert "name: \"idle-soft-attention\"" in script
+    assert "{ t: 0.20, value: { eyeX: 0, eyeY: 0.02, angleY: 6.2, angleZ: 0.4, bodyY: 6.8, bodyZ: 1.0, breath: 1.05, rootYPercent: -0.55, rootScale: 0.006 } }" in script
+    assert "{ t: 0.38, value: { eyeX: 0.02, eyeY: 0.01, angleY: 4.2, angleZ: -4.2, bodyX: 0.4, bodyY: 0.7, bodyZ: 1.2, eyeOpen: -0.04, rootXPercent: 0.1 } }" in script
+    assert "{ t: 0.64, value: { eyeX: 0.02, eyeY: 0.01, angleY: 3.8, angleZ: -3.8, bodyX: 0.3, bodyY: 0.5, bodyZ: 1.0, eyeSmile: 0.04 } }" in script
+    assert "{ t: 0.38, value: { eyeX: -0.02, eyeY: 0.01, angleY: 4.2, angleZ: 4.2, bodyX: -0.4, bodyY: 0.7, bodyZ: -1.2, eyeOpen: -0.04, rootXPercent: -0.1 } }" in script
+    assert "angleZ: -7.8" not in script
+    assert "angleZ: 7.8" not in script
+    assert "const idleWaveScale = 0.78 - (motionModeBlend * 0.28);" in script
+    assert "const speechWaveScale = 1 + (motionModeBlend * 1.05);" in script
+    assert "bodyY: speechBob * 1.55" in script
+    assert "angleZ: Math.sin(expressiveMotionPhase * 1.6 + 0.3) * speechBob * 0.04" in script
+    assert "breath: speechBob * 0.75" in script
+    assert "eyeOpen: -speechBob * 0.035" in script
+    assert "rootYPercent: -speechBob * 0.08" in script
+    assert "rootScale: speechBob * 0.0012" in script
+    assert "Math.sin(expressiveMotionPhase * 1.18 + 1.4) * 0.18 * motionModeBlend" in script
+    assert "Math.sin(expressiveMotionPhase * 1.05 + 0.4) * 0.18 * motionModeBlend" in script
+    assert "{ t: 0.16, value: { bodyY: 3.9, bodyZ: 1.2, breath: 0.70, rootYPercent: -0.5, rootScale: 0.006 } }" in script
+    assert "{ t: 0.24, value: { angleY: 4.8, angleZ: -2.6, eyeX: 0, eyeY: 0.01, eyeOpen: -0.12, eyeSmile: 0.12 } }" in script
+    assert "{ t: 0.34, value: { bodyY: -1.4, bodyZ: -0.8, breath: 0.24, rootYPercent: 0.2, rootScale: -0.002 } }" in script
+    assert "let expressiveAccentMotionState = createExpressiveAccentMotionState();" in script
+    assert "function createExpressiveAccentMotionState()" in script
+    assert "function scheduleNextExpressiveAccentMotion(nowMs, speechActive)" in script
+    assert "function canPlayExpressiveAccentMotion()" in script
+    assert "function buildExpressiveAccentMotionOffsets(nowMs, speechActive)" in script
+    assert "if (!canPlayExpressiveAccentMotion())" in script
+    assert "typeof window.isSyntheticGestureActive === 'function' && window.isSyntheticGestureActive()" in script
+    assert "const accentOffsets = buildExpressiveAccentMotionOffsets(nowMs, speechActive);" in script
+    assert "const combinedMotionOffsets = addMotionOffsets(poseOffsets, wave, speechOffsets, torsoOffsets, accentOffsets, microGazeOffsets);" in script
+    assert "const splitMotionOffsets = splitExpressiveMotionOffsets(combinedMotionOffsets);" in script
+    assert "const placementOffsets = reduceExpressiveRootMotionOffsets(splitMotionOffsets.placementOffsets, speechActive);" in script
+    assert "const rawMotionOffsets = addMotionOffsets(splitMotionOffsets.bodyOffsets, placementOffsets);" in script
+    assert "applyExpressiveExpressionOverlay(coreModel, trackingOffsets);" in tracking_script
+    assert "coreModel.multiplyParameterValueById('ParamEyeLOpen', openMultiplier, 1);" in script
+    assert "coreModel.addParameterValueById('ParamEyeLSquint', eyeSmile, 1);" in script
+    assert "window.setExpressiveMotionConfig = function" in script
+    assert "window.updateExpressiveSpeechMotionEnergy = function" in script
+    assert "const EXPRESSIVE_SPEECH_MOTION_RESPONSE_HZ" in script
+    assert "const EXPRESSIVE_SPEECH_ACTIVITY_RESPONSE_HZ" in script
+    assert "const EXPRESSIVE_SPEECH_POSE_NAMES = new Set(['center', 'lean-in', 'look-up-curious', 'return-breath']);" in script
+    assert "const EXPRESSIVE_IDLE_POSE_NAMES = new Set" in script
+    assert "function attenuateExpressiveSpeechLateralPoseOffsets(offsets = {}, speechBlend = 0)" in script
+    assert "const lateralScale = 1 - (speechAmount * 0.55);" in script
+    assert "attenuated.angleZ *= lateralScale;" in script
+    assert "attenuated.bodyX *= lateralScale;" in script
+    assert "attenuated.bodyZ *= lateralScale;" in script
+    assert "attenuated.rootXPercent *= rootLateralScale;" in script
+    assert "let expressiveSpeechActivityBlend = 0;" in script
+    assert "function pickWeightedExpressiveMotionPose(speechActive = false)" in script
+    assert "const preferredNames = speechActive ? EXPRESSIVE_SPEECH_POSE_NAMES : EXPRESSIVE_IDLE_POSE_NAMES;" in script
+    assert "startNextExpressiveMotionPose(nowMs, speechPoseMode);" in script
+    assert "expressiveSpeechActivityBlend += (speechActivityTarget - expressiveSpeechActivityBlend) * speechActivityDamping;" in script
+    assert "const idleWaveScale = 0.78 - (motionModeBlend * 0.28);" in script
+    assert "const speechWaveScale = 1 + (motionModeBlend * 1.05);" in script
+    assert "Math.sin(expressiveMotionPhase * 0.31 + 1.2) * 0.22" in script
+    assert "Math.sin(expressiveMotionPhase * 0.57 + 2.2) * 0.16" in script
+    assert "Math.sin(expressiveMotionPhase * 0.44 + 0.6) * 0.0015" in script
+    assert "bodyY: Math.sin(expressiveMotionPhase * 1.22 + 0.2) * 0.88" in script
+    assert "bodyX: Math.sin(expressiveMotionPhase * 0.41 + 0.8) * 1.45" in script
+    assert "let expressiveSpeechMotionEnergyFiltered = 0;" in script
+    assert "expressiveSpeechMotionEnergyFiltered += (expressiveSpeechEnergySmoothed - expressiveSpeechMotionEnergyFiltered) * speechMotionDamping;" in script
+    assert "function addMotionOffsets" in script
+    assert "buildExpressiveStyleMotionOffsets(nowMs, dtMs)" in tracking_script
+    assert "addMotionOffsets(idleOffsets, expressiveOffsets)" in tracking_script
+    assert "window.setLive2DRootMotionOffsets(hasHeadPatEffect ? null : trackingOffsets);" in tracking_script
+    assert "window.setLive2DRootMotionOffsets = function" in live2d_script
+    assert "const resolvedScale = Math.max(0.05, scale * (1 + rootOffsets.rootScale));" in live2d_script
+    assert "model.x = window.innerWidth * (resolvedXPercent / 100);" in live2d_script
+    assert "model.y = window.innerHeight * (resolvedYPercent / 100);" in live2d_script
+    assert "window.updateExpressiveSpeechMotionEnergy(open);" in lipsync_script
+
+
 def test_gesture_engine_exposes_chat_gesture_player():
     script = _gesture_runtime_text()
 
@@ -304,12 +501,16 @@ def test_gesture_engine_exposes_chat_gesture_player():
     assert "const GESTURE_SPEED = 0.75;" in script
     assert "const SPEECH_GESTURE_MIN_DELAY_MS = 700;" in script
     assert "const SPEECH_GESTURE_MAX_DELAY_MS = 3200;" in script
+    assert "const SPEECH_GESTURE_ECHO_THRESHOLDS_MS = [3800, 7200, 11200];" in script
+    assert "const SPEECH_GESTURE_ECHO_ACTIVITY_GRACE_MS = 900;" in script
     assert "const SYNTHETIC_GESTURES = {" in script
     for gesture in ["nod", "bow", "shake", "surprise", "tilt", "sway"]:
         assert f"{gesture}:" in script
     assert "window.playSyntheticGesture = playSyntheticGesture;" in script
     assert "window.scheduleSyntheticGestureDuringSpeech = scheduleSyntheticGestureDuringSpeech;" in script
     assert "window.notifySyntheticGestureSpeechActivity = notifySyntheticGestureSpeechActivity;" in script
+    assert "function maybeScheduleSyntheticGestureEcho(nowMs)" in script
+    assert "playSyntheticGesture(currentSpeechGestureKey, { scale, clearPending: false })" in script
     assert "window.setSyntheticGestureScale = setSyntheticGestureScale;" in script
     assert "const IDLE_SYNTHETIC_GESTURE_FREQUENCIES = {" in script
     assert "const IDLE_SYNTHETIC_GESTURES = [" in script
@@ -318,6 +519,7 @@ def test_gesture_engine_exposes_chat_gesture_player():
     assert "window.setIdleSyntheticGestureConfig = setIdleSyntheticGestureConfig;" in script
     assert "lastSyntheticSpeechActivityAt" in script
     assert "window.stopSyntheticGesture = stopSyntheticGesture;" in script
+    assert "window.isSyntheticGestureActive = isSyntheticGestureActive;" in script
     assert "durationMs / GESTURE_SPEED" in script
 
 
@@ -475,7 +677,10 @@ def test_apply_mouth_pose_routes_image_avatar_before_live2d_mouth_state():
 
     assert (
         "const poseSource = normalizeMouthPoseSource(pose.source);\n"
-        "    const open = normalizeMouthPoseNumber(Number(pose.open));\n\n"
+        "    const open = normalizeMouthPoseNumber(Number(pose.open));\n"
+        "    if (typeof window.updateExpressiveSpeechMotionEnergy === 'function') {\n"
+        "        window.updateExpressiveSpeechMotionEnergy(open);\n"
+        "    }\n\n"
         "    if (isImageAvatarMode()) {\n"
         "        applyImageAvatarMouthValue(open);\n"
         "        return;\n"
@@ -2474,7 +2679,7 @@ def test_chat_script_applies_idle_breath_param_when_model_supports_it():
     assert "function applyIdleBreathParam(coreModel, idleOffsets = null)" in script
     assert "coreModel.setParameterValueById(support.breath, idleBreath + gestureBreath);" in script
     assert "applyIdleBreathParam(coreModel, patOffsetsApplied);" in script
-    assert "applyIdleBreathParam(coreModel, idleOffsets);" in script
+    assert "applyIdleBreathParam(coreModel, trackingOffsets);" in script
 
 
 def test_chat_script_blocks_fallback_eye_blink_when_eye_closing_state_is_active():

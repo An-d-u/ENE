@@ -1,4 +1,26 @@
+let live2dRootMotionOffsets = { rootXPercent: 0, rootYPercent: 0, rootScale: 0 };
 
+function clampLive2DRootMotionValue(value, minValue, maxValue) {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) {
+        return 0;
+    }
+    return Math.max(minValue, Math.min(maxValue, numericValue));
+}
+
+function normalizeLive2DRootMotionOffsets(offsets = {}) {
+    const source = offsets || {};
+    return {
+        rootXPercent: clampLive2DRootMotionValue(source.rootXPercent ?? source.rootX, -12, 12),
+        rootYPercent: clampLive2DRootMotionValue(source.rootYPercent ?? source.rootY, -8, 8),
+        rootScale: clampLive2DRootMotionValue(source.rootScale, -0.08, 0.18),
+    };
+}
+
+window.setLive2DRootMotionOffsets = function (offsets = {}) {
+    live2dRootMotionOffsets = normalizeLive2DRootMotionOffsets(offsets);
+    applyCurrentModelPlacement();
+};
 function removeCurrentModelArtifacts() {
     detachExpressionUpdateHook();
     if (window.live2dModel) {
@@ -245,11 +267,15 @@ function applyCurrentModelPlacement() {
     const scale = Number(config.scale ?? 1.0);
     const xPercent = Number(config.xPercent ?? 50);
     const yPercent = Number(config.yPercent ?? 50);
+    const rootOffsets = normalizeLive2DRootMotionOffsets(live2dRootMotionOffsets);
+    const resolvedScale = Math.max(0.05, scale * (1 + rootOffsets.rootScale));
+    const resolvedXPercent = xPercent + rootOffsets.rootXPercent;
+    const resolvedYPercent = yPercent + rootOffsets.rootYPercent;
 
     model.anchor.set(0.5, 0.5);
-    model.scale.set(scale);
-    model.x = window.innerWidth * (xPercent / 100);
-    model.y = window.innerHeight * (yPercent / 100);
+    model.scale.set(resolvedScale);
+    model.x = window.innerWidth * (resolvedXPercent / 100);
+    model.y = window.innerHeight * (resolvedYPercent / 100);
 }
 
 window.applyENEModelSettings = async function applyENEModelSettings(config) {

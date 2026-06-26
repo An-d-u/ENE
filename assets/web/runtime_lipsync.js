@@ -1,4 +1,4 @@
-
+﻿
 // ==========================================
 // 립싱크 제어
 // ==========================================
@@ -76,6 +76,9 @@ function applyMouthPose(pose) {
 
     const poseSource = normalizeMouthPoseSource(pose.source);
     const open = normalizeMouthPoseNumber(Number(pose.open));
+    if (typeof window.updateExpressiveSpeechMotionEnergy === 'function') {
+        window.updateExpressiveSpeechMotionEnergy(open);
+    }
 
     if (isImageAvatarMode()) {
         applyImageAvatarMouthValue(open);

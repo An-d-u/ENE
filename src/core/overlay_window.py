@@ -1,4 +1,4 @@
-"""
+﻿"""
 Transparent overlay window for Live2D.
 """
 import json
@@ -864,6 +864,10 @@ class OverlayWindow(QWidget):
         auto_eye_blink_enabled = "true" if bool(source.get("enable_auto_eye_blink", True)) else "false"
         strength = float(source.get("idle_motion_strength", 1.0))
         speed = float(source.get("idle_motion_speed", 1.0))
+        expressive_motion_enabled = "true" if bool(source.get("enable_expressive_motion", False)) else "false"
+        expressive_motion_strength = max(0.2, min(2.5, float(source.get("expressive_motion_strength", 1.0) or 1.0)))
+        expressive_motion_speed = max(0.4, min(2.0, float(source.get("expressive_motion_speed", 1.0) or 1.0)))
+        expressive_motion_speech_boost = max(0.0, min(2.5, float(source.get("expressive_motion_speech_boost", 1.0))))
         synthetic_gesture_scale = max(0.5, min(3.0, float(source.get("synthetic_gesture_scale", 1.0) or 1.0)))
         idle_synthetic_gestures_enabled = (
             "true" if bool(source.get("enable_idle_synthetic_gestures", False)) else "false"
@@ -912,6 +916,14 @@ class OverlayWindow(QWidget):
             "(function(){"
             "if (typeof window.setIdleMotionConfig === 'function') {"
             f"window.setIdleMotionConfig({strength:.3f}, {speed:.3f});"
+            "}"
+            "})();"
+        )
+        self.web_view.page().runJavaScript(
+            "(function(){"
+            "if (typeof window.setExpressiveMotionConfig === 'function') {"
+            f"window.setExpressiveMotionConfig({expressive_motion_enabled}, "
+            f"{expressive_motion_strength:.3f}, {expressive_motion_speed:.3f}, {expressive_motion_speech_boost:.3f});"
             "}"
             "})();"
         )
