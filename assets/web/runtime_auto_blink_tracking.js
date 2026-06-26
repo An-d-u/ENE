@@ -223,7 +223,9 @@ function updateMouseTracking(nowMs) {
     const trackingOffsets = typeof addMotionOffsets === 'function'
         ? addMotionOffsets(idleOffsets, expressiveOffsets)
         : (idleOffsets || expressiveOffsets);
-    const baseTrackingOffsets = trackingOffsets || { angleX: 0, angleY: 0, bodyX: 0, eyeY: 0, breath: 0 };
+    const baseTrackingOffsets = trackingOffsets || (typeof createEmptySyntheticGestureOffsets === 'function'
+        ? createEmptySyntheticGestureOffsets()
+        : { angleX: 0, angleY: 0, bodyX: 0, eyeX: 0, eyeY: 0, breath: 0 });
     const activeTrackingOffsets = hasHeadPatEffect ? lastNonPatTrackingState : trackingOffsets;
     const motionFadeScale = hasHeadPatEffect ? Math.max(0, 1 - patBlend) : 1;
     const fadedTrackingOffsets = motionFadeScale < 0.999 && typeof scaleMotionOffsets === 'function'
@@ -243,6 +245,12 @@ function updateMouseTracking(nowMs) {
         eyeY: lerp(lastNonPatTrackingState.eyeY, patOffsetsCurrent.eyeY, patBlend),
         breath: lerp(lastNonPatTrackingState.breath, patOffsetsCurrent.breath, patBlend),
     };
+    const centerGazeWeight = typeof resolveScreenCenterGazeWeight === 'function'
+        ? resolveScreenCenterGazeWeight(currentMouseX, currentMouseY, mouseTrackingEnabled)
+        : 1;
+    const centerGazeInput = !hasHeadPatEffect && typeof calculateScreenCenterGazeInput === 'function'
+        ? calculateScreenCenterGazeInput(window.live2dModel, centerGazeWeight)
+        : null;
 
     try {
         if (hasHeadPatEffect) {
@@ -252,7 +260,7 @@ function updateMouseTracking(nowMs) {
                 applyHeadPatEyeCloseOverride(coreModel, patBlend);
             }
         } else {
-            applyTrackingParams(coreModel, currentMouseX, currentMouseY, trackingOffsets);
+            applyTrackingParams(coreModel, currentMouseX, currentMouseY, trackingOffsets, centerGazeInput);
             applyIdleBreathParam(coreModel, trackingOffsets);
             applyExpressiveExpressionOverlay(coreModel, trackingOffsets);
         }

@@ -278,6 +278,49 @@ process.stdout.write(JSON.stringify(context.result));
     return json.loads(completed.stdout)
 
 
+def _run_motion_state_runtime_case(case_script: str) -> dict:
+    runtime_path = str(WEB_DIR / "runtime_motion_state.js")
+    node_script = f"""
+const fs = require('fs');
+const vm = require('vm');
+
+const runtimeSource = fs.readFileSync({json.dumps(runtime_path)}, 'utf8');
+const caseSource = {json.dumps(case_script)};
+const context = {{
+    window: {{
+        innerWidth: 1000,
+        innerHeight: 800,
+        eneModelConfig: {{}},
+        live2dModel: null,
+    }},
+    performance: {{
+        now() {{
+            return 1000;
+        }},
+    }},
+    console: {{
+        warn: () => {{}},
+        log: () => {{}},
+    }},
+    result: null,
+}};
+
+vm.createContext(context);
+vm.runInContext(runtimeSource + '\\n' + caseSource, context, {{
+    filename: 'runtime_motion_state.js',
+}});
+process.stdout.write(JSON.stringify(context.result));
+"""
+    completed = subprocess.run(
+        ["node", "-e", node_script],
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    return json.loads(completed.stdout)
+
+
 def test_tracking_runtime_supports_body_y_and_z_parameter_map():
     script = _runtime_motion_state_text()
 
@@ -294,7 +337,119 @@ def test_tracking_runtime_supports_synthetic_gesture_offsets():
     assert "angleZ: resolveParam('angleZ', 'ParamAngleZ')" in script
     assert "const gestureOffsets = syntheticGestureOffsets || createEmptySyntheticGestureOffsets();" in script
     assert "if (support.angleZ) coreModel.setParameterValueById(support.angleZ, gestureAngleZ);" in script
-    assert "if (support.eyeBallX) coreModel.setParameterValueById(support.eyeBallX, (x * 0.8) + gestureEyeX);" in script
+    assert "function buildCompensatedTrackingEyeTarget" in script
+    assert "if (support.eyeBallX) coreModel.setParameterValueById(support.eyeBallX, eyeTarget.eyeX);" in script
+
+
+def test_tracking_runtime_blends_center_gaze_with_motion_eye_offsets():
+    result = _run_motion_state_runtime_case(
+        """
+const calls = {};
+const coreModel = {
+    getParameterIndex(id) {
+        return [
+            'ParamAngleX',
+            'ParamAngleY',
+            'ParamAngleZ',
+            'ParamBodyAngleX',
+            'ParamBodyAngleY',
+            'ParamBodyAngleZ',
+            'ParamEyeBallX',
+            'ParamEyeBallY',
+            'ParamBreath',
+        ].includes(id) ? 0 : -1;
+    },
+    setParameterValueById(id, value) {
+        calls[id] = value;
+    },
+};
+
+window.setSyntheticGestureOffsets({ eyeX: -0.05, eyeY: 0.02 });
+applyTrackingParams(
+    coreModel,
+    0,
+    0,
+    { angleX: 6, angleY: 4, angleZ: 2, eyeX: 0.10, eyeY: 0.04 },
+    { x: 0.40, y: -0.20, weight: 1 }
+);
+
+result = {
+    eyeX: calls.ParamEyeBallX,
+    eyeY: calls.ParamEyeBallY,
+    oldEyeX: -0.05,
+    oldEyeY: 0.04 + 0.02,
+};
+"""
+    )
+
+    assert result["eyeX"] > result["oldEyeX"]
+    assert result["eyeY"] > result["oldEyeY"]
+    assert round(result["eyeX"], 3) == 0.265
+    assert round(result["eyeY"], 3) == 0.256
+
+
+def test_tracking_runtime_calculates_screen_center_gaze_from_face_anchor():
+    result = _run_motion_state_runtime_case(
+        """
+window.live2dModel = {
+    x: 0,
+    y: 0,
+    getBounds() {
+        return { x: 260, y: 100, width: 200, height: 300 };
+    },
+};
+
+result = calculateScreenCenterGazeInput(window.live2dModel);
+"""
+    )
+
+    assert round(result["x"], 3) == 0.28
+    assert round(result["y"], 3) == 0.41
+    assert result["weight"] == 1
+
+
+def test_tracking_runtime_keeps_center_gaze_visible_when_mouse_target_is_small():
+    result = _run_motion_state_runtime_case(
+        """
+result = {
+    disabled: resolveScreenCenterGazeWeight(0.4, 0.4, false),
+    tiny: resolveScreenCenterGazeWeight(0.04, -0.03, true),
+    small: resolveScreenCenterGazeWeight(0.16, 0.05, true),
+    large: resolveScreenCenterGazeWeight(0.9, -0.4, true),
+};
+"""
+    )
+
+    assert result["disabled"] == 1
+    assert result["tiny"] == 1
+    assert result["small"] > 0.9
+    assert 0.24 <= result["large"] <= 0.32
+
+
+def test_tracking_runtime_counter_gaze_responds_to_head_and_body_pose_without_root_shift():
+    result = _run_motion_state_runtime_case(
+        """
+const headLeft = buildCompensatedTrackingEyeTarget(
+    0,
+    0,
+    { angleX: -10, angleZ: -8, bodyX: -5, bodyZ: -3, eyeX: 0, eyeY: 0 },
+    {},
+    { x: 0, y: 0, weight: 1 }
+);
+const headRight = buildCompensatedTrackingEyeTarget(
+    0,
+    0,
+    { angleX: 10, angleZ: 8, bodyX: 5, bodyZ: 3, eyeX: 0, eyeY: 0 },
+    {},
+    { x: 0, y: 0, weight: 1 }
+);
+result = { headLeft, headRight };
+"""
+    )
+
+    assert result["headLeft"]["eyeX"] > 0.18
+    assert result["headRight"]["eyeX"] < -0.18
+    assert round(result["headLeft"]["eyeX"], 3) == -round(result["headRight"]["eyeX"], 3)
 
 
 def test_tracking_runtime_exposes_expressive_style_motion_layer():

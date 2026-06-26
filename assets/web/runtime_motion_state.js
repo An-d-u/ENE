@@ -61,7 +61,7 @@ let patBlendMode = 'idle'; // idle | in | hold | out
 let patFadeElapsedMs = 0;
 let patOffsetsCurrent = { angleX: 0, angleY: 0, bodyX: 0, eyeY: 0, breath: 0 };
 let patOffsetsApplied = { angleX: 0, angleY: 0, bodyX: 0, eyeY: 0, breath: 0 };
-let lastNonPatTrackingState = { angleX: 0, angleY: 0, bodyX: 0, eyeY: 0, breath: 0 };
+let lastNonPatTrackingState = createEmptySyntheticGestureOffsets();
 let syntheticGestureOffsets = createEmptySyntheticGestureOffsets();
 let previousEmotionBeforePat = 'normal';
 let currentEmotionTag = 'normal';
@@ -84,6 +84,21 @@ const TRACKING_Y_OFFSET = 0.08;
 const TRACKING_IDLE_TIMEOUT_MS = 1200;
 const TRACKING_DAMPING_AT_60FPS = 0.2;
 const TRACKING_FACE_Y_RATIO = 0.32;
+const TRACKING_SCREEN_GAZE_TARGET_X_RATIO = 0.50;
+const TRACKING_SCREEN_GAZE_TARGET_Y_RATIO = 0.45;
+const TRACKING_CENTER_GAZE_WEIGHT = 0.86;
+const TRACKING_CENTER_GAZE_EYE_X_GAIN = 1.05;
+const TRACKING_CENTER_GAZE_EYE_Y_GAIN = 1.18;
+const TRACKING_CENTER_GAZE_ANGLE_X_COUNTER = 0.018;
+const TRACKING_CENTER_GAZE_ANGLE_Y_COUNTER = 0.006;
+const TRACKING_CENTER_GAZE_ANGLE_Z_COUNTER = 0.007;
+const TRACKING_CENTER_GAZE_BODY_X_COUNTER = 0.012;
+const TRACKING_CENTER_GAZE_BODY_Z_COUNTER = 0.006;
+const TRACKING_MOTION_EYE_WEIGHT = 0.45;
+const TRACKING_GESTURE_EYE_WEIGHT = 0.72;
+const TRACKING_CENTER_GAZE_MOUSE_KEEP_RADIUS = 0.18;
+const TRACKING_CENTER_GAZE_MOUSE_FADE_RADIUS = 0.72;
+const TRACKING_CENTER_GAZE_MOUSE_MIN_WEIGHT = 0.28;
 const IDLE_MOTION_BASE_SPEED_HZ = 0.12;
 const IDLE_MOTION_BASE_ANGLE_X = 2.5;
 const IDLE_MOTION_BASE_ANGLE_Y = 0.8;
@@ -601,6 +616,87 @@ function clampExpressiveMotionValue(value, minValue, maxValue) {
         return 0;
     }
     return Math.max(minValue, Math.min(maxValue, numericValue));
+}
+
+function calculateScreenCenterGazeInput(model = window.live2dModel, weight = 1) {
+    if (!model) {
+        return { x: 0, y: 0, weight: 0 };
+    }
+
+    const canvasWidth = Number(window.innerWidth) || 1;
+    const canvasHeight = Number(window.innerHeight) || 1;
+    const targetX = canvasWidth * TRACKING_SCREEN_GAZE_TARGET_X_RATIO;
+    const targetY = canvasHeight * TRACKING_SCREEN_GAZE_TARGET_Y_RATIO;
+    let faceX = Number(model.x) || targetX;
+    let faceY = Number(model.y) || targetY;
+
+    try {
+        if (typeof model.getBounds === 'function') {
+            const bounds = model.getBounds();
+            if (bounds && Number.isFinite(bounds.width) && Number.isFinite(bounds.height) && bounds.width > 0 && bounds.height > 0) {
+                faceX = bounds.x + (bounds.width * 0.5);
+                faceY = bounds.y + (bounds.height * TRACKING_FACE_Y_RATIO);
+            }
+        }
+    } catch (_) {
+    }
+
+    return {
+        x: clampExpressiveMotionValue((targetX - faceX) / (canvasWidth * 0.5), -TRACKING_CLAMP, TRACKING_CLAMP),
+        y: clampExpressiveMotionValue((targetY - faceY) / (canvasHeight * 0.5), -TRACKING_CLAMP, TRACKING_CLAMP),
+        weight: clampExpressiveMotionValue(weight, 0, 1),
+    };
+}
+
+function resolveScreenCenterGazeWeight(mouseX = 0, mouseY = 0, trackingActive = false) {
+    if (!trackingActive) {
+        return 1;
+    }
+
+    const magnitude = Math.hypot(finiteOrZero(mouseX), finiteOrZero(mouseY));
+    if (magnitude <= TRACKING_CENTER_GAZE_MOUSE_KEEP_RADIUS) {
+        return 1;
+    }
+    if (magnitude >= TRACKING_CENTER_GAZE_MOUSE_FADE_RADIUS) {
+        return TRACKING_CENTER_GAZE_MOUSE_MIN_WEIGHT;
+    }
+
+    const t = (magnitude - TRACKING_CENTER_GAZE_MOUSE_KEEP_RADIUS) /
+        Math.max(0.001, TRACKING_CENTER_GAZE_MOUSE_FADE_RADIUS - TRACKING_CENTER_GAZE_MOUSE_KEEP_RADIUS);
+    const eased = t * t * (3 - (2 * t));
+    return 1 - ((1 - TRACKING_CENTER_GAZE_MOUSE_MIN_WEIGHT) * eased);
+}
+
+function buildCompensatedTrackingEyeTarget(x, y, idleOffsets = null, gestureOffsets = null, centerGazeInput = null) {
+    const idle = normalizeSyntheticGestureOffsets(idleOffsets || {});
+    const gesture = normalizeSyntheticGestureOffsets(gestureOffsets || {});
+    const centerGaze = centerGazeInput || { x: 0, y: 0, weight: 0 };
+    const centerWeight = TRACKING_CENTER_GAZE_WEIGHT * clampExpressiveMotionValue(centerGaze.weight, 0, 1);
+    const combinedAngleX = idle.angleX + gesture.angleX;
+    const combinedAngleY = idle.angleY + gesture.angleY;
+    const combinedAngleZ = idle.angleZ + gesture.angleZ;
+    const combinedBodyX = idle.bodyX + gesture.bodyX;
+    const combinedBodyZ = idle.bodyZ + gesture.bodyZ;
+    const centerEyeX =
+        (finiteOrZero(centerGaze.x) * TRACKING_CENTER_GAZE_EYE_X_GAIN) -
+        (combinedAngleX * TRACKING_CENTER_GAZE_ANGLE_X_COUNTER) -
+        (combinedAngleZ * TRACKING_CENTER_GAZE_ANGLE_Z_COUNTER) -
+        (combinedBodyX * TRACKING_CENTER_GAZE_BODY_X_COUNTER) -
+        (combinedBodyZ * TRACKING_CENTER_GAZE_BODY_Z_COUNTER);
+    const centerEyeY =
+        (-finiteOrZero(centerGaze.y) * TRACKING_CENTER_GAZE_EYE_Y_GAIN) +
+        (combinedAngleY * TRACKING_CENTER_GAZE_ANGLE_Y_COUNTER);
+    const motionEyeX =
+        (idle.eyeX * TRACKING_MOTION_EYE_WEIGHT) +
+        (gesture.eyeX * TRACKING_GESTURE_EYE_WEIGHT);
+    const motionEyeY =
+        (idle.eyeY * TRACKING_MOTION_EYE_WEIGHT) +
+        (gesture.eyeY * TRACKING_GESTURE_EYE_WEIGHT);
+
+    return {
+        eyeX: clampExpressiveMotionValue((x * 0.8) + (centerEyeX * centerWeight) + motionEyeX, -1, 1),
+        eyeY: clampExpressiveMotionValue((-y * 0.8) + (centerEyeY * centerWeight) + motionEyeY, -1, 1),
+    };
 }
 
 function splitExpressiveMotionOffsets(offsets = {}) {
@@ -1153,7 +1249,7 @@ function detectTrackingParams(coreModel) {
 }
 
 // 정규화된 시선 입력값을 실제 Live2D 파라미터 값으로 변환해 적용한다.
-function applyTrackingParams(coreModel, x, y, idleOffsets = null) {
+function applyTrackingParams(coreModel, x, y, idleOffsets = null, centerGazeInput = null) {
     const support = detectTrackingParams(coreModel);
     const gestureOffsets = syntheticGestureOffsets || createEmptySyntheticGestureOffsets();
     const idleAngleX = idleOffsets ? idleOffsets.angleX : 0;
@@ -1161,23 +1257,21 @@ function applyTrackingParams(coreModel, x, y, idleOffsets = null) {
     const idleBodyX = idleOffsets ? idleOffsets.bodyX : 0;
     const idleBodyY = idleOffsets && Number.isFinite(idleOffsets.bodyY) ? idleOffsets.bodyY : 0;
     const idleBodyZ = idleOffsets && Number.isFinite(idleOffsets.bodyZ) ? idleOffsets.bodyZ : 0;
-    const idleEyeY = idleOffsets && Number.isFinite(idleOffsets.eyeY) ? idleOffsets.eyeY : 0;
     const gestureAngleX = finiteOrZero(gestureOffsets.angleX);
     const gestureAngleY = finiteOrZero(gestureOffsets.angleY);
     const gestureAngleZ = finiteOrZero(gestureOffsets.angleZ);
     const gestureBodyX = finiteOrZero(gestureOffsets.bodyX);
     const gestureBodyY = finiteOrZero(gestureOffsets.bodyY);
     const gestureBodyZ = finiteOrZero(gestureOffsets.bodyZ);
-    const gestureEyeX = finiteOrZero(gestureOffsets.eyeX);
-    const gestureEyeY = finiteOrZero(gestureOffsets.eyeY);
+    const eyeTarget = buildCompensatedTrackingEyeTarget(x, y, idleOffsets, gestureOffsets, centerGazeInput);
     if (support.angleX) coreModel.setParameterValueById(support.angleX, (x * 15) + idleAngleX + gestureAngleX);
     if (support.angleY) coreModel.setParameterValueById(support.angleY, (-y * 15) + idleAngleY + gestureAngleY);
     if (support.angleZ) coreModel.setParameterValueById(support.angleZ, gestureAngleZ);
     if (support.bodyAngleX) coreModel.setParameterValueById(support.bodyAngleX, (x * 5) + idleBodyX + gestureBodyX);
     if (support.bodyAngleY) coreModel.setParameterValueById(support.bodyAngleY, idleBodyY + gestureBodyY);
     if (support.bodyAngleZ) coreModel.setParameterValueById(support.bodyAngleZ, idleBodyZ + gestureBodyZ);
-    if (support.eyeBallX) coreModel.setParameterValueById(support.eyeBallX, (x * 0.8) + gestureEyeX);
-    if (support.eyeBallY) coreModel.setParameterValueById(support.eyeBallY, (-y * 0.8) + idleEyeY + gestureEyeY);
+    if (support.eyeBallX) coreModel.setParameterValueById(support.eyeBallX, eyeTarget.eyeX);
+    if (support.eyeBallY) coreModel.setParameterValueById(support.eyeBallY, eyeTarget.eyeY);
 }
 
 // 유휴 모션이 제공하는 호흡 파라미터를 모델이 지원할 때 함께 반영한다.
