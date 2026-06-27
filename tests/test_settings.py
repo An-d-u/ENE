@@ -433,6 +433,45 @@ def test_migrates_legacy_secret_values_from_config(tmp_path):
     assert saved_secret["llm_api_keys"]["openai"] == "old-openai-key"
 
 
+def test_migrates_legacy_web_search_keys_without_overwriting_current_secret(tmp_path):
+    config_path = tmp_path / "config.json"
+    secret_path = tmp_path / "api_keys.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "web_search_api_keys": {
+                    "tavily": "stale-legacy-tavily-key",
+                    "future_provider": "legacy-future-provider-key",
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    secret_path.write_text(
+        json.dumps(
+            {
+                "web_search_api_keys": {
+                    "tavily": "current-tavily-key",
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    settings = Settings(config_path=str(config_path), secret_path=str(secret_path))
+
+    assert settings.get("web_search_api_keys")["tavily"] == "current-tavily-key"
+    assert settings.get("web_search_api_keys")["future_provider"] == "legacy-future-provider-key"
+
+    saved_config = json.loads(config_path.read_text(encoding="utf-8-sig"))
+    saved_secret = json.loads(secret_path.read_text(encoding="utf-8-sig"))
+    assert "web_search_api_keys" not in saved_config
+    assert saved_secret["web_search_api_keys"]["tavily"] == "current-tavily-key"
+    assert saved_secret["web_search_api_keys"]["future_provider"] == "legacy-future-provider-key"
+
+
 def test_store_python_settings_loads_visible_roaming_files_when_runtime_copy_is_missing(tmp_path, monkeypatch):
     from src.core import app_paths
 
