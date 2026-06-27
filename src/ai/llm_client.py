@@ -502,14 +502,14 @@ class GeminiClient:
             response_text = self._extract_response_text_or_empty(response, label="멀티모달")
             if not response_text:
                 return self._empty_text_fallback_response()
-            print(f"[LLM] 멀티모달 응답 chars={len(response_text or '')}")
+            print(f"[LLM] 멀티모달 응답: {response_text}")
             
             # 응답에서 텍스트, 감정, 일정 분리 (기존 메서드 활용)
             clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture = self._parse_response(response_text)
             
             # TTS 텍스트가 있으면 로깅
             if tts_text:
-                print(f"[LLM] TTS text chars={len(tts_text or '')}")
+                print(f"[LLM] TTS text: {tts_text}")
             
             # 일정이 있으면 로깅
             if events:
@@ -632,7 +632,7 @@ class GeminiClient:
             (응답 텍스트, 감정 태그, TTS 텍스트, 이벤트 리스트, analysis 메타, 약속 리스트, 속마음, 목표 업데이트) 튜플
         """
         try:
-            print(f"[LLM] Sending message chars={len(message or '')}")
+            print(f"[LLM] Sending message: {message}")
             
             # 토큰 계산 (비동기로 실행하지 않고 로그만 출력)
             # 동기 메서드 내에서 비동기 호출이 어려우므로 여기서는 생략하거나
@@ -647,14 +647,14 @@ class GeminiClient:
             response_text = self._extract_response_text_or_empty(response, label="텍스트")
             if not response_text:
                 return self._empty_text_fallback_response()
-            print(f"[LLM] Received response chars={len(response_text or '')}")
+            print(f"[LLM] Received response: {response_text}")
             
             # 응답에서 텍스트와 감정 분리
             text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture = self._parse_response(response_text)
             
             # TTS 텍스트가 있으면 로깅
             if tts_text:
-                print(f"[LLM] TTS text chars={len(tts_text or '')}")
+                print(f"[LLM] TTS text: {tts_text}")
             
             # 일정이 있으면 로깅
             if events:
@@ -723,7 +723,7 @@ class GeminiClient:
             if not has_date:
                 summary = f"[{time_range}] {summary}".strip()
             
-            print(f"[LLM] 요약 생성 완료 chars={len(summary or '')}")
+            print(f"[LLM] 요약 생성 완료: {summary}")
             if user_facts:
                 print(f"[LLM] 마스터 정보 {len(user_facts)}개 추출")
             if ene_facts:

@@ -415,7 +415,7 @@ class MemorySummaryBridgeMixin:
             self.conversation_buffer = []
             self._ene_thought_context_buffer = []
             
-            print(f"[Bridge] 대화 요약 완료 chars={len(summary or '')}")
+            print(f"[Bridge] 대화 요약 완료: {summary}")
             if user_facts:
                 print(f"[Bridge] 마스터 정보 count={len(user_facts)}")
             if ene_facts:

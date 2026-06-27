@@ -70,7 +70,7 @@ class _SendToAiBridge(_DummyBridge):
         return "2026-06-27 09:30"
 
     def _build_general_chat_prompt(self, message, attachment_context=""):
-        return f"PROMPT::{message}::PRIVATE_CONTEXT"
+        return f"PROMPT::{message}::VISIBLE_CONTEXT"
 
     def _with_prompt_time(self, timestamp, prompt):
         return f"[TIME {timestamp}]\n{prompt}"
@@ -199,73 +199,67 @@ def test_request_pending_stage_normalizes_unknown_stage_to_thinking():
     ]
 
 
-def test_send_to_ai_does_not_log_raw_message_or_timestamped_prompt(monkeypatch, capsys):
+def test_send_to_ai_logs_raw_message_and_timestamped_prompt(monkeypatch, capsys):
     monkeypatch.setattr(chat_flow, "AIWorker", _DummyWorker)
     bridge = _SendToAiBridge()
-    raw_message = "synthetic-private-prompt-alpha"
-    timestamped_prompt = "[TIME 2026-06-27 09:30]\nPROMPT::synthetic-private-prompt-alpha::PRIVATE_CONTEXT"
+    raw_message = "synthetic prompt alpha"
+    timestamped_prompt = "[TIME 2026-06-27 09:30]\nPROMPT::synthetic prompt alpha::VISIBLE_CONTEXT"
 
     bridge.send_to_ai(raw_message)
 
     captured = capsys.readouterr()
-    assert "Received message from JS chars=" in captured.out
-    assert "Message with timestamp chars=" in captured.out
-    assert raw_message not in captured.out
-    assert timestamped_prompt not in captured.out
-    assert "PRIVATE_CONTEXT" not in captured.out
+    assert f"Received message from JS: {raw_message}" in captured.out
+    assert "Message with timestamp:" in captured.out
+    assert timestamped_prompt in captured.out
+    assert raw_message in captured.out
+    assert "VISIBLE_CONTEXT" in captured.out
 
 
-def test_response_ready_schedule_success_log_omits_private_event_content(capsys):
+def test_response_ready_schedule_success_log_includes_event_content(capsys):
     bridge = _ResponseReadyBridge(_CalendarManager())
-    private_title = "SYNTHETIC_SCHEDULE_TITLE_SECRET_2468"
-    private_date = "2099-12-31"
+    event_title = "Synthetic schedule title"
+    event_date = "2099-12-31"
 
     WebBridge._handle_response_ready(
         bridge,
         "Synthetic reply.",
         "normal",
         "",
-        [{"date": private_date, "title": private_title, "description": "Synthetic note."}],
+        [{"date": event_date, "title": event_title, "description": "Synthetic note."}],
     )
 
     captured = capsys.readouterr().out
-    assert private_title not in captured
-    assert private_date not in captured
-    assert "Synthetic note." not in captured
-    assert f"title_chars={len(private_title)}" in captured
-    assert f"date_chars={len(private_date)}" in captured
-    assert "has_description=True" in captured
+    assert event_title in captured
+    assert event_date in captured
 
 
-def test_response_ready_schedule_failure_log_omits_private_exception_message(capsys):
-    error_message = "SYNTHETIC_EXCEPTION_SECRET_1357"
+def test_response_ready_schedule_failure_log_includes_exception_message(capsys):
+    error_message = "Synthetic exception message"
     bridge = _ResponseReadyBridge(_CalendarManager(error_message=error_message))
-    private_title = "SYNTHETIC_FAILED_TITLE_SECRET_8642"
-    private_date = "2099-11-30"
+    event_title = "Synthetic failed title"
+    event_date = "2099-11-30"
 
     WebBridge._handle_response_ready(
         bridge,
         "Synthetic reply.",
         "normal",
         "",
-        [{"date": private_date, "title": private_title, "description": ""}],
+        [{"date": event_date, "title": event_title, "description": ""}],
     )
 
     captured = capsys.readouterr().out
-    assert private_title not in captured
-    assert private_date not in captured
-    assert error_message not in captured
-    assert "error_type=RuntimeError" in captured
+    assert event_title in captured
+    assert event_date in captured
+    assert error_message in captured
 
 
-def test_log_from_js_logs_length_without_raw_message(capsys):
-    raw_message = "SYNTHETIC_JS_LOG_SECRET_9753"
+def test_log_from_js_logs_raw_message(capsys):
+    raw_message = "Synthetic JS console message"
 
     WebBridge.log_from_js(object(), raw_message)
 
     captured = capsys.readouterr().out
-    assert raw_message not in captured
-    assert f"chars={len(raw_message)}" in captured
+    assert raw_message in captured
 
 
 def test_start_diary_worker_emits_request_pending_changed(monkeypatch):

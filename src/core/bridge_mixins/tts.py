@@ -304,7 +304,7 @@ class TTSBridgeMixin:
             text, emotion = self.pending_response
             thought = ""
         gesture = self.pending_response[3] if len(self.pending_response) >= 4 else ""
-        print(f"[Bridge] 보류된 응답 즉시 전송 chars={len(text or '')} emotion={emotion}")
+        print(f"[Bridge] 보류된 응답 즉시 전송: {text} emotion={emotion}")
         emit_pending = getattr(self, "_emit_request_pending_changed", None)
         if callable(emit_pending):
             emit_pending(False)
