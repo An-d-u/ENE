@@ -113,7 +113,12 @@ class CalendarManager:
         )
         self.events.append(event)
         self.save()
-        print(f"[Calendar] 일정 추가: {date} - {title}")
+        print(
+            "[Calendar] event added "
+            f"title_chars={len(title or '')} "
+            f"date_chars={len(date or '')} "
+            f"has_description={bool(description)}"
+        )
         return event
     
     def get_events_by_date(self, date: str) -> List[CalendarEvent]:
