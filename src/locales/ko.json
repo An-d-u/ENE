@@ -646,12 +646,12 @@
           "placeholder": "예: https://api.example.com/v1/chat/completions"
         },
         "secret": {
-          "label": "키 / 패스워드:",
-          "placeholder": "키 또는 패스워드"
+          "label": "API 키 / 패스워드:",
+          "placeholder": "API 키 또는 패스워드"
         },
         "request_model": {
-          "label": "요청 모델:",
-          "placeholder": "요청 모델명"
+          "label": "모델:",
+          "placeholder": "모델명"
         },
         "format": {
           "label": "포맷:",

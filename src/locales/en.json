@@ -644,12 +644,12 @@
           "placeholder": "e.g. https://api.example.com/v1/chat/completions"
         },
         "secret": {
-          "label": "Key / password:",
-          "placeholder": "Key or password"
+          "label": "API key / password:",
+          "placeholder": "API key or password"
         },
         "request_model": {
-          "label": "Request model:",
-          "placeholder": "Requested model name"
+          "label": "Model:",
+          "placeholder": "Model name"
         },
         "format": {
           "label": "Format:",
