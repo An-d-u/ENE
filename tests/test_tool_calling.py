@@ -145,3 +145,13 @@ def test_web_search_runner_ignores_malformed_decision_json():
     decision = runner.parse_decision("not json")
 
     assert decision == WebSearchDecision(False, "", "")
+
+
+def test_web_search_runner_clamps_numeric_max_results():
+    assert WebSearchToolRunner(search_tool=None, enabled=True, max_results=0).max_results == 1
+    assert WebSearchToolRunner(search_tool=None, enabled=True, max_results=-3).max_results == 1
+
+
+def test_web_search_runner_defaults_malformed_max_results():
+    assert WebSearchToolRunner(search_tool=None, enabled=True, max_results=None).max_results == 5
+    assert WebSearchToolRunner(search_tool=None, enabled=True, max_results="bad").max_results == 5
