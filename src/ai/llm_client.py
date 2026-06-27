@@ -8,9 +8,9 @@ from google import genai
 
 from ..conversation_format import prepend_message_time
 from .memory_context_builder import (
-    _format_context_full_date,
-    _format_context_month_day,
-    _format_context_month_day_time,
+    _format_context_full_date as _format_context_full_date,
+    _format_context_month_day as _format_context_month_day,
+    _format_context_month_day_time as _format_context_month_day_time,
     build_goal_context_block,
     build_memory_context as build_common_memory_context,
     build_overdue_promise_context,
@@ -35,6 +35,7 @@ from .response_parser import (
 from .summary_parser import parse_summary_memory_meta, parse_summary_response
 from .markdown_document_prompt import build_markdown_document_prompt
 from .summary_prompt import build_summary_prompt
+from .tool_calling import build_web_search_context_from_settings, compose_contextual_message
 
 LLM_RESPONSE_TUPLE = Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict], str, Dict[str, str], List[Dict], str]
 
@@ -356,6 +357,7 @@ class GeminiClient:
         latest_user_message: str | None = None,
         recent_memory_context: str | None = None,
         head_pat_count_before_message: int | None = None,
+        progress_callback=None,
     ) -> LLM_RESPONSE_TUPLE:
         """
         메모리를 활용한 메시지 전송
@@ -375,13 +377,22 @@ class GeminiClient:
             recent_context=support_context,
             head_pat_count_before_message=head_pat_count_before_message,
         )
+        web_search_context = build_web_search_context_from_settings(
+            getattr(self, "settings", None),
+            message=message,
+            latest_user_message=str(latest_user_message or ""),
+            recent_context=support_context,
+            progress_callback=progress_callback,
+        )
         
         # 메모리가 있으면 메시지 앞에 추가
+        enhanced_message = compose_contextual_message(
+            message,
+            memory_context=memory_context,
+            web_search_context=web_search_context,
+        )
         if memory_context:
-            enhanced_message = f"{memory_context}\n\n{message}"
             print(f"[LLM] 메모리 컨텍스트 추가 (길이: {len(memory_context)})")
-        else:
-            enhanced_message = message
         
         # 일반 메시지 전송
         return self.send_message(enhanced_message)
@@ -394,6 +405,7 @@ class GeminiClient:
         latest_user_message: str | None = None,
         recent_memory_context: str | None = None,
         head_pat_count_before_message: int | None = None,
+        progress_callback=None,
     ) -> LLM_RESPONSE_TUPLE:
         """
         이미지와 함께 메시지 전송 (멀티모달)
@@ -442,6 +454,7 @@ class GeminiClient:
                     latest_user_message,
                     recent_memory_context,
                     head_pat_count_before_message,
+                    progress_callback,
                 )
             
             # 메모리 컨텍스트 추가
@@ -453,10 +466,18 @@ class GeminiClient:
                 recent_context=support_context,
                 head_pat_count_before_message=head_pat_count_before_message,
             )
-            if memory_context:
-                enhanced_message = f"{memory_context}\n\n{message}"
-            else:
-                enhanced_message = message
+            web_search_context = build_web_search_context_from_settings(
+                getattr(self, "settings", None),
+                message=message,
+                latest_user_message=str(latest_user_message or ""),
+                recent_context=support_context,
+                progress_callback=progress_callback,
+            )
+            enhanced_message = compose_contextual_message(
+                message,
+                memory_context=memory_context,
+                web_search_context=web_search_context,
+            )
             
             # Gemini에 멀티모달 요청
             # contents에 이미지와 텍스트를 함께 전달

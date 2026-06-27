@@ -18,6 +18,7 @@ class LLMClientProtocol(Protocol):
         latest_user_message: str | None = None,
         recent_memory_context: str | None = None,
         head_pat_count_before_message: int | None = None,
+        progress_callback=None,
     ) -> LLM_RESPONSE_TUPLE:
         ...
 
@@ -29,6 +30,7 @@ class LLMClientProtocol(Protocol):
         latest_user_message: str | None = None,
         recent_memory_context: str | None = None,
         head_pat_count_before_message: int | None = None,
+        progress_callback=None,
     ) -> LLM_RESPONSE_TUPLE:
         ...
 

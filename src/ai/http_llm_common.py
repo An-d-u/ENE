@@ -34,6 +34,7 @@ from .summary_parser import parse_summary_memory_meta, parse_summary_response
 from .markdown_document_prompt import build_markdown_document_prompt
 from .runtime_prompt_settings import build_runtime_prompt_settings_source
 from .summary_prompt import build_summary_prompt, build_summary_prompt_from_text
+from .tool_calling import build_web_search_context_from_settings, compose_contextual_message
 DEFAULT_GENERATION_PARAMS = {
     "temperature": 0.9,
     "top_p": 1.0,
@@ -525,6 +526,37 @@ class _CommonMixin:
             head_pat_count_before_message=head_pat_count_before_message,
         )
 
+    async def _build_contextual_message(
+        self,
+        message: str,
+        *,
+        memory_search_text: str | None = None,
+        latest_user_message: str | None = None,
+        recent_memory_context: str | None = None,
+        head_pat_count_before_message: int | None = None,
+        progress_callback=None,
+    ) -> str:
+        search_query = str(memory_search_text or "").strip() or message
+        primary_query = str(latest_user_message or "").strip() or search_query
+        support_context = str(recent_memory_context or "").strip()
+        memory_context = await self._build_memory_context(
+            primary_query,
+            recent_context=support_context,
+            head_pat_count_before_message=head_pat_count_before_message,
+        )
+        web_search_context = build_web_search_context_from_settings(
+            getattr(self, "settings", None),
+            message=message,
+            latest_user_message=str(latest_user_message or ""),
+            recent_context=support_context,
+            progress_callback=progress_callback,
+        )
+        return compose_contextual_message(
+            message,
+            memory_context=memory_context,
+            web_search_context=web_search_context,
+        )
+
     def _messages_for_openai(
         self,
         user_content,
@@ -583,5 +615,4 @@ class _CommonMixin:
 
     def get_conversation_history(self):
         return list(self._history)
-
 

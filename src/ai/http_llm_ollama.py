@@ -118,16 +118,16 @@ class OllamaClient(_CommonMixin):
         latest_user_message: str | None = None,
         recent_memory_context: str | None = None,
         head_pat_count_before_message: int | None = None,
+        progress_callback=None,
     ) -> LLM_RESPONSE_TUPLE:
-        search_query = str(memory_search_text or "").strip() or message
-        primary_query = str(latest_user_message or "").strip() or search_query
-        support_context = str(recent_memory_context or "").strip()
-        memory_context = await self._build_memory_context(
-            primary_query,
-            recent_context=support_context,
+        enhanced = await self._build_contextual_message(
+            message,
+            memory_search_text=memory_search_text,
+            latest_user_message=latest_user_message,
+            recent_memory_context=recent_memory_context,
             head_pat_count_before_message=head_pat_count_before_message,
+            progress_callback=progress_callback,
         )
-        enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         return self.send_message(enhanced)
 
     async def send_message_with_images(
@@ -138,16 +138,16 @@ class OllamaClient(_CommonMixin):
         latest_user_message: str | None = None,
         recent_memory_context: str | None = None,
         head_pat_count_before_message: int | None = None,
+        progress_callback=None,
     ) -> LLM_RESPONSE_TUPLE:
-        search_query = str(memory_search_text or "").strip() or message
-        primary_query = str(latest_user_message or "").strip() or search_query
-        support_context = str(recent_memory_context or "").strip()
-        memory_context = await self._build_memory_context(
-            primary_query,
-            recent_context=support_context,
+        enhanced = await self._build_contextual_message(
+            message,
+            memory_search_text=memory_search_text,
+            latest_user_message=latest_user_message,
+            recent_memory_context=recent_memory_context,
             head_pat_count_before_message=head_pat_count_before_message,
+            progress_callback=progress_callback,
         )
-        enhanced = f"{memory_context}\n\n{message}" if memory_context else message
         raw_response_text = self._request_ollama(enhanced, images_data=images_data)
         clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture = self._parse_response_with_empty_fallback(raw_response_text)
         user_content = {"content": enhanced}

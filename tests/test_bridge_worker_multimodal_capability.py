@@ -56,3 +56,33 @@ def test_ai_worker_sends_images_when_client_declares_image_support():
 
     assert client.calls == [("이미지 설명해줘", [{"dataUrl": "data:image/png;base64,QUJD"}])]
     assert responses == ["이미지 응답"]
+
+
+def test_ai_worker_forwards_progress_callback_to_memory_client():
+    _ensure_qt_app()
+
+    stages = []
+
+    class DummyLLM:
+        async def send_message_with_memory(self, *args, progress_callback=None):
+            if progress_callback:
+                progress_callback("searching")
+            self.call_args = args
+            self.progress_callback = progress_callback
+            return "Synthetic response.", "normal", "", [], {}, [], "", {}, [], ""
+
+    client = DummyLLM()
+    responses = []
+    progress_callback = stages.append
+    worker = AIWorker(
+        llm_client=client,
+        message="Synthetic prompt.",
+        progress_callback=progress_callback,
+    )
+    worker.response_ready.connect(lambda text, *_args: responses.append(text))
+
+    worker.run()
+
+    assert client.progress_callback is progress_callback
+    assert stages == ["searching"]
+    assert responses == ["Synthetic response."]
