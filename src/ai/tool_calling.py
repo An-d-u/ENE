@@ -64,7 +64,7 @@ class WebSearchToolRunner:
 
     def _coerce_max_results(self, max_results) -> int:
         try:
-            value = int(max_results or 5)
+            value = 5 if max_results is None else int(max_results)
         except (TypeError, ValueError):
             value = 5
         return max(1, min(value, 10))
