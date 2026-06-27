@@ -312,7 +312,7 @@ class ChatFlowBridgeMixin:
     @pyqtSlot(str)
     def send_to_ai(self, message: str):
         """JavaScript에서 호출: 사용자 텍스트 메시지를 AI로 전송."""
-        print(f"[Bridge] Received message from JS: {message}")
+        print(f"[Bridge] Received message from JS chars={len(message or '')}")
 
         if hasattr(self, 'calendar_manager') and self.calendar_manager:
             self.calendar_manager.increment_conversation_count()
@@ -347,7 +347,7 @@ class ChatFlowBridgeMixin:
         head_pat_count_before_message = 0
         if hasattr(self, 'calendar_manager') and self.calendar_manager:
             head_pat_count_before_message = int(self.calendar_manager.drain_pending_head_pat_count())
-        print(f"[Bridge] Message with timestamp: {message_with_time}")
+        print(f"[Bridge] Message with timestamp chars={len(message_with_time or '')}")
 
         cancel_proactive = getattr(self, "_cancel_pending_proactive_conversations_for_user_message", None)
         if callable(cancel_proactive):

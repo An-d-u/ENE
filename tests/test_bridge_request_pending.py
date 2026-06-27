@@ -47,6 +47,41 @@ class _DummyBridge(ChatFlowBridgeMixin):
         pass
 
 
+class _SendToAiBridge(_DummyBridge):
+    def __init__(self):
+        super().__init__()
+        self.settings = None
+        self.conversation_buffer = []
+        self.mood_manager = None
+        self.message_received = _DummySignal()
+        self._is_rerolling = False
+        self._last_request_payload = None
+
+    def _handle_note_command(self, _message):
+        return False
+
+    def _handle_obs_command(self, _message):
+        return False
+
+    def _handle_diary_command(self, _message):
+        return False
+
+    def _now_timestamp(self):
+        return "2026-06-27 09:30"
+
+    def _build_general_chat_prompt(self, message, attachment_context=""):
+        return f"PROMPT::{message}::PRIVATE_CONTEXT"
+
+    def _with_prompt_time(self, timestamp, prompt):
+        return f"[TIME {timestamp}]\n{prompt}"
+
+    def _mark_user_activity(self):
+        pass
+
+    def _append_conversation(self, role, message, timestamp=None):
+        self.conversation_buffer.append((role, message, timestamp))
+
+
 class _ManualSummaryBridge(MemorySummaryBridgeMixin):
     def __init__(self):
         self.worker = None
@@ -98,6 +133,22 @@ def test_request_pending_stage_normalizes_unknown_stage_to_thinking():
         ("thinking",),
         ("searching",),
     ]
+
+
+def test_send_to_ai_does_not_log_raw_message_or_timestamped_prompt(monkeypatch, capsys):
+    monkeypatch.setattr(chat_flow, "AIWorker", _DummyWorker)
+    bridge = _SendToAiBridge()
+    raw_message = "synthetic-private-prompt-alpha"
+    timestamped_prompt = "[TIME 2026-06-27 09:30]\nPROMPT::synthetic-private-prompt-alpha::PRIVATE_CONTEXT"
+
+    bridge.send_to_ai(raw_message)
+
+    captured = capsys.readouterr()
+    assert "Received message from JS chars=" in captured.out
+    assert "Message with timestamp chars=" in captured.out
+    assert raw_message not in captured.out
+    assert timestamped_prompt not in captured.out
+    assert "PRIVATE_CONTEXT" not in captured.out
 
 
 def test_start_diary_worker_emits_request_pending_changed(monkeypatch):
