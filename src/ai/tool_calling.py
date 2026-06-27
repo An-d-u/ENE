@@ -16,9 +16,10 @@ class WebSearchDecision:
 
 def parse_manual_search_command(message: str) -> str:
     text = str(message or "").strip()
-    if not text.lower().startswith("/search"):
+    match = re.match(r"^/search(?:\s+(.*))?$", text, flags=re.IGNORECASE)
+    if not match:
         return ""
-    return text[len("/search") :].strip()
+    return (match.group(1) or "").strip()
 
 
 def build_search_context_block(response: SearchResponse, max_snippet_chars: int = 500) -> str:
