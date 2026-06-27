@@ -82,6 +82,70 @@ class _SendToAiBridge(_DummyBridge):
         self.conversation_buffer.append((role, message, timestamp))
 
 
+class _ScheduleEvent:
+    def __init__(self, date, title):
+        self.date = date
+        self.title = title
+
+
+class _CalendarManager:
+    def __init__(self, error_message=None):
+        self.error_message = error_message
+
+    def add_event(self, date, title, description="", source=""):
+        if self.error_message:
+            raise RuntimeError(self.error_message)
+        return _ScheduleEvent(date, title)
+
+
+class _ResponseReadyBridge:
+    def __init__(self, calendar_manager):
+        self._last_assistant_response = None
+        self.mood_manager = None
+        self.settings = {"enable_schedule_recognition": True}
+        self.goal_manager = None
+        self.calendar_manager = calendar_manager
+        self.conversation_buffer = []
+        self.enable_tts = False
+        self.tts_client = None
+        self.audio_player = None
+        self.pending_response = None
+        self.pending_token_usage_payload = ""
+        self._is_rerolling = False
+        self.request_pending_changed = _DummySignal()
+        self.request_pending_stage_changed = _DummySignal()
+        self.message_received = _DummySignal()
+        self.token_usage_ready = _DummySignal()
+        self.reroll_state_changed = _DummySignal()
+
+    def _sanitize_visible_response_text(self, text):
+        return WebBridge._sanitize_visible_response_text(self, text)
+
+    def _are_ene_thoughts_enabled(self):
+        return False
+
+    def _append_conversation(self, role, message, timestamp=None):
+        self.conversation_buffer.append((role, message, timestamp))
+
+    def _remember_ene_thought_for_context(self, _thought):
+        pass
+
+    def _refresh_llm_history_from_visible_conversation(self):
+        pass
+
+    def _resolve_token_usage_payload(self, payload=""):
+        return payload or "{}"
+
+    def _collect_promise_ids(self, stored):
+        return WebBridge._collect_promise_ids(self, stored)
+
+    def _remember_tracked_promise_ids(self, _promise_ids):
+        pass
+
+    def _check_auto_summarize(self):
+        pass
+
+
 class _ManualSummaryBridge(MemorySummaryBridgeMixin):
     def __init__(self):
         self.worker = None
@@ -149,6 +213,59 @@ def test_send_to_ai_does_not_log_raw_message_or_timestamped_prompt(monkeypatch, 
     assert raw_message not in captured.out
     assert timestamped_prompt not in captured.out
     assert "PRIVATE_CONTEXT" not in captured.out
+
+
+def test_response_ready_schedule_success_log_omits_private_event_content(capsys):
+    bridge = _ResponseReadyBridge(_CalendarManager())
+    private_title = "SYNTHETIC_SCHEDULE_TITLE_SECRET_2468"
+    private_date = "2099-12-31"
+
+    WebBridge._handle_response_ready(
+        bridge,
+        "Synthetic reply.",
+        "normal",
+        "",
+        [{"date": private_date, "title": private_title, "description": "Synthetic note."}],
+    )
+
+    captured = capsys.readouterr().out
+    assert private_title not in captured
+    assert private_date not in captured
+    assert "Synthetic note." not in captured
+    assert f"title_chars={len(private_title)}" in captured
+    assert f"date_chars={len(private_date)}" in captured
+    assert "has_description=True" in captured
+
+
+def test_response_ready_schedule_failure_log_omits_private_exception_message(capsys):
+    error_message = "SYNTHETIC_EXCEPTION_SECRET_1357"
+    bridge = _ResponseReadyBridge(_CalendarManager(error_message=error_message))
+    private_title = "SYNTHETIC_FAILED_TITLE_SECRET_8642"
+    private_date = "2099-11-30"
+
+    WebBridge._handle_response_ready(
+        bridge,
+        "Synthetic reply.",
+        "normal",
+        "",
+        [{"date": private_date, "title": private_title, "description": ""}],
+    )
+
+    captured = capsys.readouterr().out
+    assert private_title not in captured
+    assert private_date not in captured
+    assert error_message not in captured
+    assert "error_type=RuntimeError" in captured
+
+
+def test_log_from_js_logs_length_without_raw_message(capsys):
+    raw_message = "SYNTHETIC_JS_LOG_SECRET_9753"
+
+    WebBridge.log_from_js(object(), raw_message)
+
+    captured = capsys.readouterr().out
+    assert raw_message not in captured
+    assert f"chars={len(raw_message)}" in captured
 
 
 def test_start_diary_worker_emits_request_pending_changed(monkeypatch):

@@ -668,15 +668,22 @@ class ChatFlowBridgeMixin:
         ):
             for event_data in events:
                 try:
-                    event = self.calendar_manager.add_event(
+                    title_chars = len(str(event_data.get('title', '') or '')) if isinstance(event_data, dict) else 0
+                    date_chars = len(str(event_data.get('date', '') or '')) if isinstance(event_data, dict) else 0
+                    has_description = bool(event_data.get('description', '')) if isinstance(event_data, dict) else False
+                    self.calendar_manager.add_event(
                         date=event_data['date'],
                         title=event_data['title'],
                         description=event_data.get('description', ''),
                         source="ai_extracted"
                     )
-                    print(f"[Bridge] 일정 추가: {event.date} - {event.title}")
+                    print(
+                        "[Bridge] schedule event stored "
+                        f"title_chars={title_chars} date_chars={date_chars} "
+                        f"has_description={has_description}"
+                    )
                 except Exception as e:
-                    print(f"[Bridge] 일정 추가 실패: {e}")
+                    print(f"[Bridge] schedule event store failed error_type={type(e).__name__}")
 
         stored_promise_ids: list[str] = []
         llm_promises = list(scheduled_promises or [])
