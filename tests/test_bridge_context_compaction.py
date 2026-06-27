@@ -382,6 +382,85 @@ def test_gemini_send_message_with_memory_injects_manual_search_context(monkeypat
     assert enhanced_prompt.endswith("Original final prompt.")
 
 
+def test_gemini_send_message_with_memory_auto_search_uses_one_shot_decision(monkeypatch):
+    class FakeTavilyProvider:
+        provider_name = "tavily"
+        queries = []
+
+        def __init__(self, api_key, timeout_sec=12):
+            self.api_key = api_key
+            self.timeout_sec = timeout_sec
+
+        def search(self, query):
+            self.__class__.queries.append(query)
+            return SearchResponse(
+                query=query.query,
+                provider=self.provider_name,
+                results=[
+                    SearchResult(
+                        title="Neutral Topic Result",
+                        url="https://example.com/neutral-topic",
+                        snippet="Synthetic neutral search result.",
+                    )
+                ],
+            )
+
+    class SearchSettings:
+        def get(self, key, default=None):
+            values = {
+                "web_search_enabled": True,
+                "web_search_auto_enabled": True,
+                "web_search_provider": "tavily",
+                "web_search_max_results": 2,
+                "web_search_timeout_sec": 5,
+                "web_search_api_keys": {"tavily": "synthetic-key"},
+            }
+            return values.get(key, default)
+
+    captured = {}
+    decision_calls = []
+    visible_history = []
+    dummy = type("ClientDummy", (), {})()
+    dummy.settings = SearchSettings()
+
+    async def _build_memory_context(query, recent_context="", head_pat_count_before_message=None):
+        return "Synthetic memory context."
+
+    def _generate_one_shot_text(prompt, include_sub_prompt=True):
+        decision_calls.append({"prompt": prompt, "include_sub_prompt": include_sub_prompt})
+        return '{"should_search": true, "query": "neutral release schedule", "reason": "current info"}'
+
+    def _send_message(enhanced_prompt):
+        captured["enhanced_prompt"] = enhanced_prompt
+        visible_history.append({"role": "user", "parts": [{"text": enhanced_prompt}]})
+        visible_history.append({"role": "model", "parts": [{"text": "Synthetic response."}]})
+        return "Synthetic response.", "normal", None, [], {}, [], "", {}, [], ""
+
+    monkeypatch.setattr("src.ai.tool_calling.TavilySearchProvider", FakeTavilyProvider)
+    FakeTavilyProvider.queries = []
+    dummy._build_memory_context = _build_memory_context
+    dummy._generate_one_shot_text = _generate_one_shot_text
+    dummy.send_message = _send_message
+    dummy.get_conversation_history = lambda: list(visible_history)
+
+    asyncio.run(
+        GeminiClient.send_message_with_memory(
+            dummy,
+            "Original final prompt.",
+            latest_user_message="What is the latest neutral release schedule?",
+        )
+    )
+
+    enhanced_prompt = captured["enhanced_prompt"]
+    assert len(decision_calls) == 1
+    assert decision_calls[0]["include_sub_prompt"] is False
+    assert FakeTavilyProvider.queries[0].query == "neutral release schedule"
+    assert "[WEB_SEARCH_RESULTS]" in enhanced_prompt
+    assert "Synthetic neutral search result." in enhanced_prompt
+    assert enhanced_prompt.endswith("Original final prompt.")
+    assert len(dummy.get_conversation_history()) == 2
+
+
 def test_build_memory_context_includes_goal_context_without_memory_manager():
     dummy = type("ClientDummy", (), {})()
     dummy.memory_manager = None

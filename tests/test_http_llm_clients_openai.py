@@ -28,10 +28,13 @@ class _DummyResponse:
 
 
 class _SearchSettings:
+    def __init__(self, *, auto_enabled=False):
+        self.auto_enabled = auto_enabled
+
     def get(self, key, default=None):
         values = {
             "web_search_enabled": True,
-            "web_search_auto_enabled": False,
+            "web_search_auto_enabled": self.auto_enabled,
             "web_search_provider": "tavily",
             "web_search_max_results": 2,
             "web_search_timeout_sec": 5,
@@ -127,6 +130,90 @@ def test_openai_responses_send_message_with_memory_injects_manual_search_context
     assert "Synthetic neutral search result." in text
     assert text.endswith("Original final prompt.")
     assert stages == ["searching", "thinking"]
+
+
+def test_openai_responses_auto_search_decision_injects_results(monkeypatch):
+    provider = _install_fake_search(monkeypatch)
+    captured_payloads = []
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured_payloads.append(json)
+        if len(captured_payloads) == 1:
+            return _DummyResponse(
+                json_data={
+                    "output_text": (
+                        '{"should_search": true, "query": "neutral release schedule", '
+                        '"reason": "current info"}'
+                    )
+                }
+            )
+        return _DummyResponse(json_data={"output_text": "Synthetic response."})
+
+    monkeypatch.setattr("src.ai.http_llm_clients.requests.post", fake_post)
+
+    client = OpenAIResponseAPIClient(
+        api_key="k",
+        model_name="gpt-5.4-mini",
+        endpoint="https://api.openai.com/v1/responses",
+        settings=_SearchSettings(auto_enabled=True),
+    )
+
+    asyncio.run(
+        client.send_message_with_memory(
+            "Original final prompt.",
+            latest_user_message="What is the latest neutral release schedule?",
+        )
+    )
+
+    assert len(captured_payloads) == 2
+    assert provider.queries[0].query == "neutral release schedule"
+    final_text = captured_payloads[1]["input"][-1]["content"][0]["text"]
+    assert "[WEB_SEARCH_RESULTS]" in final_text
+    assert "Synthetic neutral search result." in final_text
+    assert final_text.endswith("Original final prompt.")
+
+
+def test_openai_responses_auto_no_search_skips_tavily_and_search_progress(monkeypatch):
+    provider = _install_fake_search(monkeypatch)
+    captured_payloads = []
+    stages = []
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured_payloads.append(json)
+        if len(captured_payloads) == 1:
+            return _DummyResponse(
+                json_data={
+                    "output_text": (
+                        '{"should_search": false, "query": "", '
+                        '"reason": "conversation context is enough"}'
+                    )
+                }
+            )
+        return _DummyResponse(json_data={"output_text": "Synthetic response."})
+
+    monkeypatch.setattr("src.ai.http_llm_clients.requests.post", fake_post)
+
+    client = OpenAIResponseAPIClient(
+        api_key="k",
+        model_name="gpt-5.4-mini",
+        endpoint="https://api.openai.com/v1/responses",
+        settings=_SearchSettings(auto_enabled=True),
+    )
+
+    asyncio.run(
+        client.send_message_with_memory(
+            "Original final prompt.",
+            latest_user_message="Help me outline a neutral short story.",
+            progress_callback=stages.append,
+        )
+    )
+
+    assert len(captured_payloads) == 2
+    assert provider.queries == []
+    final_text = captured_payloads[1]["input"][-1]["content"][0]["text"]
+    assert "[WEB_SEARCH_RESULTS]" not in final_text
+    assert "Original final prompt." in final_text
+    assert "searching" not in stages
 
 
 def test_openai_compatible_send_message_with_memory_uses_latest_user_message_for_manual_detection(monkeypatch):

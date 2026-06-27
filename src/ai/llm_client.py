@@ -35,7 +35,11 @@ from .response_parser import (
 from .summary_parser import parse_summary_memory_meta, parse_summary_response
 from .markdown_document_prompt import build_markdown_document_prompt
 from .summary_prompt import build_summary_prompt
-from .tool_calling import build_web_search_context_from_settings, compose_contextual_message
+from .tool_calling import (
+    build_web_search_context_from_settings,
+    compose_contextual_message,
+    create_web_search_decision_provider,
+)
 
 LLM_RESPONSE_TUPLE = Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict], str, Dict[str, str], List[Dict], str]
 
@@ -212,6 +216,11 @@ class GeminiClient:
         )
         return self._extract_response_text_or_empty(response, label="one-shot")
 
+    def _create_web_search_decision_provider(self):
+        return create_web_search_decision_provider(
+            lambda prompt: self._generate_one_shot_text(prompt, include_sub_prompt=False)
+        )
+
     def _empty_text_fallback_response(self) -> LLM_RESPONSE_TUPLE:
         """LLM이 텍스트 없는 응답을 반환했을 때 사용자에게 보여줄 안전한 fallback."""
         return "음... 무슨 일이 있었나봐요.", "confused", None, [], {}, [], "", {}, [], ""
@@ -383,6 +392,7 @@ class GeminiClient:
             latest_user_message=str(latest_user_message or ""),
             recent_context=support_context,
             progress_callback=progress_callback,
+            decision_provider=GeminiClient._create_web_search_decision_provider(self),
         )
         
         # 메모리가 있으면 메시지 앞에 추가
@@ -472,6 +482,7 @@ class GeminiClient:
                 latest_user_message=str(latest_user_message or ""),
                 recent_context=support_context,
                 progress_callback=progress_callback,
+                decision_provider=GeminiClient._create_web_search_decision_provider(self),
             )
             enhanced_message = compose_contextual_message(
                 message,
