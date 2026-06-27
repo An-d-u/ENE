@@ -34,7 +34,11 @@ from .summary_parser import parse_summary_memory_meta, parse_summary_response
 from .markdown_document_prompt import build_markdown_document_prompt
 from .runtime_prompt_settings import build_runtime_prompt_settings_source
 from .summary_prompt import build_summary_prompt, build_summary_prompt_from_text
-from .tool_calling import build_web_search_context_from_settings, compose_contextual_message
+from .tool_calling import (
+    build_web_search_context_from_settings,
+    compose_contextual_message,
+    create_web_search_decision_provider,
+)
 DEFAULT_GENERATION_PARAMS = {
     "temperature": 0.9,
     "top_p": 1.0,
@@ -365,6 +369,11 @@ class _CommonMixin:
         self._history.append({"role": "user", "content": user_content})
         self._history.append({"role": "assistant", "content": assistant_content})
 
+    def _create_web_search_decision_provider(self):
+        return create_web_search_decision_provider(
+            lambda prompt: self._request_one_shot_raw(prompt, include_sub_prompt=False)
+        )
+
     def _to_openai_input_content(self, content) -> list[dict]:
         items = []
         if isinstance(content, list):
@@ -550,6 +559,7 @@ class _CommonMixin:
             latest_user_message=str(latest_user_message or ""),
             recent_context=support_context,
             progress_callback=progress_callback,
+            decision_provider=self._create_web_search_decision_provider(),
         )
         return compose_contextual_message(
             message,
@@ -615,4 +625,3 @@ class _CommonMixin:
 
     def get_conversation_history(self):
         return list(self._history)
-

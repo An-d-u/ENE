@@ -2,6 +2,8 @@ from src.ai.search_tool import SearchResponse, SearchResult
 from src.ai.tool_calling import (
     WebSearchDecision,
     WebSearchToolRunner,
+    build_web_search_context_from_settings,
+    create_web_search_decision_provider,
     build_search_context_block,
     create_web_search_tool_runner,
     parse_manual_search_command,
@@ -270,6 +272,111 @@ def test_web_search_runner_ignores_malformed_decision_json():
     decision = runner.parse_decision("not json")
 
     assert decision == WebSearchDecision(False, "", "")
+
+
+def test_web_search_decision_provider_parses_fenced_whitespace_json():
+    calls = []
+
+    def generate_text(prompt):
+        calls.append(prompt)
+        return """
+        ```json
+        {"should_search": true, "query": "neutral product release date", "reason": "current info"}
+        ```
+        """
+
+    provider = create_web_search_decision_provider(generate_text)
+
+    decision = provider("What is the latest release date?", "Earlier neutral context.")
+
+    assert len(calls) == 1
+    assert "latest_user_message" in calls[0]
+    assert decision == WebSearchDecision(True, "neutral product release date", "current info")
+
+
+def test_web_search_decision_provider_falls_back_for_malformed_and_exception():
+    malformed_provider = create_web_search_decision_provider(lambda prompt: "not json")
+
+    def raising_generate_text(prompt):
+        raise RuntimeError("synthetic failure")
+
+    raising_provider = create_web_search_decision_provider(raising_generate_text)
+
+    assert malformed_provider("latest neutral question", "") == WebSearchDecision(False, "", "")
+    assert raising_provider("latest neutral question", "") == WebSearchDecision(False, "", "")
+
+
+def test_build_web_search_context_does_not_call_decision_for_manual_mode(monkeypatch):
+    class FakeTavilyProvider:
+        provider_name = "tavily"
+
+        def __init__(self, api_key, timeout_sec=12):
+            self.api_key = api_key
+            self.timeout_sec = timeout_sec
+
+        def search(self, query):
+            return SearchResponse(
+                query=query.query,
+                provider=self.provider_name,
+                results=[
+                    SearchResult(
+                        title="Neutral Result",
+                        url="https://example.com/neutral",
+                        snippet="Synthetic neutral snippet.",
+                    )
+                ],
+            )
+
+    calls = []
+    settings = DummySettings(
+        {
+            "web_search_enabled": True,
+            "web_search_auto_enabled": True,
+            "web_search_provider": "tavily",
+            "web_search_api_keys": {"tavily": "synthetic-key"},
+        }
+    )
+
+    def decision_provider(latest_user_message, recent_context):
+        calls.append((latest_user_message, recent_context))
+        return WebSearchDecision(True, "should not run", "")
+
+    monkeypatch.setattr("src.ai.tool_calling.TavilySearchProvider", FakeTavilyProvider)
+    block = build_web_search_context_from_settings(
+        settings,
+        message="/search neutral topic",
+        latest_user_message="/search neutral topic",
+        decision_provider=decision_provider,
+    )
+
+    assert calls == []
+    assert "[WEB_SEARCH_RESULTS]" in block
+
+
+def test_build_web_search_context_does_not_call_decision_when_auto_disabled():
+    calls = []
+    settings = DummySettings(
+        {
+            "web_search_enabled": True,
+            "web_search_auto_enabled": False,
+            "web_search_provider": "tavily",
+            "web_search_api_keys": {"tavily": "synthetic-key"},
+        }
+    )
+
+    def decision_provider(latest_user_message, recent_context):
+        calls.append((latest_user_message, recent_context))
+        return WebSearchDecision(True, "should not run", "")
+
+    block = build_web_search_context_from_settings(
+        settings,
+        message="latest neutral question",
+        latest_user_message="latest neutral question",
+        decision_provider=decision_provider,
+    )
+
+    assert calls == []
+    assert block == ""
 
 
 def test_web_search_runner_clamps_numeric_max_results():

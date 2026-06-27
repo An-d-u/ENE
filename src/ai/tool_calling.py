@@ -14,6 +14,70 @@ class WebSearchDecision:
     reason: str = ""
 
 
+def build_web_search_decision_prompt(latest_user_message: str, recent_context: str = "") -> str:
+    payload = {
+        "latest_user_message": str(latest_user_message or "").strip(),
+        "recent_context": str(recent_context or "").strip(),
+    }
+    return (
+        "Decide whether the assistant should use web search before answering.\n"
+        "Return a JSON object only, with these fields: should_search, query, reason.\n"
+        "\n"
+        "Search when the user asks for current or changeable information, including news, prices, schedules, "
+        "laws or regulations, product specifications or availability, sports scores, market data, or other facts "
+        "that may have changed recently.\n"
+        "Do not search for personal advice, creative writing, code explanation, summarization, or requests that can "
+        "be answered from the current conversation context.\n"
+        "If searching, make query a short neutral search-engine query. Do not include unnecessary private context, "
+        "personal data, or sensitive details.\n"
+        "\n"
+        f"Input JSON:\n{json.dumps(payload, ensure_ascii=False)}"
+    )
+
+
+def _strip_json_fence(raw_text: str) -> str:
+    text = str(raw_text or "").strip()
+    match = re.match(r"^```(?:json)?\s*(.*?)\s*```$", text, flags=re.IGNORECASE | re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return text
+
+
+def _parse_web_search_decision(raw_text: str) -> WebSearchDecision:
+    try:
+        data = json.loads(_strip_json_fence(raw_text))
+    except Exception:
+        return WebSearchDecision(False, "", "")
+    if not isinstance(data, dict):
+        return WebSearchDecision(False, "", "")
+
+    should_search = data.get("should_search", False)
+    if isinstance(should_search, str):
+        should_search = should_search.strip().lower() in {"true", "1", "yes"}
+    else:
+        should_search = bool(should_search)
+
+    query = str(data.get("query", "") or "").strip()
+    reason = str(data.get("reason", "") or "").strip()
+    if should_search and not query:
+        return WebSearchDecision(False, "", "")
+    return WebSearchDecision(should_search=should_search, query=query, reason=reason)
+
+
+def create_web_search_decision_provider(generate_text):
+    def _provider(latest_user_message: str, recent_context: str = "") -> WebSearchDecision:
+        if not callable(generate_text):
+            return WebSearchDecision(False, "", "")
+        prompt = build_web_search_decision_prompt(latest_user_message, recent_context)
+        try:
+            raw_text = generate_text(prompt)
+        except Exception:
+            return WebSearchDecision(False, "", "")
+        return _parse_web_search_decision(raw_text)
+
+    return _provider
+
+
 def parse_manual_search_command(message: str) -> str:
     text = str(message or "").strip()
     match = re.match(r"^/search(?:\s+(.*))?$", text, flags=re.IGNORECASE)
@@ -68,7 +132,7 @@ def _read_web_search_api_key(settings, provider: str) -> str:
     return str(keys.get(provider, "") or "").strip()
 
 
-def create_web_search_tool_runner(settings, progress_callback=None) -> "WebSearchToolRunner":
+def create_web_search_tool_runner(settings, progress_callback=None, decision_provider=None) -> "WebSearchToolRunner":
     enabled = bool(_read_setting(settings, "web_search_enabled", False))
     auto_enabled = bool(_read_setting(settings, "web_search_auto_enabled", True))
     provider_name = str(_read_setting(settings, "web_search_provider", "tavily") or "tavily").strip().lower()
@@ -86,6 +150,7 @@ def create_web_search_tool_runner(settings, progress_callback=None) -> "WebSearc
         enabled=enabled,
         auto_enabled=auto_enabled,
         max_results=max_results,
+        decision_provider=decision_provider,
         progress_callback=progress_callback,
     )
 
@@ -97,8 +162,13 @@ def build_web_search_context_from_settings(
     latest_user_message: str = "",
     recent_context: str = "",
     progress_callback=None,
+    decision_provider=None,
 ) -> str:
-    runner = create_web_search_tool_runner(settings, progress_callback=progress_callback)
+    runner = create_web_search_tool_runner(
+        settings,
+        progress_callback=progress_callback,
+        decision_provider=decision_provider,
+    )
     manual_query = parse_manual_search_command(latest_user_message)
     if manual_query:
         return runner.build_context(
@@ -205,14 +275,4 @@ class WebSearchToolRunner:
         return WebSearchDecision(False, "", "")
 
     def parse_decision(self, raw_text: str) -> WebSearchDecision:
-        try:
-            data = json.loads(str(raw_text or ""))
-        except Exception:
-            return WebSearchDecision(False, "", "")
-        if not isinstance(data, dict):
-            return WebSearchDecision(False, "", "")
-        return WebSearchDecision(
-            should_search=bool(data.get("should_search", False)),
-            query=str(data.get("query", "") or "").strip(),
-            reason=str(data.get("reason", "") or "").strip(),
-        )
+        return _parse_web_search_decision(raw_text)
