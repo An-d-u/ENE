@@ -122,7 +122,7 @@ class AIWorker(QThread):
         loop = None
         """스레드 실행"""
         try:
-            print(f"[AI Worker] Processing message: {self.message[:50]}...")
+            print(f"[AI Worker] Processing message chars={len(self.message or '')}")
 
             # 비동기 메서드이므로 asyncio로 실행
             import asyncio
@@ -185,9 +185,9 @@ class AIWorker(QThread):
                     self.llm_client.send_message(self.message)
                 )
 
-            print(f"[AI Worker] Response: {response_text[:50]}... [{emotion}]")
+            print(f"[AI Worker] response chars={len(response_text or '')} emotion={emotion}")
             if tts_text:
-                print(f"[AI Worker] TTS text: {tts_text[:30]}...")
+                print(f"[AI Worker] TTS text chars={len(tts_text or '')}")
             if events:
                 print(f"[AI Worker] {len(events)}개 일정 추출")
             token_usage_payload = self._build_token_usage_payload()
@@ -430,7 +430,7 @@ class TTSWorker(QThread):
             from pathlib import Path
             from src.ai.audio_analyzer import AudioAnalyzer
 
-            print(f"[TTS Worker] Generating speech for: {self.text[:30]}...")
+            print(f"[TTS Worker] Generating speech chars={len(self.text or '')}")
 
             # 새 이벤트 루프 생성
             loop = asyncio.new_event_loop()
@@ -500,7 +500,7 @@ class StreamingTTSWorker(QThread):
             import asyncio
             from src.ai.audio_analyzer import RealtimeLipSyncAnalyzer, StreamingWavDecoder
 
-            print(f"[StreamingTTSWorker] Streaming speech for: {self.text[:30]}...")
+            print(f"[StreamingTTSWorker] Streaming speech chars={len(self.text or '')}")
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
 

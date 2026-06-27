@@ -630,7 +630,7 @@ class ChatFlowBridgeMixin:
             thoughts_enabled = lambda: ThoughtBridgeMixin._are_ene_thoughts_enabled(self)
         if not thoughts_enabled():
             thought = ""
-        print(f"[Bridge] Response ready: {text[:50]}... [{emotion}]")
+        print(f"[Bridge] Response ready chars={len(text or '')} emotion={emotion}")
         self._last_assistant_response = {"text": text, "emotion": emotion}
         analysis = {}
         if analysis_payload:
@@ -732,7 +732,7 @@ class ChatFlowBridgeMixin:
                 self._is_rerolling = False
                 self.reroll_state_changed.emit(False)
             if tts_text:
-                print(f"[Bridge] TTS 비활성화 또는 클라이언트 없음 (TTS 텍스트: {tts_text[:20]}...)")
+                print(f"[Bridge] TTS 비활성화 또는 클라이언트 없음 (TTS chars={len(tts_text or '')})")
         
         # 자동 요약 확인
         self._check_auto_summarize()

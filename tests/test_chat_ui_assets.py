@@ -3111,3 +3111,11 @@ def test_qwebchannel_result_slots_use_callbacks_instead_of_sync_return_values():
     assert "window.pyBridge.get_mood_snapshot_json(function (value)" in script
     assert "const result = window.pyBridge.get_obs_tree_json();" not in script
     assert "const snapshotResult = window.pyBridge.get_mood_snapshot_json();" not in script
+
+
+def test_runtime_bridge_does_not_log_raw_assistant_text():
+    script = (WEB_DIR / "runtime_bridge.js").read_text(encoding="utf-8-sig")
+
+    assert 'Received from Python: "${text}"' not in script
+    assert "console.log(`Received from Python:" in script
+    assert "chars=${String(text || '').length}" in script

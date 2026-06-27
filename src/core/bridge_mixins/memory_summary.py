@@ -415,11 +415,11 @@ class MemorySummaryBridgeMixin:
             self.conversation_buffer = []
             self._ene_thought_context_buffer = []
             
-            print(f"[Bridge] 대화 요약 완료: {summary[:50]}...")
+            print(f"[Bridge] 대화 요약 완료 chars={len(summary or '')}")
             if user_facts:
-                print(f"[Bridge] 마스터 정보: {user_facts}")
+                print(f"[Bridge] 마스터 정보 count={len(user_facts)}")
             if ene_facts:
-                print(f"[Bridge] 에네 정보: {ene_facts}")
+                print(f"[Bridge] 에네 정보 count={len(ene_facts)}")
             
         except Exception as e:
             print(f"[Bridge] 자동 요약 실패: {e}")
