@@ -94,6 +94,36 @@ function applyAutoEyeBlinkToCoreModel(coreModel, sample, hasHeadPatEffect) {
     if (support.eyeROpen) coreModel.setParameterValueById('ParamEyeROpen', openValue);
 }
 
+function createFallbackTrackingOffsets() {
+    return typeof createEmptySyntheticGestureOffsets === 'function'
+        ? createEmptySyntheticGestureOffsets()
+        : { angleX: 0, angleY: 0, bodyX: 0, eyeX: 0, eyeY: 0, breath: 0 };
+}
+
+function buildHeadPatOverlayOffsets() {
+    if (typeof scaleMotionOffsets === 'function') {
+        return scaleMotionOffsets(patOffsetsCurrent, patMotionBlend);
+    }
+    return {
+        angleX: finiteOrZero(patOffsetsCurrent.angleX) * patMotionBlend,
+        angleY: finiteOrZero(patOffsetsCurrent.angleY) * patMotionBlend,
+        bodyX: finiteOrZero(patOffsetsCurrent.bodyX) * patMotionBlend,
+        eyeY: finiteOrZero(patOffsetsCurrent.eyeY) * patMotionBlend,
+        breath: finiteOrZero(patOffsetsCurrent.breath) * patMotionBlend,
+    };
+}
+
+function applyRootMotionOffsets(trackingOffsets, hasHeadPatEffect) {
+    if (typeof window.setLive2DRootMotionOffsets !== 'function') {
+        return;
+    }
+    const motionFadeScale = hasHeadPatEffect ? Math.max(0.65, 1 - (patMotionBlend * 0.35)) : 1;
+    const fadedTrackingOffsets = motionFadeScale < 0.999 && typeof scaleMotionOffsets === 'function'
+        ? scaleMotionOffsets(trackingOffsets, motionFadeScale)
+        : trackingOffsets;
+    window.setLive2DRootMotionOffsets(fadedTrackingOffsets);
+}
+
 /**
  * Python 브리지에서 받은 마우스 좌표를 정규화해 타깃 값으로 반영한다.
  */
@@ -149,10 +179,9 @@ window.setMouseTrackingEnabled = function (enabled) {
     currentMouseX = 0;
     currentMouseY = 0;
     lastTargetUpdateAt = performance.now();
-    patBlend = 0;
-    patBlendMode = 'idle';
-    patRawIntensity = 0;
-    patDirection = 0;
+    if (typeof resetHeadPatMotionState === 'function') {
+        resetHeadPatMotionState();
+    }
 
     const coreModel = getTrackingCoreModel();
     if (!coreModel) return;
@@ -191,11 +220,13 @@ function updateMouseTracking(nowMs) {
     if (Math.abs(currentMouseX) < 0.0005) currentMouseX = 0;
     if (Math.abs(currentMouseY) < 0.0005) currentMouseY = 0;
     updateHeadPatState(dtMs);
-    const hasHeadPatEffect = headPatEnabled && patBlend > 0.001;
-    const shouldApplyHeadPatEyeOverride = shouldApplyHeadPatEyeOverrideNow(hasHeadPatEffect);
+    const hasHeadPatBlend = headPatEnabled && patBlend > 0.001;
+    const hasHeadPatEffect = headPatEnabled && shouldKeepHeadPatMotionActive(hasHeadPatBlend);
+    updateHeadPatGestureSuppression(hasHeadPatEffect, dtMs);
+    const shouldApplyHeadPatEyeOverride = shouldApplyHeadPatEyeOverrideNow(hasHeadPatBlend);
 
     let idleOffsets = null;
-    if (!hasHeadPatEffect && idleMotionEnabled && !isSpeakingNow(nowMs)) {
+    if (idleMotionEnabled && !isSpeakingNow(nowMs)) {
         idleMotionPhase += dtMs / 1000.0 * Math.PI * 2 * idleMotionSpeedHz;
         const pulse = 0.65 + (Math.sin(idleMotionPhase * 0.21 + 0.9) * 0.35);
         const angleXDynamic =
@@ -217,34 +248,23 @@ function updateMouseTracking(nowMs) {
         };
     }
 
-    const expressiveOffsets = !hasHeadPatEffect && typeof buildExpressiveStyleMotionOffsets === 'function'
+    const expressiveOffsets = typeof buildExpressiveStyleMotionOffsets === 'function'
         ? buildExpressiveStyleMotionOffsets(nowMs, dtMs)
         : null;
     const trackingOffsets = typeof addMotionOffsets === 'function'
         ? addMotionOffsets(idleOffsets, expressiveOffsets)
         : (idleOffsets || expressiveOffsets);
-    const baseTrackingOffsets = trackingOffsets || (typeof createEmptySyntheticGestureOffsets === 'function'
-        ? createEmptySyntheticGestureOffsets()
-        : { angleX: 0, angleY: 0, bodyX: 0, eyeX: 0, eyeY: 0, breath: 0 });
-    const activeTrackingOffsets = hasHeadPatEffect ? lastNonPatTrackingState : trackingOffsets;
-    const motionFadeScale = hasHeadPatEffect ? Math.max(0, 1 - patBlend) : 1;
-    const fadedTrackingOffsets = motionFadeScale < 0.999 && typeof scaleMotionOffsets === 'function'
-        ? scaleMotionOffsets(activeTrackingOffsets, motionFadeScale)
-        : activeTrackingOffsets;
-    if (typeof window.setLive2DRootMotionOffsets === 'function') {
-        window.setLive2DRootMotionOffsets(fadedTrackingOffsets);
-    }
-    if (!hasHeadPatEffect) {
-        lastNonPatTrackingState = { ...baseTrackingOffsets };
-    }
+    const baseTrackingOffsets = trackingOffsets || createFallbackTrackingOffsets();
+    applyRootMotionOffsets(trackingOffsets, hasHeadPatEffect);
+    lastNonPatTrackingState = { ...baseTrackingOffsets };
     patOffsetsCurrent = buildHeadPatOffsets(nowMs);
-    patOffsetsApplied = {
-        angleX: lerp(lastNonPatTrackingState.angleX, patOffsetsCurrent.angleX, patBlend),
-        angleY: lerp(lastNonPatTrackingState.angleY, patOffsetsCurrent.angleY, patBlend),
-        bodyX: lerp(lastNonPatTrackingState.bodyX, patOffsetsCurrent.bodyX, patBlend),
-        eyeY: lerp(lastNonPatTrackingState.eyeY, patOffsetsCurrent.eyeY, patBlend),
-        breath: lerp(lastNonPatTrackingState.breath, patOffsetsCurrent.breath, patBlend),
-    };
+    const patOverlayOffsets = buildHeadPatOverlayOffsets();
+    const patOffsetsTarget = typeof addMotionOffsets === 'function'
+        ? addMotionOffsets(baseTrackingOffsets, patOverlayOffsets)
+        : patOverlayOffsets;
+    patOffsetsApplied = typeof smoothHeadPatOffsets === 'function'
+        ? smoothHeadPatOffsets(patOffsetsTarget, dtMs)
+        : patOffsetsTarget;
     const centerGazeWeight = typeof resolveScreenCenterGazeWeight === 'function'
         ? resolveScreenCenterGazeWeight(currentMouseX, currentMouseY, mouseTrackingEnabled)
         : 1;
