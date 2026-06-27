@@ -2970,6 +2970,88 @@ def test_app_runtime_language_change_retranslates_open_windows(tmp_path):
     assert dialog_calls == ["dialog"]
 
 
+def test_settings_dialog_open_drag_release_persists_overlay_position(monkeypatch):
+    ENEApplication = _load_app_class()
+
+    class DummySignal:
+        def __init__(self):
+            self.callbacks = []
+
+        def connect(self, callback):
+            self.callbacks.append(callback)
+
+        def emit(self, *args):
+            for callback in list(self.callbacks):
+                callback(*args)
+
+    class DummyDialog:
+        def __init__(self, current_settings, memory_manager=None, bridge=None):
+            self.current_settings = dict(current_settings)
+            self.settings_changed = DummySignal()
+            self.settings_preview = DummySignal()
+            self.settings_cancelled = DummySignal()
+            self.updated_positions = []
+            self.visible = False
+
+        def isVisible(self):
+            return self.visible
+
+        def update_position(self, x, y):
+            self.updated_positions.append((x, y))
+
+        def show(self):
+            self.visible = True
+
+    class DummyDragBar:
+        def __init__(self):
+            self.position_changed = DummySignal()
+            self.drag_finished = DummySignal()
+
+    class DummyOverlay:
+        def __init__(self):
+            self.drag_bar = DummyDragBar()
+            self.bridge = SimpleNamespace()
+
+        def x(self):
+            return 10
+
+        def y(self):
+            return 20
+
+        def width(self):
+            return 400
+
+        def height(self):
+            return 600
+
+    class DummySettings:
+        def __init__(self):
+            self.config = {"window_x": 10, "window_y": 20, "window_width": 400, "window_height": 600}
+            self.secret_config = {}
+            self.saved = False
+
+        def set(self, key, value):
+            self.config[key] = value
+
+        def save(self):
+            self.saved = True
+
+    monkeypatch.setattr("src.core.app.SettingsDialog", DummyDialog)
+
+    app = ENEApplication.__new__(ENEApplication)
+    app.settings = DummySettings()
+    app.overlay_window = DummyOverlay()
+    app.memory_manager = None
+    app._settings_dialog = None
+
+    ENEApplication._show_settings_dialog(app)
+    app.overlay_window.drag_bar.drag_finished.emit(333, 444)
+
+    assert app.settings.config["window_x"] == 333
+    assert app.settings.config["window_y"] == 444
+    assert app.settings.saved is True
+
+
 def test_embedding_settings_change_marks_old_embeddings_and_prompts():
     ENEApplication = _load_app_class()
     configure_i18n(language="en")
