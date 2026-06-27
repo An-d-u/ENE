@@ -6,6 +6,14 @@ from typing import Protocol
 import requests
 
 
+def _coerce_int(value, default: int, min_value: int, max_value: int) -> int:
+    try:
+        coerced = int(value)
+    except (TypeError, ValueError):
+        coerced = default
+    return max(min_value, min(coerced, max_value))
+
+
 @dataclass(frozen=True)
 class SearchQuery:
     query: str
@@ -40,14 +48,14 @@ class TavilySearchProvider:
 
     def __init__(self, api_key: str, timeout_sec: int = 12):
         self.api_key = str(api_key or "").strip()
-        self.timeout_sec = max(1, int(timeout_sec or 12))
+        self.timeout_sec = _coerce_int(timeout_sec, default=12, min_value=1, max_value=60)
 
     def search(self, query: SearchQuery) -> SearchResponse:
         if not self.api_key:
             return SearchResponse(query=query.query, provider=self.provider_name, results=[])
         payload = {
             "query": query.query,
-            "max_results": max(1, min(int(query.max_results or 5), 10)),
+            "max_results": _coerce_int(query.max_results, default=5, min_value=1, max_value=10),
             "search_depth": "basic",
             "include_answer": False,
             "include_raw_content": False,
@@ -95,9 +103,10 @@ class SearchTool:
         try:
             return self.provider.search(query)
         except Exception as error:
-            print(f"[SearchTool] search failed: {error}")
+            provider_name = getattr(self.provider, "provider_name", "unknown")
+            print(f"[SearchTool] search failed: provider={provider_name} error_type={type(error).__name__}")
             return SearchResponse(
                 query=query.query,
-                provider=getattr(self.provider, "provider_name", "unknown"),
+                provider=provider_name,
                 results=[],
             )
