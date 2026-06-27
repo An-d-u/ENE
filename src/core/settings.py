@@ -53,6 +53,14 @@ class Settings:
         "interrupt_tts_on_ptt": True,
         "embedding_provider": "voyage",
         "embedding_model": "voyage-3",
+        "embedding_provider_configs": {
+            "openai": {
+                "api_url": "https://api.openai.com/v1",
+            },
+            "openai_compatible": {
+                "api_url": "http://127.0.0.1:8000/v1",
+            },
+        },
         "stt_model_size": "small",
         "stt_language": "ko",
         "stt_device": "auto",
@@ -256,6 +264,9 @@ class Settings:
         },
         "embedding_api_keys": {
             "voyage": "",
+            "openai": "",
+            "openai_compatible": "",
+            "gemini": "",
         },
         "tts_api_keys": {
             "openai_audio_speech": "",
@@ -324,6 +335,16 @@ class Settings:
                     store = base_tts_configs.setdefault(provider, {})
                     store.update(provider_config)
             merged["tts_provider_configs"] = base_tts_configs
+
+            base_embedding_configs = json.loads(json.dumps(self.DEFAULT_CONFIG["embedding_provider_configs"]))
+            loaded_embedding_configs = loaded_config.get("embedding_provider_configs", {})
+            if isinstance(loaded_embedding_configs, dict):
+                for provider, provider_config in loaded_embedding_configs.items():
+                    if not isinstance(provider_config, dict):
+                        continue
+                    store = base_embedding_configs.setdefault(provider, {})
+                    store.update(provider_config)
+            merged["embedding_provider_configs"] = base_embedding_configs
 
             return merged
         except Exception as e:

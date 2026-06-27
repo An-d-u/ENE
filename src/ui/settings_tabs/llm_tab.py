@@ -204,7 +204,10 @@ def build_llm_tab(dialog):
 
     self.embedding_provider_combo = QComboBox()
     self.embedding_provider_combo.addItem("Voyage AI", "voyage")
-    self.embedding_provider_combo.currentIndexChanged.connect(self._on_setting_changed)
+    self.embedding_provider_combo.addItem("OpenAI", "openai")
+    self.embedding_provider_combo.addItem("OpenAI Compatible", "openai_compatible")
+    self.embedding_provider_combo.addItem("Google Gemini", "gemini")
+    self.embedding_provider_combo.currentIndexChanged.connect(self._on_embedding_provider_changed)
     self._add_form_row(
         embedding_form,
         "settings.llm.embedding_group.provider",
@@ -218,7 +221,7 @@ def build_llm_tab(dialog):
         "settings.llm.embedding_group.api_key.placeholder",
         "Voyage AI API 키",
     )
-    self.embedding_api_key_edit.textChanged.connect(self._on_setting_changed)
+    self.embedding_api_key_edit.textChanged.connect(self._on_embedding_api_key_changed)
     self._add_form_row(
         embedding_form,
         "settings.llm.embedding_group.api_key.label",
@@ -230,9 +233,29 @@ def build_llm_tab(dialog):
         ),
     )
 
+    self.embedding_api_url_edit = QLineEdit()
+    self._bind_placeholder(
+        self.embedding_api_url_edit,
+        "settings.llm.embedding_group.api_url.placeholder",
+        "예: https://api.openai.com/v1",
+    )
+    self.embedding_api_url_edit.textChanged.connect(self._on_embedding_api_url_changed)
+    self.embedding_api_url_label = self._add_form_row(
+        embedding_form,
+        "settings.llm.embedding_group.api_url.label",
+        "임베딩 API URL:",
+        self.embedding_api_url_edit,
+    )
+
     self.embedding_model_combo = QComboBox()
+    self.embedding_model_combo.setEditable(True)
+    self.embedding_model_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
     self.embedding_model_combo.addItem("voyage-3", "voyage-3")
+    self.embedding_model_combo.addItem("text-embedding-3-small", "text-embedding-3-small")
+    self.embedding_model_combo.addItem("text-embedding-3-large", "text-embedding-3-large")
+    self.embedding_model_combo.addItem("gemini-embedding-2", "gemini-embedding-2")
     self.embedding_model_combo.currentIndexChanged.connect(self._on_setting_changed)
+    self.embedding_model_combo.currentTextChanged.connect(self._on_setting_changed)
     self._add_form_row(
         embedding_form,
         "settings.llm.embedding_group.model",
@@ -266,4 +289,3 @@ def build_llm_tab(dialog):
     layout.addStretch()
     scroll.setWidget(widget)
     return scroll
-

@@ -7,6 +7,9 @@ from src.ai.memory_types import MemoryChunk, MemoryEntry, MemoryMessage, create_
 
 
 class FakeEmbeddingGenerator:
+    provider = "voyage"
+    model = "voyage-3"
+
     async def embed(self, text: str):
         if "python" in text.lower():
             return [1.0, 0.0]
@@ -18,6 +21,9 @@ class FakeEmbeddingGenerator:
 
 
 class ScoreEmbeddingGenerator:
+    provider = "voyage"
+    model = "voyage-3"
+
     async def embed(self, text: str):
         return [1.0]
 
@@ -29,6 +35,9 @@ class ScoreEmbeddingGenerator:
 
 
 class ChunkBiasEmbeddingGenerator:
+    provider = "voyage"
+    model = "voyage-3"
+
     async def embed(self, text: str):
         normalized = str(text or "")
         if "병원" in normalized or "3시" in normalized:
@@ -43,6 +52,19 @@ class ChunkBiasEmbeddingGenerator:
     @staticmethod
     def cosine_similarity(vec1, vec2):
         return EmbeddingGenerator.cosine_similarity(vec1, vec2)
+
+
+def _current_embedding_kwargs() -> dict[str, str]:
+    return {
+        "embedding_provider": "voyage",
+        "embedding_model": "voyage-3",
+    }
+
+
+def _stamp_current_embedding_source(memory):
+    memory.embedding_provider = "voyage"
+    memory.embedding_model = "voyage-3"
+    return memory
 
 
 def test_load_missing_file_starts_empty(tmp_path):
@@ -100,8 +122,18 @@ def test_find_similar_returns_ranked_results(tmp_path):
         embedding_generator=FakeEmbeddingGenerator(),
     )
 
-    memory_python = create_memory_entry("파이썬 얘기", ["python"], embedding=[1.0, 0.0])
-    memory_food = create_memory_entry("음식 얘기", ["food"], embedding=[0.0, 1.0])
+    memory_python = create_memory_entry(
+        "파이썬 얘기",
+        ["python"],
+        embedding=[1.0, 0.0],
+        **_current_embedding_kwargs(),
+    )
+    memory_food = create_memory_entry(
+        "음식 얘기",
+        ["food"],
+        embedding=[0.0, 1.0],
+        **_current_embedding_kwargs(),
+    )
     manager.memories = [memory_food, memory_python]
 
     results = asyncio.run(
@@ -113,19 +145,124 @@ def test_find_similar_returns_ranked_results(tmp_path):
     assert results[0][1] == 1.0
 
 
+def test_find_similar_excludes_embeddings_from_other_model(tmp_path):
+    manager = MemoryManager(
+        str(tmp_path / "memory.json"),
+        embedding_generator=FakeEmbeddingGenerator(),
+    )
+    stale_memory = create_memory_entry(
+        "old python memory",
+        ["python"],
+        embedding=[1.0, 0.0],
+        embedding_provider="voyage",
+        embedding_model="voyage-2",
+    )
+    current_memory = create_memory_entry(
+        "current food memory",
+        ["food"],
+        embedding=[0.0, 1.0],
+        embedding_provider="voyage",
+        embedding_model="voyage-3",
+    )
+    manager.memories = [stale_memory, current_memory]
+
+    results = asyncio.run(
+        manager.find_similar("python question", top_k=2, min_similarity=0.1)
+    )
+
+    assert results == []
+
+
+def test_find_similar_excludes_embeddings_without_source_metadata(tmp_path):
+    manager = MemoryManager(
+        str(tmp_path / "memory.json"),
+        embedding_generator=FakeEmbeddingGenerator(),
+    )
+    unknown_source_memory = create_memory_entry(
+        "unknown python memory",
+        ["python"],
+        embedding=[1.0, 0.0],
+    )
+    manager.memories = [unknown_source_memory]
+
+    results = asyncio.run(
+        manager.find_similar("python question", top_k=1, min_similarity=0.1)
+    )
+
+    assert results == []
+
+
+def test_add_summary_records_current_embedding_source(tmp_path):
+    manager = MemoryManager(
+        str(tmp_path / "memory.json"),
+        embedding_generator=FakeEmbeddingGenerator(),
+    )
+
+    created = asyncio.run(manager.add_summary("python memory", ["synthetic message"]))
+
+    assert created.embedding_provider == "voyage"
+    assert created.embedding_model == "voyage-3"
+
+
+def test_regenerate_embeddings_rewrites_stale_metadata(tmp_path):
+    manager = MemoryManager(
+        str(tmp_path / "memory.json"),
+        embedding_generator=FakeEmbeddingGenerator(),
+    )
+    stale_memory = create_memory_entry(
+        "python memory",
+        ["synthetic message"],
+        embedding=[0.0, 1.0],
+        embedding_provider="voyage",
+        embedding_model="voyage-2",
+    )
+    manager.memories = [stale_memory]
+
+    result = asyncio.run(manager.regenerate_embeddings())
+
+    assert result == {"total": 1, "updated": 1, "failed": 0, "skipped": 0}
+    assert stale_memory.embedding == [1.0, 0.0]
+    assert stale_memory.embedding_provider == "voyage"
+    assert stale_memory.embedding_model == "voyage-3"
+
+
+def test_mark_unknown_embeddings_source_stamps_existing_vectors(tmp_path):
+    manager = MemoryManager(str(tmp_path / "memory.json"))
+    unknown = create_memory_entry(
+        "unknown embedding source",
+        ["synthetic message"],
+        embedding=[0.1],
+    )
+    known = create_memory_entry(
+        "known embedding source",
+        ["synthetic message"],
+        embedding=[0.2],
+        embedding_provider="voyage",
+        embedding_model="voyage-3",
+    )
+    manager.memories = [unknown, known]
+
+    updated = manager.mark_unknown_embeddings_source("voyage", "voyage-2")
+
+    assert updated == 1
+    assert unknown.embedding_provider == "voyage"
+    assert unknown.embedding_model == "voyage-2"
+    assert known.embedding_model == "voyage-3"
+
+
 def test_find_activated_boosts_alias_terms_and_recent_context(tmp_path):
     manager = MemoryManager(
         str(tmp_path / "memory.json"),
         embedding_generator=ScoreEmbeddingGenerator(),
     )
-    plain_match = MemoryEntry(
+    plain_match = _stamp_current_embedding_source(MemoryEntry(
         id="mem-plain",
         summary="일반 배포 메모",
         original_messages=["배포 일정은 아직 정하지 않았다."],
         timestamp="2026-05-01T09:00:00",
         embedding=[0.82],
-    )
-    activated_match = MemoryEntry(
+    ))
+    activated_match = _stamp_current_embedding_source(MemoryEntry(
         id="mem-activation",
         summary="릴리스 회의는 금요일 오후로 정리함",
         original_messages=["릴리스 회의는 금요일 오후로 잡자."],
@@ -134,7 +271,7 @@ def test_find_activated_boosts_alias_terms_and_recent_context(tmp_path):
         aliases=["릴리즈 회의"],
         trigger_terms=["배포"],
         activation_weight=1.3,
-    )
+    ))
     manager.memories = [plain_match, activated_match]
 
     results = asyncio.run(
@@ -161,7 +298,7 @@ def test_find_activated_reports_raw_similarity_without_metadata_bonus(tmp_path):
         str(tmp_path / "memory.json"),
         embedding_generator=ScoreEmbeddingGenerator(),
     )
-    metadata_rich = MemoryEntry(
+    metadata_rich = _stamp_current_embedding_source(MemoryEntry(
         id="mem-metadata-rich",
         summary="배포 체크리스트를 정리함",
         original_messages=["배포 전에 체크리스트를 확인하기로 했다."],
@@ -172,7 +309,7 @@ def test_find_activated_reports_raw_similarity_without_metadata_bonus(tmp_path):
         importance_reason="user_marked",
         confidence=1.0,
         trigger_terms=["배포"],
-    )
+    ))
     manager.memories = [metadata_rich]
 
     results = asyncio.run(
@@ -453,28 +590,28 @@ def test_find_activated_expands_linked_memories(tmp_path):
         str(tmp_path / "memory.json"),
         embedding_generator=ScoreEmbeddingGenerator(),
     )
-    primary = MemoryEntry(
+    primary = _stamp_current_embedding_source(MemoryEntry(
         id="mem-release",
         summary="릴리스 회의가 금요일에 있음",
         original_messages=["릴리스 회의를 금요일에 하기로 했다."],
         timestamp="2026-05-01T10:00:00",
         embedding=[0.82],
         linked_memory_ids=["mem-time"],
-    )
-    linked_detail = MemoryEntry(
+    ))
+    linked_detail = _stamp_current_embedding_source(MemoryEntry(
         id="mem-time",
         summary="회의 시간은 오후 4시로 정리함",
         original_messages=["회의 시간은 오후 4시가 좋겠다."],
         timestamp="2026-05-01T10:05:00",
         embedding=[0.1],
-    )
-    unrelated = MemoryEntry(
+    ))
+    unrelated = _stamp_current_embedding_source(MemoryEntry(
         id="mem-unrelated",
         summary="다른 작업 메모",
         original_messages=["다른 작업을 정리했다."],
         timestamp="2026-05-01T11:00:00",
         embedding=[0.81],
-    )
+    ))
     manager.memories = [primary, linked_detail, unrelated]
 
     results = asyncio.run(
@@ -498,7 +635,7 @@ def test_find_activated_does_not_let_unrelated_link_displace_better_candidate(tm
         str(tmp_path / "memory.json"),
         embedding_generator=ScoreEmbeddingGenerator(),
     )
-    primary = MemoryEntry(
+    primary = _stamp_current_embedding_source(MemoryEntry(
         id="mem-release",
         summary="릴리스 회의가 금요일에 있음",
         original_messages=["릴리스 회의를 금요일에 하기로 했다."],
@@ -506,21 +643,21 @@ def test_find_activated_does_not_let_unrelated_link_displace_better_candidate(tm
         embedding=[0.82],
         activation_weight=1.2,
         linked_memory_ids=["mem-unrelated-link"],
-    )
-    unrelated_link = MemoryEntry(
+    ))
+    unrelated_link = _stamp_current_embedding_source(MemoryEntry(
         id="mem-unrelated-link",
         summary="책상 정리 메모",
         original_messages=["책상 위 물건을 정리하기로 했다."],
         timestamp="2026-05-01T10:05:00",
         embedding=[0.1],
-    )
-    better_candidate = MemoryEntry(
+    ))
+    better_candidate = _stamp_current_embedding_source(MemoryEntry(
         id="mem-time",
         summary="릴리스 회의 시간은 오후 4시로 정리함",
         original_messages=["릴리스 회의 시간은 오후 4시가 좋겠다."],
         timestamp="2026-05-01T11:00:00",
         embedding=[0.74],
-    )
+    ))
     manager.memories = [primary, unrelated_link, better_candidate]
 
     results = asyncio.run(
@@ -578,7 +715,7 @@ def test_save_and_reload_roundtrip_preserves_extended_memory_fields(tmp_path):
     assert restored.entity_names == ["ENE"]
     assert restored.conversation_id == "conv-1"
     assert restored.expires_at == "2026-04-09T00:00:00"
-    assert restored.schema_version == 4
+    assert restored.schema_version == 5
     assert restored.aliases == ["에네 구조"]
     assert restored.trigger_terms == ["ENE", "구조"]
     assert restored.linked_memory_ids == []
@@ -620,7 +757,7 @@ def test_load_legacy_memory_file_backfills_extended_fields(tmp_path):
     assert restored.importance_reason == "promise"
     assert restored.retrieval_count == 0
     assert restored.user_confirmed is None
-    assert restored.schema_version == 4
+    assert restored.schema_version == 5
     assert restored.aliases == []
     assert restored.trigger_terms == []
     assert restored.linked_memory_ids == []
@@ -654,7 +791,7 @@ def test_load_legacy_memory_file_persists_migrated_schema(tmp_path):
 
     migrated_payload = json.loads(memory_file.read_text(encoding="utf-8"))
     restored = migrated_payload["memories"][0]
-    assert restored["schema_version"] == 4
+    assert restored["schema_version"] == 5
     assert restored["source"] == "legacy"
     assert restored["memory_type"] == "preference"
     assert restored["aliases"] == []
@@ -795,6 +932,7 @@ def test_find_similar_reranks_by_metadata_bonus(tmp_path):
         embedding=[0.78],
         memory_type="general",
         confidence=0.5,
+        **_current_embedding_kwargs(),
     )
     metadata_winner = create_memory_entry(
         "병원 예약 일정 메모",
@@ -804,6 +942,7 @@ def test_find_similar_reranks_by_metadata_bonus(tmp_path):
         memory_type="event",
         importance_reason="promise",
         confidence=0.95,
+        **_current_embedding_kwargs(),
     )
     manager.memories = [base_winner, metadata_winner]
 
@@ -851,12 +990,14 @@ def test_find_similar_updates_retrieval_metadata_for_returned_results(tmp_path):
         "반환되는 메모",
         ["python"],
         embedding=[0.9],
+        **_current_embedding_kwargs(),
     )
     returned.retrieval_count = 2
     untouched = create_memory_entry(
         "반환되지 않는 메모",
         ["food"],
         embedding=[0.1],
+        **_current_embedding_kwargs(),
     )
     untouched.retrieval_count = 5
     manager.memories = [returned, untouched]

@@ -1,6 +1,7 @@
 """
 기억 관리 다이얼로그
 """
+import asyncio
 from datetime import datetime
 import re
 
@@ -19,6 +20,7 @@ from PyQt6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMessageBox,
+    QApplication,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
@@ -116,6 +118,17 @@ class MemoryDialog(QDialog):
             event.ignore()
             return True
         return super().eventFilter(obj, event)
+
+    def retranslate_ui(self) -> None:
+        """현재 언어 설정에 맞춰 메모리 관리 UI 문구를 다시 적용한다."""
+        self.setWindowTitle(t("memory.window.title"))
+        self.search_input.setPlaceholderText(t("memory.search.placeholder"))
+        self.important_filter_btn.setText(t("memory.filter.important_only"))
+        self.sort_button.setText(self._sort_button_text())
+        self.refresh_btn.setText(t("memory.button.refresh"))
+        self.rebuild_embeddings_btn.setText(t("memory.button.rebuild_embeddings"))
+        self._update_filter_button_texts()
+        self._load_memories()
 
     def _normalize_theme_color(self, value: str, fallback: str | None = None) -> str:
         match = re.fullmatch(r"#?([0-9A-Fa-f]{6})", str(value or "").strip())
@@ -377,6 +390,10 @@ class MemoryDialog(QDialog):
         self.refresh_btn = QPushButton(t("memory.button.refresh"))
         self.refresh_btn.clicked.connect(self._load_memories)
         top.addWidget(self.refresh_btn)
+
+        self.rebuild_embeddings_btn = QPushButton(t("memory.button.rebuild_embeddings"))
+        self.rebuild_embeddings_btn.clicked.connect(self._rebuild_embeddings)
+        top.addWidget(self.rebuild_embeddings_btn)
         layout.addLayout(top)
 
         filter_row = QHBoxLayout()
@@ -1136,6 +1153,55 @@ class MemoryDialog(QDialog):
 
         self.memory_manager.delete(memory_id)
         self._load_memories()
+
+    def _rebuild_embeddings(self):
+        if not self.memory_manager:
+            return
+
+        regenerate = getattr(self.memory_manager, "regenerate_embeddings", None)
+        if not callable(regenerate):
+            QMessageBox.warning(
+                self,
+                t("memory.embedding.rebuild.unavailable.title"),
+                t("memory.embedding.rebuild.unavailable.body"),
+            )
+            return
+
+        reply = QMessageBox.question(
+            self,
+            t("memory.embedding.rebuild.confirm.title"),
+            t("memory.embedding.rebuild.confirm.body"),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        self.rebuild_embeddings_btn.setEnabled(False)
+        try:
+            QApplication.processEvents()
+            result = asyncio.run(regenerate())
+        except Exception as error:
+            QMessageBox.warning(
+                self,
+                t("memory.embedding.rebuild.failed.title"),
+                t("memory.embedding.rebuild.failed.body", error=str(error)),
+            )
+            return
+        finally:
+            self.rebuild_embeddings_btn.setEnabled(True)
+
+        self._load_memories()
+        QMessageBox.information(
+            self,
+            t("memory.embedding.rebuild.complete.title"),
+            t(
+                "memory.embedding.rebuild.complete.body",
+                updated=result.get("updated", 0),
+                failed=result.get("failed", 0),
+                skipped=result.get("skipped", 0),
+            ),
+        )
 
     def _load_settings(self):
         if not self.bridge:

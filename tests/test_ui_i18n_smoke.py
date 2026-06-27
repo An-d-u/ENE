@@ -140,6 +140,7 @@ class _DummyEneProfile:
 class _DummyMemoryManager:
     def __init__(self, memories):
         self.memories = list(memories)
+        self.regenerate_calls = 0
 
     def get_stats(self):
         return {
@@ -156,6 +157,10 @@ class _DummyMemoryManager:
 
     def delete(self, memory_id):
         self.memories = [memory for memory in self.memories if memory.id != memory_id]
+
+    async def regenerate_embeddings(self):
+        self.regenerate_calls += 1
+        return {"total": len(self.memories), "updated": len(self.memories), "failed": 0, "skipped": 0}
 
 
 class _DummySignal:
@@ -547,6 +552,117 @@ def test_settings_dialog_loads_and_saves_prompt_persona_names(monkeypatch):
 
         assert values["assistant_display_name"] == "아리아"
         assert values["user_address_name"] == "대장"
+
+        dialog.close()
+
+
+def test_settings_dialog_preserves_custom_embedding_model_name(monkeypatch):
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        monkeypatch.setattr(SettingsDialog, "_load_prompt_configuration", lambda self: None)
+
+        dialog = SettingsDialog(
+            {
+                "ui_language": "ko",
+                "llm_provider": "gemini",
+                "tts_provider": "gpt_sovits_http",
+                "embedding_provider": "voyage",
+                "embedding_model": "voyage-large-2",
+                "embedding_api_keys": {"voyage": "synthetic-key"},
+            }
+        )
+
+        assert dialog.embedding_model_combo.currentText() == "voyage-large-2"
+        assert dialog._get_current_values()["embedding_model"] == "voyage-large-2"
+
+        dialog.embedding_model_combo.setEditText("voyage-custom-2026")
+
+        assert dialog._get_current_values()["embedding_model"] == "voyage-custom-2026"
+
+        dialog.close()
+
+
+def test_settings_dialog_saves_openai_compatible_embedding_settings(monkeypatch):
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="en", locales_dir=locales_dir, system_locale="en_US")
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        monkeypatch.setattr(SettingsDialog, "_load_prompt_configuration", lambda self: None)
+
+        dialog = SettingsDialog(
+            {
+                "ui_language": "en",
+                "llm_provider": "gemini",
+                "tts_provider": "gpt_sovits_http",
+                "embedding_provider": "openai_compatible",
+                "embedding_model": "local-embedding",
+                "embedding_api_keys": {
+                    "voyage": "voyage-key",
+                    "openai_compatible": "compatible-key",
+                },
+                "embedding_provider_configs": {
+                    "openai_compatible": {"api_url": "http://127.0.0.1:8000/v1"}
+                },
+            }
+        )
+
+        assert dialog.embedding_provider_combo.currentData() == "openai_compatible"
+        assert dialog.embedding_api_key_edit.text() == "compatible-key"
+        assert dialog.embedding_api_url_edit.text() == "http://127.0.0.1:8000/v1"
+        assert dialog.embedding_model_combo.currentText() == "local-embedding"
+
+        dialog.embedding_api_key_edit.setText("updated-compatible-key")
+        dialog.embedding_api_url_edit.setText("http://localhost:9000/v1")
+        dialog.embedding_model_combo.setEditText("custom-local-embedding")
+        values = dialog._get_current_values()
+
+        assert values["embedding_provider"] == "openai_compatible"
+        assert values["embedding_api_keys"]["voyage"] == "voyage-key"
+        assert values["embedding_api_keys"]["openai_compatible"] == "updated-compatible-key"
+        assert values["embedding_provider_configs"]["openai_compatible"]["api_url"] == "http://localhost:9000/v1"
+        assert values["embedding_model"] == "custom-local-embedding"
+
+        dialog.close()
+
+
+def test_settings_dialog_shows_embedding_api_url_only_for_openai_compatible(monkeypatch):
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="en", locales_dir=locales_dir, system_locale="en_US")
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        monkeypatch.setattr(SettingsDialog, "_load_prompt_configuration", lambda self: None)
+
+        dialog = SettingsDialog(
+            {
+                "ui_language": "en",
+                "llm_provider": "gemini",
+                "tts_provider": "gpt_sovits_http",
+                "embedding_provider": "voyage",
+                "embedding_model": "voyage-3",
+            }
+        )
+
+        assert dialog.embedding_api_url_edit.isHidden()
+
+        dialog.embedding_provider_combo.setCurrentIndex(dialog.embedding_provider_combo.findData("openai"))
+        assert dialog.embedding_api_url_edit.isHidden()
+
+        dialog.embedding_provider_combo.setCurrentIndex(dialog.embedding_provider_combo.findData("gemini"))
+        assert dialog.embedding_api_url_edit.isHidden()
+
+        dialog.embedding_provider_combo.setCurrentIndex(dialog.embedding_provider_combo.findData("openai_compatible"))
+        assert not dialog.embedding_api_url_edit.isHidden()
 
         dialog.close()
 
@@ -1974,6 +2090,7 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
             "memory.sort.newest": "Newest first",
             "memory.sort.oldest": "Oldest first",
             "memory.button.refresh": "Refresh",
+            "memory.button.rebuild_embeddings": "Rebuild embeddings",
             "memory.chip.summary_tags": "Summary + tag search",
             "memory.chip.retrieval_mix": "Important/similar/recent mix",
             "memory.chip.auto_save": "Save immediately",
@@ -2042,6 +2159,12 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
             "memory.ene_profile.missing.body": "ENE profile is not initialized.",
             "memory.ene_profile.empty.title": "No ENE profile data",
             "memory.ene_profile.empty.body": "No ENE information is saved yet.\nTalk more to let ENE build self-information.",
+            "memory.embedding.rebuild.complete.title": "Embedding rebuild complete",
+            "memory.embedding.rebuild.complete.body": "Updated {updated}, failed {failed}, skipped {skipped}.",
+            "memory.embedding.rebuild.failed.title": "Embedding rebuild failed",
+            "memory.embedding.rebuild.failed.body": "Embedding rebuild failed: {error}",
+            "memory.embedding.rebuild.prompt.title": "Embeddings need rebuilding",
+            "memory.embedding.rebuild.prompt.body": "Embedding settings changed to {provider}/{model}. Rebuild {count} saved memory embeddings with the new settings now? This may call the embedding API.",
         },
         ja_data={
             "memory.window.title": "ENE メモリ管理",
@@ -2067,6 +2190,7 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
             "memory.sort.newest": "新しい順",
             "memory.sort.oldest": "古い順",
             "memory.button.refresh": "更新",
+            "memory.button.rebuild_embeddings": "埋め込みを再生成",
             "memory.chip.summary_tags": "要約 + タグ検索",
             "memory.chip.retrieval_mix": "重要・類似・最近の組み合わせ",
             "memory.chip.auto_save": "変更は即時保存",
@@ -2135,6 +2259,12 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
             "memory.ene_profile.missing.body": "エネプロフィールが初期化されていません。",
             "memory.ene_profile.empty.title": "エネ情報なし",
             "memory.ene_profile.empty.body": "まだ保存されたエネ情報はありません。\n会話を重ねると自動で自己情報が蓄積されます。",
+            "memory.embedding.rebuild.complete.title": "埋め込みの再生成が完了しました",
+            "memory.embedding.rebuild.complete.body": "更新 {updated} 件、失敗 {failed} 件、スキップ {skipped} 件です。",
+            "memory.embedding.rebuild.failed.title": "埋め込みの再生成に失敗しました",
+            "memory.embedding.rebuild.failed.body": "埋め込みの再生成に失敗しました: {error}",
+            "memory.embedding.rebuild.prompt.title": "埋め込みの再生成が必要です",
+            "memory.embedding.rebuild.prompt.body": "埋め込み設定が {provider}/{model} に変わりました。保存済みメモリ {count} 件の埋め込みを新しい設定で再生成しますか？API 呼び出しが発生する場合があります。",
         },
     )
     configure_i18n(language="ja", locales_dir=locales_dir, system_locale="en_US")
@@ -2195,6 +2325,7 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
     assert dialog.source_filter_btn.text() == "由来: すべて"
     assert dialog.type_filter_btn.text() == "種類: すべて"
     assert dialog.sort_button.text() == "新しい順"
+    assert dialog.rebuild_embeddings_btn.text() == "埋め込みを再生成"
     assert dialog.list_hint_label.text() == "2件を表示中"
     assert dialog.important_btn.text() == "重要を解除"
     assert dialog.delete_btn.text() == "メモリを削除"
@@ -2321,6 +2452,145 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
     empty_dialog.close()
 
 
+def test_memory_dialog_rebuild_embeddings_button_runs_manager(monkeypatch):
+    _get_qapp()
+    configure_i18n(language="en", locales_dir=Path("src/locales"), system_locale="en_US")
+    manager = _DummyMemoryManager(
+        [
+            SimpleNamespace(
+                id="memory-1",
+                timestamp="2026-03-23T09:00:00",
+                summary="Synthetic memory",
+                tags=[],
+                is_important=False,
+                embedding=[0.1],
+                original_messages=[],
+                source="chat",
+                memory_type="fact",
+                confidence=0.5,
+                entity_names=[],
+                importance_reason="none",
+                migration_meta={},
+            )
+        ]
+    )
+    infos = []
+
+    monkeypatch.setattr(
+        "PyQt6.QtWidgets.QMessageBox.question",
+        lambda *_args, **_kwargs: QMessageBox.StandardButton.Yes,
+    )
+    monkeypatch.setattr(
+        "PyQt6.QtWidgets.QMessageBox.information",
+        lambda _parent, title, text: infos.append((title, text)),
+    )
+
+    dialog = MemoryDialog(manager)
+    dialog._rebuild_embeddings()
+
+    assert manager.regenerate_calls == 1
+    assert infos == [("Embedding rebuild complete", "Updated 1, failed 0, skipped 0.")]
+    dialog.close()
+
+
+def test_memory_dialog_retranslates_rebuild_embeddings_button(tmp_path):
+    _get_qapp()
+    locales_dir = tmp_path / "locales"
+    locales_dir.mkdir()
+    _write_locales(
+        locales_dir,
+        en_data={
+            "memory.window.title": "ENE Memory Manager",
+            "memory.window.subtitle": "Manage memory.",
+            "memory.search.placeholder": "Search memories",
+            "memory.filter.important_only": "Important only",
+            "memory.sort.newest": "Newest first",
+            "memory.sort.oldest": "Oldest first",
+            "memory.button.refresh": "Refresh",
+            "memory.button.rebuild_embeddings": "Rebuild embeddings",
+            "memory.filter.source.prefix": "Source: {value}",
+            "memory.filter.source.all": "All",
+            "memory.filter.type.prefix": "Type: {value}",
+            "memory.filter.type.all": "All",
+            "memory.list.visible_count": "Showing {count} items",
+            "memory.empty.title": "No memory selected",
+            "memory.empty.body": "Select a memory.",
+            "memory.button.mark_important": "Mark important",
+            "memory.button.delete": "Delete memory",
+            "memory.metric.total.label": "Total memories",
+            "memory.metric.total.detail": "All stored memories",
+            "memory.metric.important.label": "Important memories",
+            "memory.metric.important.detail": "Items marked important",
+            "memory.metric.embedding.label": "Embedding coverage",
+            "memory.metric.embedding.detail": "{count} connected",
+            "memory.metric.threshold.label": "Auto summary threshold",
+            "memory.metric.threshold.detail": "Conversation unit",
+        },
+        ja_data={
+            "memory.window.title": "ENE メモリ管理",
+            "memory.window.subtitle": "メモリを管理します。",
+            "memory.search.placeholder": "メモリを検索",
+            "memory.filter.important_only": "重要のみ",
+            "memory.sort.newest": "新しい順",
+            "memory.sort.oldest": "古い順",
+            "memory.button.refresh": "更新",
+            "memory.button.rebuild_embeddings": "埋め込みを再生成",
+            "memory.filter.source.prefix": "由来: {value}",
+            "memory.filter.source.all": "すべて",
+            "memory.filter.type.prefix": "種類: {value}",
+            "memory.filter.type.all": "すべて",
+            "memory.list.visible_count": "{count}件を表示中",
+            "memory.empty.title": "選択されたメモリはありません",
+            "memory.empty.body": "メモリを選択してください。",
+            "memory.button.mark_important": "重要にする",
+            "memory.button.delete": "メモリを削除",
+            "memory.metric.total.label": "総メモリ",
+            "memory.metric.total.detail": "保存された全メモリ",
+            "memory.metric.important.label": "重要メモリ",
+            "memory.metric.important.detail": "重要としてマークされた項目",
+            "memory.metric.embedding.label": "埋め込みカバレッジ",
+            "memory.metric.embedding.detail": "{count}件接続",
+            "memory.metric.threshold.label": "自動要約基準",
+            "memory.metric.threshold.detail": "会話単位",
+        },
+    )
+    configure_i18n(language="en", locales_dir=locales_dir, system_locale="en_US")
+    dialog = MemoryDialog(_DummyMemoryManager([]))
+    assert dialog.rebuild_embeddings_btn.text() == "Rebuild embeddings"
+
+    configure_i18n(language="ja", locales_dir=locales_dir, system_locale="en_US")
+    dialog.retranslate_ui()
+
+    assert dialog.rebuild_embeddings_btn.text() == "埋め込みを再生成"
+    dialog.close()
+
+
+def test_memory_dialog_rebuild_embeddings_reports_unexpected_failure(monkeypatch):
+    _get_qapp()
+    configure_i18n(language="en", locales_dir=Path("src/locales"), system_locale="en_US")
+
+    class FailingMemoryManager(_DummyMemoryManager):
+        async def regenerate_embeddings(self):
+            raise RuntimeError("network unavailable")
+
+    warnings = []
+    monkeypatch.setattr(
+        "PyQt6.QtWidgets.QMessageBox.question",
+        lambda *_args, **_kwargs: QMessageBox.StandardButton.Yes,
+    )
+    monkeypatch.setattr(
+        "PyQt6.QtWidgets.QMessageBox.warning",
+        lambda _parent, title, text: warnings.append((title, text)),
+    )
+
+    dialog = MemoryDialog(FailingMemoryManager([]))
+    dialog._rebuild_embeddings()
+
+    assert dialog.rebuild_embeddings_btn.isEnabled()
+    assert warnings == [("Embedding rebuild failed", "Embedding rebuild failed: network unavailable")]
+    dialog.close()
+
+
 def test_memory_dialog_does_not_overwrite_recent_memory_setting_during_load():
     _get_qapp()
 
@@ -2416,16 +2686,16 @@ def test_memory_dialog_preview_truncates_card_text_with_ellipsis_and_keeps_badge
     configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
 
     medium_summary = (
-        "2026년 4월 8일 새벽 1시경, 마스터는 에네의 기억 시스템 개선 작업을 진행하면서 "
-        "과거 커버 주식회사 지원 당시의 첫 만남과 프로젝트 흐름을 함께 정리했습니다."
+        "2026년 4월 8일 오전 10시경, 샘플 프로젝트 팀은 기억 시스템 개선 작업을 진행하면서 "
+        "가상의 온보딩 시나리오와 프로젝트 흐름을 함께 정리했습니다."
     )
     long_summary = (
         medium_summary
         + " "
-        "이후 Everyday Near Ears 프로젝트의 캐릭터 기획과 감정 구조까지 하나의 문맥으로 연결해 기록했습니다."
-        + " 이 과정에서 방송 전 루틴, 태그 구조, 기억 저장 우선순위까지 함께 재정리했습니다."
+        "이후 샘플 앱의 응답 스타일과 상태 구조까지 하나의 문맥으로 연결해 기록했습니다."
+        + " 이 과정에서 데모 전 루틴, 태그 구조, 기억 저장 우선순위까지 함께 재정리했습니다."
         + " 또한 장기 기억 검색 범위와 중요 기억 우선순위가 실제 대화 품질에 어떤 영향을 주는지도 비교했습니다."
-        + " 마지막으로 프로젝트 별칭과 첫 만남의 의미를 다시 정리해 에네가 이후 대화에서 자연스럽게 회상할 수 있도록 구성했습니다."
+        + " 마지막으로 프로젝트 별칭과 예시 장면의 의미를 다시 정리해 이후 대화에서 자연스럽게 회상할 수 있도록 구성했습니다."
     )
     dialog = MemoryDialog(_DummyMemoryManager([]))
 
@@ -2698,6 +2968,86 @@ def test_app_runtime_language_change_retranslates_open_windows(tmp_path):
     assert proactive_calls == ["proactive"]
     assert calls == ["tray", "obsidian"]
     assert dialog_calls == ["dialog"]
+
+
+def test_embedding_settings_change_marks_old_embeddings_and_prompts():
+    ENEApplication = _load_app_class()
+    configure_i18n(language="en")
+    calls = []
+    prompts = []
+    proactive_calls = []
+
+    class MemoryManagerWithMarker:
+        def __init__(self):
+            self.marked = []
+
+        def mark_unknown_embeddings_source(self, provider, model):
+            self.marked.append((provider, model))
+            return 1
+
+    memory_manager = MemoryManagerWithMarker()
+    app = ENEApplication.__new__(ENEApplication)
+    app.settings = _DummySettings(
+        {
+            "ui_language": "en",
+            "embedding_provider": "voyage",
+            "embedding_model": "voyage-2",
+            "enable_tts": False,
+            "tts_provider": "gpt_sovits_http",
+        }
+    )
+    bridge = SimpleNamespace(refresh_proactive_settings=lambda: proactive_calls.append("proactive"))
+    app.overlay_window = SimpleNamespace(apply_new_settings=lambda settings: None, bridge=bridge)
+    app.global_ptt = None
+    app.interrupt_tts_on_ptt = True
+    app.memory_manager = memory_manager
+    app._refresh_memory_runtime_bindings = lambda: calls.append("memory")
+    app._refresh_tts_runtime_bindings = lambda: calls.append("tts")
+    app._show_embedding_rebuild_prompt = lambda provider, model: prompts.append((provider, model))
+
+    ENEApplication._on_settings_changed(
+        app,
+        {
+            "ui_language": "en",
+            "embedding_provider": "voyage",
+            "embedding_model": "voyage-3",
+            "interrupt_tts_on_ptt": True,
+        },
+    )
+
+    assert memory_manager.marked == [("voyage", "voyage-2")]
+    assert calls == ["memory"]
+    assert prompts == [("voyage", "voyage-3")]
+
+
+def test_embedding_rebuild_prompt_defaults_to_no_and_shows_count(monkeypatch):
+    ENEApplication = _load_app_class()
+    configure_i18n(language="en", locales_dir=Path("src/locales"), system_locale="en_US")
+    questions = []
+
+    class MemoryManagerWithStats:
+        def get_stats(self):
+            return {"total": 5, "important": 0, "with_embedding": 3}
+
+    app = ENEApplication.__new__(ENEApplication)
+    app.memory_manager = MemoryManagerWithStats()
+    app.overlay_window = None
+
+    def fake_question(parent, title, text, buttons, default_button):
+        questions.append((title, text, default_button))
+        return QMessageBox.StandardButton.No
+
+    monkeypatch.setattr("PyQt6.QtWidgets.QMessageBox.question", fake_question)
+
+    ENEApplication._show_embedding_rebuild_prompt(app, "voyage", "voyage-3")
+
+    assert questions == [
+        (
+            "Embeddings need rebuilding",
+            "Embedding settings changed to voyage/voyage-3. Rebuild 3 saved memory embeddings with the new settings now? This may call the embedding API.",
+            QMessageBox.StandardButton.No,
+        )
+    ]
 
 
 def test_show_memory_dialog_warns_with_translated_text(tmp_path, monkeypatch):
