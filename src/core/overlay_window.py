@@ -379,6 +379,7 @@ class OverlayWindow(QWidget):
         i18n = self._build_ui_i18n(settings_override)
         return {
             "loading": i18n.t("chat.loading"),
+            "loadingSearching": i18n.t("chat.loading.searching"),
             "input": {
                 "placeholder": i18n.t("chat.input.placeholder"),
             },

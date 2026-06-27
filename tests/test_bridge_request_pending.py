@@ -17,7 +17,8 @@ class _DummySignal:
 
 
 class _DummyWorker:
-    def __init__(self, *_args, **_kwargs):
+    def __init__(self, *_args, **kwargs):
+        self.kwargs = kwargs
         self.response_ready = _DummySignal()
         self.error_occurred = _DummySignal()
         self.started = False
@@ -31,6 +32,7 @@ class _DummyBridge(ChatFlowBridgeMixin):
         self.worker = None
         self.llm_client = object()
         self.request_pending_changed = _DummySignal()
+        self.request_pending_stage_changed = _DummySignal()
 
     def _with_ene_thought_context(self, message):
         return message
@@ -69,7 +71,33 @@ def test_start_ai_worker_emits_request_pending_changed(monkeypatch):
     bridge._start_ai_worker("안녕")
 
     assert bridge.request_pending_changed.emitted == [(True,)]
+    assert bridge.request_pending_stage_changed.emitted == [("thinking",)]
+    assert bridge.worker.kwargs["progress_callback"] == bridge._emit_request_pending_stage_changed
     assert bridge.worker.started is True
+
+
+def test_ai_worker_progress_callback_emits_searching_stage(monkeypatch):
+    monkeypatch.setattr(chat_flow, "AIWorker", _DummyWorker)
+    bridge = _DummyBridge()
+
+    bridge._start_ai_worker("hello")
+    bridge.worker.kwargs["progress_callback"]("searching")
+
+    assert bridge.request_pending_stage_changed.emitted == [("thinking",), ("searching",)]
+
+
+def test_request_pending_stage_normalizes_unknown_stage_to_thinking():
+    bridge = _DummyBridge()
+
+    bridge._emit_request_pending_stage_changed("")
+    bridge._emit_request_pending_stage_changed("unknown")
+    bridge._emit_request_pending_stage_changed(" searching ")
+
+    assert bridge.request_pending_stage_changed.emitted == [
+        ("thinking",),
+        ("thinking",),
+        ("searching",),
+    ]
 
 
 def test_start_diary_worker_emits_request_pending_changed(monkeypatch):
@@ -80,6 +108,7 @@ def test_start_diary_worker_emits_request_pending_changed(monkeypatch):
     bridge._start_diary_worker("오늘 기록", "프롬프트")
 
     assert bridge.request_pending_changed.emitted == [(True,)]
+    assert bridge.request_pending_stage_changed.emitted == [("thinking",)]
     assert bridge.worker.started is True
 
 
@@ -92,19 +121,32 @@ def test_start_note_worker_emits_request_pending_changed(monkeypatch):
     bridge._start_note_worker("노트 작성", "프롬프트")
 
     assert bridge.request_pending_changed.emitted == [(True,)]
+    assert bridge.request_pending_stage_changed.emitted == [("thinking",)]
     assert bridge.worker.started is True
+
+
+def test_request_pending_false_resets_stage_to_thinking():
+    bridge = _DummyBridge()
+    bridge._emit_request_pending_stage_changed("searching")
+
+    bridge._emit_request_pending_changed(False)
+
+    assert bridge.request_pending_changed.emitted == [(False,)]
+    assert bridge.request_pending_stage_changed.emitted == [("searching",), ("thinking",)]
 
 
 def test_reset_pending_ui_state_emits_request_pending_false():
     dummy = type("BridgeDummy", (), {})()
     dummy._is_rerolling = True
     dummy.request_pending_changed = _DummySignal()
+    dummy.request_pending_stage_changed = _DummySignal()
     dummy.reroll_state_changed = _DummySignal()
     dummy.summary_notice = _DummySignal()
 
     WebBridge._reset_pending_ui_state(dummy, "처리할 수 없어요.")
 
     assert dummy.request_pending_changed.emitted == [(False,)]
+    assert dummy.request_pending_stage_changed.emitted == [("thinking",)]
     assert dummy.reroll_state_changed.emitted == [(False,)]
     assert dummy.summary_notice.emitted == [("처리할 수 없어요.", "info")]
     assert dummy._is_rerolling is False
@@ -117,12 +159,14 @@ def test_on_error_emits_request_pending_false():
     dummy.promise_manager = None
     dummy._is_rerolling = False
     dummy.request_pending_changed = _DummySignal()
+    dummy.request_pending_stage_changed = _DummySignal()
     dummy.message_received = _DummySignal()
     dummy.reroll_state_changed = _DummySignal()
 
     WebBridge._on_error(dummy, "API timeout")
 
     assert dummy.request_pending_changed.emitted == [(False,)]
+    assert dummy.request_pending_stage_changed.emitted == [("thinking",)]
     assert dummy.message_received.emitted == [("음... 무슨 일이 있었나봐요.", "confused", "")]
 
 

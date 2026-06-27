@@ -42,6 +42,7 @@ function mergeUiStrings(config) {
 
     return {
         loading: source.loading || DEFAULT_UI_STRINGS.loading,
+        loadingSearching: source.loadingSearching || DEFAULT_UI_STRINGS.loadingSearching,
         input: {
             placeholder: input.placeholder || DEFAULT_UI_STRINGS.input.placeholder
         },
@@ -195,7 +196,11 @@ function formatMoodStatusText(label, temporaryState) {
 }
 
 function applyUiStringsToStaticNodes() {
-    if (loadingText) loadingText.textContent = currentUiStrings.loading;
+    if (typeof updateLoadingIndicatorText === 'function') {
+        updateLoadingIndicatorText();
+    } else if (loadingText) {
+        loadingText.textContent = currentUiStrings.loading;
+    }
     if (chatInput) chatInput.placeholder = currentUiStrings.input.placeholder;
     if (sendButton) sendButton.textContent = currentUiStrings.send;
     if (manualSummarizeButton) {

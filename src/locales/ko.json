@@ -230,6 +230,7 @@
   "ene_profile.message.fact_missing.title": "학습 정보 입력 필요",
   "ene_profile.message.fact_missing.body": "학습 정보 내용이 비어 있습니다.",
   "chat.loading": "생각중...",
+  "chat.loading.searching": "검색중...",
   "chat.input.placeholder": "메시지를 입력하세요...",
   "chat.send": "전송",
   "chat.actions.summary": "요약",

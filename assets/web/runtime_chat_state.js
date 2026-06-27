@@ -114,6 +114,7 @@ let tokenUsageBubbleVisibleBySetting = false;
 let hasAssistantMessage = false;
 let hasUserMessage = false;
 let isRequestPending = false;
+let requestPendingStage = 'thinking';
 let shouldReplaceNextAssistant = false;
 let lastAssistantMessageEl = null;
 let lastUserMessageEl = null;

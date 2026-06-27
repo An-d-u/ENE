@@ -14,7 +14,7 @@ from ..ai.note_service import NoteService
 from ..ai.obsidian_manager import ObsidianManager
 from ..ai.prompt_language import resolve_prompt_language
 from .bridge_state import BridgeStateAliasMixin
-from .bridge_workers import AIWorker  # 기존 import 경로 호환용 재노출
+from .bridge_workers import AIWorker  # noqa: F401  # 기존 import 경로 호환용 재노출
 from .bridge_mixins.attachments import AttachmentBridgeMixin
 from .bridge_mixins.away import AwayNudgeBridgeMixin
 from .bridge_mixins.chat_flow import ChatFlowBridgeMixin
@@ -61,6 +61,7 @@ class WebBridge(
     message_received = pyqtSignal(str, str, str)  # (텍스트, 감정, 생각)
     gesture_requested = pyqtSignal(str)  # 합성 Live2D 제스처 키
     request_pending_changed = pyqtSignal(bool)  # LLM 응답 생성 진행 상태
+    request_pending_stage_changed = pyqtSignal(str)  # thinking/searching
     expression_changed = pyqtSignal(str)     # 표정 변경
     lip_sync_update = pyqtSignal(float)      # 립싱크 업데이트 (mouth_value)
     mouth_pose_update = pyqtSignal(str)      # 모델 적응형 입모양 JSON
@@ -150,6 +151,9 @@ class WebBridge(
         주로 reroll/edit 조기 종료 경로에서 사용한다.
         """
         self._is_rerolling = False
+        stage_signal = getattr(self, "request_pending_stage_changed", None)
+        if stage_signal and hasattr(stage_signal, "emit"):
+            stage_signal.emit("thinking")
         signal = getattr(self, "request_pending_changed", None)
         if signal and hasattr(signal, "emit"):
             signal.emit(False)

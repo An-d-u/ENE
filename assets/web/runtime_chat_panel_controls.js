@@ -3,9 +3,31 @@
  * 로딩 인디케이터 표시 상태를 갱신한다.
  */
 // 요청 진행 중 로딩 인디케이터를 표시/숨김 처리한다.
+function getRequestPendingLoadingText() {
+    if (requestPendingStage === 'searching') {
+        return (currentUiStrings && currentUiStrings.loadingSearching)
+            || DEFAULT_UI_STRINGS.loadingSearching
+            || (currentUiStrings && currentUiStrings.loading)
+            || DEFAULT_UI_STRINGS.loading;
+    }
+    return (currentUiStrings && currentUiStrings.loading) || DEFAULT_UI_STRINGS.loading;
+}
+
+function updateLoadingIndicatorText() {
+    if (loadingText) {
+        loadingText.textContent = getRequestPendingLoadingText();
+    }
+}
+
+function normalizeRequestPendingStage(stage) {
+    const normalized = String(stage || '').trim().toLowerCase();
+    return normalized === 'searching' ? 'searching' : 'thinking';
+}
+
 function showLoadingIndicator(show) {
     if (loadingIndicator) {
         if (show) {
+            updateLoadingIndicatorText();
             if (loadingIndicator.parentElement !== chatMessages) {
                 chatMessages.appendChild(loadingIndicator);
             }
@@ -34,9 +56,19 @@ function updateRequestInputControls() {
 
 function setRequestPending(active) {
     isRequestPending = Boolean(active);
+    if (!isRequestPending) {
+        requestPendingStage = 'thinking';
+    }
     showLoadingIndicator(isRequestPending);
     updateRequestInputControls();
     updateRerollButtonState();
+}
+
+function setRequestPendingStage(stage) {
+    requestPendingStage = normalizeRequestPendingStage(stage);
+    if (isRequestPending) {
+        updateLoadingIndicatorText();
+    }
 }
 
 // 최근 assistant 메시지 DOM 참조를 재동기화한다.

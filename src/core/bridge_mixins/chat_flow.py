@@ -34,8 +34,24 @@ def _prompt_role_label(role: str, language: str, settings_source=None) -> str:
 
 
 class ChatFlowBridgeMixin:
+    def _emit_request_pending_stage_changed(self, stage: str):
+        normalized = str(stage or "").strip().lower()
+        if normalized not in {"thinking", "searching"}:
+            normalized = "thinking"
+        signal = getattr(self, "request_pending_stage_changed", None)
+        if signal and hasattr(signal, "emit"):
+            signal.emit(normalized)
+
     def _emit_request_pending_changed(self, active: bool):
         """LLM 응답 생성 진행 상태를 프런트에 알린다."""
+        if not active:
+            emit_stage = getattr(self, "_emit_request_pending_stage_changed", None)
+            if callable(emit_stage):
+                emit_stage("thinking")
+            else:
+                stage_signal = getattr(self, "request_pending_stage_changed", None)
+                if stage_signal and hasattr(stage_signal, "emit"):
+                    stage_signal.emit("thinking")
         signal = getattr(self, "request_pending_changed", None)
         if signal and hasattr(signal, "emit"):
             signal.emit(bool(active))
@@ -80,10 +96,12 @@ class ChatFlowBridgeMixin:
             latest_user_message=latest_user_message,
             recent_memory_context=recent_memory_context,
             head_pat_count_before_message=head_pat_count_before_message,
+            progress_callback=self._emit_request_pending_stage_changed,
         )
         self.worker.response_ready.connect(self._on_response_ready)
         self.worker.error_occurred.connect(self._on_error)
         self._connect_worker_finished_drain()
+        self._emit_request_pending_stage_changed("thinking")
         self._emit_request_pending_changed(True)
         self.worker.start()
 
@@ -103,6 +121,7 @@ class ChatFlowBridgeMixin:
         self.worker.response_ready.connect(self._on_response_ready)
         self.worker.error_occurred.connect(self._on_error)
         self._connect_worker_finished_drain()
+        self._emit_request_pending_stage_changed("thinking")
         self._emit_request_pending_changed(True)
         self.worker.start()
 
@@ -123,6 +142,7 @@ class ChatFlowBridgeMixin:
         self.worker.response_ready.connect(self._on_response_ready)
         self.worker.error_occurred.connect(self._on_error)
         self._connect_worker_finished_drain()
+        self._emit_request_pending_stage_changed("thinking")
         self._emit_request_pending_changed(True)
         self.worker.start()
 

@@ -3192,6 +3192,7 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
         """
         {
           "chat.loading": "Thinking...",
+          "chat.loading.searching": "Searching...",
           "chat.input.placeholder": "Type a message...",
           "chat.send": "Send",
           "chat.actions.summary": "Summary",
@@ -3278,6 +3279,7 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
         """
         {
           "chat.loading": "考え中...",
+          "chat.loading.searching": "検索中...",
           "chat.input.placeholder": "メッセージを入力してください...",
           "chat.send": "送信",
           "chat.actions.summary": "要約",
@@ -3389,6 +3391,7 @@ def test_overlay_window_syncs_chat_ui_strings_from_settings_override(tmp_path):
     assert "メッセージを入力してください..." in captured[-1]
     assert "送信" in captured[-1]
     assert "考え中..." in captured[-1]
+    assert '"loadingSearching": "検索中..."' in captured[-1]
     assert '"promises": {' in captured[-1]
     assert '"proactive": {' in captured[-1]
     assert '"goals": {' in captured[-1]

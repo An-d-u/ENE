@@ -2527,8 +2527,14 @@ def test_chat_script_uses_bridge_pending_signal_for_loading_state():
     script = _script_text()
 
     assert "function setRequestPending(active)" in script
+    assert "function setRequestPendingStage(stage)" in script
+    assert "function getRequestPendingLoadingText()" in script
     assert "window.pyBridge.request_pending_changed.connect" in script
+    assert "window.pyBridge.request_pending_stage_changed.connect" in script
     assert "setRequestPending(Boolean(active));" in script
+    assert "setRequestPendingStage(stage);" in script
+    assert "requestPendingStage = 'thinking';" in script
+    assert "currentUiStrings.loadingSearching" in script
 
 
 def test_chat_script_blocks_send_while_request_is_pending():
