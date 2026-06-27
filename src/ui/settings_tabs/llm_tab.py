@@ -196,6 +196,82 @@ def build_llm_tab(dialog):
     self.custom_api_group.setVisible(False)
     layout.addWidget(self.custom_api_group)
 
+    web_search_group = QGroupBox("Web Search")
+    self._bind_group_title(web_search_group, "settings.llm.web_search_group.title", "Web Search")
+    web_search_form = QFormLayout(web_search_group)
+    web_search_form.setSpacing(8)
+    web_search_form.setContentsMargins(10, 15, 10, 10)
+
+    self.web_search_enabled_check = self._create_toggle(
+        "Enable web search",
+        key="settings.llm.web_search_group.enabled",
+    )
+    self.web_search_enabled_check.toggled.connect(self._on_setting_changed)
+    web_search_form.addRow(self.web_search_enabled_check)
+
+    self.web_search_auto_enabled_check = self._create_toggle(
+        "Let ENE decide when to search",
+        key="settings.llm.web_search_group.auto_enabled",
+    )
+    self.web_search_auto_enabled_check.toggled.connect(self._on_setting_changed)
+    web_search_form.addRow(self.web_search_auto_enabled_check)
+
+    self.web_search_provider_combo = QComboBox()
+    self.web_search_provider_combo.addItem("Tavily", "tavily")
+    self.web_search_provider_combo.currentIndexChanged.connect(self._on_web_search_provider_changed)
+    self._add_form_row(
+        web_search_form,
+        "settings.llm.web_search_group.provider",
+        "Search provider:",
+        self.web_search_provider_combo,
+    )
+
+    self.web_search_api_key_edit = QLineEdit()
+    self._bind_placeholder(
+        self.web_search_api_key_edit,
+        "settings.llm.web_search_group.api_key.placeholder",
+        "Tavily API key",
+    )
+    self.web_search_api_key_edit.textChanged.connect(self._on_web_search_api_key_changed)
+    self._add_form_row(
+        web_search_form,
+        "settings.llm.web_search_group.api_key.label",
+        "Tavily API key:",
+        self._build_secret_row(
+            self.web_search_api_key_edit,
+            lambda: self._toggle_secret_field(self.web_search_api_key_edit, self.web_search_api_key_toggle_button),
+            "web_search_api_key_toggle_button",
+        ),
+    )
+
+    self.web_search_max_results_spin = QSpinBox()
+    self.web_search_max_results_spin.setRange(1, 10)
+    self.web_search_max_results_spin.valueChanged.connect(self._on_setting_changed)
+    self._add_form_row(
+        web_search_form,
+        "settings.llm.web_search_group.max_results",
+        "Max results:",
+        self.web_search_max_results_spin,
+    )
+
+    self.web_search_timeout_sec_spin = QSpinBox()
+    self.web_search_timeout_sec_spin.setRange(1, 60)
+    self._bind_suffix(self.web_search_timeout_sec_spin, "settings.common.seconds_suffix", " sec")
+    self.web_search_timeout_sec_spin.valueChanged.connect(self._on_setting_changed)
+    self._add_form_row(
+        web_search_form,
+        "settings.llm.web_search_group.timeout_sec",
+        "Timeout:",
+        self.web_search_timeout_sec_spin,
+    )
+    web_search_form.addRow(
+        self._build_hint_label(
+            "Manual `/search query` works when web search is enabled. Auto search asks the LLM whether current information is needed before calling Tavily.",
+            key="settings.llm.web_search_group.hint",
+        )
+    )
+    layout.addWidget(web_search_group)
+
     embedding_group = QGroupBox("임베딩 설정")
     self._bind_group_title(embedding_group, "settings.llm.embedding_group.title", "임베딩 설정")
     embedding_form = QFormLayout(embedding_group)

@@ -1045,6 +1045,55 @@ def test_settings_dialog_exposes_language_selector_and_translated_static_strings
         dialog.close()
 
 
+def test_settings_dialog_exposes_web_search_controls_and_saves_tavily_key(monkeypatch):
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="en", locales_dir=locales_dir, system_locale="ko_KR")
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        monkeypatch.setattr(SettingsDialog, "_load_prompt_configuration", lambda self: None)
+        dialog = SettingsDialog(
+            {
+                "ui_language": "en",
+                "llm_provider": "gemini",
+                "tts_provider": "gpt_sovits_http",
+                "enable_tts": True,
+                "web_search_enabled": True,
+                "web_search_auto_enabled": False,
+                "web_search_provider": "tavily",
+                "web_search_max_results": 4,
+                "web_search_timeout_sec": 17,
+                "web_search_api_keys": {"tavily": "existing-tavily-key"},
+            }
+        )
+
+        assert dialog.web_search_enabled_check.isChecked() is True
+        assert dialog.web_search_auto_enabled_check.isChecked() is False
+        assert dialog.web_search_provider_combo.currentData() == "tavily"
+        assert dialog.web_search_api_key_edit.text() == "existing-tavily-key"
+        assert dialog.web_search_max_results_spin.value() == 4
+        assert dialog.web_search_timeout_sec_spin.value() == 17
+
+        dialog.web_search_enabled_check.setChecked(False)
+        dialog.web_search_auto_enabled_check.setChecked(True)
+        dialog.web_search_api_key_edit.setText("updated-tavily-key")
+        dialog.web_search_max_results_spin.setValue(6)
+        dialog.web_search_timeout_sec_spin.setValue(22)
+
+        values = dialog._get_current_values()
+
+        assert values["web_search_enabled"] is False
+        assert values["web_search_auto_enabled"] is True
+        assert values["web_search_provider"] == "tavily"
+        assert values["web_search_api_keys"]["tavily"] == "updated-tavily-key"
+        assert values["web_search_max_results"] == 6
+        assert values["web_search_timeout_sec"] == 22
+
+        dialog.close()
+
+
 def test_settings_dialog_ptt_language_selection_is_saved_to_stt_language():
     _get_qapp()
     locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"

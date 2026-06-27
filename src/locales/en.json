@@ -361,7 +361,8 @@
     "common": {
       "auto": "Auto",
       "browse": "Browse",
-      "refresh": "Refresh"
+      "refresh": "Refresh",
+      "seconds_suffix": " sec"
     },
     "content": {
       "placeholder": "Choose a section to adjust its details."
@@ -660,6 +661,19 @@
           "cohere": "Cohere"
         },
         "hint": "This section is only used when the Custom API provider is selected."
+      },
+      "web_search_group": {
+        "title": "Web Search",
+        "enabled": "Enable web search",
+        "auto_enabled": "Let ENE decide when to search",
+        "provider": "Search provider:",
+        "api_key": {
+          "label": "Tavily API key:",
+          "placeholder": "Tavily API key"
+        },
+        "max_results": "Max results:",
+        "timeout_sec": "Timeout:",
+        "hint": "Manual `/search query` works when web search is enabled. Auto search asks the LLM whether current information is needed before calling Tavily."
       },
       "embedding_group": {
         "title": "Embedding settings",

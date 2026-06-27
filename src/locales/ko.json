@@ -363,7 +363,8 @@
     "common": {
       "auto": "자동",
       "browse": "찾아보기",
-      "refresh": "새로고침"
+      "refresh": "새로고침",
+      "seconds_suffix": "초"
     },
     "content": {
       "placeholder": "섹션을 선택해 세부 설정을 조정합니다."
@@ -662,6 +663,19 @@
           "cohere": "Cohere"
         },
         "hint": "Custom API 공급자를 선택한 경우에만 이 섹션이 사용됩니다."
+      },
+      "web_search_group": {
+        "title": "웹 검색",
+        "enabled": "웹 검색 사용",
+        "auto_enabled": "필요할 때 ENE가 자동으로 검색 판단",
+        "provider": "검색 공급자:",
+        "api_key": {
+          "label": "Tavily API 키:",
+          "placeholder": "Tavily API 키"
+        },
+        "max_results": "최대 결과 수:",
+        "timeout_sec": "타임아웃:",
+        "hint": "웹 검색을 켜면 `/search 검색어`로 직접 검색할 수 있습니다. 자동 검색은 최신 정보가 필요할 때 LLM이 먼저 판단한 뒤 Tavily를 호출합니다."
       },
       "embedding_group": {
         "title": "임베딩 설정",
