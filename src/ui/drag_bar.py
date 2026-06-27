@@ -11,6 +11,7 @@ class DragBar(QWidget):
     
     # 드래그 완료 시 위치 변경 시그널 (x, y)
     position_changed = pyqtSignal(int, int)
+    drag_finished = pyqtSignal(int, int)
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -80,4 +81,5 @@ class DragBar(QWidget):
             # 최종 위치 시그널 발생
             window = self.window()
             self.position_changed.emit(window.x(), window.y())
+            self.drag_finished.emit(window.x(), window.y())
             event.accept()

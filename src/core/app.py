@@ -416,11 +416,50 @@ class ENEApplication(QObject):
         
         # 드래그 바의 위치 변경 시그널을 설정창에 연결
         self.overlay_window.drag_bar.position_changed.connect(dialog.update_position)
+        self._connect_overlay_drag_persistence()
         
         # 비모달로 표시
         dialog.show()
         if section_id and hasattr(dialog, "focus_section"):
             dialog.focus_section(section_id)
+
+    def _connect_overlay_drag_persistence(self):
+        drag_bar = getattr(getattr(self, "overlay_window", None), "drag_bar", None)
+        try:
+            already_connected = getattr(self, "_overlay_drag_persistence_connected", False)
+        except RuntimeError:
+            already_connected = False
+        if drag_bar is None or already_connected:
+            return
+        signal = getattr(drag_bar, "drag_finished", None) or getattr(drag_bar, "position_changed", None)
+        if signal is None or not hasattr(signal, "connect"):
+            return
+        signal.connect(self._persist_overlay_position)
+        self._overlay_drag_persistence_connected = True
+
+    def _persist_overlay_position(self, x: int, y: int):
+        settings = getattr(self, "settings", None)
+        if settings is None:
+            return
+        try:
+            next_x = int(x)
+            next_y = int(y)
+        except (TypeError, ValueError):
+            return
+
+        setter = getattr(settings, "set", None)
+        if callable(setter):
+            setter("window_x", next_x)
+            setter("window_y", next_y)
+        elif isinstance(getattr(settings, "config", None), dict):
+            settings.config["window_x"] = next_x
+            settings.config["window_y"] = next_y
+        else:
+            return
+
+        saver = getattr(settings, "save", None)
+        if callable(saver):
+            saver()
     
     def _show_memory_dialog(self):
         """기억 관리 다이얼로그 표시"""
