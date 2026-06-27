@@ -129,6 +129,54 @@ def test_web_search_runner_restores_thinking_when_search_raises():
     assert stages == ["searching", "thinking"]
 
 
+def test_web_search_runner_ignores_decision_provider_failure_without_searching():
+    def raising_decision_provider(latest_user_message, recent_context):
+        raise RuntimeError("synthetic failure")
+
+    tool = DummySearchTool()
+    runner = WebSearchToolRunner(
+        search_tool=tool,
+        enabled=True,
+        auto_enabled=True,
+        decision_provider=raising_decision_provider,
+    )
+
+    block = runner.build_context(
+        message="neutral current question",
+        latest_user_message="neutral current question",
+        recent_context="private context that should not be logged",
+    )
+
+    assert block == ""
+    assert tool.queries == []
+
+
+def test_web_search_runner_returns_manual_results_when_progress_callback_raises():
+    stages = []
+
+    def raising_progress_callback(stage):
+        stages.append(stage)
+        raise RuntimeError("synthetic failure")
+
+    tool = DummySearchTool()
+    runner = WebSearchToolRunner(
+        search_tool=tool,
+        enabled=True,
+        auto_enabled=False,
+        progress_callback=raising_progress_callback,
+    )
+
+    block = runner.build_context(
+        message="/search neutral topic",
+        mode="manual",
+        manual_query="neutral topic",
+    )
+
+    assert tool.queries[0].query == "neutral topic"
+    assert stages == ["searching", "thinking"]
+    assert "[WEB_SEARCH_RESULTS]" in block
+
+
 def test_web_search_runner_parses_structured_decision_json():
     runner = WebSearchToolRunner(search_tool=None, enabled=True)
 
