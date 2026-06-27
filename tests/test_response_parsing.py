@@ -3,6 +3,7 @@ import pytest
 pytest.importorskip("google.genai")
 
 from src.ai.llm_client import GeminiClient
+from src.ai.response_parser import parse_llm_response
 
 
 def test_parse_response_keeps_multiline_japanese_for_tts():
@@ -334,3 +335,61 @@ def test_parse_response_removes_leading_orphan_thinking_close_tag():
     assert analysis == {}
     assert promises == []
     assert thought == ""
+
+
+def test_parse_response_redacts_schedule_event_log_payload():
+    logs = []
+    response_text = (
+        "Noted. [event:2099-01-02|Synthetic Private Launch|Synthetic room details] "
+        "[normal]"
+    )
+
+    parsed = parse_llm_response(
+        response_text,
+        settings_source={"ui_language": "en", "tts_language": "en"},
+        available_emotions={"normal"},
+        log_event=logs.append,
+    )
+
+    _text, _emotion, _tts_text, events, *_rest = parsed
+    assert events == [
+        {
+            "date": "2099-01-02",
+            "title": "Synthetic Private Launch",
+            "description": "Synthetic room details",
+        }
+    ]
+    assert len(logs) == 1
+    log_output = "\n".join(logs)
+    assert "2099-01-02" not in log_output
+    assert "Synthetic Private Launch" not in log_output
+    assert "Synthetic room details" not in log_output
+    assert "date_chars=10" in log_output
+    assert "title_chars=24" in log_output
+    assert "has_description=True" in log_output
+
+
+def test_gemini_parse_response_redacts_schedule_event_print_output(capsys):
+    client = GeminiClient.__new__(GeminiClient)
+    client.settings = {"ui_language": "en", "tts_language": "en"}
+    response_text = (
+        "Noted. [event:2099-04-05|Synthetic Board Review|Synthetic suite note] "
+        "[normal]"
+    )
+
+    _text, _emotion, _tts_text, events, *_rest = client._parse_response(response_text)
+
+    captured = capsys.readouterr()
+    assert events == [
+        {
+            "date": "2099-04-05",
+            "title": "Synthetic Board Review",
+            "description": "Synthetic suite note",
+        }
+    ]
+    assert "2099-04-05" not in captured.out
+    assert "Synthetic Board Review" not in captured.out
+    assert "Synthetic suite note" not in captured.out
+    assert "date_chars=10" in captured.out
+    assert "title_chars=22" in captured.out
+    assert "has_description=True" in captured.out
