@@ -314,6 +314,33 @@ class SettingsDialogValuesMixin:
             config["api_url"] = text.strip()
         self._on_setting_changed()
 
+    def _current_web_search_provider(self) -> str:
+        if not hasattr(self, "web_search_provider_combo"):
+            return "tavily"
+        return str(self.web_search_provider_combo.currentData() or "tavily").strip().lower()
+
+    def _load_web_search_provider_controls(self, provider: str):
+        if not hasattr(self, "web_search_api_key_edit"):
+            return
+        self.web_search_api_key_edit.setText(str(self._web_search_api_keys.get(provider, "")))
+
+    def _on_web_search_provider_changed(self, *_):
+        if self._loading:
+            return
+        provider = self._current_web_search_provider()
+        self._loading = True
+        try:
+            self._load_web_search_provider_controls(provider)
+        finally:
+            self._loading = False
+        self._on_setting_changed()
+
+    def _on_web_search_api_key_changed(self, text: str):
+        if self._loading:
+            return
+        self._web_search_api_keys[self._current_web_search_provider()] = text.strip()
+        self._on_setting_changed()
+
     def _default_model_params(self) -> dict:
         return {"temperature": 0.9, "top_p": 1.0, "max_tokens": 2048}
 
@@ -738,6 +765,35 @@ class SettingsDialogValuesMixin:
             if format_index >= 0:
                 self.custom_api_format_combo.setCurrentIndex(format_index)
 
+            self.web_search_enabled_check.setChecked(self._original_settings.get("web_search_enabled", False))
+            self.web_search_auto_enabled_check.setChecked(
+                self._original_settings.get("web_search_auto_enabled", True)
+            )
+            web_search_provider = str(self._original_settings.get("web_search_provider", "tavily")).strip().lower()
+            web_search_provider_index = self.web_search_provider_combo.findData(web_search_provider)
+            if web_search_provider_index < 0:
+                web_search_provider = "tavily"
+                web_search_provider_index = self.web_search_provider_combo.findData(web_search_provider)
+            self.web_search_provider_combo.setCurrentIndex(web_search_provider_index if web_search_provider_index >= 0 else 0)
+            loaded_web_search_keys = self._original_settings.get("web_search_api_keys", {})
+            self._web_search_api_keys = (
+                dict(loaded_web_search_keys)
+                if isinstance(loaded_web_search_keys, dict)
+                else {}
+            )
+            self._web_search_api_keys.setdefault("tavily", "")
+            self._load_web_search_provider_controls(web_search_provider)
+            try:
+                web_search_max_results = int(self._original_settings.get("web_search_max_results", 5) or 5)
+            except Exception:
+                web_search_max_results = 5
+            self.web_search_max_results_spin.setValue(max(1, min(web_search_max_results, 10)))
+            try:
+                web_search_timeout_sec = int(self._original_settings.get("web_search_timeout_sec", 12) or 12)
+            except Exception:
+                web_search_timeout_sec = 12
+            self.web_search_timeout_sec_spin.setValue(max(1, min(web_search_timeout_sec, 60)))
+
             embedding_provider = str(self._original_settings.get("embedding_provider", "voyage")).strip().lower()
             if embedding_provider not in {"voyage", "openai", "openai_compatible", "gemini"}:
                 embedding_provider = "voyage"
@@ -816,6 +872,8 @@ class SettingsDialogValuesMixin:
         self._llm_api_keys[current_provider] = self.llm_api_key_edit.text()
         self._llm_models[current_provider] = self.llm_model_edit.text().strip()
         self._set_current_model_params()
+        web_search_provider = self._current_web_search_provider()
+        self._web_search_api_keys[web_search_provider] = self.web_search_api_key_edit.text().strip()
 
         active_custom_emotion = self.head_pat_active_emotion_custom_edit.text().strip()
         active_default_emotion = self.head_pat_active_emotion_combo.currentText().strip() or "normal"
@@ -970,6 +1028,12 @@ class SettingsDialogValuesMixin:
             "custom_api_key_or_password": self.custom_api_key_or_password_edit.text().strip(),
             "custom_api_request_model": self.custom_api_request_model_edit.text().strip(),
             "custom_api_format": str(self.custom_api_format_combo.currentData() or LLMFormat.OPENAI_COMPATIBLE.value),
+            "web_search_enabled": self.web_search_enabled_check.isChecked(),
+            "web_search_auto_enabled": self.web_search_auto_enabled_check.isChecked(),
+            "web_search_provider": web_search_provider,
+            "web_search_max_results": self.web_search_max_results_spin.value(),
+            "web_search_timeout_sec": self.web_search_timeout_sec_spin.value(),
+            "web_search_api_keys": dict(self._web_search_api_keys),
             "embedding_api_keys": embedding_api_keys,
             "embedding_provider": embedding_provider,
             "embedding_model": self.embedding_model_combo.currentText().strip() or "voyage-3",

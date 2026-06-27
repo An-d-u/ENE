@@ -359,7 +359,8 @@
     "common": {
       "auto": "自動",
       "browse": "参照",
-      "refresh": "更新"
+      "refresh": "更新",
+      "seconds_suffix": "秒"
     },
     "content": {
       "placeholder": "セクションを選んで詳細設定を調整します。"
@@ -658,6 +659,19 @@
           "cohere": "Cohere"
         },
         "hint": "This section is only used when the Custom API provider is selected."
+      },
+      "web_search_group": {
+        "title": "Web検索",
+        "enabled": "Web検索を有効にする",
+        "auto_enabled": "必要なときにENEが検索するか判断する",
+        "provider": "検索プロバイダー:",
+        "api_key": {
+          "label": "Tavily APIキー:",
+          "placeholder": "Tavily APIキー"
+        },
+        "max_results": "最大結果数:",
+        "timeout_sec": "タイムアウト:",
+        "hint": "Web検索を有効にすると、`/search 検索語`で手動検索できます。自動検索では、最新情報が必要かをLLMが判断してからTavilyを呼び出します。"
       },
       "embedding_group": {
         "title": "Embedding settings",
