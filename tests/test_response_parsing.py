@@ -337,7 +337,7 @@ def test_parse_response_removes_leading_orphan_thinking_close_tag():
     assert thought == ""
 
 
-def test_parse_response_redacts_schedule_event_log_payload():
+def test_parse_response_logs_schedule_event_payload():
     logs = []
     response_text = (
         "Noted. [event:2099-01-02|Synthetic Private Launch|Synthetic room details] "
@@ -361,15 +361,12 @@ def test_parse_response_redacts_schedule_event_log_payload():
     ]
     assert len(logs) == 1
     log_output = "\n".join(logs)
-    assert "2099-01-02" not in log_output
-    assert "Synthetic Private Launch" not in log_output
-    assert "Synthetic room details" not in log_output
-    assert "date_chars=10" in log_output
-    assert "title_chars=24" in log_output
-    assert "has_description=True" in log_output
+    assert "2099-01-02" in log_output
+    assert "Synthetic Private Launch" in log_output
+    assert "Synthetic room details" in log_output
 
 
-def test_gemini_parse_response_redacts_schedule_event_print_output(capsys):
+def test_gemini_parse_response_logs_schedule_event_content(capsys):
     client = GeminiClient.__new__(GeminiClient)
     client.settings = {"ui_language": "en", "tts_language": "en"}
     response_text = (
@@ -387,9 +384,6 @@ def test_gemini_parse_response_redacts_schedule_event_print_output(capsys):
             "description": "Synthetic suite note",
         }
     ]
-    assert "2099-04-05" not in captured.out
-    assert "Synthetic Board Review" not in captured.out
-    assert "Synthetic suite note" not in captured.out
-    assert "date_chars=10" in captured.out
-    assert "title_chars=22" in captured.out
-    assert "has_description=True" in captured.out
+    assert "2099-04-05" in captured.out
+    assert "Synthetic Board Review" in captured.out
+    assert "Synthetic suite note" in captured.out

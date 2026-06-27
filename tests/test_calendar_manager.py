@@ -73,26 +73,22 @@ def test_head_pat_pending_count_accumulates_separately_from_daily_total(tmp_path
     assert manager.get_head_pat_count(today) == 2
 
 
-def test_add_event_log_redacts_private_event_fields(tmp_path, capsys):
+def test_add_event_log_includes_event_fields(tmp_path, capsys):
     manager = CalendarManager(calendar_file=str(tmp_path / "calendar.json"))
     capsys.readouterr()
 
-    private_title = "SYNTHETIC_CALENDAR_TITLE_PRIVATE_1357"
-    private_date = "2099-10-24"
-    private_description = "SYNTHETIC_CALENDAR_DESCRIPTION_PRIVATE_9753"
+    event_title = "Synthetic calendar title"
+    event_date = "2099-10-24"
+    event_description = "Synthetic calendar description"
 
     manager.add_event(
-        date=private_date,
-        title=private_title,
-        description=private_description,
+        date=event_date,
+        title=event_title,
+        description=event_description,
         source="user",
     )
 
     captured = capsys.readouterr().out
 
-    assert private_title not in captured
-    assert private_date not in captured
-    assert private_description not in captured
-    assert f"title_chars={len(private_title)}" in captured
-    assert f"date_chars={len(private_date)}" in captured
-    assert "has_description=True" in captured
+    assert event_title in captured
+    assert event_date in captured

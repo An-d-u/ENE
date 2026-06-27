@@ -312,7 +312,7 @@ class ChatFlowBridgeMixin:
     @pyqtSlot(str)
     def send_to_ai(self, message: str):
         """JavaScript에서 호출: 사용자 텍스트 메시지를 AI로 전송."""
-        print(f"[Bridge] Received message from JS chars={len(message or '')}")
+        print(f"[Bridge] Received message from JS: {message}")
 
         if hasattr(self, 'calendar_manager') and self.calendar_manager:
             self.calendar_manager.increment_conversation_count()
@@ -347,7 +347,7 @@ class ChatFlowBridgeMixin:
         head_pat_count_before_message = 0
         if hasattr(self, 'calendar_manager') and self.calendar_manager:
             head_pat_count_before_message = int(self.calendar_manager.drain_pending_head_pat_count())
-        print(f"[Bridge] Message with timestamp chars={len(message_with_time or '')}")
+        print(f"[Bridge] Message with timestamp: {message_with_time}")
 
         cancel_proactive = getattr(self, "_cancel_pending_proactive_conversations_for_user_message", None)
         if callable(cancel_proactive):
@@ -630,7 +630,7 @@ class ChatFlowBridgeMixin:
             thoughts_enabled = lambda: ThoughtBridgeMixin._are_ene_thoughts_enabled(self)
         if not thoughts_enabled():
             thought = ""
-        print(f"[Bridge] Response ready chars={len(text or '')} emotion={emotion}")
+        print(f"[Bridge] Response ready: {text} emotion={emotion}")
         self._last_assistant_response = {"text": text, "emotion": emotion}
         analysis = {}
         if analysis_payload:
@@ -668,22 +668,18 @@ class ChatFlowBridgeMixin:
         ):
             for event_data in events:
                 try:
-                    title_chars = len(str(event_data.get('title', '') or '')) if isinstance(event_data, dict) else 0
-                    date_chars = len(str(event_data.get('date', '') or '')) if isinstance(event_data, dict) else 0
-                    has_description = bool(event_data.get('description', '')) if isinstance(event_data, dict) else False
-                    self.calendar_manager.add_event(
+                    event = self.calendar_manager.add_event(
                         date=event_data['date'],
                         title=event_data['title'],
                         description=event_data.get('description', ''),
                         source="ai_extracted"
                     )
-                    print(
-                        "[Bridge] schedule event stored "
-                        f"title_chars={title_chars} date_chars={date_chars} "
-                        f"has_description={has_description}"
-                    )
+                    print(f"[Bridge] 일정 추가: {event.date} - {event.title}")
                 except Exception as e:
-                    print(f"[Bridge] schedule event store failed error_type={type(e).__name__}")
+                    print(
+                        "[Bridge] 일정 추가 실패: "
+                        f"{event_data.get('date', '')} - {event_data.get('title', '')}: {e}"
+                    )
 
         stored_promise_ids: list[str] = []
         llm_promises = list(scheduled_promises or [])
@@ -739,7 +735,7 @@ class ChatFlowBridgeMixin:
                 self._is_rerolling = False
                 self.reroll_state_changed.emit(False)
             if tts_text:
-                print(f"[Bridge] TTS 비활성화 또는 클라이언트 없음 (TTS chars={len(tts_text or '')})")
+                print(f"[Bridge] TTS 비활성화 또는 클라이언트 없음 (TTS: {tts_text})")
         
         # 자동 요약 확인
         self._check_auto_summarize()

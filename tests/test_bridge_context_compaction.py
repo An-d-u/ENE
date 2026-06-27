@@ -461,10 +461,10 @@ def test_gemini_send_message_with_memory_auto_search_uses_one_shot_decision(monk
     assert len(dummy.get_conversation_history()) == 2
 
 
-def test_gemini_send_message_logs_lengths_without_prompt_or_response_content(capsys):
-    user_text = "SYNTHETIC_GEMINI_PROMPT_SECRET_2468 should stay out of logs"
-    raw_response_text = "SYNTHETIC_GEMINI_RESPONSE_SECRET_1357 should stay out of logs"
-    tts_text = "SYNTHETIC_GEMINI_TTS_SECRET_9753 should stay out of logs"
+def test_gemini_send_message_logs_prompt_and_response_content(capsys):
+    user_text = "Synthetic Gemini prompt visible in console logs"
+    raw_response_text = "Synthetic Gemini response visible in console logs"
+    tts_text = "Synthetic Gemini TTS visible in console logs"
 
     class FakeResponse:
         text = raw_response_text
@@ -495,12 +495,9 @@ def test_gemini_send_message_logs_lengths_without_prompt_or_response_content(cap
     GeminiClient.send_message(dummy, user_text)
 
     captured = capsys.readouterr().out
-    assert "SYNTHETIC_GEMINI_PROMPT_SECRET_2468" not in captured
-    assert "SYNTHETIC_GEMINI_RESPONSE_SECRET_1357" not in captured
-    assert "SYNTHETIC_GEMINI_TTS_SECRET_9753" not in captured
-    assert f"Sending message chars={len(user_text)}" in captured
-    assert f"Received response chars={len(raw_response_text)}" in captured
-    assert f"TTS text chars={len(tts_text)}" in captured
+    assert user_text in captured
+    assert raw_response_text in captured
+    assert tts_text in captured
 
 
 def test_build_memory_context_includes_goal_context_without_memory_manager():

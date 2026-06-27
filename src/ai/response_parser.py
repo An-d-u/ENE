@@ -259,12 +259,8 @@ def parse_llm_response(
                 }
             )
             if log_event:
-                log_event(
-                    "[LLM] schedule event extracted "
-                    f"date_chars={len(parts[0] or '')} "
-                    f"title_chars={len(parts[1] or '')} "
-                    f"has_description={len(parts) > 2 and bool(parts[2])}"
-                )
+                description = parts[2] if len(parts) > 2 else ""
+                log_event(f"[LLM] schedule event extracted: {parts[0]} | {parts[1]} | {description}")
     response_text = re.sub(event_pattern, "", response_text)
 
     promises_enabled = is_conversation_promise_enabled(settings_source)
