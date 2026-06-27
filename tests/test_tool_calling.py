@@ -38,3 +38,5 @@ def test_parse_manual_search_command_extracts_query():
     assert parse_manual_search_command("/search Tavily pricing") == "Tavily pricing"
     assert parse_manual_search_command(" /search   release notes  ") == "release notes"
     assert parse_manual_search_command("hello") == ""
+    assert parse_manual_search_command("/searching Tavily pricing") == ""
+    assert parse_manual_search_command("/search") == ""
