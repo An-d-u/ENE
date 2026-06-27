@@ -228,6 +228,7 @@
   "ene_profile.message.fact_missing.title": "学習情報の入力が必要です",
   "ene_profile.message.fact_missing.body": "学習情報の内容が空です。",
   "chat.loading": "考え中...",
+  "chat.loading.searching": "検索中...",
   "chat.input.placeholder": "メッセージを入力してください...",
   "chat.send": "送信",
   "chat.actions.summary": "要約",

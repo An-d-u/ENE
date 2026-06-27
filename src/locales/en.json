@@ -228,6 +228,7 @@
   "ene_profile.message.fact_missing.title": "Learned fact required",
   "ene_profile.message.fact_missing.body": "Learned fact content cannot be empty.",
   "chat.loading": "Thinking...",
+  "chat.loading.searching": "Searching...",
   "chat.input.placeholder": "Type a message...",
   "chat.send": "Send",
   "chat.actions.summary": "Summary",

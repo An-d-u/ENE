@@ -45,6 +45,7 @@ const DEFAULT_THEME = {
 };
 const DEFAULT_UI_STRINGS = {
     loading: 'Thinking...',
+    loadingSearching: 'Searching...',
     input: {
         placeholder: 'Type a message...'
     },

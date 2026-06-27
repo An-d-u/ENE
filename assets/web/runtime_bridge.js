@@ -51,6 +51,11 @@ if (typeof QWebChannel !== 'undefined') {
                 setRequestPending(Boolean(active));
             });
         }
+        if (window.pyBridge.request_pending_stage_changed) {
+            window.pyBridge.request_pending_stage_changed.connect(function (stage) {
+                setRequestPendingStage(stage);
+            });
+        }
         if (window.pyBridge.gesture_requested) {
             window.pyBridge.gesture_requested.connect(function (gesture) {
                 if (typeof window.scheduleSyntheticGestureDuringSpeech === 'function') {
