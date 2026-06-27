@@ -422,6 +422,13 @@ class Settings:
                         if provider_key:
                             merged_keys[provider] = provider_key
                     self.secret_config["llm_api_keys"] = merged_keys
+                elif key == "web_search_api_keys" and isinstance(value, dict):
+                    merged_keys = dict(self.secret_config.get("web_search_api_keys", {}))
+                    for provider, provider_key in value.items():
+                        current_key = str(merged_keys.get(provider, "") or "").strip()
+                        if provider_key and not current_key:
+                            merged_keys[provider] = provider_key
+                    self.secret_config["web_search_api_keys"] = merged_keys
                 elif value:
                     self.secret_config[key] = value
                 # 현재 메모리 config에는 이미 secret key가 없지만,
