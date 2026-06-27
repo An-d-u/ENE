@@ -77,6 +77,24 @@ def test_resolve_llm_bootstrap_config_uses_custom_api_password_fallback(tmp_path
     assert config.api_key == "custom-secret"
 
 
+def test_resolve_llm_bootstrap_config_prefers_custom_api_dedicated_credentials(tmp_path):
+    settings = _Settings(
+        {
+            "llm_provider": "custom_api",
+            "llm_models": {"custom_api": "hidden-model"},
+            "llm_api_keys": {"custom_api": "hidden-key"},
+            "custom_api_key_or_password": "custom-secret",
+            "custom_api_request_model": "custom-model",
+            "llm_model_params": {},
+        }
+    )
+
+    config = resolve_llm_bootstrap_config(settings, api_key_file=tmp_path / "api_key.txt")
+
+    assert config.api_key == "custom-secret"
+    assert config.model_name == "custom-model"
+
+
 def test_create_llm_runtime_client_forwards_runtime_dependencies(monkeypatch):
     captured = {}
 

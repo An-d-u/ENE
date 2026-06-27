@@ -69,14 +69,19 @@ def resolve_llm_bootstrap_config(
     llm_model = str(llm_models.get(llm_provider, "")).strip()
     if not llm_model:
         llm_model = str(settings.get("llm_model", "")).strip()
+    if llm_provider == "custom_api":
+        llm_model = str(settings.get("custom_api_request_model", "")).strip() or llm_model
 
     llm_api_keys = settings.get("llm_api_keys", {})
     if not isinstance(llm_api_keys, dict):
         llm_api_keys = {}
 
-    api_key = str(llm_api_keys.get(llm_provider, "")).strip()
-    if not api_key and llm_provider == "custom_api":
+    if llm_provider == "custom_api":
         api_key = str(settings.get("custom_api_key_or_password", "")).strip()
+        if not api_key:
+            api_key = str(llm_api_keys.get(llm_provider, "")).strip()
+    else:
+        api_key = str(llm_api_keys.get(llm_provider, "")).strip()
 
     if not api_key and llm_provider == "gemini":
         legacy_key_file = Path(api_key_file)

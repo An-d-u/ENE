@@ -60,22 +60,22 @@ def build_llm_tab(dialog):
         "선택한 공급자의 API 키",
     )
     self.llm_api_key_edit.textChanged.connect(self._on_llm_api_key_changed)
-    self._add_form_row(
+    self.llm_api_key_row = self._build_secret_row(
+        self.llm_api_key_edit,
+        lambda: self._toggle_secret_field(self.llm_api_key_edit, self.llm_api_key_toggle_button),
+        "llm_api_key_toggle_button",
+    )
+    self.llm_api_key_label = self._add_form_row(
         provider_form,
         "settings.llm.provider_group.api_key.label",
         "API 키:",
-        self._build_secret_row(
-            self.llm_api_key_edit,
-            lambda: self._toggle_secret_field(self.llm_api_key_edit, self.llm_api_key_toggle_button),
-            "llm_api_key_toggle_button",
-        ),
+        self.llm_api_key_row,
     )
-    provider_form.addRow(
-        self._build_hint_label(
-            "민감한 값은 기본적으로 숨겨집니다. 현재 선택한 공급자 기준으로 저장됩니다.",
-            key="settings.llm.provider_group.api_key.hint",
-        )
+    self.llm_api_key_hint = self._build_hint_label(
+        "민감한 값은 기본적으로 숨겨집니다. 현재 선택한 공급자 기준으로 저장됩니다.",
+        key="settings.llm.provider_group.api_key.hint",
     )
+    provider_form.addRow(self.llm_api_key_hint)
     layout.addWidget(provider_group)
 
     model_group = QGroupBox("모델과 응답 스타일")
@@ -91,7 +91,12 @@ def build_llm_tab(dialog):
         "예: gemini-3-flash-preview, gpt-4o-mini",
     )
     self.llm_model_edit.textChanged.connect(self._on_llm_model_changed)
-    self._add_form_row(model_form, "settings.llm.model_group.model.label", "모델:", self.llm_model_edit)
+    self.llm_model_label = self._add_form_row(
+        model_form,
+        "settings.llm.model_group.model.label",
+        "모델:",
+        self.llm_model_edit,
+    )
 
     self.llm_temperature_spin = QDoubleSpinBox()
     self.llm_temperature_spin.setRange(0.0, 2.0)
@@ -139,13 +144,13 @@ def build_llm_tab(dialog):
     self._bind_placeholder(
         self.custom_api_key_or_password_edit,
         "settings.llm.custom_api_group.secret.placeholder",
-        "키 또는 패스워드",
+        "API 키 또는 패스워드",
     )
     self.custom_api_key_or_password_edit.textChanged.connect(self._on_setting_changed)
     self._add_form_row(
         custom_form,
         "settings.llm.custom_api_group.secret.label",
-        "키/패스워드:",
+        "API 키/패스워드:",
         self._build_secret_row(
             self.custom_api_key_or_password_edit,
             lambda: self._toggle_secret_field(self.custom_api_key_or_password_edit, self.custom_api_secret_toggle_button),
@@ -157,13 +162,13 @@ def build_llm_tab(dialog):
     self._bind_placeholder(
         self.custom_api_request_model_edit,
         "settings.llm.custom_api_group.request_model.placeholder",
-        "요청 모델명",
+        "모델명",
     )
     self.custom_api_request_model_edit.textChanged.connect(self._on_setting_changed)
     self._add_form_row(
         custom_form,
         "settings.llm.custom_api_group.request_model.label",
-        "요청 모델:",
+        "모델:",
         self.custom_api_request_model_edit,
     )
 

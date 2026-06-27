@@ -667,6 +667,55 @@ def test_settings_dialog_shows_embedding_api_url_only_for_openai_compatible(monk
         dialog.close()
 
 
+def test_settings_dialog_custom_api_hides_duplicate_key_and_model_controls(monkeypatch):
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="en", locales_dir=locales_dir, system_locale="en_US")
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        monkeypatch.setattr(SettingsDialog, "_load_prompt_configuration", lambda self: None)
+
+        dialog = SettingsDialog(
+            {
+                "ui_language": "en",
+                "llm_provider": "custom_api",
+                "tts_provider": "gpt_sovits_http",
+                "llm_api_keys": {"custom_api": "hidden-key"},
+                "llm_models": {"custom_api": "hidden-model"},
+                "custom_api_key_or_password": "custom-secret",
+                "custom_api_request_model": "custom-model",
+            }
+        )
+
+        assert not dialog.custom_api_group.isHidden()
+        assert dialog.llm_api_key_label.isHidden()
+        assert dialog.llm_api_key_row.isHidden()
+        assert dialog.llm_api_key_hint.isHidden()
+        assert dialog.llm_model_label.isHidden()
+        assert dialog.llm_model_edit.isHidden()
+        assert dialog.custom_api_key_or_password_edit.text() == "custom-secret"
+        assert dialog.custom_api_request_model_edit.text() == "custom-model"
+
+        values = dialog._get_current_values()
+        assert values["custom_api_key_or_password"] == "custom-secret"
+        assert values["custom_api_request_model"] == "custom-model"
+        assert values["llm_models"]["custom_api"] == "custom-model"
+        assert values["llm_api_keys"]["custom_api"] == ""
+
+        dialog.llm_provider_combo.setCurrentIndex(dialog.llm_provider_combo.findData("gemini"))
+
+        assert dialog.custom_api_group.isHidden()
+        assert not dialog.llm_api_key_label.isHidden()
+        assert not dialog.llm_api_key_row.isHidden()
+        assert not dialog.llm_api_key_hint.isHidden()
+        assert not dialog.llm_model_label.isHidden()
+        assert not dialog.llm_model_edit.isHidden()
+
+        dialog.close()
+
+
 def test_settings_dialog_loads_and_saves_viseme_lipsync_toggle(monkeypatch):
     _get_qapp()
     locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"

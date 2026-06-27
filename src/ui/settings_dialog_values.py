@@ -188,6 +188,22 @@ class SettingsDialogValuesMixin:
         self._retranslate_ui()
         self._on_setting_changed()
 
+    def _sync_llm_custom_api_visibility(self, provider: str | None = None):
+        normalized = str(provider or self.llm_provider_combo.currentData() or "gemini").strip().lower()
+        is_custom_api = normalized == "custom_api"
+        if hasattr(self, "custom_api_group"):
+            self.custom_api_group.setVisible(is_custom_api)
+        for attr_name in (
+            "llm_api_key_label",
+            "llm_api_key_row",
+            "llm_api_key_hint",
+            "llm_model_label",
+            "llm_model_edit",
+        ):
+            widget = getattr(self, attr_name, None)
+            if widget is not None:
+                widget.setVisible(not is_custom_api)
+
     def _on_llm_provider_changed(self, *_):
         if self._loading:
             return
@@ -200,7 +216,7 @@ class SettingsDialogValuesMixin:
             self.llm_model_edit.setText(model_text)
             self._active_model_key_by_provider[provider] = self._model_param_key(model_text)
             self._apply_model_params_to_widgets(provider, model_text)
-            self.custom_api_group.setVisible(provider == "custom_api")
+            self._sync_llm_custom_api_visibility(provider)
         finally:
             self._loading = False
 
@@ -382,7 +398,10 @@ class SettingsDialogValuesMixin:
 
     def _set_current_model_params(self):
         provider = str(self.llm_provider_combo.currentData() or "gemini")
-        model_text = self.llm_model_edit.text().strip()
+        if provider == "custom_api":
+            model_text = self.custom_api_request_model_edit.text().strip()
+        else:
+            model_text = self.llm_model_edit.text().strip()
         model_key = self._model_param_key(model_text)
         self._active_model_key_by_provider[provider] = model_key
         provider_store = self._llm_model_params.setdefault(provider, {})
@@ -749,17 +768,24 @@ class SettingsDialogValuesMixin:
                 idx = self.llm_provider_combo.findData(llm_provider)
                 if idx >= 0:
                     self.llm_provider_combo.setCurrentIndex(idx)
+
+            custom_api_secret = str(self._original_settings.get("custom_api_key_or_password", "")).strip()
+            if not custom_api_secret:
+                custom_api_secret = str(self._llm_api_keys.get("custom_api", "")).strip()
+            self._llm_api_keys["custom_api"] = ""
+            custom_api_model = str(self._original_settings.get("custom_api_request_model", "")).strip()
+            if not custom_api_model:
+                custom_api_model = str(self._llm_models.get("custom_api", "")).strip()
+            if custom_api_model:
+                self._llm_models["custom_api"] = custom_api_model
+
             selected_provider = str(self.llm_provider_combo.currentData() or "gemini")
             self.llm_model_edit.setText(str(self._llm_models.get(selected_provider, "")))
             self._apply_model_params_to_widgets(selected_provider, self.llm_model_edit.text())
 
             self.custom_api_url_edit.setText(str(self._original_settings.get("custom_api_url", "")))
-            self.custom_api_key_or_password_edit.setText(
-                str(self._original_settings.get("custom_api_key_or_password", ""))
-            )
-            self.custom_api_request_model_edit.setText(
-                str(self._original_settings.get("custom_api_request_model", ""))
-            )
+            self.custom_api_key_or_password_edit.setText(custom_api_secret)
+            self.custom_api_request_model_edit.setText(custom_api_model)
             custom_api_format = str(self._original_settings.get("custom_api_format", LLMFormat.OPENAI_COMPATIBLE.value))
             format_index = self.custom_api_format_combo.findData(custom_api_format)
             if format_index >= 0:
@@ -830,7 +856,7 @@ class SettingsDialogValuesMixin:
             self._load_embedding_provider_controls(embedding_provider)
 
             self.llm_api_key_edit.setText(str(self._llm_api_keys.get(selected_provider, "")))
-            self.custom_api_group.setVisible(selected_provider == "custom_api")
+            self._sync_llm_custom_api_visibility(selected_provider)
         finally:
             self._loading = False
 
@@ -869,8 +895,12 @@ class SettingsDialogValuesMixin:
     def _get_current_values(self):
         self._write_selected_image_avatar_placement()
         current_provider = str(self.llm_provider_combo.currentData() or "gemini")
-        self._llm_api_keys[current_provider] = self.llm_api_key_edit.text()
-        self._llm_models[current_provider] = self.llm_model_edit.text().strip()
+        if current_provider == "custom_api":
+            self._llm_api_keys[current_provider] = ""
+            self._llm_models[current_provider] = self.custom_api_request_model_edit.text().strip()
+        else:
+            self._llm_api_keys[current_provider] = self.llm_api_key_edit.text()
+            self._llm_models[current_provider] = self.llm_model_edit.text().strip()
         self._set_current_model_params()
         web_search_provider = self._current_web_search_provider()
         self._web_search_api_keys[web_search_provider] = self.web_search_api_key_edit.text().strip()
