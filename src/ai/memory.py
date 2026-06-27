@@ -273,7 +273,7 @@ class MemoryManager:
         self.memories.append(memory)
         self.save()
         
-        print(f"[Memory] 새 기억 추가: {summary[:50]}...")
+        print(f"[Memory] 새 기억 추가 chars={len(summary or '')}")
         return memory
     
     async def find_similar(
@@ -307,7 +307,7 @@ class MemoryManager:
         if result:
             print(f"[Memory] 유사 기억 {len(result)}개 찾음 (임계값: {min_similarity})")
             for memory, sim in result:
-                print(f"  - [{sim:.3f}] {memory.summary[:50]}...")
+                print(f"  - [{sim:.3f}] chars={len(memory.summary or '')}")
         return result
 
     async def regenerate_embeddings(self) -> dict[str, int]:
@@ -387,7 +387,7 @@ class MemoryManager:
                     similarities.append((memory, final_score, similarity))
             
             # 디버깅: 최대 유사도 출력
-            print(f"[Memory] 검색 쿼리: '{query}' (최대 유사도: {max_similarity:.4f})")
+            print(f"[Memory] 검색 쿼리 chars={len(query or '')} max_similarity={max_similarity:.4f}")
             
             # 최종 점수 높은 순으로 정렬하고, 동점이면 기본 유사도를 우선한다.
             similarities.sort(key=lambda item: (item[1], item[2]), reverse=True)
@@ -477,7 +477,7 @@ class MemoryManager:
                 print(
                     "  - "
                     f"[{result.activation_score:.3f}] "
-                    f"{result.memory.summary[:50]}..."
+                    f"chars={len(result.memory.summary or '')}"
                 )
         else:
             print("[Memory] 활성화 기억 없음")
@@ -1111,7 +1111,7 @@ class MemoryManager:
             if memory.id == memory_id:
                 memory.is_important = is_important
                 self.save()
-                print(f"[Memory] 중요도 변경: {memory.summary[:50]}... → {is_important}")
+                print(f"[Memory] 중요도 변경 chars={len(memory.summary or '')} -> {is_important}")
                 return
         
         print(f"[Memory] ID {memory_id} 기억을 찾을 수 없음")

@@ -86,3 +86,30 @@ def test_ai_worker_forwards_progress_callback_to_memory_client():
     assert client.progress_callback is progress_callback
     assert stages == ["searching"]
     assert responses == ["Synthetic response."]
+
+
+def test_ai_worker_logs_lengths_without_chat_content(capsys):
+    _ensure_qt_app()
+
+    user_text = "SYNTHETIC_USER_SECRET_7139 should stay out of logs"
+    response_text = "SYNTHETIC_RESPONSE_SECRET_8246 should stay out of logs"
+    tts_text = "SYNTHETIC_TTS_SECRET_9357 should stay out of logs"
+
+    class DummyLLM:
+        async def send_message_with_memory(self, *_args, **_kwargs):
+            return response_text, "normal", tts_text, [], {}, [], "", {}, [], ""
+
+    worker = AIWorker(
+        llm_client=DummyLLM(),
+        message=user_text,
+    )
+
+    worker.run()
+
+    captured = capsys.readouterr().out
+    assert "SYNTHETIC_USER_SECRET_7139" not in captured
+    assert "SYNTHETIC_RESPONSE_SECRET_8246" not in captured
+    assert "SYNTHETIC_TTS_SECRET_9357" not in captured
+    assert f"message chars={len(user_text)}" in captured
+    assert f"response chars={len(response_text)} emotion=normal" in captured
+    assert f"TTS text chars={len(tts_text)}" in captured

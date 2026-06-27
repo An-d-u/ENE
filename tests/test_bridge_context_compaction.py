@@ -461,6 +461,48 @@ def test_gemini_send_message_with_memory_auto_search_uses_one_shot_decision(monk
     assert len(dummy.get_conversation_history()) == 2
 
 
+def test_gemini_send_message_logs_lengths_without_prompt_or_response_content(capsys):
+    user_text = "SYNTHETIC_GEMINI_PROMPT_SECRET_2468 should stay out of logs"
+    raw_response_text = "SYNTHETIC_GEMINI_RESPONSE_SECRET_1357 should stay out of logs"
+    tts_text = "SYNTHETIC_GEMINI_TTS_SECRET_9753 should stay out of logs"
+
+    class FakeResponse:
+        text = raw_response_text
+
+    class FakeChat:
+        def send_message(self, message):
+            assert message == user_text
+            return FakeResponse()
+
+    dummy = type("ClientDummy", (), {})()
+    dummy.chat = FakeChat()
+    dummy._refresh_chat_session_for_runtime_prompt_if_needed = lambda: None
+    dummy._log_turn_token_usage = lambda response, label="": None
+    dummy._extract_response_text_or_empty = lambda response, label="": response.text
+    dummy._parse_response = lambda response_text: (
+        "Visible synthetic reply.",
+        "normal",
+        tts_text,
+        [],
+        {},
+        [],
+        "",
+        {},
+        [],
+        "",
+    )
+
+    GeminiClient.send_message(dummy, user_text)
+
+    captured = capsys.readouterr().out
+    assert "SYNTHETIC_GEMINI_PROMPT_SECRET_2468" not in captured
+    assert "SYNTHETIC_GEMINI_RESPONSE_SECRET_1357" not in captured
+    assert "SYNTHETIC_GEMINI_TTS_SECRET_9753" not in captured
+    assert f"Sending message chars={len(user_text)}" in captured
+    assert f"Received response chars={len(raw_response_text)}" in captured
+    assert f"TTS text chars={len(tts_text)}" in captured
+
+
 def test_build_memory_context_includes_goal_context_without_memory_manager():
     dummy = type("ClientDummy", (), {})()
     dummy.memory_manager = None
