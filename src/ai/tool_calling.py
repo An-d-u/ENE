@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import json
 import re
 
-from .search_tool import SearchQuery, SearchResponse, SearchTool
+from .search_tool import SearchResponse
 
 
 @dataclass(frozen=True)
