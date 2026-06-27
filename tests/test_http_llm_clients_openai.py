@@ -1,8 +1,11 @@
+import asyncio
+
 import requests
 
 import pytest
 
-from src.ai.http_llm_clients import OpenAIResponseAPIClient
+from src.ai.http_llm_clients import OpenAICompatibleClient, OpenAIResponseAPIClient
+from src.ai.search_tool import SearchResponse, SearchResult
 
 ANALYSIS_APPENDIX_MARKERS = (
     "[Internal Analysis Output Rules]",
@@ -22,6 +25,48 @@ class _DummyResponse:
 
     def json(self):
         return self._json_data
+
+
+class _SearchSettings:
+    def get(self, key, default=None):
+        values = {
+            "web_search_enabled": True,
+            "web_search_auto_enabled": False,
+            "web_search_provider": "tavily",
+            "web_search_max_results": 2,
+            "web_search_timeout_sec": 5,
+            "web_search_api_keys": {"tavily": "synthetic-key"},
+        }
+        return values.get(key, default)
+
+
+class _RecordingTavilyProvider:
+    provider_name = "tavily"
+    queries = []
+
+    def __init__(self, api_key, timeout_sec=12):
+        self.api_key = api_key
+        self.timeout_sec = timeout_sec
+
+    def search(self, query):
+        self.__class__.queries.append(query)
+        return SearchResponse(
+            query=query.query,
+            provider=self.provider_name,
+            results=[
+                SearchResult(
+                    title="Neutral Topic Result",
+                    url="https://example.com/neutral-topic",
+                    snippet="Synthetic neutral search result.",
+                )
+            ],
+        )
+
+
+def _install_fake_search(monkeypatch):
+    _RecordingTavilyProvider.queries = []
+    monkeypatch.setattr("src.ai.tool_calling.TavilySearchProvider", _RecordingTavilyProvider)
+    return _RecordingTavilyProvider
 
 
 def test_openai_responses_request_includes_instructions(monkeypatch):
@@ -47,6 +92,104 @@ def test_openai_responses_request_includes_instructions(monkeypatch):
     assert captured["json"]["model"] == "gpt-5.4-mini"
     assert captured["json"]["instructions"]
     assert any(marker in captured["json"]["instructions"] for marker in ANALYSIS_APPENDIX_MARKERS)
+
+
+def test_openai_responses_send_message_with_memory_injects_manual_search_context(monkeypatch):
+    provider = _install_fake_search(monkeypatch)
+    stages = []
+    captured = {}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured["json"] = json
+        return _DummyResponse(json_data={"output_text": "Synthetic response."})
+
+    monkeypatch.setattr("src.ai.http_llm_clients.requests.post", fake_post)
+
+    client = OpenAIResponseAPIClient(
+        api_key="k",
+        model_name="gpt-5.4-mini",
+        endpoint="https://api.openai.com/v1/responses",
+        settings=_SearchSettings(),
+    )
+
+    asyncio.run(
+        client.send_message_with_memory(
+            "Original final prompt.",
+            latest_user_message="/search neutral topic",
+            progress_callback=stages.append,
+        )
+    )
+
+    text = captured["json"]["input"][-1]["content"][0]["text"]
+    assert provider.queries[0].query == "neutral topic"
+    assert provider.queries[0].max_results == 2
+    assert "[WEB_SEARCH_RESULTS]" in text
+    assert "Synthetic neutral search result." in text
+    assert text.endswith("Original final prompt.")
+    assert stages == ["searching", "thinking"]
+
+
+def test_openai_compatible_send_message_with_memory_uses_latest_user_message_for_manual_detection(monkeypatch):
+    provider = _install_fake_search(monkeypatch)
+    captured = {}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured["json"] = json
+        return _DummyResponse(json_data={"choices": [{"message": {"content": "Synthetic response."}}]})
+
+    monkeypatch.setattr("src.ai.http_llm_clients.requests.post", fake_post)
+
+    client = OpenAICompatibleClient(
+        api_key="k",
+        model_name="compatible-model",
+        endpoint="https://example.com/v1/chat/completions",
+        provider_name="compatible",
+        settings=_SearchSettings(),
+    )
+
+    asyncio.run(
+        client.send_message_with_memory(
+            "Header context\n/search should not run\nOriginal final prompt.",
+            latest_user_message="Plain current message.",
+        )
+    )
+
+    text = captured["json"]["messages"][-1]["content"]
+    assert provider.queries == []
+    assert "[WEB_SEARCH_RESULTS]" not in text
+    assert "/search should not run" in text
+
+
+def test_openai_compatible_image_request_puts_search_context_in_text_part(monkeypatch):
+    _install_fake_search(monkeypatch)
+    captured = {}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured["json"] = json
+        return _DummyResponse(json_data={"choices": [{"message": {"content": "Synthetic response."}}]})
+
+    monkeypatch.setattr("src.ai.http_llm_clients.requests.post", fake_post)
+
+    client = OpenAICompatibleClient(
+        api_key="k",
+        model_name="compatible-model",
+        endpoint="https://example.com/v1/chat/completions",
+        provider_name="compatible",
+        settings=_SearchSettings(),
+    )
+
+    asyncio.run(
+        client.send_message_with_images(
+            "Describe this synthetic image.",
+            [{"dataUrl": "data:image/png;base64,QUJD"}],
+            latest_user_message="/search neutral topic",
+        )
+    )
+
+    content = captured["json"]["messages"][-1]["content"]
+    assert content[0]["type"] == "text"
+    assert "[WEB_SEARCH_RESULTS]" in content[0]["text"]
+    assert content[0]["text"].endswith("Describe this synthetic image.")
 
 
 def test_openai_responses_error_includes_response_body(monkeypatch):

@@ -3,6 +3,7 @@ from src.ai.tool_calling import (
     WebSearchDecision,
     WebSearchToolRunner,
     build_search_context_block,
+    create_web_search_tool_runner,
     parse_manual_search_command,
 )
 
@@ -18,6 +19,14 @@ class DummySearchTool:
             provider="dummy",
             results=[SearchResult(title="Result", url="https://example.com", snippet="Neutral snippet.")],
         )
+
+
+class DummySettings:
+    def __init__(self, values):
+        self.values = dict(values)
+
+    def get(self, key, default=None):
+        return self.values.get(key, default)
 
 
 def test_build_search_context_block_formats_results_with_sources():
@@ -76,6 +85,74 @@ def test_web_search_runner_uses_manual_search_query_without_decision():
     assert tool.queries[0].max_results == 4
     assert "private context" not in tool.queries[0].query
     assert "[WEB_SEARCH_RESULTS]" in block
+
+
+def test_create_web_search_tool_runner_from_settings_uses_tavily_provider(monkeypatch):
+    class FakeTavilyProvider:
+        provider_name = "tavily"
+
+        def __init__(self, api_key, timeout_sec=12):
+            self.api_key = api_key
+            self.timeout_sec = timeout_sec
+
+        def search(self, query):
+            return SearchResponse(
+                query=query.query,
+                provider=self.provider_name,
+                results=[
+                    SearchResult(
+                        title="Neutral Result",
+                        url="https://example.com/neutral",
+                        snippet="Synthetic neutral snippet.",
+                    )
+                ],
+            )
+
+    monkeypatch.setattr("src.ai.tool_calling.TavilySearchProvider", FakeTavilyProvider)
+    settings = DummySettings(
+        {
+            "web_search_enabled": True,
+            "web_search_auto_enabled": False,
+            "web_search_provider": "tavily",
+            "web_search_max_results": 3,
+            "web_search_timeout_sec": 9,
+            "web_search_api_keys": {"tavily": "synthetic-key"},
+        }
+    )
+
+    runner = create_web_search_tool_runner(settings)
+    block = runner.build_context(
+        message="/search neutral topic",
+        latest_user_message="/search neutral topic",
+        mode="manual",
+        manual_query="neutral topic",
+    )
+
+    assert runner.max_results == 3
+    assert "[WEB_SEARCH_RESULTS]" in block
+    assert "Query: neutral topic" in block
+    assert "Synthetic neutral snippet." in block
+
+
+def test_create_web_search_tool_runner_returns_safe_empty_runner_for_missing_key():
+    settings = DummySettings(
+        {
+            "web_search_enabled": True,
+            "web_search_auto_enabled": True,
+            "web_search_provider": "tavily",
+            "web_search_api_keys": {"tavily": ""},
+        }
+    )
+
+    runner = create_web_search_tool_runner(settings)
+    block = runner.build_context(
+        message="/search neutral topic",
+        latest_user_message="/search neutral topic",
+        mode="manual",
+        manual_query="neutral topic",
+    )
+
+    assert block == ""
 
 
 def test_web_search_runner_skips_when_disabled():

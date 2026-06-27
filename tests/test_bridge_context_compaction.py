@@ -19,6 +19,7 @@ from src.ai.llm_client import (
 )
 from src.ai.memory import MemoryActivationResult
 from src.ai.memory_types import MemoryChunk
+from src.ai.search_tool import SearchResponse, SearchResult
 from src.core.bridge import WebBridge
 
 
@@ -316,6 +317,69 @@ def test_send_message_with_memory_adds_goal_context_to_enhanced_prompt():
     enhanced_prompt = captured["enhanced_prompt"]
     assert "[ENE 현재 목표]" in enhanced_prompt
     assert "goal_20260522_001" in enhanced_prompt
+
+
+def test_gemini_send_message_with_memory_injects_manual_search_context(monkeypatch):
+    class FakeTavilyProvider:
+        provider_name = "tavily"
+
+        def __init__(self, api_key, timeout_sec=12):
+            self.api_key = api_key
+            self.timeout_sec = timeout_sec
+
+        def search(self, query):
+            return SearchResponse(
+                query=query.query,
+                provider=self.provider_name,
+                results=[
+                    SearchResult(
+                        title="Neutral Topic Result",
+                        url="https://example.com/neutral-topic",
+                        snippet="Synthetic neutral search result.",
+                    )
+                ],
+            )
+
+    class SearchSettings:
+        def get(self, key, default=None):
+            values = {
+                "web_search_enabled": True,
+                "web_search_auto_enabled": False,
+                "web_search_provider": "tavily",
+                "web_search_max_results": 2,
+                "web_search_timeout_sec": 5,
+                "web_search_api_keys": {"tavily": "synthetic-key"},
+            }
+            return values.get(key, default)
+
+    captured = {}
+    dummy = type("ClientDummy", (), {})()
+    dummy.settings = SearchSettings()
+
+    async def _build_memory_context(query, recent_context="", head_pat_count_before_message=None):
+        return "Synthetic memory context."
+
+    def _send_message(enhanced_prompt):
+        captured["enhanced_prompt"] = enhanced_prompt
+        return "Synthetic response.", "normal", None, [], {}, [], "", {}, [], ""
+
+    monkeypatch.setattr("src.ai.tool_calling.TavilySearchProvider", FakeTavilyProvider)
+    dummy._build_memory_context = _build_memory_context
+    dummy.send_message = _send_message
+
+    asyncio.run(
+        GeminiClient.send_message_with_memory(
+            dummy,
+            "Original final prompt.",
+            latest_user_message="/search neutral topic",
+        )
+    )
+
+    enhanced_prompt = captured["enhanced_prompt"]
+    assert enhanced_prompt.startswith("Synthetic memory context.\n\n[WEB_SEARCH_RESULTS]")
+    assert "Query: neutral topic" in enhanced_prompt
+    assert "Synthetic neutral search result." in enhanced_prompt
+    assert enhanced_prompt.endswith("Original final prompt.")
 
 
 def test_build_memory_context_includes_goal_context_without_memory_manager():

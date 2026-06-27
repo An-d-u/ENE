@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import json
 import re
 
-from .search_tool import SearchQuery, SearchResponse, SearchTool
+from .search_tool import SearchQuery, SearchResponse, SearchTool, TavilySearchProvider
 
 
 @dataclass(frozen=True)
@@ -42,6 +42,92 @@ def build_search_context_block(response: SearchResponse, max_snippet_chars: int 
         lines.append("")
     lines.append("[/WEB_SEARCH_RESULTS]")
     return "\n".join(lines).strip()
+
+
+def _read_setting(settings, key: str, default=None):
+    if settings is None:
+        return default
+    getter = getattr(settings, "get", None)
+    if callable(getter):
+        try:
+            return getter(key, default)
+        except Exception:
+            return default
+    if isinstance(settings, dict):
+        return settings.get(key, default)
+    config = getattr(settings, "config", None)
+    if isinstance(config, dict) and key in config:
+        return config.get(key, default)
+    return getattr(settings, key, default)
+
+
+def _read_web_search_api_key(settings, provider: str) -> str:
+    keys = _read_setting(settings, "web_search_api_keys", {}) or {}
+    if not isinstance(keys, dict):
+        return ""
+    return str(keys.get(provider, "") or "").strip()
+
+
+def create_web_search_tool_runner(settings, progress_callback=None) -> "WebSearchToolRunner":
+    enabled = bool(_read_setting(settings, "web_search_enabled", False))
+    auto_enabled = bool(_read_setting(settings, "web_search_auto_enabled", True))
+    provider_name = str(_read_setting(settings, "web_search_provider", "tavily") or "tavily").strip().lower()
+    max_results = _read_setting(settings, "web_search_max_results", 5)
+    timeout_sec = _read_setting(settings, "web_search_timeout_sec", 12)
+
+    search_tool = None
+    if enabled and provider_name == "tavily":
+        api_key = _read_web_search_api_key(settings, "tavily")
+        if api_key:
+            search_tool = SearchTool(TavilySearchProvider(api_key=api_key, timeout_sec=timeout_sec))
+
+    return WebSearchToolRunner(
+        search_tool=search_tool,
+        enabled=enabled,
+        auto_enabled=auto_enabled,
+        max_results=max_results,
+        progress_callback=progress_callback,
+    )
+
+
+def build_web_search_context_from_settings(
+    settings,
+    *,
+    message: str,
+    latest_user_message: str = "",
+    recent_context: str = "",
+    progress_callback=None,
+) -> str:
+    runner = create_web_search_tool_runner(settings, progress_callback=progress_callback)
+    manual_query = parse_manual_search_command(latest_user_message)
+    if manual_query:
+        return runner.build_context(
+            message=message,
+            latest_user_message=latest_user_message,
+            recent_context=recent_context,
+            mode="manual",
+            manual_query=manual_query,
+        )
+    return runner.build_context(
+        message=message,
+        latest_user_message=latest_user_message,
+        recent_context=recent_context,
+        mode="auto",
+    )
+
+
+def compose_contextual_message(
+    message: str,
+    *,
+    memory_context: str = "",
+    web_search_context: str = "",
+) -> str:
+    blocks = [
+        str(memory_context or "").strip(),
+        str(web_search_context or "").strip(),
+        str(message or ""),
+    ]
+    return "\n\n".join(block for block in blocks if block)
 
 
 class WebSearchToolRunner:

@@ -65,6 +65,7 @@ class AIWorker(QThread):
         note_service: NoteService | None = None,
         obsidian_manager=None,
         use_obsidian_priority: bool = False,
+        progress_callback=None,
     ):
         super().__init__()
         self.llm_client = llm_client
@@ -82,6 +83,7 @@ class AIWorker(QThread):
         self.note_service = note_service
         self.obsidian_manager = obsidian_manager
         self.use_obsidian_priority = bool(use_obsidian_priority)
+        self.progress_callback = progress_callback
 
     def _prompt_language(self) -> str:
         return resolve_prompt_language(settings_source=getattr(self.llm_client, "settings", None))
@@ -159,6 +161,7 @@ class AIWorker(QThread):
                             self.latest_user_message,
                             self.recent_memory_context,
                             self.head_pat_count_before_message,
+                            progress_callback=self.progress_callback,
                         )
                     )
                 )
@@ -172,6 +175,7 @@ class AIWorker(QThread):
                             self.latest_user_message,
                             self.recent_memory_context,
                             self.head_pat_count_before_message,
+                            progress_callback=self.progress_callback,
                         )
                     )
                 )
