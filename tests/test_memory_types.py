@@ -38,6 +38,21 @@ def test_memory_entry_roundtrip_dict():
     assert restored == original
 
 
+def test_memory_entry_preserves_embedding_source_metadata():
+    entry = create_memory_entry(
+        "embedding source test",
+        ["synthetic message"],
+        embedding=[0.1, 0.2],
+        embedding_provider="voyage",
+        embedding_model="voyage-3",
+    )
+
+    restored = MemoryEntry.from_dict(entry.to_dict())
+
+    assert restored.embedding_provider == "voyage"
+    assert restored.embedding_model == "voyage-3"
+
+
 def test_memory_entry_from_legacy_dict_backfills_new_fields():
     legacy = {
         "id": "mem-legacy",
@@ -64,7 +79,7 @@ def test_memory_entry_from_legacy_dict_backfills_new_fields():
     assert restored.entity_names == ["Obsidian"]
     assert restored.conversation_id == "legacy-mem-legacy"
     assert restored.expires_at is None
-    assert restored.schema_version == 4
+    assert restored.schema_version == 5
     assert restored.migration_meta["migration_version"] == 1
     assert "memory_type" in restored.migration_meta["inferred_fields"]
 
@@ -90,7 +105,7 @@ def test_memory_entry_from_legacy_dict_backfills_activation_fields():
     assert restored.linked_memory_ids == ["mem-detail"]
     assert restored.activation_weight == 1.4
     assert restored.last_activated_at == "2026-05-02T10:00:00"
-    assert restored.schema_version == 4
+    assert restored.schema_version == 5
 
 
 def test_create_memory_entry_normalizes_structured_original_messages():
@@ -159,7 +174,7 @@ def test_memory_entry_from_legacy_message_strings_backfills_message_metadata():
             turn_index=1,
         ),
     ]
-    assert restored.schema_version == 4
+    assert restored.schema_version == 5
     assert restored.migration_meta["legacy_original_messages"] is True
 
 

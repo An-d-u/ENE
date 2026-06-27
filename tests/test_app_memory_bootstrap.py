@@ -18,8 +18,13 @@ class _Settings:
 def test_build_memory_manager_uses_voyage_embedding_when_key_exists():
     calls = {}
 
-    def embedding_factory(*, api_key, model):
-        calls["embedding"] = {"api_key": api_key, "model": model}
+    def embedding_factory(*, provider, api_key, model, api_url):
+        calls["embedding"] = {
+            "provider": provider,
+            "api_key": api_key,
+            "model": model,
+            "api_url": api_url,
+        }
         return "embedding"
 
     def memory_manager_factory(*, memory_file, embedding_generator):
@@ -44,7 +49,12 @@ def test_build_memory_manager_uses_voyage_embedding_when_key_exists():
     )
 
     assert manager == "memory"
-    assert calls["embedding"] == {"api_key": "voyage-key", "model": "voyage-large-2"}
+    assert calls["embedding"] == {
+        "provider": "voyage",
+        "api_key": "voyage-key",
+        "model": "voyage-large-2",
+        "api_url": "",
+    }
     assert calls["memory"] == {
         "memory_file": "memory.json",
         "embedding_generator": "embedding",
@@ -80,6 +90,150 @@ def test_build_memory_manager_keeps_memory_without_embedding_when_key_is_missing
 
     assert manager == "memory"
     assert calls["memory"]["embedding_generator"] is None
+
+
+def test_build_memory_manager_uses_openai_embedding_when_key_exists():
+    calls = {}
+
+    def embedding_factory(*, provider, api_key, model, api_url):
+        calls["embedding"] = {
+            "provider": provider,
+            "api_key": api_key,
+            "model": model,
+            "api_url": api_url,
+        }
+        return "embedding"
+
+    def memory_manager_factory(*, memory_file, embedding_generator):
+        calls["memory"] = {
+            "memory_file": memory_file,
+            "embedding_generator": embedding_generator,
+        }
+        return "memory"
+
+    manager = build_memory_manager(
+        _Settings(
+            {
+                "embedding_provider": "openai",
+                "embedding_model": "text-embedding-3-large",
+                "embedding_api_keys": {"openai": "openai-key"},
+            }
+        ),
+        embedding_factory=embedding_factory,
+        memory_manager_factory=memory_manager_factory,
+    )
+
+    assert manager == "memory"
+    assert calls["embedding"] == {
+        "provider": "openai",
+        "api_key": "openai-key",
+        "model": "text-embedding-3-large",
+        "api_url": "https://api.openai.com/v1",
+    }
+
+
+def test_build_memory_manager_uses_openai_compatible_embedding_url():
+    calls = {}
+
+    def embedding_factory(*, provider, api_key, model, api_url):
+        calls["embedding"] = {
+            "provider": provider,
+            "api_key": api_key,
+            "model": model,
+            "api_url": api_url,
+        }
+        return "embedding"
+
+    manager = build_memory_manager(
+        _Settings(
+            {
+                "embedding_provider": "openai_compatible",
+                "embedding_model": "local-embedding",
+                "embedding_api_keys": {"openai_compatible": "local-key"},
+                "embedding_provider_configs": {
+                    "openai_compatible": {"api_url": "http://127.0.0.1:8000/v1"}
+                },
+            }
+        ),
+        embedding_factory=embedding_factory,
+        memory_manager_factory=lambda **kwargs: kwargs["embedding_generator"],
+    )
+
+    assert manager == "embedding"
+    assert calls["embedding"] == {
+        "provider": "openai_compatible",
+        "api_key": "local-key",
+        "model": "local-embedding",
+        "api_url": "http://127.0.0.1:8000/v1",
+    }
+
+
+def test_build_memory_manager_allows_openai_compatible_without_key():
+    calls = {}
+
+    def embedding_factory(*, provider, api_key, model, api_url):
+        calls["embedding"] = {
+            "provider": provider,
+            "api_key": api_key,
+            "model": model,
+            "api_url": api_url,
+        }
+        return "embedding"
+
+    manager = build_memory_manager(
+        _Settings(
+            {
+                "embedding_provider": "openai_compatible",
+                "embedding_model": "local-embedding",
+                "embedding_api_keys": {},
+                "embedding_provider_configs": {
+                    "openai_compatible": {"api_url": "http://127.0.0.1:8000/v1"}
+                },
+            }
+        ),
+        embedding_factory=embedding_factory,
+        memory_manager_factory=lambda **kwargs: kwargs["embedding_generator"],
+    )
+
+    assert manager == "embedding"
+    assert calls["embedding"] == {
+        "provider": "openai_compatible",
+        "api_key": "",
+        "model": "local-embedding",
+        "api_url": "http://127.0.0.1:8000/v1",
+    }
+
+
+def test_build_memory_manager_uses_gemini_embedding_when_key_exists():
+    calls = {}
+
+    def embedding_factory(*, provider, api_key, model, api_url):
+        calls["embedding"] = {
+            "provider": provider,
+            "api_key": api_key,
+            "model": model,
+            "api_url": api_url,
+        }
+        return "embedding"
+
+    build_memory_manager(
+        _Settings(
+            {
+                "embedding_provider": "gemini",
+                "embedding_model": "gemini-embedding-2",
+                "embedding_api_keys": {"gemini": "gemini-key"},
+            }
+        ),
+        embedding_factory=embedding_factory,
+        memory_manager_factory=lambda **kwargs: kwargs["embedding_generator"],
+    )
+
+    assert calls["embedding"] == {
+        "provider": "gemini",
+        "api_key": "gemini-key",
+        "model": "gemini-embedding-2",
+        "api_url": "",
+    }
 
 
 def test_build_memory_manager_does_not_import_embedding_when_key_is_missing(monkeypatch):

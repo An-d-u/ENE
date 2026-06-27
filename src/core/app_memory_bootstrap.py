@@ -31,27 +31,53 @@ def build_memory_manager(
         memory_manager_factory = MemoryManager
 
     embedding_provider = str(settings.get("embedding_provider", "voyage")).strip().lower()
-    embedding_model = str(settings.get("embedding_model", "voyage-3")).strip() or "voyage-3"
+    default_models = {
+        "voyage": "voyage-3",
+        "openai": "text-embedding-3-small",
+        "openai_compatible": "text-embedding-3-small",
+        "gemini": "gemini-embedding-2",
+    }
+    default_api_urls = {
+        "openai": "https://api.openai.com/v1",
+        "openai_compatible": "http://127.0.0.1:8000/v1",
+    }
+    embedding_model = (
+        str(settings.get("embedding_model", default_models.get(embedding_provider, "voyage-3"))).strip()
+        or default_models.get(embedding_provider, "voyage-3")
+    )
     embedding_api_keys = settings.get("embedding_api_keys", {})
     if not isinstance(embedding_api_keys, dict):
         embedding_api_keys = {}
     embedding_api_key = str(embedding_api_keys.get(embedding_provider, "")).strip()
+    embedding_provider_configs = settings.get("embedding_provider_configs", {})
+    if not isinstance(embedding_provider_configs, dict):
+        embedding_provider_configs = {}
+    provider_config = embedding_provider_configs.get(embedding_provider, {})
+    if not isinstance(provider_config, dict):
+        provider_config = {}
+    embedding_api_url = str(provider_config.get("api_url", default_api_urls.get(embedding_provider, ""))).strip()
+    supported_providers = {"voyage", "openai", "openai_compatible", "gemini"}
 
     embedding_gen = None
-    if embedding_provider != "voyage":
+    if embedding_provider not in supported_providers:
         print(f"WARNING: 지원하지 않는 임베딩 공급자입니다: {embedding_provider}")
-    elif not embedding_api_key:
+    elif not embedding_api_key and embedding_provider != "openai_compatible":
         print("WARNING: 임베딩 API 키가 없습니다.")
         print("장기기억 기능이 제한적으로 작동합니다 (임베딩 없음).")
     elif embedding_api_key == "your-voyage-api-key-here":
         print("WARNING: Voyage AI API 키를 설정해주세요.")
     else:
         if embedding_factory is None:
-            from src.ai.embedding import EmbeddingGenerator
+            from src.ai.embedding import create_embedding_generator
 
-            embedding_factory = EmbeddingGenerator
-        embedding_gen = embedding_factory(api_key=embedding_api_key, model=embedding_model)
-        print(f"OK: Voyage AI 임베딩 생성기 초기화 성공 ({embedding_model})")
+            embedding_factory = create_embedding_generator
+        embedding_gen = embedding_factory(
+            provider=embedding_provider,
+            api_key=embedding_api_key,
+            model=embedding_model,
+            api_url=embedding_api_url,
+        )
+        print(f"OK: 임베딩 생성기 초기화 성공 ({embedding_provider}/{embedding_model})")
 
     memory_manager = memory_manager_factory(
         memory_file="memory.json",

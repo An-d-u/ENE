@@ -189,6 +189,8 @@ class SettingsDialogValuesMixin:
         self._on_setting_changed()
 
     def _on_llm_provider_changed(self, *_):
+        if self._loading:
+            return
         provider = str(self.llm_provider_combo.currentData() or "gemini")
 
         self._loading = True
@@ -225,6 +227,91 @@ class SettingsDialogValuesMixin:
         if self._loading:
             return
         self._set_current_model_params()
+        self._on_setting_changed()
+
+    def _embedding_default_model(self, provider: str) -> str:
+        return {
+            "voyage": "voyage-3",
+            "openai": "text-embedding-3-small",
+            "openai_compatible": "text-embedding-3-small",
+            "gemini": "gemini-embedding-2",
+        }.get(str(provider or "voyage").strip().lower(), "voyage-3")
+
+    def _embedding_default_api_url(self, provider: str) -> str:
+        return {
+            "openai": "https://api.openai.com/v1",
+            "openai_compatible": "http://127.0.0.1:8000/v1",
+        }.get(str(provider or "").strip().lower(), "")
+
+    def _current_embedding_provider(self) -> str:
+        return str(self.embedding_provider_combo.currentData() or "voyage").strip().lower()
+
+    def _set_embedding_model_text(self, model: str):
+        normalized = str(model or "").strip() or self._embedding_default_model(self._current_embedding_provider())
+        model_index = self.embedding_model_combo.findData(normalized)
+        if model_index < 0:
+            self.embedding_model_combo.addItem(normalized, normalized)
+            model_index = self.embedding_model_combo.findData(normalized)
+        self.embedding_model_combo.setCurrentIndex(model_index)
+        if self.embedding_model_combo.currentText() != normalized:
+            self.embedding_model_combo.setEditText(normalized)
+
+    def _load_embedding_provider_controls(self, provider: str):
+        config = self._embedding_provider_configs.setdefault(provider, {})
+        if not isinstance(config, dict):
+            config = {}
+            self._embedding_provider_configs[provider] = config
+        self.embedding_api_key_edit.setText(str(self._embedding_api_keys.get(provider, "")))
+        self.embedding_api_url_edit.setText(str(config.get("api_url", self._embedding_default_api_url(provider))))
+        self._set_embedding_model_text(
+            self._embedding_models_by_provider.get(provider, self._embedding_default_model(provider))
+        )
+        self._sync_embedding_api_url_visibility(provider)
+
+    def _sync_embedding_api_url_visibility(self, provider: str | None = None):
+        normalized = str(provider or self._current_embedding_provider()).strip().lower()
+        is_visible = normalized == "openai_compatible"
+        if hasattr(self, "embedding_api_url_label"):
+            self.embedding_api_url_label.setVisible(is_visible)
+        if hasattr(self, "embedding_api_url_edit"):
+            self.embedding_api_url_edit.setVisible(is_visible)
+
+    def _store_current_embedding_provider_controls(self):
+        if not hasattr(self, "embedding_provider_combo"):
+            return
+        provider = self._current_embedding_provider()
+        self._embedding_api_keys[provider] = self.embedding_api_key_edit.text().strip()
+        self._embedding_models_by_provider[provider] = self.embedding_model_combo.currentText().strip()
+        config = self._embedding_provider_configs.setdefault(provider, {})
+        if not isinstance(config, dict):
+            config = {}
+            self._embedding_provider_configs[provider] = config
+        config["api_url"] = self.embedding_api_url_edit.text().strip()
+
+    def _on_embedding_provider_changed(self, *_):
+        if self._loading:
+            return
+        provider = self._current_embedding_provider()
+        self._loading = True
+        try:
+            self._load_embedding_provider_controls(provider)
+        finally:
+            self._loading = False
+        self._on_setting_changed()
+
+    def _on_embedding_api_key_changed(self, text: str):
+        if self._loading:
+            return
+        self._embedding_api_keys[self._current_embedding_provider()] = text.strip()
+        self._on_setting_changed()
+
+    def _on_embedding_api_url_changed(self, text: str):
+        if self._loading:
+            return
+        provider = self._current_embedding_provider()
+        config = self._embedding_provider_configs.setdefault(provider, {})
+        if isinstance(config, dict):
+            config["api_url"] = text.strip()
         self._on_setting_changed()
 
     def _default_model_params(self) -> dict:
@@ -652,22 +739,39 @@ class SettingsDialogValuesMixin:
                 self.custom_api_format_combo.setCurrentIndex(format_index)
 
             embedding_provider = str(self._original_settings.get("embedding_provider", "voyage")).strip().lower()
+            if embedding_provider not in {"voyage", "openai", "openai_compatible", "gemini"}:
+                embedding_provider = "voyage"
+            loaded_embedding_keys = self._original_settings.get("embedding_api_keys", {})
+            self._embedding_api_keys = dict(loaded_embedding_keys) if isinstance(loaded_embedding_keys, dict) else {}
+            for provider_name in ("voyage", "openai", "openai_compatible", "gemini"):
+                self._embedding_api_keys.setdefault(provider_name, "")
+
+            loaded_embedding_configs = self._original_settings.get("embedding_provider_configs", {})
+            self._embedding_provider_configs = (
+                dict(loaded_embedding_configs)
+                if isinstance(loaded_embedding_configs, dict)
+                else {}
+            )
+            for provider_name in ("voyage", "openai", "openai_compatible", "gemini"):
+                provider_config = self._embedding_provider_configs.get(provider_name, {})
+                if not isinstance(provider_config, dict):
+                    provider_config = {}
+                provider_config.setdefault("api_url", self._embedding_default_api_url(provider_name))
+                self._embedding_provider_configs[provider_name] = provider_config
+
+            self._embedding_models_by_provider = {
+                provider_name: self._embedding_default_model(provider_name)
+                for provider_name in ("voyage", "openai", "openai_compatible", "gemini")
+            }
+            self._embedding_models_by_provider[embedding_provider] = (
+                str(self._original_settings.get("embedding_model", self._embedding_default_model(embedding_provider))).strip()
+                or self._embedding_default_model(embedding_provider)
+            )
             provider_index = self.embedding_provider_combo.findData(embedding_provider)
             if provider_index < 0:
                 provider_index = 0
             self.embedding_provider_combo.setCurrentIndex(provider_index)
-
-            embedding_api_keys = self._original_settings.get("embedding_api_keys", {})
-            if isinstance(embedding_api_keys, dict):
-                self.embedding_api_key_edit.setText(str(embedding_api_keys.get(embedding_provider, "")))
-            else:
-                self.embedding_api_key_edit.setText("")
-
-            embedding_model = str(self._original_settings.get("embedding_model", "voyage-3")).strip() or "voyage-3"
-            model_index = self.embedding_model_combo.findData(embedding_model)
-            if model_index < 0:
-                model_index = 0
-            self.embedding_model_combo.setCurrentIndex(model_index)
+            self._load_embedding_provider_controls(embedding_provider)
 
             self.llm_api_key_edit.setText(str(self._llm_api_keys.get(selected_provider, "")))
             self.custom_api_group.setVisible(selected_provider == "custom_api")
@@ -737,10 +841,13 @@ class SettingsDialogValuesMixin:
             )
             if key in self._original_settings
         }
-        embedding_provider = str(self.embedding_provider_combo.currentData() or "voyage")
-        embedding_api_keys = self._original_settings.get("embedding_api_keys", {})
-        embedding_api_keys = dict(embedding_api_keys) if isinstance(embedding_api_keys, dict) else {}
-        embedding_api_keys[embedding_provider] = self.embedding_api_key_edit.text().strip()
+        self._store_current_embedding_provider_controls()
+        embedding_provider = self._current_embedding_provider()
+        embedding_api_keys = dict(self._embedding_api_keys)
+        embedding_provider_configs = {}
+        for provider_name, provider_config in self._embedding_provider_configs.items():
+            if isinstance(provider_config, dict):
+                embedding_provider_configs[provider_name] = dict(provider_config)
         memory_search_recent_turns = (
             self.memory_search_recent_turns_spin.value()
             if self.memory_search_recent_turns_spin is not None
@@ -864,8 +971,9 @@ class SettingsDialogValuesMixin:
             "custom_api_request_model": self.custom_api_request_model_edit.text().strip(),
             "custom_api_format": str(self.custom_api_format_combo.currentData() or LLMFormat.OPENAI_COMPATIBLE.value),
             "embedding_api_keys": embedding_api_keys,
-            "embedding_provider": str(self.embedding_provider_combo.currentData() or "voyage"),
-            "embedding_model": str(self.embedding_model_combo.currentData() or "voyage-3"),
+            "embedding_provider": embedding_provider,
+            "embedding_model": self.embedding_model_combo.currentText().strip() or "voyage-3",
+            "embedding_provider_configs": embedding_provider_configs,
         }
 
     def _preview_settings(self):

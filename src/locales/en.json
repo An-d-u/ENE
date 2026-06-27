@@ -665,10 +665,14 @@
         "provider": "Embedding provider:",
         "api_key": {
           "label": "Embedding API key:",
-          "placeholder": "Voyage AI API key"
+          "placeholder": "Provider API key"
+        },
+        "api_url": {
+          "label": "Embedding API URL:",
+          "placeholder": "e.g. https://api.openai.com/v1"
         },
         "model": "Embedding model:",
-        "hint": "Voyage AI is the only supported provider right now. After saving, the same model is used for new memories and similar-memory retrieval."
+        "hint": "Supports Voyage AI, OpenAI, OpenAI-compatible endpoints, and Gemini. After saving, the selected provider/model is used for new memories and similar-memory retrieval."
       },
       "restart_group": {
         "title": "Apply note",
@@ -1238,5 +1242,16 @@
         "body": "The ENE profile is not initialized yet, so the editor panel cannot be opened."
       }
     }
-  }
+  },
+  "memory.button.rebuild_embeddings": "Rebuild embeddings",
+  "memory.embedding.rebuild.prompt.title": "Embeddings need rebuilding",
+  "memory.embedding.rebuild.prompt.body": "Embedding settings changed to {provider}/{model}. Rebuild {count} saved memory embeddings with the new settings now? This may call the embedding API.",
+  "memory.embedding.rebuild.confirm.title": "Rebuild embeddings",
+  "memory.embedding.rebuild.confirm.body": "This rebuilds embeddings from saved memory summaries and may call the embedding API. Continue?",
+  "memory.embedding.rebuild.complete.title": "Embedding rebuild complete",
+  "memory.embedding.rebuild.complete.body": "Updated {updated}, failed {failed}, skipped {skipped}.",
+  "memory.embedding.rebuild.unavailable.title": "Embedding rebuild unavailable",
+  "memory.embedding.rebuild.unavailable.body": "The current memory manager does not support embedding rebuilds.",
+  "memory.embedding.rebuild.failed.title": "Embedding rebuild failed",
+  "memory.embedding.rebuild.failed.body": "Embedding rebuild failed: {error}"
 }

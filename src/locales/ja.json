@@ -663,10 +663,14 @@
         "provider": "Embedding provider:",
         "api_key": {
           "label": "Embedding API key:",
-          "placeholder": "Voyage AI API key"
+          "placeholder": "Provider API key"
+        },
+        "api_url": {
+          "label": "Embedding API URL:",
+          "placeholder": "e.g. https://api.openai.com/v1"
         },
         "model": "Embedding model:",
-        "hint": "Voyage AI is the only supported provider right now. After saving, the same model is used for new memories and similar-memory retrieval."
+        "hint": "Supports Voyage AI, OpenAI, OpenAI-compatible endpoints, and Gemini. After saving, the selected provider/model is used for new memories and similar-memory retrieval."
       },
       "restart_group": {
         "title": "Apply note",
@@ -1186,5 +1190,16 @@
         "body": "エネプロフィールがまだ初期化されていないため、編集パネルを開けません。"
       }
     }
-  }
+  },
+  "memory.button.rebuild_embeddings": "埋め込みを再生成",
+  "memory.embedding.rebuild.prompt.title": "埋め込みの再生成が必要です",
+  "memory.embedding.rebuild.prompt.body": "埋め込み設定が {provider}/{model} に変わりました。保存済みメモリ {count} 件の埋め込みを新しい設定で再生成しますか？API 呼び出しが発生する場合があります。",
+  "memory.embedding.rebuild.confirm.title": "埋め込みを再生成",
+  "memory.embedding.rebuild.confirm.body": "保存済みメモリの要約から埋め込みを再生成します。API 呼び出しが発生する場合があります。続行しますか？",
+  "memory.embedding.rebuild.complete.title": "埋め込みの再生成が完了しました",
+  "memory.embedding.rebuild.complete.body": "更新 {updated} 件、失敗 {failed} 件、スキップ {skipped} 件です。",
+  "memory.embedding.rebuild.unavailable.title": "埋め込みを再生成できません",
+  "memory.embedding.rebuild.unavailable.body": "現在のメモリマネージャーでは埋め込み再生成を利用できません。",
+  "memory.embedding.rebuild.failed.title": "埋め込みの再生成に失敗しました",
+  "memory.embedding.rebuild.failed.body": "埋め込みの再生成に失敗しました: {error}"
 }

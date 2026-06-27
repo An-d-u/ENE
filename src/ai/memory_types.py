@@ -9,7 +9,7 @@ from typing import Any
 import re
 
 
-CURRENT_MEMORY_SCHEMA_VERSION = 4
+CURRENT_MEMORY_SCHEMA_VERSION = 5
 LEGACY_MIGRATION_VERSION = 1
 
 _PREFERENCE_PATTERNS = ("좋아", "선호", "편해", "익숙", "싫어", "자주")
@@ -484,6 +484,8 @@ class MemoryEntry:
     timestamp: str
     is_important: bool = False
     embedding: list[float] | None = None
+    embedding_provider: str | None = None
+    embedding_model: str | None = None
     tags: list[str] = field(default_factory=list)
     source: str = "legacy"
     memory_type: str = "general"
@@ -515,6 +517,16 @@ class MemoryEntry:
             fallback_conversation_id=fallback_conversation_id,
         )
         self.tags = _normalize_str_list(self.tags)
+        self.embedding_provider = (
+            str(self.embedding_provider).strip().lower()
+            if self.embedding_provider is not None and str(self.embedding_provider).strip()
+            else None
+        )
+        self.embedding_model = (
+            str(self.embedding_model).strip()
+            if self.embedding_model is not None and str(self.embedding_model).strip()
+            else None
+        )
         self.entity_names = _normalize_str_list(self.entity_names)
         self.aliases = _normalize_unique_str_list(self.aliases)
         self.trigger_terms = _normalize_unique_str_list(self.trigger_terms)
@@ -671,6 +683,8 @@ class MemoryEntry:
         normalized["original_messages"] = original_messages
         normalized["tags"] = tags
         normalized["embedding"] = normalized.get("embedding")
+        normalized["embedding_provider"] = normalized.get("embedding_provider")
+        normalized["embedding_model"] = normalized.get("embedding_model")
         normalized["timestamp"] = timestamp
 
         filtered = {name: normalized.get(name) for name in field_names}
@@ -686,6 +700,8 @@ def create_memory_entry(
     original_messages: list[Any],
     is_important: bool = False,
     embedding: list[float] | None = None,
+    embedding_provider: str | None = None,
+    embedding_model: str | None = None,
     tags: list[str] | None = None,
     source: str = "chat",
     memory_type: str = "general",
@@ -739,6 +755,8 @@ def create_memory_entry(
         timestamp=timestamp,
         is_important=is_important,
         embedding=embedding,
+        embedding_provider=embedding_provider,
+        embedding_model=embedding_model,
         tags=normalized_tags,
         source=str(source or "chat").strip() or "chat",
         memory_type=normalized_memory_type,

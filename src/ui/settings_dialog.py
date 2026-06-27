@@ -518,6 +518,8 @@ class SettingsDialog(
             self._theme_picker_popup.set_title(active_title)
         if self._embedded_ene_profile_panel is not None:
             self._embedded_ene_profile_panel.set_translators(self._translated_text, self._translated_text_format)
+        if self._embedded_memory_panel is not None and hasattr(self._embedded_memory_panel, "retranslate_ui"):
+            self._embedded_memory_panel.retranslate_ui()
         self._refresh_prompt_token_counts()
         self._update_ptt_hotkey_ui()
         self._sync_tts_provider_ui()

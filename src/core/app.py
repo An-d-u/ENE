@@ -2,6 +2,7 @@
 ENE 메인 애플리케이션
 오버레이 윈도우와 트레이 아이콘을 관리
 """
+import asyncio
 import json
 
 from PyQt6.QtWidgets import QApplication, QMessageBox
@@ -485,10 +486,30 @@ class ENEApplication(QObject):
         if hasattr(self, "global_ptt") and self.global_ptt:
             self.global_ptt.apply_settings(new_settings)
 
+        new_ui_language = str(new_settings.get("ui_language", old_ui_language)).strip() or "auto"
+        if old_ui_language != new_ui_language:
+            self.i18n = configure_i18n(language=new_ui_language)
+            if hasattr(self, "tray_icon") and self.tray_icon:
+                self.tray_icon.retranslate_ui()
+            if hasattr(self, "obsidian_panel_window") and self.obsidian_panel_window:
+                self.obsidian_panel_window.retranslate_ui()
+            if (
+                hasattr(self, "_settings_dialog")
+                and self._settings_dialog
+                and self._settings_dialog.isVisible()
+                and hasattr(self._settings_dialog, "_retranslate_ui")
+            ):
+                self._settings_dialog._retranslate_ui()
+
         new_embedding_provider = str(new_settings.get("embedding_provider", old_embedding_provider)).strip().lower()
         new_embedding_model = str(new_settings.get("embedding_model", old_embedding_model)).strip() or "voyage-3"
         if (old_embedding_provider, old_embedding_model) != (new_embedding_provider, new_embedding_model):
+            if hasattr(self, "memory_manager") and self.memory_manager:
+                marker = getattr(self.memory_manager, "mark_unknown_embeddings_source", None)
+                if callable(marker):
+                    marker(old_embedding_provider, old_embedding_model)
             self._refresh_memory_runtime_bindings()
+            self._show_embedding_rebuild_prompt(new_embedding_provider, new_embedding_model)
 
         new_tts_config = json.dumps(
             {
@@ -514,20 +535,70 @@ class ENEApplication(QObject):
         if old_tts_config != new_tts_config:
             self._refresh_tts_runtime_bindings()
 
-        new_ui_language = str(new_settings.get("ui_language", old_ui_language)).strip() or "auto"
-        if old_ui_language != new_ui_language:
-            self.i18n = configure_i18n(language=new_ui_language)
-            if hasattr(self, "tray_icon") and self.tray_icon:
-                self.tray_icon.retranslate_ui()
-            if hasattr(self, "obsidian_panel_window") and self.obsidian_panel_window:
-                self.obsidian_panel_window.retranslate_ui()
-            if (
-                hasattr(self, "_settings_dialog")
-                and self._settings_dialog
-                and self._settings_dialog.isVisible()
-                and hasattr(self._settings_dialog, "_retranslate_ui")
-            ):
-                self._settings_dialog._retranslate_ui()
+    def _show_embedding_rebuild_prompt(self, provider: str, model: str) -> None:
+        """임베딩 설정 변경 후 기존 메모리 재생성을 안내한다."""
+        if not hasattr(self, "memory_manager") or not self.memory_manager:
+            return
+        embedding_count = 0
+        stats_getter = getattr(self.memory_manager, "get_stats", None)
+        if callable(stats_getter):
+            stats = stats_getter()
+            embedding_count = int(stats.get("with_embedding", 0) or 0)
+            if int(stats.get("total", 0) or 0) == 0 or embedding_count == 0:
+                return
+
+        reply = QMessageBox.question(
+            self.overlay_window if hasattr(self, "overlay_window") else None,
+            tr("memory.embedding.rebuild.prompt.title"),
+            tr("memory.embedding.rebuild.prompt.body", provider=provider, model=model, count=embedding_count),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self._regenerate_memory_embeddings_with_feedback(
+                self.overlay_window if hasattr(self, "overlay_window") else None
+            )
+
+    def _regenerate_memory_embeddings_with_feedback(self, parent=None) -> dict[str, int] | None:
+        """현재 메모리 매니저의 임베딩을 재생성하고 결과를 사용자에게 알린다."""
+        if not hasattr(self, "memory_manager") or not self.memory_manager:
+            QMessageBox.warning(
+                parent,
+                tr("memory.warning.title"),
+                tr("memory.warning.body"),
+            )
+            return None
+
+        regenerate = getattr(self.memory_manager, "regenerate_embeddings", None)
+        if not callable(regenerate):
+            QMessageBox.warning(
+                parent,
+                tr("memory.embedding.rebuild.unavailable.title"),
+                tr("memory.embedding.rebuild.unavailable.body"),
+            )
+            return None
+
+        try:
+            QApplication.processEvents()
+            result = asyncio.run(regenerate())
+        except Exception as error:
+            QMessageBox.warning(
+                parent,
+                tr("memory.embedding.rebuild.failed.title"),
+                tr("memory.embedding.rebuild.failed.body", error=str(error)),
+            )
+            return None
+        QMessageBox.information(
+            parent,
+            tr("memory.embedding.rebuild.complete.title"),
+            tr(
+                "memory.embedding.rebuild.complete.body",
+                updated=result.get("updated", 0),
+                failed=result.get("failed", 0),
+                skipped=result.get("skipped", 0),
+            ),
+        )
+        return result
 
     def _on_settings_preview(self, new_settings: dict):
         """설정 미리보기 (settings 객체 수정 없이 화면에만 적용)"""

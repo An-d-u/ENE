@@ -34,6 +34,8 @@ _MIGRATED_MEMORY_REQUIRED_FIELDS = (
     "linked_memory_ids",
     "activation_weight",
     "last_activated_at",
+    "embedding_provider",
+    "embedding_model",
 )
 
 _QUERY_TYPE_PATTERNS = {
@@ -83,6 +85,52 @@ class MemoryManager:
         print(f"[Memory] 기억 파일: {self.memory_file}")
         print(f"[Memory] 로드된 기억 수: {len(self.memories)}")
     
+    def _current_embedding_source(self) -> tuple[str | None, str | None]:
+        """현재 연결된 임베딩 생성기의 제공자와 모델을 반환한다."""
+        if not self.embedding_generator:
+            return None, None
+        provider = str(getattr(self.embedding_generator, "provider", "voyage") or "voyage").strip().lower()
+        model = str(getattr(self.embedding_generator, "model", "") or "").strip()
+        return provider or None, model or None
+
+    def _embedding_matches_current_source(self, memory: MemoryEntry) -> bool:
+        """저장된 임베딩이 현재 생성기와 같은 출처인지 확인한다."""
+        if not getattr(memory, "embedding", None):
+            return False
+        current_provider, current_model = self._current_embedding_source()
+        if not current_provider or not current_model:
+            return True
+        memory_provider = str(getattr(memory, "embedding_provider", "") or "").strip().lower()
+        memory_model = str(getattr(memory, "embedding_model", "") or "").strip()
+        return memory_provider == current_provider and memory_model == current_model
+
+    def _embedding_is_stale(self, memory: MemoryEntry) -> bool:
+        """임베딩은 있지만 현재 생성기와 출처가 다르면 재생성 대상으로 본다."""
+        if not getattr(memory, "embedding", None):
+            return False
+        return not self._embedding_matches_current_source(memory)
+
+    def mark_unknown_embeddings_source(self, provider: str, model: str) -> int:
+        """출처가 비어 있는 기존 임베딩을 지정한 제공자/모델로 표시한다."""
+        normalized_provider = str(provider or "").strip().lower()
+        normalized_model = str(model or "").strip()
+        if not normalized_provider or not normalized_model:
+            return 0
+
+        updated = 0
+        for memory in self.memories:
+            if not getattr(memory, "embedding", None):
+                continue
+            if getattr(memory, "embedding_provider", None) or getattr(memory, "embedding_model", None):
+                continue
+            memory.embedding_provider = normalized_provider
+            memory.embedding_model = normalized_model
+            updated += 1
+
+        if updated:
+            self.save()
+        return updated
+
     def load(self):
         """JSON 파일에서 기억 로드"""
         try:
@@ -194,9 +242,12 @@ class MemoryManager:
         """
         # 임베딩 생성
         embedding = None
+        embedding_provider = None
+        embedding_model = None
         if self.embedding_generator:
             try:
                 embedding = await self.embedding_generator.embed(summary)
+                embedding_provider, embedding_model = self._current_embedding_source()
                 print(f"[Memory] 임베딩 생성 완료 (차원: {len(embedding)})")
             except Exception as e:
                 print(f"[Memory] 임베딩 생성 실패: {e}")
@@ -207,6 +258,8 @@ class MemoryManager:
             original_messages=original_messages,
             is_important=is_important,
             embedding=embedding,
+            embedding_provider=embedding_provider,
+            embedding_model=embedding_model,
             tags=tags,
             source=source,
             memory_type=memory_type,
@@ -257,6 +310,40 @@ class MemoryManager:
                 print(f"  - [{sim:.3f}] {memory.summary[:50]}...")
         return result
 
+    async def regenerate_embeddings(self) -> dict[str, int]:
+        """현재 임베딩 생성기로 모든 메모리 요약 임베딩을 다시 만든다."""
+        result = {
+            "total": len(self.memories),
+            "updated": 0,
+            "failed": 0,
+            "skipped": 0,
+        }
+        if not self.embedding_generator:
+            result["skipped"] = len(self.memories)
+            return result
+
+        current_provider, current_model = self._current_embedding_source()
+        updated = False
+        for memory in self.memories:
+            summary = str(getattr(memory, "summary", "") or "").strip()
+            if not summary:
+                result["skipped"] += 1
+                continue
+            try:
+                memory.embedding = await self.embedding_generator.embed(summary)
+                memory.embedding_provider = current_provider
+                memory.embedding_model = current_model
+                result["updated"] += 1
+                updated = True
+            except Exception as error:
+                result["failed"] += 1
+                print(f"[Memory] 임베딩 재생성 실패: {error}")
+
+        if updated:
+            self._raw_chunk_embedding_cache.clear()
+            self.save()
+        return result
+
     async def _rank_similar_memories(
         self,
         query: str,
@@ -270,7 +357,7 @@ class MemoryManager:
         
         # 임베딩이 있는 기억만 필터링
         memories_with_embedding = [
-            m for m in self.memories if m.embedding is not None
+            m for m in self.memories if self._embedding_matches_current_source(m)
         ]
         
         if not memories_with_embedding:
