@@ -66,6 +66,48 @@ def test_tavily_search_provider_returns_empty_without_api_key():
     assert response.results == []
 
 
+def test_tavily_search_provider_defaults_invalid_timeout():
+    provider = TavilySearchProvider(api_key="synthetic", timeout_sec="bad")
+
+    assert provider.timeout_sec == 12
+
+
+def test_tavily_search_provider_clamps_timeout():
+    provider = TavilySearchProvider(api_key="synthetic", timeout_sec=999)
+
+    assert provider.timeout_sec == 60
+
+
+def test_tavily_search_provider_defaults_invalid_max_results(monkeypatch):
+    captured = {}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured["json"] = json
+        return DummyResponse(json_data={"query": "neutral", "results": []})
+
+    monkeypatch.setattr("src.ai.search_tool.requests.post", fake_post)
+
+    provider = TavilySearchProvider(api_key="synthetic")
+    provider.search(SearchQuery(query="neutral", max_results="bad"))
+
+    assert captured["json"]["max_results"] == 5
+
+
+def test_tavily_search_provider_clamps_max_results(monkeypatch):
+    captured = {}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured["json"] = json
+        return DummyResponse(json_data={"query": "neutral", "results": []})
+
+    monkeypatch.setattr("src.ai.search_tool.requests.post", fake_post)
+
+    provider = TavilySearchProvider(api_key="synthetic")
+    provider.search(SearchQuery(query="neutral", max_results=999))
+
+    assert captured["json"]["max_results"] == 10
+
+
 def test_search_tool_swallow_errors_and_returns_empty(monkeypatch):
     class RaisingProvider:
         provider_name = "raising"
@@ -79,3 +121,19 @@ def test_search_tool_swallow_errors_and_returns_empty(monkeypatch):
     assert response.provider == "raising"
     assert response.query == "neutral query"
     assert response.results == []
+
+
+def test_search_tool_logs_provider_and_error_type_without_raw_error(capsys):
+    class RaisingProvider:
+        provider_name = "raising"
+
+        def search(self, query):
+            raise requests.Timeout("sensitive-token")
+
+    tool = SearchTool(RaisingProvider())
+    tool.search(SearchQuery(query="neutral query"))
+
+    captured = capsys.readouterr()
+    assert "provider=raising" in captured.out
+    assert "error_type=Timeout" in captured.out
+    assert "sensitive-token" not in captured.out
