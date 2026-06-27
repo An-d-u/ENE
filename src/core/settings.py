@@ -1,4 +1,4 @@
-﻿"""
+"""
 ENE settings manager.
 Loads and saves user settings to JSON.
 """
@@ -51,6 +51,11 @@ class Settings:
         "enable_global_ptt": True,
         "global_ptt_hotkey": "alt",
         "interrupt_tts_on_ptt": True,
+        "web_search_enabled": False,
+        "web_search_auto_enabled": True,
+        "web_search_provider": "tavily",
+        "web_search_max_results": 5,
+        "web_search_timeout_sec": 12,
         "embedding_provider": "voyage",
         "embedding_model": "voyage-3",
         "embedding_provider_configs": {
@@ -273,6 +278,9 @@ class Settings:
             "openai_compatible_audio_speech": "",
             "elevenlabs": "",
         },
+        "web_search_api_keys": {
+            "tavily": "",
+        },
         "custom_api_key_or_password": "",
     }
 
@@ -377,6 +385,12 @@ class Settings:
             if isinstance(loaded_tts_keys, dict):
                 base_tts_keys.update(loaded_tts_keys)
             merged["tts_api_keys"] = base_tts_keys
+
+            base_web_search_keys = dict(self.DEFAULT_SECRET_CONFIG["web_search_api_keys"])
+            loaded_web_search_keys = merged.get("web_search_api_keys", {})
+            if isinstance(loaded_web_search_keys, dict):
+                base_web_search_keys.update(loaded_web_search_keys)
+            merged["web_search_api_keys"] = base_web_search_keys
             return merged
         except Exception as e:
             if self.secret_path.exists():

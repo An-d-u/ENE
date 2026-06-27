@@ -62,6 +62,19 @@ def test_load_missing_file_uses_default_config(tmp_path):
     assert gpt_sovits["text_split_method"] == "cut5"
 
 
+def test_load_missing_file_uses_web_search_defaults(tmp_path):
+    config_path = tmp_path / "config.json"
+    secret_path = tmp_path / "api_keys.json"
+    settings = Settings(config_path=str(config_path), secret_path=str(secret_path))
+
+    assert settings.get("web_search_enabled") is False
+    assert settings.get("web_search_auto_enabled") is True
+    assert settings.get("web_search_provider") == "tavily"
+    assert settings.get("web_search_max_results") == 5
+    assert settings.get("web_search_timeout_sec") == 12
+    assert settings.get("web_search_api_keys") == {"tavily": ""}
+
+
 def test_load_missing_file_includes_genie_tts_defaults(tmp_path):
     config_path = tmp_path / "config.json"
     secret_path = tmp_path / "api_keys.json"
@@ -365,6 +378,20 @@ def test_secret_values_are_saved_to_api_keys_file(tmp_path):
     assert "custom_api_key_or_password" not in config_data
     assert secret_data["llm_api_keys"]["gemini"] == "gem-key"
     assert secret_data["custom_api_key_or_password"] == "custom-secret"
+
+
+def test_web_search_api_keys_are_saved_to_secret_file(tmp_path):
+    config_path = tmp_path / "config.json"
+    secret_path = tmp_path / "api_keys.json"
+    settings = Settings(config_path=str(config_path), secret_path=str(secret_path))
+
+    settings.set("web_search_api_keys", {"tavily": "synthetic-tavily-key"})
+    settings.save()
+
+    config_data = json.loads(config_path.read_text(encoding="utf-8-sig"))
+    secret_data = json.loads(secret_path.read_text(encoding="utf-8-sig"))
+    assert "web_search_api_keys" not in config_data
+    assert secret_data["web_search_api_keys"]["tavily"] == "synthetic-tavily-key"
 
 
 def test_save_creates_missing_parent_directories(tmp_path):
