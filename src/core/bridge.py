@@ -220,4 +220,4 @@ class WebBridge(
     @pyqtSlot(str)
     def log_from_js(self, message: str):
         """JavaScript에서 로그 받기"""
-        print(f"[JS] {message}")
+        print(f"[JS] chars={len(message or '')}")
