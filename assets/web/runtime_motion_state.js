@@ -57,10 +57,16 @@ let headPatLastMoveAt = 0;
 let patRawIntensity = 0;
 let patDirection = 0;
 let patBlend = 0;
+let patMotionBlend = 0;
 let patBlendMode = 'idle'; // idle | in | hold | out
 let patFadeElapsedMs = 0;
 let patOffsetsCurrent = { angleX: 0, angleY: 0, bodyX: 0, eyeY: 0, breath: 0 };
 let patOffsetsApplied = { angleX: 0, angleY: 0, bodyX: 0, eyeY: 0, breath: 0 };
+let patMotionReturnActive = false;
+let headPatGestureSuppression = 0;
+let headPatGestureCarryOffsets = createEmptySyntheticGestureOffsets();
+let headPatGestureCarryBlend = 0;
+let headPatGestureCarryElapsedMs = 0;
 let lastNonPatTrackingState = createEmptySyntheticGestureOffsets();
 let syntheticGestureOffsets = createEmptySyntheticGestureOffsets();
 let previousEmotionBeforePat = 'normal';
@@ -112,6 +118,44 @@ const HEAD_PAT_INTENSITY_EMA = 0.22;
 const HEAD_PAT_DIRECTION_EMA = 0.35;
 const HEAD_PAT_SPEED_GAIN = 0.95;
 const HEAD_PAT_DECAY_AT_60FPS = 0.84;
+const HEAD_PAT_OFFSET_DAMPING_AT_60FPS = 0.24;
+const HEAD_PAT_MOTION_BLEND_DAMPING_AT_60FPS = 0.055;
+const HEAD_PAT_MOTION_BLEND_MAX_STEP_AT_60FPS = 0.035;
+const HEAD_PAT_OFFSET_MAX_STEP_AT_60FPS = {
+    angleX: 1.55,
+    angleY: 1.25,
+    angleZ: 1.2,
+    bodyX: 0.9,
+    bodyY: 0.85,
+    bodyZ: 0.85,
+    eyeX: 0.055,
+    eyeY: 0.055,
+    breath: 0.18,
+    eyeOpen: 0.035,
+    eyeSmile: 0.035,
+    rootXPercent: 0.08,
+    rootYPercent: 0.08,
+    rootScale: 0.0012,
+};
+const HEAD_PAT_OFFSET_SETTLE_EPSILON = {
+    angleX: 0.08,
+    angleY: 0.08,
+    angleZ: 0.08,
+    bodyX: 0.06,
+    bodyY: 0.06,
+    bodyZ: 0.06,
+    eyeX: 0.006,
+    eyeY: 0.006,
+    breath: 0.02,
+    eyeOpen: 0.004,
+    eyeSmile: 0.004,
+    rootXPercent: 0.01,
+    rootYPercent: 0.01,
+    rootScale: 0.0002,
+};
+const HEAD_PAT_GESTURE_SUPPRESSION_DAMPING_AT_60FPS = 0.18;
+const HEAD_PAT_GESTURE_SUPPRESSION_TARGET = 0.35;
+const HEAD_PAT_GESTURE_CROSS_FADE_MS = 650;
 const EXPRESSIVE_SPEECH_MOTION_RESPONSE_HZ = 3.2;
 const EXPRESSIVE_SPEECH_ACTIVITY_RESPONSE_HZ = 2.8;
 const EXPRESSIVE_CHANNEL_RESPONSE_HZ = { head: 4.6, body: 2.4, eye: 4.6, root: 1.7, breath: 3.8 };
@@ -595,6 +639,73 @@ function scaleMotionOffsets(offsets = {}, scale = 1) {
     return normalized;
 }
 
+function hasVisibleMotionOffsets(offsets = {}) {
+    const normalized = normalizeSyntheticGestureOffsets(offsets);
+    return Object.values(normalized).some((value) => Math.abs(finiteOrZero(value)) > 0.0001);
+}
+
+function clearHeadPatGestureCarryover() {
+    headPatGestureCarryOffsets = createEmptySyntheticGestureOffsets();
+    headPatGestureCarryBlend = 0;
+    headPatGestureCarryElapsedMs = 0;
+}
+
+function resetHeadPatMotionState(options = {}) {
+    const resetPointer = Boolean(options.resetPointer);
+    if (resetPointer) {
+        isHeadPatting = false;
+        headPatPointerId = null;
+    }
+    patRawIntensity = 0;
+    patDirection = 0;
+    patBlend = 0;
+    patMotionBlend = 0;
+    patBlendMode = 'idle';
+    patMotionReturnActive = false;
+    headPatGestureSuppression = 0;
+    clearHeadPatGestureCarryover();
+}
+
+function captureHeadPatGestureCarryover() {
+    headPatGestureCarryOffsets = cloneMotionOffsets(syntheticGestureOffsets);
+    headPatGestureCarryBlend = hasVisibleMotionOffsets(headPatGestureCarryOffsets) ? 1 : 0;
+    headPatGestureCarryElapsedMs = 0;
+    return headPatGestureCarryBlend;
+}
+
+function updateHeadPatGestureCarryover(hasHeadPatEffect, dtMs) {
+    if (!hasHeadPatEffect) {
+        clearHeadPatGestureCarryover();
+        return headPatGestureCarryBlend;
+    }
+    if (headPatGestureCarryBlend <= 0) {
+        return 0;
+    }
+
+    headPatGestureCarryElapsedMs += Math.max(0, Number(dtMs) || 0);
+    const progress = Math.max(0, Math.min(1, headPatGestureCarryElapsedMs / HEAD_PAT_GESTURE_CROSS_FADE_MS));
+    const easedProgress = progress * progress * (3 - (2 * progress));
+    headPatGestureCarryBlend = Math.max(0, 1 - easedProgress);
+    if (headPatGestureCarryBlend <= 0.001) {
+        clearHeadPatGestureCarryover();
+    }
+    return headPatGestureCarryBlend;
+}
+
+function resolveSyntheticGestureOffsetsForHeadPat() {
+    const suppression = Math.max(0, Math.min(1, finiteOrZero(headPatGestureSuppression)));
+    const carryBlend = Math.max(0, Math.min(1, finiteOrZero(headPatGestureCarryBlend)));
+    const liveGestureScale = (1 - suppression) * (1 - carryBlend);
+    const liveGestureOffsets = scaleMotionOffsets(
+        syntheticGestureOffsets || createEmptySyntheticGestureOffsets(),
+        liveGestureScale
+    );
+    const carryOffsets = carryBlend > 0
+        ? scaleMotionOffsets(headPatGestureCarryOffsets, carryBlend)
+        : createEmptySyntheticGestureOffsets();
+    return addMotionOffsets(liveGestureOffsets, carryOffsets);
+}
+
 function attenuateExpressiveSpeechLateralPoseOffsets(offsets = {}, speechBlend = 0) {
     const attenuated = cloneMotionOffsets(offsets);
     const speechAmount = Math.max(0, Math.min(1, Number(speechBlend) || 0));
@@ -892,6 +1003,13 @@ function canPlayExpressiveAccentMotion() {
     return true;
 }
 
+function shouldCancelActiveExpressiveAccentMotion() {
+    if (typeof window.isSyntheticGestureActive === 'function' && window.isSyntheticGestureActive()) {
+        return true;
+    }
+    return false;
+}
+
 function startExpressiveAccentMotion(nowMs, speechActive) {
     const motion = pickWeightedExpressiveAccentMotion(speechActive);
     if (!motion) {
@@ -907,7 +1025,7 @@ function startExpressiveAccentMotion(nowMs, speechActive) {
 
 function buildExpressiveAccentMotionOffsets(nowMs, speechActive) {
     if (expressiveAccentMotionState.activeName && expressiveAccentMotionState.motion) {
-        if (!canPlayExpressiveAccentMotion()) {
+        if (shouldCancelActiveExpressiveAccentMotion()) {
             expressiveAccentMotionState.lastName = expressiveAccentMotionState.activeName;
             expressiveAccentMotionState.activeName = "";
             expressiveAccentMotionState.motion = null;
@@ -1251,9 +1369,10 @@ function detectTrackingParams(coreModel) {
 // 정규화된 시선 입력값을 실제 Live2D 파라미터 값으로 변환해 적용한다.
 function applyTrackingParams(coreModel, x, y, idleOffsets = null, centerGazeInput = null) {
     const support = detectTrackingParams(coreModel);
-    const gestureOffsets = syntheticGestureOffsets || createEmptySyntheticGestureOffsets();
+    const gestureOffsets = resolveSyntheticGestureOffsetsForHeadPat();
     const idleAngleX = idleOffsets ? idleOffsets.angleX : 0;
     const idleAngleY = idleOffsets ? idleOffsets.angleY : 0;
+    const idleAngleZ = idleOffsets && Number.isFinite(idleOffsets.angleZ) ? idleOffsets.angleZ : 0;
     const idleBodyX = idleOffsets ? idleOffsets.bodyX : 0;
     const idleBodyY = idleOffsets && Number.isFinite(idleOffsets.bodyY) ? idleOffsets.bodyY : 0;
     const idleBodyZ = idleOffsets && Number.isFinite(idleOffsets.bodyZ) ? idleOffsets.bodyZ : 0;
@@ -1266,7 +1385,7 @@ function applyTrackingParams(coreModel, x, y, idleOffsets = null, centerGazeInpu
     const eyeTarget = buildCompensatedTrackingEyeTarget(x, y, idleOffsets, gestureOffsets, centerGazeInput);
     if (support.angleX) coreModel.setParameterValueById(support.angleX, (x * 15) + idleAngleX + gestureAngleX);
     if (support.angleY) coreModel.setParameterValueById(support.angleY, (-y * 15) + idleAngleY + gestureAngleY);
-    if (support.angleZ) coreModel.setParameterValueById(support.angleZ, gestureAngleZ);
+    if (support.angleZ) coreModel.setParameterValueById(support.angleZ, idleAngleZ + gestureAngleZ);
     if (support.bodyAngleX) coreModel.setParameterValueById(support.bodyAngleX, (x * 5) + idleBodyX + gestureBodyX);
     if (support.bodyAngleY) coreModel.setParameterValueById(support.bodyAngleY, idleBodyY + gestureBodyY);
     if (support.bodyAngleZ) coreModel.setParameterValueById(support.bodyAngleZ, idleBodyZ + gestureBodyZ);
@@ -1282,7 +1401,7 @@ function applyIdleBreathParam(coreModel, idleOffsets = null) {
     }
 
     const idleBreath = idleOffsets && Number.isFinite(idleOffsets.breath) ? idleOffsets.breath : 0;
-    const gestureBreath = finiteOrZero(syntheticGestureOffsets.breath);
+    const gestureBreath = finiteOrZero(resolveSyntheticGestureOffsetsForHeadPat().breath);
     coreModel.setParameterValueById(support.breath, idleBreath + gestureBreath);
 }
 
@@ -1555,12 +1674,7 @@ window.setHeadPatConfig = function (
         : 5000;
 
     if (!headPatEnabled) {
-        isHeadPatting = false;
-        headPatPointerId = null;
-        patRawIntensity = 0;
-        patDirection = 0;
-        patBlend = 0;
-        patBlendMode = 'idle';
+        resetHeadPatMotionState({ resetPointer: true });
         setHeadPatEyeBlinkEnabled(true);
     }
     console.log(

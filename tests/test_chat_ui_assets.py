@@ -335,8 +335,10 @@ def test_tracking_runtime_supports_synthetic_gesture_offsets():
 
     assert "window.setSyntheticGestureOffsets = function (offsets = {})" in script
     assert "angleZ: resolveParam('angleZ', 'ParamAngleZ')" in script
-    assert "const gestureOffsets = syntheticGestureOffsets || createEmptySyntheticGestureOffsets();" in script
-    assert "if (support.angleZ) coreModel.setParameterValueById(support.angleZ, gestureAngleZ);" in script
+    assert "function resolveSyntheticGestureOffsetsForHeadPat()" in script
+    assert "const gestureOffsets = resolveSyntheticGestureOffsetsForHeadPat();" in script
+    assert "const idleAngleZ = idleOffsets && Number.isFinite(idleOffsets.angleZ) ? idleOffsets.angleZ : 0;" in script
+    assert "if (support.angleZ) coreModel.setParameterValueById(support.angleZ, idleAngleZ + gestureAngleZ);" in script
     assert "function buildCompensatedTrackingEyeTarget" in script
     assert "if (support.eyeBallX) coreModel.setParameterValueById(support.eyeBallX, eyeTarget.eyeX);" in script
 
@@ -450,6 +452,174 @@ result = { headLeft, headRight };
     assert result["headLeft"]["eyeX"] > 0.18
     assert result["headRight"]["eyeX"] < -0.18
     assert round(result["headLeft"]["eyeX"], 3) == -round(result["headRight"]["eyeX"], 3)
+
+
+# 쓰다듬기와 다른 모션 레이어가 같은 Live2D 파라미터를 공유할 때의 회귀 테스트.
+def test_tracking_runtime_suppresses_synthetic_gestures_during_head_pat_motion():
+    result = _run_motion_state_runtime_case(
+        """
+const calls = {};
+const coreModel = {
+    getParameterIndex(id) {
+        return [
+            'ParamAngleX',
+            'ParamAngleY',
+            'ParamAngleZ',
+            'ParamBodyAngleX',
+            'ParamBodyAngleY',
+            'ParamBodyAngleZ',
+            'ParamEyeBallX',
+            'ParamEyeBallY',
+            'ParamBreath',
+        ].includes(id) ? 0 : -1;
+    },
+    setParameterValueById(id, value) {
+        calls[id] = value;
+    },
+};
+
+window.setSyntheticGestureOffsets({
+    angleX: 9,
+    angleY: 7,
+    angleZ: 5,
+    bodyX: 4,
+    bodyY: 3,
+    bodyZ: 2,
+    eyeX: 0.25,
+    eyeY: -0.20,
+    breath: 0.8,
+});
+headPatGestureSuppression = 1;
+applyTrackingParams(coreModel, 0, 0, { angleX: 1, angleY: -2, bodyX: 0.5, bodyY: 0.25, bodyZ: -0.5, eyeX: 0, eyeY: 0, breath: 0.1 });
+applyIdleBreathParam(coreModel, { breath: 0.1 });
+result = calls;
+"""
+    )
+
+    assert result["ParamAngleX"] == 1
+    assert result["ParamAngleY"] == -2
+    assert result["ParamAngleZ"] == 0
+    assert result["ParamBodyAngleX"] == 0.5
+    assert result["ParamBodyAngleY"] == 0.25
+    assert result["ParamBodyAngleZ"] == -0.5
+    assert result["ParamBreath"] == 0.1
+
+
+def test_tracking_runtime_applies_idle_angle_z_during_head_pat_motion():
+    result = _run_motion_state_runtime_case(
+        """
+const calls = {};
+const coreModel = {
+    getParameterIndex(id) {
+        return ['ParamAngleZ', 'ParamBodyAngleZ'].includes(id) ? 0 : -1;
+    },
+    setParameterValueById(id, value) {
+        calls[id] = value;
+    },
+};
+
+window.setSyntheticGestureOffsets({ angleZ: 0, bodyZ: 0 });
+headPatGestureSuppression = 1;
+applyTrackingParams(coreModel, 0, 0, { angleZ: -6, bodyZ: 3 });
+result = calls;
+"""
+    )
+
+    assert result["ParamAngleZ"] == -6
+    assert result["ParamBodyAngleZ"] == 3
+
+
+def test_tracking_runtime_cross_fades_gesture_offsets_when_head_pat_starts():
+    result = _run_motion_state_runtime_case(
+        """
+window.setSyntheticGestureOffsets({
+    angleZ: 10,
+    bodyX: 8,
+    bodyZ: -6,
+    breath: 0.6,
+});
+captureHeadPatGestureCarryover();
+window.setSyntheticGestureOffsets({
+    angleZ: 0,
+    bodyX: 0,
+    bodyZ: 0,
+    breath: 0,
+});
+headPatGestureSuppression = 0.35;
+headPatGestureCarryBlend = 0.5;
+const blended = resolveSyntheticGestureOffsetsForHeadPat();
+result = blended;
+"""
+    )
+
+    assert result["angleZ"] > 0
+    assert result["bodyX"] > 0
+    assert result["bodyZ"] < 0
+    assert result["breath"] > 0
+    assert result["angleZ"] < 10
+    assert result["bodyX"] < 8
+
+
+def test_tracking_runtime_preserves_captured_tilt_when_live_gesture_clears_for_head_pat():
+    result = _run_motion_state_runtime_case(
+        """
+window.setSyntheticGestureOffsets({
+    angleX: -7,
+    angleY: 4,
+    angleZ: -15,
+    bodyX: -0.8,
+    eyeX: 0.12,
+});
+captureHeadPatGestureCarryover();
+window.clearSyntheticGestureOffsets();
+headPatGestureSuppression = 0.35;
+headPatGestureCarryBlend = 1;
+const firstFrame = resolveSyntheticGestureOffsetsForHeadPat();
+headPatGestureCarryBlend = 0.5;
+const midFade = resolveSyntheticGestureOffsetsForHeadPat();
+result = { firstFrame, midFade };
+"""
+    )
+
+    assert result["firstFrame"]["angleZ"] == -15
+    assert result["firstFrame"]["angleX"] == -7
+    assert result["firstFrame"]["bodyX"] == -0.8
+    assert result["midFade"]["angleZ"] == -7.5
+    assert result["midFade"]["angleX"] == -3.5
+    assert result["midFade"]["bodyX"] == -0.4
+
+
+def test_expressive_accent_motion_continues_when_head_pat_starts():
+    result = _run_motion_state_runtime_case(
+        """
+window.isHeadPatEffectActive = function () { return true; };
+window.isSyntheticGestureActive = function () { return false; };
+expressiveMotionEnabled = true;
+expressiveAccentMotionState = {
+    activeName: 'test-accent',
+    lastName: '',
+    startedAt: 1000,
+    durationMs: 1000,
+    motion: {
+        frames: [
+            { t: 0.00, value: {} },
+            { t: 0.50, value: { bodyY: 6, rootYPercent: -0.5, breath: 0.8 } },
+            { t: 1.00, value: {} },
+        ],
+    },
+    nextCheckAt: 0,
+};
+const offsets = buildExpressiveAccentMotionOffsets(1500, false);
+result = {
+    offsets,
+    activeName: expressiveAccentMotionState.activeName,
+};
+"""
+    )
+
+    assert result["offsets"]["bodyY"] == 6
+    assert result["offsets"]["rootYPercent"] == -0.5
+    assert result["activeName"] == "test-accent"
 
 
 def test_tracking_runtime_exposes_expressive_style_motion_layer():
@@ -642,10 +812,19 @@ def test_tracking_runtime_exposes_expressive_style_motion_layer():
     assert "function addMotionOffsets" in script
     assert "buildExpressiveStyleMotionOffsets(nowMs, dtMs)" in tracking_script
     assert "addMotionOffsets(idleOffsets, expressiveOffsets)" in tracking_script
-    assert "const motionFadeScale = hasHeadPatEffect ? Math.max(0, 1 - patBlend) : 1;" in tracking_script
+    assert "if (idleMotionEnabled && !isSpeakingNow(nowMs))" in tracking_script
+    assert "if (!hasHeadPatEffect && idleMotionEnabled && !isSpeakingNow(nowMs))" not in tracking_script
+    assert "const expressiveOffsets = typeof buildExpressiveStyleMotionOffsets === 'function'" in tracking_script
+    assert "const expressiveOffsets = !hasHeadPatEffect && typeof buildExpressiveStyleMotionOffsets === 'function'" not in tracking_script
+    assert "const motionFadeScale = hasHeadPatEffect ? Math.max(0.65, 1 - (patMotionBlend * 0.35)) : 1;" in tracking_script
     assert "const fadedTrackingOffsets = motionFadeScale < 0.999 && typeof scaleMotionOffsets === 'function'" in tracking_script
     assert "window.setLive2DRootMotionOffsets(fadedTrackingOffsets);" in tracking_script
     assert "lastNonPatTrackingState = { ...baseTrackingOffsets };" in tracking_script
+    assert "function buildHeadPatOverlayOffsets()" in tracking_script
+    assert "const patOverlayOffsets = buildHeadPatOverlayOffsets();" in tracking_script
+    assert "scaleMotionOffsets(patOffsetsCurrent, patMotionBlend)" in tracking_script
+    assert "scaleMotionOffsets(patOffsetsCurrent, patBlend)" not in tracking_script
+    assert "addMotionOffsets(baseTrackingOffsets, patOverlayOffsets)" in tracking_script
     assert "lastNonPatTrackingState = { ...patOffsetsApplied };" not in tracking_script
     assert "lastNonPatTrackingState = { ...patOffsetsApplied };" not in head_pat_script
     assert "window.setLive2DRootMotionOffsets = function" in live2d_script
@@ -1314,6 +1493,155 @@ result = {
         "headPatCount": 1,
         "timeoutCount": 1,
     }
+
+
+def test_head_pat_offsets_are_smoothed_between_large_pose_changes():
+    result = _run_head_pat_runtime_case(
+        """
+patOffsetsApplied = { angleX: 0, angleY: 0, bodyX: 0, eyeY: 0, breath: 0 };
+const target = {
+    angleX: 10,
+    angleY: -8,
+    bodyX: 6,
+    eyeY: -0.3,
+    breath: 0,
+};
+const first = smoothHeadPatOffsets(target, 16, true);
+const second = smoothHeadPatOffsets(target, 16, true);
+result = { first, second };
+"""
+    )
+
+    assert 0 < result["first"]["angleX"] < 5
+    assert -4 < result["first"]["angleY"] < 0
+    assert 0 < result["first"]["bodyX"] < 3
+    assert -0.2 < result["first"]["eyeY"] < 0
+    assert result["first"]["angleX"] < result["second"]["angleX"] < 8
+    assert result["first"]["angleY"] > result["second"]["angleY"] > -6
+    assert result["first"]["bodyX"] < result["second"]["bodyX"] < 5
+
+
+def test_head_pat_motion_blend_fades_in_more_slowly_than_expression_blend():
+    result = _run_head_pat_runtime_case(
+        """
+patMotionBlend = 0;
+patBlend = 1;
+const firstFrame = updateHeadPatMotionBlend(16);
+const secondFrame = updateHeadPatMotionBlend(16);
+result = { firstFrame, secondFrame, patMotionBlend };
+"""
+    )
+
+    assert 0 < result["firstFrame"] < 0.15
+    assert result["firstFrame"] < result["secondFrame"] < 0.3
+    assert result["patMotionBlend"] == result["secondFrame"]
+
+
+def test_head_pat_offset_smoothing_preserves_z_axis_motion_channels():
+    result = _run_head_pat_runtime_case(
+        """
+patOffsetsApplied = createEmptySyntheticGestureOffsets();
+const target = {
+    angleZ: -12,
+    bodyY: 4,
+    bodyZ: 5,
+    eyeX: 0.12,
+    rootXPercent: 0.6,
+};
+const first = smoothHeadPatOffsets(target, 16);
+const second = smoothHeadPatOffsets(target, 16);
+result = { first, second };
+"""
+    )
+
+    assert result["first"]["angleZ"] < 0
+    assert result["first"]["bodyY"] > 0
+    assert result["first"]["bodyZ"] > 0
+    assert result["first"]["eyeX"] > 0
+    assert result["first"]["rootXPercent"] > 0
+    assert result["first"]["angleZ"] > result["second"]["angleZ"] > -12
+    assert result["first"]["bodyZ"] < result["second"]["bodyZ"] < 5
+
+
+def test_head_pat_motion_hold_stays_active_until_release_offsets_settle():
+    result = _run_head_pat_runtime_case(
+        """
+patMotionReturnActive = true;
+patBlend = 0;
+isHeadPatting = false;
+lastNonPatTrackingState = { angleX: 2, angleY: -1, bodyX: 1.5, eyeY: 0.05, breath: 0 };
+patOffsetsApplied = { angleX: 7, angleY: -6, bodyX: 5, eyeY: -0.25, breath: 0 };
+const activeWithResidual = shouldKeepHeadPatMotionActive(false);
+patOffsetsApplied = { angleX: 2.01, angleY: -1.01, bodyX: 1.51, eyeY: 0.051, breath: 0 };
+const activeAfterSettled = shouldKeepHeadPatMotionActive(false);
+result = {
+    activeWithResidual,
+    activeAfterSettled,
+    patMotionReturnActive,
+};
+"""
+    )
+
+    assert result["activeWithResidual"] is True
+    assert result["activeAfterSettled"] is False
+    assert result["patMotionReturnActive"] is False
+
+
+def test_head_pat_gesture_suppression_ducks_without_muting_motion():
+    result = _run_head_pat_runtime_case(
+        """
+headPatGestureSuppression = 0;
+const activeSuppression = updateHeadPatGestureSuppression(true, 1000);
+const releaseSuppression = updateHeadPatGestureSuppression(false, 1000);
+result = { activeSuppression, releaseSuppression };
+"""
+    )
+
+    assert 0.33 <= result["activeSuppression"] <= 0.35
+    assert result["releaseSuppression"] < 0.01
+
+
+def test_head_pat_does_not_stop_builtin_motion_on_pointer_down():
+    result = _run_head_pat_runtime_case(
+        """
+const calls = [];
+globalThis.builtinAutoMotionState = { enabled: true };
+window.live2dModel = { internalModel: {} };
+stopBuiltinIdleMotion = function () {
+    calls.push('stop');
+    return true;
+};
+startBuiltinIdleMotion = function () {
+    calls.push('start');
+    return true;
+};
+headPatActiveEmotion = 'smile';
+currentEmotionTag = 'normal';
+window.live2dModel = {
+    x: 100,
+    y: 120,
+    scale: { x: 1, y: 1 },
+    width: 200,
+    height: 300,
+    getBounds() {
+        return { x: 20, y: 20, width: 180, height: 280 };
+    },
+};
+onHeadPatPointerDown({
+    pointerType: 'mouse',
+    button: 0,
+    pointerId: 4,
+    clientX: 100,
+    clientY: 70,
+    target: { setPointerCapture() {} },
+    preventDefault() {},
+});
+result = { calls, isHeadPatting };
+"""
+    )
+
+    assert result["calls"] == []
+    assert result["isHeadPatting"] is True
 
 
 def test_live2d_parameter_runtime_does_not_redeclare_chat_state_globals():
@@ -2903,7 +3231,8 @@ def test_chat_script_keeps_head_pat_eye_override_during_release_fade():
     assert "return resolveExpressionEmotion(headPatActiveEmotion) !== 'eyeclose';" in script
     assert "function shouldApplyHeadPatEyeOverrideNow(hasHeadPatEffect)" in script
     assert "return hasHeadPatEffect && shouldUseHeadPatEyeCloseOverride();" in script
-    assert "const shouldApplyHeadPatEyeOverride = shouldApplyHeadPatEyeOverrideNow(hasHeadPatEffect);" in script
+    assert "const hasHeadPatBlend = headPatEnabled && patBlend > 0.001;" in script
+    assert "const shouldApplyHeadPatEyeOverride = shouldApplyHeadPatEyeOverrideNow(hasHeadPatBlend);" in script
 
 
 def test_chat_script_extracts_expression_transition_duration_and_state_helpers():

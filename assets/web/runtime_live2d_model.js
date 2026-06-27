@@ -37,12 +37,9 @@ function removeCurrentModelArtifacts() {
     }
     trackingParamSupport = null;
     headPatEyeParamSupport = null;
-    isHeadPatting = false;
-    headPatPointerId = null;
-    patRawIntensity = 0;
-    patDirection = 0;
-    patBlend = 0;
-    patBlendMode = 'idle';
+    if (typeof resetHeadPatMotionState === 'function') {
+        resetHeadPatMotionState({ resetPointer: true });
+    }
     builtinAutoMotionState.running = false;
     builtinAutoMotionState.breath = null;
     builtinAutoMotionState.physics = null;

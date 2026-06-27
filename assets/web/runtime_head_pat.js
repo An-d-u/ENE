@@ -14,6 +14,86 @@ function lerp(a, b, t) {
     return a + ((b - a) * t);
 }
 
+function smoothHeadPatOffsetValue(current, target, maxStep, damping) {
+    const desired = lerp(current, target, damping);
+    const delta = desired - current;
+    const limit = Math.max(0.0001, maxStep);
+    return current + Math.max(-limit, Math.min(limit, delta));
+}
+
+function updateHeadPatMotionBlend(dtMs) {
+    const frameScale = dtMs > 0 ? dtMs / (1000 / 60) : 1;
+    const damping = 1 - Math.pow(1 - HEAD_PAT_MOTION_BLEND_DAMPING_AT_60FPS, frameScale);
+    const maxStep = HEAD_PAT_MOTION_BLEND_MAX_STEP_AT_60FPS * Math.max(0.25, frameScale);
+    const desired = lerp(patMotionBlend, patBlend, damping);
+    const delta = desired - patMotionBlend;
+    patMotionBlend += Math.max(-maxStep, Math.min(maxStep, delta));
+    if (patMotionBlend < 0.001) patMotionBlend = 0;
+    if (patMotionBlend > 0.999) patMotionBlend = 1;
+    return patMotionBlend;
+}
+
+function smoothHeadPatOffsets(targetOffsets, dtMs) {
+    const frameScale = dtMs > 0 ? dtMs / (1000 / 60) : 1;
+    const damping = 1 - Math.pow(1 - HEAD_PAT_OFFSET_DAMPING_AT_60FPS, frameScale);
+    const stepScale = Math.max(0.25, frameScale);
+    const target = normalizeSyntheticGestureOffsets(targetOffsets || {});
+    const current = normalizeSyntheticGestureOffsets(patOffsetsApplied || {});
+    const nextOffsets = createEmptySyntheticGestureOffsets();
+
+    Object.keys(nextOffsets).forEach((key) => {
+        const maxStep = finiteOrZero(HEAD_PAT_OFFSET_MAX_STEP_AT_60FPS[key]) || 0.2;
+        nextOffsets[key] = smoothHeadPatOffsetValue(
+            finiteOrZero(current[key]),
+            finiteOrZero(target[key]),
+            maxStep * stepScale,
+            damping
+        );
+    });
+
+    patOffsetsApplied = nextOffsets;
+
+    return patOffsetsApplied;
+}
+
+function hasMeaningfulHeadPatOffsetDelta(currentOffsets, targetOffsets) {
+    const current = normalizeSyntheticGestureOffsets(currentOffsets || {});
+    const target = normalizeSyntheticGestureOffsets(targetOffsets || {});
+    return Object.keys(current).some((key) => {
+        const epsilon = finiteOrZero(HEAD_PAT_OFFSET_SETTLE_EPSILON[key]) || 0.001;
+        return Math.abs(finiteOrZero(current[key]) - finiteOrZero(target[key])) > epsilon;
+    });
+}
+
+function shouldKeepHeadPatMotionActive(hasHeadPatBlend) {
+    if (hasHeadPatBlend || isHeadPatting) {
+        patMotionReturnActive = true;
+        return true;
+    }
+    if (!patMotionReturnActive) {
+        return false;
+    }
+    if (hasMeaningfulHeadPatOffsetDelta(patOffsetsApplied, lastNonPatTrackingState)) {
+        return true;
+    }
+
+    patMotionReturnActive = false;
+    return false;
+}
+
+function updateHeadPatGestureSuppression(hasHeadPatEffect, dtMs) {
+    const target = hasHeadPatEffect ? HEAD_PAT_GESTURE_SUPPRESSION_TARGET : 0;
+    const frameScale = dtMs > 0 ? dtMs / (1000 / 60) : 1;
+    const damping = 1 - Math.pow(1 - HEAD_PAT_GESTURE_SUPPRESSION_DAMPING_AT_60FPS, frameScale);
+    headPatGestureSuppression += (target - headPatGestureSuppression) * damping;
+    if (headPatGestureSuppression < 0.001) headPatGestureSuppression = 0;
+    if (headPatGestureSuppression > 0.999) headPatGestureSuppression = 1;
+    if (typeof updateHeadPatGestureCarryover === 'function') {
+        updateHeadPatGestureCarryover(hasHeadPatEffect, dtMs);
+    }
+    return headPatGestureSuppression;
+}
+
 // 포인터가 머리 쓰다듬기 유효 영역에 들어왔는지 판정한다.
 function isHeadPatPoint(pointerX, pointerY) {
     if (typeof isImageAvatarMode === 'function' && isImageAvatarMode()) {
@@ -87,6 +167,9 @@ function onHeadPatPointerDown(event) {
     const restoreBaseEmotion = pendingPatRestoreEmotion || baseEmotionTag || currentEmotionTag || 'normal';
     cancelPendingPatEmotionRestore();
     previousEmotionBeforePat = restoreBaseEmotion;
+    if (typeof captureHeadPatGestureCarryover === 'function') {
+        captureHeadPatGestureCarryover();
+    }
     triggerPatStartEmotion();
     setHeadPatEyeBlinkEnabled(false);
     isHeadPatting = true;
@@ -221,10 +304,7 @@ function ensureHeadPatEventBindings() {
 // 프레임 단위로 쓰다듬기 상태를 감쇠/보간해 갱신한다.
 function updateHeadPatState(dtMs) {
     if (!headPatEnabled) {
-        patRawIntensity = 0;
-        patDirection = 0;
-        patBlend = 0;
-        patBlendMode = 'idle';
+        resetHeadPatMotionState({ resetPointer: true });
         return;
     }
 
@@ -259,6 +339,7 @@ function updateHeadPatState(dtMs) {
     } else {
         patBlend = 0;
     }
+    updateHeadPatMotionBlend(dtMs);
 }
 
 // 현재 쓰다듬기 상태를 Live2D 오프셋(각도/몸통/눈)으로 변환한다.
