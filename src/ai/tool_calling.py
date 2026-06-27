@@ -71,7 +71,10 @@ class WebSearchToolRunner:
 
     def _emit_progress(self, stage: str) -> None:
         if callable(self.progress_callback):
-            self.progress_callback(stage)
+            try:
+                self.progress_callback(stage)
+            except Exception:
+                return
 
     def _search_and_format(self, query: SearchQuery) -> str:
         self._emit_progress("searching")
@@ -109,7 +112,10 @@ class WebSearchToolRunner:
 
     def decide(self, latest_user_message: str, recent_context: str = "") -> WebSearchDecision:
         if callable(self.decision_provider):
-            return self.decision_provider(latest_user_message, recent_context)
+            try:
+                return self.decision_provider(latest_user_message, recent_context)
+            except Exception:
+                return WebSearchDecision(False, "", "")
         return WebSearchDecision(False, "", "")
 
     def parse_decision(self, raw_text: str) -> WebSearchDecision:
