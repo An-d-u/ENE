@@ -32,7 +32,12 @@ from .response_parser import (
     parse_analysis_lines,
     parse_llm_response,
 )
-from .summary_parser import parse_summary_memory_meta, parse_summary_response
+from .summary_parser import (
+    is_complete_summary_response,
+    missing_summary_response_sections,
+    parse_summary_memory_meta,
+    parse_summary_response,
+)
 from .markdown_document_prompt import build_markdown_document_prompt
 from .summary_prompt import build_summary_prompt
 from .tool_calling import (
@@ -42,6 +47,7 @@ from .tool_calling import (
 )
 
 LLM_RESPONSE_TUPLE = Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict], str, Dict[str, str], List[Dict], str]
+SUMMARY_MIN_OUTPUT_TOKENS = 4096
 
 
 class GeminiClient:
@@ -206,6 +212,50 @@ class GeminiClient:
         if self.generation_params["max_tokens"] > 0:
             config["max_output_tokens"] = self.generation_params["max_tokens"]
         return config
+
+    def _summary_output_token_budget(self) -> int:
+        """요약은 메타 섹션까지 생성해야 하므로 일반 답변보다 큰 최소 출력 예산을 쓴다."""
+        current = 0
+        try:
+            current = int((self.generation_params or {}).get("max_tokens") or 0)
+        except (TypeError, ValueError):
+            current = 0
+        return max(SUMMARY_MIN_OUTPUT_TOKENS, current)
+
+    def _build_summary_config(self) -> dict:
+        return {
+            "temperature": 0.5,
+            "top_p": self.generation_params["top_p"],
+            "max_output_tokens": self._summary_output_token_budget(),
+        }
+
+    def _summary_retry_prompt(self, prompt: str, missing_sections: list[str]) -> str:
+        missing = ", ".join(missing_sections) if missing_sections else "필수 섹션"
+        return (
+            f"{prompt}\n\n"
+            "이전 요약 응답이 중간에 끊겼거나 형식이 불완전했습니다. "
+            f"빠진 부분: {missing}. "
+            "[SUMMARY], [MASTER_INFO], [ENE_INFO], [MEMORY_META] 네 섹션을 모두 포함해서 처음부터 다시 작성하세요."
+        )
+
+    def _request_summary_text(self, prompt: str) -> str:
+        response = self.client.models.generate_content(
+            model=self.model_name,
+            contents=prompt,
+            config=self._build_summary_config(),
+        )
+        response_text = self._extract_response_text_or_empty(response, label="요약")
+        if not response_text or is_complete_summary_response(response_text):
+            return response_text
+
+        missing_sections = missing_summary_response_sections(response_text)
+        print(f"[LLM] 요약 응답이 불완전해 재시도합니다. missing={missing_sections}")
+        retry_response = self.client.models.generate_content(
+            model=self.model_name,
+            contents=self._summary_retry_prompt(prompt, missing_sections),
+            config=self._build_summary_config(),
+        )
+        return self._extract_response_text_or_empty(retry_response, label="요약 재시도")
 
     def _generate_one_shot_text(self, message: str, include_sub_prompt: bool) -> str:
         """히스토리를 남기지 않는 일회성 생성 호출."""
@@ -750,13 +800,7 @@ class GeminiClient:
             print(f"[LLM] 대화 요약 및 정보 추출 중... (메시지 수: {len(messages)})")
             
             # 일회성 요청으로 요약 생성 (Chat 세션과 별도)
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=summarize_prompt,
-                config={'temperature': 0.5}  # 요약은 더 일관성 있게
-            )
-            
-            response_text = self._extract_response_text_or_empty(response, label="요약")
+            response_text = self._request_summary_text(summarize_prompt)
             if not response_text:
                 return "대화 내용을 요약하지 못했어요.", [], [], {
                     "memory_type": "general",
