@@ -128,7 +128,7 @@ class OllamaClient(_CommonMixin):
             head_pat_count_before_message=head_pat_count_before_message,
             progress_callback=progress_callback,
         )
-        return self.send_message(enhanced)
+        return self.send_message(enhanced, history_user_content=message)
 
     async def send_message_with_images(
         self,
@@ -150,7 +150,7 @@ class OllamaClient(_CommonMixin):
         )
         raw_response_text = self._request_ollama(enhanced, images_data=images_data)
         clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture = self._parse_response_with_empty_fallback(raw_response_text)
-        user_content = {"content": enhanced}
+        user_content = {"content": message}
         images = []
         for img in images_data or []:
             data_url = img.get("dataUrl", "")
@@ -162,10 +162,10 @@ class OllamaClient(_CommonMixin):
         self._remember_turn(user_content, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture)))
         return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture
 
-    def send_message(self, message: str) -> LLM_RESPONSE_TUPLE:
+    def send_message(self, message: str, history_user_content: str | None = None) -> LLM_RESPONSE_TUPLE:
         raw_response_text = self._request_ollama(message)
         clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture = self._parse_response_with_empty_fallback(raw_response_text)
-        self._remember_turn(message, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture)))
+        self._remember_turn(history_user_content if history_user_content is not None else message, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture)))
         return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:

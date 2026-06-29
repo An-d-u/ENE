@@ -107,7 +107,7 @@ class AnthropicClient(_CommonMixin):
             head_pat_count_before_message=head_pat_count_before_message,
             progress_callback=progress_callback,
         )
-        return self.send_message(enhanced)
+        return self.send_message(enhanced, history_user_content=message)
 
     async def send_message_with_images(
         self,
@@ -128,6 +128,7 @@ class AnthropicClient(_CommonMixin):
             progress_callback=progress_callback,
         )
         blocks = [{"type": "text", "text": enhanced}]
+        history_blocks = [{"type": "text", "text": message}]
         for img in images_data or []:
             data_url = img.get("dataUrl", "")
             if not data_url or "," not in data_url:
@@ -142,15 +143,21 @@ class AnthropicClient(_CommonMixin):
                     "source": {"type": "base64", "media_type": media_type, "data": b64_data},
                 }
             )
+            history_blocks.append(
+                {
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": media_type, "data": b64_data},
+                }
+            )
         raw_response_text = self._request_anthropic(blocks)
         clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture = self._parse_response_with_empty_fallback(raw_response_text)
-        self._remember_turn(blocks, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture)))
+        self._remember_turn(history_blocks, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture)))
         return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture
 
-    def send_message(self, message: str) -> LLM_RESPONSE_TUPLE:
+    def send_message(self, message: str, history_user_content: str | None = None) -> LLM_RESPONSE_TUPLE:
         raw_response_text = self._request_anthropic([{"type": "text", "text": message}])
         clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture = self._parse_response_with_empty_fallback(raw_response_text)
-        self._remember_turn(message, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture)))
+        self._remember_turn(history_user_content if history_user_content is not None else message, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture)))
         return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
