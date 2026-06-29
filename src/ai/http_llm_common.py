@@ -560,12 +560,31 @@ class _CommonMixin:
             recent_context=support_context,
             progress_callback=progress_callback,
             decision_provider=self._create_web_search_decision_provider(),
+            search_cache=self._get_web_search_cache(),
+            turn_index=self._next_web_search_turn_index(),
         )
         return compose_contextual_message(
             message,
             memory_context=memory_context,
             web_search_context=web_search_context,
         )
+
+    def _get_web_search_cache(self) -> dict:
+        cache = getattr(self, "_web_search_cache", None)
+        if not isinstance(cache, dict):
+            cache = {}
+            self._web_search_cache = cache
+        return cache
+
+    def _next_web_search_turn_index(self) -> int:
+        current = getattr(self, "_web_search_turn_index", 0)
+        try:
+            current = int(current)
+        except (TypeError, ValueError):
+            current = 0
+        current += 1
+        self._web_search_turn_index = current
+        return current
 
     def _messages_for_openai(
         self,
@@ -588,6 +607,8 @@ class _CommonMixin:
 
     def clear_context(self):
         self._history = []
+        self._web_search_cache = {}
+        self._web_search_turn_index = 0
 
     def _get_item_role(self, item) -> str:
         if isinstance(item, dict):

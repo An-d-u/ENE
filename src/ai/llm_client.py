@@ -393,6 +393,8 @@ class GeminiClient:
             recent_context=support_context,
             progress_callback=progress_callback,
             decision_provider=GeminiClient._create_web_search_decision_provider(self),
+            search_cache=GeminiClient._get_web_search_cache(self),
+            turn_index=GeminiClient._next_web_search_turn_index(self),
         )
         
         # 메모리가 있으면 메시지 앞에 추가
@@ -404,8 +406,8 @@ class GeminiClient:
         if memory_context:
             print(f"[LLM] 메모리 컨텍스트 추가 (길이: {len(memory_context)})")
         
-        # 일반 메시지 전송
-        return self.send_message(enhanced_message)
+        # 일반 메시지 전송. 모델 입력에는 컨텍스트를 붙이되, SDK 히스토리에는 사용자 원문을 남긴다.
+        return self.send_message(enhanced_message, history_user_content=message)
     
     async def send_message_with_images(
         self,
@@ -483,6 +485,8 @@ class GeminiClient:
                 recent_context=support_context,
                 progress_callback=progress_callback,
                 decision_provider=GeminiClient._create_web_search_decision_provider(self),
+                search_cache=GeminiClient._get_web_search_cache(self),
+                turn_index=GeminiClient._next_web_search_turn_index(self),
             )
             enhanced_message = compose_contextual_message(
                 message,
@@ -494,12 +498,13 @@ class GeminiClient:
             # contents에 이미지와 텍스트를 함께 전달
             contents = pil_images + [enhanced_message]
             
-            print(f"[LLM] Gemini 멀티모달 요청 전송...")
+            print("[LLM] Gemini 멀티모달 요청 전송...")
             self._refresh_chat_session_for_runtime_prompt_if_needed()
             response = self.chat.send_message(contents)
             self._log_turn_token_usage(response, label="멀티모달")
             
             response_text = self._extract_response_text_or_empty(response, label="멀티모달")
+            GeminiClient._replace_latest_user_history_text(self, message)
             if not response_text:
                 return self._empty_text_fallback_response()
             print(f"[LLM] 멀티모달 응답: {response_text}")
@@ -618,9 +623,55 @@ class GeminiClient:
             "total_tokens": usage.get("total_tokens"),
         }
 
+    def _replace_latest_user_history_text(self, text: str) -> None:
+        """Gemini SDK가 자동 저장한 최신 사용자 턴의 텍스트를 화면 원문으로 되돌린다."""
+        try:
+            history = getattr(self.chat, "history", None)
+        except Exception:
+            return
+        if not history:
+            return
+
+        for item in reversed(list(history)):
+            if GeminiClient._get_item_role(self, item) != "user":
+                continue
+            parts = item.get("parts") if isinstance(item, dict) else getattr(item, "parts", None)
+            if not parts:
+                return
+            for part in reversed(list(parts)):
+                if isinstance(part, dict) and isinstance(part.get("text"), str):
+                    part["text"] = text
+                    return
+                part_text = getattr(part, "text", None)
+                if isinstance(part_text, str):
+                    try:
+                        setattr(part, "text", text)
+                    except Exception:
+                        return
+                    return
+            return
+
+    def _get_web_search_cache(self) -> dict:
+        cache = getattr(self, "_web_search_cache", None)
+        if not isinstance(cache, dict):
+            cache = {}
+            self._web_search_cache = cache
+        return cache
+
+    def _next_web_search_turn_index(self) -> int:
+        current = getattr(self, "_web_search_turn_index", 0)
+        try:
+            current = int(current)
+        except (TypeError, ValueError):
+            current = 0
+        current += 1
+        self._web_search_turn_index = current
+        return current
+
     def send_message(
         self,
         message: str,
+        history_user_content: str | None = None,
     ) -> LLM_RESPONSE_TUPLE:
         """
         메시지 전송 및 응답 받기
@@ -645,6 +696,8 @@ class GeminiClient:
             
             # 응답 텍스트 추출
             response_text = self._extract_response_text_or_empty(response, label="텍스트")
+            if history_user_content is not None:
+                GeminiClient._replace_latest_user_history_text(self, history_user_content)
             if not response_text:
                 return self._empty_text_fallback_response()
             print(f"[LLM] Received response: {response_text}")
@@ -797,6 +850,8 @@ class GeminiClient:
         """대화 컨텍스트 초기화 - 새로운 Chat 세션 생성"""
         self.chat = self._create_chat_session()
         self._last_runtime_prompt_signature = self._runtime_prompt_signature()
+        self._web_search_cache = {}
+        self._web_search_turn_index = 0
         print("[LLM] Chat session reset")
 
     def _get_item_role(self, item) -> str:

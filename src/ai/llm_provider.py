@@ -34,7 +34,7 @@ class LLMClientProtocol(Protocol):
     ) -> LLM_RESPONSE_TUPLE:
         ...
 
-    def send_message(self, message: str) -> LLM_RESPONSE_TUPLE:
+    def send_message(self, message: str, history_user_content: str | None = None) -> LLM_RESPONSE_TUPLE:
         ...
 
     async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:

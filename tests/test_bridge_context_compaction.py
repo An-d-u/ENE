@@ -20,6 +20,7 @@ from src.ai.llm_client import (
 from src.ai.memory import MemoryActivationResult
 from src.ai.memory_types import MemoryChunk
 from src.ai.search_tool import SearchResponse, SearchResult
+from src.ai.tool_calling import clear_web_search_cache
 from src.core.bridge import WebBridge
 
 
@@ -305,7 +306,7 @@ def test_send_message_with_memory_adds_goal_context_to_enhanced_prompt():
             head_pat_count_before_message=head_pat_count_before_message,
         )
 
-    def _send_message(enhanced_prompt):
+    def _send_message(enhanced_prompt, **_kwargs):
         captured["enhanced_prompt"] = enhanced_prompt
         return "좋아요", "normal", None, [], {}, [], "", {}
 
@@ -359,10 +360,11 @@ def test_gemini_send_message_with_memory_injects_manual_search_context(monkeypat
     async def _build_memory_context(query, recent_context="", head_pat_count_before_message=None):
         return "Synthetic memory context."
 
-    def _send_message(enhanced_prompt):
+    def _send_message(enhanced_prompt, **_kwargs):
         captured["enhanced_prompt"] = enhanced_prompt
         return "Synthetic response.", "normal", None, [], {}, [], "", {}, [], ""
 
+    clear_web_search_cache()
     monkeypatch.setattr("src.ai.tool_calling.TavilySearchProvider", FakeTavilyProvider)
     dummy._build_memory_context = _build_memory_context
     dummy.send_message = _send_message
@@ -376,7 +378,9 @@ def test_gemini_send_message_with_memory_injects_manual_search_context(monkeypat
     )
 
     enhanced_prompt = captured["enhanced_prompt"]
-    assert enhanced_prompt.startswith("Synthetic memory context.\n\n[WEB_SEARCH_RESULTS]")
+    assert enhanced_prompt.startswith("Synthetic memory context.\n\n[WEB_SEARCH_STATUS]")
+    assert "Performed: yes" in enhanced_prompt
+    assert "[WEB_SEARCH_RESULTS]" in enhanced_prompt
     assert "Query: neutral topic" in enhanced_prompt
     assert "Synthetic neutral search result." in enhanced_prompt
     assert enhanced_prompt.endswith("Original final prompt.")
@@ -430,12 +434,13 @@ def test_gemini_send_message_with_memory_auto_search_uses_one_shot_decision(monk
         decision_calls.append({"prompt": prompt, "include_sub_prompt": include_sub_prompt})
         return '{"should_search": true, "query": "neutral release schedule", "reason": "current info"}'
 
-    def _send_message(enhanced_prompt):
+    def _send_message(enhanced_prompt, **_kwargs):
         captured["enhanced_prompt"] = enhanced_prompt
         visible_history.append({"role": "user", "parts": [{"text": enhanced_prompt}]})
         visible_history.append({"role": "model", "parts": [{"text": "Synthetic response."}]})
         return "Synthetic response.", "normal", None, [], {}, [], "", {}, [], ""
 
+    clear_web_search_cache()
     monkeypatch.setattr("src.ai.tool_calling.TavilySearchProvider", FakeTavilyProvider)
     FakeTavilyProvider.queries = []
     dummy._build_memory_context = _build_memory_context
@@ -459,6 +464,156 @@ def test_gemini_send_message_with_memory_auto_search_uses_one_shot_decision(monk
     assert "Synthetic neutral search result." in enhanced_prompt
     assert enhanced_prompt.endswith("Original final prompt.")
     assert len(dummy.get_conversation_history()) == 2
+
+
+def test_gemini_send_message_with_memory_auto_no_search_marks_status_and_still_uses_decision_once():
+    captured = {}
+    decision_calls = []
+    visible_history = []
+    dummy = type("ClientDummy", (), {})()
+
+    class SearchSettings:
+        def get(self, key, default=None):
+            values = {
+                "web_search_enabled": True,
+                "web_search_auto_enabled": True,
+                "web_search_provider": "tavily",
+                "web_search_api_keys": {"tavily": "synthetic-key"},
+            }
+            return values.get(key, default)
+
+    async def _build_memory_context(query, recent_context="", head_pat_count_before_message=None):
+        return ""
+
+    def _generate_one_shot_text(prompt, include_sub_prompt=True):
+        decision_calls.append({"prompt": prompt, "include_sub_prompt": include_sub_prompt})
+        return '{"should_search": false, "query": "", "reason": "conversation context is enough"}'
+
+    def _send_message(enhanced_prompt, **_kwargs):
+        captured["enhanced_prompt"] = enhanced_prompt
+        visible_history.append({"role": "user", "parts": [{"text": enhanced_prompt}]})
+        visible_history.append({"role": "model", "parts": [{"text": "Synthetic response."}]})
+        return "Synthetic response.", "normal", None, [], {}, [], "", {}, [], ""
+
+    dummy.settings = SearchSettings()
+    dummy._build_memory_context = _build_memory_context
+    dummy._generate_one_shot_text = _generate_one_shot_text
+    dummy.send_message = _send_message
+    dummy.get_conversation_history = lambda: list(visible_history)
+
+    asyncio.run(
+        GeminiClient.send_message_with_memory(
+            dummy,
+            "Original final prompt.",
+            latest_user_message="Help me outline a neutral short story.",
+        )
+    )
+
+    enhanced_prompt = captured["enhanced_prompt"]
+    assert len(decision_calls) == 1
+    assert decision_calls[0]["include_sub_prompt"] is False
+    assert "[WEB_SEARCH_STATUS]" in enhanced_prompt
+    assert "Performed: no" in enhanced_prompt
+    assert "Reason: auto_decision_no_search" in enhanced_prompt
+    assert "Decision: conversation context is enough" in enhanced_prompt
+    assert "[WEB_SEARCH_RESULTS]" not in enhanced_prompt
+    assert enhanced_prompt.endswith("Original final prompt.")
+    assert len(dummy.get_conversation_history()) == 2
+
+
+def test_gemini_send_message_keeps_context_block_out_of_native_history():
+    class FakeResponse:
+        text = "Synthetic response."
+
+    class FakeChat:
+        def __init__(self):
+            self.history = []
+
+        def send_message(self, message):
+            self.history.append({"role": "user", "parts": [{"text": message}]})
+            self.history.append({"role": "model", "parts": [{"text": "Synthetic response."}]})
+            return FakeResponse()
+
+    dummy = type("ClientDummy", (), {})()
+    dummy.chat = FakeChat()
+    dummy._refresh_chat_session_for_runtime_prompt_if_needed = lambda: None
+    dummy._log_turn_token_usage = lambda response, label="": None
+    dummy._extract_response_text_or_empty = lambda response, label="": response.text
+    dummy._parse_response = lambda response_text: (
+        "Synthetic response.",
+        "normal",
+        None,
+        [],
+        {},
+        [],
+        "",
+        {},
+        [],
+        "",
+    )
+
+    GeminiClient.send_message(
+        dummy,
+        "[WEB_SEARCH_STATUS]\nPerformed: no\n[/WEB_SEARCH_STATUS]\n\nOriginal final prompt.",
+        history_user_content="Original final prompt.",
+    )
+
+    assert dummy.chat.history[0]["parts"][0]["text"] == "Original final prompt."
+
+
+def test_gemini_send_message_rewrites_native_history_before_empty_fallback():
+    class FakeResponse:
+        text = ""
+        prompt_feedback = "blocked-for-test"
+        candidates = []
+        usage_metadata = None
+
+    class FakeChat:
+        def __init__(self):
+            self.history = []
+
+        def send_message(self, message):
+            self.history.append({"role": "user", "parts": [{"text": message}]})
+            return FakeResponse()
+
+    dummy = type("ClientDummy", (), {})()
+    dummy.chat = FakeChat()
+    dummy.settings = {"enable_ene_thoughts": False}
+    dummy._last_token_usage = {}
+    dummy._refresh_chat_session_for_runtime_prompt_if_needed = lambda: None
+    dummy._log_turn_token_usage = lambda response, label="": None
+    dummy._extract_response_text_or_empty = lambda response, label="": ""
+    dummy._empty_text_fallback_response = lambda: ("음... 무슨 일이 있었나봐요.", "confused", None, [], {}, [], "", {}, [], "")
+
+    GeminiClient.send_message(
+        dummy,
+        "[WEB_SEARCH_STATUS]\nPerformed: no\n[/WEB_SEARCH_STATUS]\n\nOriginal final prompt.",
+        history_user_content="Original final prompt.",
+    )
+
+    assert dummy.chat.history[0]["parts"][0]["text"] == "Original final prompt."
+
+
+def test_gemini_history_rewrite_ignores_non_text_parts_with_text_attribute():
+    class FakePart:
+        def __init__(self, text=None, inline_data=None):
+            self.text = text
+            self.inline_data = inline_data
+
+    dummy = type("ClientDummy", (), {})()
+    image_part = FakePart(text=None, inline_data={"data": "QUJD"})
+    enhanced_text_part = FakePart(text="[WEB_SEARCH_STATUS]\nPerformed: no\n[/WEB_SEARCH_STATUS]\n\nOriginal final prompt.")
+    dummy.chat = type(
+        "FakeChat",
+        (),
+        {"history": [{"role": "user", "parts": [enhanced_text_part, image_part]}]},
+    )()
+
+    GeminiClient._replace_latest_user_history_text(dummy, "Original final prompt.")
+
+    assert enhanced_text_part.text == "Original final prompt."
+    assert image_part.text is None
+    assert image_part.inline_data == {"data": "QUJD"}
 
 
 def test_gemini_send_message_logs_prompt_and_response_content(capsys):

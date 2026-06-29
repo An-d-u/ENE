@@ -6,6 +6,7 @@ import pytest
 
 from src.ai.http_llm_clients import OpenAICompatibleClient, OpenAIResponseAPIClient
 from src.ai.search_tool import SearchResponse, SearchResult
+from src.ai.tool_calling import clear_web_search_cache
 
 ANALYSIS_APPENDIX_MARKERS = (
     "[Internal Analysis Output Rules]",
@@ -67,6 +68,7 @@ class _RecordingTavilyProvider:
 
 
 def _install_fake_search(monkeypatch):
+    clear_web_search_cache()
     _RecordingTavilyProvider.queries = []
     monkeypatch.setattr("src.ai.tool_calling.TavilySearchProvider", _RecordingTavilyProvider)
     return _RecordingTavilyProvider
@@ -127,9 +129,90 @@ def test_openai_responses_send_message_with_memory_injects_manual_search_context
     assert provider.queries[0].query == "neutral topic"
     assert provider.queries[0].max_results == 2
     assert "[WEB_SEARCH_RESULTS]" in text
+    assert "[WEB_SEARCH_STATUS]" in text
+    assert "Performed: yes" in text
     assert "Synthetic neutral search result." in text
     assert text.endswith("Original final prompt.")
     assert stages == ["searching", "thinking"]
+
+
+def test_openai_web_search_cache_is_scoped_per_client(monkeypatch):
+    provider = _install_fake_search(monkeypatch)
+    captured_payloads = []
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured_payloads.append(json)
+        return _DummyResponse(json_data={"output_text": "Synthetic response."})
+
+    monkeypatch.setattr("src.ai.http_llm_clients.requests.post", fake_post)
+
+    first_client = OpenAIResponseAPIClient(
+        api_key="k",
+        model_name="gpt-5.4-mini",
+        endpoint="https://api.openai.com/v1/responses",
+        settings=_SearchSettings(),
+    )
+    second_client = OpenAIResponseAPIClient(
+        api_key="k",
+        model_name="gpt-5.4-mini",
+        endpoint="https://api.openai.com/v1/responses",
+        settings=_SearchSettings(),
+    )
+
+    asyncio.run(
+        first_client.send_message_with_memory(
+            "First final prompt.",
+            latest_user_message="/search neutral topic",
+        )
+    )
+    asyncio.run(
+        second_client.send_message_with_memory(
+            "Second final prompt.",
+            latest_user_message="/search neutral topic",
+        )
+    )
+
+    assert len(provider.queries) == 2
+    assert "Reason: search_performed" in captured_payloads[0]["input"][-1]["content"][0]["text"]
+    assert "Reason: search_performed" in captured_payloads[1]["input"][-1]["content"][0]["text"]
+
+
+def test_openai_web_search_cache_reuses_results_within_same_client(monkeypatch):
+    provider = _install_fake_search(monkeypatch)
+    captured_payloads = []
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured_payloads.append(json)
+        return _DummyResponse(json_data={"output_text": "Synthetic response."})
+
+    monkeypatch.setattr("src.ai.http_llm_clients.requests.post", fake_post)
+
+    client = OpenAIResponseAPIClient(
+        api_key="k",
+        model_name="gpt-5.4-mini",
+        endpoint="https://api.openai.com/v1/responses",
+        settings=_SearchSettings(),
+    )
+
+    asyncio.run(
+        client.send_message_with_memory(
+            "First final prompt.",
+            latest_user_message="/search neutral topic",
+        )
+    )
+    asyncio.run(
+        client.send_message_with_memory(
+            "Second final prompt.",
+            latest_user_message="/search neutral topic",
+        )
+    )
+
+    first_text = captured_payloads[0]["input"][-1]["content"][0]["text"]
+    second_text = captured_payloads[1]["input"][-1]["content"][0]["text"]
+    assert len(provider.queries) == 1
+    assert "Reason: search_performed" in first_text
+    assert "Reason: cache_hit" in second_text
+    assert "SearchContextSource: cache" in second_text
 
 
 def test_openai_responses_auto_search_decision_injects_results(monkeypatch):
@@ -169,6 +252,8 @@ def test_openai_responses_auto_search_decision_injects_results(monkeypatch):
     assert provider.queries[0].query == "neutral release schedule"
     final_text = captured_payloads[1]["input"][-1]["content"][0]["text"]
     assert "[WEB_SEARCH_RESULTS]" in final_text
+    assert "[WEB_SEARCH_STATUS]" in final_text
+    assert "Performed: yes" in final_text
     assert "Synthetic neutral search result." in final_text
     assert final_text.endswith("Original final prompt.")
 
@@ -212,6 +297,10 @@ def test_openai_responses_auto_no_search_skips_tavily_and_search_progress(monkey
     assert provider.queries == []
     final_text = captured_payloads[1]["input"][-1]["content"][0]["text"]
     assert "[WEB_SEARCH_RESULTS]" not in final_text
+    assert "[WEB_SEARCH_STATUS]" in final_text
+    assert "Performed: no" in final_text
+    assert "Reason: auto_decision_no_search" in final_text
+    assert "Decision: conversation context is enough" in final_text
     assert "Original final prompt." in final_text
     assert "searching" not in stages
 
@@ -244,6 +333,8 @@ def test_openai_compatible_send_message_with_memory_uses_latest_user_message_for
     text = captured["json"]["messages"][-1]["content"]
     assert provider.queries == []
     assert "[WEB_SEARCH_RESULTS]" not in text
+    assert "[WEB_SEARCH_STATUS]" in text
+    assert "Performed: no" in text
     assert "/search should not run" in text
 
 
@@ -276,6 +367,8 @@ def test_openai_compatible_image_request_puts_search_context_in_text_part(monkey
     content = captured["json"]["messages"][-1]["content"]
     assert content[0]["type"] == "text"
     assert "[WEB_SEARCH_RESULTS]" in content[0]["text"]
+    assert "[WEB_SEARCH_STATUS]" in content[0]["text"]
+    assert "Performed: yes" in content[0]["text"]
     assert content[0]["text"].endswith("Describe this synthetic image.")
 
 
