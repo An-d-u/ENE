@@ -7,6 +7,7 @@ from __future__ import annotations
 import base64
 import binascii
 import copy
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 import hmac
 import hashlib
@@ -30,7 +31,12 @@ from .response_parser import (
     parse_analysis_lines,
     parse_llm_response,
 )
-from .summary_parser import parse_summary_memory_meta, parse_summary_response
+from .summary_parser import (
+    is_complete_summary_response,
+    missing_summary_response_sections,
+    parse_summary_memory_meta,
+    parse_summary_response,
+)
 from .markdown_document_prompt import build_markdown_document_prompt
 from .runtime_prompt_settings import build_runtime_prompt_settings_source
 from .summary_prompt import build_summary_prompt, build_summary_prompt_from_text
@@ -44,6 +50,7 @@ DEFAULT_GENERATION_PARAMS = {
     "top_p": 1.0,
     "max_tokens": 2048,
 }
+SUMMARY_MIN_OUTPUT_TOKENS = 4096
 
 LLM_RESPONSE_TUPLE = Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict], str, Dict[str, str], List[Dict], str]
 _CONTEXT_FINGERPRINT_KEY = secrets.token_bytes(32)
@@ -161,6 +168,48 @@ def _normalize_generation_params(params: dict | None) -> dict:
 
 
 class _CommonMixin:
+    def _summary_output_token_budget(self) -> int:
+        """요약은 메타 섹션까지 필요하므로 일반 답변보다 큰 최소 출력 예산을 쓴다."""
+        current = 0
+        try:
+            current = int((getattr(self, "generation_params", {}) or {}).get("max_tokens") or 0)
+        except (TypeError, ValueError):
+            current = 0
+        return max(SUMMARY_MIN_OUTPUT_TOKENS, current)
+
+    @contextmanager
+    def _temporary_summary_generation_budget(self):
+        original = dict(getattr(self, "generation_params", {}) or {})
+        updated = dict(original)
+        updated["max_tokens"] = self._summary_output_token_budget()
+        self.generation_params = updated
+        try:
+            yield
+        finally:
+            self.generation_params = original
+
+    def _summary_retry_prompt(self, prompt: str, missing_sections: list[str]) -> str:
+        missing = ", ".join(missing_sections) if missing_sections else "필수 섹션"
+        return (
+            f"{prompt}\n\n"
+            "이전 요약 응답이 중간에 끊겼거나 형식이 불완전했습니다. "
+            f"빠진 부분: {missing}. "
+            "[SUMMARY], [MASTER_INFO], [ENE_INFO], [MEMORY_META] 네 섹션을 모두 포함해서 처음부터 다시 작성하세요."
+        )
+
+    def _request_summary_text(self, prompt: str) -> str:
+        with self._temporary_summary_generation_budget():
+            response_text = self._request_one_shot_raw(prompt, include_sub_prompt=False)
+            if is_complete_summary_response(response_text):
+                return response_text
+
+            missing_sections = missing_summary_response_sections(response_text)
+            print(f"[LLM] 요약 응답이 불완전해 재시도합니다. missing={missing_sections}")
+            return self._request_one_shot_raw(
+                self._summary_retry_prompt(prompt, missing_sections),
+                include_sub_prompt=False,
+            )
+
     def _setting_enabled(self, key: str, default: bool = False) -> bool:
         settings = getattr(self, "settings", None)
         if settings is None:

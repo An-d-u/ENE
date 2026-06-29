@@ -536,6 +536,30 @@ def test_provider_summarize_conversation_uses_one_shot_request_without_chat_hist
     assert client.get_conversation_history() == original_history
 
 
+def test_provider_summarize_conversation_retries_incomplete_response_with_larger_budget(monkeypatch):
+    client = _build_openai_compatible_client()
+    client.generation_params["max_tokens"] = 2048
+    captured_max_tokens = []
+    responses = [
+        "[SUMMARY]\n- 첫 응답은 중간에 끊겼다.",
+        SUMMARY_OUTPUT,
+    ]
+
+    def fake_one_shot(prompt, include_sub_prompt=True):
+        captured_max_tokens.append(client.generation_params["max_tokens"])
+        return responses.pop(0)
+
+    monkeypatch.setattr(client, "_request_one_shot_raw", fake_one_shot)
+
+    summary, _user_facts, _ene_facts, _memory_meta = asyncio.run(
+        client.summarize_conversation([("user", "요약 대상 대화", "2026-05-25 10:00")])
+    )
+
+    assert summary == "요약 대상 대화만 정리했다."
+    assert captured_max_tokens == [4096, 4096]
+    assert client.generation_params["max_tokens"] == 2048
+
+
 def test_mistral_one_shot_request_excludes_chat_history(monkeypatch):
     captured = {}
 

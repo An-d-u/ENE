@@ -7,6 +7,13 @@ from __future__ import annotations
 import re
 
 
+SUMMARY_REQUIRED_SECTION_LABELS = {
+    "summary": "[SUMMARY]",
+    "facts": "[MASTER_INFO]",
+    "ene_facts": "[ENE_INFO]",
+    "memory_meta": "[MEMORY_META]",
+}
+
 SUMMARY_MEMORY_META_KEYS = {
     "memory_type",
     "importance_reason",
@@ -15,6 +22,72 @@ SUMMARY_MEMORY_META_KEYS = {
     "aliases",
     "trigger_terms",
 }
+
+
+def _summary_section_for_line(line: str) -> str | None:
+    upper = line.upper()
+    if upper in {"[SUMMARY]", "SUMMARY"} or "[요약]" in line or "[?붿빟]" in line:
+        return "summary"
+    if (
+        upper in {"[MASTER_INFO]", "MASTER_INFO"}
+        or "[마스터 정보]" in line
+        or "[사용자 정보]" in line
+        or "[留덉뒪???뺣낫]" in line
+        or "[?ъ슜???뺣낫]" in line
+        or "MASTER INFO" in upper
+    ):
+        return "facts"
+    if (
+        upper in {"[ENE_INFO]", "ENE_INFO"}
+        or "[에네 정보]" in line
+        or "[?먮꽕 ?뺣낫]" in line
+        or "ENE INFO" in upper
+    ):
+        return "ene_facts"
+    if (
+        upper in {"[MEMORY_META]", "MEMORY_META"}
+        or "[기억 메타]" in line
+        or "[湲곗뼲 硫뷀?]" in line
+    ):
+        return "memory_meta"
+    return None
+
+
+def missing_summary_response_sections(response_text: str) -> list[str]:
+    """요약 응답이 저장 가능한 구조를 모두 갖췄는지 확인하고 빠진 섹션을 돌려준다."""
+    seen_sections: set[str] = set()
+    current_section = None
+    has_summary_content = False
+
+    for raw in str(response_text or "").split("\n"):
+        line = raw.strip()
+        if not line:
+            continue
+
+        section = _summary_section_for_line(line)
+        if section:
+            seen_sections.add(section)
+            current_section = section
+            continue
+
+        if current_section == "summary":
+            content = line[1:].strip() if line.startswith("-") else line
+            if content:
+                has_summary_content = True
+
+    missing = [
+        label
+        for section, label in SUMMARY_REQUIRED_SECTION_LABELS.items()
+        if section not in seen_sections
+    ]
+    if not has_summary_content:
+        missing.append("[SUMMARY] content")
+    return missing
+
+
+def is_complete_summary_response(response_text: str) -> bool:
+    """요약 응답이 중간에 끊기지 않고 필수 섹션을 모두 포함했는지 확인한다."""
+    return not missing_summary_response_sections(response_text)
 
 
 def parse_summary_memory_meta(meta_lines: list[str]) -> dict:
