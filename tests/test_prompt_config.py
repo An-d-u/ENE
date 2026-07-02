@@ -1,4 +1,4 @@
-import shutil
+﻿import shutil
 from pathlib import Path
 
 from PyQt6.QtWidgets import QMessageBox
@@ -236,6 +236,8 @@ def test_runtime_prompt_adds_korean_response_contract_from_code_when_enabled(tmp
     assert "[/ene_thought]" not in runtime_prompt
     assert "[thought]" not in runtime_prompt
     assert "[/thought]" not in runtime_prompt
+    assert "솔직한 내적 반응" in runtime_prompt
+    assert "요약하지 말고 지금 상황에 대한 속마음처럼" in runtime_prompt
     assert "단계별 추론" in runtime_prompt
     assert "[proactive_conversation]" in runtime_prompt
     assert "[/subconscious]\n[proactive_conversation]" in runtime_prompt
@@ -476,6 +478,8 @@ def test_runtime_thought_rules_are_localized(tmp_path, monkeypatch):
     assert "English reply [emotion]" in english_prompt
     assert "Japanese TTS text" in english_prompt
     assert "Korean reply [emotion]" not in english_prompt
+    assert "honest private reaction" in english_prompt
+    assert "do not summarize the visible reply" in english_prompt
     assert "step-by-step reasoning" in english_prompt
     assert "subconscious block in the same language as the visible reply" in english_prompt
     assert "do not mix it into the TTS block" in english_prompt
@@ -485,6 +489,8 @@ def test_runtime_thought_rules_are_localized(tmp_path, monkeypatch):
     assert "[subconscious]" in japanese_prompt
     assert "日本語返答 [emotion]" in japanese_prompt
     assert "韓国語返答 [emotion]" not in japanese_prompt
+    assert "正直な内的反応" in japanese_prompt
+    assert "表示される返答の要約ではなく" in japanese_prompt
     assert "段階的な推論" in japanese_prompt
     assert "表示される返答と同じ言語" in japanese_prompt
     assert "TTSブロックには混ぜないでください" in japanese_prompt
