@@ -28,6 +28,7 @@ function normalizeSummaryReviewPayload(payload) {
         summary: String(data.summary || ''),
         user_facts: Array.isArray(data.user_facts) ? data.user_facts.map(String) : [],
         ene_facts: Array.isArray(data.ene_facts) ? data.ene_facts.map(String) : [],
+        topic_hints: Array.isArray(data.topic_hints) ? data.topic_hints : [],
         memory_meta: Object.assign({}, meta, {
             memory_type: String(meta.memory_type || 'general'),
             importance_reason: String(meta.importance_reason || 'none'),
@@ -163,7 +164,10 @@ function collectSummaryReviewPayload() {
             importance_reason: String(summaryReviewImportanceReason ? summaryReviewImportanceReason.value : 'none'),
             confidence,
             entity_names: entityNames
-        })
+        }),
+        topic_hints: currentSummaryReviewPayload && Array.isArray(currentSummaryReviewPayload.topic_hints)
+            ? currentSummaryReviewPayload.topic_hints
+            : []
     };
 }
 

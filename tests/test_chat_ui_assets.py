@@ -2941,6 +2941,15 @@ def test_summary_review_facts_are_editable_and_meta_is_preserved():
     assert "ensureSummaryReviewSelectOption(summaryReviewImportanceReason" in script
 
 
+def test_summary_review_payload_roundtrips_topic_hints():
+    script = _script_text()
+
+    assert "topic_hints: Array.isArray(data.topic_hints) ? data.topic_hints : []" in script
+    assert "topic_hints: currentSummaryReviewPayload && Array.isArray(currentSummaryReviewPayload.topic_hints)" in script
+    assert "? currentSummaryReviewPayload.topic_hints" in script
+    assert ": []" in script
+
+
 def test_summary_review_modal_uses_bounded_scroll_layout():
     overlay_block = _rule_block("#summary-review-overlay")
     dialog_block = _rule_block("#summary-review-dialog")
