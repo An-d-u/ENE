@@ -82,6 +82,50 @@ def test_parse_topic_memory_hints_parses_pipe_delimited_single_line():
     assert hints[0].retrieval_terms == ["review", "queue"]
 
 
+def test_parse_topic_memory_hints_keeps_bulleted_fields_in_one_hint():
+    hints = parse_topic_memory_hints(
+        [
+            "- keyword: Project Theta",
+            "- subject: launch plan",
+            "- text: Project Theta launch plan is ready.",
+            "- aliases: Theta plan, Launch Theta",
+            "- retrieval_terms: theta, launch, plan",
+            "- confidence: 0.73",
+        ]
+    )
+
+    assert len(hints) == 1
+    assert hints[0] == TopicMemoryHint(
+        keyword="Project Theta",
+        subject="launch plan",
+        type="status_flow",
+        state="active",
+        text="Project Theta launch plan is ready.",
+        aliases=["Theta plan", "Launch Theta"],
+        retrieval_terms=["theta", "launch", "plan"],
+        confidence=0.73,
+    )
+
+
+def test_parse_topic_memory_hints_flushes_previous_hint_at_next_bulleted_keyword():
+    hints = parse_topic_memory_hints(
+        [
+            "- keyword: Project Iota",
+            "- subject: first plan",
+            "- text: Project Iota first plan is ready.",
+            "- keyword: Project Kappa",
+            "- subject: second plan",
+            "- text: Project Kappa second plan is ready.",
+        ]
+    )
+
+    assert len(hints) == 2
+    assert hints[0].keyword == "Project Iota"
+    assert hints[0].subject == "first plan"
+    assert hints[1].keyword == "Project Kappa"
+    assert hints[1].subject == "second plan"
+
+
 def test_parse_summary_topic_memory_treats_none_section_as_empty():
     response_text = _complete_response(
         """
@@ -96,13 +140,13 @@ def test_parse_summary_topic_memory_treats_none_section_as_empty():
 def test_parse_topic_memory_hints_discards_items_missing_required_fields():
     hints = parse_topic_memory_hints(
         [
+            "- subject: Missing keyword",
+            "- text: This item should be discarded.",
             "- keyword: Project Delta",
             "  subject: status board",
             "  text: Project Delta status board is current.",
             "- keyword: Missing Subject",
             "  text: This item should be discarded.",
-            "- subject: Missing keyword",
-            "  text: This item should also be discarded.",
             "- keyword: Missing Text",
             "  subject: incomplete item",
         ]

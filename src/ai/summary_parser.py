@@ -241,7 +241,8 @@ def parse_topic_memory_hints(topic_lines: list[str]) -> list[TopicMemoryHint]:
         if not parsed_parts:
             continue
 
-        if stripped.startswith("-") and current:
+        starts_new_hint = stripped.startswith("-") and parsed_parts[0][0] == "keyword"
+        if starts_new_hint and current:
             flush_current()
 
         for key, value in parsed_parts:
