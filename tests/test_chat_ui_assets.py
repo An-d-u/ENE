@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 import json
 import re
 import subprocess
@@ -2945,9 +2945,20 @@ def test_summary_review_payload_roundtrips_topic_hints():
     script = _script_text()
 
     assert "topic_hints: Array.isArray(data.topic_hints) ? data.topic_hints : []" in script
-    assert "topic_hints: currentSummaryReviewPayload && Array.isArray(currentSummaryReviewPayload.topic_hints)" in script
-    assert "? currentSummaryReviewPayload.topic_hints" in script
-    assert ": []" in script
+    assert "renderSummaryReviewTopicHints(summaryReviewTopicHints, currentSummaryReviewPayload.topic_hints);" in script
+    assert "topic_hints: collectSummaryReviewTopicHints(summaryReviewTopicHints)" in script
+
+
+def test_summary_review_topic_hints_are_collected_from_editable_ui():
+    html = (WEB_DIR / "index.html").read_text(encoding="utf-8-sig")
+    script = _script_text()
+
+    assert 'id="summary-review-topic-hints"' in html
+    assert "function renderSummaryReviewTopicHints(" in script
+    assert "function collectSummaryReviewTopicHints(" in script
+    assert "renderSummaryReviewTopicHints(summaryReviewTopicHints" in script
+    assert "topic_hints: collectSummaryReviewTopicHints(summaryReviewTopicHints)" in script
+    assert "topic_hints: currentSummaryReviewPayload && Array.isArray(currentSummaryReviewPayload.topic_hints)" not in script
 
 
 def test_summary_review_modal_uses_bounded_scroll_layout():
