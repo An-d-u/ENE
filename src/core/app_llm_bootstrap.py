@@ -15,6 +15,7 @@ class LLMRuntimeDependencies:
     """LLM 클라이언트에 연결할 런타임 의존성 묶음."""
 
     memory_manager: Any = None
+    knowledge_map_manager: Any = None
     user_profile: Any = None
     ene_profile: Any = None
     settings: Any = None
@@ -104,6 +105,7 @@ def create_llm_runtime_client(
     return create_llm_client(
         config,
         memory_manager=dependencies.memory_manager,
+        knowledge_map_manager=dependencies.knowledge_map_manager,
         user_profile=dependencies.user_profile,
         ene_profile=dependencies.ene_profile,
         settings=dependencies.settings,

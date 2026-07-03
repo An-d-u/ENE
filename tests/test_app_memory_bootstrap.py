@@ -1,5 +1,7 @@
 from src.core.app_memory_bootstrap import (
+    MemoryKnowledgeRuntime,
     MemoryProfileRuntime,
+    build_memory_knowledge_runtime,
     build_memory_manager,
     build_profile_runtime,
 )
@@ -234,6 +236,111 @@ def test_build_memory_manager_uses_gemini_embedding_when_key_exists():
         "model": "gemini-embedding-2",
         "api_url": "",
     }
+
+
+def test_build_memory_knowledge_runtime_shares_embedding_generator_and_loads_knowledge_map():
+    calls = {}
+    embedding = object()
+
+    class FakeKnowledgeMap:
+        def __init__(self, *, knowledge_file, embedding_generator):
+            calls["knowledge"] = {
+                "knowledge_file": knowledge_file,
+                "embedding_generator": embedding_generator,
+            }
+            self.load_calls = 0
+
+        def load(self):
+            self.load_calls += 1
+            return self
+
+    def embedding_factory(**kwargs):
+        calls["embedding"] = kwargs
+        return embedding
+
+    def memory_manager_factory(*, memory_file, embedding_generator):
+        calls["memory"] = {
+            "memory_file": memory_file,
+            "embedding_generator": embedding_generator,
+        }
+        return "memory"
+
+    settings = _Settings(
+        {
+            "embedding_provider": "voyage",
+            "embedding_model": "voyage-3",
+            "embedding_api_keys": {"voyage": "voyage-key"},
+        }
+    )
+
+    runtime = build_memory_knowledge_runtime(
+        settings,
+        embedding_factory=embedding_factory,
+        memory_manager_factory=memory_manager_factory,
+        knowledge_map_manager_factory=FakeKnowledgeMap,
+    )
+
+    assert runtime == MemoryKnowledgeRuntime(
+        memory_manager="memory",
+        knowledge_map_manager=runtime.knowledge_map_manager,
+        embedding_generator=embedding,
+    )
+    assert calls["memory"]["embedding_generator"] is embedding
+    assert calls["knowledge"] == {
+        "knowledge_file": "knowledge_map.json",
+        "embedding_generator": embedding,
+    }
+    assert runtime.knowledge_map_manager.load_calls == 1
+
+
+def test_build_memory_knowledge_runtime_keeps_knowledge_map_without_embedding_when_key_is_missing():
+    calls = {}
+
+    def embedding_factory(**_kwargs):
+        raise AssertionError("API 키가 없으면 embedding 생성기를 만들면 안 된다.")
+
+    def memory_manager_factory(*, memory_file, embedding_generator):
+        calls["memory_embedding"] = embedding_generator
+        return "memory"
+
+    def knowledge_map_manager_factory(*, knowledge_file, embedding_generator):
+        calls["knowledge_file"] = knowledge_file
+        calls["knowledge_embedding"] = embedding_generator
+
+        class FakeKnowledgeMap:
+            def load(self):
+                calls["loaded"] = True
+                return self
+
+        return FakeKnowledgeMap()
+
+    runtime = build_memory_knowledge_runtime(
+        _Settings({"embedding_provider": "voyage", "embedding_api_keys": {}}),
+        embedding_factory=embedding_factory,
+        memory_manager_factory=memory_manager_factory,
+        knowledge_map_manager_factory=knowledge_map_manager_factory,
+    )
+
+    assert runtime.memory_manager == "memory"
+    assert runtime.knowledge_map_manager is not None
+    assert runtime.embedding_generator is None
+    assert calls["memory_embedding"] is None
+    assert calls["knowledge_embedding"] is None
+    assert calls["loaded"] is True
+
+
+def test_build_memory_knowledge_runtime_preserves_memory_when_knowledge_map_creation_fails():
+    def knowledge_map_manager_factory(**_kwargs):
+        raise RuntimeError("knowledge map failed")
+
+    runtime = build_memory_knowledge_runtime(
+        _Settings({"embedding_provider": "voyage", "embedding_api_keys": {}}),
+        memory_manager_factory=lambda **_kwargs: "memory",
+        knowledge_map_manager_factory=knowledge_map_manager_factory,
+    )
+
+    assert runtime.memory_manager == "memory"
+    assert runtime.knowledge_map_manager is None
 
 
 def test_build_memory_manager_does_not_import_embedding_when_key_is_missing(monkeypatch):
