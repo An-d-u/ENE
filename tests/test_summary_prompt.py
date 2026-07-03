@@ -40,6 +40,54 @@ def test_summary_prompt_localizes_human_instructions_but_keeps_parser_tokens():
     assert "Do not use durations, elapsed times, countdown periods, or numeric-only time cues as trigger_terms" in prompt
 
 
+def test_english_summary_prompt_includes_optional_topic_memory_guidance():
+    prompt = build_summary_prompt_from_text(
+        "user: Please remember a neutral project hint.",
+        language="en",
+        time_str="April 25, 2026 10:30",
+    ).prompt
+
+    assert "[TOPIC_MEMORY]" in prompt
+    assert prompt.index("[MEMORY_META]") < prompt.index("[TOPIC_MEMORY]") < prompt.index("[ALLOW]")
+    assert "- keyword: ..." in prompt
+    assert "- subject: ..." in prompt
+    assert "- type: status_flow" in prompt
+    assert "- state: active" in prompt
+    assert "- text: ..." in prompt
+    assert "- aliases: ..." in prompt
+    assert "- retrieval_terms: ..." in prompt
+    assert "- confidence: 0.0~1.0" in prompt
+    assert "optional section" in prompt
+    assert "If none: none" in prompt
+    assert "broad generic topics" in prompt
+    assert "transient environment, weather, mood" in prompt
+    assert "Project Alpha" in prompt
+    assert "Sample Item" in prompt
+
+
+def test_korean_summary_prompt_includes_topic_memory_parser_keys():
+    prompt = build_summary_prompt_from_text(
+        "user: neutral sample",
+        language="ko",
+        time_str="2026??04??25??10??30遺?",
+    ).prompt
+
+    assert "[SUMMARY]" in prompt
+    assert "[MASTER_INFO]" in prompt
+    assert "[ENE_INFO]" in prompt
+    assert "[MEMORY_META]" in prompt
+    assert "[TOPIC_MEMORY]" in prompt
+    assert prompt.index("[MEMORY_META]") < prompt.index("[TOPIC_MEMORY]") < prompt.index("[ALLOW]")
+    assert "- keyword: ..." in prompt
+    assert "- subject: ..." in prompt
+    assert "- type: status_flow" in prompt
+    assert "- state: active" in prompt
+    assert "- text: ..." in prompt
+    assert "- aliases: ..." in prompt
+    assert "- retrieval_terms: ..." in prompt
+    assert "- confidence: 0.0~1.0" in prompt
+
+
 def test_summary_prompt_uses_custom_prompt_names_but_keeps_parser_tokens():
     prompt = build_summary_prompt_from_text(
         "user: Please remember this.",
