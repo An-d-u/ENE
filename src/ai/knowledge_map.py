@@ -368,7 +368,7 @@ class KnowledgeMapManager:
         top_k: int = 2,
         language: str = "ko",
     ) -> str:
-        results = self.search_direct(query, top_k=top_k)
+        results = await self.async_search(query, top_k=top_k)
         if not results:
             return ""
 

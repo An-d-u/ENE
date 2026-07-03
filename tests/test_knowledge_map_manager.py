@@ -873,6 +873,31 @@ def test_save_creates_utf8_without_bom(tmp_path):
     assert path.read_bytes()[:3] != b"\xef\xbb\xbf"
 
 
+def test_async_build_context_block_uses_embedding_search_without_direct_keyword(tmp_path):
+    query = "semantic vector lookup"
+    generator = SingleEmbeddingGenerator(vectors={query: [1.0, 0.0]})
+    manager = KnowledgeMapManager(tmp_path / "knowledge_map.json", embedding_generator=generator)
+    manager.merge_hints_direct(
+        [
+            _hint(
+                keyword="Vector Topic",
+                subject="semantic",
+                text="Synthetic semantic clue.",
+            )
+        ]
+    )
+    clue = manager.topics[0].clues[0]
+    clue.embedding = [1.0, 0.0]
+    clue.embedding_provider = "fakeprovider"
+    clue.embedding_model = "topic-test-v1"
+
+    context = asyncio.run(manager.async_build_context_block(query, top_k=1))
+
+    assert generator.embed_calls == [query]
+    assert "Vector Topic" in context
+    assert "Synthetic semantic clue." in context
+
+
 def test_async_wrappers_use_direct_logic(tmp_path):
     manager = KnowledgeMapManager(tmp_path / "knowledge_map.json")
     asyncio.run(
