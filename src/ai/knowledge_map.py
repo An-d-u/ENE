@@ -445,6 +445,13 @@ class KnowledgeMapManager:
             except Exception:
                 return await self._generate_embeddings_one_by_one(texts)
 
+            if batch_embeddings is None:
+                return embeddings
+            try:
+                batch_embeddings = list(batch_embeddings)
+            except TypeError:
+                return embeddings
+
             for index, embedding in enumerate(batch_embeddings[: len(texts)]):
                 embeddings[index] = _normalize_embedding_vector(embedding)
             return embeddings
@@ -595,6 +602,8 @@ class KnowledgeMapManager:
 
     def _embedding_similarity(self, vec1: list[float], vec2: list[float] | None) -> float:
         if not vec1 or not vec2:
+            return 0.0
+        if len(vec1) != len(vec2):
             return 0.0
         try:
             cosine_similarity = getattr(self.embedding_generator, "cosine_similarity", None)
