@@ -117,6 +117,7 @@ def _build_gemini_client(
     model_name: str,
     generation_params=None,
     memory_manager=None,
+    knowledge_map_manager=None,
     user_profile=None,
     ene_profile=None,
     settings=None,
@@ -148,6 +149,7 @@ def _build_openai_client(
     model_name: str,
     generation_params=None,
     memory_manager=None,
+    knowledge_map_manager=None,
     user_profile=None,
     ene_profile=None,
     settings=None,
@@ -178,6 +180,7 @@ def _build_openrouter_client(
     model_name: str,
     generation_params=None,
     memory_manager=None,
+    knowledge_map_manager=None,
     user_profile=None,
     ene_profile=None,
     settings=None,
@@ -209,6 +212,7 @@ def _build_deepseek_client(
     model_name: str,
     generation_params=None,
     memory_manager=None,
+    knowledge_map_manager=None,
     user_profile=None,
     ene_profile=None,
     settings=None,
@@ -240,6 +244,7 @@ def _build_anthropic_client(
     model_name: str,
     generation_params=None,
     memory_manager=None,
+    knowledge_map_manager=None,
     user_profile=None,
     ene_profile=None,
     settings=None,
@@ -270,6 +275,7 @@ def _build_ollama_client(
     model_name: str,
     generation_params=None,
     memory_manager=None,
+    knowledge_map_manager=None,
     user_profile=None,
     ene_profile=None,
     settings=None,
@@ -303,6 +309,7 @@ def _build_custom_api_client(
     model_name: str,
     generation_params=None,
     memory_manager=None,
+    knowledge_map_manager=None,
     user_profile=None,
     ene_profile=None,
     settings=None,
@@ -544,6 +551,7 @@ def create_llm_client(
     config: LLMProviderConfig,
     *,
     memory_manager=None,
+    knowledge_map_manager=None,
     user_profile=None,
     ene_profile=None,
     settings=None,
@@ -562,6 +570,7 @@ def create_llm_client(
         model_name=config.model_name,
         generation_params=config.generation_params or {},
         memory_manager=memory_manager,
+        knowledge_map_manager=knowledge_map_manager,
         user_profile=user_profile,
         ene_profile=ene_profile,
         settings=settings,
@@ -569,6 +578,10 @@ def create_llm_client(
         mood_manager=mood_manager,
         goal_manager=goal_manager,
     )
+    try:
+        client.knowledge_map_manager = knowledge_map_manager
+    except Exception:
+        pass
     meta = PROVIDER_CATALOG.get(provider)
     if meta is not None:
         capability_values = {capability.value for capability in meta.capabilities}

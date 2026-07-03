@@ -24,7 +24,7 @@ from .app_llm_bootstrap import (
     create_llm_runtime_client,
     resolve_llm_bootstrap_config,
 )
-from .app_memory_bootstrap import build_memory_manager, build_profile_runtime
+from .app_memory_bootstrap import build_memory_knowledge_runtime, build_profile_runtime
 from .app_tts_bootstrap import (
     TTSRuntime,
     apply_tts_runtime_to_bridge,
@@ -116,6 +116,7 @@ class ENEApplication(QObject):
                 llm_config,
                 LLMRuntimeDependencies(
                     memory_manager=self.memory_manager,
+                    knowledge_map_manager=self.knowledge_map_manager if hasattr(self, "knowledge_map_manager") else None,
                     user_profile=self.user_profile if hasattr(self, "user_profile") else None,
                     ene_profile=self.ene_profile if hasattr(self, "ene_profile") else None,
                     settings=self.settings,
@@ -215,18 +216,22 @@ class ENEApplication(QObject):
     def _init_memory_manager(self):
         """메모리 매니저 초기화"""
         try:
-            self.memory_manager = build_memory_manager(self.settings)
+            runtime = build_memory_knowledge_runtime(self.settings)
+            self.memory_manager = runtime.memory_manager
+            self.knowledge_map_manager = runtime.knowledge_map_manager
         except Exception as e:
             print(f"ERROR: 메모리 매니저 초기화 실패: {e}")
             import traceback
             traceback.print_exc()
             self.memory_manager = None
+            self.knowledge_map_manager = None
 
     def _refresh_memory_runtime_bindings(self):
         """메모리 매니저 재초기화 후 LLM/Bridge에 다시 연결한다."""
         self._init_memory_manager()
         if hasattr(self, "llm_client") and self.llm_client:
             self.llm_client.memory_manager = self.memory_manager
+            self.llm_client.knowledge_map_manager = self.knowledge_map_manager
             self.llm_client.ene_profile = self.ene_profile if hasattr(self, "ene_profile") else None
         if hasattr(self, "overlay_window") and self.overlay_window and hasattr(self.overlay_window, "bridge"):
             user_profile = self.user_profile if hasattr(self, "user_profile") else None
@@ -236,6 +241,7 @@ class ENEApplication(QObject):
                 self.llm_client if hasattr(self, "llm_client") else None,
                 user_profile,
                 ene_profile,
+                self.knowledge_map_manager if hasattr(self, "knowledge_map_manager") else None,
             )
     
     def _init_tts(self):
@@ -281,6 +287,7 @@ class ENEApplication(QObject):
                 self.llm_client,
                 user_profile,
                 ene_profile,
+                self.knowledge_map_manager if hasattr(self, "knowledge_map_manager") else None,
             )
         
         # TTS 클라이언트 및 오디오 플레이어 연결

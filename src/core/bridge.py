@@ -83,6 +83,7 @@ class WebBridge(
         super().__init__(parent)
         self.llm_client = None
         self.memory_manager = None
+        self.knowledge_map_manager = None
         self.worker = None
         self.settings = settings
         self.mood_manager = None
@@ -142,6 +143,8 @@ class WebBridge(
             self.llm_client.mood_manager = self.mood_manager
         if self.llm_client and self.goal_manager:
             self.llm_client.goal_manager = self.goal_manager
+        if self.llm_client:
+            self.llm_client.knowledge_map_manager = self.knowledge_map_manager
         print(f"[Bridge] LLM client set: {client is not None}")
 
 
@@ -161,12 +164,16 @@ class WebBridge(
         if notice:
             self.summary_notice.emit(notice, "info")
     
-    def set_memory_manager(self, memory_manager, _llm_client, user_profile=None, ene_profile=None):
+    def set_memory_manager(self, memory_manager, _llm_client, user_profile=None, ene_profile=None, knowledge_map_manager=None):
         """메모리 매니저 및 사용자/에네 프로필 설정"""
         self.memory_manager = memory_manager
+        self.knowledge_map_manager = knowledge_map_manager
         self.user_profile = user_profile
         self.ene_profile = ene_profile
+        if _llm_client:
+            _llm_client.knowledge_map_manager = knowledge_map_manager
         print(f"[Bridge] Memory manager set: {memory_manager is not None}")
+        print(f"[Bridge] Knowledge map manager set: {knowledge_map_manager is not None}")
         print(f"[Bridge] User profile set: {user_profile is not None}")
         print(f"[Bridge] ENE profile set: {ene_profile is not None}")
     
