@@ -192,6 +192,9 @@ async def build_topic_memory_context_block(
     """knowledge map에서 관련 주제 기억 컨텍스트를 안전하게 만든다."""
     if top_k <= 0:
         return ""
+    normalized_query = str(query or "").strip()
+    if not normalized_query:
+        return ""
 
     knowledge_map_manager = getattr(client, "knowledge_map_manager", None)
     if not knowledge_map_manager or not hasattr(knowledge_map_manager, "async_build_context_block"):
@@ -200,7 +203,7 @@ async def build_topic_memory_context_block(
     try:
         return str(
             await knowledge_map_manager.async_build_context_block(
-                query,
+                normalized_query,
                 top_k=top_k,
                 language=prompt_language or "ko",
             )

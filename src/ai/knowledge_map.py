@@ -372,7 +372,11 @@ class KnowledgeMapManager:
         if not results:
             return ""
 
-        lines = ["[주제 기억]"]
+        header = {
+            "en": "[Topic Memory]",
+            "ja": "[トピック記憶]",
+        }.get(str(language or "ko").strip().lower(), "[주제 기억]")
+        lines = [header]
         for result in results:
             clue = result.clue
             if clue is None:
