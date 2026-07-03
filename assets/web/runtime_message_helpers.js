@@ -115,6 +115,10 @@ function formatSummaryReviewTopicList(value) {
     return String(value || '');
 }
 
+function formatSummaryReviewTopicScalar(value) {
+    return value === null || value === undefined ? '' : String(value);
+}
+
 function parseSummaryReviewTopicList(value) {
     return String(value || '')
         .split(',')
@@ -143,7 +147,7 @@ function appendSummaryReviewTopicField(grid, fieldName, value) {
     }
     input.value = fieldName === 'aliases' || fieldName === 'retrieval_terms'
         ? formatSummaryReviewTopicList(value)
-        : String(value || '');
+        : formatSummaryReviewTopicScalar(value);
     label.appendChild(name);
     label.appendChild(input);
     grid.appendChild(label);
@@ -210,7 +214,8 @@ function collectSummaryReviewTopicHints(container) {
                 && typeof currentSummaryReviewPayload.topic_hints[index] === 'object'
                 ? currentSummaryReviewPayload.topic_hints[index]
                 : {};
-            const confidenceValue = Number(readSummaryReviewTopicField(row, 'confidence'));
+            const confidenceText = readSummaryReviewTopicField(row, 'confidence');
+            const confidenceValue = confidenceText ? Number(confidenceText) : NaN;
             const originalConfidence = Number(original.confidence);
             const confidence = Number.isFinite(confidenceValue)
                 ? Math.max(0, Math.min(1, confidenceValue))
