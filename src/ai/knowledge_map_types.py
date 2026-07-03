@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, fields
+import math
 from typing import Any
 
 
@@ -40,9 +41,12 @@ def _normalize_unique_str_list(value: Any) -> list[str]:
 
 def _clamp_confidence(value: Any) -> float:
     try:
-        return max(0.0, min(1.0, float(value)))
+        confidence = float(value)
     except (TypeError, ValueError):
         return 0.5
+    if not math.isfinite(confidence):
+        return 0.5
+    return max(0.0, min(1.0, confidence))
 
 
 def _filter_dataclass_fields(cls: type, data: dict[str, Any]) -> dict[str, Any]:
@@ -50,16 +54,16 @@ def _filter_dataclass_fields(cls: type, data: dict[str, Any]) -> dict[str, Any]:
     return {name: data.get(name) for name in field_names if name in data}
 
 
-def _normalize_history_items(value: Any) -> list[dict[str, Any]]:
+def _normalize_history_items(value: Any) -> list["TopicMemoryHistoryItem"]:
     if not isinstance(value, list):
         return []
 
-    normalized: list[dict[str, Any]] = []
+    normalized: list[TopicMemoryHistoryItem] = []
     for item in value:
         if isinstance(item, TopicMemoryHistoryItem):
-            normalized.append(item.to_dict())
+            normalized.append(item)
         elif isinstance(item, dict):
-            normalized.append(dict(item))
+            normalized.append(TopicMemoryHistoryItem.from_dict(item))
     return normalized
 
 
@@ -145,7 +149,7 @@ class TopicMemoryClue:
     embedding: list[float] | None = None
     embedding_provider: str | None = None
     embedding_model: str | None = None
-    history: list[dict[str, Any]] = field(default_factory=list)
+    history: list[TopicMemoryHistoryItem] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.id = _normalize_str(self.id)
@@ -166,10 +170,10 @@ class TopicMemoryClue:
             "state": self.state,
             "text": self.text,
             "confidence": self.confidence,
-            "embedding": self.embedding,
+            "embedding": list(self.embedding) if self.embedding is not None else None,
             "embedding_provider": self.embedding_provider,
             "embedding_model": self.embedding_model,
-            "history": [dict(item) for item in self.history],
+            "history": [item.to_dict() for item in self.history],
         }
 
     @classmethod

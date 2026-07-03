@@ -49,7 +49,8 @@ def test_topic_memory_topic이_dict_roundtrip에서_history와_embedding_metadat
     restored = TopicMemoryTopic.from_dict(topic.to_dict())
 
     assert restored.keyword == "합성 주제"
-    assert restored.clues[0].history[0]["state"] == "wanted"
+    assert isinstance(restored.clues[0].history[0], TopicMemoryHistoryItem)
+    assert restored.clues[0].history[0].state == "wanted"
     assert restored.clues[0].embedding == [0.1, 0.2]
     assert restored.clues[0].embedding_provider == "fake"
 
@@ -185,3 +186,79 @@ def test_confidence는_하한_0으로_clamp된다():
     assert hint.confidence == 0.0
     assert clue.confidence == 0.0
     assert result.score == 0.0
+
+
+def test_nan_inf_confidence는_기본값_0_5로_정규화된다():
+    assert (
+        TopicMemoryHint(
+            keyword="합성 주제",
+            subject="합성 항목",
+            type="status_flow",
+            state="active",
+            text="합성 항목이 활성 상태로 정리됨.",
+            confidence=float("nan"),
+        ).confidence
+        == 0.5
+    )
+    assert (
+        TopicMemoryClue(
+            id="clue-5",
+            subject="합성 항목",
+            type="status_flow",
+            state="active",
+            text="합성 항목이 활성 상태로 정리됨.",
+            confidence="nan",
+        ).confidence
+        == 0.5
+    )
+    assert (
+        TopicMemorySearchResult(
+            topic=TopicMemoryTopic(id="topic-5", keyword="합성 주제"),
+            score=float("inf"),
+        ).score
+        == 0.5
+    )
+    assert TopicMemoryHistoryItem(
+        state="active",
+        text="합성 항목이 활성 상태로 정리됨.",
+        confidence=float("-inf"),
+    ).confidence == 0.5
+
+
+def test_topic_memory_clue_from_dict는_history를_history_item으로_복원한다():
+    clue = TopicMemoryClue.from_dict(
+        {
+            "id": "clue-6",
+            "subject": "합성 항목",
+            "type": "status_flow",
+            "state": "active",
+            "text": "합성 항목이 활성 상태로 정리됨.",
+            "history": [
+                {
+                    "state": "wanted",
+                    "text": "합성 항목을 검토 중으로 정리함.",
+                    "confidence": 0.6,
+                }
+            ],
+        }
+    )
+
+    assert isinstance(clue.history[0], TopicMemoryHistoryItem)
+    assert clue.history[0].state == "wanted"
+    assert clue.to_dict()["history"][0]["state"] == "wanted"
+
+
+def test_topic_memory_clue_to_dict는_embedding_list를_복사한다():
+    clue = TopicMemoryClue(
+        id="clue-7",
+        subject="합성 항목",
+        type="status_flow",
+        state="active",
+        text="합성 항목이 활성 상태로 정리됨.",
+        embedding=[0.1, 0.2],
+    )
+
+    data = clue.to_dict()
+    data["embedding"].append(0.3)
+
+    assert clue.embedding == [0.1, 0.2]
