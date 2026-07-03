@@ -5,6 +5,57 @@ from src.ai.knowledge_map import KnowledgeMapManager
 from src.ai.knowledge_map_types import TopicMemoryHint, TopicMemoryTopic
 
 
+class BatchEmbeddingGenerator:
+    provider = "FakeProvider"
+    model = "topic-test-v1"
+
+    def __init__(self, vectors=None, fail_texts=None, batch_error=False):
+        self.vectors = dict(vectors or {})
+        self.fail_texts = set(fail_texts or [])
+        self.batch_error = batch_error
+        self.batch_calls = []
+        self.embed_calls = []
+
+    async def embed_batch(self, texts):
+        self.batch_calls.append(list(texts))
+        if self.batch_error:
+            raise RuntimeError("synthetic batch failure")
+        return [await self.embed(text) for text in texts]
+
+    async def embed(self, text):
+        self.embed_calls.append(text)
+        if text in self.fail_texts:
+            raise RuntimeError("synthetic embedding failure")
+        return list(self.vectors.get(text, [1.0, 0.0]))
+
+    @staticmethod
+    def cosine_similarity(vec1, vec2):
+        dot = sum(left * right for left, right in zip(vec1, vec2))
+        norm1 = sum(value * value for value in vec1) ** 0.5
+        norm2 = sum(value * value for value in vec2) ** 0.5
+        if not norm1 or not norm2:
+            return 0.0
+        return dot / (norm1 * norm2)
+
+
+class SingleEmbeddingGenerator:
+    provider = "FakeProvider"
+    model = "topic-test-v1"
+
+    def __init__(self, vectors=None, fail_texts=None):
+        self.vectors = dict(vectors or {})
+        self.fail_texts = set(fail_texts or [])
+        self.embed_calls = []
+
+    async def embed(self, text):
+        self.embed_calls.append(text)
+        if text in self.fail_texts:
+            raise RuntimeError("synthetic embedding failure")
+        return list(self.vectors.get(text, [1.0, 0.0]))
+
+    cosine_similarity = staticmethod(BatchEmbeddingGenerator.cosine_similarity)
+
+
 def _hint(
     keyword="Project Alpha",
     subject="planning",
@@ -391,11 +442,11 @@ def test_search_direct_matches_keyword_alias_and_retrieval_terms(tmp_path):
     retrieval_result = manager.search_direct("review planning details", top_k=1)
 
     assert keyword_result[0].topic.keyword == "Project Alpha"
-    assert keyword_result[0].score >= 1.0
+    assert keyword_result[0].score >= 0.45
     assert alias_result[0].topic.keyword == "Project Alpha"
-    assert alias_result[0].score >= 0.9
+    assert alias_result[0].score >= 0.40
     assert retrieval_result[0].topic.keyword == "Project Alpha"
-    assert retrieval_result[0].score >= 0.65
+    assert retrieval_result[0].score >= 0.10
 
 
 def test_search_direct_does_not_return_candidate_for_clue_text_only(tmp_path):
@@ -412,6 +463,228 @@ def test_search_direct_does_not_return_candidate_for_clue_text_only(tmp_path):
     )
 
     results = manager.search_direct("neutral marker phrase", top_k=2)
+
+    assert results == []
+
+
+def test_async_merge_hints_stores_embedding_source_metadata_on_active_clue(tmp_path):
+    text = "Synthetic planning clue is ready."
+    generator = BatchEmbeddingGenerator(vectors={text: [0.25, 0.75]})
+    manager = KnowledgeMapManager(tmp_path / "knowledge_map.json", embedding_generator=generator)
+
+    asyncio.run(
+        manager.async_merge_hints(
+            [
+                _hint(
+                    keyword="Synthetic Topic",
+                    subject="planning",
+                    text=text,
+                )
+            ]
+        )
+    )
+
+    clue = manager.topics[0].clues[0]
+    assert clue.embedding == [0.25, 0.75]
+    assert clue.embedding_provider == "fakeprovider"
+    assert clue.embedding_model == "topic-test-v1"
+
+
+def test_async_merge_hints_uses_embed_batch_when_available(tmp_path):
+    first_text = "Synthetic first clue."
+    second_text = "Synthetic second clue."
+    generator = BatchEmbeddingGenerator(
+        vectors={
+            first_text: [1.0, 0.0],
+            second_text: [0.0, 1.0],
+        }
+    )
+    manager = KnowledgeMapManager(tmp_path / "knowledge_map.json", embedding_generator=generator)
+
+    asyncio.run(
+        manager.async_merge_hints(
+            [
+                _hint(keyword="Topic One", subject="first", text=first_text),
+                _hint(keyword="Topic Two", subject="second", text=second_text),
+            ]
+        )
+    )
+
+    assert generator.batch_calls == [[first_text, second_text]]
+    assert manager.topics[0].clues[0].embedding == [1.0, 0.0]
+    assert manager.topics[1].clues[0].embedding == [0.0, 1.0]
+
+
+def test_async_merge_hints_uses_embed_repeatedly_without_batch(tmp_path):
+    first_text = "Synthetic single first clue."
+    second_text = "Synthetic single second clue."
+    generator = SingleEmbeddingGenerator(
+        vectors={
+            first_text: [0.1, 0.9],
+            second_text: [0.9, 0.1],
+        }
+    )
+    manager = KnowledgeMapManager(tmp_path / "knowledge_map.json", embedding_generator=generator)
+
+    asyncio.run(
+        manager.async_merge_hints(
+            [
+                _hint(keyword="Topic One", subject="first", text=first_text),
+                _hint(keyword="Topic Two", subject="second", text=second_text),
+            ]
+        )
+    )
+
+    assert generator.embed_calls == [first_text, second_text]
+    assert manager.topics[0].clues[0].embedding == [0.1, 0.9]
+    assert manager.topics[1].clues[0].embedding == [0.9, 0.1]
+
+
+def test_async_merge_hints_keeps_direct_merge_when_embedding_fails(tmp_path):
+    good_text = "Synthetic stable clue."
+    failed_text = "Synthetic failed clue."
+    generator = SingleEmbeddingGenerator(
+        vectors={good_text: [1.0, 0.0]},
+        fail_texts={failed_text},
+    )
+    manager = KnowledgeMapManager(tmp_path / "knowledge_map.json", embedding_generator=generator)
+
+    asyncio.run(
+        manager.async_merge_hints(
+            [
+                _hint(keyword="Stable Topic", subject="stable", text=good_text),
+                _hint(keyword="Fallback Topic", subject="fallback", text=failed_text),
+            ]
+        )
+    )
+
+    assert [topic.keyword for topic in manager.topics] == ["Stable Topic", "Fallback Topic"]
+    assert manager.topics[0].clues[0].embedding == [1.0, 0.0]
+    assert manager.topics[1].clues[0].embedding is None
+    assert manager.topics[1].clues[0].embedding_provider is None
+    assert manager.topics[1].clues[0].embedding_model is None
+
+
+def test_async_merge_hints_does_not_keep_stale_embedding_after_later_update_fails(tmp_path):
+    first_text = "Synthetic first version."
+    second_text = "Synthetic second version."
+    generator = SingleEmbeddingGenerator(
+        vectors={first_text: [1.0, 0.0]},
+        fail_texts={second_text},
+    )
+    manager = KnowledgeMapManager(tmp_path / "knowledge_map.json", embedding_generator=generator)
+
+    asyncio.run(
+        manager.async_merge_hints(
+            [
+                _hint(
+                    keyword="Update Topic",
+                    subject="status",
+                    type="note",
+                    state="first",
+                    text=first_text,
+                ),
+                _hint(
+                    keyword="Update Topic",
+                    subject="status",
+                    type="note",
+                    state="second",
+                    text=second_text,
+                ),
+            ]
+        )
+    )
+
+    clue = manager.topics[0].clues[0]
+    assert clue.text == second_text
+    assert clue.embedding is None
+    assert clue.history[0].text == first_text
+
+
+def test_async_search_finds_topic_by_embedding_similarity_without_direct_keyword(tmp_path):
+    query = "find related synthetic vector"
+    generator = SingleEmbeddingGenerator(vectors={query: [1.0, 0.0]})
+    manager = KnowledgeMapManager(tmp_path / "knowledge_map.json", embedding_generator=generator)
+    manager.merge_hints_direct(
+        [
+            _hint(
+                keyword="Vector Topic",
+                subject="semantic",
+                text="Synthetic semantic clue.",
+            )
+        ]
+    )
+    clue = manager.topics[0].clues[0]
+    clue.embedding = [0.7, 0.7]
+    clue.embedding_provider = "fakeprovider"
+    clue.embedding_model = "topic-test-v1"
+
+    results = asyncio.run(manager.async_search(query, top_k=1))
+
+    assert results[0].topic.keyword == "Vector Topic"
+    assert results[0].clue == clue
+    assert results[0].score > 0
+
+
+def test_async_search_ignores_provider_model_mismatch_embeddings(tmp_path):
+    query = "find related synthetic vector"
+    generator = SingleEmbeddingGenerator(vectors={query: [1.0, 0.0]})
+    manager = KnowledgeMapManager(tmp_path / "knowledge_map.json", embedding_generator=generator)
+    manager.merge_hints_direct(
+        [
+            _hint(
+                keyword="Vector Topic",
+                subject="semantic",
+                text="Synthetic semantic clue.",
+            )
+        ]
+    )
+    clue = manager.topics[0].clues[0]
+    clue.embedding = [1.0, 0.0]
+    clue.embedding_provider = "otherprovider"
+    clue.embedding_model = "other-model"
+
+    results = asyncio.run(manager.async_search(query, top_k=1))
+
+    assert results == []
+
+
+def test_async_search_falls_back_to_direct_when_query_embedding_fails(tmp_path):
+    query = "What changed in Project Alpha?"
+    generator = SingleEmbeddingGenerator(fail_texts={query})
+    manager = KnowledgeMapManager(tmp_path / "knowledge_map.json", embedding_generator=generator)
+    manager.merge_hints_direct(
+        [
+            _hint(
+                keyword="Project Alpha",
+                subject="planning",
+                text="Project Alpha planning is ready for review.",
+            )
+        ]
+    )
+
+    results = asyncio.run(manager.async_search(query, top_k=1))
+
+    assert results[0].topic.keyword == "Project Alpha"
+
+
+def test_async_search_does_not_candidate_on_clue_text_only(tmp_path):
+    manager = KnowledgeMapManager(
+        tmp_path / "knowledge_map.json",
+        embedding_generator=SingleEmbeddingGenerator(),
+    )
+    manager.merge_hints_direct(
+        [
+            _hint(
+                keyword="Project Alpha",
+                subject="planning",
+                text="Project Alpha planning mentions a neutral marker phrase.",
+                retrieval_terms=["planning"],
+            )
+        ]
+    )
+
+    results = asyncio.run(manager.async_search("neutral marker phrase", top_k=2))
 
     assert results == []
 

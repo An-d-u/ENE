@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import math
 from pathlib import Path
 import re
 from typing import Any, Iterable
@@ -70,6 +71,27 @@ def _query_contains_term(query: str, term: str) -> bool:
 
 def _tokens(value: str) -> set[str]:
     return {token.casefold() for token in re.findall(r"[A-Za-z0-9가-힣]{2,}", value or "")}
+
+
+def _normalize_embedding_vector(value: Any) -> list[float] | None:
+    if value is None:
+        return None
+    try:
+        vector = [float(item) for item in value]
+    except (TypeError, ValueError):
+        return None
+    if not vector or any(not math.isfinite(item) for item in vector):
+        return None
+    return vector
+
+
+def _cosine_similarity(vec1: list[float], vec2: list[float]) -> float:
+    dot = sum(left * right for left, right in zip(vec1, vec2))
+    norm1 = math.sqrt(sum(value * value for value in vec1))
+    norm2 = math.sqrt(sum(value * value for value in vec2))
+    if not norm1 or not norm2:
+        return 0.0
+    return dot / (norm1 * norm2)
 
 
 def _parse_datetime(value: str | None) -> datetime | None:
@@ -239,21 +261,7 @@ class KnowledgeMapManager:
             if not hint.keyword or not hint.subject or not hint.text:
                 continue
 
-            topic = self._find_single_topic_candidate(hint)
-            if topic is None:
-                topic = TopicMemoryTopic(
-                    id=self._next_topic_id(),
-                    keyword=hint.keyword,
-                    aliases=list(hint.aliases),
-                    retrieval_terms=list(hint.retrieval_terms),
-                    clues=[],
-                )
-                self.topics.append(topic)
-            else:
-                _append_unique(topic.aliases, hint.aliases)
-                _append_unique(topic.retrieval_terms, hint.retrieval_terms)
-
-            self._merge_hint_into_topic(topic, hint, source_memory_id=source_memory_id)
+            self._merge_coerced_hint(hint, source_memory_id=source_memory_id)
 
         self.last_updated = _now_iso()
         return self.topics
@@ -263,25 +271,81 @@ class KnowledgeMapManager:
         hints: Iterable[TopicMemoryHint | dict[str, Any]],
         source_memory_id: str = "",
     ) -> list[TopicMemoryTopic]:
-        return self.merge_hints_direct(hints, source_memory_id=source_memory_id)
+        if not self.embedding_generator:
+            return self.merge_hints_direct(hints, source_memory_id=source_memory_id)
+
+        merged_clues: list[tuple[TopicMemoryClue, str]] = []
+        for raw_hint in hints or []:
+            hint = _coerce_hint(raw_hint)
+            if hint is None:
+                continue
+            if not hint.keyword or not hint.subject or not hint.text:
+                continue
+
+            clue = self._merge_coerced_hint(hint, source_memory_id=source_memory_id)
+            clue.embedding = None
+            clue.embedding_provider = None
+            clue.embedding_model = None
+            merged_clues.append((clue, hint.text))
+
+        self.last_updated = _now_iso()
+        await self._embed_merged_clues(merged_clues)
+        return self.topics
 
     def search_direct(self, query: str, top_k: int = 2) -> list[TopicMemorySearchResult]:
         query_text = _visible_text(query)
         if not query_text or top_k <= 0:
             return []
 
+        return self._search_with_scores(query_text, top_k=top_k)
+
+    async def async_search(self, query: str, top_k: int = 2) -> list[TopicMemorySearchResult]:
+        query_text = _visible_text(query)
+        if not query_text or top_k <= 0:
+            return []
+        if not self.embedding_generator:
+            return self.search_direct(query_text, top_k=top_k)
+
+        try:
+            query_embedding = _normalize_embedding_vector(
+                await self.embedding_generator.embed(query_text)
+            )
+        except Exception:
+            return self.search_direct(query_text, top_k=top_k)
+        if query_embedding is None:
+            return self.search_direct(query_text, top_k=top_k)
+
+        return self._search_with_scores(query_text, top_k=top_k, query_embedding=query_embedding)
+
+    def _search_with_scores(
+        self,
+        query_text: str,
+        *,
+        top_k: int,
+        query_embedding: list[float] | None = None,
+    ) -> list[TopicMemorySearchResult]:
         results: list[tuple[int, TopicMemorySearchResult]] = []
         for index, topic in enumerate(self.topics):
             keyword_score, keyword_matches = self._keyword_score(topic, query_text)
             retrieval_score, retrieval_matches = self._retrieval_score(topic, query_text)
+            clue, embedding_score, clue_score = self._select_best_clue(
+                topic,
+                query_text,
+                query_embedding=query_embedding,
+            )
 
-            if keyword_score <= 0 and retrieval_score <= 0:
+            if keyword_score <= 0 and retrieval_score <= 0 and embedding_score < 0.60:
                 continue
 
-            clue = topic.clues[0] if topic.clues else None
-            clue_score = self._clue_keyword_score(clue, query_text)
             metadata_score = self._metadata_score(clue)
-            score = min(1.0, keyword_score + retrieval_score + clue_score + metadata_score)
+            score = min(
+                1.0,
+                keyword_score * 0.45
+                + retrieval_score * 0.15
+                + embedding_score * 0.30
+                + clue_score * 0.10
+                + metadata_score,
+            )
             matched_terms = keyword_matches + retrieval_matches
             results.append(
                 (
@@ -297,9 +361,6 @@ class KnowledgeMapManager:
 
         results.sort(key=lambda item: (-item[1].score, item[0]))
         return [result for _, result in results[:top_k]]
-
-    async def async_search(self, query: str, top_k: int = 2) -> list[TopicMemorySearchResult]:
-        return self.search_direct(query, top_k=top_k)
 
     async def async_build_context_block(
         self,
@@ -319,6 +380,87 @@ class KnowledgeMapManager:
                 continue
             lines.append(f"- {result.topic.keyword} / {clue.subject}: {clue.text}")
         return "\n".join(lines)
+
+    def _current_embedding_source(self) -> tuple[str | None, str | None]:
+        if not self.embedding_generator:
+            return None, None
+        provider = str(getattr(self.embedding_generator, "provider", "") or "").strip().lower()
+        model = str(getattr(self.embedding_generator, "model", "") or "").strip()
+        return provider or None, model or None
+
+    def _clue_embedding_matches_current_source(self, clue: TopicMemoryClue) -> bool:
+        if not clue.embedding:
+            return False
+        current_provider, current_model = self._current_embedding_source()
+        clue_provider = str(getattr(clue, "embedding_provider", "") or "").strip().lower() or None
+        clue_model = str(getattr(clue, "embedding_model", "") or "").strip() or None
+        return clue_provider == current_provider and clue_model == current_model
+
+    def _merge_coerced_hint(
+        self,
+        hint: TopicMemoryHint,
+        *,
+        source_memory_id: str,
+    ) -> TopicMemoryClue:
+        topic = self._find_single_topic_candidate(hint)
+        if topic is None:
+            topic = TopicMemoryTopic(
+                id=self._next_topic_id(),
+                keyword=hint.keyword,
+                aliases=list(hint.aliases),
+                retrieval_terms=list(hint.retrieval_terms),
+                clues=[],
+            )
+            self.topics.append(topic)
+        else:
+            _append_unique(topic.aliases, hint.aliases)
+            _append_unique(topic.retrieval_terms, hint.retrieval_terms)
+
+        return self._merge_hint_into_topic(topic, hint, source_memory_id=source_memory_id)
+
+    async def _embed_merged_clues(self, clue_texts: list[tuple[TopicMemoryClue, str]]) -> None:
+        if not clue_texts or not self.embedding_generator:
+            return
+
+        texts = [text for _, text in clue_texts]
+        embeddings = await self._generate_embeddings(texts)
+        provider, model = self._current_embedding_source()
+        for (clue, text), embedding in zip(clue_texts, embeddings):
+            if embedding is None:
+                continue
+            if clue.text != text:
+                continue
+            clue.embedding = embedding
+            clue.embedding_provider = provider
+            clue.embedding_model = model
+
+    async def _generate_embeddings(self, texts: list[str]) -> list[list[float] | None]:
+        embeddings: list[list[float] | None] = [None] * len(texts)
+        if not texts or not self.embedding_generator:
+            return embeddings
+
+        if hasattr(self.embedding_generator, "embed_batch"):
+            try:
+                batch_embeddings = await self.embedding_generator.embed_batch(texts)
+            except Exception:
+                return await self._generate_embeddings_one_by_one(texts)
+
+            for index, embedding in enumerate(batch_embeddings[: len(texts)]):
+                embeddings[index] = _normalize_embedding_vector(embedding)
+            return embeddings
+
+        return await self._generate_embeddings_one_by_one(texts)
+
+    async def _generate_embeddings_one_by_one(self, texts: list[str]) -> list[list[float] | None]:
+        embeddings: list[list[float] | None] = []
+        for text in texts:
+            try:
+                embedding = await self.embedding_generator.embed(text)
+            except Exception:
+                embeddings.append(None)
+                continue
+            embeddings.append(_normalize_embedding_vector(embedding))
+        return embeddings
 
     def _find_single_topic_candidate(self, hint: TopicMemoryHint) -> TopicMemoryTopic | None:
         candidate_terms = [hint.keyword, *hint.aliases]
@@ -345,7 +487,7 @@ class KnowledgeMapManager:
         hint: TopicMemoryHint,
         *,
         source_memory_id: str,
-    ) -> None:
+    ) -> TopicMemoryClue:
         existing = next(
             (
                 clue
@@ -356,18 +498,17 @@ class KnowledgeMapManager:
         )
         timestamp = _now_iso()
         if existing is None:
-            topic.clues.append(
-                TopicMemoryClue(
-                    id=self._next_clue_id(topic),
-                    subject=hint.subject,
-                    type=hint.type,
-                    state=hint.state,
-                    text=hint.text,
-                    confidence=hint.confidence,
-                    source_memory_id=_visible_text(source_memory_id) or None,
-                )
+            clue = TopicMemoryClue(
+                id=self._next_clue_id(topic),
+                subject=hint.subject,
+                type=hint.type,
+                state=hint.state,
+                text=hint.text,
+                confidence=hint.confidence,
+                source_memory_id=_visible_text(source_memory_id) or None,
             )
-            return
+            topic.clues.append(clue)
+            return clue
 
         existing.history.insert(
             0,
@@ -383,6 +524,7 @@ class KnowledgeMapManager:
         existing.text = hint.text
         existing.confidence = hint.confidence
         existing.source_memory_id = _visible_text(source_memory_id) or None
+        return existing
 
     def _keyword_score(self, topic: TopicMemoryTopic, query: str) -> tuple[float, list[str]]:
         if _query_contains_term(query, topic.keyword):
@@ -417,6 +559,54 @@ class KnowledgeMapManager:
             if now - updated_at <= timedelta(days=30):
                 score += 0.05
         return score
+
+    def _select_best_clue(
+        self,
+        topic: TopicMemoryTopic,
+        query: str,
+        *,
+        query_embedding: list[float] | None = None,
+    ) -> tuple[TopicMemoryClue | None, float, float]:
+        best_clue: TopicMemoryClue | None = None
+        best_embedding_score = 0.0
+        best_clue_score = 0.0
+        best_rank: tuple[float, float, float, float, int] | None = None
+
+        for index, clue in enumerate(topic.clues):
+            embedding_score = 0.0
+            if query_embedding is not None and self._clue_embedding_matches_current_source(clue):
+                embedding_score = self._embedding_similarity(query_embedding, clue.embedding)
+            clue_score = self._clue_keyword_score(clue, query)
+            metadata_score = self._metadata_score(clue)
+            rank = (
+                embedding_score + clue_score,
+                embedding_score,
+                clue_score,
+                metadata_score,
+                -index,
+            )
+            if best_rank is None or rank > best_rank:
+                best_clue = clue
+                best_embedding_score = embedding_score
+                best_clue_score = clue_score
+                best_rank = rank
+
+        return best_clue, best_embedding_score, best_clue_score
+
+    def _embedding_similarity(self, vec1: list[float], vec2: list[float] | None) -> float:
+        if not vec1 or not vec2:
+            return 0.0
+        try:
+            cosine_similarity = getattr(self.embedding_generator, "cosine_similarity", None)
+            if callable(cosine_similarity):
+                similarity = float(cosine_similarity(vec1, vec2))
+            else:
+                similarity = _cosine_similarity(vec1, vec2)
+        except Exception:
+            return 0.0
+        if not math.isfinite(similarity):
+            return 0.0
+        return max(0.0, min(1.0, similarity))
 
     def _next_topic_id(self) -> str:
         return _next_numbered_id("topic", (topic.id for topic in self.topics))
