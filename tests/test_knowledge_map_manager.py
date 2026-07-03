@@ -56,6 +56,16 @@ class SingleEmbeddingGenerator:
     cosine_similarity = staticmethod(BatchEmbeddingGenerator.cosine_similarity)
 
 
+class RawBatchEmbeddingGenerator(BatchEmbeddingGenerator):
+    def __init__(self, batch_result):
+        super().__init__()
+        self.batch_result = batch_result
+
+    async def embed_batch(self, texts):
+        self.batch_calls.append(list(texts))
+        return self.batch_result
+
+
 def _hint(
     keyword="Project Alpha",
     subject="planning",
@@ -601,6 +611,64 @@ def test_async_merge_hints_does_not_keep_stale_embedding_after_later_update_fail
     assert clue.history[0].text == first_text
 
 
+def test_async_merge_hints_keeps_direct_merge_when_embed_batch_returns_none(tmp_path):
+    manager = KnowledgeMapManager(
+        tmp_path / "knowledge_map.json",
+        embedding_generator=RawBatchEmbeddingGenerator(None),
+    )
+
+    asyncio.run(
+        manager.async_merge_hints(
+            [
+                _hint(
+                    keyword="Batch None Topic",
+                    subject="status",
+                    text="Synthetic batch none clue.",
+                )
+            ]
+        )
+    )
+
+    clue = manager.topics[0].clues[0]
+    assert clue.text == "Synthetic batch none clue."
+    assert clue.embedding is None
+    assert clue.embedding_provider is None
+    assert clue.embedding_model is None
+
+
+def test_async_merge_hints_ignores_unconvertible_items_from_embed_batch(tmp_path):
+    first_text = "Synthetic valid batch clue."
+    second_text = "Synthetic invalid batch clue."
+    third_text = "Synthetic later valid batch clue."
+    batch_result = iter(
+        [
+            [0.3, 0.7],
+            "not a vector",
+            [0.9, 0.1],
+        ]
+    )
+    manager = KnowledgeMapManager(
+        tmp_path / "knowledge_map.json",
+        embedding_generator=RawBatchEmbeddingGenerator(batch_result),
+    )
+
+    asyncio.run(
+        manager.async_merge_hints(
+            [
+                _hint(keyword="Batch Topic One", subject="one", text=first_text),
+                _hint(keyword="Batch Topic Two", subject="two", text=second_text),
+                _hint(keyword="Batch Topic Three", subject="three", text=third_text),
+            ]
+        )
+    )
+
+    assert manager.topics[0].clues[0].embedding == [0.3, 0.7]
+    assert manager.topics[1].clues[0].embedding is None
+    assert manager.topics[1].clues[0].embedding_provider is None
+    assert manager.topics[1].clues[0].embedding_model is None
+    assert manager.topics[2].clues[0].embedding == [0.9, 0.1]
+
+
 def test_async_search_finds_topic_by_embedding_similarity_without_direct_keyword(tmp_path):
     query = "find related synthetic vector"
     generator = SingleEmbeddingGenerator(vectors={query: [1.0, 0.0]})
@@ -643,6 +711,29 @@ def test_async_search_ignores_provider_model_mismatch_embeddings(tmp_path):
     clue.embedding = [1.0, 0.0]
     clue.embedding_provider = "otherprovider"
     clue.embedding_model = "other-model"
+
+    results = asyncio.run(manager.async_search(query, top_k=1))
+
+    assert results == []
+
+
+def test_async_search_ignores_embedding_when_vector_dimensions_differ(tmp_path):
+    query = "find dimension mismatch vector"
+    generator = SingleEmbeddingGenerator(vectors={query: [1.0, 0.0, 0.0]})
+    manager = KnowledgeMapManager(tmp_path / "knowledge_map.json", embedding_generator=generator)
+    manager.merge_hints_direct(
+        [
+            _hint(
+                keyword="Dimension Topic",
+                subject="semantic",
+                text="Synthetic dimension clue.",
+            )
+        ]
+    )
+    clue = manager.topics[0].clues[0]
+    clue.embedding = [1.0, 0.0]
+    clue.embedding_provider = "fakeprovider"
+    clue.embedding_model = "topic-test-v1"
 
     results = asyncio.run(manager.async_search(query, top_k=1))
 
