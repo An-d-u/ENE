@@ -118,6 +118,93 @@ def test_dict_hint_requires_only_keyword_subject_and_text(tmp_path):
     assert manager.topics[0].clues[0].type == ""
 
 
+def test_missing_required_dict_hint_keys_are_discarded_without_stopping(tmp_path):
+    manager = KnowledgeMapManager(tmp_path / "knowledge_map.json")
+
+    manager.merge_hints_direct(
+        [
+            {"subject": "ignored", "text": "A neutral malformed hint is ignored."},
+            {"keyword": "Ignored Topic", "text": "A neutral malformed hint is ignored."},
+            {"keyword": "Ignored Topic", "subject": "ignored"},
+            {
+                "keyword": "Project Alpha",
+                "subject": "planning",
+                "text": "Project Alpha planning remains usable.",
+            },
+        ]
+    )
+
+    assert len(manager.topics) == 1
+    assert manager.topics[0].keyword == "Project Alpha"
+
+
+def test_load_skips_topics_and_clues_missing_required_fields(tmp_path):
+    path = tmp_path / "knowledge_map.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "last_updated": "2026-01-01T00:00:00+00:00",
+                "topics": [
+                    {"id": "topic-broken", "clues": []},
+                    {
+                        "id": "topic-7",
+                        "keyword": "Project Alpha",
+                        "clues": [
+                            {
+                                "id": "clue-broken",
+                                "subject": "planning",
+                                "type": "status",
+                            },
+                            {
+                                "id": "clue-7",
+                                "subject": "planning",
+                                "type": "status",
+                                "state": "active",
+                                "text": "Project Alpha planning is active.",
+                            },
+                        ],
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    manager = KnowledgeMapManager(path)
+
+    manager.load()
+
+    assert len(manager.topics) == 1
+    assert manager.topics[0].id == "topic-7"
+    assert len(manager.topics[0].clues) == 1
+    assert manager.topics[0].clues[0].id == "clue-7"
+
+
+def test_short_inner_english_fragment_does_not_merge_unrelated_topics(tmp_path):
+    manager = KnowledgeMapManager(tmp_path / "knowledge_map.json")
+    manager.merge_hints_direct(
+        [
+            _hint(
+                keyword="paid",
+                subject="billing",
+                text="Paid status is recorded for a neutral sample.",
+            )
+        ]
+    )
+
+    manager.merge_hints_direct(
+        [
+            _hint(
+                keyword="AI",
+                subject="tooling",
+                text="AI tooling is recorded for a neutral sample.",
+            )
+        ]
+    )
+
+    assert [topic.keyword for topic in manager.topics] == ["paid", "AI"]
+
+
 def test_alias_matching_multiple_topics_creates_new_topic(tmp_path):
     manager = KnowledgeMapManager(tmp_path / "knowledge_map.json")
     manager.topics = [
@@ -230,6 +317,67 @@ def test_search_direct_does_not_return_candidate_for_clue_text_only(tmp_path):
     results = manager.search_direct("neutral marker phrase", top_k=2)
 
     assert results == []
+
+
+def test_search_handles_naive_timestamps_without_type_error(tmp_path):
+    path = tmp_path / "knowledge_map.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "last_updated": "2026-01-01T00:00:00",
+                "topics": [
+                    {
+                        "id": "topic-1",
+                        "keyword": "Project Alpha",
+                        "clues": [
+                            {
+                                "id": "clue-1",
+                                "subject": "planning",
+                                "type": "status",
+                                "state": "active",
+                                "text": "Project Alpha planning is active.",
+                                "history": [
+                                    {
+                                        "state": "draft",
+                                        "text": "Project Alpha planning was drafted.",
+                                        "timestamp": "2026-01-01T00:00:00",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    manager = KnowledgeMapManager(path)
+    manager.load()
+
+    results = manager.search_direct("Project Alpha", top_k=1)
+
+    assert results[0].topic.keyword == "Project Alpha"
+
+
+def test_next_topic_id_uses_existing_numeric_max_after_gap(tmp_path):
+    manager = KnowledgeMapManager(tmp_path / "knowledge_map.json")
+    manager.topics = [
+        TopicMemoryTopic(id="topic-1", keyword="Project Alpha"),
+        TopicMemoryTopic(id="topic-3", keyword="Project Beta"),
+    ]
+
+    manager.merge_hints_direct(
+        [
+            _hint(
+                keyword="Project Gamma",
+                subject="planning",
+                text="Project Gamma planning is active.",
+            )
+        ]
+    )
+
+    assert [topic.id for topic in manager.topics] == ["topic-1", "topic-3", "topic-4"]
 
 
 def test_save_creates_utf8_without_bom(tmp_path):

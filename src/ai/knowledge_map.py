@@ -37,7 +37,19 @@ def _is_phrase_match(left: str, right: str) -> bool:
     right_norm = _norm(right)
     if not left_norm or not right_norm:
         return False
-    return left_norm == right_norm or left_norm in right_norm or right_norm in left_norm
+    return (
+        left_norm == right_norm
+        or _contains_phrase(left_norm, right_norm)
+        or _contains_phrase(right_norm, left_norm)
+    )
+
+
+def _contains_phrase(container: str, phrase: str) -> bool:
+    if phrase not in container:
+        return False
+    if re.fullmatch(r"[a-z0-9]+", phrase) and len(phrase) <= 2:
+        return re.search(rf"(?<![a-z0-9]){re.escape(phrase)}(?![a-z0-9])", container) is not None
+    return True
 
 
 def _append_unique(items: list[str], candidates: Iterable[str]) -> None:
@@ -52,7 +64,8 @@ def _append_unique(items: list[str], candidates: Iterable[str]) -> None:
 
 
 def _query_contains_term(query: str, term: str) -> bool:
-    return bool(_norm(term)) and _norm(term) in _norm(query)
+    term_norm = _norm(term)
+    return bool(term_norm) and _contains_phrase(_norm(query), term_norm)
 
 
 def _tokens(value: str) -> set[str]:
@@ -63,9 +76,12 @@ def _parse_datetime(value: str | None) -> datetime | None:
     if not value:
         return None
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
 
 
 def _coerce_hint(raw_hint: TopicMemoryHint | dict[str, Any]) -> TopicMemoryHint | None:
@@ -75,9 +91,81 @@ def _coerce_hint(raw_hint: TopicMemoryHint | dict[str, Any]) -> TopicMemoryHint 
         return None
 
     data = dict(raw_hint)
+    if (
+        not _visible_text(data.get("keyword"))
+        or not _visible_text(data.get("subject"))
+        or not _visible_text(data.get("text"))
+    ):
+        return None
     data.setdefault("type", "")
     data.setdefault("state", "")
-    return TopicMemoryHint.from_dict(data)
+    try:
+        return TopicMemoryHint.from_dict(data)
+    except TypeError:
+        return None
+
+
+def _coerce_clue(raw_clue: TopicMemoryClue | dict[str, Any]) -> TopicMemoryClue | None:
+    if isinstance(raw_clue, TopicMemoryClue):
+        if not raw_clue.id or not raw_clue.subject or not raw_clue.text:
+            return None
+        return raw_clue
+    if not isinstance(raw_clue, dict):
+        return None
+
+    data = dict(raw_clue)
+    if (
+        not _visible_text(data.get("id"))
+        or not _visible_text(data.get("subject"))
+        or not _visible_text(data.get("text"))
+    ):
+        return None
+    data.setdefault("type", "")
+    data.setdefault("state", "")
+    try:
+        return TopicMemoryClue.from_dict(data)
+    except TypeError:
+        return None
+
+
+def _coerce_topic(raw_topic: TopicMemoryTopic | dict[str, Any]) -> TopicMemoryTopic | None:
+    if isinstance(raw_topic, TopicMemoryTopic):
+        if not raw_topic.id or not raw_topic.keyword:
+            return None
+        raw_topic.clues = [
+            clue
+            for clue in (_coerce_clue(clue) for clue in raw_topic.clues)
+            if clue is not None
+        ]
+        return raw_topic
+    if not isinstance(raw_topic, dict):
+        return None
+
+    data = dict(raw_topic)
+    if not _visible_text(data.get("id")) or not _visible_text(data.get("keyword")):
+        return None
+    raw_clues = data.get("clues", [])
+    if not isinstance(raw_clues, list):
+        raw_clues = []
+    data["clues"] = [
+        clue
+        for clue in (_coerce_clue(clue) for clue in raw_clues)
+        if clue is not None
+    ]
+    try:
+        return TopicMemoryTopic.from_dict(data)
+    except TypeError:
+        return None
+
+
+def _next_numbered_id(prefix: str, ids: Iterable[str]) -> str:
+    pattern = re.compile(rf"^{re.escape(prefix)}-(\d+)$")
+    numbers = [
+        int(match.group(1))
+        for raw_id in ids
+        if (match := pattern.fullmatch(str(raw_id or "").strip()))
+    ]
+    return f"{prefix}-{max(numbers, default=0) + 1}"
 
 
 class KnowledgeMapManager:
@@ -97,11 +185,11 @@ class KnowledgeMapManager:
 
         data = load_json_data(self.knowledge_file)
         raw_topics = data.get("topics", []) if isinstance(data, dict) else []
-        self.topics = [
-            TopicMemoryTopic.from_dict(topic)
-            for topic in raw_topics
-            if isinstance(topic, dict)
-        ]
+        self.topics = []
+        for raw_topic in raw_topics:
+            topic = _coerce_topic(raw_topic)
+            if topic is not None:
+                self.topics.append(topic)
         self.last_updated = _visible_text(data.get("last_updated")) if isinstance(data, dict) else None
         return self
 
@@ -306,7 +394,7 @@ class KnowledgeMapManager:
         return score
 
     def _next_topic_id(self) -> str:
-        return f"topic-{len(self.topics) + 1}"
+        return _next_numbered_id("topic", (topic.id for topic in self.topics))
 
     def _next_clue_id(self, topic: TopicMemoryTopic) -> str:
-        return f"{topic.id}-clue-{len(topic.clues) + 1}"
+        return _next_numbered_id(f"{topic.id}-clue", (clue.id for clue in topic.clues))
