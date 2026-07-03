@@ -168,7 +168,5 @@ class OllamaClient(_CommonMixin):
         self._remember_turn(history_user_content if history_user_content is not None else message, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture)))
         return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture
 
-    async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
-        prompt = self._build_summary_prompt_for_messages(messages)
-        response_text = self._request_summary_text(prompt)
-        return self._parse_summary_response(response_text)
+    async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict, list]:
+        return self._summarize_conversation_from_messages(messages)

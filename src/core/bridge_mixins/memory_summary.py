@@ -59,7 +59,10 @@ class MemorySummaryBridgeMixin:
     def _normalize_summary_result(self, summary_result):
         """LLM 요약 응답을 저장/검토에 쓰기 쉬운 형태로 정규화한다."""
         ene_facts = []
-        if isinstance(summary_result, tuple) and len(summary_result) == 4:
+        topic_hints = []
+        if isinstance(summary_result, tuple) and len(summary_result) == 5:
+            summary, user_facts, ene_facts, memory_meta, topic_hints = summary_result
+        elif isinstance(summary_result, tuple) and len(summary_result) == 4:
             summary, user_facts, ene_facts, memory_meta = summary_result
         elif isinstance(summary_result, tuple) and len(summary_result) == 3:
             summary, user_facts, memory_meta = summary_result
@@ -76,7 +79,68 @@ class MemorySummaryBridgeMixin:
         if not isinstance(memory_meta, dict):
             memory_meta = {}
 
-        return str(summary or "").strip(), user_facts, ene_facts, memory_meta
+        topic_normalizer = getattr(self, "_normalize_topic_hints", None)
+        if not callable(topic_normalizer):
+            topic_normalizer = lambda hints: MemorySummaryBridgeMixin._normalize_topic_hints(self, hints)
+
+        return (
+            str(summary or "").strip(),
+            user_facts,
+            ene_facts,
+            memory_meta,
+            topic_normalizer(topic_hints),
+        )
+
+    def _normalize_topic_hints(self, topic_hints):
+        """TOPIC_MEMORY 힌트를 UI payload에 넣을 수 있는 dict 목록으로 정규화한다."""
+        normalized = []
+        if not isinstance(topic_hints, list):
+            return normalized
+
+        allowed_keys = {
+            "keyword",
+            "subject",
+            "type",
+            "state",
+            "text",
+            "aliases",
+            "retrieval_terms",
+            "confidence",
+        }
+        list_keys = {"aliases", "retrieval_terms"}
+        for hint in topic_hints:
+            to_dict = getattr(hint, "to_dict", None)
+            if callable(to_dict):
+                raw = to_dict()
+            elif isinstance(hint, dict):
+                raw = hint
+            else:
+                continue
+            if not isinstance(raw, dict):
+                continue
+
+            item = {}
+            for key in allowed_keys:
+                if key not in raw:
+                    continue
+                value = raw.get(key)
+                if key in list_keys:
+                    if isinstance(value, list):
+                        item[key] = [str(part).strip() for part in value if str(part or "").strip()]
+                    elif str(value or "").strip():
+                        item[key] = [str(value).strip()]
+                    else:
+                        item[key] = []
+                elif key == "confidence":
+                    try:
+                        item[key] = max(0.0, min(1.0, float(value)))
+                    except (TypeError, ValueError):
+                        item[key] = 0.5
+                else:
+                    item[key] = str(value or "").strip()
+            if item:
+                normalized.append(item)
+        return normalized
 
     def _build_summary_storage_payload(self, messages):
         """요약 저장에 필요한 원문 메시지와 출처 시각을 만든다."""
@@ -124,6 +188,7 @@ class MemorySummaryBridgeMixin:
             "user_facts": list(pending.get("user_facts") or []),
             "ene_facts": list(pending.get("ene_facts") or []),
             "memory_meta": dict(pending.get("memory_meta") or {}),
+            "topic_hints": list(pending.get("topic_hints") or []),
         }
         self.summary_review_ready.emit(json.dumps(payload, ensure_ascii=False))
 
@@ -168,7 +233,7 @@ class MemorySummaryBridgeMixin:
 
         messages = self.conversation_buffer.copy()
         summary_result = await self.llm_client.summarize_conversation(messages)
-        summary, user_facts, ene_facts, memory_meta = self._normalize_summary_result(summary_result)
+        summary, user_facts, ene_facts, memory_meta, topic_hints = self._normalize_summary_result(summary_result)
         storage_payload = self._build_summary_storage_payload(messages)
         self._pending_summary_review = {
             "messages": messages,
@@ -178,6 +243,7 @@ class MemorySummaryBridgeMixin:
             "user_facts": user_facts,
             "ene_facts": ene_facts,
             "memory_meta": memory_meta,
+            "topic_hints": topic_hints,
         }
         self._emit_summary_review()
 
@@ -295,11 +361,12 @@ class MemorySummaryBridgeMixin:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             summary_result = loop.run_until_complete(self.llm_client.summarize_conversation(messages))
-            summary, user_facts, ene_facts, memory_meta = self._normalize_summary_result(summary_result)
+            summary, user_facts, ene_facts, memory_meta, topic_hints = self._normalize_summary_result(summary_result)
             pending["summary"] = summary
             pending["user_facts"] = user_facts
             pending["ene_facts"] = ene_facts
             pending["memory_meta"] = memory_meta
+            pending["topic_hints"] = topic_hints
             self._pending_summary_review = pending
             self._emit_summary_review()
             self.summary_notice.emit("요약을 다시 만들었어요.", "info")
@@ -366,7 +433,7 @@ class MemorySummaryBridgeMixin:
             if not callable(storage_builder):
                 storage_builder = lambda value: MemorySummaryBridgeMixin._build_summary_storage_payload(self, value)
 
-            summary, user_facts, ene_facts, memory_meta = normalizer(summary_result)
+            summary, user_facts, ene_facts, memory_meta, _topic_hints = normalizer(summary_result)
             storage_payload = storage_builder(messages)
             source_timestamp = storage_payload["source_timestamp"]
             original_messages = storage_payload["original_messages"]

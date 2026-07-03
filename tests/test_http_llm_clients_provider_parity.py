@@ -56,6 +56,12 @@ memory_type: general
 importance_reason: test
 confidence: 0.9
 entity_names: none
+
+[TOPIC_MEMORY]
+- keyword: Project Lambda
+  subject: summary handoff
+  text: Project Lambda summary handoff is ready.
+  retrieval_terms: summary, handoff
 """.strip()
 
 
@@ -524,16 +530,33 @@ def test_provider_summarize_conversation_uses_one_shot_request_without_chat_hist
     monkeypatch.setattr(client, "_request_one_shot_raw", fake_one_shot)
     monkeypatch.setattr(client, history_request_name, fail_history_request)
 
-    summary, _user_facts, _ene_facts, memory_meta = asyncio.run(
+    summary, _user_facts, _ene_facts, memory_meta, topic_hints = asyncio.run(
         client.summarize_conversation([("user", "요약 대상 대화", "2026-05-25 10:00")])
     )
 
     assert summary == "요약 대상 대화만 정리했다."
     assert memory_meta["memory_type"] == "general"
+    assert [hint.keyword for hint in topic_hints] == ["Project Lambda"]
     assert "요약 대상 대화" in captured["prompt"]
     assert "오래된 히스토리" not in captured["prompt"]
     assert captured["include_sub_prompt"] is False
     assert client.get_conversation_history() == original_history
+
+
+def test_provider_summarize_conversation_empty_response_returns_topic_hints_fallback(monkeypatch):
+    client = _build_openai_compatible_client()
+
+    monkeypatch.setattr(client, "_request_one_shot_raw", lambda *_args, **_kwargs: "   ")
+
+    summary, user_facts, ene_facts, memory_meta, topic_hints = asyncio.run(
+        client.summarize_conversation([("user", "Neutral summary target", "2026-05-25 10:00")])
+    )
+
+    assert summary
+    assert user_facts == []
+    assert ene_facts == []
+    assert memory_meta["importance_reason"] == "empty_llm_response"
+    assert topic_hints == []
 
 
 def test_provider_summarize_conversation_retries_incomplete_response_with_larger_budget(monkeypatch):
@@ -551,11 +574,12 @@ def test_provider_summarize_conversation_retries_incomplete_response_with_larger
 
     monkeypatch.setattr(client, "_request_one_shot_raw", fake_one_shot)
 
-    summary, _user_facts, _ene_facts, _memory_meta = asyncio.run(
+    summary, _user_facts, _ene_facts, _memory_meta, topic_hints = asyncio.run(
         client.summarize_conversation([("user", "요약 대상 대화", "2026-05-25 10:00")])
     )
 
     assert summary == "요약 대상 대화만 정리했다."
+    assert [hint.keyword for hint in topic_hints] == ["Project Lambda"]
     assert captured_max_tokens == [4096, 4096]
     assert client.generation_params["max_tokens"] == 2048
 
