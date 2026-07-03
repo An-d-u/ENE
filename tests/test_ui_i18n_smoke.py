@@ -3200,6 +3200,92 @@ def test_embedding_settings_change_marks_old_embeddings_and_prompts():
     assert prompts == [("voyage", "voyage-3")]
 
 
+def test_embedding_api_key_change_refreshes_memory_runtime_without_rebuild_prompt():
+    ENEApplication = _load_app_class()
+    calls = []
+    prompts = []
+
+    app = ENEApplication.__new__(ENEApplication)
+    app.settings = _DummySettings(
+        {
+            "ui_language": "en",
+            "embedding_provider": "voyage",
+            "embedding_model": "voyage-3",
+            "embedding_api_keys": {"voyage": "old-key"},
+            "enable_tts": False,
+            "tts_provider": "gpt_sovits_http",
+        }
+    )
+    bridge = SimpleNamespace(refresh_proactive_settings=lambda: None)
+    app.overlay_window = SimpleNamespace(apply_new_settings=lambda settings: None, bridge=bridge)
+    app.global_ptt = None
+    app.interrupt_tts_on_ptt = True
+    app.memory_manager = SimpleNamespace(mark_unknown_embeddings_source=lambda provider, model: calls.append("mark"))
+    app._refresh_memory_runtime_bindings = lambda: calls.append("memory")
+    app._refresh_tts_runtime_bindings = lambda: calls.append("tts")
+    app._show_embedding_rebuild_prompt = lambda provider, model: prompts.append((provider, model))
+
+    ENEApplication._on_settings_changed(
+        app,
+        {
+            "ui_language": "en",
+            "embedding_provider": "voyage",
+            "embedding_model": "voyage-3",
+            "embedding_api_keys": {"voyage": "new-key"},
+            "interrupt_tts_on_ptt": True,
+        },
+    )
+
+    assert calls == ["memory"]
+    assert prompts == []
+
+
+def test_embedding_api_url_change_refreshes_memory_runtime_without_rebuild_prompt():
+    ENEApplication = _load_app_class()
+    calls = []
+    prompts = []
+
+    app = ENEApplication.__new__(ENEApplication)
+    app.settings = _DummySettings(
+        {
+            "ui_language": "en",
+            "embedding_provider": "openai_compatible",
+            "embedding_model": "local-embedding",
+            "embedding_api_keys": {"openai_compatible": "local-key"},
+            "embedding_provider_configs": {
+                "openai_compatible": {"api_url": "http://localhost:8000/v1"}
+            },
+            "enable_tts": False,
+            "tts_provider": "gpt_sovits_http",
+        }
+    )
+    bridge = SimpleNamespace(refresh_proactive_settings=lambda: None)
+    app.overlay_window = SimpleNamespace(apply_new_settings=lambda settings: None, bridge=bridge)
+    app.global_ptt = None
+    app.interrupt_tts_on_ptt = True
+    app.memory_manager = SimpleNamespace(mark_unknown_embeddings_source=lambda provider, model: calls.append("mark"))
+    app._refresh_memory_runtime_bindings = lambda: calls.append("memory")
+    app._refresh_tts_runtime_bindings = lambda: calls.append("tts")
+    app._show_embedding_rebuild_prompt = lambda provider, model: prompts.append((provider, model))
+
+    ENEApplication._on_settings_changed(
+        app,
+        {
+            "ui_language": "en",
+            "embedding_provider": "openai_compatible",
+            "embedding_model": "local-embedding",
+            "embedding_api_keys": {"openai_compatible": "local-key"},
+            "embedding_provider_configs": {
+                "openai_compatible": {"api_url": "http://localhost:9000/v1"}
+            },
+            "interrupt_tts_on_ptt": True,
+        },
+    )
+
+    assert calls == ["memory"]
+    assert prompts == []
+
+
 def test_embedding_rebuild_prompt_defaults_to_no_and_shows_count(monkeypatch):
     ENEApplication = _load_app_class()
     configure_i18n(language="en", locales_dir=Path("src/locales"), system_locale="en_US")

@@ -343,6 +343,39 @@ def test_build_memory_knowledge_runtime_preserves_memory_when_knowledge_map_crea
     assert runtime.knowledge_map_manager is None
 
 
+def test_build_memory_knowledge_runtime_keeps_knowledge_map_when_memory_creation_fails():
+    calls = []
+
+    class FakeKnowledgeMap:
+        def __init__(self, *, knowledge_file, embedding_generator):
+            calls.append(("knowledge_init", knowledge_file, embedding_generator))
+            self.load_calls = 0
+
+        def load(self):
+            self.load_calls += 1
+            calls.append(("knowledge_load",))
+            return self
+
+    def memory_manager_factory(**_kwargs):
+        calls.append(("memory_init",))
+        raise RuntimeError("memory failed")
+
+    runtime = build_memory_knowledge_runtime(
+        _Settings({"embedding_provider": "voyage", "embedding_api_keys": {}}),
+        memory_manager_factory=memory_manager_factory,
+        knowledge_map_manager_factory=FakeKnowledgeMap,
+    )
+
+    assert runtime.memory_manager is None
+    assert runtime.knowledge_map_manager is not None
+    assert runtime.knowledge_map_manager.load_calls == 1
+    assert calls == [
+        ("memory_init",),
+        ("knowledge_init", "knowledge_map.json", None),
+        ("knowledge_load",),
+    ]
+
+
 def test_build_memory_manager_does_not_import_embedding_when_key_is_missing(monkeypatch):
     real_import = builtins.__import__
     calls = {}

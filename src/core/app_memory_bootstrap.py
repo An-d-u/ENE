@@ -133,10 +133,16 @@ def build_memory_knowledge_runtime(
         settings,
         embedding_factory=embedding_factory,
     )
-    memory_manager = _build_memory_manager_with_embedding(
-        embedding_generator=embedding_gen,
-        memory_manager_factory=memory_manager_factory,
-    )
+    memory_manager = None
+    try:
+        memory_manager = _build_memory_manager_with_embedding(
+            embedding_generator=embedding_gen,
+            memory_manager_factory=memory_manager_factory,
+        )
+    except Exception as e:
+        print(f"ERROR: 메모리 매니저 초기화 실패: {e}")
+        traceback.print_exc()
+        memory_manager = None
 
     knowledge_map_manager = None
     try:

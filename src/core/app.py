@@ -32,6 +32,28 @@ from .app_tts_bootstrap import (
 )
 
 
+def _embedding_setting_map(settings_source, key: str) -> dict:
+    value = settings_source.get(key, {}) if settings_source else {}
+    return value if isinstance(value, dict) else {}
+
+
+def _embedding_api_key_for(settings_source, provider: str) -> str:
+    values = _embedding_setting_map(settings_source, "embedding_api_keys")
+    return str(values.get(provider, "")).strip()
+
+
+def _embedding_api_url_for(settings_source, provider: str) -> str:
+    default_api_urls = {
+        "openai": "https://api.openai.com/v1",
+        "openai_compatible": "http://127.0.0.1:8000/v1",
+    }
+    configs = _embedding_setting_map(settings_source, "embedding_provider_configs")
+    provider_config = configs.get(provider, {})
+    if not isinstance(provider_config, dict):
+        provider_config = {}
+    return str(provider_config.get("api_url", default_api_urls.get(provider, ""))).strip()
+
+
 class ENEApplication(QObject):
     """ENE 메인 애플리케이션 클래스"""
     
@@ -549,13 +571,42 @@ class ENEApplication(QObject):
 
         new_embedding_provider = str(new_settings.get("embedding_provider", old_embedding_provider)).strip().lower()
         new_embedding_model = str(new_settings.get("embedding_model", old_embedding_model)).strip() or "voyage-3"
-        if (old_embedding_provider, old_embedding_model) != (new_embedding_provider, new_embedding_model):
+        old_embedding_key = _embedding_api_key_for(self.settings, new_embedding_provider)
+        new_embedding_key_source = (
+            new_settings
+            if "embedding_api_keys" in new_settings
+            else self.settings
+        )
+        new_embedding_key = _embedding_api_key_for(new_embedding_key_source, new_embedding_provider)
+        old_embedding_api_url = _embedding_api_url_for(self.settings, new_embedding_provider)
+        new_embedding_api_url_source = (
+            new_settings
+            if "embedding_provider_configs" in new_settings
+            else self.settings
+        )
+        new_embedding_api_url = _embedding_api_url_for(new_embedding_api_url_source, new_embedding_provider)
+        embedding_source_changed = (
+            old_embedding_provider,
+            old_embedding_model,
+        ) != (
+            new_embedding_provider,
+            new_embedding_model,
+        )
+        embedding_runtime_config_changed = (
+            old_embedding_key,
+            old_embedding_api_url,
+        ) != (
+            new_embedding_key,
+            new_embedding_api_url,
+        )
+        if embedding_source_changed or embedding_runtime_config_changed:
             if hasattr(self, "memory_manager") and self.memory_manager:
                 marker = getattr(self.memory_manager, "mark_unknown_embeddings_source", None)
-                if callable(marker):
+                if embedding_source_changed and callable(marker):
                     marker(old_embedding_provider, old_embedding_model)
             self._refresh_memory_runtime_bindings()
-            self._show_embedding_rebuild_prompt(new_embedding_provider, new_embedding_model)
+            if embedding_source_changed:
+                self._show_embedding_rebuild_prompt(new_embedding_provider, new_embedding_model)
 
         new_tts_config = json.dumps(
             {

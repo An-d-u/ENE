@@ -115,6 +115,34 @@ def test_goal_manager_is_forwarded_to_builder():
         PROVIDER_BUILDERS.pop(provider_name, None)
 
 
+def test_registered_strict_builder_ignores_unknown_knowledge_map_kwarg():
+    class DummyClient:
+        pass
+
+    captured = {}
+
+    def strict_builder(*, api_key, model_name, generation_params):
+        captured["api_key"] = api_key
+        captured["model_name"] = model_name
+        captured["generation_params"] = generation_params
+        return DummyClient()
+
+    provider_name = "dummy-strict-knowledge-map"
+    register_llm_provider(provider_name, strict_builder)
+    try:
+        config = LLMProviderConfig(provider=provider_name, api_key="k", model_name="m")
+        client = create_llm_client(config, knowledge_map_manager="knowledge")
+        assert isinstance(client, DummyClient)
+        assert captured == {
+            "api_key": "k",
+            "model_name": "m",
+            "generation_params": {},
+        }
+        assert client.knowledge_map_manager == "knowledge"
+    finally:
+        PROVIDER_BUILDERS.pop(provider_name, None)
+
+
 def test_provider_catalog_contains_major_providers():
     catalog = get_llm_provider_catalog()
     for provider in ["gemini", "openai", "anthropic", "openrouter", "deepseek", "ollama"]:
