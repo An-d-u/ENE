@@ -4,6 +4,7 @@ LLM 공급자 추상화 레이어.
 """
 from dataclasses import dataclass, field
 from enum import Enum
+import inspect
 from typing import Callable, Dict, List, Protocol, Tuple, runtime_checkable
 
 LLM_RESPONSE_TUPLE = Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict], str, Dict[str, str], List[Dict], str]
@@ -547,6 +548,21 @@ def get_llm_provider_meta(provider: str) -> LLMProviderMeta | None:
     return PROVIDER_CATALOG.get(normalized)
 
 
+def _filter_builder_kwargs(builder: ProviderBuilder, kwargs: dict) -> dict:
+    try:
+        signature = inspect.signature(builder)
+    except (TypeError, ValueError):
+        return kwargs
+    parameters = signature.parameters
+    if any(parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters.values()):
+        return kwargs
+    return {
+        key: value
+        for key, value in kwargs.items()
+        if key in parameters
+    }
+
+
 def create_llm_client(
     config: LLMProviderConfig,
     *,
@@ -565,19 +581,20 @@ def create_llm_client(
         supported = ", ".join(get_supported_llm_providers())
         raise ValueError(f"지원하지 않는 LLM 공급자입니다: {provider} (지원: {supported})")
 
-    client = builder(
-        api_key=config.api_key,
-        model_name=config.model_name,
-        generation_params=config.generation_params or {},
-        memory_manager=memory_manager,
-        knowledge_map_manager=knowledge_map_manager,
-        user_profile=user_profile,
-        ene_profile=ene_profile,
-        settings=settings,
-        calendar_manager=calendar_manager,
-        mood_manager=mood_manager,
-        goal_manager=goal_manager,
-    )
+    builder_kwargs = {
+        "api_key": config.api_key,
+        "model_name": config.model_name,
+        "generation_params": config.generation_params or {},
+        "memory_manager": memory_manager,
+        "knowledge_map_manager": knowledge_map_manager,
+        "user_profile": user_profile,
+        "ene_profile": ene_profile,
+        "settings": settings,
+        "calendar_manager": calendar_manager,
+        "mood_manager": mood_manager,
+        "goal_manager": goal_manager,
+    }
+    client = builder(**_filter_builder_kwargs(builder, builder_kwargs))
     try:
         client.knowledge_map_manager = knowledge_map_manager
     except Exception:
