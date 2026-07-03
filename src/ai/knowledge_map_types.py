@@ -115,11 +115,13 @@ class TopicMemoryHistoryItem:
     text: str
     timestamp: str | None = None
     confidence: float | None = None
+    source_memory_id: str | None = None
 
     def __post_init__(self) -> None:
         self.state = _normalize_str(self.state)
         self.text = _normalize_str(self.text)
         self.timestamp = _normalize_optional_str(self.timestamp)
+        self.source_memory_id = _normalize_optional_str(self.source_memory_id)
         if self.confidence is not None:
             self.confidence = _clamp_confidence(self.confidence)
 
@@ -129,6 +131,7 @@ class TopicMemoryHistoryItem:
             "text": self.text,
             "timestamp": self.timestamp,
             "confidence": self.confidence,
+            "source_memory_id": self.source_memory_id,
         }
 
     @classmethod
@@ -146,6 +149,7 @@ class TopicMemoryClue:
     state: str
     text: str
     confidence: float = 0.5
+    source_memory_id: str | None = None
     embedding: list[float] | None = None
     embedding_provider: str | None = None
     embedding_model: str | None = None
@@ -158,6 +162,7 @@ class TopicMemoryClue:
         self.state = _normalize_str(self.state)
         self.text = _normalize_str(self.text)
         self.confidence = _clamp_confidence(self.confidence)
+        self.source_memory_id = _normalize_optional_str(self.source_memory_id)
         self.embedding_provider = _normalize_optional_str(self.embedding_provider, lower=True)
         self.embedding_model = _normalize_optional_str(self.embedding_model)
         self.history = _normalize_history_items(self.history)
@@ -170,6 +175,7 @@ class TopicMemoryClue:
             "state": self.state,
             "text": self.text,
             "confidence": self.confidence,
+            "source_memory_id": self.source_memory_id,
             "embedding": list(self.embedding) if self.embedding is not None else None,
             "embedding_provider": self.embedding_provider,
             "embedding_model": self.embedding_model,
