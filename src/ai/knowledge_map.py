@@ -601,6 +601,8 @@ class KnowledgeMapManager:
         return best_clue, best_embedding_score, best_clue_score
 
     def _embedding_similarity(self, vec1: list[float], vec2: list[float] | None) -> float:
+        vec1 = _normalize_embedding_vector(vec1)
+        vec2 = _normalize_embedding_vector(vec2)
         if not vec1 or not vec2:
             return 0.0
         if len(vec1) != len(vec2):

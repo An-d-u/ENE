@@ -740,6 +740,29 @@ def test_async_search_ignores_embedding_when_vector_dimensions_differ(tmp_path):
     assert results == []
 
 
+def test_async_search_ignores_malformed_clue_embedding_without_crashing(tmp_path):
+    query = "find malformed synthetic vector"
+    generator = SingleEmbeddingGenerator(vectors={query: [1.0, 0.0]})
+    manager = KnowledgeMapManager(tmp_path / "knowledge_map.json", embedding_generator=generator)
+    manager.merge_hints_direct(
+        [
+            _hint(
+                keyword="Malformed Topic",
+                subject="semantic",
+                text="Synthetic malformed clue.",
+            )
+        ]
+    )
+    clue = manager.topics[0].clues[0]
+    clue.embedding = 7
+    clue.embedding_provider = "fakeprovider"
+    clue.embedding_model = "topic-test-v1"
+
+    results = asyncio.run(manager.async_search(query, top_k=1))
+
+    assert results == []
+
+
 def test_async_search_falls_back_to_direct_when_query_embedding_fails(tmp_path):
     query = "What changed in Project Alpha?"
     generator = SingleEmbeddingGenerator(fail_texts={query})
