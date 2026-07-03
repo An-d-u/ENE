@@ -37,6 +37,7 @@ from .summary_parser import (
     missing_summary_response_sections,
     parse_summary_memory_meta,
     parse_summary_response,
+    parse_summary_response_with_topic_memory,
 )
 from .markdown_document_prompt import build_markdown_document_prompt
 from .summary_prompt import build_summary_prompt
@@ -771,7 +772,7 @@ class GeminiClient:
             traceback.print_exc()
             raise
     
-    async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
+    async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict, list]:
         """
         대화 내용 요약 및 사용자 정보 추출
         
@@ -807,10 +808,12 @@ class GeminiClient:
                     "importance_reason": "empty_llm_response",
                     "confidence": 0.0,
                     "entity_names": [],
-                }
+                }, []
             
             # 응답 파싱
-            summary, user_facts, ene_facts, memory_meta = self._parse_summary_response(response_text)
+            summary, user_facts, ene_facts, memory_meta, topic_hints = (
+                self._parse_summary_response_with_topic_memory(response_text)
+            )
 
             # 요약에 날짜 정보가 없으면 최소한 시간 범위를 보강
             has_date = (
@@ -828,14 +831,14 @@ class GeminiClient:
             if memory_meta:
                 print(f"[LLM] 메모리 메타 추출 keys={len(memory_meta)}")
             
-            return summary, user_facts, ene_facts, memory_meta
+            return summary, user_facts, ene_facts, memory_meta, topic_hints
             
         except Exception as e:
             print(f"[LLM] 요약 생성 실패: {e}")
             import traceback
             traceback.print_exc()
             # 실패 시 간단한 요약 반환
-            return f"대화 {len(messages)}개 메시지", [], [], {}
+            return f"대화 {len(messages)}개 메시지", [], [], {}, []
     
     def _parse_summary_memory_meta(self, meta_lines: list[str]) -> dict:
         """요약 응답의 MEMORY_META 섹션을 정규화된 딕셔너리로 파싱한다."""
@@ -844,6 +847,10 @@ class GeminiClient:
     def _parse_summary_response(self, response_text: str) -> tuple[str, list[str], list[str], dict]:
         """요약 응답 파싱 ([SUMMARY], [MASTER_INFO], [ENE_INFO], [MEMORY_META] 분리)."""
         return parse_summary_response(response_text)
+
+    def _parse_summary_response_with_topic_memory(self, response_text: str) -> tuple[str, list[str], list[str], dict, list]:
+        """요약 응답에서 TOPIC_MEMORY 힌트까지 함께 분리한다."""
+        return parse_summary_response_with_topic_memory(response_text)
 
     def _parse_analysis_lines(self, raw_block: str) -> Dict[str, str]:
         """analysis 메타 블록의 key=value 줄을 안전하게 파싱한다."""

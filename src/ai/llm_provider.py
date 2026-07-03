@@ -7,6 +7,10 @@ from enum import Enum
 from typing import Callable, Dict, List, Protocol, Tuple, runtime_checkable
 
 LLM_RESPONSE_TUPLE = Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict], str, Dict[str, str], List[Dict], str]
+SUMMARY_RESPONSE_TUPLE = (
+    tuple[str, list[str], list[str], dict]
+    | tuple[str, list[str], list[str], dict, list]
+)
 
 
 @runtime_checkable
@@ -37,7 +41,7 @@ class LLMClientProtocol(Protocol):
     def send_message(self, message: str, history_user_content: str | None = None) -> LLM_RESPONSE_TUPLE:
         ...
 
-    async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict]:
+    async def summarize_conversation(self, messages: list) -> SUMMARY_RESPONSE_TUPLE:
         ...
 
     async def generate_markdown_document(self, message: str) -> str:

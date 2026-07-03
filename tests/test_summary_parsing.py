@@ -67,3 +67,51 @@ def test_parse_summary_response_ignores_none_facts():
     assert user_facts == []
     assert ene_facts == []
     assert memory_meta == {}
+
+
+def test_parse_summary_response_with_topic_memory_extracts_topic_hints():
+    client = GeminiClient.__new__(GeminiClient)
+    response_text = """
+[SUMMARY]
+- A neutral project checkpoint was reviewed.
+
+[MASTER_INFO]
+- none
+
+[ENE_INFO]
+- none
+
+[MEMORY_META]
+- memory_type: task
+- confidence: 0.84
+
+[TOPIC_MEMORY]
+- keyword: Project Alpha
+  subject: review checklist
+  type: status_flow
+  state: active
+  text: Project Alpha review checklist is ready.
+  aliases: Alpha checklist
+  retrieval_terms: review, checklist
+  confidence: 0.82
+""".strip()
+
+    summary, user_facts, ene_facts, memory_meta, topic_hints = (
+        client._parse_summary_response_with_topic_memory(response_text)
+    )
+
+    assert summary == "A neutral project checkpoint was reviewed."
+    assert user_facts == []
+    assert ene_facts == []
+    assert memory_meta == {"memory_type": "task", "confidence": 0.84}
+    assert len(topic_hints) == 1
+    assert topic_hints[0].to_dict() == {
+        "keyword": "Project Alpha",
+        "subject": "review checklist",
+        "type": "status_flow",
+        "state": "active",
+        "text": "Project Alpha review checklist is ready.",
+        "aliases": ["Alpha checklist"],
+        "retrieval_terms": ["review", "checklist"],
+        "confidence": 0.82,
+    }
