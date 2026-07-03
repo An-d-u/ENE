@@ -252,6 +252,26 @@ def build_summary_prompt_from_text(
 - Do not use durations, elapsed times, countdown periods, or numeric-only time cues as trigger_terms; keep stable topical words instead.
 - aliases/trigger_terms must be short labels only; do not copy full conversation sentences.
 
+[TOPIC_MEMORY]
+- This is an optional section for small topic-specific hints that may be lost or over-compressed in the long-term summary.
+- If none: none
+- If present, write only in this bullet key-value format. If there are multiple hints, start each new item with the next "- keyword:" line:
+- keyword: ...
+- subject: ...
+- type: status_flow
+- state: active
+- text: ...
+- aliases: ...
+- retrieval_terms: ...
+- confidence: 0.0~1.0
+- Allow concrete and relatively stable clues attached to a specific topic, object, project, work, tool, place, event, item, or food.
+- Allow a user's relationship to or status with a specific topic, such as Project Alpha planning being active or Sample Item being wanted or purchased.
+- Exclude broad generic topics with no distinctive subject, transient environment, weather, mood, simple conversation flow, unsupported guesses, and states that are only valid right now.
+- Do not use direct preference, identity, or speaking-style information that belongs only in [MASTER_INFO] or [ENE_INFO]. Use TOPIC_MEMORY only when the information is attached to a specific keyword the user may search for later.
+- For state changes with the same subject/type, write only the latest state in text/state; do not repeat older states as new hints.
+- retrieval_terms are only short related keywords a future user query might contain; do not copy sentences.
+- aliases are only short aliases or alternate spellings.
+
 [ALLOW]
 - basic: stable information such as identity, job, education, environment, or relationships
 - preference: preferred methods, tastes, or styles
@@ -333,6 +353,25 @@ def build_summary_prompt_from_text(
 - 一度きりの日付、時刻、曜日、相対日付はtrigger_termsに入れないでください。時間に関する語は、繰り返しのルーティン、または締切・イベント名そのものが記憶の中心である場合だけ許可します。
 - 期間、経過時間、カウントダウン、数字だけの時間の手がかりはtrigger_termsに入れず、安定した話題語を残してください。
 - aliases/trigger_termsは短いラベルだけにし、会話文をそのままコピーしないでください。
+
+[TOPIC_MEMORY]
+- Optional section for small topic-specific hints that may be lost in the long summary.
+- If none: none
+- Use only this bullet key-value format. Multiple hints start with the next "- keyword:" line:
+- keyword: ...
+- subject: ...
+- type: status_flow
+- state: active
+- text: ...
+- aliases: ...
+- retrieval_terms: ...
+- confidence: 0.0~1.0
+- Allow concrete stable clues attached to a specific topic/project/work/tool/place/event/item/food.
+- Exclude broad generic topics, transient environment/weather/mood, simple conversation flow, unsupported guesses, and now-only states.
+- Do not duplicate direct [MASTER_INFO] or [ENE_INFO] content unless it belongs to a specific searchable keyword.
+- Same subject/type state changes should keep only the latest state in text/state.
+- retrieval_terms are short future-search keywords only; do not copy sentences.
+- aliases are short aliases or alternate spellings only.
 
 [ALLOW]
 - basic: 身元、職業、学歴、環境、関係などの安定した情報
@@ -416,6 +455,26 @@ def build_summary_prompt_from_text(
 - 기간, 경과 시간, 카운트다운, 숫자만 남는 시간 단서는 trigger_terms에 넣지 말고 안정적인 주제어만 남기세요.
 - aliases/trigger_terms는 짧은 라벨만 쓰고, 대화 문장을 그대로 복사하지 마세요.
 
+[TOPIC_MEMORY]
+- 장기 요약에서 빠지거나 너무 압축될 수 있는 작은 주제별 단서를 위한 선택 섹션입니다.
+- 없으면: none
+- 있으면 아래 bullet key-value 형식으로만 작성하세요. 여러 hint가 있으면 다음 "- keyword:" 줄로 새 항목을 시작하세요:
+- keyword: ...
+- subject: ...
+- type: status_flow
+- state: active
+- text: ...
+- aliases: ...
+- retrieval_terms: ...
+- confidence: 0.0~1.0
+- 특정 주제, 대상, 프로젝트, 작품, 도구, 장소, 이벤트, 물건, 음식 등에 붙은 구체적이고 비교적 안정적인 단서만 허용하세요.
+- 사용자의 관계나 상태가 특정 주제에 붙어 있을 때도 허용합니다. 예: Project Alpha 계획 상태, Sample Item 구매 희망/완료 상태.
+- 너무 넓은 일반어만 있는 주제, 일시적 환경/날씨/기분, 단순 대화 흐름, 근거 없는 추측, 지금만 유효한 상태는 제외하세요.
+- [MASTER_INFO]나 [ENE_INFO]에 들어갈 직접적인 성향/정체성/말투 정보만 있으면 쓰지 마세요. 단, 나중에 특정 keyword로 찾을 법한 정보일 때만 TOPIC_MEMORY에 쓰세요.
+- 같은 subject/type의 상태 변화는 최신 상태만 text/state에 쓰고, 이전 상태를 새 hint로 반복하지 마세요.
+- retrieval_terms는 미래 사용자가 물어볼 짧은 관련 키워드만 쓰고, 문장을 복사하지 마세요.
+- aliases는 짧은 별칭이나 다른 표기만 쓰세요.
+
 [ALLOW]
 - basic: 신상/직업/학력/환경/관계 같은 정적 정보
 - preference: 선호하는 방식이나 취향/스타일
@@ -442,5 +501,4 @@ def build_summary_prompt_from_text(
 - "**"와 같은 강조표시의 사용은 금지합니다.
 """
     return SummaryPrompt(prompt=prompt, time_range=resolved_time_range)
-
 
