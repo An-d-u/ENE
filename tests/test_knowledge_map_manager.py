@@ -180,6 +180,50 @@ def test_load_skips_topics_and_clues_missing_required_fields(tmp_path):
     assert manager.topics[0].clues[0].id == "clue-7"
 
 
+def test_load_keeps_clue_when_history_contains_malformed_item(tmp_path):
+    path = tmp_path / "knowledge_map.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "last_updated": "2026-01-01T00:00:00+00:00",
+                "topics": [
+                    {
+                        "id": "topic-1",
+                        "keyword": "Project Alpha",
+                        "clues": [
+                            {
+                                "id": "clue-1",
+                                "subject": "planning",
+                                "type": "status",
+                                "state": "active",
+                                "text": "Project Alpha planning is active.",
+                                "history": [
+                                    {"state": "draft"},
+                                    {
+                                        "state": "review",
+                                        "text": "Project Alpha planning was reviewed.",
+                                    },
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    manager = KnowledgeMapManager(path)
+
+    manager.load()
+
+    assert len(manager.topics) == 1
+    assert len(manager.topics[0].clues) == 1
+    assert manager.topics[0].clues[0].id == "clue-1"
+    assert len(manager.topics[0].clues[0].history) == 1
+    assert manager.topics[0].clues[0].history[0].state == "review"
+
+
 def test_short_inner_english_fragment_does_not_merge_unrelated_topics(tmp_path):
     manager = KnowledgeMapManager(tmp_path / "knowledge_map.json")
     manager.merge_hints_direct(
@@ -203,6 +247,59 @@ def test_short_inner_english_fragment_does_not_merge_unrelated_topics(tmp_path):
     )
 
     assert [topic.keyword for topic in manager.topics] == ["paid", "AI"]
+
+
+def test_english_word_inner_substring_does_not_merge_unrelated_topics(tmp_path):
+    manager = KnowledgeMapManager(tmp_path / "knowledge_map.json")
+    manager.merge_hints_direct(
+        [
+            _hint(
+                keyword="concatenate",
+                subject="text",
+                text="Concatenate operation is recorded for a neutral sample.",
+            )
+        ]
+    )
+
+    manager.merge_hints_direct(
+        [
+            _hint(
+                keyword="cat",
+                subject="label",
+                text="Cat label is recorded for a neutral sample.",
+            )
+        ]
+    )
+
+    assert [topic.keyword for topic in manager.topics] == ["concatenate", "cat"]
+
+
+def test_alias_phrase_still_merges_on_token_boundary(tmp_path):
+    manager = KnowledgeMapManager(tmp_path / "knowledge_map.json")
+    manager.merge_hints_direct(
+        [
+            _hint(
+                keyword="Project Alpha",
+                subject="planning",
+                text="Project Alpha planning is active.",
+                aliases=["Alpha Plan"],
+            )
+        ]
+    )
+
+    manager.merge_hints_direct(
+        [
+            _hint(
+                keyword="Alpha Plan Review",
+                subject="review",
+                type="note",
+                text="Alpha Plan Review notes are recorded.",
+            )
+        ]
+    )
+
+    assert len(manager.topics) == 1
+    assert {clue.subject for clue in manager.topics[0].clues} == {"planning", "review"}
 
 
 def test_alias_matching_multiple_topics_creates_new_topic(tmp_path):

@@ -47,7 +47,7 @@ def _is_phrase_match(left: str, right: str) -> bool:
 def _contains_phrase(container: str, phrase: str) -> bool:
     if phrase not in container:
         return False
-    if re.fullmatch(r"[a-z0-9]+", phrase) and len(phrase) <= 2:
+    if re.search(r"[a-z0-9]", phrase):
         return re.search(rf"(?<![a-z0-9]){re.escape(phrase)}(?![a-z0-9])", container) is not None
     return True
 
@@ -105,6 +105,23 @@ def _coerce_hint(raw_hint: TopicMemoryHint | dict[str, Any]) -> TopicMemoryHint 
         return None
 
 
+def _coerce_history_item(raw_item: TopicMemoryHistoryItem | dict[str, Any]) -> TopicMemoryHistoryItem | None:
+    if isinstance(raw_item, TopicMemoryHistoryItem):
+        if not raw_item.state or not raw_item.text:
+            return None
+        return raw_item
+    if not isinstance(raw_item, dict):
+        return None
+
+    data = dict(raw_item)
+    if not _visible_text(data.get("state")) or not _visible_text(data.get("text")):
+        return None
+    try:
+        return TopicMemoryHistoryItem.from_dict(data)
+    except TypeError:
+        return None
+
+
 def _coerce_clue(raw_clue: TopicMemoryClue | dict[str, Any]) -> TopicMemoryClue | None:
     if isinstance(raw_clue, TopicMemoryClue):
         if not raw_clue.id or not raw_clue.subject or not raw_clue.text:
@@ -122,6 +139,14 @@ def _coerce_clue(raw_clue: TopicMemoryClue | dict[str, Any]) -> TopicMemoryClue 
         return None
     data.setdefault("type", "")
     data.setdefault("state", "")
+    raw_history = data.get("history", [])
+    if not isinstance(raw_history, list):
+        raw_history = []
+    data["history"] = [
+        item
+        for item in (_coerce_history_item(item) for item in raw_history)
+        if item is not None
+    ]
     try:
         return TopicMemoryClue.from_dict(data)
     except TypeError:
