@@ -898,6 +898,23 @@ def test_async_build_context_block_uses_embedding_search_without_direct_keyword(
     assert "Synthetic semantic clue." in context
 
 
+def test_async_build_context_block_uses_prompt_language_label(tmp_path):
+    manager = KnowledgeMapManager(tmp_path / "knowledge_map.json")
+    manager.merge_hints_direct(
+        [
+            _hint(
+                keyword="Project Alpha",
+                subject="planning",
+                text="Project Alpha planning is ready for review.",
+            )
+        ]
+    )
+
+    context = asyncio.run(manager.async_build_context_block("Project Alpha", top_k=1, language="en"))
+
+    assert context.startswith("[Topic Memory]")
+
+
 def test_async_wrappers_use_direct_logic(tmp_path):
     manager = KnowledgeMapManager(tmp_path / "knowledge_map.json")
     asyncio.run(
