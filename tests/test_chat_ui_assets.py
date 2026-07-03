@@ -55,6 +55,116 @@ def _script_text() -> str:
     return SCRIPT_PATH.read_text(encoding="utf-8-sig")
 
 
+def _run_message_helpers_runtime_case(case_script: str) -> dict:
+    runtime_path = str(WEB_DIR / "runtime_message_helpers.js")
+    node_script = f"""
+const fs = require('fs');
+const vm = require('vm');
+
+class Element {{
+    constructor(tagName) {{
+        this.tagName = tagName;
+        this.children = [];
+        this.parentElement = null;
+        this.dataset = {{}};
+        this.className = '';
+        this.value = '';
+        this.textContent = '';
+        this.eventListeners = {{}};
+        this.type = '';
+        this.rows = 0;
+        this.min = '';
+        this.max = '';
+        this.step = '';
+    }}
+
+    appendChild(child) {{
+        child.parentElement = this;
+        this.children.push(child);
+        return child;
+    }}
+
+    remove() {{
+        if (!this.parentElement) return;
+        this.parentElement.children = this.parentElement.children.filter((child) => child !== this);
+        this.parentElement = null;
+    }}
+
+    addEventListener(type, handler) {{
+        this.eventListeners[type] = handler;
+    }}
+
+    click() {{
+        if (this.eventListeners.click) this.eventListeners.click();
+    }}
+
+    matches(selector) {{
+        if (selector.startsWith('.')) {{
+            return this.className.split(/\\s+/).includes(selector.slice(1));
+        }}
+        const dataMatch = selector.match(/^\\[data-topic-field="([^"]+)"\\]$/);
+        if (dataMatch) {{
+            return this.dataset.topicField === dataMatch[1];
+        }}
+        return false;
+    }}
+
+    querySelectorAll(selector) {{
+        const matches = [];
+        const visit = (node) => {{
+            node.children.forEach((child) => {{
+                if (child.matches(selector)) matches.push(child);
+                visit(child);
+            }});
+        }};
+        visit(this);
+        return matches;
+    }}
+
+    querySelector(selector) {{
+        return this.querySelectorAll(selector)[0] || null;
+    }}
+
+    set innerHTML(value) {{
+        this.children = [];
+    }}
+}}
+
+const elements = {{
+    'summary-review-topic-hints': new Element('div'),
+}};
+const context = {{
+    window: {{}},
+    document: {{
+        createElement: (tagName) => new Element(tagName),
+        getElementById: (id) => elements[id] || null,
+    }},
+    console: {{
+        error: () => {{}},
+        warn: () => {{}},
+    }},
+    result: null,
+    currentSummaryReviewPayload: null,
+}};
+
+const runtimeSource = fs.readFileSync({json.dumps(runtime_path)}, 'utf8');
+const caseSource = {json.dumps(case_script)};
+vm.createContext(context);
+vm.runInContext(runtimeSource + '\\n' + caseSource, context, {{
+    filename: 'runtime_message_helpers.js',
+}});
+process.stdout.write(JSON.stringify(context.result));
+"""
+    completed = subprocess.run(
+        ["node", "-e", node_script],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    assert completed.returncode == 0, completed.stderr
+    return json.loads(completed.stdout)
+
+
 def _runtime_motion_state_text() -> str:
     return (WEB_DIR / "runtime_motion_state.js").read_text(encoding="utf-8-sig")
 
@@ -2954,11 +3064,94 @@ def test_summary_review_topic_hints_are_collected_from_editable_ui():
     script = _script_text()
 
     assert 'id="summary-review-topic-hints"' in html
+    assert "주제 기억 후보" in html
     assert "function renderSummaryReviewTopicHints(" in script
     assert "function collectSummaryReviewTopicHints(" in script
     assert "renderSummaryReviewTopicHints(summaryReviewTopicHints" in script
     assert "topic_hints: collectSummaryReviewTopicHints(summaryReviewTopicHints)" in script
     assert "topic_hints: currentSummaryReviewPayload && Array.isArray(currentSummaryReviewPayload.topic_hints)" not in script
+
+
+def test_summary_review_topic_hint_ui_collects_edits_without_losing_confidence():
+    result = _run_message_helpers_runtime_case(
+        """
+currentSummaryReviewPayload = {
+    topic_hints: [
+        {
+            keyword: 'sample topic',
+            subject: 'sample subject',
+            type: 'status_flow',
+            state: 'active',
+            text: 'neutral clue',
+            aliases: ['alpha'],
+            retrieval_terms: ['beta'],
+            confidence: 0
+        },
+        {
+            keyword: 'second topic',
+            subject: 'second subject',
+            type: 'preference',
+            state: 'planned',
+            text: 'second clue',
+            aliases: [],
+            retrieval_terms: [],
+            confidence: 0.77
+        }
+    ]
+};
+const container = document.getElementById('summary-review-topic-hints');
+renderSummaryReviewTopicHints(container, currentSummaryReviewPayload.topic_hints);
+const rows = container.querySelectorAll('.summary-review-topic-hint');
+const firstConfidence = rows[0].querySelector('[data-topic-field="confidence"]').value;
+rows[0].querySelector('[data-topic-field="aliases"]').value = 'alpha, gamma';
+rows[0].querySelector('[data-topic-field="retrieval_terms"]').value = 'beta, delta';
+rows[0].querySelector('[data-topic-field="text"]').value = 'edited neutral clue';
+rows[1].querySelector('[data-topic-field="confidence"]').value = '';
+const collected = collectSummaryReviewTopicHints(container);
+result = {
+    firstConfidence,
+    first: collected[0],
+    secondConfidence: collected[1].confidence
+};
+"""
+    )
+
+    assert result["firstConfidence"] == "0"
+    assert result["first"]["text"] == "edited neutral clue"
+    assert result["first"]["aliases"] == ["alpha", "gamma"]
+    assert result["first"]["retrieval_terms"] == ["beta", "delta"]
+    assert result["first"]["confidence"] == 0
+    assert result["secondConfidence"] == 0.77
+
+
+def test_summary_review_topic_hint_delete_removes_candidate_from_payload():
+    result = _run_message_helpers_runtime_case(
+        """
+currentSummaryReviewPayload = {
+    topic_hints: [
+        {
+            keyword: 'sample topic',
+            subject: 'sample subject',
+            type: 'status_flow',
+            state: 'active',
+            text: 'neutral clue',
+            aliases: [],
+            retrieval_terms: [],
+            confidence: 0.5
+        }
+    ]
+};
+const container = document.getElementById('summary-review-topic-hints');
+renderSummaryReviewTopicHints(container, currentSummaryReviewPayload.topic_hints);
+container.querySelector('.summary-review-topic-hint-delete').click();
+result = {
+    remaining: collectSummaryReviewTopicHints(container).length,
+    emptyVisible: container.querySelectorAll('.summary-review-empty').length
+};
+"""
+    )
+
+    assert result == {"remaining": 0, "emptyVisible": 1}
 
 
 def test_summary_review_modal_uses_bounded_scroll_layout():
