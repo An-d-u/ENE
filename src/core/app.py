@@ -504,11 +504,19 @@ class ENEApplication(QObject):
         from src.ui.memory_dialog import MemoryDialog
         
         # WebBridge 참조 전달
-        bridge = self.overlay_window.bridge if hasattr(self.overlay_window, 'bridge') else None
+        try:
+            overlay_window = getattr(self, "overlay_window", None)
+        except RuntimeError:
+            overlay_window = None
+        try:
+            knowledge_map_manager = getattr(self, "knowledge_map_manager", None)
+        except RuntimeError:
+            knowledge_map_manager = None
+        bridge = getattr(overlay_window, "bridge", None)
         dialog = MemoryDialog(
             self.memory_manager,
             bridge,
-            knowledge_map_manager=self.knowledge_map_manager if hasattr(self, "knowledge_map_manager") else None,
+            knowledge_map_manager=knowledge_map_manager,
         )
         dialog.exec()
 
