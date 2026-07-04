@@ -1,4 +1,4 @@
-﻿import json
+import json
 import re
 import sys
 import types
@@ -12,10 +12,12 @@ from PyQt6.QtWidgets import QApplication
 
 from src.core.i18n import configure_i18n
 from src.core.tray_icon import TrayIcon
+from src.ai.knowledge_map_types import TopicMemoryClue, TopicMemoryTopic
 from src.ui.obsidian_panel_window import ObsidianPanelWindow
 from src.ui.calendar_dialog import CalendarDialog
 from src.ui.memory_dialog import MemoryDialog
 from src.ui.profile_dialog import ProfileDialog
+from src.ui.topic_memory_mindmap import TopicMemoryMindmapPanel
 
 
 _QAPP = None
@@ -163,6 +165,38 @@ class _DummyMemoryManager:
         return {"total": len(self.memories), "updated": len(self.memories), "failed": 0, "skipped": 0}
 
 
+class _DummyKnowledgeMapManager:
+    def __init__(self, topics):
+        self.topics = topics
+        self.load_calls = 0
+        self.search_calls = 0
+
+    def load(self):
+        self.load_calls += 1
+        return self
+
+    def search_direct(self, *_args, **_kwargs):
+        self.search_calls += 1
+        raise AssertionError("UI 로컬 필터가 검색 pipeline을 호출하면 안 됩니다.")
+
+    search = search_direct
+
+    def async_search(self, *_args, **_kwargs):
+        self.search_calls += 1
+        raise AssertionError("UI 로컬 필터가 검색 pipeline을 호출하면 안 됩니다.")
+
+    def save(self):
+        raise AssertionError("읽기 전용 UI가 save를 호출하면 안 됩니다.")
+
+    def merge_hints_direct(self, *_args, **_kwargs):
+        raise AssertionError("읽기 전용 UI가 merge를 호출하면 안 됩니다.")
+
+    merge_hints = merge_hints_direct
+
+    async def async_merge_hints(self, *_args, **_kwargs):
+        raise AssertionError("읽기 전용 UI가 merge를 호출하면 안 됩니다.")
+
+
 class _DummySignal:
     def __init__(self):
         self.callbacks = []
@@ -244,6 +278,71 @@ def _read_web_runtime_script_text(assets_root: Path) -> str:
     if runtime_paths:
         return "\n".join((assets_root / path).read_text(encoding="utf-8-sig") for path in runtime_paths)
     return (assets_root / "script.js").read_text(encoding="utf-8-sig")
+
+
+def test_topic_memory_mindmap_panel_renders_topics_and_filters_locally():
+    _get_qapp()
+    configure_i18n(language="ko", locales_dir=Path("src/locales"), system_locale="ko_KR")
+    manager = _DummyKnowledgeMapManager(
+        [
+            TopicMemoryTopic(
+                id="topic-1",
+                keyword="Project Atlas",
+                aliases=["Atlas"],
+                retrieval_terms=["roadmap"],
+                clues=[
+                    TopicMemoryClue(
+                        id="clue-1",
+                        subject="planning",
+                        type="status",
+                        state="active",
+                        text="Synthetic project note.",
+                    )
+                ],
+            )
+        ]
+    )
+
+    panel = TopicMemoryMindmapPanel(manager)
+
+    assert panel.summary_label.text() == "1개 주제 · 1개 단서"
+    assert "Project Atlas" in panel.detail_title.text()
+    assert manager.search_calls == 0
+
+    panel.search_input.setText("missing")
+    assert panel.summary_label.text() == "0개 주제 · 0개 단서"
+    assert manager.search_calls == 0
+
+    panel.search_input.setText("atlas")
+    assert panel.summary_label.text() == "1개 주제 · 1개 단서"
+    panel.close()
+
+
+def test_topic_memory_mindmap_panel_refresh_reloads_manager_without_saving():
+    _get_qapp()
+    manager = _DummyKnowledgeMapManager([])
+
+    panel = TopicMemoryMindmapPanel(manager)
+    panel.refresh()
+
+    assert manager.load_calls == 1
+    panel.close()
+
+
+def test_topic_memory_mindmap_panel_shows_load_error_without_crashing():
+    _get_qapp()
+
+    class FailingKnowledgeMapManager(_DummyKnowledgeMapManager):
+        def load(self):
+            self.load_calls += 1
+            raise ValueError("synthetic load failure")
+
+    panel = TopicMemoryMindmapPanel(FailingKnowledgeMapManager([]))
+    panel.refresh()
+
+    assert "주제 기억을 불러오지 못했습니다" in panel.detail_title.text()
+    assert "synthetic load failure" in panel.detail_body.toPlainText()
+    panel.close()
 
 
 @contextmanager
