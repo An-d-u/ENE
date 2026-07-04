@@ -284,6 +284,14 @@ class SettingsDialogUiMixin:
             description_key="settings.section.memory.description",
         )
         self._add_lazy_tab(
+            "topic_memory",
+            "주제 기억 관리",
+            "키워드 단서 지도",
+            self._create_topic_memory_tab,
+            title_key="settings.section.topic_memory.title",
+            description_key="settings.section.topic_memory.description",
+        )
+        self._add_lazy_tab(
             "profile",
             "사용자 기억 관리",
             "user_profile.json 구조 편집",

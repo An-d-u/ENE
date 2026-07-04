@@ -433,6 +433,10 @@
         "title": "기억 관리",
         "description": "기억 목록과 검색 조정"
       },
+      "topic_memory": {
+        "title": "주제 기억 관리",
+        "description": "키워드 단서 지도"
+      },
       "profile": {
         "title": "사용자 기억 관리",
         "description": "user_profile.json 구조 편집"
@@ -1281,6 +1285,8 @@
       }
     }
   },
+  "settings.topic_memory.empty.title": "주제 기억 관리",
+  "settings.topic_memory.empty.body": "주제 기억 매니저가 초기화되지 않아 저장된 주제 기억을 표시할 수 없습니다.",
   "memory.button.rebuild_embeddings": "임베딩 재생성",
   "memory.embedding.rebuild.prompt.title": "임베딩 재생성이 필요합니다",
   "memory.embedding.rebuild.prompt.body": "임베딩 설정이 {provider}/{model}(으)로 바뀌었습니다. 저장된 메모리 임베딩 {count}개를 새 설정으로 다시 만들까요? API 호출이 발생할 수 있습니다.",

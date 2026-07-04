@@ -431,6 +431,10 @@
         "title": "Memory",
         "description": "Memory list and search tuning."
       },
+      "topic_memory": {
+        "title": "Topic Memory",
+        "description": "Keyword clue map."
+      },
       "profile": {
         "title": "Profile",
         "description": "Edit the user_profile.json structure."
@@ -1279,6 +1283,8 @@
       }
     }
   },
+  "settings.topic_memory.empty.title": "Topic Memory",
+  "settings.topic_memory.empty.body": "The topic memory manager is not initialized, so saved topic memories cannot be displayed.",
   "memory.button.rebuild_embeddings": "Rebuild embeddings",
   "memory.embedding.rebuild.prompt.title": "Embeddings need rebuilding",
   "memory.embedding.rebuild.prompt.body": "Embedding settings changed to {provider}/{model}. Rebuild {count} saved memory embeddings with the new settings now? This may call the embedding API.",
