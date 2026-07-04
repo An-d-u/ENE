@@ -2755,7 +2755,12 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
     )
     assert fallback_panel._graph.nodes["root"].label == "トピック記憶"
     assert fallback_panel._graph.nodes["clue:topic-fallback:clue-fallback"].label == "手がかり"
+    configure_i18n(language="en", locales_dir=locales_dir, system_locale="en_US")
+    fallback_panel.retranslate_ui()
+    assert fallback_panel._graph.nodes["root"].label == "Topic memory"
+    assert fallback_panel._graph.nodes["clue:topic-fallback:clue-fallback"].label == "Clue"
     fallback_panel.close()
+    configure_i18n(language="ja", locales_dir=locales_dir, system_locale="en_US")
 
     topic_panel.search_input.setText("missing")
     assert topic_panel.summary_label.text() == "0件のトピック · 0件の手がかり"
