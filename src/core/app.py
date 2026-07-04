@@ -505,7 +505,11 @@ class ENEApplication(QObject):
         
         # WebBridge 참조 전달
         bridge = self.overlay_window.bridge if hasattr(self.overlay_window, 'bridge') else None
-        dialog = MemoryDialog(self.memory_manager, bridge)
+        dialog = MemoryDialog(
+            self.memory_manager,
+            bridge,
+            knowledge_map_manager=self.knowledge_map_manager if hasattr(self, "knowledge_map_manager") else None,
+        )
         dialog.exec()
 
     def _show_ene_profile_dialog(self):

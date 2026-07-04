@@ -7,7 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from PyQt6.QtCore import QDate, QEvent, Qt
-from PyQt6.QtWidgets import QCheckBox, QComboBox, QDoubleSpinBox, QGroupBox, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QSpinBox
+from PyQt6.QtWidgets import QCheckBox, QComboBox, QDoubleSpinBox, QGroupBox, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QSpinBox, QWidget
 from PyQt6.QtWidgets import QApplication
 
 from src.core.i18n import configure_i18n
@@ -3580,6 +3580,98 @@ def test_show_memory_dialog_warns_with_translated_text(tmp_path, monkeypatch):
 
     assert warnings == [
         (None, "メモリを利用できません", "メモリマネージャーが初期化されていません。")
+    ]
+
+
+def test_show_memory_dialog_passes_knowledge_map_manager(monkeypatch):
+    ENEApplication = _load_app_class()
+    app = ENEApplication.__new__(ENEApplication)
+    app.memory_manager = object()
+    app.knowledge_map_manager = object()
+    app.overlay_window = SimpleNamespace(bridge=SimpleNamespace())
+    created = []
+
+    class FakeMemoryDialog:
+        def __init__(self, memory_manager, bridge=None, parent=None, embedded=False, knowledge_map_manager=None):
+            created.append(
+                {
+                    "memory_manager": memory_manager,
+                    "bridge": bridge,
+                    "knowledge_map_manager": knowledge_map_manager,
+                }
+            )
+
+        def exec(self):
+            return None
+
+    monkeypatch.setattr("src.ui.memory_dialog.MemoryDialog", FakeMemoryDialog)
+
+    ENEApplication._show_memory_dialog(app)
+
+    assert created == [
+        {
+            "memory_manager": app.memory_manager,
+            "bridge": app.overlay_window.bridge,
+            "knowledge_map_manager": app.knowledge_map_manager,
+        }
+    ]
+
+
+def test_settings_memory_tab_passes_bridge_knowledge_map_manager(monkeypatch):
+    from src.ui.settings_tabs.memory_tab import build_memory_tab
+
+    _get_qapp()
+    created = []
+
+    class FakeMemoryDialog(QWidget):
+        def __init__(
+            self,
+            memory_manager,
+            bridge=None,
+            parent=None,
+            embedded=False,
+            knowledge_map_manager=None,
+        ):
+            super().__init__(parent)
+            created.append(
+                {
+                    "memory_manager": memory_manager,
+                    "bridge": bridge,
+                    "embedded": embedded,
+                    "knowledge_map_manager": knowledge_map_manager,
+                }
+            )
+
+        def apply_theme(self, _theme_values):
+            return None
+
+    monkeypatch.setattr("src.ui.settings_tabs.memory_tab.MemoryDialog", FakeMemoryDialog)
+
+    memory_manager = object()
+    knowledge_manager = object()
+    dialog = QWidget()
+    dialog._memory_manager = memory_manager
+    dialog._bridge = SimpleNamespace(knowledge_map_manager=knowledge_manager)
+    dialog._theme_values = {}
+    dialog._original_settings = {}
+    dialog._embedded_memory_panel = None
+    dialog._bind_widget_text = lambda *_args, **_kwargs: None
+    dialog._bind_suffix = lambda *_args, **_kwargs: None
+    dialog._bind_special_value_text = lambda *_args, **_kwargs: None
+    dialog._on_setting_changed = lambda *_args, **_kwargs: None
+    dialog._add_form_row = lambda form, _key, fallback, widget: form.addRow(fallback, widget)
+    dialog._build_hint_label = lambda text, key=None: QLabel(text)
+
+    widget = build_memory_tab(dialog)
+
+    assert widget is not None
+    assert created == [
+        {
+            "memory_manager": memory_manager,
+            "bridge": dialog._bridge,
+            "embedded": True,
+            "knowledge_map_manager": knowledge_manager,
+        }
     ]
 
 
