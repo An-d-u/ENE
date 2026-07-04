@@ -354,12 +354,36 @@ def test_topic_memory_mindmap_panel_keeps_load_error_detail_after_filter_change(
             self.load_calls += 1
             raise ValueError("synthetic load failure")
 
-    panel = TopicMemoryMindmapPanel(FailingKnowledgeMapManager([]))
+    panel = TopicMemoryMindmapPanel(
+        FailingKnowledgeMapManager(
+            [
+                TopicMemoryTopic(
+                    id="topic-1",
+                    keyword="Project Atlas",
+                    clues=[
+                        TopicMemoryClue(
+                            id="clue-1",
+                            subject="planning",
+                            type="status",
+                            state="active",
+                            text="Synthetic project note.",
+                        )
+                    ],
+                )
+            ]
+        )
+    )
     panel.refresh()
     error_title = panel.detail_title.text()
     error_body = panel.detail_body.toPlainText()
 
     panel.search_input.setText("anything")
+    assert panel.detail_title.text() == error_title
+    assert panel.detail_body.toPlainText() == error_body
+
+    active_index = panel.state_filter.findData("active")
+    assert active_index >= 0
+    panel.state_filter.setCurrentIndex(active_index)
 
     assert panel.detail_title.text() == error_title
     assert panel.detail_body.toPlainText() == error_body
