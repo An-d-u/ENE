@@ -23,11 +23,13 @@ from PyQt6.QtWidgets import (
     QApplication,
     QPushButton,
     QSpinBox,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from ..core.i18n import tr as t
+from .topic_memory_mindmap import TopicMemoryMindmapPanel
 
 
 def apply_soft_shadow(widget: QWidget, blur: int = 36, alpha: int = 28) -> None:
@@ -63,10 +65,18 @@ class MemoryPreviewLabel(QLabel):
 class MemoryDialog(QDialog):
     """기억 관리 다이얼로그"""
 
-    def __init__(self, memory_manager, bridge=None, parent=None, embedded: bool = False):
+    def __init__(
+        self,
+        memory_manager,
+        bridge=None,
+        parent=None,
+        embedded: bool = False,
+        knowledge_map_manager=None,
+    ):
         super().__init__(parent)
         self.memory_manager = memory_manager
         self.bridge = bridge
+        self.knowledge_map_manager = knowledge_map_manager or getattr(bridge, "knowledge_map_manager", None)
         self._embedded = embedded
         self._theme_defaults = {
             "theme_accent_color": "#0071E3",
@@ -129,6 +139,11 @@ class MemoryDialog(QDialog):
         self.rebuild_embeddings_btn.setText(t("memory.button.rebuild_embeddings"))
         self._update_filter_button_texts()
         self._load_memories()
+        if hasattr(self, "tabs"):
+            self.tabs.setTabText(0, t("memory.tabs.long_term"))
+            self.tabs.setTabText(1, t("memory.tabs.topic_map"))
+        if hasattr(self, "topic_memory_panel"):
+            self.topic_memory_panel.retranslate_ui()
 
     def _normalize_theme_color(self, value: str, fallback: str | None = None) -> str:
         match = re.fullmatch(r"#?([0-9A-Fa-f]{6})", str(value or "").strip())
@@ -274,19 +289,28 @@ class MemoryDialog(QDialog):
 
     def _setup_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(0 if self._embedded else 18, 0 if self._embedded else 18, 0 if self._embedded else 18, 0 if self._embedded else 18)
-
+        root.setContentsMargins(
+            0 if self._embedded else 18,
+            0 if self._embedded else 18,
+            0 if self._embedded else 18,
+            0 if self._embedded else 18,
+        )
         surface = CardFrame("Surface")
         root.addWidget(surface)
-
         layout = QVBoxLayout(surface)
         layout.setContentsMargins(18, 18, 18, 18)
         layout.setSpacing(16)
-
         if not self._embedded:
             layout.addWidget(self._build_title_bar())
-        layout.addLayout(self._build_stats_row())
-        layout.addWidget(self._build_filter_card())
+
+        self.tabs = QTabWidget()
+        self.long_term_memory_page = QWidget()
+        long_term_layout = QVBoxLayout(self.long_term_memory_page)
+        long_term_layout.setContentsMargins(0, 0, 0, 0)
+        long_term_layout.setSpacing(16)
+
+        long_term_layout.addLayout(self._build_stats_row())
+        long_term_layout.addWidget(self._build_filter_card())
 
         body_grid = QGridLayout()
         body_grid.setHorizontalSpacing(14)
@@ -297,7 +321,13 @@ class MemoryDialog(QDialog):
         body_grid.setColumnStretch(0, 1)
         body_grid.setColumnStretch(1, 1)
         body_grid.setColumnStretch(2, 1)
-        layout.addLayout(body_grid, 1)
+        long_term_layout.addLayout(body_grid, 1)
+
+        self.topic_memory_panel = TopicMemoryMindmapPanel(self.knowledge_map_manager)
+        self.topic_memory_panel.knowledge_map_manager = self.knowledge_map_manager
+        self.tabs.addTab(self.long_term_memory_page, t("memory.tabs.long_term"))
+        self.tabs.addTab(self.topic_memory_panel, t("memory.tabs.topic_map"))
+        layout.addWidget(self.tabs, 1)
 
     def _build_title_bar(self) -> QWidget:
         bar = QFrame()

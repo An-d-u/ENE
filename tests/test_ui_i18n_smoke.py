@@ -2342,6 +2342,21 @@ def test_ene_profile_dialog_translates_sections_and_controls(tmp_path):
     dialog.close()
 
 
+def test_memory_dialog_adds_topic_memory_tab_and_passes_manager():
+    _get_qapp()
+    configure_i18n(language="ko", locales_dir=Path("src/locales"), system_locale="ko_KR")
+    memory_manager = _DummyMemoryManager([])
+    knowledge_manager = _DummyKnowledgeMapManager([])
+
+    dialog = MemoryDialog(memory_manager, knowledge_map_manager=knowledge_manager)
+
+    assert dialog.tabs.count() == 2
+    assert dialog.tabs.tabText(0) == "장기 기억"
+    assert dialog.tabs.tabText(1) == "주제 기억 지도"
+    assert dialog.topic_memory_panel.knowledge_map_manager is knowledge_manager
+    dialog.close()
+
+
 def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tmp_path, monkeypatch):
     _get_qapp()
     locales_dir = tmp_path / "locales"
