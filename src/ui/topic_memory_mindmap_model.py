@@ -7,6 +7,10 @@ from typing import Iterable
 from src.ai.knowledge_map_types import TopicMemoryClue, TopicMemoryTopic
 
 
+ROOT_LABEL = "주제 기억"
+FALLBACK_CLUE_LABEL = "단서"
+
+
 @dataclass(frozen=True)
 class MindmapNode:
     id: str
@@ -100,7 +104,7 @@ def _build_graph_from_topics(
     visible_topics = visible_topics[: max(0, max_topics)]
 
     nodes: dict[str, MindmapNode] = {
-        "root": MindmapNode(id="root", label="주제 기억", kind="root")
+        "root": MindmapNode(id="root", label=ROOT_LABEL, kind="root")
     }
     edges: list[MindmapEdge] = []
     topic_index: dict[str, TopicMemoryTopic] = {}
@@ -182,7 +186,7 @@ def _topic_subtitle(topic: TopicMemoryTopic) -> str:
 
 
 def _clue_label(clue: TopicMemoryClue) -> str:
-    return clue.subject or clue.type or "단서"
+    return clue.subject or clue.type or FALLBACK_CLUE_LABEL
 
 
 def _circular_positions(count: int, *, radius: float) -> list[tuple[float, float]]:
