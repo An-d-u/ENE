@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import QApplication
 
 from src.core.i18n import configure_i18n
 from src.core.tray_icon import TrayIcon
-from src.ai.knowledge_map_types import TopicMemoryClue, TopicMemoryTopic
+from src.ai.knowledge_map_types import TopicMemoryClue, TopicMemoryHistoryItem, TopicMemoryTopic
 from src.ui.obsidian_panel_window import ObsidianPanelWindow
 from src.ui.calendar_dialog import CalendarDialog
 from src.ui.memory_dialog import MemoryDialog
@@ -2392,6 +2392,25 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
         en_data={
             "memory.window.title": "ENE Memory Manager",
             "memory.window.subtitle": "Manage summaries, search parameters, and saved memories in one place.",
+            "memory.tabs.long_term": "Long-term memory",
+            "memory.tabs.topic_map": "Topic memory map",
+            "memory.topic_map.search.placeholder": "Filter topic memories",
+            "memory.topic_map.state.all": "All states",
+            "memory.topic_map.refresh": "Refresh map",
+            "memory.topic_map.summary": "{topics} topics · {clues} clues",
+            "memory.topic_map.empty.title": "No topic selected",
+            "memory.topic_map.empty.body": "Select a topic or clue in the map.",
+            "memory.topic_map.unavailable.title": "Topic memory unavailable",
+            "memory.topic_map.unavailable.body": "The topic memory manager is not initialized.",
+            "memory.topic_map.error.title": "Failed to load topic memory",
+            "memory.topic_map.error.body": "Failed to read saved topic memory: {error}",
+            "memory.topic_map.detail.aliases": "Aliases",
+            "memory.topic_map.detail.retrieval_terms": "Retrieval terms",
+            "memory.topic_map.detail.state": "State",
+            "memory.topic_map.detail.type": "Type",
+            "memory.topic_map.detail.confidence": "Confidence",
+            "memory.topic_map.detail.source": "Source memory",
+            "memory.topic_map.detail.history": "History",
             "memory.metric.total.label": "Total memories",
             "memory.metric.total.detail": "All stored memories",
             "memory.metric.important.label": "Important memories",
@@ -2490,6 +2509,25 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
             "memory.embedding.rebuild.prompt.body": "Embedding settings changed to {provider}/{model}. Rebuild {count} saved memory embeddings with the new settings now? This may call the embedding API.",
         },
         ja_data={
+            "memory.tabs.long_term": "長期メモリ",
+            "memory.tabs.topic_map": "トピック記憶マップ",
+            "memory.topic_map.search.placeholder": "トピック記憶を絞り込み",
+            "memory.topic_map.state.all": "すべての状態",
+            "memory.topic_map.refresh": "マップを更新",
+            "memory.topic_map.summary": "{topics}件のトピック · {clues}件の手がかり",
+            "memory.topic_map.empty.title": "トピックが選択されていません",
+            "memory.topic_map.empty.body": "マップ内のトピックまたは手がかりを選択してください。",
+            "memory.topic_map.unavailable.title": "トピック記憶を利用できません",
+            "memory.topic_map.unavailable.body": "トピック記憶マネージャーが初期化されていません。",
+            "memory.topic_map.error.title": "トピック記憶の読み込みに失敗しました",
+            "memory.topic_map.error.body": "保存されたトピック記憶を読み込めませんでした: {error}",
+            "memory.topic_map.detail.aliases": "別名",
+            "memory.topic_map.detail.retrieval_terms": "検索語",
+            "memory.topic_map.detail.state": "状態",
+            "memory.topic_map.detail.type": "種類",
+            "memory.topic_map.detail.confidence": "信頼度",
+            "memory.topic_map.detail.source": "元のメモリ",
+            "memory.topic_map.detail.history": "履歴",
             "memory.window.title": "ENE メモリ管理",
             "memory.window.subtitle": "自動要約、検索パラメータ、保存済みメモリを1か所で管理します。",
             "memory.metric.total.label": "総メモリ",
@@ -2592,6 +2630,33 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
     )
     configure_i18n(language="ja", locales_dir=locales_dir, system_locale="en_US")
 
+    topic_manager = _DummyKnowledgeMapManager(
+        [
+            TopicMemoryTopic(
+                id="topic-1",
+                keyword="Project Atlas",
+                aliases=["Atlas"],
+                retrieval_terms=["roadmap"],
+                clues=[
+                    TopicMemoryClue(
+                        id="clue-1",
+                        subject="planning",
+                        type="status",
+                        state="active",
+                        text="Synthetic project note.",
+                        confidence=0.75,
+                        source_memory_id="memory-1",
+                        history=[
+                            TopicMemoryHistoryItem(
+                                state="draft",
+                                text="Synthetic previous note.",
+                            )
+                        ],
+                    )
+                ],
+            )
+        ]
+    )
     bridge = SimpleNamespace(
         summarize_threshold=8,
         settings=_DummySettings(
@@ -2604,6 +2669,7 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
         ),
         user_profile=None,
         ene_profile=_DummyEneProfile(),
+        knowledge_map_manager=topic_manager,
     )
     manager = _DummyMemoryManager(
         [
@@ -2641,6 +2707,52 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
     )
 
     dialog = MemoryDialog(manager, bridge=bridge)
+
+    topic_panel = dialog.topic_memory_panel
+    assert dialog.tabs.tabText(0) == "長期メモリ"
+    assert dialog.tabs.tabText(1) == "トピック記憶マップ"
+    assert topic_panel.search_input.placeholderText() == "トピック記憶を絞り込み"
+    assert topic_panel.state_filter.itemText(0) == "すべての状態"
+    assert topic_panel.refresh_btn.text() == "マップを更新"
+    assert topic_panel.summary_label.text() == "1件のトピック · 1件の手がかり"
+    assert topic_panel.detail_title.text() == "Project Atlas"
+
+    topic_detail = topic_panel.detail_body.toPlainText()
+    assert "別名: Atlas" in topic_detail
+    assert "検索語: roadmap" in topic_detail
+
+    topic_panel._select_node("clue:topic-1:clue-1")
+    clue_detail = topic_panel.detail_body.toPlainText()
+    assert "状態: active" in clue_detail
+    assert "種類: status" in clue_detail
+    assert "信頼度: 0.75" in clue_detail
+    assert "元のメモリ: memory-1" in clue_detail
+    assert "履歴" in clue_detail
+
+    topic_panel.search_input.setText("missing")
+    assert topic_panel.summary_label.text() == "0件のトピック · 0件の手がかり"
+    assert topic_panel.detail_title.text() == "トピックが選択されていません"
+    assert topic_panel.detail_body.toPlainText() == "マップ内のトピックまたは手がかりを選択してください。"
+    topic_panel.search_input.clear()
+
+    unavailable_panel = TopicMemoryMindmapPanel(None)
+    unavailable_panel.refresh()
+    assert unavailable_panel.detail_title.text() == "トピック記憶を利用できません"
+    assert unavailable_panel.detail_body.toPlainText() == "トピック記憶マネージャーが初期化されていません。"
+    unavailable_panel.close()
+
+    class FailingKnowledgeMapManager(_DummyKnowledgeMapManager):
+        def load(self):
+            self.load_calls += 1
+            raise ValueError("synthetic load failure")
+
+    error_panel = TopicMemoryMindmapPanel(FailingKnowledgeMapManager([]))
+    error_panel.refresh()
+    assert error_panel.detail_title.text() == "トピック記憶の読み込みに失敗しました"
+    assert error_panel.detail_body.toPlainText() == (
+        "保存されたトピック記憶を読み込めませんでした: synthetic load failure"
+    )
+    error_panel.close()
 
     assert dialog.windowTitle() == "ENE メモリ管理"
     assert dialog.search_input.placeholderText() == "メモリのタイトル、要約、タグを検索"
