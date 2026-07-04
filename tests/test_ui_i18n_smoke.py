@@ -2353,7 +2353,33 @@ def test_memory_dialog_adds_topic_memory_tab_and_passes_manager():
     assert dialog.tabs.count() == 2
     assert dialog.tabs.tabText(0) == "장기 기억"
     assert dialog.tabs.tabText(1) == "주제 기억 지도"
-    assert dialog.topic_memory_panel.knowledge_map_manager is knowledge_manager
+    assert dialog.topic_memory_panel.manager is knowledge_manager
+    embedded_dialog = MemoryDialog(memory_manager, knowledge_map_manager=knowledge_manager, embedded=True)
+    assert embedded_dialog.tabs.count() == 2
+    embedded_dialog.close()
+    dialog.close()
+
+
+def test_memory_dialog_keeps_explicit_falsy_topic_memory_manager():
+    class FalsyKnowledgeMapManager(_DummyKnowledgeMapManager):
+        def __bool__(self):
+            return False
+
+    _get_qapp()
+    configure_i18n(language="ko", locales_dir=Path("src/locales"), system_locale="ko_KR")
+    memory_manager = _DummyMemoryManager([])
+    explicit_manager = FalsyKnowledgeMapManager([])
+    bridge_manager = _DummyKnowledgeMapManager([])
+    bridge = SimpleNamespace(knowledge_map_manager=bridge_manager)
+
+    dialog = MemoryDialog(
+        memory_manager,
+        bridge=bridge,
+        knowledge_map_manager=explicit_manager,
+    )
+
+    assert dialog.knowledge_map_manager is explicit_manager
+    assert dialog.topic_memory_panel.manager is explicit_manager
     dialog.close()
 
 

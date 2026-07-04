@@ -76,7 +76,11 @@ class MemoryDialog(QDialog):
         super().__init__(parent)
         self.memory_manager = memory_manager
         self.bridge = bridge
-        self.knowledge_map_manager = knowledge_map_manager or getattr(bridge, "knowledge_map_manager", None)
+        self.knowledge_map_manager = (
+            knowledge_map_manager
+            if knowledge_map_manager is not None
+            else getattr(bridge, "knowledge_map_manager", None)
+        )
         self._embedded = embedded
         self._theme_defaults = {
             "theme_accent_color": "#0071E3",
@@ -324,7 +328,6 @@ class MemoryDialog(QDialog):
         long_term_layout.addLayout(body_grid, 1)
 
         self.topic_memory_panel = TopicMemoryMindmapPanel(self.knowledge_map_manager)
-        self.topic_memory_panel.knowledge_map_manager = self.knowledge_map_manager
         self.tabs.addTab(self.long_term_memory_page, t("memory.tabs.long_term"))
         self.tabs.addTab(self.topic_memory_panel, t("memory.tabs.topic_map"))
         layout.addWidget(self.tabs, 1)
