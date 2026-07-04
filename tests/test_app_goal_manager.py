@@ -1,5 +1,7 @@
+from types import SimpleNamespace
+
 from src.core import app as app_module
-from src.core.app_memory_bootstrap import MemoryProfileRuntime
+from src.core.app_memory_bootstrap import MemoryKnowledgeRuntime, MemoryProfileRuntime
 
 
 class _DummySettings:
@@ -93,7 +95,15 @@ def test_app_initializes_goal_manager_without_llm_api_key(monkeypatch):
     monkeypatch.setattr(app_module, "ObsidianPanelWindow", _DummyObsPanelWindow)
     monkeypatch.setattr(app_module, "TrayIcon", _DummyTrayIcon)
     monkeypatch.setattr(app_module.ENEApplication, "_apply_followed_system_theme", lambda self, save=False: False)
-    monkeypatch.setattr(app_module, "build_memory_manager", lambda settings: "memory-manager")
+    monkeypatch.setattr(
+        app_module,
+        "build_memory_knowledge_runtime",
+        lambda settings: MemoryKnowledgeRuntime(
+            memory_manager="memory-manager",
+            knowledge_map_manager="knowledge-map-manager",
+            embedding_generator="embedding",
+        ),
+    )
     monkeypatch.setattr(
         app_module,
         "build_profile_runtime",
@@ -114,6 +124,7 @@ def test_app_initializes_goal_manager_without_llm_api_key(monkeypatch):
 
     assert app.llm_client is None
     assert app.memory_manager == "memory-manager"
+    assert app.knowledge_map_manager == "knowledge-map-manager"
     assert app.user_profile == "user-profile"
     assert app.ene_profile == "ene-profile"
     assert app.mood_manager == "mood-manager"
@@ -154,3 +165,52 @@ def test_app_start_does_not_restore_obsidian_panel_visibility(monkeypatch):
     app = app_module.ENEApplication()
 
     assert app.obsidian_panel_window.show_calls == 0
+
+
+def test_refresh_memory_runtime_bindings_connects_knowledge_map_to_llm_and_bridge(monkeypatch):
+    class _RecordingBridge:
+        def __init__(self):
+            self.calls = []
+
+        def set_memory_manager(self, memory_manager, llm_client, user_profile, ene_profile, knowledge_map_manager=None):
+            self.calls.append(
+                {
+                    "memory_manager": memory_manager,
+                    "llm_client": llm_client,
+                    "user_profile": user_profile,
+                    "ene_profile": ene_profile,
+                    "knowledge_map_manager": knowledge_map_manager,
+                }
+            )
+
+    bridge = _RecordingBridge()
+    app = app_module.ENEApplication.__new__(app_module.ENEApplication)
+    app.settings = _DummySettings()
+    app.llm_client = SimpleNamespace()
+    app.user_profile = "user-profile"
+    app.ene_profile = "ene-profile"
+    app.overlay_window = SimpleNamespace(bridge=bridge)
+
+    monkeypatch.setattr(
+        app_module,
+        "build_memory_knowledge_runtime",
+        lambda settings: MemoryKnowledgeRuntime(
+            memory_manager="memory-manager",
+            knowledge_map_manager="knowledge-map-manager",
+            embedding_generator="embedding",
+        ),
+    )
+
+    app_module.ENEApplication._refresh_memory_runtime_bindings(app)
+
+    assert app.llm_client.memory_manager == "memory-manager"
+    assert app.llm_client.knowledge_map_manager == "knowledge-map-manager"
+    assert bridge.calls == [
+        {
+            "memory_manager": "memory-manager",
+            "llm_client": app.llm_client,
+            "user_profile": "user-profile",
+            "ene_profile": "ene-profile",
+            "knowledge_map_manager": "knowledge-map-manager",
+        }
+    ]

@@ -36,6 +36,7 @@ from .summary_parser import (
     missing_summary_response_sections,
     parse_summary_memory_meta,
     parse_summary_response,
+    parse_summary_response_with_topic_memory,
 )
 from .markdown_document_prompt import build_markdown_document_prompt
 from .runtime_prompt_settings import build_runtime_prompt_settings_source
@@ -414,6 +415,28 @@ class _CommonMixin:
             user_name=names.user,
         ).prompt
 
+    def _empty_summary_fallback_response(self) -> tuple[str, list[str], list[str], dict, list]:
+        """LLM이 빈 요약을 돌려준 경우 topic 힌트 없이 안전한 fallback을 반환한다."""
+        return (
+            "대화 내용을 요약하지 못했어요.",
+            [],
+            [],
+            {
+                "memory_type": "general",
+                "importance_reason": "empty_llm_response",
+                "confidence": 0.0,
+                "entity_names": [],
+            },
+            [],
+        )
+
+    def _summarize_conversation_from_messages(self, messages: list) -> tuple[str, list[str], list[str], dict, list]:
+        prompt = self._build_summary_prompt_for_messages(messages)
+        response_text = self._request_summary_text(prompt)
+        if not str(response_text or "").strip():
+            return self._empty_summary_fallback_response()
+        return self._parse_summary_response_with_topic_memory(response_text)
+
     def _remember_turn(self, user_content, assistant_content) -> None:
         self._history.append({"role": "user", "content": user_content})
         self._history.append({"role": "assistant", "content": assistant_content})
@@ -567,6 +590,9 @@ class _CommonMixin:
 
     def _parse_summary_response(self, response_text: str) -> tuple[str, list[str], list[str], dict]:
         return parse_summary_response(response_text)
+
+    def _parse_summary_response_with_topic_memory(self, response_text: str) -> tuple[str, list[str], list[str], dict, list]:
+        return parse_summary_response_with_topic_memory(response_text)
 
     def _is_japanese(self, text: str) -> bool:
         return is_japanese(text)

@@ -2,6 +2,7 @@
 WebBridge의 대화 요약과 장기기억 저장 흐름을 담당한다.
 """
 import json
+import inspect
 from datetime import datetime
 import re
 import uuid
@@ -59,7 +60,10 @@ class MemorySummaryBridgeMixin:
     def _normalize_summary_result(self, summary_result):
         """LLM 요약 응답을 저장/검토에 쓰기 쉬운 형태로 정규화한다."""
         ene_facts = []
-        if isinstance(summary_result, tuple) and len(summary_result) == 4:
+        topic_hints = []
+        if isinstance(summary_result, tuple) and len(summary_result) == 5:
+            summary, user_facts, ene_facts, memory_meta, topic_hints = summary_result
+        elif isinstance(summary_result, tuple) and len(summary_result) == 4:
             summary, user_facts, ene_facts, memory_meta = summary_result
         elif isinstance(summary_result, tuple) and len(summary_result) == 3:
             summary, user_facts, memory_meta = summary_result
@@ -76,7 +80,151 @@ class MemorySummaryBridgeMixin:
         if not isinstance(memory_meta, dict):
             memory_meta = {}
 
-        return str(summary or "").strip(), user_facts, ene_facts, memory_meta
+        topic_normalizer = getattr(self, "_normalize_topic_hints", None)
+        if not callable(topic_normalizer):
+            topic_normalizer = lambda hints: MemorySummaryBridgeMixin._normalize_topic_hints(self, hints)
+
+        return (
+            str(summary or "").strip(),
+            user_facts,
+            ene_facts,
+            memory_meta,
+            topic_normalizer(topic_hints),
+        )
+
+    def _normalize_topic_hints(self, topic_hints):
+        """TOPIC_MEMORY 힌트를 UI payload에 넣을 수 있는 dict 목록으로 정규화한다."""
+        normalized = []
+        if not isinstance(topic_hints, list):
+            return normalized
+
+        allowed_keys = {
+            "keyword",
+            "subject",
+            "type",
+            "state",
+            "text",
+            "aliases",
+            "retrieval_terms",
+            "confidence",
+        }
+        list_keys = {"aliases", "retrieval_terms"}
+        for hint in topic_hints:
+            to_dict = getattr(hint, "to_dict", None)
+            if callable(to_dict):
+                raw = to_dict()
+            elif isinstance(hint, dict):
+                raw = hint
+            else:
+                continue
+            if not isinstance(raw, dict):
+                continue
+
+            item = {}
+            for key in allowed_keys:
+                if key not in raw:
+                    continue
+                value = raw.get(key)
+                if key in list_keys:
+                    if isinstance(value, list):
+                        item[key] = [str(part).strip() for part in value if str(part or "").strip()]
+                    elif str(value or "").strip():
+                        item[key] = [str(value).strip()]
+                    else:
+                        item[key] = []
+                elif key == "confidence":
+                    try:
+                        item[key] = max(0.0, min(1.0, float(value)))
+                    except (TypeError, ValueError):
+                        item[key] = 0.5
+                else:
+                    item[key] = str(value or "").strip()
+            if item:
+                normalized.append(item)
+        return normalized
+
+    def _normalize_topic_hints_for_storage(self, topic_hints):
+        """승인된 topic_hints 중 KnowledgeMapManager에 저장 가능한 항목만 남긴다."""
+        try:
+            from src.ai.knowledge_map_types import TopicMemoryHint
+        except Exception as e:
+            print(f"[Bridge] Topic hint type import failed: {e}")
+            return []
+
+        topic_normalizer = getattr(self, "_normalize_topic_hints", None)
+        if not callable(topic_normalizer):
+            topic_normalizer = lambda hints: MemorySummaryBridgeMixin._normalize_topic_hints(self, hints)
+
+        normalized = topic_normalizer(topic_hints)
+        storage_hints = []
+        for item in normalized:
+            if not isinstance(item, dict):
+                continue
+            try:
+                hint = TopicMemoryHint.from_dict(item)
+            except (TypeError, ValueError):
+                continue
+            if not hint.keyword or not hint.subject or not hint.type or not hint.state or not hint.text:
+                continue
+            storage_hints.append(hint.to_dict())
+        return storage_hints
+
+    def _reviewed_summary_source_memory_id(self, saved_memory, pending, source_timestamp):
+        """지식 맵 단서가 어느 요약에서 왔는지 추적할 ID를 고른다."""
+        memory_id = str(getattr(saved_memory, "id", "") or "").strip()
+        if memory_id:
+            return memory_id
+
+        original_messages = list(pending.get("original_messages") or []) if isinstance(pending, dict) else []
+        for message in original_messages:
+            if not isinstance(message, dict):
+                continue
+            conversation_id = str(message.get("conversation_id") or "").strip()
+            if conversation_id:
+                return conversation_id
+        return str(source_timestamp or "").strip()
+
+    async def _persist_reviewed_topic_hints(self, topic_hints, saved_memory, pending, source_timestamp):
+        """승인된 topic_hints만 지식 맵에 병합하고, 실패해도 요약 저장은 유지한다."""
+        storage_normalizer = getattr(self, "_normalize_topic_hints_for_storage", None)
+        if not callable(storage_normalizer):
+            storage_normalizer = lambda hints: MemorySummaryBridgeMixin._normalize_topic_hints_for_storage(self, hints)
+        storage_hints = storage_normalizer(topic_hints)
+        if not storage_hints:
+            return
+
+        knowledge_map_manager = getattr(self, "knowledge_map_manager", None)
+        if knowledge_map_manager is None:
+            return
+
+        source_builder = getattr(self, "_reviewed_summary_source_memory_id", None)
+        if not callable(source_builder):
+            source_builder = lambda memory, review, timestamp: MemorySummaryBridgeMixin._reviewed_summary_source_memory_id(
+                self,
+                memory,
+                review,
+                timestamp,
+            )
+        source_memory_id = source_builder(saved_memory, pending, source_timestamp)
+        try:
+            async_merge = getattr(knowledge_map_manager, "async_merge_hints", None)
+            if callable(async_merge):
+                merge_result = async_merge(storage_hints, source_memory_id=source_memory_id)
+                if inspect.isawaitable(merge_result):
+                    await merge_result
+            else:
+                merge_direct = getattr(knowledge_map_manager, "merge_hints_direct", None)
+                if not callable(merge_direct):
+                    merge_direct = getattr(knowledge_map_manager, "merge_hints", None)
+                if not callable(merge_direct):
+                    return
+                merge_direct(storage_hints, source_memory_id=source_memory_id)
+
+            save = getattr(knowledge_map_manager, "save", None)
+            if callable(save):
+                save()
+        except Exception as e:
+            print(f"[Bridge] Topic hints save skipped after failure: {e}")
 
     def _build_summary_storage_payload(self, messages):
         """요약 저장에 필요한 원문 메시지와 출처 시각을 만든다."""
@@ -124,6 +272,7 @@ class MemorySummaryBridgeMixin:
             "user_facts": list(pending.get("user_facts") or []),
             "ene_facts": list(pending.get("ene_facts") or []),
             "memory_meta": dict(pending.get("memory_meta") or {}),
+            "topic_hints": list(pending.get("topic_hints") or []),
         }
         self.summary_review_ready.emit(json.dumps(payload, ensure_ascii=False))
 
@@ -168,7 +317,7 @@ class MemorySummaryBridgeMixin:
 
         messages = self.conversation_buffer.copy()
         summary_result = await self.llm_client.summarize_conversation(messages)
-        summary, user_facts, ene_facts, memory_meta = self._normalize_summary_result(summary_result)
+        summary, user_facts, ene_facts, memory_meta, topic_hints = self._normalize_summary_result(summary_result)
         storage_payload = self._build_summary_storage_payload(messages)
         self._pending_summary_review = {
             "messages": messages,
@@ -178,10 +327,11 @@ class MemorySummaryBridgeMixin:
             "user_facts": user_facts,
             "ene_facts": ene_facts,
             "memory_meta": memory_meta,
+            "topic_hints": topic_hints,
         }
         self._emit_summary_review()
 
-    async def _persist_reviewed_summary(self, summary, user_facts, ene_facts, memory_meta):
+    async def _persist_reviewed_summary(self, summary, user_facts, ene_facts, memory_meta, topic_hints=None):
         """검토가 끝난 요약과 승인된 정보만 실제 저장소에 반영한다."""
         pending = getattr(self, "_pending_summary_review", None)
         if not isinstance(pending, dict):
@@ -197,7 +347,7 @@ class MemorySummaryBridgeMixin:
         source_timestamp = str(pending.get("source_timestamp") or datetime.now().strftime('%Y-%m-%d %H:%M'))
         original_messages = list(pending.get("original_messages") or [])
 
-        await self.memory_manager.add_summary(
+        saved_memory = await self.memory_manager.add_summary(
             summary=str(summary or "").strip(),
             original_messages=original_messages,
             is_important=False,
@@ -230,6 +380,17 @@ class MemorySummaryBridgeMixin:
                     auto_update=True,
                 )
 
+        topic_persister = getattr(self, "_persist_reviewed_topic_hints", None)
+        if not callable(topic_persister):
+            topic_persister = lambda hints, memory, review, timestamp: MemorySummaryBridgeMixin._persist_reviewed_topic_hints(
+                self,
+                hints,
+                memory,
+                review,
+                timestamp,
+            )
+        await topic_persister(topic_hints, saved_memory, pending, source_timestamp)
+
         clear_context = getattr(self.llm_client, "clear_context", None)
         if callable(clear_context):
             clear_context()
@@ -261,6 +422,7 @@ class MemorySummaryBridgeMixin:
                     payload.get("user_facts") or [],
                     payload.get("ene_facts") or [],
                     payload.get("memory_meta") or {},
+                    payload.get("topic_hints") or [],
                 )
             )
             self.summary_notice.emit("대화 요약을 저장했어요.", "success")
@@ -295,11 +457,12 @@ class MemorySummaryBridgeMixin:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             summary_result = loop.run_until_complete(self.llm_client.summarize_conversation(messages))
-            summary, user_facts, ene_facts, memory_meta = self._normalize_summary_result(summary_result)
+            summary, user_facts, ene_facts, memory_meta, topic_hints = self._normalize_summary_result(summary_result)
             pending["summary"] = summary
             pending["user_facts"] = user_facts
             pending["ene_facts"] = ene_facts
             pending["memory_meta"] = memory_meta
+            pending["topic_hints"] = topic_hints
             self._pending_summary_review = pending
             self._emit_summary_review()
             self.summary_notice.emit("요약을 다시 만들었어요.", "info")
@@ -366,7 +529,7 @@ class MemorySummaryBridgeMixin:
             if not callable(storage_builder):
                 storage_builder = lambda value: MemorySummaryBridgeMixin._build_summary_storage_payload(self, value)
 
-            summary, user_facts, ene_facts, memory_meta = normalizer(summary_result)
+            summary, user_facts, ene_facts, memory_meta, _topic_hints = normalizer(summary_result)
             storage_payload = storage_builder(messages)
             source_timestamp = storage_payload["source_timestamp"]
             original_messages = storage_payload["original_messages"]

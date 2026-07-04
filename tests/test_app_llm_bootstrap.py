@@ -107,6 +107,7 @@ def test_create_llm_runtime_client_forwards_runtime_dependencies(monkeypatch):
     config = LLMProviderConfig(provider="openai", api_key="k", model_name="m")
     dependencies = LLMRuntimeDependencies(
         memory_manager="memory",
+        knowledge_map_manager="knowledge",
         user_profile="user",
         ene_profile="ene",
         settings="settings",
@@ -121,6 +122,7 @@ def test_create_llm_runtime_client_forwards_runtime_dependencies(monkeypatch):
     assert captured["config"] is config
     assert captured["kwargs"] == {
         "memory_manager": "memory",
+        "knowledge_map_manager": "knowledge",
         "user_profile": "user",
         "ene_profile": "ene",
         "settings": "settings",

@@ -1,5 +1,17 @@
 
 // 수동 요약 확인 모달을 연다.
+const summaryReviewTopicHints = document.getElementById('summary-review-topic-hints');
+const SUMMARY_REVIEW_TOPIC_HINT_FIELDS = [
+    'keyword',
+    'subject',
+    'type',
+    'state',
+    'text',
+    'aliases',
+    'retrieval_terms',
+    'confidence'
+];
+
 function showSummaryConfirm() {
     if (!summaryConfirmOverlay) return;
     summaryConfirmOverlay.classList.remove('hidden');
@@ -28,6 +40,7 @@ function normalizeSummaryReviewPayload(payload) {
         summary: String(data.summary || ''),
         user_facts: Array.isArray(data.user_facts) ? data.user_facts.map(String) : [],
         ene_facts: Array.isArray(data.ene_facts) ? data.ene_facts.map(String) : [],
+        topic_hints: Array.isArray(data.topic_hints) ? data.topic_hints : [],
         memory_meta: Object.assign({}, meta, {
             memory_type: String(meta.memory_type || 'general'),
             importance_reason: String(meta.importance_reason || 'none'),
@@ -95,6 +108,131 @@ function renderSummaryReviewFacts(container, facts, groupName) {
     });
 }
 
+function formatSummaryReviewTopicList(value) {
+    if (Array.isArray(value)) {
+        return value.map((item) => String(item || '').trim()).filter(Boolean).join(', ');
+    }
+    return String(value || '');
+}
+
+function formatSummaryReviewTopicScalar(value) {
+    return value === null || value === undefined ? '' : String(value);
+}
+
+function parseSummaryReviewTopicList(value) {
+    return String(value || '')
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean);
+}
+
+function appendSummaryReviewTopicField(grid, fieldName, value) {
+    const label = document.createElement('label');
+    label.className = 'summary-review-field summary-review-topic-field';
+    const name = document.createElement('span');
+    name.textContent = fieldName;
+    const input = fieldName === 'text' ? document.createElement('textarea') : document.createElement('input');
+    input.className = 'summary-review-topic-input';
+    input.dataset.topicField = fieldName;
+    if (fieldName === 'confidence') {
+        input.type = 'number';
+        input.min = '0';
+        input.max = '1';
+        input.step = '0.01';
+    } else if (fieldName !== 'text') {
+        input.type = 'text';
+    }
+    if (fieldName === 'text') {
+        input.rows = 2;
+    }
+    input.value = fieldName === 'aliases' || fieldName === 'retrieval_terms'
+        ? formatSummaryReviewTopicList(value)
+        : formatSummaryReviewTopicScalar(value);
+    label.appendChild(name);
+    label.appendChild(input);
+    grid.appendChild(label);
+}
+
+function renderSummaryReviewTopicHints(container, topicHints) {
+    if (!container) return;
+    container.innerHTML = '';
+    if (!Array.isArray(topicHints) || topicHints.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'summary-review-empty';
+        empty.textContent = '없음';
+        container.appendChild(empty);
+        return;
+    }
+
+    topicHints.forEach((hint, index) => {
+        const normalizedHint = hint && typeof hint === 'object' ? hint : {};
+        const card = document.createElement('div');
+        card.className = 'summary-review-topic-hint';
+        card.dataset.topicHintIndex = String(index);
+        const header = document.createElement('div');
+        header.className = 'summary-review-topic-hint-header';
+        const title = document.createElement('div');
+        title.className = 'summary-review-topic-hint-title';
+        title.textContent = `#${index + 1}`;
+        const deleteButton = document.createElement('button');
+        deleteButton.type = 'button';
+        deleteButton.className = 'summary-review-topic-hint-delete';
+        deleteButton.textContent = '삭제';
+        deleteButton.addEventListener('click', () => {
+            card.remove();
+            if (container.querySelectorAll('.summary-review-topic-hint').length === 0) {
+                renderSummaryReviewTopicHints(container, []);
+            }
+        });
+        header.appendChild(title);
+        header.appendChild(deleteButton);
+        const grid = document.createElement('div');
+        grid.className = 'summary-review-topic-grid';
+        SUMMARY_REVIEW_TOPIC_HINT_FIELDS.forEach((fieldName) => {
+            appendSummaryReviewTopicField(grid, fieldName, normalizedHint[fieldName]);
+        });
+        card.appendChild(header);
+        card.appendChild(grid);
+        container.appendChild(card);
+    });
+}
+
+function readSummaryReviewTopicField(row, fieldName) {
+    const input = row.querySelector(`[data-topic-field="${fieldName}"]`);
+    return String(input ? input.value : '').trim();
+}
+
+function collectSummaryReviewTopicHints(container) {
+    if (!container) return [];
+    return Array.from(container.querySelectorAll('.summary-review-topic-hint'))
+        .map((row) => {
+            const index = Number(row.dataset.topicHintIndex);
+            const original = currentSummaryReviewPayload
+                && Array.isArray(currentSummaryReviewPayload.topic_hints)
+                && Number.isInteger(index)
+                && currentSummaryReviewPayload.topic_hints[index]
+                && typeof currentSummaryReviewPayload.topic_hints[index] === 'object'
+                ? currentSummaryReviewPayload.topic_hints[index]
+                : {};
+            const confidenceText = readSummaryReviewTopicField(row, 'confidence');
+            const confidenceValue = confidenceText ? Number(confidenceText) : NaN;
+            const originalConfidence = Number(original.confidence);
+            const confidence = Number.isFinite(confidenceValue)
+                ? Math.max(0, Math.min(1, confidenceValue))
+                : (Number.isFinite(originalConfidence) ? Math.max(0, Math.min(1, originalConfidence)) : 0.5);
+            return Object.assign({}, original, {
+                keyword: readSummaryReviewTopicField(row, 'keyword'),
+                subject: readSummaryReviewTopicField(row, 'subject'),
+                type: readSummaryReviewTopicField(row, 'type'),
+                state: readSummaryReviewTopicField(row, 'state'),
+                text: readSummaryReviewTopicField(row, 'text'),
+                aliases: parseSummaryReviewTopicList(readSummaryReviewTopicField(row, 'aliases')),
+                retrieval_terms: parseSummaryReviewTopicList(readSummaryReviewTopicField(row, 'retrieval_terms')),
+                confidence
+            });
+        });
+}
+
 function showSummaryReview(payload) {
     if (!summaryReviewOverlay) return;
     currentSummaryReviewPayload = normalizeSummaryReviewPayload(payload);
@@ -107,6 +245,7 @@ function showSummaryReview(payload) {
     if (summaryReviewEntities) summaryReviewEntities.value = currentSummaryReviewPayload.memory_meta.entity_names.join(', ');
     renderSummaryReviewFacts(summaryReviewUserFacts, currentSummaryReviewPayload.user_facts, 'summary-user-fact');
     renderSummaryReviewFacts(summaryReviewEneFacts, currentSummaryReviewPayload.ene_facts, 'summary-ene-fact');
+    renderSummaryReviewTopicHints(summaryReviewTopicHints, currentSummaryReviewPayload.topic_hints);
     summaryReviewOverlay.classList.remove('hidden');
     setSummaryReviewBusy(false);
     if (summaryReviewTextarea) {
@@ -163,7 +302,8 @@ function collectSummaryReviewPayload() {
             importance_reason: String(summaryReviewImportanceReason ? summaryReviewImportanceReason.value : 'none'),
             confidence,
             entity_names: entityNames
-        })
+        }),
+        topic_hints: collectSummaryReviewTopicHints(summaryReviewTopicHints)
     };
 }
 

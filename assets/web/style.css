@@ -1,4 +1,4 @@
-﻿* {
+* {
     margin: 0;
     padding: 0;
     box-sizing: border-box;
@@ -1217,30 +1217,38 @@ body.thought-feature-disabled .message-thought {
 
 #summary-review-dialog::-webkit-scrollbar,
 .summary-review-facts::-webkit-scrollbar,
+.summary-review-topic-hints::-webkit-scrollbar,
 #summary-review-textarea::-webkit-scrollbar,
-.summary-review-fact-input::-webkit-scrollbar {
+.summary-review-fact-input::-webkit-scrollbar,
+.summary-review-topic-input::-webkit-scrollbar {
     width: 6px;
 }
 
 #summary-review-dialog::-webkit-scrollbar-track,
 .summary-review-facts::-webkit-scrollbar-track,
+.summary-review-topic-hints::-webkit-scrollbar-track,
 #summary-review-textarea::-webkit-scrollbar-track,
-.summary-review-fact-input::-webkit-scrollbar-track {
+.summary-review-fact-input::-webkit-scrollbar-track,
+.summary-review-topic-input::-webkit-scrollbar-track {
     background: rgba(255, 255, 255, 0.05);
 }
 
 #summary-review-dialog::-webkit-scrollbar-thumb,
 .summary-review-facts::-webkit-scrollbar-thumb,
+.summary-review-topic-hints::-webkit-scrollbar-thumb,
 #summary-review-textarea::-webkit-scrollbar-thumb,
-.summary-review-fact-input::-webkit-scrollbar-thumb {
+.summary-review-fact-input::-webkit-scrollbar-thumb,
+.summary-review-topic-input::-webkit-scrollbar-thumb {
     background: rgba(255, 255, 255, 0.2);
     border-radius: 3px;
 }
 
 #summary-review-dialog::-webkit-scrollbar-thumb:hover,
 .summary-review-facts::-webkit-scrollbar-thumb:hover,
+.summary-review-topic-hints::-webkit-scrollbar-thumb:hover,
 #summary-review-textarea::-webkit-scrollbar-thumb:hover,
-.summary-review-fact-input::-webkit-scrollbar-thumb:hover {
+.summary-review-fact-input::-webkit-scrollbar-thumb:hover,
+.summary-review-topic-input::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.3);
 }
 
@@ -1288,7 +1296,8 @@ body.thought-feature-disabled .message-thought {
 #summary-review-memory-type,
 #summary-review-importance-reason,
 #summary-review-confidence,
-#summary-review-entities {
+#summary-review-entities,
+.summary-review-topic-input {
     width: 100%;
     min-width: 0;
     border: 1px solid var(--ene-floating-panel-border);
@@ -1357,6 +1366,14 @@ body.thought-feature-disabled .message-thought {
     overflow: auto;
 }
 
+.summary-review-topic-hints {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 280px;
+    overflow: auto;
+}
+
 .summary-review-fact {
     display: flex;
     gap: 8px;
@@ -1385,6 +1402,56 @@ body.thought-feature-disabled .message-thought {
     line-height: 1.45;
     resize: vertical;
     outline: none;
+}
+
+.summary-review-topic-hint {
+    padding: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    background: var(--ene-floating-panel-button-bg);
+}
+
+.summary-review-topic-hint-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 9px;
+}
+
+.summary-review-topic-hint-title {
+    color: var(--ene-floating-panel-text);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.summary-review-topic-hint-delete {
+    height: 26px;
+    padding: 0 9px;
+    border: 1px solid var(--ene-floating-panel-border);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--ene-floating-panel-text);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.summary-review-topic-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.summary-review-topic-field textarea.summary-review-topic-input {
+    min-height: 58px;
+    padding: 8px;
+    resize: vertical;
+}
+
+.summary-review-topic-field input.summary-review-topic-input {
+    height: 34px;
+    padding: 0 9px;
 }
 
 .summary-review-empty {
@@ -1423,7 +1490,8 @@ body.thought-feature-disabled .message-thought {
 #summary-review-cancel:hover,
 #summary-review-regenerate:hover,
 #summary-review-save:hover,
-.summary-review-add-fact:hover {
+.summary-review-add-fact:hover,
+.summary-review-topic-hint-delete:hover {
     filter: brightness(1.08);
 }
 
@@ -1437,6 +1505,10 @@ body.thought-feature-disabled .message-thought {
 
 @media (max-width: 560px) {
     .summary-review-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .summary-review-topic-grid {
         grid-template-columns: 1fr;
     }
 }

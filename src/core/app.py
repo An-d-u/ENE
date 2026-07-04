@@ -24,12 +24,34 @@ from .app_llm_bootstrap import (
     create_llm_runtime_client,
     resolve_llm_bootstrap_config,
 )
-from .app_memory_bootstrap import build_memory_manager, build_profile_runtime
+from .app_memory_bootstrap import build_memory_knowledge_runtime, build_profile_runtime
 from .app_tts_bootstrap import (
     TTSRuntime,
     apply_tts_runtime_to_bridge,
     build_tts_runtime,
 )
+
+
+def _embedding_setting_map(settings_source, key: str) -> dict:
+    value = settings_source.get(key, {}) if settings_source else {}
+    return value if isinstance(value, dict) else {}
+
+
+def _embedding_api_key_for(settings_source, provider: str) -> str:
+    values = _embedding_setting_map(settings_source, "embedding_api_keys")
+    return str(values.get(provider, "")).strip()
+
+
+def _embedding_api_url_for(settings_source, provider: str) -> str:
+    default_api_urls = {
+        "openai": "https://api.openai.com/v1",
+        "openai_compatible": "http://127.0.0.1:8000/v1",
+    }
+    configs = _embedding_setting_map(settings_source, "embedding_provider_configs")
+    provider_config = configs.get(provider, {})
+    if not isinstance(provider_config, dict):
+        provider_config = {}
+    return str(provider_config.get("api_url", default_api_urls.get(provider, ""))).strip()
 
 
 class ENEApplication(QObject):
@@ -116,6 +138,7 @@ class ENEApplication(QObject):
                 llm_config,
                 LLMRuntimeDependencies(
                     memory_manager=self.memory_manager,
+                    knowledge_map_manager=self.knowledge_map_manager if hasattr(self, "knowledge_map_manager") else None,
                     user_profile=self.user_profile if hasattr(self, "user_profile") else None,
                     ene_profile=self.ene_profile if hasattr(self, "ene_profile") else None,
                     settings=self.settings,
@@ -215,18 +238,22 @@ class ENEApplication(QObject):
     def _init_memory_manager(self):
         """메모리 매니저 초기화"""
         try:
-            self.memory_manager = build_memory_manager(self.settings)
+            runtime = build_memory_knowledge_runtime(self.settings)
+            self.memory_manager = runtime.memory_manager
+            self.knowledge_map_manager = runtime.knowledge_map_manager
         except Exception as e:
             print(f"ERROR: 메모리 매니저 초기화 실패: {e}")
             import traceback
             traceback.print_exc()
             self.memory_manager = None
+            self.knowledge_map_manager = None
 
     def _refresh_memory_runtime_bindings(self):
         """메모리 매니저 재초기화 후 LLM/Bridge에 다시 연결한다."""
         self._init_memory_manager()
         if hasattr(self, "llm_client") and self.llm_client:
             self.llm_client.memory_manager = self.memory_manager
+            self.llm_client.knowledge_map_manager = self.knowledge_map_manager
             self.llm_client.ene_profile = self.ene_profile if hasattr(self, "ene_profile") else None
         if hasattr(self, "overlay_window") and self.overlay_window and hasattr(self.overlay_window, "bridge"):
             user_profile = self.user_profile if hasattr(self, "user_profile") else None
@@ -236,6 +263,7 @@ class ENEApplication(QObject):
                 self.llm_client if hasattr(self, "llm_client") else None,
                 user_profile,
                 ene_profile,
+                self.knowledge_map_manager if hasattr(self, "knowledge_map_manager") else None,
             )
     
     def _init_tts(self):
@@ -281,6 +309,7 @@ class ENEApplication(QObject):
                 self.llm_client,
                 user_profile,
                 ene_profile,
+                self.knowledge_map_manager if hasattr(self, "knowledge_map_manager") else None,
             )
         
         # TTS 클라이언트 및 오디오 플레이어 연결
@@ -475,8 +504,20 @@ class ENEApplication(QObject):
         from src.ui.memory_dialog import MemoryDialog
         
         # WebBridge 참조 전달
-        bridge = self.overlay_window.bridge if hasattr(self.overlay_window, 'bridge') else None
-        dialog = MemoryDialog(self.memory_manager, bridge)
+        try:
+            overlay_window = getattr(self, "overlay_window", None)
+        except RuntimeError:
+            overlay_window = None
+        try:
+            knowledge_map_manager = getattr(self, "knowledge_map_manager", None)
+        except RuntimeError:
+            knowledge_map_manager = None
+        bridge = getattr(overlay_window, "bridge", None)
+        dialog = MemoryDialog(
+            self.memory_manager,
+            bridge,
+            knowledge_map_manager=knowledge_map_manager,
+        )
         dialog.exec()
 
     def _show_ene_profile_dialog(self):
@@ -542,13 +583,42 @@ class ENEApplication(QObject):
 
         new_embedding_provider = str(new_settings.get("embedding_provider", old_embedding_provider)).strip().lower()
         new_embedding_model = str(new_settings.get("embedding_model", old_embedding_model)).strip() or "voyage-3"
-        if (old_embedding_provider, old_embedding_model) != (new_embedding_provider, new_embedding_model):
+        old_embedding_key = _embedding_api_key_for(self.settings, new_embedding_provider)
+        new_embedding_key_source = (
+            new_settings
+            if "embedding_api_keys" in new_settings
+            else self.settings
+        )
+        new_embedding_key = _embedding_api_key_for(new_embedding_key_source, new_embedding_provider)
+        old_embedding_api_url = _embedding_api_url_for(self.settings, new_embedding_provider)
+        new_embedding_api_url_source = (
+            new_settings
+            if "embedding_provider_configs" in new_settings
+            else self.settings
+        )
+        new_embedding_api_url = _embedding_api_url_for(new_embedding_api_url_source, new_embedding_provider)
+        embedding_source_changed = (
+            old_embedding_provider,
+            old_embedding_model,
+        ) != (
+            new_embedding_provider,
+            new_embedding_model,
+        )
+        embedding_runtime_config_changed = (
+            old_embedding_key,
+            old_embedding_api_url,
+        ) != (
+            new_embedding_key,
+            new_embedding_api_url,
+        )
+        if embedding_source_changed or embedding_runtime_config_changed:
             if hasattr(self, "memory_manager") and self.memory_manager:
                 marker = getattr(self.memory_manager, "mark_unknown_embeddings_source", None)
-                if callable(marker):
+                if embedding_source_changed and callable(marker):
                     marker(old_embedding_provider, old_embedding_model)
             self._refresh_memory_runtime_bindings()
-            self._show_embedding_rebuild_prompt(new_embedding_provider, new_embedding_model)
+            if embedding_source_changed:
+                self._show_embedding_rebuild_prompt(new_embedding_provider, new_embedding_model)
 
         new_tts_config = json.dumps(
             {

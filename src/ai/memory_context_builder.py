@@ -182,6 +182,38 @@ def build_goal_context_block(client, prompt_language: str | None = None) -> str:
         return ""
 
 
+async def build_topic_memory_context_block(
+    client,
+    query: str,
+    *,
+    top_k: int,
+    prompt_language: str | None = None,
+) -> str:
+    """knowledge map에서 관련 주제 기억 컨텍스트를 안전하게 만든다."""
+    if top_k <= 0:
+        return ""
+    normalized_query = str(query or "").strip()
+    if not normalized_query:
+        return ""
+
+    knowledge_map_manager = getattr(client, "knowledge_map_manager", None)
+    if not knowledge_map_manager or not hasattr(knowledge_map_manager, "async_build_context_block"):
+        return ""
+
+    try:
+        return str(
+            await knowledge_map_manager.async_build_context_block(
+                normalized_query,
+                top_k=top_k,
+                language=prompt_language or "ko",
+            )
+            or ""
+        ).strip()
+    except Exception as e:
+        print(f"[LLM] Topic memory context append failed: {e}")
+        return ""
+
+
 def build_overdue_promise_context(client, labels: dict[str, str], language: str = "ko") -> str:
     promise_manager = getattr(client, "promise_manager", None)
     if not promise_manager or not hasattr(promise_manager, "list_promises"):
@@ -303,18 +335,35 @@ async def build_memory_context(
         if callable(prompt_language_getter)
         else resolve_prompt_language(settings_source=getattr(client, "settings", None))
     )
+    settings_config = _settings_config(client)
+    normalized_query = str(query or "").strip()
+    normalized_recent_context = str(recent_context or "").strip()
+    max_topic_memory_context = normalize_int_setting(
+        settings_config.get("max_topic_memory_context", 2),
+        default=2,
+        min_value=0,
+        max_value=10,
+    )
+    topic_memory_block = await build_topic_memory_context_block(
+        client,
+        normalized_query,
+        top_k=max_topic_memory_context,
+        prompt_language=prompt_language,
+    )
     goal_block = build_goal_context_block(client, prompt_language)
     memory_manager = getattr(client, "memory_manager", None)
     if not memory_manager:
         print("[LLM] 메모리 매니저 없음")
-        return goal_block
+        context_parts = []
+        if goal_block:
+            context_parts.append(goal_block)
+        if topic_memory_block:
+            context_parts.append("\n" + topic_memory_block)
+            print("[LLM] Topic memory context included")
+        return "\n".join(context_parts)
 
     context_parts = []
     labels = memory_context_labels(client)
-    normalized_query = str(query or "").strip()
-    normalized_recent_context = str(recent_context or "").strip()
-
-    settings_config = _settings_config(client)
     max_profile_facts = settings_config.get("max_profile_facts_in_context", 10)
     try:
         max_profile_facts = max(0, int(max_profile_facts))
@@ -416,6 +465,10 @@ async def build_memory_context(
     if goal_block:
         context_parts.append("\n" + goal_block)
         print("[LLM] Goal context included")
+
+    if topic_memory_block:
+        context_parts.append("\n" + topic_memory_block)
+        print("[LLM] Topic memory context included")
 
     overdue_promise_block = build_overdue_promise_context(client, labels, prompt_language)
     if overdue_promise_block:

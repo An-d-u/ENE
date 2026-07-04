@@ -287,6 +287,25 @@ class _DummyGoalManager:
         return "[ENE 현재 목표]\n- id: goal_20260522_001\n- title: 출시 준비"
 
 
+class _DummyKnowledgeMapManager:
+    def __init__(self, block="[Topic Memory]\n- Project Alpha / status: Synthetic planning note.", error=None):
+        self.block = block
+        self.error = error
+        self.calls = []
+
+    async def async_build_context_block(self, query, top_k=2, language="ko"):
+        self.calls.append(
+            {
+                "query": query,
+                "top_k": top_k,
+                "language": language,
+            }
+        )
+        if self.error:
+            raise self.error
+        return self.block
+
+
 def test_send_message_with_memory_adds_goal_context_to_enhanced_prompt():
     captured = {}
     dummy = type("ClientDummy", (), {})()
@@ -665,6 +684,100 @@ def test_build_memory_context_includes_goal_context_without_memory_manager():
 
     assert "[ENE 현재 목표]" in context
     assert "goal_20260522_001" in context
+
+
+def test_build_memory_context_includes_topic_memory_without_memory_manager():
+    topic_manager = _DummyKnowledgeMapManager()
+    dummy = type("ClientDummy", (), {})()
+    dummy.memory_manager = None
+    dummy.goal_manager = _DummyGoalManager()
+    dummy.knowledge_map_manager = topic_manager
+    dummy.settings = type("SettingsDummy", (), {"config": {"max_topic_memory_context": 1}})()
+
+    context = asyncio.run(GeminiClient._build_memory_context(dummy, "Project Alpha status?"))
+
+    assert "goal_20260522_001" in context
+    assert "[Topic Memory]" in context
+    assert "Synthetic planning note." in context
+    assert topic_manager.calls == [
+        {
+            "query": "Project Alpha status?",
+            "top_k": 1,
+            "language": "ko",
+        }
+    ]
+
+
+def test_build_memory_context_includes_topic_memory_with_memory_manager():
+    topic_manager = _DummyKnowledgeMapManager()
+    dummy = type("ClientDummy", (), {})()
+    dummy.memory_manager = _EmptyMemoryManager()
+    dummy.user_profile = _DummyProfile([])
+    dummy.ene_profile = None
+    dummy.mood_manager = None
+    dummy.goal_manager = _DummyGoalManager()
+    dummy.knowledge_map_manager = topic_manager
+    dummy.settings = type("SettingsDummy", (), {"config": {"max_topic_memory_context": 2}})()
+    dummy.calendar_manager = None
+
+    context = asyncio.run(GeminiClient._build_memory_context(dummy, "Project Alpha status?"))
+
+    assert context.count("[Topic Memory]") == 1
+    assert "Synthetic planning note." in context
+    assert context.index("goal_20260522_001") < context.index("[Topic Memory]")
+    assert topic_manager.calls == [
+        {
+            "query": "Project Alpha status?",
+            "top_k": 2,
+            "language": "ko",
+        }
+    ]
+
+
+def test_build_memory_context_disables_topic_memory_when_config_is_zero():
+    topic_manager = _DummyKnowledgeMapManager()
+    dummy = type("ClientDummy", (), {})()
+    dummy.memory_manager = None
+    dummy.goal_manager = _DummyGoalManager()
+    dummy.knowledge_map_manager = topic_manager
+    dummy.settings = type("SettingsDummy", (), {"config": {"max_topic_memory_context": 0}})()
+
+    context = asyncio.run(GeminiClient._build_memory_context(dummy, "Project Alpha status?"))
+
+    assert "goal_20260522_001" in context
+    assert "[Topic Memory]" not in context
+    assert topic_manager.calls == []
+
+
+def test_build_memory_context_skips_topic_memory_for_blank_query():
+    topic_manager = _DummyKnowledgeMapManager()
+    dummy = type("ClientDummy", (), {})()
+    dummy.memory_manager = None
+    dummy.goal_manager = _DummyGoalManager()
+    dummy.knowledge_map_manager = topic_manager
+    dummy.settings = type("SettingsDummy", (), {"config": {"max_topic_memory_context": 2}})()
+
+    context = asyncio.run(GeminiClient._build_memory_context(dummy, "   "))
+
+    assert "goal_20260522_001" in context
+    assert "[Topic Memory]" not in context
+    assert topic_manager.calls == []
+
+
+def test_build_memory_context_ignores_topic_memory_failure(capsys):
+    topic_manager = _DummyKnowledgeMapManager(error=RuntimeError("synthetic topic failure"))
+    dummy = type("ClientDummy", (), {})()
+    dummy.memory_manager = None
+    dummy.goal_manager = _DummyGoalManager()
+    dummy.knowledge_map_manager = topic_manager
+    dummy.settings = type("SettingsDummy", (), {"config": {"max_topic_memory_context": 2}})()
+
+    context = asyncio.run(GeminiClient._build_memory_context(dummy, "Project Alpha status?"))
+
+    captured = capsys.readouterr().out
+    assert "goal_20260522_001" in context
+    assert "[Topic Memory]" not in context
+    assert "Topic memory context append failed" in captured
 
 
 def test_http_common_memory_context_includes_goal_context_without_memory_manager():
