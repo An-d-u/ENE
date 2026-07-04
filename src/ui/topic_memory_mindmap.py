@@ -135,6 +135,15 @@ class TopicMemoryMindmapPanel(QWidget):
         self._refresh_state_filter_items()
         if self._graph is None:
             self._set_empty_summary()
+        elif self._last_load_error is None:
+            selected_node_id = self._selected_node_id
+            self._rebuild_graph()
+            if (
+                selected_node_id
+                and self._graph is not None
+                and selected_node_id in self._graph.nodes
+            ):
+                self._select_node(selected_node_id)
         else:
             self._set_summary(self._graph.total_topics, self._graph.total_clues)
 
