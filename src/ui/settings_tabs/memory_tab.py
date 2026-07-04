@@ -89,7 +89,14 @@ def build_memory_tab(dialog):
     layout.addWidget(search_card)
 
     if self._memory_manager:
-        panel = MemoryDialog(self._memory_manager, self._bridge, self, embedded=True)
+        knowledge_map_manager = getattr(self._bridge, "knowledge_map_manager", None) if self._bridge else None
+        panel = MemoryDialog(
+            self._memory_manager,
+            self._bridge,
+            self,
+            embedded=True,
+            knowledge_map_manager=knowledge_map_manager,
+        )
         panel.apply_theme(dict(self._theme_values))
         self._embedded_memory_panel = panel
         panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
