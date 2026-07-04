@@ -429,6 +429,10 @@
         "title": "メモリ管理",
         "description": "メモリ一覧と検索調整"
       },
+      "topic_memory": {
+        "title": "トピック記憶管理",
+        "description": "キーワード手がかりマップ"
+      },
       "profile": {
         "title": "ユーザーメモリ管理",
         "description": "user_profile.json 構造の編集"
@@ -1227,6 +1231,8 @@
       }
     }
   },
+  "settings.topic_memory.empty.title": "トピック記憶管理",
+  "settings.topic_memory.empty.body": "トピック記憶マネージャーが初期化されていないため、保存済みトピック記憶を表示できません。",
   "memory.button.rebuild_embeddings": "埋め込みを再生成",
   "memory.embedding.rebuild.prompt.title": "埋め込みの再生成が必要です",
   "memory.embedding.rebuild.prompt.body": "埋め込み設定が {provider}/{model} に変わりました。保存済みメモリ {count} 件の埋め込みを新しい設定で再生成しますか？API 呼び出しが発生する場合があります。",

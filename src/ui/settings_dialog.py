@@ -147,6 +147,7 @@ class SettingsDialog(
         self._prompt_token_update_timer.timeout.connect(self._refresh_prompt_token_counts)
         self._toggle_checks: list[ToggleSwitch] = []
         self._embedded_memory_panel = None
+        self._embedded_topic_memory_panel = None
         self._embedded_ene_profile_panel = None
         self.memory_search_recent_turns_spin: QSpinBox | None = None
         self.assistant_display_name_edit: QLineEdit | None = None
@@ -520,6 +521,11 @@ class SettingsDialog(
             self._embedded_ene_profile_panel.set_translators(self._translated_text, self._translated_text_format)
         if self._embedded_memory_panel is not None and hasattr(self._embedded_memory_panel, "retranslate_ui"):
             self._embedded_memory_panel.retranslate_ui()
+        if (
+            self._embedded_topic_memory_panel is not None
+            and hasattr(self._embedded_topic_memory_panel, "retranslate_ui")
+        ):
+            self._embedded_topic_memory_panel.retranslate_ui()
         self._refresh_prompt_token_counts()
         self._update_ptt_hotkey_ui()
         self._sync_tts_provider_ui()
@@ -578,6 +584,11 @@ class SettingsDialog(
         from .settings_tabs import memory_tab
 
         return memory_tab.build_memory_tab(self)
+
+    def _create_topic_memory_tab(self):
+        from .settings_tabs import topic_memory_tab
+
+        return topic_memory_tab.build_topic_memory_tab(self)
 
     def _create_user_profile_tab(self):
         from .settings_tabs import user_profile_tab

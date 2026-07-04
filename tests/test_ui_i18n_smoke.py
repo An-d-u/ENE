@@ -1218,6 +1218,7 @@ def test_settings_dialog_exposes_language_selector_and_translated_static_strings
 
         dialog._ensure_lazy_tab_loaded("prompt")
         dialog._ensure_lazy_tab_loaded("memory")
+        dialog._ensure_lazy_tab_loaded("topic_memory")
 
         assert dialog.ui_language_combo.currentData() == "en"
         assert [dialog.ui_language_combo.itemData(index) for index in range(dialog.ui_language_combo.count())] == [
@@ -1254,9 +1255,10 @@ def test_settings_dialog_exposes_language_selector_and_translated_static_strings
         assert dialog.memory_search_recent_turns_spin.suffix() == " turns"
         assert dialog.memory_search_recent_turns_spin.specialValueText() == "Current message only"
         assert "Emotion List and Usage Guide" in {group.title() for group in dialog.findChildren(QGroupBox)}
-        assert {"Memory Search Range", "Memory"}.issubset(
+        assert {"Memory Search Range", "Memory", "Topic Memory"}.issubset(
             {label.text() for label in dialog.findChildren(QLabel)}
         )
+        assert "topic_memory" in set(dialog._lazy_tab_index_to_id.values())
         assert dialog._base_prompt_token_label.text().startswith("BASE_SYSTEM_PROMPT tokens:")
         assert "characters:" in dialog._base_prompt_token_label.text()
 
@@ -3907,6 +3909,34 @@ def test_settings_memory_tab_without_bridge_passes_none_knowledge_map_manager(mo
             "knowledge_map_manager": None,
         }
     ]
+
+
+def test_settings_topic_memory_tab_uses_bridge_knowledge_map_manager(monkeypatch):
+    from src.ui.settings_tabs.topic_memory_tab import build_topic_memory_tab
+
+    _get_qapp()
+    created = []
+
+    class FakeTopicMemoryMindmapPanel(QWidget):
+        def __init__(self, knowledge_map_manager, parent=None):
+            super().__init__(parent)
+            created.append(knowledge_map_manager)
+
+    monkeypatch.setattr(
+        "src.ui.settings_tabs.topic_memory_tab.TopicMemoryMindmapPanel",
+        FakeTopicMemoryMindmapPanel,
+    )
+
+    knowledge_manager = object()
+    dialog = QWidget()
+    dialog._bridge = SimpleNamespace(knowledge_map_manager=knowledge_manager)
+    dialog._embedded_topic_memory_panel = None
+
+    widget = build_topic_memory_tab(dialog)
+
+    assert widget is not None
+    assert created == [knowledge_manager]
+    assert dialog._embedded_topic_memory_panel is not None
 
 
 def test_show_ene_profile_dialog_routes_to_settings_tab():
