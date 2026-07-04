@@ -1,0 +1,135 @@
+# 주제 기억 마인드맵 UI 설계
+
+## 목표
+
+저장된 `knowledge_map.json`을 사용자가 보기 쉽게 탐색할 수 있는 마인드맵형 UI를 추가한다. 이 UI는 기억 저장, 병합, 검색, 컨텍스트 주입 로직에 영향을 주지 않는 순수 시각화 계층이다.
+
+## 핵심 원칙
+
+- 실제 기억 로직과 시각화 연결 규칙을 분리한다.
+- 마인드맵 연결은 보기 좋은 탐색 힌트이며, 저장/검색 판단 근거가 아니다.
+- 연결선 생성을 위해 별도 승인 흐름을 만들지 않는다.
+- 사용자는 그래프에서 위치나 연결을 관리하지 않고, 저장된 기억 내용을 확인한다.
+- V1은 자유 배치 느낌을 주되, 복잡한 수동 배치 편집 기능은 넣지 않는다.
+
+## 화면 구조
+
+주제 기억 UI는 기존 메모리 관리 창 안의 새 탭 또는 독립 창으로 배치한다. V1 추천은 기존 `MemoryDialog`에 `주제 기억` 탭을 추가하는 방식이다.
+
+- 상단: 로컬 검색 필터, 상태 필터, 표시 개수
+- 중앙: 마인드맵 캔버스
+- 오른쪽: 선택한 topic/clue 상세 패널
+- 하단 또는 패널 내부: 새로고침, 원본 위치 열기 같은 조회 보조 액션
+
+상단 검색은 이미 로드된 topic/clue view model에 대한 화면 내부 필터다. 이 필터는 장기 기억 검색, 주제 기억 검색, 컨텍스트 주입 pipeline을 호출하지 않는다.
+
+## 마인드맵 표현
+
+그래프는 다음 계층으로 보여준다.
+
+- 중앙 노드: `주제 기억`
+- 1차 노드: topic keyword
+- 2차 노드: clue subject 또는 type
+- 세부 정보: 오른쪽 패널에서 표시
+
+자유 배치 느낌은 자동 레이아웃으로 만든다. 사용자가 직접 위치를 저장하거나 연결을 승인하지 않는다.
+
+## 시각적 연결 기준
+
+연결은 저장 구조를 바꾸지 않는 표시 전용 규칙이다.
+
+- 기본선: topic keyword와 그 topic의 clue를 연결한다.
+- 약한선: 서로 다른 topic이 같은 `type` 또는 `subject`를 공유하면 느슨하게 연결한다.
+- 근접 배치: `aliases` 또는 `retrieval_terms`가 겹치면 가까운 위치에 배치한다.
+- 강조: 최근 업데이트되었거나 clue 수가 많은 topic은 조금 더 눈에 띄게 표시한다.
+
+연결선은 정확한 추론 결과가 아니라 탐색을 돕는 시각적 힌트다. 필요한 경우 tooltip에 연결 이유만 짧게 보여준다.
+
+## 상세 패널
+
+노드를 선택하면 오른쪽 패널에 다음 정보를 보여준다.
+
+- keyword
+- aliases
+- retrieval_terms
+- clue 목록
+- 각 clue의 subject, type, state, text, confidence
+- history
+- source_memory_id가 있으면 내부 식별자로 표시
+
+V1 상세 패널은 읽기 전용이다. 수정과 삭제는 이 마인드맵 UI에 포함하지 않는다.
+
+## 편집 범위
+
+V1에서 허용하는 조작:
+
+- topic/clue 선택
+- 로컬 검색 필터
+- 상태 필터
+- 그래프 새로고침
+- 원본 topic/clue 식별자 복사 또는 위치 열기
+
+V1에서 제외하는 편집:
+
+- topic의 aliases, retrieval_terms 수정
+- clue의 subject, type, state, text, confidence 수정
+- clue 삭제
+- topic 삭제
+- 노드 위치 저장
+- 연결선 직접 추가/삭제
+- 연결선 승인
+- 시각화 연결을 검색/회상 로직에 반영
+
+## 데이터 흐름
+
+1. UI가 `KnowledgeMapManager`에서 topic 목록을 읽는다.
+2. UI 전용 view model을 만든다.
+3. view model에서 노드와 표시 전용 edge를 계산한다.
+4. 사용자가 노드를 선택하면 상세 패널에 원본 topic/clue 정보를 표시한다.
+5. 사용자가 로컬 필터나 노드 선택을 바꾸면 view model 표시 상태만 갱신한다.
+6. 새로고침을 누르면 저장소를 다시 읽어 그래프를 렌더링한다.
+
+## V1 구현 위치
+
+V1은 기존 기억 관리 창 안의 `주제 기억 지도` 탭으로 구현한다.
+
+- `src/ui/topic_memory_mindmap_model.py`: topic/clue 목록을 UI 전용 노드와 표시 전용 edge로 바꾸는 순수 Python view model
+- `src/ui/topic_memory_mindmap.py`: `QGraphicsView` 기반 읽기 전용 마인드맵 패널
+- `src/ui/memory_dialog.py`: 기존 장기 기억 UI와 주제 기억 지도 UI를 탭으로 묶는 통합 지점
+- `src/core/app.py`: 독립 기억 관리 창을 열 때 `KnowledgeMapManager`를 전달하는 경로
+- `src/ui/settings_tabs/memory_tab.py`: 설정 화면에 임베드된 기억 관리 패널로 `KnowledgeMapManager`를 전달하는 경로
+
+## 읽기 전용 보장
+
+마인드맵 UI는 실제 기억 저장과 검색 판단에 관여하지 않는다.
+
+- UI는 `KnowledgeMapManager.load()`와 `topics` 조회만 사용한다.
+- UI 필터는 이미 로드된 view model 안에서만 동작한다.
+- `save`, `merge_hints*`, `search_*` 계열 메서드는 호출하지 않는다.
+- shared edge는 화면 표시용 힌트이며 저장 파일이나 컨텍스트 주입 결과에 반영하지 않는다.
+- topic 상세 패널은 현재 필터로 보이는 clue만 표시해 화면 요약과 상세 정보가 어긋나지 않게 한다.
+
+## 오류 처리
+
+- `knowledge_map.json`이 없으면 빈 상태 화면을 보여준다.
+- malformed topic/clue는 기존 manager의 로드 정규화 결과를 따른다.
+- 로드 실패 시 상세 패널에 오류를 표시하고 기존 화면 상태를 유지한다. 로드 실패 상태에서는 검색어나 상태 필터를 바꿔도 오류 표시가 덮이지 않는다.
+- 표시 전용 edge 계산 실패는 그래프 렌더링을 막지 않고 edge 없이 노드만 표시한다.
+
+## 테스트 계획
+
+- 저장된 topic이 없을 때 빈 상태가 표시되는지 확인한다.
+- topic과 clue가 노드로 변환되는지 확인한다.
+- 같은 type/subject/retrieval_terms 공유가 표시 전용 edge 또는 근접 배치 신호로 계산되는지 확인한다.
+- 노드 선택 시 상세 패널에 정확한 topic/clue가 읽기 전용으로 표시되는지 확인한다.
+- 로컬 검색 필터가 이미 로드된 view model 안에서만 동작하고 검색 pipeline을 호출하지 않는지 확인한다.
+- 시각화 edge가 저장/검색/컨텍스트 주입 로직에 영향을 주지 않는지 회귀 테스트한다.
+
+## V2 후보
+
+- 캔버스 확대/축소와 드래그 이동
+- topic 그룹 자동 클러스터링
+- history timeline 시각화
+- 검색 결과 하이라이트
+- 읽기 전용 미니맵
+- 별도 관리 UI에서 topic/clue 수정과 삭제

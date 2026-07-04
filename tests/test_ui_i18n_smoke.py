@@ -1,4 +1,4 @@
-﻿import json
+import json
 import re
 import sys
 import types
@@ -7,15 +7,17 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from PyQt6.QtCore import QDate, QEvent, Qt
-from PyQt6.QtWidgets import QCheckBox, QComboBox, QDoubleSpinBox, QGroupBox, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QSpinBox
+from PyQt6.QtWidgets import QCheckBox, QComboBox, QDoubleSpinBox, QGroupBox, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QSpinBox, QWidget
 from PyQt6.QtWidgets import QApplication
 
 from src.core.i18n import configure_i18n
 from src.core.tray_icon import TrayIcon
+from src.ai.knowledge_map_types import TopicMemoryClue, TopicMemoryHistoryItem, TopicMemoryTopic
 from src.ui.obsidian_panel_window import ObsidianPanelWindow
 from src.ui.calendar_dialog import CalendarDialog
 from src.ui.memory_dialog import MemoryDialog
 from src.ui.profile_dialog import ProfileDialog
+from src.ui.topic_memory_mindmap import TopicMemoryMindmapPanel
 
 
 _QAPP = None
@@ -163,6 +165,38 @@ class _DummyMemoryManager:
         return {"total": len(self.memories), "updated": len(self.memories), "failed": 0, "skipped": 0}
 
 
+class _DummyKnowledgeMapManager:
+    def __init__(self, topics):
+        self.topics = topics
+        self.load_calls = 0
+        self.search_calls = 0
+
+    def load(self):
+        self.load_calls += 1
+        return self
+
+    def search_direct(self, *_args, **_kwargs):
+        self.search_calls += 1
+        raise AssertionError("UI 로컬 필터가 검색 pipeline을 호출하면 안 됩니다.")
+
+    search = search_direct
+
+    def async_search(self, *_args, **_kwargs):
+        self.search_calls += 1
+        raise AssertionError("UI 로컬 필터가 검색 pipeline을 호출하면 안 됩니다.")
+
+    def save(self):
+        raise AssertionError("읽기 전용 UI가 save를 호출하면 안 됩니다.")
+
+    def merge_hints_direct(self, *_args, **_kwargs):
+        raise AssertionError("읽기 전용 UI가 merge를 호출하면 안 됩니다.")
+
+    merge_hints = merge_hints_direct
+
+    async def async_merge_hints(self, *_args, **_kwargs):
+        raise AssertionError("읽기 전용 UI가 merge를 호출하면 안 됩니다.")
+
+
 class _DummySignal:
     def __init__(self):
         self.callbacks = []
@@ -244,6 +278,156 @@ def _read_web_runtime_script_text(assets_root: Path) -> str:
     if runtime_paths:
         return "\n".join((assets_root / path).read_text(encoding="utf-8-sig") for path in runtime_paths)
     return (assets_root / "script.js").read_text(encoding="utf-8-sig")
+
+
+def test_topic_memory_mindmap_panel_renders_topics_and_filters_locally():
+    _get_qapp()
+    configure_i18n(language="ko", locales_dir=Path("src/locales"), system_locale="ko_KR")
+    manager = _DummyKnowledgeMapManager(
+        [
+            TopicMemoryTopic(
+                id="topic-1",
+                keyword="Project Atlas",
+                aliases=["Atlas"],
+                retrieval_terms=["roadmap"],
+                clues=[
+                    TopicMemoryClue(
+                        id="clue-1",
+                        subject="planning",
+                        type="status",
+                        state="active",
+                        text="Synthetic project note.",
+                    )
+                ],
+            )
+        ]
+    )
+
+    panel = TopicMemoryMindmapPanel(manager)
+
+    assert panel.summary_label.text() == "1개 주제 · 1개 단서"
+    assert "Project Atlas" in panel.detail_title.text()
+    assert manager.search_calls == 0
+
+    panel.search_input.setText("missing")
+    assert panel.summary_label.text() == "0개 주제 · 0개 단서"
+    assert manager.search_calls == 0
+
+    panel.search_input.setText("atlas")
+    assert panel.summary_label.text() == "1개 주제 · 1개 단서"
+    panel.close()
+
+
+def test_topic_memory_mindmap_panel_refresh_reloads_manager_without_saving():
+    _get_qapp()
+    manager = _DummyKnowledgeMapManager([])
+
+    panel = TopicMemoryMindmapPanel(manager)
+    panel.refresh()
+
+    assert manager.load_calls == 1
+    panel.close()
+
+
+def test_topic_memory_mindmap_panel_shows_load_error_without_crashing():
+    _get_qapp()
+
+    class FailingKnowledgeMapManager(_DummyKnowledgeMapManager):
+        def load(self):
+            self.load_calls += 1
+            raise ValueError("synthetic load failure")
+
+    panel = TopicMemoryMindmapPanel(FailingKnowledgeMapManager([]))
+    panel.refresh()
+
+    assert "주제 기억을 불러오지 못했습니다" in panel.detail_title.text()
+    assert "synthetic load failure" in panel.detail_body.toPlainText()
+    panel.close()
+
+
+def test_topic_memory_mindmap_panel_keeps_load_error_detail_after_filter_change():
+    _get_qapp()
+    configure_i18n(language="ko", locales_dir=Path("src/locales"), system_locale="ko_KR")
+
+    class FailingKnowledgeMapManager(_DummyKnowledgeMapManager):
+        def load(self):
+            self.load_calls += 1
+            raise ValueError("synthetic load failure")
+
+    panel = TopicMemoryMindmapPanel(
+        FailingKnowledgeMapManager(
+            [
+                TopicMemoryTopic(
+                    id="topic-1",
+                    keyword="Project Atlas",
+                    clues=[
+                        TopicMemoryClue(
+                            id="clue-1",
+                            subject="planning",
+                            type="status",
+                            state="active",
+                            text="Synthetic project note.",
+                        )
+                    ],
+                )
+            ]
+        )
+    )
+    panel.refresh()
+    error_title = panel.detail_title.text()
+    error_body = panel.detail_body.toPlainText()
+
+    panel.search_input.setText("anything")
+    assert panel.detail_title.text() == error_title
+    assert panel.detail_body.toPlainText() == error_body
+
+    active_index = panel.state_filter.findData("active")
+    assert active_index >= 0
+    panel.state_filter.setCurrentIndex(active_index)
+
+    assert panel.detail_title.text() == error_title
+    assert panel.detail_body.toPlainText() == error_body
+    panel.close()
+
+
+def test_topic_memory_mindmap_panel_topic_detail_uses_visible_filtered_clues():
+    _get_qapp()
+    configure_i18n(language="ko", locales_dir=Path("src/locales"), system_locale="ko_KR")
+    manager = _DummyKnowledgeMapManager(
+        [
+            TopicMemoryTopic(
+                id="topic-1",
+                keyword="Project Atlas",
+                clues=[
+                    TopicMemoryClue(
+                        id="clue-active",
+                        subject="planning",
+                        type="status",
+                        state="active",
+                        text="Synthetic active note.",
+                    ),
+                    TopicMemoryClue(
+                        id="clue-archived",
+                        subject="archive",
+                        type="status",
+                        state="archived",
+                        text="Synthetic archived note.",
+                    ),
+                ],
+            )
+        ]
+    )
+
+    panel = TopicMemoryMindmapPanel(manager)
+    active_index = panel.state_filter.findData("active")
+    assert active_index >= 0
+
+    panel.state_filter.setCurrentIndex(active_index)
+    detail_text = panel.detail_body.toPlainText()
+
+    assert "Synthetic active note." in detail_text
+    assert "Synthetic archived note." not in detail_text
+    panel.close()
 
 
 @contextmanager
@@ -2158,6 +2342,47 @@ def test_ene_profile_dialog_translates_sections_and_controls(tmp_path):
     dialog.close()
 
 
+def test_memory_dialog_adds_topic_memory_tab_and_passes_manager():
+    _get_qapp()
+    configure_i18n(language="ko", locales_dir=Path("src/locales"), system_locale="ko_KR")
+    memory_manager = _DummyMemoryManager([])
+    knowledge_manager = _DummyKnowledgeMapManager([])
+
+    dialog = MemoryDialog(memory_manager, knowledge_map_manager=knowledge_manager)
+
+    assert dialog.tabs.count() == 2
+    assert dialog.tabs.tabText(0) == "장기 기억"
+    assert dialog.tabs.tabText(1) == "주제 기억 지도"
+    assert dialog.topic_memory_panel.manager is knowledge_manager
+    embedded_dialog = MemoryDialog(memory_manager, knowledge_map_manager=knowledge_manager, embedded=True)
+    assert embedded_dialog.tabs.count() == 2
+    embedded_dialog.close()
+    dialog.close()
+
+
+def test_memory_dialog_keeps_explicit_falsy_topic_memory_manager():
+    class FalsyKnowledgeMapManager(_DummyKnowledgeMapManager):
+        def __bool__(self):
+            return False
+
+    _get_qapp()
+    configure_i18n(language="ko", locales_dir=Path("src/locales"), system_locale="ko_KR")
+    memory_manager = _DummyMemoryManager([])
+    explicit_manager = FalsyKnowledgeMapManager([])
+    bridge_manager = _DummyKnowledgeMapManager([])
+    bridge = SimpleNamespace(knowledge_map_manager=bridge_manager)
+
+    dialog = MemoryDialog(
+        memory_manager,
+        bridge=bridge,
+        knowledge_map_manager=explicit_manager,
+    )
+
+    assert dialog.knowledge_map_manager is explicit_manager
+    assert dialog.topic_memory_panel.manager is explicit_manager
+    dialog.close()
+
+
 def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tmp_path, monkeypatch):
     _get_qapp()
     locales_dir = tmp_path / "locales"
@@ -2167,6 +2392,27 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
         en_data={
             "memory.window.title": "ENE Memory Manager",
             "memory.window.subtitle": "Manage summaries, search parameters, and saved memories in one place.",
+            "memory.tabs.long_term": "Long-term memory",
+            "memory.tabs.topic_map": "Topic memory map",
+            "memory.topic_map.search.placeholder": "Filter topic memories",
+            "memory.topic_map.state.all": "All states",
+            "memory.topic_map.refresh": "Refresh map",
+            "memory.topic_map.summary": "{topics} topics · {clues} clues",
+            "memory.topic_map.root.label": "Topic memory",
+            "memory.topic_map.clue.fallback": "Clue",
+            "memory.topic_map.empty.title": "No topic selected",
+            "memory.topic_map.empty.body": "Select a topic or clue in the map.",
+            "memory.topic_map.unavailable.title": "Topic memory unavailable",
+            "memory.topic_map.unavailable.body": "The topic memory manager is not initialized.",
+            "memory.topic_map.error.title": "Failed to load topic memory",
+            "memory.topic_map.error.body": "Failed to read saved topic memory: {error}",
+            "memory.topic_map.detail.aliases": "Aliases",
+            "memory.topic_map.detail.retrieval_terms": "Retrieval terms",
+            "memory.topic_map.detail.state": "State",
+            "memory.topic_map.detail.type": "Type",
+            "memory.topic_map.detail.confidence": "Confidence",
+            "memory.topic_map.detail.source": "Source memory",
+            "memory.topic_map.detail.history": "History",
             "memory.metric.total.label": "Total memories",
             "memory.metric.total.detail": "All stored memories",
             "memory.metric.important.label": "Important memories",
@@ -2265,6 +2511,27 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
             "memory.embedding.rebuild.prompt.body": "Embedding settings changed to {provider}/{model}. Rebuild {count} saved memory embeddings with the new settings now? This may call the embedding API.",
         },
         ja_data={
+            "memory.tabs.long_term": "長期メモリ",
+            "memory.tabs.topic_map": "トピック記憶マップ",
+            "memory.topic_map.search.placeholder": "トピック記憶を絞り込み",
+            "memory.topic_map.state.all": "すべての状態",
+            "memory.topic_map.refresh": "マップを更新",
+            "memory.topic_map.summary": "{topics}件のトピック · {clues}件の手がかり",
+            "memory.topic_map.root.label": "トピック記憶",
+            "memory.topic_map.clue.fallback": "手がかり",
+            "memory.topic_map.empty.title": "トピックが選択されていません",
+            "memory.topic_map.empty.body": "マップ内のトピックまたは手がかりを選択してください。",
+            "memory.topic_map.unavailable.title": "トピック記憶を利用できません",
+            "memory.topic_map.unavailable.body": "トピック記憶マネージャーが初期化されていません。",
+            "memory.topic_map.error.title": "トピック記憶の読み込みに失敗しました",
+            "memory.topic_map.error.body": "保存されたトピック記憶を読み込めませんでした: {error}",
+            "memory.topic_map.detail.aliases": "別名",
+            "memory.topic_map.detail.retrieval_terms": "検索語",
+            "memory.topic_map.detail.state": "状態",
+            "memory.topic_map.detail.type": "種類",
+            "memory.topic_map.detail.confidence": "信頼度",
+            "memory.topic_map.detail.source": "元のメモリ",
+            "memory.topic_map.detail.history": "履歴",
             "memory.window.title": "ENE メモリ管理",
             "memory.window.subtitle": "自動要約、検索パラメータ、保存済みメモリを1か所で管理します。",
             "memory.metric.total.label": "総メモリ",
@@ -2367,6 +2634,33 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
     )
     configure_i18n(language="ja", locales_dir=locales_dir, system_locale="en_US")
 
+    topic_manager = _DummyKnowledgeMapManager(
+        [
+            TopicMemoryTopic(
+                id="topic-1",
+                keyword="Project Atlas",
+                aliases=["Atlas"],
+                retrieval_terms=["roadmap"],
+                clues=[
+                    TopicMemoryClue(
+                        id="clue-1",
+                        subject="planning",
+                        type="status",
+                        state="active",
+                        text="Synthetic project note.",
+                        confidence=0.75,
+                        source_memory_id="memory-1",
+                        history=[
+                            TopicMemoryHistoryItem(
+                                state="draft",
+                                text="Synthetic previous note.",
+                            )
+                        ],
+                    )
+                ],
+            )
+        ]
+    )
     bridge = SimpleNamespace(
         summarize_threshold=8,
         settings=_DummySettings(
@@ -2379,6 +2673,7 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
         ),
         user_profile=None,
         ene_profile=_DummyEneProfile(),
+        knowledge_map_manager=topic_manager,
     )
     manager = _DummyMemoryManager(
         [
@@ -2416,6 +2711,81 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
     )
 
     dialog = MemoryDialog(manager, bridge=bridge)
+
+    topic_panel = dialog.topic_memory_panel
+    assert dialog.tabs.tabText(0) == "長期メモリ"
+    assert dialog.tabs.tabText(1) == "トピック記憶マップ"
+    assert topic_panel.search_input.placeholderText() == "トピック記憶を絞り込み"
+    assert topic_panel.state_filter.itemText(0) == "すべての状態"
+    assert topic_panel.refresh_btn.text() == "マップを更新"
+    assert topic_panel.summary_label.text() == "1件のトピック · 1件の手がかり"
+    assert topic_panel._graph.nodes["root"].label == "トピック記憶"
+    assert topic_panel.detail_title.text() == "Project Atlas"
+
+    topic_detail = topic_panel.detail_body.toPlainText()
+    assert "別名: Atlas" in topic_detail
+    assert "検索語: roadmap" in topic_detail
+
+    topic_panel._select_node("clue:topic-1:clue-1")
+    clue_detail = topic_panel.detail_body.toPlainText()
+    assert "状態: active" in clue_detail
+    assert "種類: status" in clue_detail
+    assert "信頼度: 0.75" in clue_detail
+    assert "元のメモリ: memory-1" in clue_detail
+    assert "履歴" in clue_detail
+
+    fallback_panel = TopicMemoryMindmapPanel(
+        _DummyKnowledgeMapManager(
+            [
+                TopicMemoryTopic(
+                    id="topic-fallback",
+                    keyword="Fallback Topic",
+                    clues=[
+                        TopicMemoryClue(
+                            id="clue-fallback",
+                            subject="",
+                            type="",
+                            state="active",
+                            text="Synthetic fallback clue.",
+                        )
+                    ],
+                )
+            ]
+        )
+    )
+    assert fallback_panel._graph.nodes["root"].label == "トピック記憶"
+    assert fallback_panel._graph.nodes["clue:topic-fallback:clue-fallback"].label == "手がかり"
+    configure_i18n(language="en", locales_dir=locales_dir, system_locale="en_US")
+    fallback_panel.retranslate_ui()
+    assert fallback_panel._graph.nodes["root"].label == "Topic memory"
+    assert fallback_panel._graph.nodes["clue:topic-fallback:clue-fallback"].label == "Clue"
+    fallback_panel.close()
+    configure_i18n(language="ja", locales_dir=locales_dir, system_locale="en_US")
+
+    topic_panel.search_input.setText("missing")
+    assert topic_panel.summary_label.text() == "0件のトピック · 0件の手がかり"
+    assert topic_panel.detail_title.text() == "トピックが選択されていません"
+    assert topic_panel.detail_body.toPlainText() == "マップ内のトピックまたは手がかりを選択してください。"
+    topic_panel.search_input.clear()
+
+    unavailable_panel = TopicMemoryMindmapPanel(None)
+    unavailable_panel.refresh()
+    assert unavailable_panel.detail_title.text() == "トピック記憶を利用できません"
+    assert unavailable_panel.detail_body.toPlainText() == "トピック記憶マネージャーが初期化されていません。"
+    unavailable_panel.close()
+
+    class FailingKnowledgeMapManager(_DummyKnowledgeMapManager):
+        def load(self):
+            self.load_calls += 1
+            raise ValueError("synthetic load failure")
+
+    error_panel = TopicMemoryMindmapPanel(FailingKnowledgeMapManager([]))
+    error_panel.refresh()
+    assert error_panel.detail_title.text() == "トピック記憶の読み込みに失敗しました"
+    assert error_panel.detail_body.toPlainText() == (
+        "保存されたトピック記憶を読み込めませんでした: synthetic load failure"
+    )
+    error_panel.close()
 
     assert dialog.windowTitle() == "ENE メモリ管理"
     assert dialog.search_input.placeholderText() == "メモリのタイトル、要約、タグを検索"
@@ -3200,6 +3570,92 @@ def test_embedding_settings_change_marks_old_embeddings_and_prompts():
     assert prompts == [("voyage", "voyage-3")]
 
 
+def test_embedding_api_key_change_refreshes_memory_runtime_without_rebuild_prompt():
+    ENEApplication = _load_app_class()
+    calls = []
+    prompts = []
+
+    app = ENEApplication.__new__(ENEApplication)
+    app.settings = _DummySettings(
+        {
+            "ui_language": "en",
+            "embedding_provider": "voyage",
+            "embedding_model": "voyage-3",
+            "embedding_api_keys": {"voyage": "old-key"},
+            "enable_tts": False,
+            "tts_provider": "gpt_sovits_http",
+        }
+    )
+    bridge = SimpleNamespace(refresh_proactive_settings=lambda: None)
+    app.overlay_window = SimpleNamespace(apply_new_settings=lambda settings: None, bridge=bridge)
+    app.global_ptt = None
+    app.interrupt_tts_on_ptt = True
+    app.memory_manager = SimpleNamespace(mark_unknown_embeddings_source=lambda provider, model: calls.append("mark"))
+    app._refresh_memory_runtime_bindings = lambda: calls.append("memory")
+    app._refresh_tts_runtime_bindings = lambda: calls.append("tts")
+    app._show_embedding_rebuild_prompt = lambda provider, model: prompts.append((provider, model))
+
+    ENEApplication._on_settings_changed(
+        app,
+        {
+            "ui_language": "en",
+            "embedding_provider": "voyage",
+            "embedding_model": "voyage-3",
+            "embedding_api_keys": {"voyage": "new-key"},
+            "interrupt_tts_on_ptt": True,
+        },
+    )
+
+    assert calls == ["memory"]
+    assert prompts == []
+
+
+def test_embedding_api_url_change_refreshes_memory_runtime_without_rebuild_prompt():
+    ENEApplication = _load_app_class()
+    calls = []
+    prompts = []
+
+    app = ENEApplication.__new__(ENEApplication)
+    app.settings = _DummySettings(
+        {
+            "ui_language": "en",
+            "embedding_provider": "openai_compatible",
+            "embedding_model": "local-embedding",
+            "embedding_api_keys": {"openai_compatible": "local-key"},
+            "embedding_provider_configs": {
+                "openai_compatible": {"api_url": "http://localhost:8000/v1"}
+            },
+            "enable_tts": False,
+            "tts_provider": "gpt_sovits_http",
+        }
+    )
+    bridge = SimpleNamespace(refresh_proactive_settings=lambda: None)
+    app.overlay_window = SimpleNamespace(apply_new_settings=lambda settings: None, bridge=bridge)
+    app.global_ptt = None
+    app.interrupt_tts_on_ptt = True
+    app.memory_manager = SimpleNamespace(mark_unknown_embeddings_source=lambda provider, model: calls.append("mark"))
+    app._refresh_memory_runtime_bindings = lambda: calls.append("memory")
+    app._refresh_tts_runtime_bindings = lambda: calls.append("tts")
+    app._show_embedding_rebuild_prompt = lambda provider, model: prompts.append((provider, model))
+
+    ENEApplication._on_settings_changed(
+        app,
+        {
+            "ui_language": "en",
+            "embedding_provider": "openai_compatible",
+            "embedding_model": "local-embedding",
+            "embedding_api_keys": {"openai_compatible": "local-key"},
+            "embedding_provider_configs": {
+                "openai_compatible": {"api_url": "http://localhost:9000/v1"}
+            },
+            "interrupt_tts_on_ptt": True,
+        },
+    )
+
+    assert calls == ["memory"]
+    assert prompts == []
+
+
 def test_embedding_rebuild_prompt_defaults_to_no_and_shows_count(monkeypatch):
     ENEApplication = _load_app_class()
     configure_i18n(language="en", locales_dir=Path("src/locales"), system_locale="en_US")
@@ -3269,6 +3725,187 @@ def test_show_memory_dialog_warns_with_translated_text(tmp_path, monkeypatch):
 
     assert warnings == [
         (None, "メモリを利用できません", "メモリマネージャーが初期化されていません。")
+    ]
+
+
+def test_show_memory_dialog_passes_knowledge_map_manager(monkeypatch):
+    ENEApplication = _load_app_class()
+    app = ENEApplication.__new__(ENEApplication)
+    app.memory_manager = object()
+    app.knowledge_map_manager = object()
+    app.overlay_window = SimpleNamespace(bridge=SimpleNamespace())
+    created = []
+
+    class FakeMemoryDialog:
+        def __init__(self, memory_manager, bridge=None, parent=None, embedded=False, knowledge_map_manager=None):
+            created.append(
+                {
+                    "memory_manager": memory_manager,
+                    "bridge": bridge,
+                    "knowledge_map_manager": knowledge_map_manager,
+                }
+            )
+
+        def exec(self):
+            return None
+
+    monkeypatch.setattr("src.ui.memory_dialog.MemoryDialog", FakeMemoryDialog)
+
+    ENEApplication._show_memory_dialog(app)
+
+    assert created == [
+        {
+            "memory_manager": app.memory_manager,
+            "bridge": app.overlay_window.bridge,
+            "knowledge_map_manager": app.knowledge_map_manager,
+        }
+    ]
+
+
+def test_show_memory_dialog_without_overlay_window_passes_none_fallbacks(monkeypatch):
+    ENEApplication = _load_app_class()
+    app = ENEApplication.__new__(ENEApplication)
+    app.memory_manager = object()
+    created = []
+
+    class FakeMemoryDialog:
+        def __init__(self, memory_manager, bridge=None, parent=None, embedded=False, knowledge_map_manager=None):
+            created.append(
+                {
+                    "memory_manager": memory_manager,
+                    "bridge": bridge,
+                    "knowledge_map_manager": knowledge_map_manager,
+                }
+            )
+
+        def exec(self):
+            return None
+
+    monkeypatch.setattr("src.ui.memory_dialog.MemoryDialog", FakeMemoryDialog)
+
+    ENEApplication._show_memory_dialog(app)
+
+    assert created == [
+        {
+            "memory_manager": app.memory_manager,
+            "bridge": None,
+            "knowledge_map_manager": None,
+        }
+    ]
+
+
+def test_settings_memory_tab_passes_bridge_knowledge_map_manager(monkeypatch):
+    from src.ui.settings_tabs.memory_tab import build_memory_tab
+
+    _get_qapp()
+    created = []
+
+    class FakeMemoryDialog(QWidget):
+        def __init__(
+            self,
+            memory_manager,
+            bridge=None,
+            parent=None,
+            embedded=False,
+            knowledge_map_manager=None,
+        ):
+            super().__init__(parent)
+            created.append(
+                {
+                    "memory_manager": memory_manager,
+                    "bridge": bridge,
+                    "embedded": embedded,
+                    "knowledge_map_manager": knowledge_map_manager,
+                }
+            )
+
+        def apply_theme(self, _theme_values):
+            return None
+
+    monkeypatch.setattr("src.ui.settings_tabs.memory_tab.MemoryDialog", FakeMemoryDialog)
+
+    memory_manager = object()
+    knowledge_manager = object()
+    dialog = QWidget()
+    dialog._memory_manager = memory_manager
+    dialog._bridge = SimpleNamespace(knowledge_map_manager=knowledge_manager)
+    dialog._theme_values = {}
+    dialog._original_settings = {}
+    dialog._embedded_memory_panel = None
+    dialog._bind_widget_text = lambda *_args, **_kwargs: None
+    dialog._bind_suffix = lambda *_args, **_kwargs: None
+    dialog._bind_special_value_text = lambda *_args, **_kwargs: None
+    dialog._on_setting_changed = lambda *_args, **_kwargs: None
+    dialog._add_form_row = lambda form, _key, fallback, widget: form.addRow(fallback, widget)
+    dialog._build_hint_label = lambda text, key=None: QLabel(text)
+
+    widget = build_memory_tab(dialog)
+
+    assert widget is not None
+    assert created == [
+        {
+            "memory_manager": memory_manager,
+            "bridge": dialog._bridge,
+            "embedded": True,
+            "knowledge_map_manager": knowledge_manager,
+        }
+    ]
+
+
+def test_settings_memory_tab_without_bridge_passes_none_knowledge_map_manager(monkeypatch):
+    from src.ui.settings_tabs.memory_tab import build_memory_tab
+
+    _get_qapp()
+    created = []
+
+    class FakeMemoryDialog(QWidget):
+        def __init__(
+            self,
+            memory_manager,
+            bridge=None,
+            parent=None,
+            embedded=False,
+            knowledge_map_manager=None,
+        ):
+            super().__init__(parent)
+            created.append(
+                {
+                    "memory_manager": memory_manager,
+                    "bridge": bridge,
+                    "embedded": embedded,
+                    "knowledge_map_manager": knowledge_map_manager,
+                }
+            )
+
+        def apply_theme(self, _theme_values):
+            return None
+
+    monkeypatch.setattr("src.ui.settings_tabs.memory_tab.MemoryDialog", FakeMemoryDialog)
+
+    memory_manager = object()
+    dialog = QWidget()
+    dialog._memory_manager = memory_manager
+    dialog._bridge = None
+    dialog._theme_values = {}
+    dialog._original_settings = {}
+    dialog._embedded_memory_panel = None
+    dialog._bind_widget_text = lambda *_args, **_kwargs: None
+    dialog._bind_suffix = lambda *_args, **_kwargs: None
+    dialog._bind_special_value_text = lambda *_args, **_kwargs: None
+    dialog._on_setting_changed = lambda *_args, **_kwargs: None
+    dialog._add_form_row = lambda form, _key, fallback, widget: form.addRow(fallback, widget)
+    dialog._build_hint_label = lambda text, key=None: QLabel(text)
+
+    widget = build_memory_tab(dialog)
+
+    assert widget is not None
+    assert created == [
+        {
+            "memory_manager": memory_manager,
+            "bridge": None,
+            "embedded": True,
+            "knowledge_map_manager": None,
+        }
     ]
 
 

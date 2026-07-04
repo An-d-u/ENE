@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import re
 
+from .knowledge_map_types import TopicMemoryHint
+
 
 SUMMARY_REQUIRED_SECTION_LABELS = {
     "summary": "[SUMMARY]",
@@ -22,6 +24,20 @@ SUMMARY_MEMORY_META_KEYS = {
     "aliases",
     "trigger_terms",
 }
+
+TOPIC_MEMORY_HINT_KEYS = {
+    "keyword",
+    "subject",
+    "type",
+    "state",
+    "text",
+    "aliases",
+    "retrieval_terms",
+    "confidence",
+}
+
+TOPIC_MEMORY_LIST_KEYS = {"aliases", "retrieval_terms"}
+TOPIC_MEMORY_NONE_VALUES = {"none", "none.", "없음", "?놁쓬"}
 
 
 def _summary_section_for_line(line: str) -> str | None:
@@ -50,6 +66,11 @@ def _summary_section_for_line(line: str) -> str | None:
         or "[湲곗뼲 硫뷀?]" in line
     ):
         return "memory_meta"
+    if upper in {"[TOPIC_MEMORY]", "TOPIC_MEMORY", "TOPIC MEMORY"} or line in {
+        "[주제 기억]",
+        "주제 기억",
+    }:
+        return "topic_memory"
     return None
 
 
@@ -137,6 +158,122 @@ def parse_summary_memory_meta(meta_lines: list[str]) -> dict:
     return memory_meta
 
 
+def _clean_topic_memory_line(raw_line: str) -> str:
+    line = str(raw_line or "").strip()
+    if line.startswith("-"):
+        line = line[1:].strip()
+    return line
+
+
+def _split_topic_memory_parts(line: str) -> list[str]:
+    return [part.strip() for part in line.split("|") if part.strip()]
+
+
+def _parse_topic_memory_key_value(part: str) -> tuple[str, str] | None:
+    if ":" not in part:
+        return None
+    key, value = part.split(":", 1)
+    normalized_key = key.strip().lower()
+    if normalized_key not in TOPIC_MEMORY_HINT_KEYS:
+        return None
+    return normalized_key, value.strip()
+
+
+def _normalize_topic_memory_list(value: str) -> list[str]:
+    cleaned_value = str(value or "").strip().strip("[]")
+    return [
+        item.strip().strip('\'"')
+        for item in cleaned_value.split(",")
+        if item.strip().strip('\'"')
+    ]
+
+
+def _topic_memory_hint_from_data(data: dict) -> TopicMemoryHint | None:
+    normalized = {
+        "type": "status_flow",
+        "state": "active",
+        "confidence": 0.5,
+    }
+    normalized.update(data)
+
+    for key in ("keyword", "subject", "text"):
+        if not str(normalized.get(key, "") or "").strip():
+            return None
+
+    for key in TOPIC_MEMORY_LIST_KEYS:
+        normalized[key] = _normalize_topic_memory_list(normalized.get(key, ""))
+
+    return TopicMemoryHint.from_dict(normalized)
+
+
+def parse_topic_memory_hints(topic_lines: list[str]) -> list[TopicMemoryHint]:
+    """TOPIC_MEMORY lines를 TopicMemoryHint 목록으로 변환한다."""
+    hints: list[TopicMemoryHint] = []
+    current: dict = {}
+
+    def flush_current() -> None:
+        nonlocal current
+        if not current:
+            return
+        hint = _topic_memory_hint_from_data(current)
+        if hint is not None:
+            hints.append(hint)
+        current = {}
+
+    for raw_line in topic_lines:
+        stripped = str(raw_line or "").strip()
+        if not stripped:
+            continue
+
+        cleaned_line = _clean_topic_memory_line(stripped)
+        if not cleaned_line:
+            continue
+        if cleaned_line.lower() in TOPIC_MEMORY_NONE_VALUES:
+            flush_current()
+            continue
+
+        parts = _split_topic_memory_parts(cleaned_line)
+        parsed_parts = [
+            parsed
+            for parsed in (_parse_topic_memory_key_value(part) for part in parts)
+            if parsed is not None
+        ]
+        if not parsed_parts:
+            continue
+
+        starts_new_hint = stripped.startswith("-") and parsed_parts[0][0] == "keyword"
+        if starts_new_hint and current:
+            flush_current()
+
+        for key, value in parsed_parts:
+            if value:
+                current[key] = value
+
+    flush_current()
+    return hints
+
+
+def parse_summary_topic_memory(response_text: str) -> list[TopicMemoryHint]:
+    """요약 응답에서 선택 섹션인 TOPIC_MEMORY만 파싱한다."""
+    topic_lines: list[str] = []
+    current_section = None
+
+    for raw in str(response_text or "").split("\n"):
+        line = raw.strip()
+        if not line:
+            continue
+
+        section = _summary_section_for_line(line)
+        if section:
+            current_section = section
+            continue
+
+        if current_section == "topic_memory":
+            topic_lines.append(line)
+
+    return parse_topic_memory_hints(topic_lines)
+
+
 def parse_summary_response(response_text: str) -> tuple[str, list[str], list[str], dict]:
     """요약 응답을 [SUMMARY], [MASTER_INFO], [ENE_INFO], [MEMORY_META]로 분리한다."""
     summary_lines: list[str] = []
@@ -170,6 +307,13 @@ def parse_summary_response(response_text: str) -> tuple[str, list[str], list[str
                 continue
             if upper in {"[MEMORY_META]", "MEMORY_META"} or "[기억 메타]" in line:
                 current_section = "memory_meta"
+                continue
+
+            if upper in {"[TOPIC_MEMORY]", "TOPIC_MEMORY", "TOPIC MEMORY"} or line in {
+                "[주제 기억]",
+                "주제 기억",
+            }:
+                current_section = "topic_memory"
                 continue
 
             if current_section == "summary":
@@ -241,3 +385,12 @@ def parse_summary_response(response_text: str) -> tuple[str, list[str], list[str
         memory_meta = {}
 
     return summary, user_facts, ene_facts, memory_meta
+
+
+def parse_summary_response_with_topic_memory(
+    response_text: str,
+) -> tuple[str, list[str], list[str], dict, list[TopicMemoryHint]]:
+    """기존 요약 파싱 결과에 TOPIC_MEMORY hint 목록을 함께 반환한다."""
+    summary, user_facts, ene_facts, memory_meta = parse_summary_response(response_text)
+    topic_hints = parse_summary_topic_memory(response_text)
+    return summary, user_facts, ene_facts, memory_meta, topic_hints
