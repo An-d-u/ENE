@@ -94,6 +94,51 @@ def test_build_graph_filters_locally_by_clue_text():
     assert "clue:topic-2:clue-2" in graph.nodes
 
 
+def test_build_graph_applies_max_topics_after_query_filtering():
+    non_matching_topics = [
+        _topic(f"topic-{index}", f"Archive {index}", [_clue(f"clue-{index}", "archive")])
+        for index in range(80)
+    ]
+    matching_topic = _topic("topic-target", "Project Atlas", [_clue("clue-target", "planning")])
+
+    graph = build_topic_memory_graph(
+        [*non_matching_topics, matching_topic],
+        query="atlas",
+        max_topics=1,
+    )
+
+    assert graph.total_topics == 1
+    assert "topic:topic-target" in graph.nodes
+
+
+def test_build_graph_shows_clueless_topic_with_all_state_and_no_query():
+    graph = build_topic_memory_graph([_topic("topic-1", "Project Atlas", [])])
+
+    assert graph.total_topics == 1
+    assert graph.total_clues == 0
+    assert "topic:topic-1" in graph.nodes
+
+
+def test_build_graph_shows_clueless_topic_with_all_state_and_matching_query():
+    graph = build_topic_memory_graph(
+        [_topic("topic-1", "Project Atlas", [])],
+        query="atlas",
+    )
+
+    assert graph.total_topics == 1
+    assert "topic:topic-1" in graph.nodes
+
+
+def test_build_graph_hides_clueless_topic_with_specific_state_filter():
+    graph = build_topic_memory_graph(
+        [_topic("topic-1", "Project Atlas", [])],
+        state_filter="active",
+    )
+
+    assert graph.total_topics == 0
+    assert "topic:topic-1" not in graph.nodes
+
+
 def test_build_graph_filters_by_state_without_mutating_topics():
     clue = _clue("clue-1", "planning", state="closed")
     topics = [_topic("topic-1", "Project Atlas", [clue])]

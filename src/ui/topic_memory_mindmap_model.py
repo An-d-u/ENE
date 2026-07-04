@@ -47,11 +47,12 @@ def build_topic_memory_graph(
     max_topics: int = 80,
 ) -> TopicMemoryGraph:
     # 순수 표시용 변환이다. manager.search_* 또는 save 계열은 호출하지 않는다.
-    normalized_topics = [topic for topic in topics or [] if topic.keyword][:max_topics]
+    normalized_topics = [topic for topic in topics or [] if topic.keyword]
     return _build_graph_from_topics(
         normalized_topics,
         query=query,
         state_filter=state_filter,
+        max_topics=max_topics,
     )
 
 
@@ -60,19 +61,29 @@ def _build_graph_from_topics(
     *,
     query: str,
     state_filter: str,
+    max_topics: int,
 ) -> TopicMemoryGraph:
     query_text = query.casefold().strip()
     state_text = state_filter.casefold().strip()
     visible_topics: list[tuple[TopicMemoryTopic, list[TopicMemoryClue]]] = []
 
     for topic in topics:
+        topic_matches = _matches_query(_topic_search_values(topic), query_text)
+
+        if not topic.clues:
+            if state_text and state_text != "all":
+                continue
+            if query_text and not topic_matches:
+                continue
+            visible_topics.append((topic, []))
+            continue
+
         state_matched_clues = [
             clue for clue in topic.clues if _matches_state(clue, state_text)
         ]
         if not state_matched_clues:
             continue
 
-        topic_matches = _matches_query(_topic_search_values(topic), query_text)
         query_matched_clues = [
             clue
             for clue in state_matched_clues
@@ -85,6 +96,8 @@ def _build_graph_from_topics(
         visible_clues = state_matched_clues if topic_matches else query_matched_clues
         if visible_clues:
             visible_topics.append((topic, visible_clues))
+
+    visible_topics = visible_topics[: max(0, max_topics)]
 
     nodes: dict[str, MindmapNode] = {
         "root": MindmapNode(id="root", label="주제 기억", kind="root")
