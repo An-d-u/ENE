@@ -345,6 +345,67 @@ def test_topic_memory_mindmap_panel_shows_load_error_without_crashing():
     panel.close()
 
 
+def test_topic_memory_mindmap_panel_keeps_load_error_detail_after_filter_change():
+    _get_qapp()
+    configure_i18n(language="ko", locales_dir=Path("src/locales"), system_locale="ko_KR")
+
+    class FailingKnowledgeMapManager(_DummyKnowledgeMapManager):
+        def load(self):
+            self.load_calls += 1
+            raise ValueError("synthetic load failure")
+
+    panel = TopicMemoryMindmapPanel(FailingKnowledgeMapManager([]))
+    panel.refresh()
+    error_title = panel.detail_title.text()
+    error_body = panel.detail_body.toPlainText()
+
+    panel.search_input.setText("anything")
+
+    assert panel.detail_title.text() == error_title
+    assert panel.detail_body.toPlainText() == error_body
+    panel.close()
+
+
+def test_topic_memory_mindmap_panel_topic_detail_uses_visible_filtered_clues():
+    _get_qapp()
+    configure_i18n(language="ko", locales_dir=Path("src/locales"), system_locale="ko_KR")
+    manager = _DummyKnowledgeMapManager(
+        [
+            TopicMemoryTopic(
+                id="topic-1",
+                keyword="Project Atlas",
+                clues=[
+                    TopicMemoryClue(
+                        id="clue-active",
+                        subject="planning",
+                        type="status",
+                        state="active",
+                        text="Synthetic active note.",
+                    ),
+                    TopicMemoryClue(
+                        id="clue-archived",
+                        subject="archive",
+                        type="status",
+                        state="archived",
+                        text="Synthetic archived note.",
+                    ),
+                ],
+            )
+        ]
+    )
+
+    panel = TopicMemoryMindmapPanel(manager)
+    active_index = panel.state_filter.findData("active")
+    assert active_index >= 0
+
+    panel.state_filter.setCurrentIndex(active_index)
+    detail_text = panel.detail_body.toPlainText()
+
+    assert "Synthetic active note." in detail_text
+    assert "Synthetic archived note." not in detail_text
+    panel.close()
+
+
 @contextmanager
 def _stub_prompt_module():
     prompt_stub = types.ModuleType("src.ai.prompt")

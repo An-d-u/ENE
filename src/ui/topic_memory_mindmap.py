@@ -167,7 +167,6 @@ class TopicMemoryMindmapPanel(QWidget):
         self.state_filter.blockSignals(False)
 
     def _rebuild_graph(self) -> None:
-        self._last_load_error = None
         self._graph = build_topic_memory_graph(
             self._topics(),
             query=self.search_input.text(),
@@ -188,6 +187,8 @@ class TopicMemoryMindmapPanel(QWidget):
             self._set_empty_detail()
         else:
             self._select_node(first_topic_id)
+        if self._last_load_error is not None:
+            self._set_error_detail()
 
         self.scene.setSceneRect(self.scene.itemsBoundingRect().adjusted(-48, -48, 48, 48))
 
@@ -241,7 +242,7 @@ class TopicMemoryMindmapPanel(QWidget):
         if node.kind == "topic" and node.topic_id:
             topic = self._graph.topic_index.get(node.topic_id)
             if topic is not None:
-                self._set_topic_detail(topic)
+                self._set_topic_detail(topic, self._visible_clues_for_topic(topic.id))
                 return
         if node.kind == "clue":
             clue = self._graph.clue_index.get(node_id)
@@ -251,7 +252,18 @@ class TopicMemoryMindmapPanel(QWidget):
                 return
         self._set_empty_detail()
 
-    def _set_topic_detail(self, topic: TopicMemoryTopic) -> None:
+    def _visible_clues_for_topic(self, topic_id: str) -> list[TopicMemoryClue]:
+        if self._graph is None:
+            return []
+        return [
+            self._graph.clue_index[node.id]
+            for node in self._graph.nodes.values()
+            if node.kind == "clue"
+            and node.topic_id == topic_id
+            and node.id in self._graph.clue_index
+        ]
+
+    def _set_topic_detail(self, topic: TopicMemoryTopic, clues: list[TopicMemoryClue]) -> None:
         lines = []
         if topic.aliases:
             lines.append(f"{t('memory.topic_map.detail.aliases')}: {', '.join(topic.aliases)}")
@@ -259,9 +271,9 @@ class TopicMemoryMindmapPanel(QWidget):
             lines.append(
                 f"{t('memory.topic_map.detail.retrieval_terms')}: {', '.join(topic.retrieval_terms)}"
             )
-        if topic.clues:
+        if clues:
             lines.append("")
-            lines.extend(f"- {clue.subject}: {clue.text}" for clue in topic.clues)
+            lines.extend(f"- {clue.subject}: {clue.text}" for clue in clues)
         self.detail_title.setText(topic.keyword)
         self.detail_body.setPlainText("\n".join(lines).strip())
 
