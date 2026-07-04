@@ -74,6 +74,8 @@
   "memory.topic_map.state.all": "All states",
   "memory.topic_map.refresh": "Refresh map",
   "memory.topic_map.summary": "{topics} topics · {clues} clues",
+  "memory.topic_map.root.label": "Topic memory",
+  "memory.topic_map.clue.fallback": "Clue",
   "memory.topic_map.empty.title": "No topic memory selected",
   "memory.topic_map.empty.body": "Select a topic or clue on the map to view its details.",
   "memory.topic_map.unavailable.title": "Topic memory is unavailable",

@@ -74,6 +74,8 @@
   "memory.topic_map.state.all": "전체 상태",
   "memory.topic_map.refresh": "지도 새로고침",
   "memory.topic_map.summary": "{topics}개 주제 · {clues}개 단서",
+  "memory.topic_map.root.label": "주제 기억",
+  "memory.topic_map.clue.fallback": "단서",
   "memory.topic_map.empty.title": "선택된 주제 기억이 없습니다",
   "memory.topic_map.empty.body": "지도에서 주제나 단서를 선택하면 상세 정보가 표시됩니다.",
   "memory.topic_map.unavailable.title": "주제 기억을 사용할 수 없습니다",

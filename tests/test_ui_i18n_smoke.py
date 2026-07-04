@@ -2398,6 +2398,8 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
             "memory.topic_map.state.all": "All states",
             "memory.topic_map.refresh": "Refresh map",
             "memory.topic_map.summary": "{topics} topics · {clues} clues",
+            "memory.topic_map.root.label": "Topic memory",
+            "memory.topic_map.clue.fallback": "Clue",
             "memory.topic_map.empty.title": "No topic selected",
             "memory.topic_map.empty.body": "Select a topic or clue in the map.",
             "memory.topic_map.unavailable.title": "Topic memory unavailable",
@@ -2515,6 +2517,8 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
             "memory.topic_map.state.all": "すべての状態",
             "memory.topic_map.refresh": "マップを更新",
             "memory.topic_map.summary": "{topics}件のトピック · {clues}件の手がかり",
+            "memory.topic_map.root.label": "トピック記憶",
+            "memory.topic_map.clue.fallback": "手がかり",
             "memory.topic_map.empty.title": "トピックが選択されていません",
             "memory.topic_map.empty.body": "マップ内のトピックまたは手がかりを選択してください。",
             "memory.topic_map.unavailable.title": "トピック記憶を利用できません",
@@ -2715,6 +2719,7 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
     assert topic_panel.state_filter.itemText(0) == "すべての状態"
     assert topic_panel.refresh_btn.text() == "マップを更新"
     assert topic_panel.summary_label.text() == "1件のトピック · 1件の手がかり"
+    assert topic_panel._graph.nodes["root"].label == "トピック記憶"
     assert topic_panel.detail_title.text() == "Project Atlas"
 
     topic_detail = topic_panel.detail_body.toPlainText()
@@ -2728,6 +2733,29 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
     assert "信頼度: 0.75" in clue_detail
     assert "元のメモリ: memory-1" in clue_detail
     assert "履歴" in clue_detail
+
+    fallback_panel = TopicMemoryMindmapPanel(
+        _DummyKnowledgeMapManager(
+            [
+                TopicMemoryTopic(
+                    id="topic-fallback",
+                    keyword="Fallback Topic",
+                    clues=[
+                        TopicMemoryClue(
+                            id="clue-fallback",
+                            subject="",
+                            type="",
+                            state="active",
+                            text="Synthetic fallback clue.",
+                        )
+                    ],
+                )
+            ]
+        )
+    )
+    assert fallback_panel._graph.nodes["root"].label == "トピック記憶"
+    assert fallback_panel._graph.nodes["clue:topic-fallback:clue-fallback"].label == "手がかり"
+    fallback_panel.close()
 
     topic_panel.search_input.setText("missing")
     assert topic_panel.summary_label.text() == "0件のトピック · 0件の手がかり"

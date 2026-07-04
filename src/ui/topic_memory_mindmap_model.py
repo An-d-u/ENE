@@ -49,6 +49,8 @@ def build_topic_memory_graph(
     query: str = "",
     state_filter: str = "all",
     max_topics: int = 80,
+    root_label: str = ROOT_LABEL,
+    fallback_clue_label: str = FALLBACK_CLUE_LABEL,
 ) -> TopicMemoryGraph:
     # 순수 표시용 변환이다. manager.search_* 또는 save 계열은 호출하지 않는다.
     normalized_topics = [topic for topic in topics or [] if topic.keyword]
@@ -57,6 +59,8 @@ def build_topic_memory_graph(
         query=query,
         state_filter=state_filter,
         max_topics=max_topics,
+        root_label=root_label or ROOT_LABEL,
+        fallback_clue_label=fallback_clue_label or FALLBACK_CLUE_LABEL,
     )
 
 
@@ -66,6 +70,8 @@ def _build_graph_from_topics(
     query: str,
     state_filter: str,
     max_topics: int,
+    root_label: str,
+    fallback_clue_label: str,
 ) -> TopicMemoryGraph:
     query_text = query.casefold().strip()
     state_text = state_filter.casefold().strip()
@@ -104,7 +110,7 @@ def _build_graph_from_topics(
     visible_topics = visible_topics[: max(0, max_topics)]
 
     nodes: dict[str, MindmapNode] = {
-        "root": MindmapNode(id="root", label=ROOT_LABEL, kind="root")
+        "root": MindmapNode(id="root", label=root_label, kind="root")
     }
     edges: list[MindmapEdge] = []
     topic_index: dict[str, TopicMemoryTopic] = {}
@@ -135,7 +141,7 @@ def _build_graph_from_topics(
             clue_index[clue_node_id] = clue
             nodes[clue_node_id] = MindmapNode(
                 id=clue_node_id,
-                label=_clue_label(clue),
+                label=_clue_label(clue, fallback_clue_label),
                 kind="clue",
                 topic_id=topic.id,
                 clue_id=clue.id,
@@ -185,8 +191,8 @@ def _topic_subtitle(topic: TopicMemoryTopic) -> str:
     return ""
 
 
-def _clue_label(clue: TopicMemoryClue) -> str:
-    return clue.subject or clue.type or FALLBACK_CLUE_LABEL
+def _clue_label(clue: TopicMemoryClue, fallback_label: str) -> str:
+    return clue.subject or clue.type or fallback_label
 
 
 def _circular_positions(count: int, *, radius: float) -> list[tuple[float, float]]:
