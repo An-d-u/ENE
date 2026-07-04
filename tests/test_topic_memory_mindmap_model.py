@@ -57,6 +57,17 @@ def test_build_graph_uses_korean_fallback_label_for_blank_clue_subject_and_type(
     assert graph.nodes["clue:topic-1:clue-1"].label == "단서"
 
 
+def test_build_graph_uses_injected_display_labels():
+    graph = build_topic_memory_graph(
+        [_topic("topic-1", "Project Atlas", [_clue("clue-1", "", type="")])],
+        root_label="Topic Memory",
+        fallback_clue_label="Clue",
+    )
+
+    assert graph.nodes["root"].label == "Topic Memory"
+    assert graph.nodes["clue:topic-1:clue-1"].label == "Clue"
+
+
 def test_build_graph_filters_locally_by_keyword_and_alias():
     graph = build_topic_memory_graph(
         [

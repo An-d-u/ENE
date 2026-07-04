@@ -171,6 +171,8 @@ class TopicMemoryMindmapPanel(QWidget):
             self._topics(),
             query=self.search_input.text(),
             state_filter=self._current_state_filter(),
+            root_label=t("memory.topic_map.root.label"),
+            fallback_clue_label=t("memory.topic_map.clue.fallback"),
         )
 
         self.scene.clear()
