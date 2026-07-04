@@ -89,11 +89,31 @@ V1에서 제외하는 편집:
 5. 사용자가 로컬 필터나 노드 선택을 바꾸면 view model 표시 상태만 갱신한다.
 6. 새로고침을 누르면 저장소를 다시 읽어 그래프를 렌더링한다.
 
+## V1 구현 위치
+
+V1은 기존 기억 관리 창 안의 `주제 기억 지도` 탭으로 구현한다.
+
+- `src/ui/topic_memory_mindmap_model.py`: topic/clue 목록을 UI 전용 노드와 표시 전용 edge로 바꾸는 순수 Python view model
+- `src/ui/topic_memory_mindmap.py`: `QGraphicsView` 기반 읽기 전용 마인드맵 패널
+- `src/ui/memory_dialog.py`: 기존 장기 기억 UI와 주제 기억 지도 UI를 탭으로 묶는 통합 지점
+- `src/core/app.py`: 독립 기억 관리 창을 열 때 `KnowledgeMapManager`를 전달하는 경로
+- `src/ui/settings_tabs/memory_tab.py`: 설정 화면에 임베드된 기억 관리 패널로 `KnowledgeMapManager`를 전달하는 경로
+
+## 읽기 전용 보장
+
+마인드맵 UI는 실제 기억 저장과 검색 판단에 관여하지 않는다.
+
+- UI는 `KnowledgeMapManager.load()`와 `topics` 조회만 사용한다.
+- UI 필터는 이미 로드된 view model 안에서만 동작한다.
+- `save`, `merge_hints*`, `search_*` 계열 메서드는 호출하지 않는다.
+- shared edge는 화면 표시용 힌트이며 저장 파일이나 컨텍스트 주입 결과에 반영하지 않는다.
+- topic 상세 패널은 현재 필터로 보이는 clue만 표시해 화면 요약과 상세 정보가 어긋나지 않게 한다.
+
 ## 오류 처리
 
 - `knowledge_map.json`이 없으면 빈 상태 화면을 보여준다.
 - malformed topic/clue는 기존 manager의 로드 정규화 결과를 따른다.
-- 로드 실패 시 상세 패널에 오류를 표시하고 기존 화면 상태를 유지한다.
+- 로드 실패 시 상세 패널에 오류를 표시하고 기존 화면 상태를 유지한다. 로드 실패 상태에서는 검색어나 상태 필터를 바꿔도 오류 표시가 덮이지 않는다.
 - 표시 전용 edge 계산 실패는 그래프 렌더링을 막지 않고 edge 없이 노드만 표시한다.
 
 ## 테스트 계획
