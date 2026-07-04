@@ -49,7 +49,7 @@ def test_build_graph_creates_central_topic_clue_nodes_and_primary_edges():
     }
 
 
-def test_build_graph_filters_locally_by_keyword_alias_term_and_clue_text():
+def test_build_graph_filters_locally_by_keyword_and_alias():
     graph = build_topic_memory_graph(
         [
             _topic("topic-1", "Project Atlas", [_clue("clue-1", "planning")], aliases=["Atlas"]),
@@ -60,6 +60,38 @@ def test_build_graph_filters_locally_by_keyword_alias_term_and_clue_text():
 
     assert "topic:topic-1" in graph.nodes
     assert "topic:topic-2" not in graph.nodes
+
+
+def test_build_graph_filters_locally_by_retrieval_term():
+    graph = build_topic_memory_graph(
+        [
+            _topic(
+                "topic-1",
+                "Project Atlas",
+                [_clue("clue-1", "planning")],
+                retrieval_terms=["roadmap"],
+            ),
+            _topic("topic-2", "Topic Beta", [_clue("clue-2", "archive")]),
+        ],
+        query="roadmap",
+    )
+
+    assert "topic:topic-1" in graph.nodes
+    assert "topic:topic-2" not in graph.nodes
+
+
+def test_build_graph_filters_locally_by_clue_text():
+    graph = build_topic_memory_graph(
+        [
+            _topic("topic-1", "Project Atlas", [_clue("clue-1", "planning")]),
+            _topic("topic-2", "Topic Beta", [_clue("clue-2", "archive", text="Reference note")]),
+        ],
+        query="reference",
+    )
+
+    assert "topic:topic-1" not in graph.nodes
+    assert "topic:topic-2" in graph.nodes
+    assert "clue:topic-2:clue-2" in graph.nodes
 
 
 def test_build_graph_filters_by_state_without_mutating_topics():
@@ -85,3 +117,43 @@ def test_build_graph_adds_visual_shared_edges_only():
     assert visual_edges
     assert visual_edges[0].is_visual_hint is True
     assert "planning" in visual_edges[0].reason or "status" in visual_edges[0].reason
+
+
+def test_build_graph_adds_shared_edge_for_retrieval_term_overlap():
+    graph = build_topic_memory_graph(
+        [
+            _topic(
+                "topic-1",
+                "Project Atlas",
+                [_clue("clue-1", "launch", type="milestone")],
+                retrieval_terms=["roadmap"],
+            ),
+            _topic(
+                "topic-2",
+                "Topic Beta",
+                [_clue("clue-2", "archive", type="status")],
+                retrieval_terms=["roadmap"],
+            ),
+        ]
+    )
+
+    visual_edges = [edge for edge in graph.edges if edge.kind == "shared"]
+    assert len(visual_edges) == 1
+    assert visual_edges[0].reason == "roadmap"
+
+
+def test_build_graph_does_not_share_between_retrieval_term_and_clue_value():
+    graph = build_topic_memory_graph(
+        [
+            _topic(
+                "topic-1",
+                "Project Atlas",
+                [_clue("clue-1", "launch", type="milestone")],
+                retrieval_terms=["planning"],
+            ),
+            _topic("topic-2", "Topic Beta", [_clue("clue-2", "planning", type="status")]),
+        ]
+    )
+
+    visual_edges = [edge for edge in graph.edges if edge.kind == "shared"]
+    assert visual_edges == []

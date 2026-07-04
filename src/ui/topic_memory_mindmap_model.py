@@ -227,11 +227,17 @@ def _shared_edges(
 
     for left_index, (left_topic, left_signature) in enumerate(signatures):
         for right_topic, right_signature in signatures[left_index + 1 :]:
-            shared = left_signature & right_signature
-            if not shared:
+            left_clue_values, left_terms = left_signature
+            right_clue_values, right_terms = right_signature
+            shared_clue_values = set(left_clue_values) & set(right_clue_values)
+            shared_terms = set(left_terms) & set(right_terms)
+            if shared_clue_values:
+                reason = left_clue_values[sorted(shared_clue_values)[0]]
+            elif shared_terms:
+                reason = left_terms[sorted(shared_terms)[0]]
+            else:
                 continue
 
-            reason = sorted(shared)[0]
             edges.append(
                 MindmapEdge(
                     source_id=f"topic:{left_topic.id}",
@@ -246,11 +252,23 @@ def _shared_edges(
     return edges
 
 
-def _shared_signature(topic: TopicMemoryTopic, clues: list[TopicMemoryClue]) -> set[str]:
-    values = {term.strip() for term in topic.retrieval_terms if term.strip()}
+def _shared_signature(
+    topic: TopicMemoryTopic,
+    clues: list[TopicMemoryClue],
+) -> tuple[dict[str, str], dict[str, str]]:
+    clue_values: list[str] = []
     for clue in clues:
         if clue.subject:
-            values.add(clue.subject)
+            clue_values.append(clue.subject)
         if clue.type:
-            values.add(clue.type)
-    return values
+            clue_values.append(clue.type)
+    return _normalized_lookup(clue_values), _normalized_lookup(topic.retrieval_terms)
+
+
+def _normalized_lookup(values: Iterable[str]) -> dict[str, str]:
+    lookup: dict[str, str] = {}
+    for value in values:
+        text = value.strip()
+        if text:
+            lookup.setdefault(text.casefold(), text)
+    return lookup
