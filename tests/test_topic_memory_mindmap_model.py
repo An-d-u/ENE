@@ -169,7 +169,7 @@ def test_build_graph_filters_by_state_without_mutating_topics():
     assert topics[0].clues[0].state == "closed"
 
 
-def test_build_graph_adds_visual_shared_edges_only():
+def test_build_graph_does_not_connect_topics_by_clue_subject_or_type():
     graph = build_topic_memory_graph(
         [
             _topic("topic-1", "Project Atlas", [_clue("clue-1", "planning", type="status")]),
@@ -178,9 +178,7 @@ def test_build_graph_adds_visual_shared_edges_only():
     )
 
     visual_edges = [edge for edge in graph.edges if edge.kind == "shared"]
-    assert visual_edges
-    assert visual_edges[0].is_visual_hint is True
-    assert "planning" in visual_edges[0].reason or "status" in visual_edges[0].reason
+    assert visual_edges == []
 
 
 def test_build_graph_adds_shared_edge_for_retrieval_term_overlap():
@@ -204,6 +202,62 @@ def test_build_graph_adds_shared_edge_for_retrieval_term_overlap():
     visual_edges = [edge for edge in graph.edges if edge.kind == "shared"]
     assert len(visual_edges) == 1
     assert visual_edges[0].reason == "roadmap"
+
+
+def test_build_graph_adds_shared_edge_for_alias_overlap():
+    graph = build_topic_memory_graph(
+        [
+            _topic(
+                "topic-1",
+                "Project Atlas",
+                [_clue("clue-1", "launch", type="milestone")],
+                aliases=["notebook"],
+            ),
+            _topic(
+                "topic-2",
+                "Topic Beta",
+                [_clue("clue-2", "archive", type="status")],
+                retrieval_terms=["notebook"],
+            ),
+        ]
+    )
+
+    visual_edges = [edge for edge in graph.edges if edge.kind == "shared"]
+    assert len(visual_edges) == 1
+    assert visual_edges[0].reason == "notebook"
+
+
+def test_build_graph_places_shared_topics_closer_than_unrelated_topics():
+    graph = build_topic_memory_graph(
+        [
+            _topic(
+                "topic-1",
+                "Project Atlas",
+                [_clue("clue-1", "launch")],
+                retrieval_terms=["notebook"],
+            ),
+            _topic(
+                "topic-2",
+                "Topic Beta",
+                [_clue("clue-2", "archive")],
+                retrieval_terms=["notebook"],
+            ),
+            _topic(
+                "topic-3",
+                "Topic Gamma",
+                [_clue("clue-3", "separate")],
+                retrieval_terms=["garden"],
+            ),
+        ]
+    )
+
+    atlas = graph.nodes["topic:topic-1"]
+    beta = graph.nodes["topic:topic-2"]
+    gamma = graph.nodes["topic:topic-3"]
+
+    shared_distance = ((atlas.x - beta.x) ** 2 + (atlas.y - beta.y) ** 2) ** 0.5
+    unrelated_distance = ((atlas.x - gamma.x) ** 2 + (atlas.y - gamma.y) ** 2) ** 0.5
+    assert shared_distance < unrelated_distance
 
 
 def test_build_graph_does_not_share_between_retrieval_term_and_clue_value():

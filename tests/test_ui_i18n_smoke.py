@@ -430,6 +430,64 @@ def test_topic_memory_mindmap_panel_topic_detail_uses_visible_filtered_clues():
     panel.close()
 
 
+def test_topic_memory_mindmap_panel_renders_as_interactive_graph_canvas():
+    _get_qapp()
+    configure_i18n(language="ko", locales_dir=Path("src/locales"), system_locale="ko_KR")
+    manager = _DummyKnowledgeMapManager(
+        [
+            TopicMemoryTopic(
+                id="topic-1",
+                keyword="Project Atlas",
+                aliases=["Atlas"],
+                retrieval_terms=["roadmap"],
+                clues=[
+                    TopicMemoryClue(
+                        id="clue-1",
+                        subject="planning",
+                        type="status",
+                        state="active",
+                        text="Synthetic project note.",
+                    )
+                ],
+            ),
+            TopicMemoryTopic(
+                id="topic-2",
+                keyword="Topic Beta",
+                retrieval_terms=["roadmap"],
+                clues=[
+                    TopicMemoryClue(
+                        id="clue-2",
+                        subject="archive",
+                        type="status",
+                        state="active",
+                        text="Synthetic archive note.",
+                    )
+                ],
+            ),
+            TopicMemoryTopic(
+                id="topic-3",
+                keyword="Topic Gamma",
+                retrieval_terms=["separate"],
+                clues=[],
+            ),
+        ]
+    )
+
+    panel = TopicMemoryMindmapPanel(manager)
+
+    assert panel.view.objectName() == "topicMemoryGraphView"
+    assert "root" not in panel._node_items
+    assert not any(edge.kind == "topic" for _, _, edge in panel._edge_items)
+    assert any(edge.kind == "shared" for _, _, edge in panel._edge_items)
+
+    panel._select_node("topic:topic-3")
+
+    assert panel._node_items["topic:topic-3"].property("graphState") == "selected"
+    assert panel._node_items["topic:topic-1"].property("graphState") == "dimmed"
+    assert panel._node_items["topic:topic-2"].property("graphState") == "dimmed"
+    panel.close()
+
+
 @contextmanager
 def _stub_prompt_module():
     prompt_stub = types.ModuleType("src.ai.prompt")
