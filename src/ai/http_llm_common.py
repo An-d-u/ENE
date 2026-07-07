@@ -404,7 +404,11 @@ class _CommonMixin:
     def _prompt_language(self) -> str:
         return resolve_prompt_language(settings_source=getattr(self, "settings", None))
 
-    def _build_summary_prompt_for_messages(self, messages: list) -> str:
+    def _build_summary_prompt_for_messages(
+        self,
+        messages: list,
+        loaded_topic_memory_context: str = "",
+    ) -> str:
         language = self._prompt_language()
         names = resolve_prompt_persona_names(settings_source=getattr(self, "settings", None), language=language)
         return build_summary_prompt(
@@ -413,6 +417,7 @@ class _CommonMixin:
             language=language,
             assistant_name=names.assistant,
             user_name=names.user,
+            loaded_topic_memory_context=loaded_topic_memory_context,
         ).prompt
 
     def _empty_summary_fallback_response(self) -> tuple[str, list[str], list[str], dict, list]:
@@ -430,8 +435,15 @@ class _CommonMixin:
             [],
         )
 
-    def _summarize_conversation_from_messages(self, messages: list) -> tuple[str, list[str], list[str], dict, list]:
-        prompt = self._build_summary_prompt_for_messages(messages)
+    def _summarize_conversation_from_messages(
+        self,
+        messages: list,
+        loaded_topic_memory_context: str = "",
+    ) -> tuple[str, list[str], list[str], dict, list]:
+        prompt = self._build_summary_prompt_for_messages(
+            messages,
+            loaded_topic_memory_context=loaded_topic_memory_context,
+        )
         response_text = self._request_summary_text(prompt)
         if not str(response_text or "").strip():
             return self._empty_summary_fallback_response()

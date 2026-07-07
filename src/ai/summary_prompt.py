@@ -156,6 +156,7 @@ def build_summary_prompt(
     language: str | None = None,
     assistant_name: str | None = None,
     user_name: str | None = None,
+    loaded_topic_memory_context: str = "",
 ) -> SummaryPrompt:
     resolved_language = resolve_prompt_language(language)
     _, time_str = _format_now_for_language(resolved_language, now)
@@ -172,6 +173,7 @@ def build_summary_prompt(
         language=resolved_language,
         assistant_name=assistant_name,
         user_name=user_name,
+        loaded_topic_memory_context=loaded_topic_memory_context,
     )
 
 
@@ -179,6 +181,7 @@ def build_summary_prompt_from_text(
     conversation_text: str,
     *,
     current_profile: str = "",
+    loaded_topic_memory_context: str = "",
     time_range: str = "",
     elapsed_hint: str = "",
     time_str: str = "",
@@ -194,6 +197,34 @@ def build_summary_prompt_from_text(
     if not time_str:
         _, time_str = _format_now_for_language(resolved_language, now)
     resolved_time_range = time_range or time_str
+    loaded_topic_memory_context = str(loaded_topic_memory_context or "").strip()
+    if loaded_topic_memory_context:
+        loaded_topic_memory_block = f"""[LOADED_TOPIC_MEMORY]
+{loaded_topic_memory_context}
+
+"""
+    else:
+        loaded_topic_memory_block = ""
+    if resolved_language == "ko":
+        loaded_topic_memory_rules = """[LOADED_TOPIC_MEMORY_RULES]
+- LOADED_TOPIC_MEMORY는 비교용 기존 주제 기억이며, 대화 근거 자체가 아닙니다.
+- 로드된 주제 기억을 그대로 새 힌트로 복사하지 마세요.
+- 이번 대화가 기존 주제를 명확히 갱신, 해결, 변경, 취소, 보류, 구체화할 때만 TOPIC_MEMORY에 쓰세요.
+- 단순 언급, 회상, 기존 상태 유지라면 none을 쓰세요.
+- 기존 주제 갱신이면 저장된 단서가 분리되지 않도록 가능한 한 기존 keyword, subject, type을 재사용하세요.
+- 관련성이 애매하면 none을 쓰세요.
+
+"""
+    else:
+        loaded_topic_memory_rules = """[LOADED_TOPIC_MEMORY_RULES]
+- LOADED_TOPIC_MEMORY is comparison context only, not conversation evidence.
+- Do not copy loaded topic memory as a new hint.
+- Write TOPIC_MEMORY from it only if this conversation clearly updates, resolves, changes, cancels, pauses, or concretizes that existing topic.
+- If the loaded topic is merely mentioned, recalled, or still unchanged, write none.
+- For an existing topic update, reuse the loaded keyword, subject, and type whenever possible so the stored clue can be updated instead of split.
+- If relevance is ambiguous, write none.
+
+"""
 
     if resolved_language == "en":
         prompt = f"""Summarize the conversation below and extract {prompt_user_name} information and {prompt_assistant_name} information.
@@ -206,7 +237,7 @@ def build_summary_prompt_from_text(
 [ELAPSED_HINT]
 {elapsed_hint}
 
-[CONVERSATION]
+{loaded_topic_memory_block}{loaded_topic_memory_rules}[CONVERSATION]
 {conversation_text}
 
 [OUTPUT_FORMAT]
@@ -308,7 +339,7 @@ def build_summary_prompt_from_text(
 [ELAPSED_HINT]
 {elapsed_hint}
 
-[CONVERSATION]
+{loaded_topic_memory_block}{loaded_topic_memory_rules}[CONVERSATION]
 {conversation_text}
 
 [OUTPUT_FORMAT]
@@ -409,7 +440,7 @@ def build_summary_prompt_from_text(
 [ELAPSED_HINT]
 {elapsed_hint}
 
-[CONVERSATION]
+{loaded_topic_memory_block}{loaded_topic_memory_rules}[CONVERSATION]
 {conversation_text}
 
 [OUTPUT_FORMAT]
@@ -501,4 +532,3 @@ def build_summary_prompt_from_text(
 - "**"와 같은 강조표시의 사용은 금지합니다.
 """
     return SummaryPrompt(prompt=prompt, time_range=resolved_time_range)
-

@@ -88,6 +88,29 @@ def test_korean_summary_prompt_includes_topic_memory_parser_keys():
     assert "- confidence: 0.0~1.0" in prompt
 
 
+def test_summary_prompt_includes_loaded_topic_memory_as_comparison_context():
+    prompt = build_summary_prompt_from_text(
+        "user: The checklist is done.",
+        language="en",
+        time_str="April 25, 2026 10:30",
+        loaded_topic_memory_context=(
+            "- keyword: Project Atlas\n"
+            "  subject: release checklist\n"
+            "  type: status_flow\n"
+            "  state: active\n"
+            "  text: The release checklist is still in progress."
+        ),
+    ).prompt
+
+    assert "[LOADED_TOPIC_MEMORY]" in prompt
+    assert "Project Atlas" in prompt
+    assert "comparison context" in prompt
+    assert "Do not copy loaded topic memory as a new hint" in prompt
+    assert "only if this conversation clearly updates" in prompt
+    assert prompt.index("[LOADED_TOPIC_MEMORY]") < prompt.index("[CONVERSATION]")
+    assert prompt.index("[LOADED_TOPIC_MEMORY]") < prompt.index("[TOPIC_MEMORY]")
+
+
 def test_summary_prompt_uses_custom_prompt_names_but_keeps_parser_tokens():
     prompt = build_summary_prompt_from_text(
         "user: Please remember this.",

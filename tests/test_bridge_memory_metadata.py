@@ -66,10 +66,12 @@ class _DummySignal:
 class _ReviewLLMClient:
     def __init__(self):
         self.calls = []
+        self.loaded_topic_context_calls = []
         self.clear_context_calls = 0
 
-    async def summarize_conversation(self, messages):
+    async def summarize_conversation(self, messages, loaded_topic_memory_context=""):
         self.calls.append(list(messages))
+        self.loaded_topic_context_calls.append(loaded_topic_memory_context)
         call_number = len(self.calls)
         return (
             f"요약 후보 {call_number}",
@@ -329,6 +331,44 @@ def test_manual_summarize_review_payload_includes_topic_hints_without_saving():
     assert [hint["keyword"] for hint in payload["topic_hints"]] == ["Project Topic 1", "Project Dict 1"]
     assert "ignored" not in payload["topic_hints"][1]
     assert dummy._pending_summary_review["topic_hints"] == payload["topic_hints"]
+
+
+def test_prepare_summary_review_passes_loaded_topic_memory_context_side_buffer():
+    dummy = types.SimpleNamespace()
+    dummy.conversation_buffer = [
+        ("user", "Project Atlas update", "2026-04-14 20:00"),
+        ("assistant", "Noted.", "2026-04-14 20:01"),
+    ]
+    dummy._loaded_topic_memory_context_buffer = [
+        {
+            "conversation_index": 0,
+            "context": (
+                "- keyword: Project Atlas\n"
+                "  subject: release checklist\n"
+                "  type: status_flow\n"
+                "  state: active\n"
+                "  text: Release checklist is in progress."
+            ),
+        }
+    ]
+    dummy.memory_manager = _DummyMemoryManager()
+    dummy.llm_client = _ReviewLLMClient()
+    dummy.summary_review_ready = _DummySignal()
+    dummy._normalize_summary_result = lambda result: WebBridge._normalize_summary_result(dummy, result)
+    dummy._build_summary_storage_payload = lambda messages: WebBridge._build_summary_storage_payload(dummy, messages)
+    dummy._emit_summary_review = lambda: WebBridge._emit_summary_review(dummy)
+
+    asyncio.run(WebBridge._prepare_summary_review(dummy))
+
+    assert dummy.llm_client.loaded_topic_context_calls == [
+        (
+            "- keyword: Project Atlas\n"
+            "  subject: release checklist\n"
+            "  type: status_flow\n"
+            "  state: active\n"
+            "  text: Release checklist is in progress."
+        )
+    ]
 
 
 def test_auto_summarize_ignores_topic_hints_for_storage():
@@ -755,6 +795,10 @@ def test_approve_summary_review_preserves_messages_added_after_review_started():
         {"conversation_index": 1, "thought": "old"},
         {"conversation_index": 3, "thought": "new"},
     ]
+    dummy._loaded_topic_memory_context_buffer = [
+        {"conversation_index": 0, "context": "old topic context"},
+        {"conversation_index": 2, "context": "new topic context"},
+    ]
     dummy._pending_summary_review = {
         "messages": list(reviewed_messages),
         "original_messages": [],
@@ -785,6 +829,9 @@ def test_approve_summary_review_preserves_messages_added_after_review_started():
 
     assert dummy.conversation_buffer == new_messages
     assert dummy._ene_thought_context_buffer == [{"conversation_index": 1, "thought": "new"}]
+    assert dummy._loaded_topic_memory_context_buffer == [
+        {"conversation_index": 0, "context": "new topic context"}
+    ]
     assert dummy.summary_review_saved.emitted == [()]
 
 

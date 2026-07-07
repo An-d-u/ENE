@@ -724,6 +724,9 @@ def test_build_memory_context_includes_topic_memory_with_memory_manager():
 
     assert context.count("[Topic Memory]") == 1
     assert "Synthetic planning note." in context
+    assert dummy._last_loaded_topic_memory_context == (
+        "[Topic Memory]\n- Project Alpha / status: Synthetic planning note."
+    )
     assert context.index("goal_20260522_001") < context.index("[Topic Memory]")
     assert topic_manager.calls == [
         {
@@ -741,11 +744,13 @@ def test_build_memory_context_disables_topic_memory_when_config_is_zero():
     dummy.goal_manager = _DummyGoalManager()
     dummy.knowledge_map_manager = topic_manager
     dummy.settings = type("SettingsDummy", (), {"config": {"max_topic_memory_context": 0}})()
+    dummy._last_loaded_topic_memory_context = "stale topic context"
 
     context = asyncio.run(GeminiClient._build_memory_context(dummy, "Project Alpha status?"))
 
     assert "goal_20260522_001" in context
     assert "[Topic Memory]" not in context
+    assert dummy._last_loaded_topic_memory_context == ""
     assert topic_manager.calls == []
 
 
@@ -1557,7 +1562,11 @@ def test_on_response_ready_rebuilds_llm_history_from_visible_conversation_only()
     dummy._last_assistant_response = None
     dummy.mood_manager = None
     dummy.llm_client = _DummyLLMClient()
+    dummy.llm_client._last_loaded_topic_memory_context = (
+        "[Topic Memory]\n- Project Atlas / status: Synthetic planning note."
+    )
     dummy._emit_mood_changed = lambda snapshot: None
+    dummy._loaded_topic_memory_context_buffer = []
     dummy.conversation_buffer = [("user", "순수 사용자 메시지", "2026-03-24 10:00")]
     dummy._append_conversation = lambda role, text: dummy.conversation_buffer.append((role, text, "2026-03-24 10:01"))
     dummy.enable_tts = False
@@ -1591,6 +1600,29 @@ def test_on_response_ready_rebuilds_llm_history_from_visible_conversation_only()
             ("user", "순수 사용자 메시지", "2026-03-24 10:00"),
             ("assistant", "analysis=user\n실제 응답 본문", "2026-03-24 10:01"),
         ]
+    ]
+
+
+    assert dummy._loaded_topic_memory_context_buffer == [
+        {
+            "conversation_index": 0,
+            "context": "[Topic Memory]\n- Project Atlas / status: Synthetic planning note.",
+        }
+    ]
+
+
+def test_discard_loaded_topic_memory_context_from_index_keeps_earlier_entries():
+    dummy = type("BridgeDummy", (), {})()
+    dummy._loaded_topic_memory_context_buffer = [
+        {"conversation_index": 0, "context": "earlier"},
+        {"conversation_index": 2, "context": "discarded"},
+        {"conversation_index": 3, "context": "also discarded"},
+    ]
+
+    WebBridge._discard_loaded_topic_memory_context_from_index(dummy, 2)
+
+    assert dummy._loaded_topic_memory_context_buffer == [
+        {"conversation_index": 0, "context": "earlier"}
     ]
 
 

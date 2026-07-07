@@ -543,6 +543,36 @@ def test_provider_summarize_conversation_uses_one_shot_request_without_chat_hist
     assert client.get_conversation_history() == original_history
 
 
+def test_provider_summarize_conversation_accepts_loaded_topic_memory_context(monkeypatch):
+    client = _build_openai_compatible_client()
+    captured = {}
+
+    def fake_one_shot(prompt, include_sub_prompt=True):
+        captured["prompt"] = prompt
+        captured["include_sub_prompt"] = include_sub_prompt
+        return SUMMARY_OUTPUT
+
+    monkeypatch.setattr(client, "_request_one_shot_raw", fake_one_shot)
+
+    asyncio.run(
+        client.summarize_conversation(
+            [("user", "Project Lambda finished rollout.", "2026-05-25 10:00")],
+            loaded_topic_memory_context=(
+                "- keyword: Project Lambda\n"
+                "  subject: rollout status\n"
+                "  type: status_flow\n"
+                "  state: active\n"
+                "  text: Rollout is in progress."
+            ),
+        )
+    )
+
+    assert "[LOADED_TOPIC_MEMORY]" in captured["prompt"]
+    assert "Project Lambda" in captured["prompt"]
+    assert "비교용 기존 주제 기억" in captured["prompt"]
+    assert captured["include_sub_prompt"] is False
+
+
 def test_provider_summarize_conversation_empty_response_returns_topic_hints_fallback(monkeypatch):
     client = _build_openai_compatible_client()
 
