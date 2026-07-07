@@ -42,7 +42,11 @@ class LLMClientProtocol(Protocol):
     def send_message(self, message: str, history_user_content: str | None = None) -> LLM_RESPONSE_TUPLE:
         ...
 
-    async def summarize_conversation(self, messages: list) -> SUMMARY_RESPONSE_TUPLE:
+    async def summarize_conversation(
+        self,
+        messages: list,
+        loaded_topic_memory_context: str = "",
+    ) -> SUMMARY_RESPONSE_TUPLE:
         ...
 
     async def generate_markdown_document(self, message: str) -> str:

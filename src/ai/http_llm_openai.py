@@ -152,8 +152,15 @@ class OpenAICompatibleClient(_CommonMixin):
         self._remember_turn(history_user_content if history_user_content is not None else message, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture)))
         return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture
 
-    async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict, list]:
-        return self._summarize_conversation_from_messages(messages)
+    async def summarize_conversation(
+        self,
+        messages: list,
+        loaded_topic_memory_context: str = "",
+    ) -> tuple[str, list[str], list[str], dict, list]:
+        return self._summarize_conversation_from_messages(
+            messages,
+            loaded_topic_memory_context=loaded_topic_memory_context,
+        )
 
 
 class OpenAIResponseAPIClient(_CommonMixin):
@@ -349,8 +356,15 @@ class OpenAIResponseAPIClient(_CommonMixin):
         self._history.append({"role": "assistant", "content": self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture))})
         return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture
 
-    async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict, list]:
-        return self._summarize_conversation_from_messages(messages)
+    async def summarize_conversation(
+        self,
+        messages: list,
+        loaded_topic_memory_context: str = "",
+    ) -> tuple[str, list[str], list[str], dict, list]:
+        return self._summarize_conversation_from_messages(
+            messages,
+            loaded_topic_memory_context=loaded_topic_memory_context,
+        )
 
 
 class MistralClient(OpenAICompatibleClient):

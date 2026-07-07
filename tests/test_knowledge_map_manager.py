@@ -915,6 +915,29 @@ def test_async_build_context_block_uses_prompt_language_label(tmp_path):
     assert context.startswith("[Topic Memory]")
 
 
+def test_async_build_context_block_includes_structured_clue_fields(tmp_path):
+    manager = KnowledgeMapManager(tmp_path / "knowledge_map.json")
+    manager.merge_hints_direct(
+        [
+            _hint(
+                keyword="Project Atlas",
+                subject="release checklist",
+                type="status_flow",
+                state="active",
+                text="Project Atlas release checklist is in progress.",
+            )
+        ]
+    )
+
+    context = asyncio.run(manager.async_build_context_block("Project Atlas", top_k=1, language="en"))
+
+    assert "- keyword: Project Atlas" in context
+    assert "  subject: release checklist" in context
+    assert "  type: status_flow" in context
+    assert "  state: active" in context
+    assert "  text: Project Atlas release checklist is in progress." in context
+
+
 def test_async_wrappers_use_direct_logic(tmp_path):
     manager = KnowledgeMapManager(tmp_path / "knowledge_map.json")
     asyncio.run(

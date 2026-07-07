@@ -772,7 +772,11 @@ class GeminiClient:
             traceback.print_exc()
             raise
     
-    async def summarize_conversation(self, messages: list) -> tuple[str, list[str], list[str], dict, list]:
+    async def summarize_conversation(
+        self,
+        messages: list,
+        loaded_topic_memory_context: str = "",
+    ) -> tuple[str, list[str], list[str], dict, list]:
         """
         대화 내용 요약 및 사용자 정보 추출
         
@@ -794,6 +798,7 @@ class GeminiClient:
                 language=prompt_language,
                 assistant_name=prompt_names.assistant,
                 user_name=prompt_names.user,
+                loaded_topic_memory_context=loaded_topic_memory_context,
             )
             summarize_prompt = summary_prompt.prompt
             time_range = summary_prompt.time_range

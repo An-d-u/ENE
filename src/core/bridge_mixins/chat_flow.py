@@ -415,6 +415,13 @@ class ChatFlowBridgeMixin:
         # 교체 의미를 지키기 위해 최근 assistant 응답 하나를 버퍼에서 제거
         if self.conversation_buffer and self.conversation_buffer[-1][0] == "assistant":
             assistant_index = len(self.conversation_buffer) - 1
+            discard_loaded_topic = getattr(self, "_discard_loaded_topic_memory_context_from_index", None)
+            if not callable(discard_loaded_topic):
+                discard_loaded_topic = lambda index: ChatFlowBridgeMixin._discard_loaded_topic_memory_context_from_index(
+                    self,
+                    index,
+                )
+            discard_loaded_topic(max(0, assistant_index - 1))
             discard_thoughts = getattr(self, "_discard_ene_thought_context_from_index", None)
             if not callable(discard_thoughts):
                 discard_thoughts = lambda index: ThoughtBridgeMixin._discard_ene_thought_context_from_index(self, index)
@@ -503,6 +510,13 @@ class ChatFlowBridgeMixin:
         # 대화 버퍼의 최근 assistant/user 턴 제거
         if self.conversation_buffer and self.conversation_buffer[-1][0] == "assistant":
             assistant_index = len(self.conversation_buffer) - 1
+            discard_loaded_topic = getattr(self, "_discard_loaded_topic_memory_context_from_index", None)
+            if not callable(discard_loaded_topic):
+                discard_loaded_topic = lambda index: ChatFlowBridgeMixin._discard_loaded_topic_memory_context_from_index(
+                    self,
+                    index,
+                )
+            discard_loaded_topic(max(0, assistant_index - 1))
             discard_thoughts = getattr(self, "_discard_ene_thought_context_from_index", None)
             if not callable(discard_thoughts):
                 discard_thoughts = lambda index: ThoughtBridgeMixin._discard_ene_thought_context_from_index(self, index)
@@ -588,6 +602,52 @@ class ChatFlowBridgeMixin:
             ChatFlowBridgeMixin._emit_request_pending_changed(self, False)
             raise
 
+    def _remember_loaded_topic_memory_context_for_summary(self) -> None:
+        """이번 응답 생성에 실제 주입된 주제 기억을 요약 비교용 side-buffer에 남긴다."""
+        llm_client = getattr(self, "llm_client", None)
+        context = str(getattr(llm_client, "_last_loaded_topic_memory_context", "") or "").strip()
+        if not context:
+            return
+
+        conversation = list(getattr(self, "conversation_buffer", []) or [])
+        conversation_index = len(conversation) - 2
+        if conversation_index < 0:
+            return
+
+        buffer = getattr(self, "_loaded_topic_memory_context_buffer", None)
+        if not isinstance(buffer, list):
+            buffer = []
+            self._loaded_topic_memory_context_buffer = buffer
+        buffer.append(
+            {
+                "conversation_index": conversation_index,
+                "context": context,
+            }
+        )
+        setattr(llm_client, "_last_loaded_topic_memory_context", "")
+
+    def _discard_loaded_topic_memory_context_from_index(self, start_index: int) -> None:
+        """리롤/수정으로 사라진 대화 범위의 loaded topic context를 버린다."""
+        entries = getattr(self, "_loaded_topic_memory_context_buffer", None)
+        if not isinstance(entries, list):
+            return
+
+        try:
+            threshold = int(start_index)
+        except Exception:
+            threshold = 0
+        kept = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            try:
+                conversation_index = int(entry.get("conversation_index", -1))
+            except Exception:
+                conversation_index = -1
+            if conversation_index < threshold:
+                kept.append(entry)
+        self._loaded_topic_memory_context_buffer = kept
+
     def _handle_response_ready(
         self,
         text: str,
@@ -653,6 +713,10 @@ class ChatFlowBridgeMixin:
         
         # 대화 버퍼에 응답 추가 (+ 타임스탬프)
         self._append_conversation("assistant", text)
+        remember_loaded_topic = getattr(self, "_remember_loaded_topic_memory_context_for_summary", None)
+        if not callable(remember_loaded_topic):
+            remember_loaded_topic = lambda: ChatFlowBridgeMixin._remember_loaded_topic_memory_context_for_summary(self)
+        remember_loaded_topic()
         remember_thought = getattr(self, "_remember_ene_thought_for_context", None)
         if not callable(remember_thought):
             remember_thought = lambda value: ThoughtBridgeMixin._remember_ene_thought_for_context(self, value)

@@ -350,6 +350,7 @@ async def build_memory_context(
         top_k=max_topic_memory_context,
         prompt_language=prompt_language,
     )
+    setattr(client, "_last_loaded_topic_memory_context", topic_memory_block)
     goal_block = build_goal_context_block(client, prompt_language)
     memory_manager = getattr(client, "memory_manager", None)
     if not memory_manager:

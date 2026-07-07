@@ -380,9 +380,13 @@ class KnowledgeMapManager:
         for result in results:
             clue = result.clue
             if clue is None:
-                lines.append(f"- {result.topic.keyword}")
+                lines.append(f"- keyword: {result.topic.keyword}")
                 continue
-            lines.append(f"- {result.topic.keyword} / {clue.subject}: {clue.text}")
+            lines.append(f"- keyword: {result.topic.keyword}")
+            lines.append(f"  subject: {clue.subject}")
+            lines.append(f"  type: {clue.type}")
+            lines.append(f"  state: {clue.state}")
+            lines.append(f"  text: {clue.text}")
         return "\n".join(lines)
 
     def _current_embedding_source(self) -> tuple[str | None, str | None]:

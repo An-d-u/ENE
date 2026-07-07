@@ -79,6 +79,7 @@ class ChatBridgeState:
 
     conversation_buffer: list[tuple] = field(default_factory=list)
     ene_thought_context_buffer: list[dict] = field(default_factory=list)
+    loaded_topic_memory_context_buffer: list[dict] = field(default_factory=list)
     last_request_payload: dict[str, Any] | None = None
     last_assistant_response: dict[str, Any] | None = None
     is_rerolling: bool = False
@@ -174,6 +175,7 @@ BRIDGE_STATE_ALIASES = {
     "_tts_interrupted_for_ptt": ("tts_state", "interrupted_for_ptt"),
     "conversation_buffer": ("chat_state", "conversation_buffer"),
     "_ene_thought_context_buffer": ("chat_state", "ene_thought_context_buffer"),
+    "_loaded_topic_memory_context_buffer": ("chat_state", "loaded_topic_memory_context_buffer"),
     "_last_request_payload": ("chat_state", "last_request_payload"),
     "_last_assistant_response": ("chat_state", "last_assistant_response"),
     "_is_rerolling": ("chat_state", "is_rerolling"),

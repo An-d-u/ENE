@@ -11,6 +11,58 @@ from PyQt6.QtCore import pyqtSlot
 
 
 class MemorySummaryBridgeMixin:
+    def _loaded_topic_memory_context_for_messages(self, messages) -> str:
+        """이번 요약 범위에서 응답 생성 때 실제로 로드된 주제 기억만 모은다."""
+        reviewed_count = len(list(messages or []))
+        if reviewed_count <= 0:
+            return ""
+
+        entries = getattr(self, "_loaded_topic_memory_context_buffer", []) or []
+        collected: list[str] = []
+        seen: set[str] = set()
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            try:
+                conversation_index = int(entry.get("conversation_index", -1))
+            except Exception:
+                conversation_index = -1
+            if conversation_index < 0 or conversation_index >= reviewed_count:
+                continue
+            context = str(entry.get("context") or "").strip()
+            if not context or context in seen:
+                continue
+            seen.add(context)
+            collected.append(context)
+        return "\n".join(collected)
+
+    async def _summarize_conversation_with_loaded_topic_memory(self, messages):
+        """지원되는 클라이언트에는 loaded topic memory 비교 컨텍스트를 함께 전달한다."""
+        context_builder = getattr(self, "_loaded_topic_memory_context_for_messages", None)
+        if not callable(context_builder):
+            context_builder = lambda value: MemorySummaryBridgeMixin._loaded_topic_memory_context_for_messages(
+                self,
+                value,
+            )
+        loaded_context = context_builder(messages)
+        summarize = getattr(self.llm_client, "summarize_conversation")
+        if loaded_context:
+            supports_loaded_context = False
+            try:
+                signature = inspect.signature(summarize)
+                supports_loaded_context = (
+                    "loaded_topic_memory_context" in signature.parameters
+                    or any(
+                        parameter.kind == inspect.Parameter.VAR_KEYWORD
+                        for parameter in signature.parameters.values()
+                    )
+                )
+            except (TypeError, ValueError):
+                supports_loaded_context = False
+            if supports_loaded_context:
+                return await summarize(messages, loaded_topic_memory_context=loaded_context)
+        return await summarize(messages)
+
     def _create_memory_conversation_id(self, messages) -> str:
         """현재 요약 대상 대화를 식별할 안정적인 ID를 만든다."""
         latest_timestamp = ""
@@ -289,6 +341,21 @@ class MemorySummaryBridgeMixin:
             return
 
         self.conversation_buffer = current[reviewed_count:]
+        loaded_topic_entries = getattr(self, "_loaded_topic_memory_context_buffer", None)
+        if isinstance(loaded_topic_entries, list):
+            kept_topic_entries = []
+            for entry in loaded_topic_entries:
+                if not isinstance(entry, dict):
+                    continue
+                try:
+                    conversation_index = int(entry.get("conversation_index", -1))
+                except Exception:
+                    conversation_index = -1
+                if conversation_index >= reviewed_count:
+                    updated = dict(entry)
+                    updated["conversation_index"] = conversation_index - reviewed_count
+                    kept_topic_entries.append(updated)
+            self._loaded_topic_memory_context_buffer = kept_topic_entries
         thought_entries = getattr(self, "_ene_thought_context_buffer", None)
         if not isinstance(thought_entries, list):
             return
@@ -316,7 +383,13 @@ class MemorySummaryBridgeMixin:
             return
 
         messages = self.conversation_buffer.copy()
-        summary_result = await self.llm_client.summarize_conversation(messages)
+        summarizer = getattr(self, "_summarize_conversation_with_loaded_topic_memory", None)
+        if not callable(summarizer):
+            summarizer = lambda value: MemorySummaryBridgeMixin._summarize_conversation_with_loaded_topic_memory(
+                self,
+                value,
+            )
+        summary_result = await summarizer(messages)
         summary, user_facts, ene_facts, memory_meta, topic_hints = self._normalize_summary_result(summary_result)
         storage_payload = self._build_summary_storage_payload(messages)
         self._pending_summary_review = {
@@ -456,7 +529,13 @@ class MemorySummaryBridgeMixin:
 
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            summary_result = loop.run_until_complete(self.llm_client.summarize_conversation(messages))
+            summarizer = getattr(self, "_summarize_conversation_with_loaded_topic_memory", None)
+            if not callable(summarizer):
+                summarizer = lambda value: MemorySummaryBridgeMixin._summarize_conversation_with_loaded_topic_memory(
+                    self,
+                    value,
+                )
+            summary_result = loop.run_until_complete(summarizer(messages))
             summary, user_facts, ene_facts, memory_meta, topic_hints = self._normalize_summary_result(summary_result)
             pending["summary"] = summary
             pending["user_facts"] = user_facts
@@ -521,7 +600,13 @@ class MemorySummaryBridgeMixin:
             messages = self.conversation_buffer.copy()
             
             # LLM으로 요약 + 사용자/에네 정보 생성
-            summary_result = await self.llm_client.summarize_conversation(messages)
+            summarizer = getattr(self, "_summarize_conversation_with_loaded_topic_memory", None)
+            if not callable(summarizer):
+                summarizer = lambda value: MemorySummaryBridgeMixin._summarize_conversation_with_loaded_topic_memory(
+                    self,
+                    value,
+                )
+            summary_result = await summarizer(messages)
             normalizer = getattr(self, "_normalize_summary_result", None)
             if not callable(normalizer):
                 normalizer = lambda result: MemorySummaryBridgeMixin._normalize_summary_result(self, result)
@@ -577,6 +662,7 @@ class MemorySummaryBridgeMixin:
             # 버퍼 클리어
             self.conversation_buffer = []
             self._ene_thought_context_buffer = []
+            self._loaded_topic_memory_context_buffer = []
             
             print(f"[Bridge] 대화 요약 완료: {summary}")
             if user_facts:
@@ -608,6 +694,7 @@ class MemorySummaryBridgeMixin:
         # 대화 버퍼 클리어
         self.conversation_buffer = []
         self._ene_thought_context_buffer = []
+        self._loaded_topic_memory_context_buffer = []
         self._last_request_payload = None
         self._last_assistant_response = None
         self._is_rerolling = False
