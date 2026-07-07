@@ -8,6 +8,11 @@ import json
 from PyQt6.QtWidgets import QApplication, QMessageBox
 from PyQt6.QtCore import QObject, QTimer
 
+from ..ai.embedding_rebuild import (
+    count_saved_embeddings,
+    has_embedding_regenerator,
+    regenerate_saved_embeddings,
+)
 from .i18n import configure_i18n, tr
 from .settings import Settings
 from .system_theme import get_theme_preset, get_windows_theme_mode
@@ -648,13 +653,10 @@ class ENEApplication(QObject):
         """임베딩 설정 변경 후 기존 메모리 재생성을 안내한다."""
         if not hasattr(self, "memory_manager") or not self.memory_manager:
             return
-        embedding_count = 0
-        stats_getter = getattr(self.memory_manager, "get_stats", None)
-        if callable(stats_getter):
-            stats = stats_getter()
-            embedding_count = int(stats.get("with_embedding", 0) or 0)
-            if int(stats.get("total", 0) or 0) == 0 or embedding_count == 0:
-                return
+        knowledge_map_manager = getattr(self, "knowledge_map_manager", None)
+        embedding_count = count_saved_embeddings(self.memory_manager, knowledge_map_manager)
+        if embedding_count == 0:
+            return
 
         reply = QMessageBox.question(
             self.overlay_window if hasattr(self, "overlay_window") else None,
@@ -678,8 +680,11 @@ class ENEApplication(QObject):
             )
             return None
 
-        regenerate = getattr(self.memory_manager, "regenerate_embeddings", None)
-        if not callable(regenerate):
+        knowledge_map_manager = getattr(self, "knowledge_map_manager", None)
+        if not (
+            has_embedding_regenerator(self.memory_manager)
+            or has_embedding_regenerator(knowledge_map_manager)
+        ):
             QMessageBox.warning(
                 parent,
                 tr("memory.embedding.rebuild.unavailable.title"),
@@ -689,7 +694,7 @@ class ENEApplication(QObject):
 
         try:
             QApplication.processEvents()
-            result = asyncio.run(regenerate())
+            result = asyncio.run(regenerate_saved_embeddings(self.memory_manager, knowledge_map_manager))
         except Exception as error:
             QMessageBox.warning(
                 parent,
