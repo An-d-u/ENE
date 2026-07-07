@@ -38,6 +38,11 @@ class _GraphView(QGraphicsView):
         self._zoom_min = -5
         self._zoom_max = 8
         self._pending_fit = False
+        self._theme = {
+            "canvas": "#F8FAFC",
+            "grid": "#111827",
+            "grid_alpha": 16,
+        }
         self.setObjectName("topicMemoryGraphView")
         self.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         self.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
@@ -69,6 +74,10 @@ class _GraphView(QGraphicsView):
         self._pending_fit = True
         self._fit_scene()
 
+    def set_theme(self, theme: dict[str, Any]) -> None:
+        self._theme = dict(theme)
+        self.viewport().update()
+
     def _fit_scene(self) -> None:
         rect = self.scene().sceneRect()
         viewport_size = self.viewport().size()
@@ -80,8 +89,16 @@ class _GraphView(QGraphicsView):
         self._pending_fit = False
 
     def drawBackground(self, painter: QPainter, rect: QRectF) -> None:
-        painter.fillRect(rect, QColor("#11151d"))
-        painter.setPen(QPen(QColor(255, 255, 255, 18), 1))
+        painter.fillRect(rect, QColor(str(self._theme["canvas"])))
+        painter.setPen(
+            QPen(
+                _qcolor_with_alpha(
+                    str(self._theme["grid"]),
+                    int(self._theme.get("grid_alpha", 16)),
+                ),
+                1,
+            )
+        )
         grid = 32
         left = int(rect.left()) - (int(rect.left()) % grid)
         top = int(rect.top()) - (int(rect.top()) % grid)
@@ -111,25 +128,33 @@ class _MindmapEdgeItem(_GraphItemPropertiesMixin, QGraphicsPathItem):
         *,
         kind: str,
         reason: str,
+        theme: dict[str, Any],
     ):
         _GraphItemPropertiesMixin.__init__(self)
         QGraphicsPathItem.__init__(self)
         self._kind = kind
         self._reason = reason
+        self._theme = dict(theme)
+        self._state = "normal"
         self._path = _edge_path(source, target, kind)
         self.setPath(self._path)
         self.setToolTip(reason)
         self.apply_state("normal")
 
+    def set_theme(self, theme: dict[str, Any]) -> None:
+        self._theme = dict(theme)
+        self.apply_state(self._state)
+
     def apply_state(self, state: str) -> None:
+        self._state = state
         self.setProperty("graphState", state)
         if self._kind == "shared":
-            color = QColor("#7dd3fc") if state == "selected" else QColor("#64748b")
+            color = QColor(self._theme["accent"] if state == "selected" else self._theme["muted"])
             alpha = 185 if state == "selected" else 95
             width = 1.9 if state == "selected" else 1.15
             style = Qt.PenStyle.DashLine
         else:
-            color = QColor("#94a3b8") if state == "selected" else QColor("#475569")
+            color = QColor(self._theme["accent"] if state == "selected" else self._theme["edge"])
             alpha = 170 if state == "selected" else 92
             width = 1.55 if state == "selected" else 1.0
             style = Qt.PenStyle.SolidLine
@@ -149,12 +174,15 @@ class _MindmapNodeItem(_GraphItemPropertiesMixin, QGraphicsPathItem):
         node: MindmapNode,
         node_id: str,
         on_select: Callable[[str], None],
+        theme: dict[str, Any],
     ):
         _GraphItemPropertiesMixin.__init__(self)
         QGraphicsPathItem.__init__(self)
         self._node = node
         self._node_id = node_id
         self._on_select = on_select
+        self._theme = dict(theme)
+        self._state = "normal"
         self._width, self._height = _node_size(node)
         self.setPath(_rounded_rect_path(self._width, self._height, _node_radius(node)))
         self.setPos(node.x, node.y)
@@ -167,14 +195,20 @@ class _MindmapNodeItem(_GraphItemPropertiesMixin, QGraphicsPathItem):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.apply_state("normal")
 
+    def set_theme(self, theme: dict[str, Any]) -> None:
+        self._theme = dict(theme)
+        self.apply_state(self._state)
+
     def apply_state(self, state: str) -> None:
+        self._state = state
         self.setProperty("graphState", state)
-        palette = _node_palette(self._node.kind, state)
+        palette = _node_palette(self._node.kind, state, self._theme)
         self.setBrush(QBrush(QColor(palette["fill"])))
         self.setPen(QPen(QColor(palette["stroke"]), palette["width"]))
         self.label_item.setDefaultTextColor(QColor(palette["text"]))
         self.setOpacity(palette["opacity"])
         self.setZValue(palette["z"])
+        self.setProperty("graphAccent", self._theme["accent"])
 
     def mousePressEvent(self, event):
         self._on_select(self._node_id)
@@ -201,6 +235,14 @@ class TopicMemoryMindmapPanel(QWidget):
         self._graph: TopicMemoryGraph | None = None
         self._selected_node_id: str | None = None
         self._last_load_error: str | None = None
+        self._theme_defaults = {
+            "theme_accent_color": "#0071E3",
+            "settings_window_bg_color": "#EEF1F5",
+            "settings_card_bg_color": "#FFFFFF",
+            "settings_input_bg_color": "#F8FAFC",
+        }
+        self._theme_values = dict(self._theme_defaults)
+        self._graph_theme = _build_graph_theme(self._theme_values)
 
         self.search_input = QLineEdit()
         self.state_filter = QComboBox()
@@ -215,6 +257,7 @@ class TopicMemoryMindmapPanel(QWidget):
         self._edge_graphics_items: dict[tuple[str, str], _MindmapEdgeItem] = {}
 
         self._setup_ui()
+        self.apply_theme(self._theme_values)
         self.retranslate_ui()
         self.search_input.textChanged.connect(self._rebuild_graph)
         self.state_filter.currentIndexChanged.connect(self._rebuild_graph)
@@ -270,61 +313,94 @@ class TopicMemoryMindmapPanel(QWidget):
         root_layout.addLayout(controls_layout)
         root_layout.addWidget(self.summary_label)
         root_layout.addWidget(body_splitter, 1)
+        self._apply_theme_stylesheet()
+
+    def apply_theme(self, theme_values: dict | None = None) -> None:
+        if isinstance(theme_values, dict):
+            for key, default_value in self._theme_defaults.items():
+                self._theme_values[key] = _normalize_theme_color(
+                    str(theme_values.get(key, default_value)),
+                    fallback=default_value,
+                )
+        self._graph_theme = _build_graph_theme(self._theme_values)
+        self.view.set_theme(self._graph_theme)
+        self._apply_theme_stylesheet()
+        for item in self._node_items.values():
+            item.set_theme(self._graph_theme)
+        for item in self._edge_graphics_items.values():
+            item.set_theme(self._graph_theme)
+        self._update_selection_visuals(self._selected_node_id)
+
+    def _apply_theme_stylesheet(self) -> None:
+        theme = self._graph_theme
         self.setStyleSheet(
             """
             QWidget#topicMemoryMindmapPanel {
                 background: transparent;
             }
             QFrame#topicMemoryCanvasFrame {
-                background: #11151d;
-                border: 1px solid rgba(148, 163, 184, 0.22);
+                background: __CANVAS__;
+                border: 1px solid __BORDER__;
                 border-radius: 14px;
             }
             QGraphicsView#topicMemoryGraphView {
-                background: #11151d;
+                background: __CANVAS__;
                 border: none;
                 border-radius: 13px;
             }
             QFrame#topicMemoryDetailPanel {
-                background: rgba(15, 23, 42, 0.92);
-                border: 1px solid rgba(148, 163, 184, 0.20);
+                background: __PANEL__;
+                border: 1px solid __BORDER__;
                 border-radius: 14px;
             }
             QLabel#topicMemoryMindmapDetailTitle {
-                color: #f8fafc;
+                color: __TEXT__;
                 font-size: 16px;
                 font-weight: 800;
             }
             QLabel#topicMemoryMindmapSummary {
-                color: #64748b;
+                color: __MUTED__;
                 font-size: 12px;
                 font-weight: 700;
             }
             QTextBrowser {
-                color: #dbeafe;
+                color: __BODY__;
                 background: transparent;
-                selection-background-color: rgba(125, 211, 252, 0.30);
+                selection-background-color: __ACCENT_SOFT_STRONG__;
                 font-size: 13px;
                 line-height: 1.5;
             }
             QLineEdit, QComboBox, QPushButton {
                 min-height: 32px;
                 border-radius: 8px;
-                border: 1px solid rgba(148, 163, 184, 0.24);
-                background: rgba(15, 23, 42, 0.78);
-                color: #e5edf7;
+                border: 1px solid __INPUT_BORDER__;
+                background: __INPUT__;
+                color: __INPUT_TEXT__;
                 padding: 0 10px;
                 font-size: 12px;
                 font-weight: 700;
             }
             QLineEdit:focus, QComboBox:focus {
-                border: 1px solid rgba(125, 211, 252, 0.70);
+                border: 1px solid __ACCENT_FOCUS__;
             }
             QPushButton:hover {
-                background: rgba(30, 41, 59, 0.95);
-                border-color: rgba(125, 211, 252, 0.42);
+                background: __PANEL_SOFT__;
+                border-color: __ACCENT_BORDER__;
             }
             """
+            .replace("__CANVAS__", theme["canvas"])
+            .replace("__PANEL__", theme["panel"])
+            .replace("__PANEL_SOFT__", theme["panel_soft"])
+            .replace("__INPUT__", theme["input"])
+            .replace("__TEXT__", theme["text"])
+            .replace("__BODY__", theme["body"])
+            .replace("__MUTED__", theme["muted"])
+            .replace("__INPUT_TEXT__", theme["input_text"])
+            .replace("__BORDER__", theme["border"])
+            .replace("__INPUT_BORDER__", theme["input_border"])
+            .replace("__ACCENT_FOCUS__", theme["accent_focus"])
+            .replace("__ACCENT_BORDER__", theme["accent_border"])
+            .replace("__ACCENT_SOFT_STRONG__", theme["accent_soft_strong"])
         )
 
     def refresh(self) -> None:
@@ -433,7 +509,13 @@ class TopicMemoryMindmapPanel(QWidget):
             target = graph.nodes.get(edge.target_id)
             if source is None or target is None:
                 continue
-            item = _MindmapEdgeItem(source, target, kind=edge.kind, reason=edge.reason)
+            item = _MindmapEdgeItem(
+                source,
+                target,
+                kind=edge.kind,
+                reason=edge.reason,
+                theme=self._graph_theme,
+            )
             item.setZValue(-3 if edge.kind == "shared" else -2)
             self.scene.addItem(item)
             self._edge_items.append((edge.source_id, edge.target_id, edge))
@@ -447,6 +529,7 @@ class TopicMemoryMindmapPanel(QWidget):
                 node=node,
                 node_id=node.id,
                 on_select=self._select_node,
+                theme=self._graph_theme,
             )
             item.setZValue(1)
             self.scene.addItem(item)
@@ -629,21 +712,21 @@ def _node_font(node: MindmapNode) -> QFont:
     return font
 
 
-def _node_palette(kind: str, state: str) -> dict[str, Any]:
+def _node_palette(kind: str, state: str, theme: dict[str, Any]) -> dict[str, Any]:
     if kind == "topic":
         base = {
-            "fill": "#1e293b",
-            "stroke": "#64748b",
-            "text": "#f8fafc",
+            "fill": theme["node_topic"],
+            "stroke": theme["node_stroke"],
+            "text": theme["text"],
             "width": 1.2,
             "opacity": 0.96,
             "z": 3,
         }
     else:
         base = {
-            "fill": "#172033",
-            "stroke": "#475569",
-            "text": "#cbd5e1",
+            "fill": theme["node_clue"],
+            "stroke": theme["edge"],
+            "text": theme["body"],
             "width": 1.0,
             "opacity": 0.88,
             "z": 2,
@@ -651,9 +734,9 @@ def _node_palette(kind: str, state: str) -> dict[str, Any]:
     if state == "selected":
         base.update(
             {
-                "fill": "#0f2f43",
-                "stroke": "#7dd3fc",
-                "text": "#ffffff",
+                "fill": theme["accent"],
+                "stroke": theme["accent"],
+                "text": theme["selected_text"],
                 "width": 2.2,
                 "opacity": 1.0,
                 "z": 8,
@@ -662,8 +745,7 @@ def _node_palette(kind: str, state: str) -> dict[str, Any]:
     elif state == "related":
         base.update(
             {
-                "stroke": "#38bdf8",
-                "text": "#e0f2fe",
+                "stroke": theme["accent"],
                 "width": 1.6,
                 "opacity": 1.0,
                 "z": 5,
@@ -672,3 +754,84 @@ def _node_palette(kind: str, state: str) -> dict[str, Any]:
     elif state == "dimmed":
         base.update({"opacity": 0.28, "width": 0.9, "z": 1})
     return base
+
+
+def _normalize_theme_color(value: str, *, fallback: str) -> str:
+    color = QColor(str(value or "").strip())
+    if not color.isValid():
+        return fallback
+    return color.name().upper()
+
+
+def _theme_text_color(color_value: str) -> str:
+    color = QColor(_normalize_theme_color(color_value, fallback="#FFFFFF"))
+    return "#FFFFFF" if color.lightnessF() < 0.62 else "#111827"
+
+
+def _theme_muted_text_color(color_value: str) -> str:
+    color = QColor(_normalize_theme_color(color_value, fallback="#FFFFFF"))
+    return "#CBD5E1" if color.lightnessF() < 0.42 else "#6B7280"
+
+
+def _theme_variant(
+    color_value: str,
+    *,
+    darker: int | None = None,
+    lighter: int | None = None,
+) -> str:
+    color = QColor(_normalize_theme_color(color_value, fallback="#FFFFFF"))
+    if darker is not None:
+        color = color.darker(darker)
+    if lighter is not None:
+        color = color.lighter(lighter)
+    return color.name().upper()
+
+
+def _theme_rgba(color_value: str, alpha: float) -> str:
+    color = QColor(_normalize_theme_color(color_value, fallback="#FFFFFF"))
+    return f"rgba({color.red()}, {color.green()}, {color.blue()}, {alpha:.3f})"
+
+
+def _qcolor_with_alpha(color_value: str, alpha: int) -> QColor:
+    color = QColor(_normalize_theme_color(color_value, fallback="#FFFFFF"))
+    color.setAlpha(max(0, min(int(alpha), 255)))
+    return color
+
+
+def _build_graph_theme(theme_values: dict[str, str]) -> dict[str, Any]:
+    accent = theme_values["theme_accent_color"]
+    settings_card = theme_values["settings_card_bg_color"]
+    settings_input = theme_values["settings_input_bg_color"]
+    text = _theme_text_color(settings_card)
+    muted = _theme_muted_text_color(settings_card)
+    body = _theme_muted_text_color(settings_input)
+    input_text = _theme_text_color(settings_input)
+    is_dark = text == "#FFFFFF"
+    canvas = settings_input
+    panel = settings_card
+    panel_soft = _theme_rgba(text, 0.08)
+    node_topic = _theme_variant(settings_card, lighter=106) if is_dark else settings_card
+    node_clue = _theme_variant(settings_input, lighter=103) if is_dark else settings_input
+    return {
+        "accent": accent,
+        "accent_border": _theme_rgba(accent, 0.42),
+        "accent_focus": _theme_rgba(accent, 0.70),
+        "accent_soft_strong": _theme_rgba(accent, 0.30),
+        "body": body,
+        "border": _theme_rgba(text, 0.18),
+        "canvas": canvas,
+        "edge": muted,
+        "grid": text,
+        "grid_alpha": 18 if is_dark else 12,
+        "input": settings_input,
+        "input_border": _theme_rgba(input_text, 0.18),
+        "input_text": input_text,
+        "muted": muted,
+        "node_clue": node_clue,
+        "node_stroke": text,
+        "node_topic": node_topic,
+        "panel": panel,
+        "panel_soft": panel_soft,
+        "selected_text": _theme_text_color(accent),
+        "text": text,
+    }
