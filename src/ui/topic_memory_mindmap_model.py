@@ -116,7 +116,7 @@ def _build_graph_from_topics(
     topic_index: dict[str, TopicMemoryTopic] = {}
     clue_index: dict[str, TopicMemoryClue] = {}
 
-    topic_positions = _circular_positions(len(visible_topics), radius=240.0)
+    topic_positions = _topic_positions(visible_topics)
     for topic_number, ((topic, clues), (topic_x, topic_y)) in enumerate(
         zip(visible_topics, topic_positions)
     ):
@@ -236,6 +236,66 @@ def _clue_positions(
     ]
 
 
+def _topic_positions(
+    visible_topics: list[tuple[TopicMemoryTopic, list[TopicMemoryClue]]],
+) -> list[tuple[float, float]]:
+    count = len(visible_topics)
+    if count <= 0:
+        return []
+
+    adjacency = [set() for _ in range(count)]
+    signatures = [_shared_signature(topic) for topic, _ in visible_topics]
+    for left_index, left_signature in enumerate(signatures):
+        for right_index, right_signature in enumerate(signatures[left_index + 1 :], left_index + 1):
+            if set(left_signature) & set(right_signature):
+                adjacency[left_index].add(right_index)
+                adjacency[right_index].add(left_index)
+
+    components = _connected_components(adjacency)
+    component_centers = _circular_positions(
+        len(components),
+        radius=0.0 if len(components) == 1 else 230.0,
+    )
+    positions: dict[int, tuple[float, float]] = {}
+    for component, (center_x, center_y) in zip(components, component_centers):
+        local_positions = _component_positions(len(component))
+        for topic_index, (local_x, local_y) in zip(component, local_positions):
+            positions[topic_index] = (
+                round(center_x + local_x, 4),
+                round(center_y + local_y, 4),
+            )
+    return [positions[index] for index in range(count)]
+
+
+def _connected_components(adjacency: list[set[int]]) -> list[list[int]]:
+    visited: set[int] = set()
+    components: list[list[int]] = []
+    for index in range(len(adjacency)):
+        if index in visited:
+            continue
+        stack = [index]
+        component: list[int] = []
+        visited.add(index)
+        while stack:
+            current = stack.pop()
+            component.append(current)
+            for neighbor in sorted(adjacency[current], reverse=True):
+                if neighbor in visited:
+                    continue
+                visited.add(neighbor)
+                stack.append(neighbor)
+        components.append(sorted(component))
+    return components
+
+
+def _component_positions(count: int) -> list[tuple[float, float]]:
+    if count <= 1:
+        return [(0.0, 0.0)]
+    if count == 2:
+        return [(-105.0, 0.0), (105.0, 0.0)]
+    return _circular_positions(count, radius=120.0)
+
+
 def _angle(index: int, count: int) -> float:
     return (-math.pi / 2) + (2 * math.pi * index / count)
 
@@ -244,22 +304,14 @@ def _shared_edges(
     visible_topics: list[tuple[TopicMemoryTopic, list[TopicMemoryClue]]],
 ) -> list[MindmapEdge]:
     edges: list[MindmapEdge] = []
-    signatures = [
-        (topic, _shared_signature(topic, clues)) for topic, clues in visible_topics
-    ]
+    signatures = [(topic, _shared_signature(topic)) for topic, _ in visible_topics]
 
     for left_index, (left_topic, left_signature) in enumerate(signatures):
         for right_topic, right_signature in signatures[left_index + 1 :]:
-            left_clue_values, left_terms = left_signature
-            right_clue_values, right_terms = right_signature
-            shared_clue_values = set(left_clue_values) & set(right_clue_values)
-            shared_terms = set(left_terms) & set(right_terms)
-            if shared_clue_values:
-                reason = left_clue_values[sorted(shared_clue_values)[0]]
-            elif shared_terms:
-                reason = left_terms[sorted(shared_terms)[0]]
-            else:
+            shared_terms = set(left_signature) & set(right_signature)
+            if not shared_terms:
                 continue
+            reason = left_signature[sorted(shared_terms)[0]]
 
             edges.append(
                 MindmapEdge(
@@ -275,17 +327,8 @@ def _shared_edges(
     return edges
 
 
-def _shared_signature(
-    topic: TopicMemoryTopic,
-    clues: list[TopicMemoryClue],
-) -> tuple[dict[str, str], dict[str, str]]:
-    clue_values: list[str] = []
-    for clue in clues:
-        if clue.subject:
-            clue_values.append(clue.subject)
-        if clue.type:
-            clue_values.append(clue.type)
-    return _normalized_lookup(clue_values), _normalized_lookup(topic.retrieval_terms)
+def _shared_signature(topic: TopicMemoryTopic) -> dict[str, str]:
+    return _normalized_lookup([topic.keyword, *topic.aliases, *topic.retrieval_terms])
 
 
 def _normalized_lookup(values: Iterable[str]) -> dict[str, str]:
