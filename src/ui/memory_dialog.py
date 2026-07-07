@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from ..ai.embedding_rebuild import has_embedding_regenerator, regenerate_saved_embeddings
 from ..core.i18n import tr as t
 from .topic_memory_mindmap import TopicMemoryMindmapPanel
 
@@ -1194,8 +1195,10 @@ class MemoryDialog(QDialog):
         if not self.memory_manager:
             return
 
-        regenerate = getattr(self.memory_manager, "regenerate_embeddings", None)
-        if not callable(regenerate):
+        if not (
+            has_embedding_regenerator(self.memory_manager)
+            or has_embedding_regenerator(self.knowledge_map_manager)
+        ):
             QMessageBox.warning(
                 self,
                 t("memory.embedding.rebuild.unavailable.title"),
@@ -1216,7 +1219,9 @@ class MemoryDialog(QDialog):
         self.rebuild_embeddings_btn.setEnabled(False)
         try:
             QApplication.processEvents()
-            result = asyncio.run(regenerate())
+            result = asyncio.run(
+                regenerate_saved_embeddings(self.memory_manager, self.knowledge_map_manager)
+            )
         except Exception as error:
             QMessageBox.warning(
                 self,

@@ -170,6 +170,7 @@ class _DummyKnowledgeMapManager:
         self.topics = topics
         self.load_calls = 0
         self.search_calls = 0
+        self.regenerate_calls = 0
 
     def load(self):
         self.load_calls += 1
@@ -195,6 +196,11 @@ class _DummyKnowledgeMapManager:
 
     async def async_merge_hints(self, *_args, **_kwargs):
         raise AssertionError("읽기 전용 UI가 merge를 호출하면 안 됩니다.")
+
+    async def regenerate_embeddings(self):
+        self.regenerate_calls += 1
+        clue_count = sum(len(getattr(topic, "clues", []) or []) for topic in self.topics)
+        return {"total": clue_count, "updated": clue_count, "failed": 0, "skipped": 0}
 
 
 class _DummySignal:
@@ -2625,7 +2631,7 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
             "memory.embedding.rebuild.failed.title": "Embedding rebuild failed",
             "memory.embedding.rebuild.failed.body": "Embedding rebuild failed: {error}",
             "memory.embedding.rebuild.prompt.title": "Embeddings need rebuilding",
-            "memory.embedding.rebuild.prompt.body": "Embedding settings changed to {provider}/{model}. Rebuild {count} saved memory embeddings with the new settings now? This may call the embedding API.",
+            "memory.embedding.rebuild.prompt.body": "Embedding settings changed to {provider}/{model}. Rebuild {count} saved memory and topic memory embeddings with the new settings now? This may call the embedding API.",
         },
         ja_data={
             "memory.tabs.long_term": "長期メモリ",
@@ -2746,7 +2752,7 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
             "memory.embedding.rebuild.failed.title": "埋め込みの再生成に失敗しました",
             "memory.embedding.rebuild.failed.body": "埋め込みの再生成に失敗しました: {error}",
             "memory.embedding.rebuild.prompt.title": "埋め込みの再生成が必要です",
-            "memory.embedding.rebuild.prompt.body": "埋め込み設定が {provider}/{model} に変わりました。保存済みメモリ {count} 件の埋め込みを新しい設定で再生成しますか？API 呼び出しが発生する場合があります。",
+            "memory.embedding.rebuild.prompt.body": "埋め込み設定が {provider}/{model} に変わりました。保存済みメモリとトピックメモリ {count} 件の埋め込みを新しい設定で再生成しますか？API 呼び出しが発生する場合があります。",
         },
     )
     configure_i18n(language="ja", locales_dir=locales_dir, system_locale="en_US")
@@ -3037,7 +3043,7 @@ def test_memory_dialog_translates_visible_strings_states_and_profile_warnings(tm
     empty_dialog.close()
 
 
-def test_memory_dialog_rebuild_embeddings_button_runs_manager(monkeypatch):
+def test_memory_dialog_rebuild_embeddings_button_runs_memory_and_topic_managers(monkeypatch):
     _get_qapp()
     configure_i18n(language="en", locales_dir=Path("src/locales"), system_locale="en_US")
     manager = _DummyMemoryManager(
@@ -3059,6 +3065,24 @@ def test_memory_dialog_rebuild_embeddings_button_runs_manager(monkeypatch):
             )
         ]
     )
+    knowledge_manager = _DummyKnowledgeMapManager(
+        [
+            TopicMemoryTopic(
+                id="topic-1",
+                keyword="Synthetic Topic",
+                clues=[
+                    TopicMemoryClue(
+                        id="clue-1",
+                        subject="planning",
+                        type="status",
+                        state="active",
+                        text="Synthetic topic clue.",
+                        embedding=[0.2],
+                    )
+                ],
+            )
+        ]
+    )
     infos = []
 
     monkeypatch.setattr(
@@ -3070,11 +3094,12 @@ def test_memory_dialog_rebuild_embeddings_button_runs_manager(monkeypatch):
         lambda _parent, title, text: infos.append((title, text)),
     )
 
-    dialog = MemoryDialog(manager)
+    dialog = MemoryDialog(manager, knowledge_map_manager=knowledge_manager)
     dialog._rebuild_embeddings()
 
     assert manager.regenerate_calls == 1
-    assert infos == [("Embedding rebuild complete", "Updated 1, failed 0, skipped 0.")]
+    assert knowledge_manager.regenerate_calls == 1
+    assert infos == [("Embedding rebuild complete", "Updated 2, failed 0, skipped 0.")]
     dialog.close()
 
 
@@ -3784,6 +3809,24 @@ def test_embedding_rebuild_prompt_defaults_to_no_and_shows_count(monkeypatch):
 
     app = ENEApplication.__new__(ENEApplication)
     app.memory_manager = MemoryManagerWithStats()
+    app.knowledge_map_manager = _DummyKnowledgeMapManager(
+        [
+            TopicMemoryTopic(
+                id="topic-1",
+                keyword="Synthetic Topic",
+                clues=[
+                    TopicMemoryClue(
+                        id="clue-1",
+                        subject="planning",
+                        type="status",
+                        state="active",
+                        text="Synthetic topic clue.",
+                        embedding=[0.2],
+                    )
+                ],
+            )
+        ]
+    )
     app.overlay_window = None
 
     def fake_question(parent, title, text, buttons, default_button):
@@ -3797,7 +3840,7 @@ def test_embedding_rebuild_prompt_defaults_to_no_and_shows_count(monkeypatch):
     assert questions == [
         (
             "Embeddings need rebuilding",
-            "Embedding settings changed to voyage/voyage-3. Rebuild 3 saved memory embeddings with the new settings now? This may call the embedding API.",
+            "Embedding settings changed to voyage/voyage-3. Rebuild 4 saved memory and topic memory embeddings with the new settings now? This may call the embedding API.",
             QMessageBox.StandardButton.No,
         )
     ]

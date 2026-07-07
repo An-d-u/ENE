@@ -550,6 +550,39 @@ def test_async_merge_hints_uses_embed_repeatedly_without_batch(tmp_path):
     assert manager.topics[1].clues[0].embedding == [0.9, 0.1]
 
 
+def test_regenerate_embeddings_rewrites_topic_clue_embeddings(tmp_path):
+    first_text = "Synthetic regenerated first clue."
+    second_text = "Synthetic regenerated second clue."
+    generator = BatchEmbeddingGenerator(
+        vectors={
+            first_text: [0.2, 0.8],
+            second_text: [0.8, 0.2],
+        }
+    )
+    manager = KnowledgeMapManager(tmp_path / "knowledge_map.json", embedding_generator=generator)
+    manager.merge_hints_direct(
+        [
+            _hint(keyword="Topic One", subject="first", text=first_text),
+            _hint(keyword="Topic Two", subject="second", text=second_text),
+        ]
+    )
+    manager.topics[0].clues[0].embedding = [9.0, 9.0]
+    manager.topics[0].clues[0].embedding_provider = "oldprovider"
+    manager.topics[0].clues[0].embedding_model = "old-model"
+    manager.topics[1].clues[0].embedding = [8.0, 8.0]
+    manager.topics[1].clues[0].embedding_provider = "oldprovider"
+    manager.topics[1].clues[0].embedding_model = "old-model"
+
+    result = asyncio.run(manager.regenerate_embeddings())
+
+    assert result == {"total": 2, "updated": 2, "failed": 0, "skipped": 0}
+    assert generator.batch_calls == [[first_text, second_text]]
+    assert manager.topics[0].clues[0].embedding == [0.2, 0.8]
+    assert manager.topics[1].clues[0].embedding == [0.8, 0.2]
+    assert manager.topics[0].clues[0].embedding_provider == "fakeprovider"
+    assert manager.topics[1].clues[0].embedding_model == "topic-test-v1"
+
+
 def test_async_merge_hints_keeps_direct_merge_when_embedding_fails(tmp_path):
     good_text = "Synthetic stable clue."
     failed_text = "Synthetic failed clue."

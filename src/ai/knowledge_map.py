@@ -317,6 +317,47 @@ class KnowledgeMapManager:
 
         return self._search_with_scores(query_text, top_k=top_k, query_embedding=query_embedding)
 
+    async def regenerate_embeddings(self) -> dict[str, int]:
+        result = {
+            "total": 0,
+            "updated": 0,
+            "failed": 0,
+            "skipped": 0,
+        }
+        clue_texts: list[tuple[TopicMemoryClue, str]] = []
+        for topic in self.topics:
+            for clue in topic.clues:
+                result["total"] += 1
+                text = _visible_text(clue.text)
+                if not text:
+                    result["skipped"] += 1
+                    continue
+                clue_texts.append((clue, text))
+
+        if not self.embedding_generator:
+            result["skipped"] += len(clue_texts)
+            return result
+
+        embeddings = await self._generate_embeddings([text for _, text in clue_texts])
+        provider, model = self._current_embedding_source()
+        updated = False
+        for (clue, text), embedding in zip(clue_texts, embeddings):
+            if embedding is None:
+                result["failed"] += 1
+                continue
+            if clue.text != text:
+                result["skipped"] += 1
+                continue
+            clue.embedding = embedding
+            clue.embedding_provider = provider
+            clue.embedding_model = model
+            result["updated"] += 1
+            updated = True
+
+        if updated:
+            self.save()
+        return result
+
     def _search_with_scores(
         self,
         query_text: str,
