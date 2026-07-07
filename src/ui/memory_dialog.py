@@ -178,6 +178,8 @@ class MemoryDialog(QDialog):
                     fallback=default_value,
                 )
         self._apply_stylesheet()
+        if hasattr(self, "topic_memory_panel") and self.topic_memory_panel is not None:
+            self.topic_memory_panel.apply_theme(dict(self._theme_values))
 
     def _apply_stylesheet(self) -> None:
         accent = self._theme_values["theme_accent_color"]
@@ -328,6 +330,7 @@ class MemoryDialog(QDialog):
         long_term_layout.addLayout(body_grid, 1)
 
         self.topic_memory_panel = TopicMemoryMindmapPanel(self.knowledge_map_manager)
+        self.topic_memory_panel.apply_theme(dict(self._theme_values))
         self.tabs.addTab(self.long_term_memory_page, t("memory.tabs.long_term"))
         self.tabs.addTab(self.topic_memory_panel, t("memory.tabs.topic_map"))
         layout.addWidget(self.tabs, 1)

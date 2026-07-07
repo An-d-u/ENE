@@ -147,6 +147,8 @@ class SettingsDialogUiMixin:
             )
         if self._embedded_memory_panel is not None:
             self._embedded_memory_panel.apply_theme(dict(self._theme_values))
+        if self._embedded_topic_memory_panel is not None:
+            self._embedded_topic_memory_panel.apply_theme(dict(self._theme_values))
 
     def _setup_ui(self):
         self._apply_stylesheet()

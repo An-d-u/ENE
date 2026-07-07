@@ -21,6 +21,7 @@ def build_topic_memory_tab(dialog):
 
     knowledge_map_manager = getattr(self._bridge, "knowledge_map_manager", None) if self._bridge else None
     panel = TopicMemoryMindmapPanel(knowledge_map_manager, widget)
+    panel.apply_theme(dict(getattr(self, "_theme_values", {}) or {}))
     self._embedded_topic_memory_panel = panel
     layout.addWidget(panel)
 

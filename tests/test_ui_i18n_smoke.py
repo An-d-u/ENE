@@ -488,6 +488,44 @@ def test_topic_memory_mindmap_panel_renders_as_interactive_graph_canvas():
     panel.close()
 
 
+def test_topic_memory_mindmap_panel_apply_theme_uses_settings_palette():
+    _get_qapp()
+    manager = _DummyKnowledgeMapManager(
+        [
+            TopicMemoryTopic(
+                id="topic-1",
+                keyword="Project Atlas",
+                retrieval_terms=["roadmap"],
+                clues=[
+                    TopicMemoryClue(
+                        id="clue-1",
+                        subject="planning",
+                        type="status",
+                        state="active",
+                        text="Synthetic project note.",
+                    )
+                ],
+            )
+        ]
+    )
+
+    panel = TopicMemoryMindmapPanel(manager)
+    panel.apply_theme(
+        {
+            "theme_accent_color": "#D94A67",
+            "settings_window_bg_color": "#F6F1E8",
+            "settings_card_bg_color": "#FFF8ED",
+            "settings_input_bg_color": "#F3E8D8",
+        }
+    )
+
+    assert panel._theme_values["theme_accent_color"] == "#D94A67"
+    assert panel.view._theme["canvas"] == "#F3E8D8"
+    assert panel._node_items["topic:topic-1"].property("graphAccent") == "#D94A67"
+    assert "#FFF8ED" in panel.styleSheet()
+    panel.close()
+
+
 @contextmanager
 def _stub_prompt_module():
     prompt_stub = types.ModuleType("src.ai.prompt")
@@ -2420,6 +2458,25 @@ def test_memory_dialog_adds_topic_memory_tab_and_passes_manager():
     dialog.close()
 
 
+def test_memory_dialog_apply_theme_updates_topic_memory_panel():
+    _get_qapp()
+    memory_manager = _DummyMemoryManager([])
+    knowledge_manager = _DummyKnowledgeMapManager([])
+
+    dialog = MemoryDialog(memory_manager, knowledge_map_manager=knowledge_manager, embedded=True)
+    dialog.apply_theme(
+        {
+            "theme_accent_color": "#D94A67",
+            "settings_window_bg_color": "#F6F1E8",
+            "settings_card_bg_color": "#FFF8ED",
+            "settings_input_bg_color": "#F3E8D8",
+        }
+    )
+
+    assert dialog.topic_memory_panel._theme_values["theme_accent_color"] == "#D94A67"
+    dialog.close()
+
+
 def test_memory_dialog_keeps_explicit_falsy_topic_memory_manager():
     class FalsyKnowledgeMapManager(_DummyKnowledgeMapManager):
         def __bool__(self):
@@ -3974,11 +4031,15 @@ def test_settings_topic_memory_tab_uses_bridge_knowledge_map_manager(monkeypatch
 
     _get_qapp()
     created = []
+    applied_themes = []
 
     class FakeTopicMemoryMindmapPanel(QWidget):
         def __init__(self, knowledge_map_manager, parent=None):
             super().__init__(parent)
             created.append(knowledge_map_manager)
+
+        def apply_theme(self, theme_values):
+            applied_themes.append(dict(theme_values))
 
     monkeypatch.setattr(
         "src.ui.settings_tabs.topic_memory_tab.TopicMemoryMindmapPanel",
@@ -3989,12 +4050,59 @@ def test_settings_topic_memory_tab_uses_bridge_knowledge_map_manager(monkeypatch
     dialog = QWidget()
     dialog._bridge = SimpleNamespace(knowledge_map_manager=knowledge_manager)
     dialog._embedded_topic_memory_panel = None
+    dialog._theme_values = {"theme_accent_color": "#D94A67"}
 
     widget = build_topic_memory_tab(dialog)
 
     assert widget is not None
     assert created == [knowledge_manager]
+    assert applied_themes == [{"theme_accent_color": "#D94A67"}]
     assert dialog._embedded_topic_memory_panel is not None
+
+
+def test_settings_dialog_stylesheet_updates_embedded_topic_memory_panel():
+    from src.ui.settings_dialog_ui import SettingsDialogUiMixin
+
+    _get_qapp()
+    applied_themes = []
+
+    class FakeTopicMemoryPanel:
+        def apply_theme(self, theme_values):
+            applied_themes.append(dict(theme_values))
+
+    class DummySettingsDialog(SettingsDialogUiMixin, QWidget):
+        def __init__(self):
+            super().__init__()
+            self._theme_values = {
+                "theme_accent_color": "#D94A67",
+                "settings_window_bg_color": "#F6F1E8",
+                "settings_card_bg_color": "#FFF8ED",
+                "settings_input_bg_color": "#F3E8D8",
+            }
+            self._toggle_checks = []
+            self._embedded_memory_panel = None
+            self._embedded_topic_memory_panel = FakeTopicMemoryPanel()
+
+        def _theme_text_color(self, color_value):
+            return "#111827"
+
+        def _theme_muted_text_color(self, color_value):
+            return "#6B7280"
+
+        def _theme_border_color(self, color_value, alpha=0.14):
+            return f"rgba(17, 24, 39, {alpha:.3f})"
+
+        def _theme_rgba(self, color_value, alpha):
+            return f"rgba(17, 24, 39, {alpha:.3f})"
+
+        def _theme_variant(self, color_value, *, darker=None, lighter=None):
+            return color_value
+
+    dialog = DummySettingsDialog()
+    dialog._apply_stylesheet()
+
+    assert applied_themes == [dialog._theme_values]
+    dialog.close()
 
 
 def test_show_ene_profile_dialog_routes_to_settings_tab():
