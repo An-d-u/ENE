@@ -212,6 +212,30 @@ def test_run_cli_supports_multi_token_cli_bin(monkeypatch):
     assert captured["cmd"] == ["npx", "obsidian", "files"]
 
 
+def test_run_cli_reads_obsidian_output_as_utf8(monkeypatch):
+    manager = ObsidianManager(settings=DummySettings(), obs_settings=DummyObsSettings())
+
+    class DummyCompleted:
+        returncode = 0
+        stdout = "notes/샘플.md\n"
+        stderr = ""
+
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["encoding"] = kwargs.get("encoding")
+        captured["errors"] = kwargs.get("errors")
+        return DummyCompleted()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    completed = manager._run_cli(["files"])
+
+    assert completed.stdout == "notes/샘플.md\n"
+    assert captured["encoding"] == "utf-8"
+    assert captured["errors"] == "replace"
+
+
 def test_run_cli_retries_non_mutating_command(monkeypatch):
     manager = ObsidianManager(settings=DummySettings(), obs_settings=DummyObsSettings())
     call_count = {"n": 0}
