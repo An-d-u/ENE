@@ -1,6 +1,7 @@
 import asyncio
 import json
 
+from src.ai.date_query_parser import DateQueryParser
 from src.ai.embedding import EmbeddingGenerator
 from src.ai.memory import MemoryManager
 from src.ai.memory_types import MemoryChunk, MemoryEntry, MemoryMessage, create_memory_entry
@@ -583,6 +584,143 @@ def test_find_activated_matches_korean_three_syllable_and_ascii_acronym_triggers
     assert len(api_results) == 1
     assert api_results[0].memory.id == "mem-api-trigger"
     assert metadata_results == []
+
+
+def test_find_activated_matches_memory_timestamp_date_without_text_terms(tmp_path):
+    manager = MemoryManager(str(tmp_path / "memory.json"))
+    dated_memory = create_memory_entry(
+        "Neutral archived note",
+        original_messages=[
+            {
+                "role": "user",
+                "text": "A neutral synthetic note without date words.",
+                "timestamp": "2026-04-14T20:00:00+09:00",
+                "conversation_id": "conv-date",
+                "turn_index": 0,
+            }
+        ],
+    )
+    dated_memory.timestamp = "2026-04-14T20:00:00+09:00"
+    unrelated_memory = create_memory_entry(
+        "Other neutral archived note",
+        original_messages=[
+            {
+                "role": "user",
+                "text": "Another neutral synthetic note.",
+                "timestamp": "2026-04-15T20:00:00+09:00",
+                "conversation_id": "conv-other-date",
+                "turn_index": 0,
+            }
+        ],
+    )
+    unrelated_memory.timestamp = "2026-04-15T20:00:00+09:00"
+    manager.memories = [unrelated_memory, dated_memory]
+
+    results = asyncio.run(
+        manager.find_activated(
+            "What did we talk about on 2026-04-14?",
+            top_k=1,
+            min_similarity=0.9,
+        )
+    )
+
+    assert [result.memory.id for result in results] == [dated_memory.id]
+    assert results[0].direct_match_score > 0
+
+
+def test_find_activated_does_not_match_different_year_when_query_has_full_date(tmp_path):
+    manager = MemoryManager(str(tmp_path / "memory.json"))
+    different_year_memory = create_memory_entry(
+        "Different year neutral note",
+        original_messages=[
+            {
+                "role": "user",
+                "text": "A synthetic note from another year.",
+                "timestamp": "2025-04-14T20:00:00+09:00",
+                "conversation_id": "conv-other-year",
+                "turn_index": 0,
+            }
+        ],
+    )
+    different_year_memory.timestamp = "2025-04-14T20:00:00+09:00"
+    manager.memories = [different_year_memory]
+
+    results = asyncio.run(
+        manager.find_activated(
+            "What did we talk about on 2026-04-14?",
+            top_k=1,
+            min_similarity=0.9,
+        )
+    )
+
+    assert results == []
+
+
+def test_find_activated_matches_english_month_name_date(tmp_path):
+    manager = MemoryManager(str(tmp_path / "memory.json"))
+    dated_memory = create_memory_entry(
+        "English date neutral note",
+        original_messages=[
+            {
+                "role": "user",
+                "text": "A neutral synthetic note for an English date query.",
+                "timestamp": "2026-04-14T20:00:00+09:00",
+                "conversation_id": "conv-english-date",
+                "turn_index": 0,
+            }
+        ],
+    )
+    dated_memory.timestamp = "2026-04-14T20:00:00+09:00"
+    manager.memories = [dated_memory]
+
+    results = asyncio.run(
+        manager.find_activated(
+            "What did we talk about on April 14, 2026?",
+            top_k=1,
+            min_similarity=0.9,
+        )
+    )
+
+    assert [result.memory.id for result in results] == [dated_memory.id]
+
+
+def test_find_activated_matches_korean_and_japanese_date_queries(tmp_path):
+    manager = MemoryManager(str(tmp_path / "memory.json"))
+    dated_memory = create_memory_entry(
+        "Multilingual date neutral note",
+        original_messages=[
+            {
+                "role": "user",
+                "text": "A neutral synthetic note for multilingual date queries.",
+                "timestamp": "2026-04-14T20:00:00+09:00",
+                "conversation_id": "conv-multilingual-date",
+                "turn_index": 0,
+            }
+        ],
+    )
+    dated_memory.timestamp = "2026-04-14T20:00:00+09:00"
+    manager.memories = [dated_memory]
+
+    for query in ("2026년 4월 14일에는 무엇을 이야기했어?", "2026年4月14日は何を話した?"):
+        results = asyncio.run(
+            manager.find_activated(
+                query,
+                top_k=1,
+                min_similarity=0.9,
+            )
+        )
+
+        assert [result.memory.id for result in results] == [dated_memory.id]
+
+
+def test_date_query_parser_supports_existing_order_variants():
+    parser = DateQueryParser()
+
+    assert parser.parse("April 14, 2026")
+    assert parser.parse("14 Apr 2026")
+    assert parser.parse("Apr 14th")
+    assert parser.parse("2026年4月14日")
+    assert parser.parse("4月14日")
 
 
 def test_find_activated_expands_linked_memories(tmp_path):

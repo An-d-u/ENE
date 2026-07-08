@@ -6,9 +6,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
-from datetime import datetime
+from datetime import date, datetime
 import re
 
+from .date_query_parser import DateQueryMatch, DateQueryParser
 from .memory_types import CURRENT_MEMORY_SCHEMA_VERSION, MemoryChunk, MemoryEntry, create_memory_entry
 from ..core.app_paths import load_json_data, resolve_user_storage_path, save_json_data
 
@@ -76,6 +77,7 @@ class MemoryManager:
         target_file = memory_file if memory_file is not None else "memory.json"
         self.memory_file = resolve_user_storage_path(target_file)
         self.embedding_generator = embedding_generator
+        self.date_query_parser = DateQueryParser()
         self.memories: List[MemoryEntry] = []
         self._raw_chunk_embedding_cache: Dict[tuple[str, int, int, str], List[float]] = {}
         
@@ -660,7 +662,8 @@ class MemoryManager:
         """현재 질문과 직접 맞는 별칭/대상/트리거 점수를 계산한다."""
         normalized_query = self._normalize_direct_match_text(query)
         compact_query = normalized_query.replace(" ", "")
-        if not compact_query:
+        query_date_matches = self.date_query_parser.parse(query)
+        if not compact_query and not query_date_matches:
             return {}
 
         scores: dict[str, float] = {}
@@ -692,6 +695,8 @@ class MemoryManager:
                 score = 0.62
             elif self._has_conservative_trigger_match(trigger_matches):
                 score = min(0.85, 0.45 + (0.15 * len(trigger_matches)))
+
+            score = max(score, self._date_direct_match_score(query_date_matches, memory))
 
             if score > 0.0:
                 scores[memory_id] = score
@@ -750,6 +755,78 @@ class MemoryManager:
         if re.fullmatch(r"[가-힣]+", normalized_term):
             return len(normalized_term) >= 3
         return len(normalized_term) >= 4
+
+    def _date_direct_match_score(self, query_date_matches: list[DateQueryMatch], memory: MemoryEntry) -> float:
+        """질문 날짜 범위와 기억 timestamp가 맞으면 직접 후보 점수를 준다."""
+        if not query_date_matches:
+            return 0.0
+        memory_dates = self._memory_dates(memory)
+        if not memory_dates:
+            return 0.0
+
+        has_exact_year_day = any(
+            match.precision == "day" and match.has_year
+            for match in query_date_matches
+        )
+        best_score = 0.0
+        for memory_date in memory_dates:
+            for query_match in query_date_matches:
+                if not self._date_match_includes(query_match, memory_date):
+                    continue
+                best_score = max(best_score, self._date_match_precision_score(query_match))
+
+        if has_exact_year_day and best_score < 0.72:
+            return 0.0
+        return best_score
+
+    def _memory_dates(self, memory: MemoryEntry) -> set[date]:
+        """기억 timestamp와 원문 메시지 timestamp에서 실제 날짜를 뽑는다."""
+        dates: set[date] = set()
+        parsed_memory_date = self._parse_date_from_timestamp(getattr(memory, "timestamp", None))
+        if parsed_memory_date:
+            dates.add(parsed_memory_date)
+        for message in getattr(memory, "original_messages", []) or []:
+            parsed_message_date = self._parse_date_from_timestamp(getattr(message, "timestamp", None))
+            if parsed_message_date:
+                dates.add(parsed_message_date)
+        return dates
+
+    def _parse_date_from_timestamp(self, value) -> date | None:
+        text = str(value or "").strip()
+        if not text:
+            return None
+        try:
+            return datetime.fromisoformat(text.replace("Z", "+00:00")).date()
+        except ValueError:
+            return None
+
+    def _date_match_includes(self, query_match: DateQueryMatch, memory_date: date) -> bool:
+        if query_match.has_year:
+            return query_match.start <= memory_date <= query_match.end
+        if query_match.precision == "day":
+            return (
+                memory_date.month == query_match.start.month
+                and memory_date.day == query_match.start.day
+            )
+        if query_match.precision in {"month", "month_part"}:
+            return (
+                memory_date.month == query_match.start.month
+                and query_match.start.day <= memory_date.day <= query_match.end.day
+            )
+        return query_match.start <= memory_date <= query_match.end
+
+    def _date_match_precision_score(self, query_match: DateQueryMatch) -> float:
+        if query_match.precision == "day":
+            return 0.72 if query_match.has_year else 0.58
+        if query_match.precision == "week":
+            return 0.50
+        if query_match.precision == "month_part":
+            return 0.48 if query_match.has_year else 0.44
+        if query_match.precision == "month":
+            return 0.46 if query_match.has_year else 0.40
+        if query_match.precision == "season":
+            return 0.35
+        return 0.0
 
     def build_raw_chunks(self, memory: MemoryEntry, chunk_turns: int = 6) -> List[MemoryChunk]:
         """기억 원문에서 고정 길이 turn window chunk를 생성한다."""
