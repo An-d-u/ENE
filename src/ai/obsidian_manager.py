@@ -156,6 +156,8 @@ class ObsidianManager:
                 return subprocess.run(
                     base_parts + list(args),
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     capture_output=True,
                     timeout=timeout,
                     shell=False,
@@ -169,6 +171,8 @@ class ObsidianManager:
                     return subprocess.run(
                         cmd,
                         text=True,
+                        encoding="utf-8",
+                        errors="replace",
                         capture_output=True,
                         timeout=timeout,
                         shell=False,
@@ -185,6 +189,8 @@ class ObsidianManager:
                 return subprocess.run(
                     ["powershell", "-Command", ps_cmd],
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     capture_output=True,
                     timeout=timeout,
                     shell=False,
