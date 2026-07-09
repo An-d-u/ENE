@@ -431,7 +431,7 @@
       },
       "memory": {
         "title": "기억 관리",
-        "description": "기억 목록과 검색 조정"
+        "description": "장기 기억, 주제 기억, 사용자 기억, ENE 기억"
       },
       "topic_memory": {
         "title": "주제 기억 관리",
@@ -1123,6 +1123,12 @@
       "empty": {
         "title": "기억 관리",
         "body": "메모리 매니저가 초기화되지 않아 기억 목록 패널을 표시할 수 없습니다."
+      },
+      "tabs": {
+        "long_term": "장기 기억",
+        "topic": "주제 기억",
+        "user_profile": "사용자 기억",
+        "ene_profile": "ENE 기억"
       }
     },
     "prompt": {

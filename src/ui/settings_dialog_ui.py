@@ -280,34 +280,10 @@ class SettingsDialogUiMixin:
         self._add_lazy_tab(
             "memory",
             "기억 관리",
-            "기억 목록과 검색 설정",
+            "장기 기억, 주제 기억, 사용자 기억, ENE 기억",
             self._create_memory_tab,
             title_key="settings.section.memory.title",
             description_key="settings.section.memory.description",
-        )
-        self._add_lazy_tab(
-            "topic_memory",
-            "주제 기억 관리",
-            "키워드 단서 지도",
-            self._create_topic_memory_tab,
-            title_key="settings.section.topic_memory.title",
-            description_key="settings.section.topic_memory.description",
-        )
-        self._add_lazy_tab(
-            "profile",
-            "사용자 기억 관리",
-            "user_profile.json 구조 편집",
-            self._create_user_profile_tab,
-            title_key="settings.section.profile.title",
-            description_key="settings.section.profile.description",
-        )
-        self._add_lazy_tab(
-            "ene_profile",
-            "ENE 기억 관리",
-            "에네 자기 정보 구조 편집",
-            self._create_ene_profile_tab,
-            title_key="settings.section.ene_profile.title",
-            description_key="settings.section.ene_profile.description",
         )
         self._add_lazy_tab(
             "prompt",
@@ -453,6 +429,11 @@ class SettingsDialogUiMixin:
             self.content_header_meta.setText(description)
 
     def focus_section(self, tab_id: str) -> None:
+        tab_id = {
+            "topic_memory": "memory",
+            "profile": "memory",
+            "ene_profile": "memory",
+        }.get(tab_id, tab_id)
         index = next((idx for idx, current_tab_id in self._lazy_tab_index_to_id.items() if current_tab_id == tab_id), -1)
         if index >= 0:
             self._set_section_index(index)

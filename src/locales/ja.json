@@ -427,7 +427,7 @@
       },
       "memory": {
         "title": "メモリ管理",
-        "description": "メモリ一覧と検索調整"
+        "description": "長期記憶、トピック記憶、ユーザー記憶、ENE記憶"
       },
       "topic_memory": {
         "title": "トピック記憶管理",
@@ -1069,6 +1069,12 @@
       "empty": {
         "title": "メモリ管理",
         "body": "メモリマネージャーが初期化されていないため、ここではメモリ一覧パネルを表示できません。"
+      },
+      "tabs": {
+        "long_term": "長期記憶",
+        "topic": "トピック記憶",
+        "user_profile": "ユーザー記憶",
+        "ene_profile": "ENE記憶"
       }
     },
     "prompt": {

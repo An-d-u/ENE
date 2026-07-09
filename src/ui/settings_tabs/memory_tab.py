@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSpinBox,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -20,6 +21,62 @@ from ..memory_dialog import MemoryDialog
 
 
 def build_memory_tab(dialog):
+    self = dialog
+    widget = QWidget()
+    layout = QVBoxLayout(widget)
+    layout.setContentsMargins(10, 10, 10, 10)
+    layout.setSpacing(12)
+
+    tabs = QTabWidget()
+    tabs.setObjectName("memoryManagementTabs")
+    _add_translated_tab(
+        self,
+        tabs,
+        _build_long_term_memory_tab(self),
+        "settings.memory.tabs.long_term",
+        "장기 기억",
+    )
+
+    from . import ene_profile_tab, topic_memory_tab, user_profile_tab
+
+    _add_translated_tab(
+        self,
+        tabs,
+        topic_memory_tab.build_topic_memory_tab(self),
+        "settings.memory.tabs.topic",
+        "주제 기억",
+    )
+    _add_translated_tab(
+        self,
+        tabs,
+        user_profile_tab.build_user_profile_tab(self),
+        "settings.memory.tabs.user_profile",
+        "사용자 기억",
+    )
+    _add_translated_tab(
+        self,
+        tabs,
+        ene_profile_tab.build_ene_profile_tab(self),
+        "settings.memory.tabs.ene_profile",
+        "ENE 기억",
+    )
+    layout.addWidget(tabs)
+    return widget
+
+
+def _add_translated_tab(dialog, tabs: QTabWidget, widget: QWidget, key: str, fallback: str) -> None:
+    index = tabs.addTab(widget, _tab_text(dialog, key, fallback))
+    register = getattr(dialog, "_register_text_binding", None)
+    if callable(register):
+        register(lambda text, tab_index=index: tabs.setTabText(tab_index, text), key, fallback)
+
+
+def _tab_text(dialog, key: str, fallback: str) -> str:
+    translator = getattr(dialog, "_translated_text", None)
+    return translator(key, fallback) if callable(translator) else fallback
+
+
+def _build_long_term_memory_tab(dialog):
     self = dialog
     scroll = QScrollArea()
     scroll.setWidgetResizable(True)
@@ -128,4 +185,3 @@ def build_memory_tab(dialog):
     layout.addStretch()
     scroll.setWidget(widget)
     return scroll
-
