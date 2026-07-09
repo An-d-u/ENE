@@ -429,7 +429,7 @@
       },
       "memory": {
         "title": "Memory",
-        "description": "Memory list and search tuning."
+        "description": "Long-term, topic, user, and ENE memories."
       },
       "topic_memory": {
         "title": "Topic Memory",
@@ -1121,6 +1121,12 @@
       "empty": {
         "title": "Memory",
         "body": "The memory manager is not initialized, so the memory list panel cannot be shown here."
+      },
+      "tabs": {
+        "long_term": "Long-Term Memory",
+        "topic": "Topic Memory",
+        "user_profile": "User Memory",
+        "ene_profile": "ENE Memory"
       }
     },
     "prompt": {

@@ -7,7 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from PyQt6.QtCore import QDate, QEvent, Qt
-from PyQt6.QtWidgets import QCheckBox, QComboBox, QDoubleSpinBox, QGroupBox, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QSpinBox, QWidget
+from PyQt6.QtWidgets import QCheckBox, QComboBox, QDoubleSpinBox, QGroupBox, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QSpinBox, QTabWidget, QWidget
 from PyQt6.QtWidgets import QApplication
 
 from src.core.i18n import configure_i18n
@@ -1360,7 +1360,8 @@ def test_settings_dialog_exposes_language_selector_and_translated_static_strings
         assert {"Memory Search Range", "Memory", "Topic Memory"}.issubset(
             {label.text() for label in dialog.findChildren(QLabel)}
         )
-        assert "topic_memory" in set(dialog._lazy_tab_index_to_id.values())
+        assert "memory" in set(dialog._lazy_tab_index_to_id.values())
+        assert "topic_memory" not in set(dialog._lazy_tab_index_to_id.values())
         assert dialog._base_prompt_token_label.text().startswith("BASE_SYSTEM_PROMPT tokens:")
         assert "characters:" in dialog._base_prompt_token_label.text()
 
@@ -2124,12 +2125,20 @@ def test_settings_dialog_retranslates_prompt_and_profile_lazy_tabs_in_japanese_p
 
         dialog.ui_language_combo.setCurrentIndex(dialog.ui_language_combo.findData("ja"))
 
-        ene_profile_index = next(
-            index for index, tab_id in dialog._lazy_tab_index_to_id.items() if tab_id == "ene_profile"
+        memory_index = next(
+            index for index, tab_id in dialog._lazy_tab_index_to_id.items() if tab_id == "memory"
         )
-        dialog._set_section_index(ene_profile_index)
+        dialog._set_section_index(memory_index)
 
-        assert dialog.content_header_title.text() == "ENE記憶管理"
+        memory_tabs = dialog.findChild(QTabWidget, "memoryManagementTabs")
+        assert memory_tabs is not None
+        assert [memory_tabs.tabText(index) for index in range(memory_tabs.count())] == [
+            "長期記憶",
+            "トピック記憶",
+            "ユーザー記憶",
+            "ENE記憶",
+        ]
+        assert dialog.content_header_title.text() == "メモリ管理"
         assert dialog.ui_language_combo.itemText(0) == "システムの既定値"
         assert dialog.basic_info_key_input.placeholderText() == "項目名"
         assert dialog.emotion_name_input.placeholderText() == "感情キー (例: shy)"
@@ -3955,6 +3964,7 @@ def test_show_memory_dialog_without_overlay_window_passes_none_fallbacks(monkeyp
 
 
 def test_settings_memory_tab_passes_bridge_knowledge_map_manager(monkeypatch):
+    from src.ui.settings_tabs import ene_profile_tab, topic_memory_tab, user_profile_tab
     from src.ui.settings_tabs.memory_tab import build_memory_tab
 
     _get_qapp()
@@ -3983,6 +3993,9 @@ def test_settings_memory_tab_passes_bridge_knowledge_map_manager(monkeypatch):
             return None
 
     monkeypatch.setattr("src.ui.settings_tabs.memory_tab.MemoryDialog", FakeMemoryDialog)
+    monkeypatch.setattr(topic_memory_tab, "build_topic_memory_tab", lambda _dialog: QLabel("topic"))
+    monkeypatch.setattr(user_profile_tab, "build_user_profile_tab", lambda _dialog: QLabel("user"))
+    monkeypatch.setattr(ene_profile_tab, "build_ene_profile_tab", lambda _dialog: QLabel("ene"))
 
     memory_manager = object()
     knowledge_manager = object()
@@ -4013,6 +4026,7 @@ def test_settings_memory_tab_passes_bridge_knowledge_map_manager(monkeypatch):
 
 
 def test_settings_memory_tab_without_bridge_passes_none_knowledge_map_manager(monkeypatch):
+    from src.ui.settings_tabs import ene_profile_tab, topic_memory_tab, user_profile_tab
     from src.ui.settings_tabs.memory_tab import build_memory_tab
 
     _get_qapp()
@@ -4041,6 +4055,9 @@ def test_settings_memory_tab_without_bridge_passes_none_knowledge_map_manager(mo
             return None
 
     monkeypatch.setattr("src.ui.settings_tabs.memory_tab.MemoryDialog", FakeMemoryDialog)
+    monkeypatch.setattr(topic_memory_tab, "build_topic_memory_tab", lambda _dialog: QLabel("topic"))
+    monkeypatch.setattr(user_profile_tab, "build_user_profile_tab", lambda _dialog: QLabel("user"))
+    monkeypatch.setattr(ene_profile_tab, "build_ene_profile_tab", lambda _dialog: QLabel("ene"))
 
     memory_manager = object()
     dialog = QWidget()
@@ -4067,6 +4084,98 @@ def test_settings_memory_tab_without_bridge_passes_none_knowledge_map_manager(mo
             "knowledge_map_manager": None,
         }
     ]
+
+
+def test_settings_memory_section_unifies_memory_related_tabs(monkeypatch):
+    from src.ui.settings_tabs import ene_profile_tab, memory_tab, topic_memory_tab, user_profile_tab
+    from src.ui.settings_tabs.memory_tab import build_memory_tab
+
+    _get_qapp()
+
+    class FakeMemoryDialog(QWidget):
+        def __init__(self, *_args, **_kwargs):
+            super().__init__()
+
+        def apply_theme(self, _theme_values):
+            return None
+
+    monkeypatch.setattr(memory_tab, "MemoryDialog", FakeMemoryDialog)
+    monkeypatch.setattr(topic_memory_tab, "build_topic_memory_tab", lambda _dialog: QLabel("topic"))
+    monkeypatch.setattr(user_profile_tab, "build_user_profile_tab", lambda _dialog: QLabel("user"))
+    monkeypatch.setattr(ene_profile_tab, "build_ene_profile_tab", lambda _dialog: QLabel("ene"))
+
+    dialog = QWidget()
+    dialog._memory_manager = object()
+    dialog._bridge = None
+    dialog._theme_values = {}
+    dialog._original_settings = {}
+    dialog._embedded_memory_panel = None
+    dialog._bind_widget_text = lambda *_args, **_kwargs: None
+    dialog._bind_suffix = lambda *_args, **_kwargs: None
+    dialog._bind_special_value_text = lambda *_args, **_kwargs: None
+    dialog._translated_text = lambda _key, fallback: fallback
+    text_bindings = []
+    dialog._register_text_binding = lambda setter, key, fallback: text_bindings.append((setter, key, fallback))
+    dialog._on_setting_changed = lambda *_args, **_kwargs: None
+    dialog._add_form_row = lambda form, _key, fallback, widget: form.addRow(fallback, widget)
+    dialog._build_hint_label = lambda text, key=None: QLabel(text)
+
+    widget = build_memory_tab(dialog)
+    tab_widget = widget.findChild(QTabWidget, "memoryManagementTabs")
+
+    assert tab_widget is not None
+    assert [tab_widget.tabText(index) for index in range(tab_widget.count())] == [
+        "장기 기억",
+        "주제 기억",
+        "사용자 기억",
+        "ENE 기억",
+    ]
+    assert [key for _setter, key, _fallback in text_bindings] == [
+        "settings.memory.tabs.long_term",
+        "settings.memory.tabs.topic",
+        "settings.memory.tabs.user_profile",
+        "settings.memory.tabs.ene_profile",
+    ]
+
+    first_setter, _key, _fallback = text_bindings[0]
+    first_setter("Long-Term Memory")
+
+    assert tab_widget.tabText(0) == "Long-Term Memory"
+
+
+def test_settings_sidebar_exposes_single_memory_section(monkeypatch):
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        monkeypatch.setattr(SettingsDialog, "_load_prompt_configuration", lambda self: None)
+
+        dialog = SettingsDialog(
+            {
+                "ui_language": "ko",
+                "llm_provider": "gemini",
+                "tts_provider": "gpt_sovits_http",
+                "enable_tts": True,
+            },
+            memory_manager=_DummyMemoryManager([]),
+            bridge=SimpleNamespace(ene_profile=_DummyEneProfile(), parent=lambda: None),
+        )
+
+        assert "memory" in dialog._lazy_tab_builders
+        assert "topic_memory" not in dialog._lazy_tab_builders
+        assert "profile" not in dialog._lazy_tab_builders
+        assert "ene_profile" not in dialog._lazy_tab_builders
+
+        memory_index = next(
+            index for index, tab_id in dialog._lazy_tab_index_to_id.items() if tab_id == "memory"
+        )
+        dialog.focus_section("ene_profile")
+
+        assert dialog.content_stack.currentIndex() == memory_index
+        dialog.close()
 
 
 def test_settings_topic_memory_tab_uses_bridge_knowledge_map_manager(monkeypatch):
