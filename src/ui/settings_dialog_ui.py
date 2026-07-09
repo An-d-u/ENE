@@ -432,8 +432,8 @@ class SettingsDialogUiMixin:
     def focus_section(self, tab_id: str) -> None:
         memory_tab_id = {
             "topic_memory": "topic_memory",
-            "profile": "profile",
-            "ene_profile": "ene_profile",
+            "profile": "profile_memory",
+            "ene_profile": "profile_memory",
         }.get(tab_id)
         tab_id = {
             "topic_memory": "memory",

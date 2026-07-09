@@ -38,7 +38,7 @@ def build_memory_tab(dialog):
         "long_term",
     )
 
-    from . import ene_profile_tab, topic_memory_tab, user_profile_tab
+    from . import profile_memory_tab, topic_memory_tab
 
     _add_translated_tab(
         self,
@@ -51,18 +51,10 @@ def build_memory_tab(dialog):
     _add_translated_tab(
         self,
         tabs,
-        user_profile_tab.build_user_profile_tab(self),
-        "settings.memory.tabs.user_profile",
-        "사용자 기억",
-        "profile",
-    )
-    _add_translated_tab(
-        self,
-        tabs,
-        ene_profile_tab.build_ene_profile_tab(self),
-        "settings.memory.tabs.ene_profile",
-        "ENE 기억",
-        "ene_profile",
+        profile_memory_tab.build_profile_memory_tab(self),
+        "settings.memory.tabs.profile_memory",
+        "사용자/ENE 기억",
+        "profile_memory",
     )
     layout.addWidget(tabs)
     return widget

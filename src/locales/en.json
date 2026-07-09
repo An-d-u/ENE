@@ -1126,7 +1126,8 @@
         "long_term": "Long-Term Memory",
         "topic": "Topic Memory",
         "user_profile": "User Memory",
-        "ene_profile": "ENE Memory"
+        "ene_profile": "ENE Memory",
+        "profile_memory": "User/ENE Memory"
       }
     },
     "prompt": {
@@ -1276,6 +1277,56 @@
           "title": "Save failed",
           "body": "Could not save user_profile.json.\n{error}"
         }
+      }
+    },
+    "profile_memory": {
+      "organizer": {
+        "title": "Memory Cleanup",
+        "body": "Ask the LLM to organize the current user profile and ENE learned information, then review the proposal before applying it.",
+        "button": "Create Cleanup Proposal",
+        "status": {
+          "idle": "Waiting to organize",
+          "running": "Creating cleanup proposal...",
+          "cancelled": "Apply cancelled",
+          "saved": "Cleanup saved",
+          "failed": "Cleanup failed"
+        },
+        "missing_llm": {
+          "title": "LLM unavailable",
+          "body": "The LLM client is not initialized yet."
+        },
+        "confirm": {
+          "title": "Apply Memory Cleanup"
+        },
+        "saved": {
+          "title": "Saved",
+          "body": "User memory and ENE memory were organized and saved."
+        },
+        "failed": {
+          "title": "Memory Cleanup Failed",
+          "body": "Could not create or apply the cleanup proposal.\n{error}"
+        }
+      },
+      "review": {
+        "title": "Review Memory Cleanup",
+        "header": {
+          "title": "Review Cleanup Proposal",
+          "body": "The content below is the cleanup proposal that will be saved. Applying it will replace the current user memory and ENE memory editor contents with this proposal."
+        },
+        "user": {
+          "title": "User Information",
+          "basic": "Basic Info",
+          "likes": "Likes",
+          "dislikes": "Dislikes",
+          "facts": "facts"
+        },
+        "ene": {
+          "title": "ENE Information",
+          "core": "Core Profile",
+          "facts": "Learned Information"
+        },
+        "apply": "Apply",
+        "cancel": "Cancel"
       }
     },
     "ene_profile": {

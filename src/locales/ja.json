@@ -1074,7 +1074,8 @@
         "long_term": "長期記憶",
         "topic": "トピック記憶",
         "user_profile": "ユーザー記憶",
-        "ene_profile": "ENE記憶"
+        "ene_profile": "ENE記憶",
+        "profile_memory": "ユーザー/ENE記憶"
       }
     },
     "prompt": {
@@ -1224,6 +1225,56 @@
           "title": "保存失敗",
           "body": "user_profile.json を保存できませんでした。\n{error}"
         }
+      }
+    },
+    "profile_memory": {
+      "organizer": {
+        "title": "記憶の整理",
+        "body": "現在のユーザー情報と ENE の学習情報を LLM で整理し、適用前に変更案を確認します。",
+        "button": "整理案を作成",
+        "status": {
+          "idle": "整理待機",
+          "running": "整理案を作成中...",
+          "cancelled": "適用をキャンセルしました",
+          "saved": "整理結果を保存しました",
+          "failed": "整理に失敗しました"
+        },
+        "missing_llm": {
+          "title": "LLM を利用できません",
+          "body": "LLM クライアントがまだ初期化されていません。"
+        },
+        "confirm": {
+          "title": "記憶整理の適用"
+        },
+        "saved": {
+          "title": "保存完了",
+          "body": "ユーザー記憶と ENE 記憶を整理して保存しました。"
+        },
+        "failed": {
+          "title": "記憶整理に失敗しました",
+          "body": "整理案の作成または適用に失敗しました。\n{error}"
+        }
+      },
+      "review": {
+        "title": "記憶整理の確認",
+        "header": {
+          "title": "整理案を確認",
+          "body": "以下の内容が実際に保存される整理案です。適用すると、現在のユーザー記憶と ENE 記憶の編集内容がこの案で置き換えられます。"
+        },
+        "user": {
+          "title": "ユーザー情報",
+          "basic": "基本情報",
+          "likes": "好き",
+          "dislikes": "苦手",
+          "facts": "facts"
+        },
+        "ene": {
+          "title": "エネ情報",
+          "core": "基本設定",
+          "facts": "学習情報"
+        },
+        "apply": "適用",
+        "cancel": "キャンセル"
       }
     },
     "ene_profile": {
