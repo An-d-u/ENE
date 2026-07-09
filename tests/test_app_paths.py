@@ -111,3 +111,25 @@ def test_save_json_data_mirrors_visible_roaming_under_store_python(tmp_path, mon
     assert not runtime_path.read_bytes().startswith(b"\xef\xbb\xbf")
     assert json.loads(runtime_path.read_text(encoding="utf-8")) == payload
     assert mirrored == [(visible_path, payload)]
+
+
+def test_powershell_helper_reads_output_as_utf8(monkeypatch):
+    from src.core import app_paths
+
+    captured = {}
+
+    class DummyCompleted:
+        stdout = ""
+        stderr = ""
+        returncode = 0
+
+    def fake_run(command, **kwargs):
+        captured.update(kwargs)
+        return DummyCompleted()
+
+    monkeypatch.setattr(app_paths.subprocess, "run", fake_run)
+
+    app_paths._run_powershell_command("[Console]::Write('확인')")
+
+    assert captured["encoding"] == "utf-8"
+    assert captured["errors"] == "replace"

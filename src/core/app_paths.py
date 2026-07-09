@@ -177,6 +177,8 @@ def _run_powershell_command(command: str) -> subprocess.CompletedProcess[str]:
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
 
 

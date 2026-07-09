@@ -137,7 +137,7 @@ def test_diary_save_cli_primary_success(tmp_path: Path, monkeypatch):
         returncode = 0
         stderr = ""
 
-    def fake_run(command, shell, text, capture_output, timeout):
+    def fake_run(command, shell, text, capture_output, timeout, encoding=None, errors=None):
         captured["command"] = command
         captured["timeout"] = timeout
         return DummyCompleted()
@@ -156,6 +156,39 @@ def test_diary_save_cli_primary_success(tmp_path: Path, monkeypatch):
     assert list((tmp_path / "diary").glob("*.md")) == []
 
 
+def test_diary_save_cli_primary_reads_cli_output_as_utf8(tmp_path: Path, monkeypatch):
+    class DummySettings:
+        def get(self, key: str, default=None):
+            values = {
+                "obsidian_cli_enabled": True,
+                "obsidian_cli_primary_for_diary": True,
+                "diary_keep_local_copy_on_cli_success": False,
+                "obsidian_cli_command": "obsidian-cli --file \"{file_path}\"",
+                "obsidian_cli_timeout_sec": 5,
+            }
+            return values.get(key, default)
+
+    captured = {}
+
+    class DummyCompleted:
+        returncode = 0
+        stdout = "저장 완료"
+        stderr = ""
+
+    def fake_run(command, **kwargs):
+        captured.update(kwargs)
+        return DummyCompleted()
+
+    monkeypatch.setattr("src.ai.diary_service.subprocess.run", fake_run)
+
+    service = DiaryService(tmp_path / "diary", settings=DummySettings())
+    result = service.save_markdown_via_priority("연동 테스트", "# 문서")
+
+    assert result.storage_target == "obsidian"
+    assert captured["encoding"] == "utf-8"
+    assert captured["errors"] == "replace"
+
+
 def test_diary_save_cli_primary_failure_fallback_local(tmp_path: Path, monkeypatch):
     class DummySettings:
         def get(self, key: str, default=None):
@@ -172,7 +205,7 @@ def test_diary_save_cli_primary_failure_fallback_local(tmp_path: Path, monkeypat
         returncode = 1
         stderr = "mock fail"
 
-    def fake_run(command, shell, text, capture_output, timeout):
+    def fake_run(command, shell, text, capture_output, timeout, encoding=None, errors=None):
         return DummyCompleted()
 
     monkeypatch.setattr("src.ai.diary_service.subprocess.run", fake_run)

@@ -1,4 +1,4 @@
-﻿import shutil
+import shutil
 from pathlib import Path
 
 from PyQt6.QtWidgets import QMessageBox
@@ -1176,3 +1176,25 @@ def test_store_python_sync_uses_visible_to_runtime_bridge_when_strings_match(mon
     prompt_config._sync_visible_roaming_prompt_files_to_runtime()
 
     assert calls == [(same_dir, same_dir)]
+
+
+def test_prompt_powershell_helper_reads_output_as_utf8(monkeypatch):
+    from src.ai import prompt_config
+
+    captured = {}
+
+    class DummyCompleted:
+        stdout = ""
+        stderr = ""
+        returncode = 0
+
+    def fake_run(command, **kwargs):
+        captured.update(kwargs)
+        return DummyCompleted()
+
+    monkeypatch.setattr(prompt_config.subprocess, "run", fake_run)
+
+    prompt_config._run_powershell_command("[Console]::Write('확인')")
+
+    assert captured["encoding"] == "utf-8"
+    assert captured["errors"] == "replace"
