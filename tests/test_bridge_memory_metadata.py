@@ -277,7 +277,7 @@ def test_auto_summarize_persists_structured_original_messages():
     ]
 
 
-def test_manual_summarize_emits_review_payload_without_saving():
+def test_prepare_summary_review_emits_review_payload_without_saving():
     dummy = type("BridgeDummy", (), {})()
     dummy.worker = None
     dummy.conversation_buffer = [
@@ -296,7 +296,7 @@ def test_manual_summarize_emits_review_payload_without_saving():
     dummy._build_summary_storage_payload = lambda messages: WebBridge._build_summary_storage_payload(dummy, messages)
     dummy._emit_summary_review = lambda: WebBridge._emit_summary_review(dummy)
 
-    WebBridge.summarize_now(dummy)
+    asyncio.run(WebBridge._prepare_summary_review(dummy))
 
     assert dummy.memory_manager.calls == []
     assert len(dummy.summary_review_ready.emitted) == 1
@@ -306,6 +306,39 @@ def test_manual_summarize_emits_review_payload_without_saving():
     assert payload["ene_facts"] == ["[speaking_style] 에네 정보 1"]
     assert payload["memory_meta"]["memory_type"] == "task"
     assert dummy.conversation_buffer
+
+
+def test_manual_summarize_starts_review_worker_without_preparing_inline():
+    dummy = type("BridgeDummy", (), {})()
+    dummy.worker = None
+    dummy.conversation_buffer = [
+        ("user", "hello", "2026-04-14 20:00"),
+        ("assistant", "hi", "2026-04-14 20:01"),
+    ]
+    dummy.memory_manager = _DummyMemoryManager()
+    dummy.llm_client = _ReviewLLMClient()
+    dummy.summary_notice = _DummySignal()
+    dummy.started = []
+
+    async def fail_if_called_inline():
+        raise AssertionError("수동 요약은 UI 스레드에서 바로 준비하면 안 됩니다.")
+
+    dummy._prepare_summary_review = fail_if_called_inline
+    dummy._start_summary_review_worker = (
+        lambda messages, success_notice=None: dummy.started.append((list(messages), success_notice))
+    )
+
+    WebBridge.summarize_now(dummy)
+
+    assert dummy.started == [
+        (
+            [
+                ("user", "hello", "2026-04-14 20:00"),
+                ("assistant", "hi", "2026-04-14 20:01"),
+            ],
+            "요약을 확인해 주세요.",
+        )
+    ]
 
 
 def test_manual_summarize_review_payload_includes_topic_hints_without_saving():
@@ -849,7 +882,7 @@ def test_auto_summarize_is_deferred_while_summary_review_is_pending():
     assert dummy.scheduled is False
 
 
-def test_regenerate_summary_review_updates_payload_without_saving():
+def test_regenerate_summary_review_starts_worker_without_saving():
     dummy = type("BridgeDummy", (), {})()
     dummy.memory_manager = _DummyMemoryManager()
     dummy.llm_client = _ReviewLLMClient()
@@ -866,21 +899,19 @@ def test_regenerate_summary_review_updates_payload_without_saving():
     }
     dummy._normalize_summary_result = lambda result: WebBridge._normalize_summary_result(dummy, result)
     dummy._emit_summary_review = lambda: WebBridge._emit_summary_review(dummy)
+    dummy.started = []
+    dummy._start_summary_review_worker = (
+        lambda messages, success_notice=None: dummy.started.append((list(messages), success_notice))
+    )
 
     WebBridge.regenerate_summary_review(dummy)
 
     assert dummy.memory_manager.calls == []
-    assert len(dummy.llm_client.calls) == 1
-    assert dummy._pending_summary_review["summary"] == "요약 후보 1"
-    assert dummy._pending_summary_review["user_facts"] == ["[goal] 사용자 정보 1"]
-    assert dummy._pending_summary_review["ene_facts"] == ["[speaking_style] 에네 정보 1"]
-    assert dummy._pending_summary_review["memory_meta"]["memory_type"] == "task"
-    assert len(dummy.summary_review_ready.emitted) == 1
-    payload = json.loads(dummy.summary_review_ready.emitted[0][0])
-    assert payload["summary"] == "요약 후보 1"
+    assert dummy.llm_client.calls == []
+    assert dummy.started == [([("user", "hello", "2026-04-14 20:00")], "요약을 다시 만들었어요.")]
 
 
-def test_regenerate_summary_review_updates_topic_hints_payload_without_saving():
+def test_summary_review_prepared_updates_topic_hints_payload_without_saving():
     dummy = type("BridgeDummy", (), {})()
     dummy.memory_manager = _DummyMemoryManager()
     dummy.llm_client = _TopicReviewLLMClient()
@@ -899,7 +930,8 @@ def test_regenerate_summary_review_updates_topic_hints_payload_without_saving():
     dummy._normalize_summary_result = lambda result: WebBridge._normalize_summary_result(dummy, result)
     dummy._emit_summary_review = lambda: WebBridge._emit_summary_review(dummy)
 
-    WebBridge.regenerate_summary_review(dummy)
+    pending = asyncio.run(WebBridge._build_summary_review_state(dummy, dummy._pending_summary_review["messages"]))
+    WebBridge._on_summary_review_prepared(dummy, pending)
 
     assert dummy.memory_manager.calls == []
     assert dummy.memory_manager.topic_calls == []
