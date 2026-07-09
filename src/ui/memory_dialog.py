@@ -73,6 +73,7 @@ class MemoryDialog(QDialog):
         parent=None,
         embedded: bool = False,
         knowledge_map_manager=None,
+        include_topic_memory_tab: bool = True,
     ):
         super().__init__(parent)
         self.memory_manager = memory_manager
@@ -83,6 +84,7 @@ class MemoryDialog(QDialog):
             else getattr(bridge, "knowledge_map_manager", None)
         )
         self._embedded = embedded
+        self._include_topic_memory_tab = include_topic_memory_tab
         self._theme_defaults = {
             "theme_accent_color": "#0071E3",
             "settings_window_bg_color": "#EEF1F5",
@@ -310,7 +312,6 @@ class MemoryDialog(QDialog):
         if not self._embedded:
             layout.addWidget(self._build_title_bar())
 
-        self.tabs = QTabWidget()
         self.long_term_memory_page = QWidget()
         long_term_layout = QVBoxLayout(self.long_term_memory_page)
         long_term_layout.setContentsMargins(0, 0, 0, 0)
@@ -330,11 +331,15 @@ class MemoryDialog(QDialog):
         body_grid.setColumnStretch(2, 1)
         long_term_layout.addLayout(body_grid, 1)
 
-        self.topic_memory_panel = TopicMemoryMindmapPanel(self.knowledge_map_manager)
-        self.topic_memory_panel.apply_theme(dict(self._theme_values))
-        self.tabs.addTab(self.long_term_memory_page, t("memory.tabs.long_term"))
-        self.tabs.addTab(self.topic_memory_panel, t("memory.tabs.topic_map"))
-        layout.addWidget(self.tabs, 1)
+        if self._include_topic_memory_tab:
+            self.tabs = QTabWidget()
+            self.topic_memory_panel = TopicMemoryMindmapPanel(self.knowledge_map_manager)
+            self.topic_memory_panel.apply_theme(dict(self._theme_values))
+            self.tabs.addTab(self.long_term_memory_page, t("memory.tabs.long_term"))
+            self.tabs.addTab(self.topic_memory_panel, t("memory.tabs.topic_map"))
+            layout.addWidget(self.tabs, 1)
+        else:
+            layout.addWidget(self.long_term_memory_page, 1)
 
     def _build_title_bar(self) -> QWidget:
         bar = QFrame()
