@@ -3978,6 +3978,7 @@ def test_settings_memory_tab_passes_bridge_knowledge_map_manager(monkeypatch):
             parent=None,
             embedded=False,
             knowledge_map_manager=None,
+            include_topic_memory_tab=True,
         ):
             super().__init__(parent)
             created.append(
@@ -3986,6 +3987,7 @@ def test_settings_memory_tab_passes_bridge_knowledge_map_manager(monkeypatch):
                     "bridge": bridge,
                     "embedded": embedded,
                     "knowledge_map_manager": knowledge_map_manager,
+                    "include_topic_memory_tab": include_topic_memory_tab,
                 }
             )
 
@@ -4021,6 +4023,7 @@ def test_settings_memory_tab_passes_bridge_knowledge_map_manager(monkeypatch):
             "bridge": dialog._bridge,
             "embedded": True,
             "knowledge_map_manager": knowledge_manager,
+            "include_topic_memory_tab": False,
         }
     ]
 
@@ -4040,6 +4043,7 @@ def test_settings_memory_tab_without_bridge_passes_none_knowledge_map_manager(mo
             parent=None,
             embedded=False,
             knowledge_map_manager=None,
+            include_topic_memory_tab=True,
         ):
             super().__init__(parent)
             created.append(
@@ -4048,6 +4052,7 @@ def test_settings_memory_tab_without_bridge_passes_none_knowledge_map_manager(mo
                     "bridge": bridge,
                     "embedded": embedded,
                     "knowledge_map_manager": knowledge_map_manager,
+                    "include_topic_memory_tab": include_topic_memory_tab,
                 }
             )
 
@@ -4082,6 +4087,7 @@ def test_settings_memory_tab_without_bridge_passes_none_knowledge_map_manager(mo
             "bridge": None,
             "embedded": True,
             "knowledge_map_manager": None,
+            "include_topic_memory_tab": False,
         }
     ]
 
@@ -4173,8 +4179,17 @@ def test_settings_sidebar_exposes_single_memory_section(monkeypatch):
             index for index, tab_id in dialog._lazy_tab_index_to_id.items() if tab_id == "memory"
         )
         dialog.focus_section("ene_profile")
+        memory_tabs = dialog.findChild(QTabWidget, "memoryManagementTabs")
 
         assert dialog.content_stack.currentIndex() == memory_index
+        assert memory_tabs is not None
+        assert memory_tabs.currentIndex() == 3
+
+        dialog.focus_section("profile")
+        assert memory_tabs.currentIndex() == 2
+
+        dialog.focus_section("topic_memory")
+        assert memory_tabs.currentIndex() == 1
         dialog.close()
 
 

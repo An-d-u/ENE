@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QStackedWidget,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -429,6 +430,11 @@ class SettingsDialogUiMixin:
             self.content_header_meta.setText(description)
 
     def focus_section(self, tab_id: str) -> None:
+        memory_tab_id = {
+            "topic_memory": "topic_memory",
+            "profile": "profile",
+            "ene_profile": "ene_profile",
+        }.get(tab_id)
         tab_id = {
             "topic_memory": "memory",
             "profile": "memory",
@@ -437,6 +443,21 @@ class SettingsDialogUiMixin:
         index = next((idx for idx, current_tab_id in self._lazy_tab_index_to_id.items() if current_tab_id == tab_id), -1)
         if index >= 0:
             self._set_section_index(index)
+            if memory_tab_id:
+                self._focus_memory_management_tab(memory_tab_id)
+
+    def _focus_memory_management_tab(self, tab_id: str) -> None:
+        self._ensure_lazy_tab_loaded("memory")
+        host = self._lazy_tab_hosts.get("memory")
+        if host is None:
+            return
+        tabs = host.findChild(QTabWidget, "memoryManagementTabs")
+        if tabs is None:
+            return
+        for index in range(tabs.count()):
+            if tabs.tabBar().tabData(index) == tab_id:
+                tabs.setCurrentIndex(index)
+                return
 
     def _add_lazy_tab(
         self,

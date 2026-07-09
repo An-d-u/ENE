@@ -35,6 +35,7 @@ def build_memory_tab(dialog):
         _build_long_term_memory_tab(self),
         "settings.memory.tabs.long_term",
         "장기 기억",
+        "long_term",
     )
 
     from . import ene_profile_tab, topic_memory_tab, user_profile_tab
@@ -45,6 +46,7 @@ def build_memory_tab(dialog):
         topic_memory_tab.build_topic_memory_tab(self),
         "settings.memory.tabs.topic",
         "주제 기억",
+        "topic_memory",
     )
     _add_translated_tab(
         self,
@@ -52,6 +54,7 @@ def build_memory_tab(dialog):
         user_profile_tab.build_user_profile_tab(self),
         "settings.memory.tabs.user_profile",
         "사용자 기억",
+        "profile",
     )
     _add_translated_tab(
         self,
@@ -59,13 +62,22 @@ def build_memory_tab(dialog):
         ene_profile_tab.build_ene_profile_tab(self),
         "settings.memory.tabs.ene_profile",
         "ENE 기억",
+        "ene_profile",
     )
     layout.addWidget(tabs)
     return widget
 
 
-def _add_translated_tab(dialog, tabs: QTabWidget, widget: QWidget, key: str, fallback: str) -> None:
+def _add_translated_tab(
+    dialog,
+    tabs: QTabWidget,
+    widget: QWidget,
+    key: str,
+    fallback: str,
+    tab_id: str,
+) -> None:
     index = tabs.addTab(widget, _tab_text(dialog, key, fallback))
+    tabs.tabBar().setTabData(index, tab_id)
     register = getattr(dialog, "_register_text_binding", None)
     if callable(register):
         register(lambda text, tab_index=index: tabs.setTabText(tab_index, text), key, fallback)
@@ -153,6 +165,7 @@ def _build_long_term_memory_tab(dialog):
             self,
             embedded=True,
             knowledge_map_manager=knowledge_map_manager,
+            include_topic_memory_tab=False,
         )
         panel.apply_theme(dict(self._theme_values))
         self._embedded_memory_panel = panel
