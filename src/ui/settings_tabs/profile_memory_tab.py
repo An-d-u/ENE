@@ -121,26 +121,42 @@ class ProfileMemoryReviewDialog(QDialog):
         review_layout.setSpacing(12)
         review_layout.addWidget(
             _build_review_panel(
-                parent,
                 "profileMemoryReviewUserPanel",
                 _tr(parent, "settings.profile_memory.review.user.title", "사용자 정보"),
                 [
-                    (_tr(parent, "settings.profile_memory.review.user.basic", "기본 정보"), _format_key_values(normalized["user_profile"]["basic_info"])),
-                    (_tr(parent, "settings.profile_memory.review.user.likes", "선호"), _format_list(normalized["user_profile"]["preferences"]["likes"])),
-                    (_tr(parent, "settings.profile_memory.review.user.dislikes", "비선호"), _format_list(normalized["user_profile"]["preferences"]["dislikes"])),
-                    (_tr(parent, "settings.profile_memory.review.user.facts", "facts"), _format_facts(normalized["user_profile"]["facts"])),
+                    (
+                        _tr(parent, "settings.profile_memory.review.user.basic", "기본 정보"),
+                        _format_key_values(normalized["user_profile"]["basic_info"]),
+                    ),
+                    (
+                        _tr(parent, "settings.profile_memory.review.user.likes", "선호"),
+                        _format_list(normalized["user_profile"]["preferences"]["likes"]),
+                    ),
+                    (
+                        _tr(parent, "settings.profile_memory.review.user.dislikes", "비선호"),
+                        _format_list(normalized["user_profile"]["preferences"]["dislikes"]),
+                    ),
+                    (
+                        _tr(parent, "settings.profile_memory.review.user.facts", "facts"),
+                        _format_facts(normalized["user_profile"]["facts"]),
+                    ),
                 ],
             ),
             1,
         )
         review_layout.addWidget(
             _build_review_panel(
-                parent,
                 "profileMemoryReviewEnePanel",
                 _tr(parent, "settings.profile_memory.review.ene.title", "에네 정보"),
                 [
-                    (_tr(parent, "settings.profile_memory.review.ene.core", "기본 설정"), _format_core_profile(normalized["ene_profile"]["core_profile"])),
-                    (_tr(parent, "settings.profile_memory.review.ene.facts", "학습 정보"), _format_facts(normalized["ene_profile"]["facts"])),
+                    (
+                        _tr(parent, "settings.profile_memory.review.ene.core", "기본 설정"),
+                        _format_core_profile(normalized["ene_profile"]["core_profile"]),
+                    ),
+                    (
+                        _tr(parent, "settings.profile_memory.review.ene.facts", "학습 정보"),
+                        _format_facts(normalized["ene_profile"]["facts"]),
+                    ),
                 ],
             ),
             1,
@@ -209,7 +225,7 @@ class ProfileMemoryReviewDialog(QDialog):
         super().mouseReleaseEvent(event)
 
 
-def _build_review_panel(parent, object_name: str, title: str, sections: list[tuple[str, list[str]]]) -> QFrame:
+def _build_review_panel(object_name: str, title: str, sections: list[tuple[str, list[str]]]) -> QFrame:
     panel = QFrame()
     panel.setObjectName(object_name)
     panel.setFrameShape(QFrame.Shape.StyledPanel)
@@ -411,11 +427,21 @@ def build_profile_memory_prompt(snapshot: dict[str, Any]) -> str:
         '  "user_profile": {\n'
         '    "basic_info": {"key": "value"},\n'
         '    "preferences": {"likes": ["..."], "dislikes": ["..."]},\n'
-        f'    "facts": [{{"content": "...", "category": "basic|preference|goal|habit", "source": "기존 source 또는 {cleanup_source}"}}]\n'
+        '    "facts": [{\n'
+        '      "content": "...",\n'
+        '      "category": "basic|preference|goal|habit",\n'
+        f'      "source": "기존 source 또는 {cleanup_source}"\n'
+        "    }]\n"
         "  },\n"
         '  "ene_profile": {\n'
         '    "core_profile": {"identity": ["..."], "speaking_style": ["..."], "relationship_tone": ["..."]},\n'
-        f'    "facts": [{{"content": "...", "category": "basic|preference|goal|habit|speaking_style|relationship_tone", "source": "기존 source 또는 {cleanup_source}", "origin": "manual", "auto_update": false}}]\n'
+        '    "facts": [{\n'
+        '      "content": "...",\n'
+        '      "category": "basic|preference|goal|habit|speaking_style|relationship_tone",\n'
+        f'      "source": "기존 source 또는 {cleanup_source}",\n'
+        '      "origin": "manual",\n'
+        '      "auto_update": false\n'
+        "    }]\n"
         "  }\n"
         "}\n\n"
         f"입력 데이터:\n{snapshot_json}"
@@ -425,36 +451,6 @@ def build_profile_memory_prompt(snapshot: dict[str, Any]) -> str:
 def parse_profile_memory_proposal(response_text: str) -> dict[str, Any]:
     raw = json.loads(_extract_json_object(response_text))
     return _normalize_profile_memory_proposal(raw)
-
-
-def format_profile_memory_preview(proposal: dict[str, Any]) -> str:
-    normalized = _normalize_profile_memory_proposal(proposal)
-    user_profile = normalized["user_profile"]
-    ene_profile = normalized["ene_profile"]
-    lines = [
-        "다음 정리 제안을 적용할까요?",
-        "",
-        "[사용자 기본 정보]",
-        *_format_key_values(user_profile["basic_info"]),
-        "",
-        "[사용자 선호]",
-        *_format_list(user_profile["preferences"]["likes"]),
-        "",
-        "[사용자 비선호]",
-        *_format_list(user_profile["preferences"]["dislikes"]),
-        "",
-        "[사용자 facts]",
-        *_format_facts(user_profile["facts"]),
-        "",
-        "[ENE 기본 설정]",
-        *_format_core_profile(ene_profile["core_profile"]),
-        "",
-        "[ENE 학습 정보]",
-        *_format_facts(ene_profile["facts"]),
-        "",
-        "적용하면 현재 편집 화면의 내용이 위 제안으로 교체되고 저장됩니다.",
-    ]
-    return "\n".join(lines).strip()
 
 
 def _format_key_values(values: dict[str, str]) -> list[str]:

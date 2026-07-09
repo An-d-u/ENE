@@ -115,7 +115,10 @@ def test_profile_memory_organize_cancel_does_not_save(monkeypatch):
             return """
             {
               "user_profile": {"basic_info": {}, "preferences": {"likes": [], "dislikes": []}, "facts": []},
-              "ene_profile": {"core_profile": {"identity": [], "speaking_style": [], "relationship_tone": []}, "facts": []}
+              "ene_profile": {
+                "core_profile": {"identity": [], "speaking_style": [], "relationship_tone": []},
+                "facts": []
+              }
             }
             """
 
@@ -153,49 +156,13 @@ def test_profile_memory_organize_cancel_does_not_save(monkeypatch):
     assert opened == [
         {
             "user_profile": {"basic_info": {}, "preferences": {"likes": [], "dislikes": []}, "facts": []},
-            "ene_profile": {"core_profile": {"identity": [], "speaking_style": [], "relationship_tone": []}, "facts": []},
+            "ene_profile": {
+                "core_profile": {"identity": [], "speaking_style": [], "relationship_tone": []},
+                "facts": [],
+            },
         }
     ]
     assert saved == []
-
-
-def test_profile_memory_preview_shows_contents_not_counts():
-    from src.ui.settings_tabs.profile_memory_tab import format_profile_memory_preview
-
-    proposal = {
-        "user_profile": {
-            "basic_info": {"display_name": "테스트 사용자"},
-            "preferences": {"likes": ["짧은 회의"], "dislikes": ["불명확한 일정"]},
-            "facts": [
-                {
-                    "content": "사용자는 프로젝트 상태를 간단히 확인하는 것을 선호한다.",
-                    "category": "preference",
-                }
-            ],
-        },
-        "ene_profile": {
-            "core_profile": {
-                "identity": ["에네는 작업 흐름을 차분히 정리한다."],
-                "speaking_style": [],
-                "relationship_tone": [],
-            },
-            "facts": [
-                {
-                    "content": "에네는 변경 전 확인 단계를 선호한다.",
-                    "category": "habit",
-                }
-            ],
-        },
-    }
-
-    preview = format_profile_memory_preview(proposal)
-
-    assert "테스트 사용자" in preview
-    assert "짧은 회의" in preview
-    assert "사용자는 프로젝트 상태를 간단히 확인하는 것을 선호한다." in preview
-    assert "에네는 작업 흐름을 차분히 정리한다." in preview
-    assert "에네는 변경 전 확인 단계를 선호한다." in preview
-    assert "사용자 facts: 1개" not in preview
 
 
 def test_profile_memory_proposal_preserves_existing_fact_source():
