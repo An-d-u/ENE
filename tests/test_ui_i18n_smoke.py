@@ -7,7 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from PyQt6.QtCore import QDate, QEvent, Qt
-from PyQt6.QtWidgets import QCheckBox, QComboBox, QDoubleSpinBox, QGroupBox, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QSpinBox, QTabWidget, QWidget
+from PyQt6.QtWidgets import QCheckBox, QComboBox, QDoubleSpinBox, QFrame, QGroupBox, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QSpinBox, QTabWidget, QWidget
 from PyQt6.QtWidgets import QApplication
 
 from src.core.i18n import configure_i18n
@@ -2135,8 +2135,7 @@ def test_settings_dialog_retranslates_prompt_and_profile_lazy_tabs_in_japanese_p
         assert [memory_tabs.tabText(index) for index in range(memory_tabs.count())] == [
             "長期記憶",
             "トピック記憶",
-            "ユーザー記憶",
-            "ENE記憶",
+            "ユーザー/ENE記憶",
         ]
         assert dialog.content_header_title.text() == "メモリ管理"
         assert dialog.ui_language_combo.itemText(0) == "システムの既定値"
@@ -2154,7 +2153,9 @@ def test_settings_dialog_retranslates_prompt_and_profile_lazy_tabs_in_japanese_p
             {group.title() for group in dialog.findChildren(QGroupBox)}
         )
         assert "メモリ検索範囲" in {label.text() for label in dialog.findChildren(QLabel)}
-        assert {"再読み込み", "保存"}.issubset({button.text() for button in dialog.findChildren(QPushButton)})
+        assert {"再読み込み", "保存", "整理案を作成"}.issubset(
+            {button.text() for button in dialog.findChildren(QPushButton)}
+        )
         assert tr("settings.window.title") == "ENE 설정"
 
         dialog.close()
@@ -3964,7 +3965,7 @@ def test_show_memory_dialog_without_overlay_window_passes_none_fallbacks(monkeyp
 
 
 def test_settings_memory_tab_passes_bridge_knowledge_map_manager(monkeypatch):
-    from src.ui.settings_tabs import ene_profile_tab, topic_memory_tab, user_profile_tab
+    from src.ui.settings_tabs import profile_memory_tab, topic_memory_tab
     from src.ui.settings_tabs.memory_tab import build_memory_tab
 
     _get_qapp()
@@ -3996,8 +3997,7 @@ def test_settings_memory_tab_passes_bridge_knowledge_map_manager(monkeypatch):
 
     monkeypatch.setattr("src.ui.settings_tabs.memory_tab.MemoryDialog", FakeMemoryDialog)
     monkeypatch.setattr(topic_memory_tab, "build_topic_memory_tab", lambda _dialog: QLabel("topic"))
-    monkeypatch.setattr(user_profile_tab, "build_user_profile_tab", lambda _dialog: QLabel("user"))
-    monkeypatch.setattr(ene_profile_tab, "build_ene_profile_tab", lambda _dialog: QLabel("ene"))
+    monkeypatch.setattr(profile_memory_tab, "build_profile_memory_tab", lambda _dialog: QLabel("profile-memory"))
 
     memory_manager = object()
     knowledge_manager = object()
@@ -4029,7 +4029,7 @@ def test_settings_memory_tab_passes_bridge_knowledge_map_manager(monkeypatch):
 
 
 def test_settings_memory_tab_without_bridge_passes_none_knowledge_map_manager(monkeypatch):
-    from src.ui.settings_tabs import ene_profile_tab, topic_memory_tab, user_profile_tab
+    from src.ui.settings_tabs import profile_memory_tab, topic_memory_tab
     from src.ui.settings_tabs.memory_tab import build_memory_tab
 
     _get_qapp()
@@ -4061,8 +4061,7 @@ def test_settings_memory_tab_without_bridge_passes_none_knowledge_map_manager(mo
 
     monkeypatch.setattr("src.ui.settings_tabs.memory_tab.MemoryDialog", FakeMemoryDialog)
     monkeypatch.setattr(topic_memory_tab, "build_topic_memory_tab", lambda _dialog: QLabel("topic"))
-    monkeypatch.setattr(user_profile_tab, "build_user_profile_tab", lambda _dialog: QLabel("user"))
-    monkeypatch.setattr(ene_profile_tab, "build_ene_profile_tab", lambda _dialog: QLabel("ene"))
+    monkeypatch.setattr(profile_memory_tab, "build_profile_memory_tab", lambda _dialog: QLabel("profile-memory"))
 
     memory_manager = object()
     dialog = QWidget()
@@ -4093,7 +4092,7 @@ def test_settings_memory_tab_without_bridge_passes_none_knowledge_map_manager(mo
 
 
 def test_settings_memory_section_unifies_memory_related_tabs(monkeypatch):
-    from src.ui.settings_tabs import ene_profile_tab, memory_tab, topic_memory_tab, user_profile_tab
+    from src.ui.settings_tabs import memory_tab, profile_memory_tab, topic_memory_tab
     from src.ui.settings_tabs.memory_tab import build_memory_tab
 
     _get_qapp()
@@ -4107,8 +4106,7 @@ def test_settings_memory_section_unifies_memory_related_tabs(monkeypatch):
 
     monkeypatch.setattr(memory_tab, "MemoryDialog", FakeMemoryDialog)
     monkeypatch.setattr(topic_memory_tab, "build_topic_memory_tab", lambda _dialog: QLabel("topic"))
-    monkeypatch.setattr(user_profile_tab, "build_user_profile_tab", lambda _dialog: QLabel("user"))
-    monkeypatch.setattr(ene_profile_tab, "build_ene_profile_tab", lambda _dialog: QLabel("ene"))
+    monkeypatch.setattr(profile_memory_tab, "build_profile_memory_tab", lambda _dialog: QLabel("profile-memory"))
 
     dialog = QWidget()
     dialog._memory_manager = object()
@@ -4133,20 +4131,153 @@ def test_settings_memory_section_unifies_memory_related_tabs(monkeypatch):
     assert [tab_widget.tabText(index) for index in range(tab_widget.count())] == [
         "장기 기억",
         "주제 기억",
-        "사용자 기억",
-        "ENE 기억",
+        "사용자/ENE 기억",
     ]
     assert [key for _setter, key, _fallback in text_bindings] == [
         "settings.memory.tabs.long_term",
         "settings.memory.tabs.topic",
-        "settings.memory.tabs.user_profile",
-        "settings.memory.tabs.ene_profile",
+        "settings.memory.tabs.profile_memory",
     ]
 
     first_setter, _key, _fallback = text_bindings[0]
     first_setter("Long-Term Memory")
 
     assert tab_widget.tabText(0) == "Long-Term Memory"
+
+
+def test_profile_memory_tab_contains_organize_button_and_embedded_panels(monkeypatch):
+    from src.ui.settings_tabs import ene_profile_tab, user_profile_tab
+    from src.ui.settings_tabs.profile_memory_tab import build_profile_memory_tab
+
+    _get_qapp()
+    monkeypatch.setattr(user_profile_tab, "build_user_profile_tab", lambda _dialog, embedded=False: QLabel("user"))
+    monkeypatch.setattr(ene_profile_tab, "build_ene_profile_tab", lambda _dialog, embedded=False: QLabel("ene"))
+
+    dialog = QWidget()
+    dialog._bind_widget_text = lambda widget, _key, fallback: widget.setText(fallback)
+    dialog._translated_text = lambda _key, fallback: fallback
+    dialog._translated_text_format = lambda _key, fallback, **kwargs: fallback.format(**kwargs)
+    dialog._bridge = SimpleNamespace(llm_client=object())
+
+    widget = build_profile_memory_tab(dialog)
+
+    button = widget.findChild(QPushButton, "profileMemoryOrganizeButton")
+    assert button is not None
+    assert button.text() == "기억 정리 제안 만들기"
+    labels = [label.text() for label in widget.findChildren(QLabel)]
+    assert "user" in labels
+    assert "ene" in labels
+
+
+def test_profile_memory_review_dialog_shows_proposed_contents():
+    from src.ui.settings_tabs.profile_memory_tab import ProfileMemoryReviewDialog
+
+    _get_qapp()
+    parent = QWidget()
+    parent._translated_text = lambda _key, fallback: fallback
+    proposal = {
+        "user_profile": {
+            "basic_info": {"display_name": "테스트 사용자"},
+            "preferences": {"likes": ["짧은 회의"], "dislikes": []},
+            "facts": [{"content": "사용자는 짧은 상태 공유를 선호한다.", "category": "preference"}],
+        },
+        "ene_profile": {
+            "core_profile": {
+                "identity": ["에네는 작업을 차분히 정리한다."],
+                "speaking_style": [],
+                "relationship_tone": [],
+            },
+            "facts": [{"content": "에네는 적용 전 검토 단계를 유지한다.", "category": "habit"}],
+        },
+    }
+
+    dialog = ProfileMemoryReviewDialog(parent, proposal)
+    user_panel = dialog.findChild(QFrame, "profileMemoryReviewUserPanel")
+    ene_panel = dialog.findChild(QFrame, "profileMemoryReviewEnePanel")
+    header = dialog.findChild(QWidget, "profileMemoryReviewHeader")
+    preview = dialog.findChild(QPlainTextEdit, "profileMemoryReviewText")
+    labels = [label.text() for label in dialog.findChildren(QLabel)]
+    frame_names = [frame.objectName() for frame in dialog.findChildren(QFrame)]
+
+    assert user_panel is not None
+    assert ene_panel is not None
+    assert header is not None
+    assert header.cursor().shape() == Qt.CursorShape.ArrowCursor
+    assert preview is None
+    assert dialog.windowTitle() == ""
+    assert dialog.windowFlags() & Qt.WindowType.FramelessWindowHint
+    assert dialog.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+    assert "profileMemoryReviewSurface" in [widget.objectName() for widget in dialog.findChildren(QWidget)]
+    assert "FooterCard" not in frame_names
+    assert "사용자 정보" in labels
+    assert "에네 정보" in labels
+    assert any("테스트 사용자" in text for text in labels)
+    assert any("사용자는 짧은 상태 공유를 선호한다." in text for text in labels)
+    assert any("에네는 적용 전 검토 단계를 유지한다." in text for text in labels)
+    dialog.close()
+
+
+def test_profile_memory_review_dialog_drags_from_top_region():
+    from PyQt6.QtCore import QPoint
+    from src.ui.settings_tabs.profile_memory_tab import ProfileMemoryReviewDialog
+
+    class _PointLike:
+        def __init__(self, point):
+            self._point = point
+
+        def toPoint(self):
+            return self._point
+
+        def y(self):
+            return self._point.y()
+
+    class _MouseEvent:
+        def __init__(self, point, global_point, button=Qt.MouseButton.LeftButton, buttons=Qt.MouseButton.LeftButton):
+            self._point = point
+            self._global_point = global_point
+            self._button = button
+            self._buttons = buttons
+            self.accepted = False
+
+        def button(self):
+            return self._button
+
+        def buttons(self):
+            return self._buttons
+
+        def position(self):
+            return _PointLike(self._point)
+
+        def globalPosition(self):
+            return _PointLike(self._global_point)
+
+        def accept(self):
+            self.accepted = True
+
+    _get_qapp()
+    parent = QWidget()
+    parent._translated_text = lambda _key, fallback: fallback
+    dialog = ProfileMemoryReviewDialog(
+        parent,
+        {
+            "user_profile": {"basic_info": {}, "preferences": {"likes": [], "dislikes": []}, "facts": []},
+            "ene_profile": {"core_profile": {"identity": [], "speaking_style": [], "relationship_tone": []}, "facts": []},
+        },
+    )
+    dialog._drag_region_height = lambda: 120
+    dialog.move(100, 100)
+
+    press = _MouseEvent(QPoint(20, 20), QPoint(200, 200))
+    dialog.mousePressEvent(press)
+    move = _MouseEvent(QPoint(40, 40), QPoint(230, 245))
+    dialog.mouseMoveEvent(move)
+    dialog.mouseReleaseEvent(_MouseEvent(QPoint(40, 40), QPoint(230, 245)))
+
+    assert press.accepted is True
+    assert move.accepted is True
+    assert dialog.pos() == QPoint(130, 145)
+    assert dialog._drag_start_global_pos is None
+    dialog.close()
 
 
 def test_settings_sidebar_exposes_single_memory_section(monkeypatch):
@@ -4183,7 +4314,7 @@ def test_settings_sidebar_exposes_single_memory_section(monkeypatch):
 
         assert dialog.content_stack.currentIndex() == memory_index
         assert memory_tabs is not None
-        assert memory_tabs.currentIndex() == 3
+        assert memory_tabs.currentIndex() == 2
 
         dialog.focus_section("profile")
         assert memory_tabs.currentIndex() == 2

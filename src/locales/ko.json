@@ -1128,7 +1128,8 @@
         "long_term": "장기 기억",
         "topic": "주제 기억",
         "user_profile": "사용자 기억",
-        "ene_profile": "ENE 기억"
+        "ene_profile": "ENE 기억",
+        "profile_memory": "사용자/ENE 기억"
       }
     },
     "prompt": {
@@ -1278,6 +1279,56 @@
           "title": "저장 실패",
           "body": "user_profile.json을 저장하지 못했습니다.\n{error}"
         }
+      }
+    },
+    "profile_memory": {
+      "organizer": {
+        "title": "기억 정리",
+        "body": "현재 사용자 정보와 ENE 학습 정보를 LLM으로 정리한 뒤, 적용 전에 변경 제안을 확인합니다.",
+        "button": "기억 정리 제안 만들기",
+        "status": {
+          "idle": "정리 대기",
+          "running": "정리 제안을 만드는 중...",
+          "cancelled": "적용 취소됨",
+          "saved": "정리 결과 저장 완료",
+          "failed": "정리 실패"
+        },
+        "missing_llm": {
+          "title": "LLM을 사용할 수 없음",
+          "body": "LLM 클라이언트가 아직 초기화되지 않았습니다."
+        },
+        "confirm": {
+          "title": "기억 정리 적용"
+        },
+        "saved": {
+          "title": "저장 완료",
+          "body": "사용자 기억과 ENE 기억을 정리해 저장했습니다."
+        },
+        "failed": {
+          "title": "기억 정리 실패",
+          "body": "정리 제안을 만들거나 적용하지 못했습니다.\n{error}"
+        }
+      },
+      "review": {
+        "title": "기억 정리 검토",
+        "header": {
+          "title": "정리 제안 검토",
+          "body": "아래 내용이 실제로 저장될 정리 제안입니다. 적용하면 현재 사용자 기억과 ENE 기억 편집 내용이 이 제안으로 교체됩니다."
+        },
+        "user": {
+          "title": "사용자 정보",
+          "basic": "기본 정보",
+          "likes": "선호",
+          "dislikes": "비선호",
+          "facts": "facts"
+        },
+        "ene": {
+          "title": "에네 정보",
+          "core": "기본 설정",
+          "facts": "학습 정보"
+        },
+        "apply": "적용",
+        "cancel": "취소"
       }
     },
     "ene_profile": {

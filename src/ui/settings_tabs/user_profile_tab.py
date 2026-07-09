@@ -20,12 +20,14 @@ from PyQt6.QtWidgets import (
 )
 
 
-def build_user_profile_tab(dialog):
+def build_user_profile_tab(dialog, embedded: bool = False):
     self = dialog
-    scroll = QScrollArea()
-    scroll.setWidgetResizable(True)
-    scroll.setFrameShape(QFrame.Shape.NoFrame)
-    scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+    scroll = None
+    if not embedded:
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
 
     widget = QWidget()
     layout = QVBoxLayout(widget)
@@ -262,7 +264,7 @@ def build_user_profile_tab(dialog):
     layout.addLayout(footer_row)
     layout.addStretch()
 
-    scroll.setWidget(widget)
+    if scroll is not None:
+        scroll.setWidget(widget)
     self._load_user_profile_data()
-    return scroll
-
+    return scroll if scroll is not None else widget
