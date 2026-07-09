@@ -10,7 +10,7 @@ import json
 from datetime import datetime
 from typing import Any
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QObject, QThread, Qt, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -28,6 +28,46 @@ from PyQt6.QtWidgets import (
 PROFILE_MEMORY_SOURCE = "memory_organizer"
 PROFILE_MEMORY_SOURCE_TITLE = "기억 정리"
 ENE_CORE_GROUPS = ("identity", "speaking_style", "relationship_tone")
+
+
+class ProfileMemoryProposalWorker(QThread):
+    """프로필 기억 정리 LLM 요청을 UI 스레드 밖에서 실행한다."""
+
+    proposal_ready = pyqtSignal(object)
+    failed = pyqtSignal(str)
+
+    def __init__(self, llm_client, prompt: str):
+        super().__init__()
+        self.llm_client = llm_client
+        self.prompt = prompt
+
+    def run(self):
+        try:
+            response_text = _request_profile_memory_proposal(self.llm_client, self.prompt)
+            self.proposal_ready.emit(parse_profile_memory_proposal(response_text))
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
+class ProfileMemoryOrganizerCallbacks(QObject):
+    """worker 결과를 설정창 UI 스레드에서 처리한다."""
+
+    def __init__(self, dialog, worker):
+        super().__init__(dialog if isinstance(dialog, QObject) else None)
+        self.dialog = dialog
+        self.worker = worker
+
+    @pyqtSlot(object)
+    def on_proposal_ready(self, proposal):
+        _finish_profile_memory_organize(self.dialog, proposal)
+
+    @pyqtSlot(str)
+    def on_failed(self, error: str):
+        _fail_profile_memory_organize(self.dialog, error)
+
+    @pyqtSlot()
+    def on_finished(self):
+        _clear_profile_memory_worker(self.dialog, self.worker)
 
 
 class ProfileMemoryReviewDialog(QDialog):
@@ -350,6 +390,10 @@ def _build_organizer_card(dialog):
 def handle_profile_memory_organize(dialog) -> None:
     button = getattr(dialog, "profile_memory_organize_button", None)
     try:
+        current_worker = getattr(dialog, "_profile_memory_organize_worker", None)
+        if current_worker is not None and getattr(current_worker, "isRunning", lambda: False)():
+            return
+
         if button is not None:
             button.setEnabled(False)
         _set_organizer_status(dialog, "settings.profile_memory.organizer.status.running", "정리 제안을 만드는 중...")
@@ -361,12 +405,25 @@ def handle_profile_memory_organize(dialog) -> None:
                 _tr(dialog, "settings.profile_memory.organizer.missing_llm.body", "LLM 클라이언트가 아직 초기화되지 않았습니다."),
             )
             _set_organizer_status(dialog, "settings.profile_memory.organizer.status.failed", "정리 실패")
+            _set_profile_memory_button_enabled(dialog, True)
             return
 
         snapshot = collect_profile_memory_snapshot(dialog)
         prompt = build_profile_memory_prompt(snapshot)
-        response_text = _request_profile_memory_proposal(llm_client, prompt)
-        proposal = parse_profile_memory_proposal(response_text)
+        worker = ProfileMemoryProposalWorker(llm_client, prompt)
+        dialog._profile_memory_organize_worker = worker
+        callbacks = ProfileMemoryOrganizerCallbacks(dialog, worker)
+        dialog._profile_memory_organize_callbacks = callbacks
+        worker.proposal_ready.connect(callbacks.on_proposal_ready)
+        worker.failed.connect(callbacks.on_failed)
+        worker.finished.connect(callbacks.on_finished)
+        worker.start()
+    except Exception as exc:
+        _fail_profile_memory_organize(dialog, str(exc))
+
+
+def _finish_profile_memory_organize(dialog, proposal: dict[str, Any]) -> None:
+    try:
         review_dialog = ProfileMemoryReviewDialog(dialog, proposal)
         if review_dialog.exec() != QDialog.DialogCode.Accepted:
             _set_organizer_status(dialog, "settings.profile_memory.organizer.status.cancelled", "적용 취소됨")
@@ -380,20 +437,37 @@ def handle_profile_memory_organize(dialog) -> None:
             _tr(dialog, "settings.profile_memory.organizer.saved.body", "사용자 기억과 ENE 기억을 정리해 저장했습니다."),
         )
     except Exception as exc:
-        _set_organizer_status(dialog, "settings.profile_memory.organizer.status.failed", "정리 실패")
-        QMessageBox.warning(
-            dialog,
-            _tr(dialog, "settings.profile_memory.organizer.failed.title", "기억 정리 실패"),
-            _trf(
-                dialog,
-                "settings.profile_memory.organizer.failed.body",
-                "정리 제안을 만들거나 적용하지 못했습니다.\n{error}",
-                error=exc,
-            ),
-        )
+        _fail_profile_memory_organize(dialog, str(exc), reenable=False)
     finally:
-        if button is not None:
-            button.setEnabled(True)
+        _set_profile_memory_button_enabled(dialog, True)
+
+
+def _fail_profile_memory_organize(dialog, error: str, *, reenable: bool = True) -> None:
+    _set_organizer_status(dialog, "settings.profile_memory.organizer.status.failed", "정리 실패")
+    QMessageBox.warning(
+        dialog,
+        _tr(dialog, "settings.profile_memory.organizer.failed.title", "기억 정리 실패"),
+        _trf(
+            dialog,
+            "settings.profile_memory.organizer.failed.body",
+            "정리 제안을 만들거나 적용하지 못했습니다.\n{error}",
+            error=error,
+        ),
+    )
+    if reenable:
+        _set_profile_memory_button_enabled(dialog, True)
+
+
+def _clear_profile_memory_worker(dialog, worker) -> None:
+    if getattr(dialog, "_profile_memory_organize_worker", None) is worker:
+        dialog._profile_memory_organize_worker = None
+        dialog._profile_memory_organize_callbacks = None
+
+
+def _set_profile_memory_button_enabled(dialog, enabled: bool) -> None:
+    button = getattr(dialog, "profile_memory_organize_button", None)
+    if button is not None:
+        button.setEnabled(enabled)
 
 
 def collect_profile_memory_snapshot(dialog) -> dict[str, Any]:

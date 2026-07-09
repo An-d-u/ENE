@@ -104,26 +104,78 @@ def test_profile_memory_apply_proposal_updates_editors_and_saves():
     assert saved == ["user", "ene"]
 
 
-def test_profile_memory_organize_cancel_does_not_save(monkeypatch):
+class _DummySignal:
+    def __init__(self):
+        self.callbacks = []
+
+    def connect(self, callback):
+        self.callbacks.append(callback)
+
+    def emit(self, *args):
+        for callback in list(self.callbacks):
+            callback(*args)
+
+
+def test_profile_memory_organize_starts_worker_without_calling_llm(monkeypatch):
     from src.ui.settings_tabs.profile_memory_tab import handle_profile_memory_organize
 
-    saved = []
+    workers = []
 
     class FakeLlm:
         def _request_one_shot_raw(self, prompt, include_sub_prompt=False):
-            assert "user_profile" in prompt
-            return """
-            {
-              "user_profile": {"basic_info": {}, "preferences": {"likes": [], "dislikes": []}, "facts": []},
-              "ene_profile": {
-                "core_profile": {"identity": [], "speaking_style": [], "relationship_tone": []},
-                "facts": []
-              }
-            }
-            """
+            raise AssertionError("프로필 정리 LLM 호출은 버튼 핸들러에서 동기 실행되면 안 됩니다.")
+
+    class FakeWorker:
+        def __init__(self, llm_client, prompt):
+            self.llm_client = llm_client
+            self.prompt = prompt
+            self.proposal_ready = _DummySignal()
+            self.failed = _DummySignal()
+            self.finished = _DummySignal()
+            self.started = False
+            workers.append(self)
+
+        def isRunning(self):
+            return self.started
+
+        def start(self):
+            self.started = True
 
     dialog = SimpleNamespace()
     dialog._bridge = SimpleNamespace(llm_client=FakeLlm())
+    dialog._basic_info_items = []
+    dialog._fact_items = []
+    dialog.likes_list = _FakeListWidget()
+    dialog.dislikes_list = _FakeListWidget()
+    dialog._save_user_profile_data = lambda: None
+    dialog._translated_text = lambda _key, fallback: fallback
+    dialog._translated_text_format = lambda _key, fallback, **kwargs: fallback.format(**kwargs)
+    dialog.profile_memory_status_label = SimpleNamespace(setText=lambda _text: None)
+    button_states = []
+    dialog.profile_memory_organize_button = SimpleNamespace(setEnabled=lambda enabled: button_states.append(enabled))
+    dialog._embedded_ene_profile_panel = SimpleNamespace(
+        _core_items=[],
+        _fact_items=[],
+        save_profile=lambda: None,
+    )
+
+    monkeypatch.setattr("src.ui.settings_tabs.profile_memory_tab.ProfileMemoryProposalWorker", FakeWorker)
+
+    handle_profile_memory_organize(dialog)
+
+    assert len(workers) == 1
+    assert workers[0].started is True
+    assert "user_profile" in workers[0].prompt
+    assert button_states == [False]
+    assert dialog._profile_memory_organize_worker is workers[0]
+
+
+def test_profile_memory_organize_cancel_does_not_save(monkeypatch):
+    from src.ui.settings_tabs.profile_memory_tab import _finish_profile_memory_organize
+
+    saved = []
+
+    dialog = SimpleNamespace()
     dialog._basic_info_items = []
     dialog._fact_items = []
     dialog.likes_list = _FakeListWidget()
@@ -139,11 +191,19 @@ def test_profile_memory_organize_cancel_does_not_save(monkeypatch):
         save_profile=lambda: saved.append("ene"),
     )
 
+    proposal = {
+        "user_profile": {"basic_info": {}, "preferences": {"likes": [], "dislikes": []}, "facts": []},
+        "ene_profile": {
+            "core_profile": {"identity": [], "speaking_style": [], "relationship_tone": []},
+            "facts": [],
+        },
+    }
+
     opened = []
 
     class FakeReviewDialog:
-        def __init__(self, parent, proposal):
-            opened.append(proposal)
+        def __init__(self, parent, received_proposal):
+            opened.append(received_proposal)
 
         def exec(self):
             return QMessageBox.StandardButton.No
@@ -151,17 +211,9 @@ def test_profile_memory_organize_cancel_does_not_save(monkeypatch):
     monkeypatch.setattr("src.ui.settings_tabs.profile_memory_tab.ProfileMemoryReviewDialog", FakeReviewDialog)
     monkeypatch.setattr("PyQt6.QtWidgets.QMessageBox.information", lambda *_args, **_kwargs: None)
 
-    handle_profile_memory_organize(dialog)
+    _finish_profile_memory_organize(dialog, proposal)
 
-    assert opened == [
-        {
-            "user_profile": {"basic_info": {}, "preferences": {"likes": [], "dislikes": []}, "facts": []},
-            "ene_profile": {
-                "core_profile": {"identity": [], "speaking_style": [], "relationship_tone": []},
-                "facts": [],
-            },
-        }
-    ]
+    assert opened == [proposal]
     assert saved == []
 
 

@@ -155,12 +155,16 @@ class _ManualSummaryBridge(MemorySummaryBridgeMixin):
         self.request_pending_changed = _DummySignal()
         self.summary_notice = _DummySignal()
         self.summarized = False
+        self.summary_worker_started = []
 
     async def _auto_summarize(self):
         self.summarized = True
 
     async def _prepare_summary_review(self):
         self.summarized = True
+
+    def _start_summary_review_worker(self, messages, success_notice=None):
+        self.summary_worker_started.append((list(messages), success_notice))
 
 
 def test_start_ai_worker_emits_request_pending_changed(monkeypatch):
@@ -338,7 +342,10 @@ def test_manual_summary_does_not_emit_request_pending_while_llm_summary_runs():
     bridge.summarize_now()
 
     assert bridge.request_pending_changed.emitted == []
-    assert bridge.summarized is True
+    assert bridge.summarized is False
+    assert bridge.summary_worker_started == [
+        ([("user", "테스트 대화", "2026-05-26 10:00")], "요약을 확인해 주세요.")
+    ]
 
 
 def test_manual_summary_early_return_does_not_emit_request_pending():
