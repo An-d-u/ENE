@@ -103,6 +103,7 @@ class Settings:
         "expressive_motion_strength": 1.0,  # 0.2 ~ 2.5
         "expressive_motion_speed": 1.0,  # 0.4 ~ 2.0
         "expressive_motion_speech_boost": 1.0,  # 0.0 ~ 2.5
+        "enable_expressive_pose_transitions": False,
         "idle_motion_dynamic_mode": False,
         "live2d_parameter_overrides": {},
         "enable_head_pat": True,

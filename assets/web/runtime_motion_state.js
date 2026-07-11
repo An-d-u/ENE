@@ -1,4 +1,3 @@
-﻿
 // ==========================================
 // 마우스 트래킹/쓰다듬기 상태
 // ==========================================
@@ -160,6 +159,8 @@ const EXPRESSIVE_SPEECH_MOTION_RESPONSE_HZ = 3.2;
 const EXPRESSIVE_SPEECH_ACTIVITY_RESPONSE_HZ = 2.8;
 const EXPRESSIVE_CHANNEL_RESPONSE_HZ = { head: 4.6, body: 2.4, eye: 4.6, root: 1.7, breath: 3.8 };
 const EXPRESSIVE_TORSO_MOTION_RESPONSE_HZ = { idle: 2.1, speech: 4.4 };
+const EXPRESSIVE_POSE_LAYER_SCALE = 0.5;
+const EXPRESSIVE_POSE_BLEND_RESPONSE_HZ = 5.0;
 
 const EXPRESSIVE_MOTION_LAG_CHANNELS = {
     head: ['angleX', 'angleY', 'angleZ'],
@@ -171,7 +172,20 @@ const EXPRESSIVE_MOTION_LAG_CHANNELS = {
 };
 
 const EXPRESSIVE_SPEECH_POSE_NAMES = new Set(['center', 'lean-in', 'look-up-curious', 'return-breath']);
-const EXPRESSIVE_IDLE_POSE_NAMES = new Set(['center', 'settle-back', 'look-down-soft', 'return-breath']);
+const EXPRESSIVE_IDLE_POSE_NAMES = new Set([
+    'center',
+    'settle-back',
+    'look-down-soft',
+    'return-breath',
+    'drift-left-counter',
+    'drift-right-counter',
+    'shy-side-hold',
+]);
+const EXPRESSIVE_IDLE_POSE_WEIGHTS = {
+    'drift-left-counter': 0.18,
+    'drift-right-counter': 0.18,
+    'shy-side-hold': 0.12,
+};
 const EXPRESSIVE_ACCENT_SCHEDULE = {
     idle: { minMs: 12000, maxMs: 28000, chance: 0.42 },
     speech: { minMs: 1200, maxMs: 3000, chance: 0.96 },
@@ -196,6 +210,8 @@ let expressiveMotionEnabled = false;
 let expressiveMotionStrength = 1.0;
 let expressiveMotionSpeed = 1.0;
 let expressiveMotionSpeechBoost = 1.0;
+let expressivePoseTransitionsEnabled = false;
+let expressivePoseTransitionBlend = 0;
 let expressiveMotionCurrentPose = createEmptySyntheticGestureOffsets();
 let expressiveMotionFromPose = createEmptySyntheticGestureOffsets();
 let expressiveMotionTargetPose = createEmptySyntheticGestureOffsets();
@@ -318,9 +334,9 @@ const EXPRESSIVE_ACCENT_MOTIONS = [
         frames: createExpressiveStagedAccentFrames([
             { t: 0.00, value: {} },
             { t: EXPRESSIVE_STAGED_ACCENT_EYE_LEAD_T, value: { eyeX: -0.02, eyeY: 0.04 } },
-            { t: 0.24, value: { eyeX: -0.02, eyeY: 0.04, angleX: 7.2, angleY: 6.2, angleZ: 9.8 } },
-            { t: 0.42, value: { eyeX: -0.02, eyeY: 0.04, angleX: 8.4, angleY: 6.8, angleZ: 11.0, bodyX: 1.7, bodyY: 1.0, bodyZ: 3.8, eyeOpen: -0.07, rootXPercent: 0.6, rootYPercent: -0.4, rootScale: 0.007 } },
-            { t: 0.76, value: { eyeX: -0.02, eyeY: 0.03, angleX: 6.5, angleY: 5.3, angleZ: 10.4, bodyX: 2.0, bodyY: 0.8, bodyZ: 4.1, rootXPercent: 0.7, rootYPercent: -0.3 } },
+            { t: 0.24, value: { eyeX: -0.02, eyeY: 0.04, angleX: -7.2, angleY: 6.2, angleZ: -9.8 } },
+            { t: 0.42, value: { eyeX: -0.02, eyeY: 0.04, angleX: -8.4, angleY: 6.8, angleZ: -11.0, bodyX: -1.7, bodyY: 1.0, bodyZ: -3.8, eyeOpen: -0.07, rootXPercent: -0.6, rootYPercent: -0.4, rootScale: 0.007 } },
+            { t: 0.76, value: { eyeX: -0.02, eyeY: 0.03, angleX: -6.5, angleY: 5.3, angleZ: -10.4, bodyX: -2.0, bodyY: 0.8, bodyZ: -4.1, rootXPercent: -0.7, rootYPercent: -0.3 } },
             { t: 1.00, value: {} },
         ]),
     },
@@ -374,6 +390,7 @@ const EXPRESSIVE_ACCENT_MOTIONS = [
     },
     {
         name: "bounce-groove-small",
+        enabled: false,
         idleWeight: 0.55,
         speechWeight: 4.20,
         durationMs: 2850,
@@ -393,6 +410,7 @@ const EXPRESSIVE_ACCENT_MOTIONS = [
     },
     {
         name: "bounce-groove-large",
+        enabled: false,
         idleWeight: 0.20,
         speechWeight: 4.60,
         durationMs: 3250,
@@ -486,36 +504,6 @@ const EXPRESSIVE_ACCENT_MOTIONS = [
             { t: 0.50, value: { eyeX: 0, eyeY: 0.01, angleY: 2.2, angleZ: 0.1, bodyY: 3.2, bodyZ: 0.5, breath: 0.66, rootYPercent: -0.28, rootScale: 0.003 } },
             { t: 0.68, value: { eyeX: 0, eyeY: 0, angleY: 1.8, angleZ: -0.2, bodyY: 2.8, bodyZ: 0.4, breath: 0.58, rootYPercent: -0.24, rootScale: 0.003 } },
             { t: 0.86, value: { eyeX: 0, eyeY: 0, angleY: 0.8, angleZ: 0, bodyY: 1.0, bodyZ: 0.1, breath: 0.22, rootYPercent: -0.08, rootScale: 0.001 } },
-            { t: 1.00, value: {} },
-        ]),
-    },
-    {
-        name: "talk-tilt-left-hold",
-        idleWeight: 0.12,
-        speechWeight: 0.45,
-        durationMs: 2100,
-        frames: createExpressiveStagedAccentFrames([
-            { t: 0.00, value: {} },
-            { t: EXPRESSIVE_STAGED_ACCENT_EYE_LEAD_T, value: { eyeX: 0.03, eyeY: 0.01, eyeOpen: -0.03 } },
-            { t: 0.24, value: { eyeX: 0.02, eyeY: 0.01, angleY: 3.8, angleZ: -3.4, bodyX: 0.3, bodyY: 0.5, bodyZ: 0.9 } },
-            { t: 0.38, value: { eyeX: 0.02, eyeY: 0.01, angleY: 4.2, angleZ: -4.2, bodyX: 0.4, bodyY: 0.7, bodyZ: 1.2, eyeOpen: -0.04, rootXPercent: 0.1 } },
-            { t: 0.64, value: { eyeX: 0.02, eyeY: 0.01, angleY: 3.8, angleZ: -3.8, bodyX: 0.3, bodyY: 0.5, bodyZ: 1.0, eyeSmile: 0.04 } },
-            { t: 0.84, value: { eyeX: 0.01, eyeY: 0, angleY: 1.2, angleZ: -1.4, bodyX: 0.1, bodyY: 0.2, bodyZ: 0.3 } },
-            { t: 1.00, value: {} },
-        ]),
-    },
-    {
-        name: "talk-tilt-right-hold",
-        idleWeight: 0.12,
-        speechWeight: 0.45,
-        durationMs: 2100,
-        frames: createExpressiveStagedAccentFrames([
-            { t: 0.00, value: {} },
-            { t: EXPRESSIVE_STAGED_ACCENT_EYE_LEAD_T, value: { eyeX: -0.03, eyeY: 0.01, eyeOpen: -0.03 } },
-            { t: 0.24, value: { eyeX: -0.02, eyeY: 0.01, angleY: 3.8, angleZ: 3.4, bodyX: -0.3, bodyY: 0.5, bodyZ: -0.9 } },
-            { t: 0.38, value: { eyeX: -0.02, eyeY: 0.01, angleY: 4.2, angleZ: 4.2, bodyX: -0.4, bodyY: 0.7, bodyZ: -1.2, eyeOpen: -0.04, rootXPercent: -0.1 } },
-            { t: 0.64, value: { eyeX: -0.02, eyeY: 0.01, angleY: 3.8, angleZ: 3.8, bodyX: -0.3, bodyY: 0.5, bodyZ: -1.0, eyeSmile: 0.04 } },
-            { t: 0.84, value: { eyeX: -0.01, eyeY: 0, angleY: 1.2, angleZ: 1.4, bodyX: -0.1, bodyY: 0.2, bodyZ: -0.3 } },
             { t: 1.00, value: {} },
         ]),
     },
@@ -893,8 +881,9 @@ function sampleExpressiveAccentKeyframes(frames, t, interpolation = "") {
 }
 
 function pickWeightedExpressiveAccentMotion(speechActive) {
-    const candidates = EXPRESSIVE_ACCENT_MOTIONS.filter((motion) => motion.name !== expressiveAccentMotionState.lastName);
-    const pool = candidates.length ? candidates : EXPRESSIVE_ACCENT_MOTIONS;
+    const enabledMotions = EXPRESSIVE_ACCENT_MOTIONS.filter((motion) => motion.enabled !== false);
+    const candidates = enabledMotions.filter((motion) => motion.name !== expressiveAccentMotionState.lastName);
+    const pool = candidates.length ? candidates : enabledMotions;
     const weightKey = speechActive ? 'speechWeight' : 'idleWeight';
     const totalWeight = pool.reduce((total, motion) => total + Math.max(0.01, Number(motion[weightKey]) || 1), 0);
     let cursor = Math.random() * totalWeight;
@@ -1076,15 +1065,23 @@ function randomRange(range, fallback) {
     return randomBetween(Number(range[0]) || fallback, Number(range[1]) || fallback);
 }
 
+function getExpressiveMotionPoseWeight(pose, speechActive = false) {
+    if (!pose) {
+        return 0.01;
+    }
+    const modeWeight = speechActive ? undefined : EXPRESSIVE_IDLE_POSE_WEIGHTS[pose.name];
+    return Math.max(0.01, Number(modeWeight ?? pose.weight) || 1);
+}
+
 function pickWeightedExpressiveMotionPose(speechActive = false) {
     const preferredNames = speechActive ? EXPRESSIVE_SPEECH_POSE_NAMES : EXPRESSIVE_IDLE_POSE_NAMES;
     const nonRepeatingPoses = EXPRESSIVE_MOTION_POSES.filter((pose) => pose.name !== expressiveMotionLastPoseName);
     const preferredCandidates = nonRepeatingPoses.filter((pose) => preferredNames.has(pose.name));
     const pool = preferredCandidates.length ? preferredCandidates : (nonRepeatingPoses.length ? nonRepeatingPoses : EXPRESSIVE_MOTION_POSES);
-    const totalWeight = pool.reduce((total, pose) => total + Math.max(0.01, Number(pose.weight) || 1), 0);
+    const totalWeight = pool.reduce((total, pose) => total + getExpressiveMotionPoseWeight(pose, speechActive), 0);
     let cursor = Math.random() * totalWeight;
     for (const pose of pool) {
-        cursor -= Math.max(0.01, Number(pose.weight) || 1);
+        cursor -= getExpressiveMotionPoseWeight(pose, speechActive);
         if (cursor <= 0) {
             return pose;
         }
@@ -1115,6 +1112,24 @@ function interpolateMotionOffsets(fromOffsets, toOffsets, t) {
         interpolated[key] = from[key] + ((to[key] - from[key]) * progress);
     });
     return interpolated;
+}
+
+function updateExpressivePoseTransitionBlend(dtSeconds) {
+    const target = expressivePoseTransitionsEnabled ? 1 : 0;
+    const damping = 1 - Math.exp(-Math.max(0, Number(dtSeconds) || 0) * EXPRESSIVE_POSE_BLEND_RESPONSE_HZ);
+    expressivePoseTransitionBlend += (target - expressivePoseTransitionBlend) * damping;
+    if (Math.abs(target - expressivePoseTransitionBlend) < 0.0001) {
+        expressivePoseTransitionBlend = target;
+    }
+    return expressivePoseTransitionBlend;
+}
+
+function composeExpressiveMotionLayers(poseOffsets, wave, speechOffsets, torsoOffsets, accentOffsets, microGazeOffsets) {
+    const scaledPoseOffsets = scaleMotionOffsets(
+        poseOffsets,
+        EXPRESSIVE_POSE_LAYER_SCALE * expressivePoseTransitionBlend
+    );
+    return addMotionOffsets(scaledPoseOffsets, wave, speechOffsets, torsoOffsets, accentOffsets, microGazeOffsets);
 }
 
 function calculateExpressiveAccentTangent(frames, frameIndex, key, localSpan) {
@@ -1178,6 +1193,7 @@ function buildExpressiveStyleMotionOffsets(nowMs = performance.now(), dtMs = 16)
     }
 
     const dtSeconds = Math.max(0, Math.min(0.1, dtMs / 1000));
+    updateExpressivePoseTransitionBlend(dtSeconds);
     const speechActive = isSpeakingNow(nowMs) || (nowMs - expressiveSpeechEnergyUpdatedAt < 260);
     const speechActivityTarget = speechActive ? 1 : 0;
     const speechActivityDamping = 1 - Math.exp(-Math.max(0.001, dtSeconds) * EXPRESSIVE_SPEECH_ACTIVITY_RESPONSE_HZ);
@@ -1242,7 +1258,14 @@ function buildExpressiveStyleMotionOffsets(nowMs = performance.now(), dtMs = 16)
     const accentOffsets = buildExpressiveAccentMotionOffsets(nowMs, speechActive);
     const microGazeOffsets = buildExpressiveMicroGazeOffsets(nowMs, speechActive);
     const poseOffsets = attenuateExpressiveSpeechLateralPoseOffsets(expressiveMotionCurrentPose, motionModeBlend);
-    const combinedMotionOffsets = addMotionOffsets(poseOffsets, wave, speechOffsets, torsoOffsets, accentOffsets, microGazeOffsets);
+    const combinedMotionOffsets = composeExpressiveMotionLayers(
+        poseOffsets,
+        wave,
+        speechOffsets,
+        torsoOffsets,
+        accentOffsets,
+        microGazeOffsets
+    );
     const splitMotionOffsets = splitExpressiveMotionOffsets(combinedMotionOffsets);
     const placementOffsets = reduceExpressiveRootMotionOffsets(splitMotionOffsets.placementOffsets, speechActive);
     const rawMotionOffsets = addMotionOffsets(splitMotionOffsets.bodyOffsets, placementOffsets);
@@ -1277,8 +1300,15 @@ window.clearSyntheticGestureOffsets = function () {
     syntheticGestureOffsets = createEmptySyntheticGestureOffsets();
 };
 
-window.setExpressiveMotionConfig = function (enabled, strength = 1.0, speed = 1.0, speechBoost = 1.0) {
+window.setExpressiveMotionConfig = function (
+    enabled,
+    strength = 1.0,
+    speed = 1.0,
+    speechBoost = 1.0,
+    poseTransitionsEnabled = false
+) {
     expressiveMotionEnabled = Boolean(enabled);
+    expressivePoseTransitionsEnabled = Boolean(poseTransitionsEnabled);
     expressiveMotionStrength = Number.isFinite(Number(strength))
         ? Math.min(2.5, Math.max(0.2, Number(strength)))
         : 1.0;
@@ -1289,6 +1319,7 @@ window.setExpressiveMotionConfig = function (enabled, strength = 1.0, speed = 1.
         ? Math.min(2.5, Math.max(0, Number(speechBoost)))
         : 1.0;
     if (!expressiveMotionEnabled) {
+        expressivePoseTransitionBlend = 0;
         expressiveMotionCurrentPose = createEmptySyntheticGestureOffsets();
         expressiveMotionFromPose = createEmptySyntheticGestureOffsets();
         expressiveMotionTargetPose = createEmptySyntheticGestureOffsets();

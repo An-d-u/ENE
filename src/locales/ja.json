@@ -1015,6 +1015,7 @@
         "strength": "Idle motion strength:",
         "speed": "Idle motion speed:",
         "expressive_enable": "表情豊かな動作を有効化",
+        "expressive_pose_transitions_enable": "ポーズ・待機切り替えを有効化",
         "expressive_strength": "表情豊かな動作の強さ:",
         "expressive_speed": "表情豊かな動作の速度:",
         "expressive_speech_boost": "発話中の反応:",

@@ -487,6 +487,13 @@ def build_behavior_tab(dialog):
     self.expressive_motion_check.toggled.connect(self._on_setting_changed)
     idle_layout.addRow(self.expressive_motion_check)
 
+    self.expressive_pose_transitions_check = self._create_toggle(
+        "포즈/대기 전환 사용",
+        key="settings.behavior.idle.expressive_pose_transitions_enable",
+    )
+    self.expressive_pose_transitions_check.toggled.connect(self._on_setting_changed)
+    idle_layout.addRow(self.expressive_pose_transitions_check)
+
     self.expressive_motion_strength_spin = QDoubleSpinBox()
     self.expressive_motion_strength_spin.setRange(0.2, 2.5)
     self.expressive_motion_strength_spin.setSingleStep(0.1)

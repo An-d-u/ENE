@@ -1069,6 +1069,7 @@
         "strength": "유휴 모션 강도:",
         "speed": "유휴 모션 속도:",
         "expressive_enable": "생동감 모션 사용",
+        "expressive_pose_transitions_enable": "포즈/대기 전환 사용",
         "expressive_strength": "생동감 모션 강도:",
         "expressive_speed": "생동감 모션 속도:",
         "expressive_speech_boost": "말할 때 반응:",

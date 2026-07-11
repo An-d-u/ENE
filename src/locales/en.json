@@ -1067,6 +1067,7 @@
         "strength": "Idle motion strength:",
         "speed": "Idle motion speed:",
         "expressive_enable": "Enable expressive motion",
+        "expressive_pose_transitions_enable": "Enable pose and idle transitions",
         "expressive_strength": "Expressive motion strength:",
         "expressive_speed": "Expressive motion speed:",
         "expressive_speech_boost": "Speech response:",
