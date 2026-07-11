@@ -732,6 +732,209 @@ result = {
     assert result["activeName"] == "test-accent"
 
 
+def test_expressive_pose_transition_defaults_fades_and_preserves_toggle_state():
+    result = _run_motion_state_runtime_case(
+        """
+const initial = {
+    enabled: expressivePoseTransitionsEnabled,
+    blend: expressivePoseTransitionBlend,
+};
+window.setExpressiveMotionConfig(true, 1, 1, 1, true);
+const enabledAfterSixTenths = updateExpressivePoseTransitionBlend(0.6);
+const beforeReverse = expressivePoseTransitionBlend;
+window.setExpressiveMotionConfig(true, 1, 1, 1, false);
+const afterReverse = updateExpressivePoseTransitionBlend(0.1);
+window.setExpressiveMotionConfig(true, 1, 1, 1, true);
+updateExpressivePoseTransitionBlend(0.1);
+window.setExpressiveMotionConfig(false, 1, 1, 1, true);
+const disabledGlobally = {
+    enabled: expressivePoseTransitionsEnabled,
+    blend: expressivePoseTransitionBlend,
+};
+window.setExpressiveMotionConfig(true, 1, 1, 1, true);
+const afterGlobalReenable = updateExpressivePoseTransitionBlend(0.1);
+result = {
+    initial,
+    enabledAfterSixTenths,
+    beforeReverse,
+    afterReverse,
+    disabledGlobally,
+    afterGlobalReenable,
+};
+"""
+    )
+
+    assert result["initial"] == {"enabled": False, "blend": 0}
+    assert abs(result["enabledAfterSixTenths"] - 0.9502) < 0.001
+    assert 0 < result["afterReverse"] < result["beforeReverse"]
+    assert result["disabledGlobally"] == {"enabled": True, "blend": 0}
+    assert 0 < result["afterGlobalReenable"] < 1
+
+
+def test_expressive_pose_transition_scales_only_pose_layer():
+    result = _run_motion_state_runtime_case(
+        """
+expressivePoseTransitionBlend = 1;
+result = composeExpressiveMotionLayers(
+    { angleX: 4, bodyY: 2 },
+    { angleX: 3, angleY: 5 },
+    { bodyX: 7 },
+    { bodyZ: 11 },
+    { breath: 13 },
+    { eyeX: 0.17 }
+);
+"""
+    )
+
+    assert result["angleX"] == 5
+    assert result["bodyY"] == 1
+    assert result["angleY"] == 5
+    assert result["bodyX"] == 7
+    assert result["bodyZ"] == 11
+    assert result["breath"] == 13
+    assert result["eyeX"] == 0.17
+
+
+def test_expressive_pose_transition_does_not_change_non_pose_runtime_channels():
+    result = _run_motion_state_runtime_case(
+        """
+function runPoseToggleCase(enabled) {
+    window.setExpressiveMotionConfig(true, 1, 1, 0, enabled);
+    expressivePoseTransitionBlend = enabled ? 1 : 0;
+    expressiveMotionCurrentPose = normalizeSyntheticGestureOffsets({ angleX: 4 });
+    expressiveMotionFromPose = normalizeSyntheticGestureOffsets({ angleX: 4 });
+    expressiveMotionTargetPose = normalizeSyntheticGestureOffsets({ angleX: 4 });
+    expressiveMotionTransitionStartedAt = 0;
+    expressiveMotionTransitionDurationMs = 1;
+    expressiveMotionHoldUntilMs = 999999;
+    expressiveMotionPhase = 0;
+    expressiveMotionLaggedOffsets = createEmptySyntheticGestureOffsets();
+    expressiveTorsoMotionLaggedOffsets = createEmptySyntheticGestureOffsets();
+    expressiveSpeechEnergyRaw = 0;
+    expressiveSpeechEnergySmoothed = 0;
+    expressiveSpeechMotionEnergyFiltered = 0;
+    expressiveSpeechActivityBlend = 0;
+    expressiveSpeechEnergyUpdatedAt = -100000;
+    lastSpeechAt = -100000;
+    expressiveAccentMotionState = createExpressiveAccentMotionState();
+    expressiveAccentMotionState.nextCheckAt = 999999;
+    expressiveMicroGazeState = createExpressiveMicroGazeState();
+    expressiveMicroGazeState.nextCheckAt = 999999;
+    let randomCalls = 0;
+    Math.random = function () {
+        randomCalls += 1;
+        return 0.5;
+    };
+    return {
+        offsets: buildExpressiveStyleMotionOffsets(1000, 16),
+        randomCalls,
+    };
+}
+const disabled = runPoseToggleCase(false);
+const enabled = runPoseToggleCase(true);
+const unchangedKeys = Object.keys(disabled.offsets).filter((key) => key !== 'angleX');
+result = {
+    disabled,
+    enabled,
+    unchanged: unchangedKeys.every((key) => disabled.offsets[key] === enabled.offsets[key]),
+};
+"""
+    )
+
+    assert result["disabled"]["randomCalls"] == result["enabled"]["randomCalls"]
+    assert result["unchanged"] is True
+    assert result["disabled"]["offsets"]["angleX"] != result["enabled"]["offsets"]["angleX"]
+
+
+def test_expressive_pose_transition_uses_idle_only_low_weights():
+    result = _run_motion_state_runtime_case(
+        """
+const addedNames = ['drift-left-counter', 'drift-right-counter', 'shy-side-hold'];
+const idleCandidates = EXPRESSIVE_MOTION_POSES.filter((pose) => EXPRESSIVE_IDLE_POSE_NAMES.has(pose.name));
+const addedWeight = idleCandidates
+    .filter((pose) => addedNames.includes(pose.name))
+    .reduce((total, pose) => total + getExpressiveMotionPoseWeight(pose, false), 0);
+const totalWeight = idleCandidates.reduce(
+    (total, pose) => total + getExpressiveMotionPoseWeight(pose, false),
+    0
+);
+result = {
+    idleWeights: Object.fromEntries(addedNames.map((name) => {
+        const pose = EXPRESSIVE_MOTION_POSES.find((candidate) => candidate.name === name);
+        return [name, getExpressiveMotionPoseWeight(pose, false)];
+    })),
+    addedRatio: addedWeight / totalWeight,
+    speechIncludesAddedPose: addedNames.some((name) => EXPRESSIVE_SPEECH_POSE_NAMES.has(name)),
+};
+"""
+    )
+
+    assert result["idleWeights"] == {
+        "drift-left-counter": 0.18,
+        "drift-right-counter": 0.18,
+        "shy-side-hold": 0.12,
+    }
+    assert abs(result["addedRatio"] - 0.14) < 0.005
+    assert result["speechIncludesAddedPose"] is False
+
+
+def test_curious_look_leans_head_and_body_left_opposite_question_tilt():
+    result = _run_motion_state_runtime_case(
+        """
+const motion = EXPRESSIVE_ACCENT_MOTIONS.find((candidate) => candidate.name === 'curious-look');
+const peak = motion.frames.find((frame) => frame.value && frame.value.bodyX);
+result = {
+    angleX: peak.value.angleX,
+    angleZ: peak.value.angleZ,
+    bodyX: peak.value.bodyX,
+    bodyZ: peak.value.bodyZ,
+};
+"""
+    )
+
+    assert result["angleX"] < 0
+    assert result["angleZ"] < 0
+    assert result["bodyX"] < 0
+    assert result["bodyZ"] < 0
+
+
+def test_removed_talk_hold_motions_are_absent_from_runtime_and_preview():
+    runtime_script = _runtime_motion_state_text()
+    preview = (Path(__file__).resolve().parents[1] / "docs" / "mockups" / "live2d-gesture-preview.html").read_text(
+        encoding="utf-8-sig"
+    )
+
+    for motion_name in ("talk-tilt-left-hold", "talk-tilt-right-hold"):
+        assert f'name: "{motion_name}"' not in runtime_script
+        assert f'data-motion="{motion_name}"' not in preview
+        assert f'"{motion_name}":' not in preview
+
+
+def test_disabled_bounce_grooves_never_enter_automatic_pool():
+    result = _run_motion_state_runtime_case(
+        """
+const disabledNames = ['bounce-groove-small', 'bounce-groove-large'];
+const disabledMotions = EXPRESSIVE_ACCENT_MOTIONS.filter((motion) => disabledNames.includes(motion.name));
+expressiveAccentMotionState.lastName = '';
+Math.random = () => 0.999999;
+const selectedIdle = pickWeightedExpressiveAccentMotion(false);
+const selectedSpeech = pickWeightedExpressiveAccentMotion(true);
+result = {
+    flags: Object.fromEntries(disabledMotions.map((motion) => [motion.name, motion.enabled])),
+    selectedIdle: selectedIdle && selectedIdle.name,
+    selectedSpeech: selectedSpeech && selectedSpeech.name,
+};
+"""
+    )
+
+    assert result["flags"] == {
+        "bounce-groove-small": False,
+        "bounce-groove-large": False,
+    }
+    assert result["selectedIdle"] not in result["flags"]
+    assert result["selectedSpeech"] not in result["flags"]
+
+
 def test_tracking_runtime_exposes_expressive_style_motion_layer():
     script = _runtime_motion_state_text()
     tracking_script = (WEB_DIR / "runtime_auto_blink_tracking.js").read_text(encoding="utf-8-sig")
@@ -761,7 +964,7 @@ def test_tracking_runtime_exposes_expressive_style_motion_layer():
     assert "bodyZ: (softSway * 0.64) + (speechPulse * 0.42)" in script
     assert "breath: (softBounce * 0.24) + (speechPulse * 0.52)" in script
     assert "const poseOffsets = attenuateExpressiveSpeechLateralPoseOffsets(expressiveMotionCurrentPose, motionModeBlend);" in script
-    assert "const combinedMotionOffsets = addMotionOffsets(poseOffsets, wave, speechOffsets, torsoOffsets, accentOffsets, microGazeOffsets);" in script
+    assert "const combinedMotionOffsets = composeExpressiveMotionLayers(" in script
     assert "let expressiveMotionLaggedOffsets = createEmptySyntheticGestureOffsets();" in script
     assert "const EXPRESSIVE_MICRO_GAZE_SCHEDULE = {" in script
     assert "idle: { minMs: 2200, maxMs: 4200, chance: 0.70 }" in script
@@ -772,7 +975,7 @@ def test_tracking_runtime_exposes_expressive_style_motion_layer():
     assert "function startExpressiveMicroGazeEvent(nowMs, speechActive)" in script
     assert "function buildExpressiveMicroGazeOffsets(nowMs, speechActive)" in script
     assert "const microGazeOffsets = buildExpressiveMicroGazeOffsets(nowMs, speechActive);" in script
-    assert "const combinedMotionOffsets = addMotionOffsets(poseOffsets, wave, speechOffsets, torsoOffsets, accentOffsets, microGazeOffsets);" in script
+    assert "const combinedMotionOffsets = composeExpressiveMotionLayers(" in script
     assert "eyeX: direction * randomBetween(0.032, speechActive ? 0.070 : 0.052)" in script
     assert "eyeY: randomBetween(-0.024, 0.036)" in script
     assert "eyeOpen: -randomBetween(0.006, 0.026)" in script
@@ -806,7 +1009,7 @@ def test_tracking_runtime_exposes_expressive_style_motion_layer():
     assert "idle: { x: 0.8, y: 0.55, scale: 0.008 }" in script
     assert "speech: { x: 1.0, y: 0.75, scale: 0.010 }" in script
     assert "const gain = speechActive ? 0.18 : 0.14;" in script
-    for accent_name in ["big-sway", "lean-peek", "curious-look", "question-tilt", "soft-bounce", "talk-bounce-lift", "talk-bounce-double", "talk-bounce-triple", "talk-hop-recoil", "idle-breath-lift", "talk-tilt-left-hold", "talk-tilt-right-hold", "idle-soft-attention", "side-hold", "glance-left-return", "glance-right-return", "settle-shift", "rhythm-sway", "bounce-groove-small", "bounce-groove-large"]:
+    for accent_name in ["big-sway", "lean-peek", "curious-look", "question-tilt", "soft-bounce", "talk-bounce-lift", "talk-bounce-double", "talk-bounce-triple", "talk-hop-recoil", "idle-breath-lift", "idle-soft-attention", "side-hold", "glance-left-return", "glance-right-return", "settle-shift", "rhythm-sway", "bounce-groove-small", "bounce-groove-large"]:
         assert f'name: "{accent_name}"' in script
     assert "{ t: 0.40, value: { eyeX: -0.014, eyeY: 0.012, angleZ: -10.4, angleX: -0.8, bodyX: -7.2, bodyY: 1.5, bodyZ: -5.4, breath: 0.72, eyeOpen: -0.08, eyeSmile: 0.10, rootXPercent: -0.72, rootYPercent: -0.16, rootScale: 0.004 } }" in script
     assert "{ t: 0.84, value: { eyeX: 0.014, eyeY: 0.012, angleZ: 11.2, angleX: 0.9, bodyX: 8.0, bodyY: 1.6, bodyZ: 6.0, breath: 0.74, eyeOpen: -0.08, eyeSmile: 0.10, rootXPercent: 0.84, rootYPercent: -0.16, rootScale: 0.004 } }" in script
@@ -856,13 +1059,10 @@ def test_tracking_runtime_exposes_expressive_style_motion_layer():
     assert "{ t: 0.42, value: { eyeX: 0, eyeY: -0.01, angleY: -3.4, angleZ: -0.2, bodyY: -2.8, bodyZ: -0.9, breath: 0.18, rootYPercent: 0.22, rootScale: -0.003 } }" in script
     assert "{ t: 0.32, value: { eyeX: 0, eyeY: 0.01, angleY: 2.4, angleZ: 0.3, bodyY: 3.8, bodyZ: 0.6, breath: 0.74, rootYPercent: -0.32, rootScale: 0.004 } }" in script
     assert "{ t: 0.68, value: { eyeX: 0, eyeY: 0, angleY: 1.8, angleZ: -0.2, bodyY: 2.8, bodyZ: 0.4, breath: 0.58, rootYPercent: -0.24, rootScale: 0.003 } }" in script
-    assert "name: \"talk-tilt-left-hold\"" in script
-    assert "name: \"talk-tilt-right-hold\"" in script
+    assert "name: \"talk-tilt-left-hold\"" not in script
+    assert "name: \"talk-tilt-right-hold\"" not in script
     assert "name: \"idle-soft-attention\"" in script
     assert "{ t: 0.20, value: { eyeX: 0, eyeY: 0.02, angleY: 6.2, angleZ: 0.4, bodyY: 6.8, bodyZ: 1.0, breath: 1.05, rootYPercent: -0.55, rootScale: 0.006 } }" in script
-    assert "{ t: 0.38, value: { eyeX: 0.02, eyeY: 0.01, angleY: 4.2, angleZ: -4.2, bodyX: 0.4, bodyY: 0.7, bodyZ: 1.2, eyeOpen: -0.04, rootXPercent: 0.1 } }" in script
-    assert "{ t: 0.64, value: { eyeX: 0.02, eyeY: 0.01, angleY: 3.8, angleZ: -3.8, bodyX: 0.3, bodyY: 0.5, bodyZ: 1.0, eyeSmile: 0.04 } }" in script
-    assert "{ t: 0.38, value: { eyeX: -0.02, eyeY: 0.01, angleY: 4.2, angleZ: 4.2, bodyX: -0.4, bodyY: 0.7, bodyZ: -1.2, eyeOpen: -0.04, rootXPercent: -0.1 } }" in script
     assert "angleZ: -7.8" not in script
     assert "angleZ: 7.8" not in script
     assert "const idleWaveScale = 0.78 - (motionModeBlend * 0.28);" in script
@@ -886,7 +1086,7 @@ def test_tracking_runtime_exposes_expressive_style_motion_layer():
     assert "if (!canPlayExpressiveAccentMotion())" in script
     assert "typeof window.isSyntheticGestureActive === 'function' && window.isSyntheticGestureActive()" in script
     assert "const accentOffsets = buildExpressiveAccentMotionOffsets(nowMs, speechActive);" in script
-    assert "const combinedMotionOffsets = addMotionOffsets(poseOffsets, wave, speechOffsets, torsoOffsets, accentOffsets, microGazeOffsets);" in script
+    assert "const combinedMotionOffsets = composeExpressiveMotionLayers(" in script
     assert "const splitMotionOffsets = splitExpressiveMotionOffsets(combinedMotionOffsets);" in script
     assert "const placementOffsets = reduceExpressiveRootMotionOffsets(splitMotionOffsets.placementOffsets, speechActive);" in script
     assert "const rawMotionOffsets = addMotionOffsets(splitMotionOffsets.bodyOffsets, placementOffsets);" in script

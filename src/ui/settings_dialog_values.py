@@ -662,6 +662,9 @@ class SettingsDialogValuesMixin:
             self.idle_motion_strength_spin.setValue(float(self._original_settings.get("idle_motion_strength", 1.0)))
             self.idle_motion_speed_spin.setValue(float(self._original_settings.get("idle_motion_speed", 1.0)))
             self.expressive_motion_check.setChecked(self._original_settings.get("enable_expressive_motion", False))
+            self.expressive_pose_transitions_check.setChecked(
+                self._original_settings.get("enable_expressive_pose_transitions", False)
+            )
             self.expressive_motion_strength_spin.setValue(float(self._original_settings.get("expressive_motion_strength", 1.0)))
             self.expressive_motion_speed_spin.setValue(float(self._original_settings.get("expressive_motion_speed", 1.0)))
             self.expressive_motion_speech_boost_spin.setValue(
@@ -1020,6 +1023,7 @@ class SettingsDialogValuesMixin:
             "idle_motion_strength": self.idle_motion_strength_spin.value(),
             "idle_motion_speed": self.idle_motion_speed_spin.value(),
             "enable_expressive_motion": self.expressive_motion_check.isChecked(),
+            "enable_expressive_pose_transitions": self.expressive_pose_transitions_check.isChecked(),
             "expressive_motion_strength": self.expressive_motion_strength_spin.value(),
             "expressive_motion_speed": self.expressive_motion_speed_spin.value(),
             "expressive_motion_speech_boost": self.expressive_motion_speech_boost_spin.value(),

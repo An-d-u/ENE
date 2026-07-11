@@ -1970,6 +1970,7 @@ def test_settings_dialog_exposes_synthetic_gesture_controls_and_saves_values():
                 "expressive_motion_strength": 1.2,
                 "expressive_motion_speed": 0.8,
                 "expressive_motion_speech_boost": 1.5,
+                "enable_expressive_pose_transitions": True,
             }
         )
 
@@ -1985,6 +1986,7 @@ def test_settings_dialog_exposes_synthetic_gesture_controls_and_saves_values():
         assert dialog.expressive_motion_strength_spin.value() == 1.2
         assert dialog.expressive_motion_speed_spin.value() == 0.8
         assert dialog.expressive_motion_speech_boost_spin.value() == 1.5
+        assert dialog.expressive_pose_transitions_check.isChecked() is True
 
         dialog.enable_synthetic_gestures_check.setChecked(True)
         dialog.synthetic_gesture_scale_spin.setValue(1.8)
@@ -1993,6 +1995,7 @@ def test_settings_dialog_exposes_synthetic_gesture_controls_and_saves_values():
         dialog.expressive_motion_strength_spin.setValue(1.8)
         dialog.expressive_motion_speed_spin.setValue(1.3)
         dialog.expressive_motion_speech_boost_spin.setValue(0.6)
+        dialog.expressive_pose_transitions_check.setChecked(False)
         low_index = dialog.idle_synthetic_gesture_frequency_combo.findData("low")
         dialog.idle_synthetic_gesture_frequency_combo.setCurrentIndex(low_index)
 
@@ -2005,8 +2008,19 @@ def test_settings_dialog_exposes_synthetic_gesture_controls_and_saves_values():
         assert current_values["expressive_motion_strength"] == 1.8
         assert current_values["expressive_motion_speed"] == 1.3
         assert current_values["expressive_motion_speech_boost"] == 0.6
+        assert current_values["enable_expressive_pose_transitions"] is False
 
         dialog.close()
+
+
+def test_motion_settings_translations_include_pose_transition_toggle():
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+
+    for language in ("ko", "en", "ja"):
+        payload = json.loads((locales_dir / f"{language}.json").read_text(encoding="utf-8-sig"))
+        label = payload["settings"]["behavior"]["idle"]["expressive_pose_transitions_enable"]
+        assert isinstance(label, str)
+        assert label.strip()
 
 
 def test_settings_dialog_exposes_ene_thought_context_controls_and_saves_values():
@@ -4822,10 +4836,11 @@ def test_overlay_window_syncs_expressive_motion_settings_to_webview():
             "expressive_motion_strength": 1.4,
             "expressive_motion_speed": 0.8,
             "expressive_motion_speech_boost": 0.0,
+            "enable_expressive_pose_transitions": True,
         },
     )
 
-    assert any("window.setExpressiveMotionConfig(true, 1.400, 0.800, 0.000);" in code for code in captured)
+    assert any("window.setExpressiveMotionConfig(true, 1.400, 0.800, 0.000, true);" in code for code in captured)
 
 
 def test_overlay_window_syncs_idle_synthetic_gesture_settings_to_webview(tmp_path):
