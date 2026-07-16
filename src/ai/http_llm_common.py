@@ -19,6 +19,7 @@ import requests
 
 from ..conversation_format import prepend_message_time
 from .memory_context_builder import build_memory_context as build_common_memory_context
+from .openai_model_policy import normalize_reasoning_effort
 from .persona_names import resolve_prompt_persona_names
 from .prompt import build_runtime_system_prompt, get_parseable_emotions
 from .prompt_language import resolve_prompt_language
@@ -164,6 +165,9 @@ def _normalize_generation_params(params: dict | None) -> dict:
         normalized["max_tokens"] = max(0, int(params.get("max_tokens", normalized["max_tokens"])))
     except (TypeError, ValueError):
         pass
+
+    if "reasoning_effort" in params:
+        normalized["reasoning_effort"] = normalize_reasoning_effort(params.get("reasoning_effort"))
 
     return normalized
 

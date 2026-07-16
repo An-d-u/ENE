@@ -42,6 +42,52 @@ def test_resolve_llm_bootstrap_config_uses_provider_model_params_and_key(tmp_pat
     )
 
 
+def test_resolve_llm_bootstrap_config_defaults_openai_gpt_5_6_reasoning_to_low():
+    settings = _Settings(
+        {
+            "llm_provider": "openai",
+            "llm_model": "gpt-5.6-sol",
+            "llm_model_params": {
+                "openai": {
+                    "gpt-5.6-sol": {
+                        "temperature": 0.4,
+                        "top_p": 0.8,
+                        "max_tokens": 4096,
+                        "reasoning_effort": "invalid",
+                    }
+                }
+            },
+        }
+    )
+
+    resolved = resolve_llm_bootstrap_config(settings)
+
+    assert resolved.generation_params == {
+        "temperature": 0.4,
+        "top_p": 0.8,
+        "max_tokens": 4096,
+        "reasoning_effort": "low",
+    }
+
+
+def test_resolve_llm_bootstrap_config_defaults_openai_gpt_5_6_reasoning_without_model_params():
+    settings = _Settings(
+        {
+            "llm_provider": "openai",
+            "llm_model": "gpt-5.6-sol",
+        }
+    )
+
+    resolved = resolve_llm_bootstrap_config(settings)
+
+    assert resolved.generation_params == {
+        "temperature": 0.9,
+        "top_p": 1.0,
+        "max_tokens": 2048,
+        "reasoning_effort": "low",
+    }
+
+
 def test_resolve_llm_bootstrap_config_falls_back_to_legacy_gemini_key_file(tmp_path):
     api_key_file = tmp_path / "api_key.txt"
     api_key_file.write_text(" legacy-key \n", encoding="utf-8-sig")
