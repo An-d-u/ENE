@@ -158,6 +158,7 @@ def test_create_openai_client_uses_responses_api():
     client = create_llm_client(config)
     assert isinstance(client, OpenAIResponseAPIClient)
     assert client.endpoint == "https://api.openai.com/v1/responses"
+    assert client.provider_name == "openai"
 
 
 @pytest.mark.parametrize(
@@ -190,6 +191,8 @@ def test_custom_api_format_clients_forward_goal_manager(format_value, expected_t
     assert isinstance(client, expected_type)
     assert client.goal_manager is goal_manager
     if isinstance(client, OpenAICompatibleClient):
+        assert client.provider_name == "custom_api"
+    if format_value == "openai_response_api":
         assert client.provider_name == "custom_api"
 
 

@@ -85,6 +85,113 @@ def test_openai_client_preserves_normalized_reasoning_effort():
     assert client.generation_params["reasoning_effort"] == "high"
 
 
+def test_openai_responses_client_uses_official_endpoint_by_default():
+    client = OpenAIResponseAPIClient(
+        api_key="test-key",
+        model_name="gpt-5.6-sol",
+    )
+
+    assert client.endpoint == "https://api.openai.com/v1/responses"
+
+
+def test_openai_responses_request_applies_gpt_5_6_policy(monkeypatch):
+    captured = {}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured["json"] = json
+        return _DummyResponse(json_data={"output_text": "Synthetic response."})
+
+    monkeypatch.setattr("src.ai.http_llm_clients.requests.post", fake_post)
+
+    client = OpenAIResponseAPIClient(
+        api_key="test-key",
+        model_name="gpt-5.6-sol",
+        endpoint="https://api.openai.com/v1/responses",
+        generation_params={
+            "temperature": 0.4,
+            "top_p": 0.7,
+            "max_tokens": 1234,
+            "reasoning_effort": "high",
+        },
+    )
+
+    assert client._request_responses("Neutral request input.") == "Synthetic response."
+    assert "temperature" not in captured["json"]
+    assert "top_p" not in captured["json"]
+    assert captured["json"]["reasoning"] == {"effort": "high"}
+    assert captured["json"]["max_output_tokens"] == 1234
+
+
+def test_openai_responses_one_shot_applies_gpt_5_6_policy(monkeypatch):
+    captured = {}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured["json"] = json
+        return _DummyResponse(json_data={"output_text": "Synthetic response."})
+
+    monkeypatch.setattr("src.ai.http_llm_clients.requests.post", fake_post)
+
+    client = OpenAIResponseAPIClient(
+        api_key="test-key",
+        model_name="gpt-5.6",
+        endpoint="https://api.openai.com/v1/responses",
+        generation_params={
+            "temperature": 0.3,
+            "top_p": 0.6,
+            "max_tokens": 1536,
+            "reasoning_effort": "max",
+        },
+    )
+
+    assert client._request_one_shot_raw("Neutral one-shot input.") == "Synthetic response."
+    assert "temperature" not in captured["json"]
+    assert "top_p" not in captured["json"]
+    assert captured["json"]["reasoning"] == {"effort": "max"}
+    assert captured["json"]["max_output_tokens"] == 1536
+
+
+def test_openai_responses_gpt_5_6_defaults_reasoning_effort_to_low(monkeypatch):
+    captured = {}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured["json"] = json
+        return _DummyResponse(json_data={"output_text": "Synthetic response."})
+
+    monkeypatch.setattr("src.ai.http_llm_clients.requests.post", fake_post)
+
+    client = OpenAIResponseAPIClient(
+        api_key="test-key",
+        model_name="gpt-5.6",
+        endpoint="https://api.openai.com/v1/responses",
+    )
+
+    assert client._request_responses("Neutral default-effort input.") == "Synthetic response."
+    assert captured["json"]["reasoning"] == {"effort": "low"}
+
+
+def test_custom_responses_gpt_5_6_keeps_sampling_without_reasoning(monkeypatch):
+    captured = {}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured["json"] = json
+        return _DummyResponse(json_data={"output_text": "Synthetic response."})
+
+    monkeypatch.setattr("src.ai.http_llm_clients.requests.post", fake_post)
+
+    client = OpenAIResponseAPIClient(
+        api_key="test-key",
+        model_name="gpt-5.6-sol",
+        endpoint="https://example.com/v1/responses",
+        provider_name="custom_api",
+        generation_params={"temperature": 0.2, "top_p": 0.8},
+    )
+
+    assert client._request_responses("Neutral custom request input.") == "Synthetic response."
+    assert captured["json"]["temperature"] == 0.2
+    assert captured["json"]["top_p"] == 0.8
+    assert "reasoning" not in captured["json"]
+
+
 def test_openai_responses_request_includes_instructions(monkeypatch):
     captured = {}
 
@@ -108,6 +215,9 @@ def test_openai_responses_request_includes_instructions(monkeypatch):
     assert captured["json"]["model"] == "gpt-5.4-mini"
     assert captured["json"]["instructions"]
     assert any(marker in captured["json"]["instructions"] for marker in ANALYSIS_APPENDIX_MARKERS)
+    assert captured["json"]["temperature"] == 0.9
+    assert captured["json"]["top_p"] == 1.0
+    assert "reasoning" not in captured["json"]
 
 
 def test_openai_responses_send_message_with_memory_injects_manual_search_context(monkeypatch):
