@@ -1,4 +1,4 @@
-﻿"""
+"""
 설정 대화상자 값 로드/저장 mixin.
 """
 
@@ -11,6 +11,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication, QFileDialog, QListWidgetItem, QMessageBox
 
 from ..ai.llm_provider import LLMFormat
+from ..ai.openai_model_policy import normalize_reasoning_effort, resolve_openai_model_policy
 from ..core.app_paths import relativize_for_storage
 from ..core.hotkey_utils import normalize_hotkey_text
 from ..core.image_avatar import build_image_avatar_payload
@@ -381,6 +382,20 @@ class SettingsDialogValuesMixin:
             normalized["max_tokens"] = max(0, int(params.get("max_tokens", defaults["max_tokens"])))
         except (TypeError, ValueError):
             pass
+        if "reasoning_effort" in params:
+            normalized["reasoning_effort"] = normalize_reasoning_effort(params.get("reasoning_effort"))
+        return normalized
+
+    def _normalize_model_params_for_policy(self, provider: str, model_name: str, params) -> dict:
+        normalized = self._normalize_model_params(params)
+        policy = resolve_openai_model_policy(provider, model_name)
+        if policy.supports_reasoning_effort:
+            normalized["reasoning_effort"] = normalize_reasoning_effort(
+                normalized.get("reasoning_effort"),
+                policy.default_reasoning_effort,
+            )
+        else:
+            normalized.pop("reasoning_effort", None)
         return normalized
 
     def _get_model_params(self, provider: str, model_name: str) -> dict:
@@ -391,7 +406,7 @@ class SettingsDialogValuesMixin:
             params = store.get("__default__")
         if not isinstance(params, dict):
             params = self._default_model_params()
-        normalized = self._normalize_model_params(params)
+        normalized = self._normalize_model_params_for_policy(provider, model_name, params)
         store[model_key] = dict(normalized)
         store.setdefault("__default__", dict(normalized))
         return normalized
@@ -405,20 +420,50 @@ class SettingsDialogValuesMixin:
         model_key = self._model_param_key(model_text)
         self._active_model_key_by_provider[provider] = model_key
         provider_store = self._llm_model_params.setdefault(provider, {})
-        provider_store[model_key] = self._normalize_model_params(
-            {
-                "temperature": self.llm_temperature_spin.value(),
-                "top_p": self.llm_top_p_spin.value(),
-                "max_tokens": self.llm_max_tokens_spin.value(),
-            }
-        )
+        params = {
+            "temperature": self.llm_temperature_spin.value(),
+            "top_p": self.llm_top_p_spin.value(),
+            "max_tokens": self.llm_max_tokens_spin.value(),
+        }
+        policy = resolve_openai_model_policy(provider, model_text)
+        if policy.supports_reasoning_effort:
+            params["reasoning_effort"] = normalize_reasoning_effort(
+                self.llm_reasoning_effort_combo.currentData(),
+                policy.default_reasoning_effort,
+            )
+        provider_store[model_key] = self._normalize_model_params(params)
         provider_store.setdefault("__default__", dict(provider_store[model_key]))
+
+    def _refresh_llm_model_policy_controls(self, provider: str, model_name: str):
+        policy = resolve_openai_model_policy(provider, model_name)
+        self.llm_temperature_spin.setEnabled(policy.supports_temperature)
+        self.llm_temperature_label.setEnabled(policy.supports_temperature)
+        self.llm_top_p_spin.setEnabled(policy.supports_top_p)
+        self.llm_top_p_label.setEnabled(policy.supports_top_p)
+
+        shows_reasoning_effort = policy.supports_reasoning_effort
+        self.llm_reasoning_effort_label.setVisible(shows_reasoning_effort)
+        self.llm_reasoning_effort_combo.setVisible(shows_reasoning_effort)
+        self.llm_gpt_5_6_hint.setVisible(shows_reasoning_effort)
+        self.llm_model_params_hint.setVisible(not shows_reasoning_effort)
 
     def _apply_model_params_to_widgets(self, provider: str, model_name: str):
         params = self._get_model_params(provider, model_name)
-        self.llm_temperature_spin.setValue(float(params["temperature"]))
-        self.llm_top_p_spin.setValue(float(params["top_p"]))
-        self.llm_max_tokens_spin.setValue(int(params["max_tokens"]))
+        reasoning_effort = normalize_reasoning_effort(params.get("reasoning_effort"))
+        reasoning_index = self.llm_reasoning_effort_combo.findData(reasoning_effort)
+        if reasoning_index < 0:
+            reasoning_index = self.llm_reasoning_effort_combo.findData("low")
+
+        was_loading = self._loading
+        self._loading = True
+        try:
+            self.llm_temperature_spin.setValue(float(params["temperature"]))
+            self.llm_top_p_spin.setValue(float(params["top_p"]))
+            self.llm_max_tokens_spin.setValue(int(params["max_tokens"]))
+            self.llm_reasoning_effort_combo.setCurrentIndex(reasoning_index if reasoning_index >= 0 else 0)
+            self._refresh_llm_model_policy_controls(provider, model_name)
+        finally:
+            self._loading = was_loading
 
     def _on_setting_changed(self):
         if self._loading:
@@ -758,7 +803,11 @@ class SettingsDialogValuesMixin:
                     if isinstance(provider_params, dict):
                         mapped = {}
                         for model_name, params in provider_params.items():
-                            mapped[str(model_name)] = self._normalize_model_params(params)
+                            mapped[str(model_name)] = self._normalize_model_params_for_policy(
+                                str(provider_name),
+                                str(model_name),
+                                params,
+                            )
                         self._llm_model_params[str(provider_name)] = mapped
             for provider_name in self._provider_values:
                 provider_store = self._llm_model_params.setdefault(provider_name, {})

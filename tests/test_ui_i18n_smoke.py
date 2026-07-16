@@ -1002,6 +1002,260 @@ def test_settings_dialog_custom_api_hides_duplicate_key_and_model_controls(monke
         dialog.close()
 
 
+def test_settings_dialog_applies_openai_gpt_5_6_policy_and_restores_model_values(monkeypatch):
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="en", locales_dir=locales_dir, system_locale="en_US")
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        monkeypatch.setattr(SettingsDialog, "_load_prompt_configuration", lambda self: None)
+        dialog = SettingsDialog(
+            {
+                "ui_language": "en",
+                "llm_provider": "openai",
+                "llm_models": {"openai": "gpt-5-mini"},
+                "tts_provider": "gpt_sovits_http",
+            }
+        )
+
+        try:
+            dialog.llm_temperature_spin.setValue(0.4)
+            dialog.llm_top_p_spin.setValue(0.8)
+            dialog.llm_model_edit.setText("gpt-5.6-sol")
+
+            assert dialog.llm_temperature_spin.isEnabled() is False
+            assert dialog.llm_temperature_label.isEnabled() is False
+            assert dialog.llm_temperature_spin.isHidden() is False
+            assert dialog.llm_temperature_label.isHidden() is False
+            assert dialog.llm_top_p_spin.isEnabled() is False
+            assert dialog.llm_top_p_label.isEnabled() is False
+            assert dialog.llm_top_p_spin.isHidden() is False
+            assert dialog.llm_top_p_label.isHidden() is False
+            assert dialog.llm_reasoning_effort_label.isHidden() is False
+            assert dialog.llm_reasoning_effort_combo.isHidden() is False
+            assert dialog.llm_reasoning_effort_combo.currentData() == "low"
+            assert dialog.llm_gpt_5_6_hint.isHidden() is False
+            assert dialog.llm_model_params_hint.isHidden() is True
+
+            high_index = dialog.llm_reasoning_effort_combo.findData("high")
+            dialog.llm_reasoning_effort_combo.setCurrentIndex(high_index)
+            dialog.llm_model_edit.setText("gpt-5-mini")
+
+            assert dialog.llm_temperature_spin.isEnabled() is True
+            assert dialog.llm_temperature_label.isEnabled() is True
+            assert dialog.llm_top_p_spin.isEnabled() is True
+            assert dialog.llm_top_p_label.isEnabled() is True
+            assert dialog.llm_reasoning_effort_label.isHidden() is True
+            assert dialog.llm_reasoning_effort_combo.isHidden() is True
+            assert dialog.llm_gpt_5_6_hint.isHidden() is True
+            assert dialog.llm_model_params_hint.isHidden() is False
+
+            dialog.llm_model_edit.setText("gpt-5.6-sol")
+
+            assert dialog.llm_temperature_spin.value() == 0.4
+            assert dialog.llm_top_p_spin.value() == 0.8
+            assert dialog.llm_reasoning_effort_combo.currentData() == "high"
+        finally:
+            dialog.close()
+
+
+def test_settings_dialog_persists_openai_gpt_5_6_reasoning_and_disabled_sampling_values(monkeypatch):
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="en", locales_dir=locales_dir, system_locale="en_US")
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        monkeypatch.setattr(SettingsDialog, "_load_prompt_configuration", lambda self: None)
+        dialog = SettingsDialog(
+            {
+                "ui_language": "en",
+                "llm_provider": "openai",
+                "llm_models": {"openai": "gpt-5.6-sol"},
+                "tts_provider": "gpt_sovits_http",
+            }
+        )
+
+        try:
+            dialog.llm_temperature_spin.setValue(0.4)
+            dialog.llm_top_p_spin.setValue(0.8)
+            xhigh_index = dialog.llm_reasoning_effort_combo.findData("xhigh")
+            dialog.llm_reasoning_effort_combo.setCurrentIndex(xhigh_index)
+
+            values = dialog._get_current_values()
+            stored = values["llm_model_params"]["openai"]["gpt-5.6-sol"]
+
+            assert stored["temperature"] == 0.4
+            assert stored["top_p"] == 0.8
+            assert stored["reasoning_effort"] == "xhigh"
+        finally:
+            dialog.close()
+
+
+def test_settings_dialog_removes_reasoning_from_inactive_unsupported_model_params(monkeypatch):
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="en", locales_dir=locales_dir, system_locale="en_US")
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        monkeypatch.setattr(SettingsDialog, "_load_prompt_configuration", lambda self: None)
+        dialog = SettingsDialog(
+            {
+                "ui_language": "en",
+                "llm_provider": "openai",
+                "llm_models": {"openai": "gpt-5.6-sol"},
+                "llm_model_params": {
+                    "openai": {
+                        "gpt-5.6-sol": {
+                            "temperature": 0.4,
+                            "top_p": 0.8,
+                            "max_tokens": 2048,
+                            "reasoning_effort": "medium",
+                        },
+                        "gpt-5-mini": {
+                            "temperature": 0.6,
+                            "top_p": 0.9,
+                            "max_tokens": 1024,
+                            "reasoning_effort": "high",
+                        },
+                        "__default__": {
+                            "temperature": 0.7,
+                            "top_p": 1.0,
+                            "max_tokens": 2048,
+                            "reasoning_effort": "xhigh",
+                        },
+                    }
+                },
+                "tts_provider": "gpt_sovits_http",
+            }
+        )
+
+        try:
+            values = dialog._get_current_values()
+            stored = values["llm_model_params"]["openai"]
+
+            assert stored["gpt-5.6-sol"]["reasoning_effort"] == "medium"
+            assert "reasoning_effort" not in stored["gpt-5-mini"]
+            assert "reasoning_effort" not in stored["__default__"]
+        finally:
+            dialog.close()
+
+
+def test_settings_dialog_does_not_apply_openai_gpt_5_6_policy_to_custom_api(monkeypatch):
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="en", locales_dir=locales_dir, system_locale="en_US")
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        monkeypatch.setattr(SettingsDialog, "_load_prompt_configuration", lambda self: None)
+        dialog = SettingsDialog(
+            {
+                "ui_language": "en",
+                "llm_provider": "custom_api",
+                "custom_api_request_model": "gpt-5.6-sol",
+                "llm_model_params": {
+                    "custom_api": {
+                        "gpt-5.6-sol": {
+                            "temperature": 0.4,
+                            "top_p": 0.8,
+                            "max_tokens": 2048,
+                            "reasoning_effort": "high",
+                        }
+                    }
+                },
+                "tts_provider": "gpt_sovits_http",
+            }
+        )
+
+        try:
+            assert dialog.llm_temperature_spin.isEnabled() is True
+            assert dialog.llm_temperature_label.isEnabled() is True
+            assert dialog.llm_top_p_spin.isEnabled() is True
+            assert dialog.llm_top_p_label.isEnabled() is True
+            assert dialog.llm_reasoning_effort_label.isHidden() is True
+            assert dialog.llm_reasoning_effort_combo.isHidden() is True
+            assert dialog.llm_gpt_5_6_hint.isHidden() is True
+            assert dialog.llm_model_params_hint.isHidden() is False
+            assert "reasoning_effort" not in dialog._get_model_params("custom_api", "gpt-5.6-sol")
+        finally:
+            dialog.close()
+
+
+def test_settings_dialog_retranslates_openai_reasoning_controls(monkeypatch):
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
+    expected_by_language = {
+        "ko": (
+            "추론 강도:",
+            ["사용 안 함", "낮음", "보통", "높음", "매우 높음", "최대"],
+            "GPT-5.6에서는 Temperature와 Top P를 전송하지 않고 추론 강도를 사용합니다.",
+        ),
+        "en": (
+            "Reasoning Effort:",
+            ["None", "Low", "Medium", "High", "Extra High", "Maximum"],
+            "GPT-5.6 does not send Temperature or Top P and uses Reasoning Effort instead.",
+        ),
+        "ja": (
+            "推論強度:",
+            ["なし", "低", "中", "高", "非常に高い", "最大"],
+            "GPT-5.6ではTemperatureとTop Pを送信せず、推論強度を使用します。",
+        ),
+    }
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        monkeypatch.setattr(SettingsDialog, "_load_prompt_configuration", lambda self: None)
+        dialog = SettingsDialog(
+            {
+                "ui_language": "ko",
+                "llm_provider": "openai",
+                "llm_models": {"openai": "gpt-5.6-sol"},
+                "tts_provider": "gpt_sovits_http",
+            }
+        )
+
+        try:
+            for language, (label, options, hint) in expected_by_language.items():
+                language_index = dialog.ui_language_combo.findData(language)
+                dialog.ui_language_combo.setCurrentIndex(language_index)
+
+                assert dialog.llm_reasoning_effort_label.text() == label
+                assert [
+                    dialog.llm_reasoning_effort_combo.itemText(index)
+                    for index in range(dialog.llm_reasoning_effort_combo.count())
+                ] == options
+                assert dialog.llm_gpt_5_6_hint.text() == hint
+        finally:
+            dialog.close()
+
+
+def test_openai_reasoning_translation_keys_match_across_locales():
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    model_groups = {
+        language: json.loads((locales_dir / f"{language}.json").read_text(encoding="utf-8-sig"))["settings"][
+            "llm"
+        ]["model_group"]
+        for language in ("ko", "en", "ja")
+    }
+
+    assert {tuple(model_group["reasoning_effort"]) for model_group in model_groups.values()} == {
+        ("label", "options")
+    }
+    assert {tuple(model_group["reasoning_effort"]["options"]) for model_group in model_groups.values()} == {
+        ("none", "low", "medium", "high", "xhigh", "max")
+    }
+    assert all(isinstance(model_group["gpt_5_6_hint"], str) for model_group in model_groups.values())
+
+
 def test_settings_dialog_loads_and_saves_viseme_lipsync_toggle(monkeypatch):
     _get_qapp()
     locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"

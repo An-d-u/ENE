@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ...ai.llm_provider import LLMFormat, get_llm_provider_catalog
+from ...ai.openai_model_policy import OPENAI_REASONING_EFFORTS
 
 
 def build_llm_tab(dialog):
@@ -103,26 +104,69 @@ def build_llm_tab(dialog):
     self.llm_temperature_spin.setSingleStep(0.1)
     self.llm_temperature_spin.setDecimals(2)
     self.llm_temperature_spin.valueChanged.connect(self._on_llm_param_changed)
-    self._add_form_row(model_form, "settings.llm.model_group.temperature", "Temperature:", self.llm_temperature_spin)
+    self.llm_temperature_label = self._add_form_row(
+        model_form,
+        "settings.llm.model_group.temperature",
+        "Temperature:",
+        self.llm_temperature_spin,
+    )
 
     self.llm_top_p_spin = QDoubleSpinBox()
     self.llm_top_p_spin.setRange(0.0, 1.0)
     self.llm_top_p_spin.setSingleStep(0.05)
     self.llm_top_p_spin.setDecimals(2)
     self.llm_top_p_spin.valueChanged.connect(self._on_llm_param_changed)
-    self._add_form_row(model_form, "settings.llm.model_group.top_p", "Top P:", self.llm_top_p_spin)
+    self.llm_top_p_label = self._add_form_row(
+        model_form,
+        "settings.llm.model_group.top_p",
+        "Top P:",
+        self.llm_top_p_spin,
+    )
+
+    self.llm_reasoning_effort_combo = QComboBox()
+    reasoning_effort_labels = {
+        "none": "사용 안 함",
+        "low": "낮음",
+        "medium": "보통",
+        "high": "높음",
+        "xhigh": "매우 높음",
+        "max": "최대",
+    }
+    for index, effort in enumerate(OPENAI_REASONING_EFFORTS):
+        fallback = reasoning_effort_labels[effort]
+        self.llm_reasoning_effort_combo.addItem(fallback, effort)
+        self._bind_combo_item(
+            self.llm_reasoning_effort_combo,
+            index,
+            f"settings.llm.model_group.reasoning_effort.options.{effort}",
+            fallback,
+        )
+    self.llm_reasoning_effort_combo.currentIndexChanged.connect(self._on_llm_param_changed)
+    self.llm_reasoning_effort_label = self._add_form_row(
+        model_form,
+        "settings.llm.model_group.reasoning_effort.label",
+        "추론 강도:",
+        self.llm_reasoning_effort_combo,
+    )
+    self.llm_reasoning_effort_label.setVisible(False)
+    self.llm_reasoning_effort_combo.setVisible(False)
 
     self.llm_max_tokens_spin = QSpinBox()
     self.llm_max_tokens_spin.setRange(0, 65536)
     self._bind_special_value_text(self.llm_max_tokens_spin, "settings.common.auto", "자동")
     self.llm_max_tokens_spin.valueChanged.connect(self._on_llm_param_changed)
     self._add_form_row(model_form, "settings.llm.model_group.max_tokens", "Max Tokens:", self.llm_max_tokens_spin)
-    model_form.addRow(
-        self._build_hint_label(
-            "Temperature와 Top P는 창의성 조절용이고, Max Tokens는 응답 길이 제한입니다.",
-            key="settings.llm.model_group.hint",
-        )
+    self.llm_model_params_hint = self._build_hint_label(
+        "Temperature와 Top P는 창의성 조절용이고, Max Tokens는 응답 길이 제한입니다.",
+        key="settings.llm.model_group.hint",
     )
+    model_form.addRow(self.llm_model_params_hint)
+    self.llm_gpt_5_6_hint = self._build_hint_label(
+        "GPT-5.6에서는 Temperature와 Top P를 전송하지 않고 추론 강도를 사용합니다.",
+        key="settings.llm.model_group.gpt_5_6_hint",
+    )
+    self.llm_gpt_5_6_hint.setVisible(False)
+    model_form.addRow(self.llm_gpt_5_6_hint)
     layout.addWidget(model_group)
 
     self.custom_api_group = QGroupBox("Custom API")

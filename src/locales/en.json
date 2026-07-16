@@ -660,6 +660,18 @@
         "temperature": "Temperature:",
         "top_p": "Top P:",
         "max_tokens": "Max Tokens:",
+        "reasoning_effort": {
+          "label": "Reasoning Effort:",
+          "options": {
+            "none": "None",
+            "low": "Low",
+            "medium": "Medium",
+            "high": "High",
+            "xhigh": "Extra High",
+            "max": "Maximum"
+          }
+        },
+        "gpt_5_6_hint": "GPT-5.6 does not send Temperature or Top P and uses Reasoning Effort instead.",
         "hint": "Temperature and Top P adjust creativity, while Max Tokens limits response length."
       },
       "custom_api_group": {
