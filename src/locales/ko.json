@@ -662,6 +662,18 @@
         "temperature": "Temperature:",
         "top_p": "Top P:",
         "max_tokens": "Max Tokens:",
+        "reasoning_effort": {
+          "label": "추론 강도:",
+          "options": {
+            "none": "사용 안 함",
+            "low": "낮음",
+            "medium": "보통",
+            "high": "높음",
+            "xhigh": "매우 높음",
+            "max": "최대"
+          }
+        },
+        "gpt_5_6_hint": "GPT-5.6에서는 Temperature와 Top P를 전송하지 않고 추론 강도를 사용합니다.",
         "hint": "Temperature와 Top P는 창의성 조절용이고, Max Tokens는 응답 길이 제한입니다."
       },
       "custom_api_group": {

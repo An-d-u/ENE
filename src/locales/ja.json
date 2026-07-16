@@ -658,6 +658,18 @@
         "temperature": "Temperature:",
         "top_p": "Top P:",
         "max_tokens": "Max Tokens:",
+        "reasoning_effort": {
+          "label": "推論強度:",
+          "options": {
+            "none": "なし",
+            "low": "低",
+            "medium": "中",
+            "high": "高",
+            "xhigh": "非常に高い",
+            "max": "最大"
+          }
+        },
+        "gpt_5_6_hint": "GPT-5.6ではTemperatureとTop Pを送信せず、推論強度を使用します。",
         "hint": "Temperature and Top P adjust creativity, while Max Tokens limits response length."
       },
       "custom_api_group": {
