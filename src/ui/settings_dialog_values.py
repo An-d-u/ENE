@@ -408,7 +408,12 @@ class SettingsDialogValuesMixin:
             params = self._default_model_params()
         normalized = self._normalize_model_params_for_policy(provider, model_name, params)
         store[model_key] = dict(normalized)
-        store.setdefault("__default__", dict(normalized))
+        if "__default__" not in store:
+            store["__default__"] = self._normalize_model_params_for_policy(
+                provider,
+                "__default__",
+                normalized,
+            )
         return normalized
 
     def _set_current_model_params(self):
@@ -432,7 +437,12 @@ class SettingsDialogValuesMixin:
                 policy.default_reasoning_effort,
             )
         provider_store[model_key] = self._normalize_model_params(params)
-        provider_store.setdefault("__default__", dict(provider_store[model_key]))
+        if "__default__" not in provider_store:
+            provider_store["__default__"] = self._normalize_model_params_for_policy(
+                provider,
+                "__default__",
+                provider_store[model_key],
+            )
 
     def _refresh_llm_model_policy_controls(self, provider: str, model_name: str):
         policy = resolve_openai_model_policy(provider, model_name)
@@ -814,7 +824,12 @@ class SettingsDialogValuesMixin:
                 active_key = self._active_model_key_by_provider.get(provider_name, "__default__")
                 if active_key not in provider_store:
                     provider_store[active_key] = self._default_model_params()
-                provider_store.setdefault("__default__", dict(provider_store[active_key]))
+                if "__default__" not in provider_store:
+                    provider_store["__default__"] = self._normalize_model_params_for_policy(
+                        provider_name,
+                        "__default__",
+                        provider_store[active_key],
+                    )
 
             if llm_provider in self._provider_values:
                 idx = self.llm_provider_combo.findData(llm_provider)

@@ -1146,6 +1146,48 @@ def test_settings_dialog_removes_reasoning_from_inactive_unsupported_model_param
             dialog.close()
 
 
+def test_settings_dialog_sanitizes_missing_default_for_openai_gpt_5_6_params(monkeypatch):
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="en", locales_dir=locales_dir, system_locale="en_US")
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        monkeypatch.setattr(SettingsDialog, "_load_prompt_configuration", lambda self: None)
+        dialog = SettingsDialog(
+            {
+                "ui_language": "en",
+                "llm_provider": "openai",
+                "llm_models": {"openai": "gpt-5.6-sol"},
+                "llm_model_params": {
+                    "openai": {
+                        "gpt-5.6-sol": {
+                            "temperature": 0.4,
+                            "top_p": 0.8,
+                            "max_tokens": 3072,
+                            "reasoning_effort": "medium",
+                        }
+                    }
+                },
+                "tts_provider": "gpt_sovits_http",
+            }
+        )
+
+        try:
+            values = dialog._get_current_values()
+            stored = values["llm_model_params"]["openai"]
+
+            assert stored["gpt-5.6-sol"]["reasoning_effort"] == "medium"
+            assert stored["__default__"] == {
+                "temperature": 0.4,
+                "top_p": 0.8,
+                "max_tokens": 3072,
+            }
+        finally:
+            dialog.close()
+
+
 def test_settings_dialog_does_not_apply_openai_gpt_5_6_policy_to_custom_api(monkeypatch):
     _get_qapp()
     locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
