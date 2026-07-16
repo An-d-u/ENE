@@ -1061,6 +1061,47 @@ def test_settings_dialog_applies_openai_gpt_5_6_policy_and_restores_model_values
             dialog.close()
 
 
+def test_settings_dialog_applies_model_params_once_per_provider_change(monkeypatch):
+    _get_qapp()
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    configure_i18n(language="en", locales_dir=locales_dir, system_locale="en_US")
+
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        monkeypatch.setattr(SettingsDialog, "_load_prompt_configuration", lambda self: None)
+        dialog = SettingsDialog(
+            {
+                "ui_language": "en",
+                "llm_provider": "gemini",
+                "llm_models": {
+                    "gemini": "gemini-3-flash-preview",
+                    "openai": "gpt-5.6-sol",
+                },
+                "tts_provider": "gpt_sovits_http",
+            }
+        )
+
+        try:
+            apply_calls = []
+            original_apply = dialog._apply_model_params_to_widgets
+
+            def track_apply(provider, model_name):
+                apply_calls.append((provider, model_name))
+                original_apply(provider, model_name)
+
+            monkeypatch.setattr(dialog, "_apply_model_params_to_widgets", track_apply)
+            openai_index = dialog.llm_provider_combo.findData("openai")
+            dialog.llm_provider_combo.setCurrentIndex(openai_index)
+
+            assert apply_calls == [("openai", "gpt-5.6-sol")]
+            assert dialog.llm_model_edit.text() == "gpt-5.6-sol"
+            assert dialog.llm_temperature_spin.isEnabled() is False
+            assert dialog.llm_reasoning_effort_combo.isHidden() is False
+        finally:
+            dialog.close()
+
+
 def test_settings_dialog_persists_openai_gpt_5_6_reasoning_and_disabled_sampling_values(monkeypatch):
     _get_qapp()
     locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
