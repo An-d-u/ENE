@@ -229,6 +229,8 @@ class SettingsDialogValuesMixin:
         self._on_setting_changed()
 
     def _on_llm_model_changed(self, text: str):
+        if self._loading:
+            return
         provider = str(self.llm_provider_combo.currentData() or "gemini")
         old_key = self._active_model_key_by_provider.get(provider, "__default__")
         new_key = self._model_param_key(text)
