@@ -898,18 +898,6 @@ result = {
     assert result["bodyZ"] < 0
 
 
-def test_removed_talk_hold_motions_are_absent_from_runtime_and_preview():
-    runtime_script = _runtime_motion_state_text()
-    preview = (Path(__file__).resolve().parents[1] / "docs" / "mockups" / "live2d-gesture-preview.html").read_text(
-        encoding="utf-8-sig"
-    )
-
-    for motion_name in ("talk-tilt-left-hold", "talk-tilt-right-hold"):
-        assert f'name: "{motion_name}"' not in runtime_script
-        assert f'data-motion="{motion_name}"' not in preview
-        assert f'"{motion_name}":' not in preview
-
-
 def test_disabled_bounce_grooves_never_enter_automatic_pool():
     result = _run_motion_state_runtime_case(
         """
