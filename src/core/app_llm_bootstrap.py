@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ..ai.llm_provider import LLMProviderConfig, create_llm_client
+from ..ai.openai_model_policy import normalize_reasoning_effort, resolve_openai_model_policy
 
 
 @dataclass
@@ -26,34 +27,42 @@ class LLMRuntimeDependencies:
 
 def _resolve_generation_params(settings, provider: str, model_name: str) -> dict:
     defaults = {"temperature": 0.9, "top_p": 1.0, "max_tokens": 2048}
-    raw = settings.get("llm_model_params", {}) if settings else {}
-    if not isinstance(raw, dict):
-        return defaults
-
-    provider_map = raw.get(provider, {})
-    if not isinstance(provider_map, dict):
-        return defaults
-
-    model_key = str(model_name or "").strip()
-    candidate = provider_map.get(model_key) if model_key else None
-    if not isinstance(candidate, dict):
-        candidate = provider_map.get("__default__")
-    if not isinstance(candidate, dict):
-        return defaults
-
     resolved = dict(defaults)
-    try:
-        resolved["temperature"] = max(0.0, min(2.0, float(candidate.get("temperature", defaults["temperature"]))))
-    except (TypeError, ValueError):
-        pass
-    try:
-        resolved["top_p"] = max(0.0, min(1.0, float(candidate.get("top_p", defaults["top_p"]))))
-    except (TypeError, ValueError):
-        pass
-    try:
-        resolved["max_tokens"] = max(0, int(candidate.get("max_tokens", defaults["max_tokens"])))
-    except (TypeError, ValueError):
-        pass
+    raw = settings.get("llm_model_params", {}) if settings else {}
+    candidate = None
+    if isinstance(raw, dict):
+        provider_map = raw.get(provider, {})
+        if isinstance(provider_map, dict):
+            model_key = str(model_name or "").strip()
+            candidate = provider_map.get(model_key) if model_key else None
+            if not isinstance(candidate, dict):
+                candidate = provider_map.get("__default__")
+
+    if isinstance(candidate, dict):
+        try:
+            resolved["temperature"] = max(
+                0.0,
+                min(2.0, float(candidate.get("temperature", defaults["temperature"]))),
+            )
+        except (TypeError, ValueError):
+            pass
+        try:
+            resolved["top_p"] = max(0.0, min(1.0, float(candidate.get("top_p", defaults["top_p"]))))
+        except (TypeError, ValueError):
+            pass
+        try:
+            resolved["max_tokens"] = max(0, int(candidate.get("max_tokens", defaults["max_tokens"])))
+        except (TypeError, ValueError):
+            pass
+
+    policy = resolve_openai_model_policy(provider, model_name)
+    if policy.supports_reasoning_effort:
+        value = candidate.get("reasoning_effort") if isinstance(candidate, dict) else None
+        resolved["reasoning_effort"] = normalize_reasoning_effort(
+            value,
+            default=policy.default_reasoning_effort,
+        )
+
     return resolved
 
 

@@ -74,6 +74,17 @@ def _install_fake_search(monkeypatch):
     return _RecordingTavilyProvider
 
 
+def test_openai_client_preserves_normalized_reasoning_effort():
+    client = OpenAIResponseAPIClient(
+        api_key="test-key",
+        model_name="gpt-5.6-sol",
+        endpoint="https://api.openai.com/v1/responses",
+        generation_params={"reasoning_effort": " HIGH "},
+    )
+
+    assert client.generation_params["reasoning_effort"] == "high"
+
+
 def test_openai_responses_request_includes_instructions(monkeypatch):
     captured = {}
 
