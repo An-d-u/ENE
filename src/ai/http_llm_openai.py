@@ -7,6 +7,9 @@ from .http_llm_common import (
     _normalize_generation_params,
     _raise_for_status_with_detail,
 )
+from .openai_model_policy import normalize_reasoning_effort, resolve_openai_model_policy
+
+
 class OpenAICompatibleClient(_CommonMixin):
     def __init__(
         self,
@@ -169,7 +172,8 @@ class OpenAIResponseAPIClient(_CommonMixin):
         *,
         api_key: str,
         model_name: str,
-        endpoint: str,
+        endpoint: str = "https://api.openai.com/v1/responses",
+        provider_name: str = "openai",
         memory_manager=None,
         user_profile=None,
         ene_profile=None,
@@ -191,7 +195,7 @@ class OpenAIResponseAPIClient(_CommonMixin):
         self.goal_manager = goal_manager
         self.generation_params = _normalize_generation_params(generation_params)
         self._history = []
-        self.provider_name = "openai"
+        self.provider_name = str(provider_name or "openai").strip().lower()
 
     def _headers(self):
         return {
@@ -242,6 +246,22 @@ class OpenAIResponseAPIClient(_CommonMixin):
                     return text.strip()
         return ""
 
+    def _apply_generation_payload(self, payload: dict) -> None:
+        policy = resolve_openai_model_policy(self.provider_name, self.model_name)
+        if policy.supports_temperature:
+            payload["temperature"] = self.generation_params["temperature"]
+        if policy.supports_top_p:
+            payload["top_p"] = self.generation_params["top_p"]
+        if policy.supports_reasoning_effort:
+            payload["reasoning"] = {
+                "effort": normalize_reasoning_effort(
+                    self.generation_params.get("reasoning_effort"),
+                    default=policy.default_reasoning_effort,
+                )
+            }
+        if self.generation_params["max_tokens"] > 0:
+            payload["max_output_tokens"] = self.generation_params["max_tokens"]
+
     def _request_responses(self, user_content) -> str:
         context = self._build_request_context(
             user_content,
@@ -252,11 +272,8 @@ class OpenAIResponseAPIClient(_CommonMixin):
             "instructions": context.system_prompt,
             "input": self._input_items(context.user_content, history=context.history),
             "store": False,
-            "temperature": self.generation_params["temperature"],
-            "top_p": self.generation_params["top_p"],
         }
-        if self.generation_params["max_tokens"] > 0:
-            payload["max_output_tokens"] = self.generation_params["max_tokens"]
+        self._apply_generation_payload(payload)
         response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=60)
         _raise_for_status_with_detail(response, self.provider_name)
         data = response.json()
@@ -289,11 +306,8 @@ class OpenAIResponseAPIClient(_CommonMixin):
             "instructions": context.system_prompt,
             "input": [user_item],
             "store": False,
-            "temperature": self.generation_params["temperature"],
-            "top_p": self.generation_params["top_p"],
         }
-        if self.generation_params["max_tokens"] > 0:
-            payload["max_output_tokens"] = self.generation_params["max_tokens"]
+        self._apply_generation_payload(payload)
         response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=60)
         _raise_for_status_with_detail(response, self.provider_name)
         data = response.json()
