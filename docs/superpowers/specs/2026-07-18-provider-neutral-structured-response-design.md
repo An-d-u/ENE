@@ -180,6 +180,19 @@ capability key는 `(provider, wire_format, endpoint_fingerprint, model, schema_v
 | `/diary`, `/note`, Markdown 문서 생성과 완료 안내 | 미적용 |
 | 그 밖의 `include_sub_prompt=False` one-shot | 미적용 |
 
+적용 여부를 `include_sub_prompt` 값으로 추론하지 않는다. 공통 `LLMRequestContext`에 `request_kind`를 추가하고 `final_reply`, `summary`, `decision`, `markdown`, `plain_text` 중 하나를 호출부가 명시한다. 세 일반 대화 메서드만 `final_reply`를 사용한다. Gemini의 SDK 요청도 같은 request kind를 config 생성과 세션 signature에 전달한다.
+
+### 6.8 응답 전달 메타데이터
+
+기존 10개 `LLM_RESPONSE_TUPLE`과 PyQt `response_ready` signal 인자 수는 바꾸지 않는다. 대신 내용이 없는 request-scoped `ResponseDeliveryMetadata`를 사용한다.
+
+- `response_mode`: 실제 성공한 `json_schema`, `strict_tool`, `json_object`, `legacy_tags`
+- `schema_version`: 적용한 계약 버전
+- `promises_authoritative`: 구조화된 promises 배열을 최종값으로 취급할지 여부
+- `repair_performed`: 제한 복구 실행 여부
+
+`AIWorker`는 LLM 호출 직후 이 메타데이터를 자신의 속성으로 보관하고, 브릿지는 현재 worker의 `response_ready`를 처리할 때 같은 worker 속성을 읽는다. 전역 last-response 값에 의존하지 않으므로 다른 턴과 섞이지 않는다. 구조화 세 모드에서는 `promises_authoritative=true`, 태그 모드에서는 `false`다. 메타데이터에는 사용자 입력, 답변, thought 또는 다른 응답 내용이 들어가지 않는다.
+
 ## 7. 제공자별 정책
 
 | 제공자·형식 | V1 우선 경로 | 폴백과 제한 |
@@ -264,6 +277,8 @@ Gemini의 primary 응답이 미지원 오류, 잘못된 root JSON, reply 부재,
 
 검증기와 복구기는 데이터를 만들거나 저장하지 않는다. 최종 envelope를 기존 10개 튜플로 변환한 뒤 브릿지가 현재 관리자에 전달한다.
 
+구조화 모드의 `promises=[]`는 명시적인 “약속 없음”이다. `promises_authoritative=true`이면 브릿지는 빈 배열 뒤에 표시 reply를 다시 휴리스틱 분석해 약속을 만들지 않는다. 잘못된 구조화 promise가 폐기된 경우도 동일하다. `legacy_tags`에서 promise가 비어 있고 `promises_authoritative=false`인 경우에만 현재 사용자·assistant 문장 기반 약속 휴리스틱을 유지한다. 유효한 explicit promise가 있으면 어느 모드에서도 휴리스틱을 추가 실행하지 않는다.
+
 - 일정: `date`와 `title`이 유효한 항목만 전달
 - 약속: `trigger_at`과 `title`이 유효한 항목만 전달
 - 목표: action별 필수값을 충족한 update만 전달, 아니면 `action=none`
@@ -273,6 +288,8 @@ Gemini의 primary 응답이 미지원 오류, 잘못된 root JSON, reply 부재,
 재요청과 복구가 모두 끝나기 전에 bridge signal을 emit하지 않으므로 같은 턴의 후보가 중복 저장되지 않는다. 기존 manager의 중복 방지와 리롤 추적 동작은 유지한다.
 
 ## 12. 로깅과 개인정보
+
+현재 final reply 경로에서 user message, assistant reply, TTS 원문을 출력하는 기존 `print` 호출도 이 작업 범위에서 제거하거나 길이·상태 코드만 남기는 형태로 교체한다. 새 어댑터만 안전하게 로깅하고 기존 브릿지 로그를 그대로 두는 상태는 완료로 인정하지 않는다.
 
 허용 로그:
 
@@ -310,8 +327,9 @@ Gemini의 primary 응답이 미지원 오류, 잘못된 root JSON, reply 부재,
 
 각 공식 제공자와 Custom API wire format에 대해 다음을 mock 경계에서 검증한다.
 
-- final reply 요청에만 올바른 네이티브 payload가 추가된다.
-- one-shot, summary, decision, markdown 생성에는 ENE envelope가 적용되지 않는다.
+- `request_kind=final_reply` 요청에만 올바른 네이티브 payload가 추가된다.
+- `include_sub_prompt=True`만으로 final reply로 오인하지 않는다.
+- one-shot, summary, decision, markdown, diary/note 완료 안내에는 ENE envelope가 적용되지 않는다.
 - JSON text, function/tool arguments, refusal, 후보 부재, length 종료를 정확히 추출한다.
 - OpenAI Responses의 완료 status를 올바르게 직렬화하고 해석한다.
 - OpenRouter native 요청은 parameter-support routing을 요구한다.
@@ -341,8 +359,12 @@ Gemini의 primary 응답이 미지원 오류, 잘못된 root JSON, reply 부재,
 - 유효한 thought가 `message_received`를 통해 기존 생각 버튼 생성 경로에 전달된다.
 - 태그 전용 모델의 thought도 같은 경로로 전달된다.
 - 유효한 부작용 후보만 정확히 한 번 관리자에 전달된다.
+- 구조화 모드의 `promises=[]`와 잘못되어 폐기된 promise는 약속 휴리스틱을 다시 실행하지 않는다.
+- 태그 모드에서 explicit promise가 없을 때는 기존 약속 휴리스틱이 유지된다.
+- worker의 응답 전달 메타데이터가 같은 턴에만 적용되고 signal 인자 수는 유지된다.
 - 리롤, 이미지 대화, 메모리 대화, context reset, visible history rebuild가 유지된다.
 - Gemini 재요청 전 실패한 자동 history가 제거되고, 성공 후 표시 reply만 남는다.
+- final reply 관련 로그에 user message, reply, TTS, thought, 부작용 내용이 남지 않는다.
 - 기존 전체 테스트와 신규 테스트가 모두 통과한다.
 
 실제 API smoke test는 자동 테스트의 필수 조건으로 두지 않는다. 사용자가 명시적으로 실행할 때만 개인 데이터가 없는 합성 입력으로 제공자별 한 번씩 확인한다.
@@ -368,6 +390,7 @@ Gemini의 primary 응답이 미지원 오류, 잘못된 root JSON, reply 부재,
 - 네이티브 미지원 모델은 기존 태그 방식으로 계속 대화할 수 있다.
 - 구조화 미지원과 일시적 API 오류가 구분된다.
 - goal, event, promise, analysis, proactive 데이터는 검증된 최종 응답에서만 한 번 적용된다.
+- 구조화된 빈 promise 배열은 최종값이며 휴리스틱 약속 생성을 유발하지 않고, 태그 호환 경로의 기존 휴리스틱은 유지된다.
 - 후속 history에는 JSON, tool call, 태그 원문 대신 표시 reply만 남는다.
 - 원문이 진단 로그와 테스트 fixture에 포함되지 않는다.
 - 전체 자동 테스트가 통과한다.
