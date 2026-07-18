@@ -7,6 +7,9 @@ from .http_llm_common import (
     _CommonMixin,
     _normalize_generation_params,
 )
+from .response_protocol import LLMRequestKind
+
+
 class AnthropicClient(_CommonMixin):
     def __init__(
         self,
@@ -49,6 +52,7 @@ class AnthropicClient(_CommonMixin):
         context = self._build_request_context(
             user_content_blocks,
             provider_format="anthropic",
+            request_kind=LLMRequestKind.FINAL_REPLY,
             include_sub_prompt=include_sub_prompt,
         )
         messages = []
@@ -71,10 +75,17 @@ class AnthropicClient(_CommonMixin):
         text_parts = [p.get("text", "") for p in data.get("content", []) if p.get("type") == "text"]
         return "\n".join(text_parts).strip()
 
-    def _request_one_shot_raw(self, message: str, include_sub_prompt: bool = True) -> str:
+    def _request_one_shot_raw(
+        self,
+        message: str,
+        *,
+        request_kind: LLMRequestKind,
+        include_sub_prompt: bool = True,
+    ) -> str:
         context = self._build_request_context(
             message,
             provider_format="anthropic_one_shot",
+            request_kind=request_kind,
             include_sub_prompt=include_sub_prompt,
             include_history=False,
         )

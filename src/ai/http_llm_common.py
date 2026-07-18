@@ -28,6 +28,7 @@ from .prompt import build_runtime_system_prompt, get_parseable_emotions
 from .prompt_language import resolve_prompt_language
 from .response_protocol import (
     RESPONSE_ENVELOPE_SCHEMA_VERSION,
+    LLMRequestKind,
     ProviderProfile,
     ResponseCapabilityKey,
     ResponseMode,
@@ -610,6 +611,9 @@ class LLMRequestContext:
     """공급자별 payload로 변환되기 전의 공통 요청 컨텍스트."""
 
     provider_format: str
+    request_kind: LLMRequestKind
+    response_mode: ResponseMode
+    schema_version: str
     system_prompt: str
     user_content: object
     history: list[dict] = field(default_factory=list)
@@ -620,6 +624,9 @@ class LLMRequestContext:
     def fingerprint(self) -> dict:
         return {
             "provider_format": self.provider_format,
+            "request_kind": self.request_kind.value,
+            "response_mode": self.response_mode.value,
+            "schema_version": self.schema_version,
             "include_sub_prompt": self.include_sub_prompt,
             "system_prompt_sha256": _fingerprint_payload(self.system_prompt),
             "system_prompt_chars": len(self.system_prompt),
@@ -733,7 +740,11 @@ class _CommonMixin:
 
     def _request_summary_text(self, prompt: str) -> str:
         with self._temporary_summary_generation_budget():
-            response_text = self._request_one_shot_raw(prompt, include_sub_prompt=False)
+            response_text = self._request_one_shot_raw(
+                prompt,
+                request_kind=LLMRequestKind.SUMMARY,
+                include_sub_prompt=False,
+            )
             if is_complete_summary_response(response_text):
                 return response_text
 
@@ -741,6 +752,7 @@ class _CommonMixin:
             print(f"[LLM] 요약 응답이 불완전해 재시도합니다. missing={missing_sections}")
             return self._request_one_shot_raw(
                 self._summary_retry_prompt(prompt, missing_sections),
+                request_kind=LLMRequestKind.SUMMARY,
                 include_sub_prompt=False,
             )
 
@@ -770,10 +782,15 @@ class _CommonMixin:
         user_content,
         *,
         provider_format: str,
+        request_kind: LLMRequestKind,
+        response_mode: ResponseMode = ResponseMode.LEGACY_TAGS,
+        schema_version: str = RESPONSE_ENVELOPE_SCHEMA_VERSION,
         include_sub_prompt: bool = True,
         include_history: bool = True,
         attachments_metadata: list[dict] | None = None,
     ) -> LLMRequestContext:
+        normalized_request_kind = LLMRequestKind(request_kind)
+        normalized_response_mode = ResponseMode(response_mode)
         attachments = (
             list(attachments_metadata)
             if attachments_metadata is not None
@@ -781,10 +798,15 @@ class _CommonMixin:
         )
         context = LLMRequestContext(
             provider_format=provider_format,
+            request_kind=normalized_request_kind,
+            response_mode=normalized_response_mode,
+            schema_version=str(schema_version),
             system_prompt=build_runtime_system_prompt(
                 include_sub_prompt=include_sub_prompt,
                 include_analysis_appendix=True,
                 settings_source=self._runtime_prompt_settings_source(),
+                request_kind=normalized_request_kind,
+                response_mode=normalized_response_mode,
             ),
             user_content=user_content,
             history=copy.deepcopy(list(getattr(self, "_history", []) or [])) if include_history else [],
@@ -988,7 +1010,11 @@ class _CommonMixin:
 
     def _create_web_search_decision_provider(self):
         return create_web_search_decision_provider(
-            lambda prompt: self._request_one_shot_raw(prompt, include_sub_prompt=False)
+            lambda prompt: self._request_one_shot_raw(
+                prompt,
+                request_kind=LLMRequestKind.DECISION,
+                include_sub_prompt=False,
+            )
         )
 
     def _to_openai_input_content(self, content) -> list[dict]:
@@ -1103,27 +1129,43 @@ class _CommonMixin:
     async def generate_markdown_document(self, message: str) -> str:
         memory_context = await self._build_memory_context(message)
         diary_prompt = self._build_diary_markdown_prompt(message, memory_context)
-        response_text = self._request_one_shot_raw(diary_prompt, include_sub_prompt=False)
+        response_text = self._request_one_shot_raw(
+            diary_prompt,
+            request_kind=LLMRequestKind.MARKDOWN,
+            include_sub_prompt=False,
+        )
         return (response_text or "").strip()
 
     async def generate_diary_completion_reply(
         self,
         context_message: str,
     ) -> LLM_RESPONSE_TUPLE:
-        response_text = self._request_one_shot_raw(context_message, include_sub_prompt=True)
+        response_text = self._request_one_shot_raw(
+            context_message,
+            request_kind=LLMRequestKind.PLAIN_TEXT,
+            include_sub_prompt=True,
+        )
         return self._parse_response(response_text)
 
     async def generate_note_command_plan(self, context_message: str) -> str:
         memory_context = await self._build_memory_context(context_message)
         enhanced = f"{memory_context}\n\n{context_message}" if memory_context else context_message
-        response_text = self._request_one_shot_raw(enhanced, include_sub_prompt=False)
+        response_text = self._request_one_shot_raw(
+            enhanced,
+            request_kind=LLMRequestKind.DECISION,
+            include_sub_prompt=False,
+        )
         return (response_text or "").strip()
 
     async def generate_note_execution_report(
         self,
         context_message: str,
     ) -> LLM_RESPONSE_TUPLE:
-        response_text = self._request_one_shot_raw(context_message, include_sub_prompt=True)
+        response_text = self._request_one_shot_raw(
+            context_message,
+            request_kind=LLMRequestKind.PLAIN_TEXT,
+            include_sub_prompt=True,
+        )
         return self._parse_response(response_text)
 
     def _parse_response(self, response_text: str) -> LLM_RESPONSE_TUPLE:
@@ -1215,6 +1257,7 @@ class _CommonMixin:
         context = self._build_request_context(
             user_content,
             provider_format=provider_format,
+            request_kind=LLMRequestKind.FINAL_REPLY,
             include_sub_prompt=include_sub_prompt,
         )
         messages = [{
