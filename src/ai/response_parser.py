@@ -7,10 +7,10 @@ from __future__ import annotations
 import re
 from typing import Callable, Dict, List
 
-from .analysis_prompt import is_conversation_promise_enabled, is_schedule_recognition_enabled
 from .prompt_language import resolve_prompt_language, resolve_tts_language
 from .response_envelope import (
     LLM_RESPONSE_TUPLE,
+    ResponseRequirements,
     build_response_requirements,
     normalize_response_tuple,
 )
@@ -193,17 +193,26 @@ def extract_legacy_japanese_tts_lines(text: str) -> tuple[str, str | None]:
     return clean_text, tts_text
 
 
-def extract_tts_text(text: str, settings_source: object | None = None) -> tuple[str, str | None]:
+def extract_tts_text(
+    text: str,
+    settings_source: object | None = None,
+    *,
+    requirements: ResponseRequirements | None = None,
+) -> tuple[str, str | None]:
     """명시적 TTS 블록 또는 설정 언어에 따라 TTS용 텍스트를 분리한다."""
     clean_text, tts_text = extract_tts_metadata(text)
     if tts_text:
         return clean_text, tts_text
 
-    response_language = resolve_prompt_language(settings_source=settings_source)
-    tts_language = resolve_tts_language(
-        settings_source=settings_source,
-        response_language=response_language,
-    )
+    if requirements is None:
+        response_language = resolve_prompt_language(settings_source=settings_source)
+        tts_language = resolve_tts_language(
+            settings_source=settings_source,
+            response_language=response_language,
+        )
+    else:
+        response_language = requirements.response_language
+        tts_language = requirements.tts_language
     if tts_language == response_language:
         normalized = clean_text.strip()
         return normalized, normalized or None
@@ -229,9 +238,16 @@ def parse_llm_response(
     *,
     settings_source: object | None = None,
     available_emotions: list[str] | set[str] | tuple[str, ...] | None = None,
+    requirements: ResponseRequirements | None = None,
     log_event: Callable[[str], None] | None = None,
 ) -> LLM_RESPONSE_TUPLE:
     """최종 응답 텍스트에서 표시 텍스트, 감정, 메타데이터를 분리한다."""
+    if requirements is None:
+        requirements = build_response_requirements(
+            settings_source,
+            available_emotions=available_emotions or ("normal",),
+        )
+
     response_text = strip_thinking_markers(response_text)
     response_text = sanitize_reserved_control_blocks(response_text)
     response_text, analysis = extract_analysis_block(response_text)
@@ -239,7 +255,7 @@ def parse_llm_response(
     response_text, thought = extract_thought_metadata(response_text)
     response_text, proactive_conversations = extract_proactive_conversation_blocks(response_text)
 
-    schedule_enabled = is_schedule_recognition_enabled(settings_source)
+    schedule_enabled = requirements.enable_events
     events = []
     event_pattern = r"\[(?:event|이벤트):([^\]]+)\]"
     event_matches = re.findall(event_pattern, response_text)
@@ -258,7 +274,7 @@ def parse_llm_response(
                 log_event(f"[LLM] schedule event extracted: {parts[0]} | {parts[1]} | {description}")
     response_text = re.sub(event_pattern, "", response_text)
 
-    promises_enabled = is_conversation_promise_enabled(settings_source)
+    promises_enabled = requirements.enable_promises
     promises = []
     promise_pattern = r"\[약속:([^\]]+)\]"
     promise_matches = re.findall(promise_pattern, response_text)
@@ -283,7 +299,7 @@ def parse_llm_response(
     clean_text = re.sub(emotion_pattern, "", response_text).strip()
 
     emotion = "normal"
-    normalized_emotions = {str(item).lower() for item in (available_emotions or [])}
+    normalized_emotions = {str(item).lower() for item in requirements.allowed_emotions}
     for match in matches:
         low = match.lower()
         if low in normalized_emotions:
@@ -293,12 +309,11 @@ def parse_llm_response(
     if explicit_tts_text:
         tts_text = explicit_tts_text
     else:
-        clean_text, tts_text = extract_tts_text(clean_text, settings_source=settings_source)
-
-    requirements = build_response_requirements(
-        settings_source,
-        available_emotions=available_emotions or ("normal",),
-    )
+        clean_text, tts_text = extract_tts_text(
+            clean_text,
+            settings_source=settings_source,
+            requirements=requirements,
+        )
     return normalize_response_tuple(
         (
             clean_text,
