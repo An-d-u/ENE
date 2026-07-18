@@ -270,6 +270,18 @@ def test_openai_response_history_rehydrates_prior_image_turn():
     }
 
 
+def test_openai_response_assistant_history_uses_completed_status():
+    client = _build_openai_response_client()
+    client._history = [
+        {"role": "assistant", "content": "Synthetic prior reply."}
+    ]
+
+    items = client._input_items("Synthetic next request.")
+
+    assert items[0]["role"] == "assistant"
+    assert items[0]["status"] == "completed"
+
+
 def test_google_history_rehydrates_prior_image_turn(monkeypatch):
     captured = {}
 
