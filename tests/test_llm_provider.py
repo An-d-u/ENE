@@ -1,7 +1,9 @@
+import inspect
 from typing import Dict, List, get_type_hints
 
 import pytest
 
+from src.ai.http_llm_common import resolve_response_mode
 from src.ai.http_llm_clients import (
     AnthropicClient,
     CohereClient,
@@ -13,6 +15,7 @@ from src.ai.http_llm_clients import (
 )
 from src.ai.llm_provider import (
     LLMCapability,
+    LLMFormat,
     LLMClientProtocol,
     LLMProviderConfig,
     PROVIDER_BUILDERS,
@@ -20,6 +23,10 @@ from src.ai.llm_provider import (
     get_llm_provider_catalog,
     get_llm_provider_meta,
     register_llm_provider,
+)
+from src.ai.response_protocol import (
+    ProviderProfile,
+    ResponseMode,
 )
 
 
@@ -43,7 +50,7 @@ def test_llm_client_protocol_parsed_response_methods_include_goal_update_and_pro
         assert len(return_type.__args__) == 10
         assert return_type.__args__[-3] == Dict[str, str]
         assert return_type.__args__[-2] == List[Dict]
-        assert return_type.__args__[-1] == str
+        assert return_type.__args__[-1] is str
 
 
 def test_register_provider_and_create_client():
@@ -194,6 +201,222 @@ def test_custom_api_format_clients_forward_goal_manager(format_value, expected_t
         assert client.provider_name == "custom_api"
     if format_value == "openai_response_api":
         assert client.provider_name == "custom_api"
+
+
+def test_custom_api_format_normalization_keeps_builder_and_identity_aligned():
+    class SettingsDummy:
+        def get(self, key, default=None):
+            values = {
+                "custom_api_format": " ANTHROPIC ",
+                "custom_api_url": "",
+                "custom_api_request_model": "synthetic-model",
+            }
+            return values.get(key, default)
+
+    client = create_llm_client(
+        LLMProviderConfig(
+            provider="custom_api",
+            api_key="synthetic-key",
+            model_name="",
+        ),
+        settings=SettingsDummy(),
+    )
+
+    assert isinstance(client, AnthropicClient)
+    assert client.provider_name == "custom_api"
+    assert client.wire_format == "anthropic"
+
+
+@pytest.mark.parametrize(
+    ("format_value", "expected_type", "expected_wire_format"),
+    [
+        (LLMFormat.GEMINI, OpenAICompatibleClient, "openai_chat"),
+        (
+            LLMFormat.OPENAI_COMPATIBLE,
+            OpenAICompatibleClient,
+            "openai_chat",
+        ),
+        (
+            LLMFormat.OPENAI_RESPONSE_API,
+            OpenAIResponseAPIClient,
+            "openai_responses",
+        ),
+        (LLMFormat.ANTHROPIC, AnthropicClient, "anthropic"),
+        (LLMFormat.MISTRAL, MistralClient, "mistral"),
+        (LLMFormat.GOOGLE_CLOUD, GoogleCloudClient, "google_cloud"),
+        (LLMFormat.COHERE, CohereClient, "cohere"),
+        (LLMFormat.OLLAMA, OllamaClient, "ollama"),
+        (LLMFormat.CUSTOM, OpenAICompatibleClient, "openai_chat"),
+    ],
+)
+def test_custom_api_format_enum_values_keep_builder_and_identity_aligned(
+    format_value,
+    expected_type,
+    expected_wire_format,
+):
+    class SettingsDummy:
+        def get(self, key, default=None):
+            values = {
+                "custom_api_format": format_value,
+                "custom_api_url": "",
+                "custom_api_request_model": "synthetic-model",
+            }
+            return values.get(key, default)
+
+    client = create_llm_client(
+        LLMProviderConfig(
+            provider="custom_api",
+            api_key="synthetic-key",
+            model_name="",
+        ),
+        settings=SettingsDummy(),
+    )
+
+    assert isinstance(client, expected_type)
+    assert client.provider_name == "custom_api"
+    assert client.wire_format == expected_wire_format
+
+
+def test_registered_named_replacement_is_not_forced_to_builtin_identity():
+    class FrozenClient:
+        __slots__ = ()
+
+    def replacement_builder():
+        return FrozenClient()
+
+    original_builder = PROVIDER_BUILDERS["openai"]
+    register_llm_provider("openai", replacement_builder)
+    try:
+        client = create_llm_client(
+            LLMProviderConfig(
+                provider="openai",
+                api_key="synthetic-key",
+                model_name="synthetic-model",
+            )
+        )
+    finally:
+        PROVIDER_BUILDERS["openai"] = original_builder
+
+    assert isinstance(client, FrozenClient)
+    assert not hasattr(client, "provider_name")
+    assert not hasattr(client, "wire_format")
+
+
+def test_named_anthropic_and_ollama_clients_expose_provider_identity():
+    anthropic = create_llm_client(
+        LLMProviderConfig(
+            provider="anthropic",
+            api_key="synthetic-key",
+            model_name="synthetic-model",
+        )
+    )
+    ollama = create_llm_client(
+        LLMProviderConfig(
+            provider="ollama",
+            api_key="",
+            model_name="synthetic-model",
+        )
+    )
+
+    assert anthropic.provider_name == "anthropic"
+    assert anthropic.wire_format == "anthropic"
+    assert ollama.provider_name == "ollama"
+    assert ollama.wire_format == "ollama"
+
+
+@pytest.mark.parametrize(
+    ("client_type", "provider_name", "wire_format"),
+    [
+        (AnthropicClient, "anthropic", "anthropic"),
+        (OllamaClient, "ollama", "ollama"),
+    ],
+)
+def test_named_http_identity_preserves_existing_constructor_signature(
+    client_type,
+    provider_name,
+    wire_format,
+):
+    parameters = inspect.signature(client_type).parameters
+
+    assert "provider_name" not in parameters
+    assert "wire_format" not in parameters
+
+    client = client_type(
+        api_key="synthetic-key",
+        model_name="synthetic-model",
+        endpoint="https://synthetic.invalid/v1/generate",
+    )
+    assert client.provider_name == provider_name
+    assert client.wire_format == wire_format
+
+
+@pytest.mark.parametrize(
+    ("provider", "expected_wire_format", "expected_mode"),
+    [
+        ("openai", "openai_responses", ResponseMode.JSON_SCHEMA),
+        ("openrouter", "openai_chat", ResponseMode.JSON_SCHEMA),
+        ("deepseek", "openai_chat", ResponseMode.JSON_OBJECT),
+    ],
+)
+def test_named_factory_identity_builds_resolvable_provider_profile(
+    provider,
+    expected_wire_format,
+    expected_mode,
+):
+    client = create_llm_client(
+        LLMProviderConfig(
+            provider=provider,
+            api_key="synthetic-key",
+            model_name="synthetic-model",
+        )
+    )
+    current = ProviderProfile(
+        provider=client.provider_name,
+        wire_format=client.wire_format,
+        endpoint=client.endpoint,
+        model=client.model_name,
+    )
+
+    assert client.wire_format == expected_wire_format
+    assert resolve_response_mode(current) is expected_mode
+
+
+@pytest.mark.parametrize(
+    ("format_value", "expected_wire_format"),
+    [
+        ("openai_compatible", "openai_chat"),
+        ("openai_response_api", "openai_responses"),
+        ("anthropic", "anthropic"),
+        ("mistral", "mistral"),
+        ("google_cloud", "google_cloud"),
+        ("cohere", "cohere"),
+        ("ollama", "ollama"),
+    ],
+)
+def test_custom_api_clients_expose_custom_identity_for_every_wire_format(
+    format_value,
+    expected_wire_format,
+):
+    class SettingsDummy:
+        def get(self, key, default=None):
+            values = {
+                "custom_api_format": format_value,
+                "custom_api_url": "https://synthetic.invalid/v1/generate",
+                "custom_api_request_model": "synthetic-model",
+            }
+            return values.get(key, default)
+
+    client = create_llm_client(
+        LLMProviderConfig(
+            provider="custom_api",
+            api_key="synthetic-key",
+            model_name="",
+        ),
+        settings=SettingsDummy(),
+    )
+
+    assert client.provider_name == "custom_api"
+    assert client.wire_format == expected_wire_format
 
 
 def test_create_llm_client_for_supported_providers():

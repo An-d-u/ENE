@@ -1,10 +1,27 @@
 """공급자 중립 구조화 응답의 공통 프로토콜 타입."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 
 RESPONSE_ENVELOPE_SCHEMA_VERSION = "1"
+
+
+@dataclass(frozen=True)
+class ProviderProfile:
+    provider: str
+    wire_format: str
+    endpoint: str = field(repr=False)
+    model: str
+
+
+@dataclass(frozen=True)
+class ResponseCapabilityKey:
+    provider: str
+    wire_format: str
+    endpoint_fingerprint: str
+    model: str
+    schema_version: str
 
 
 class LLMRequestKind(str, Enum):
