@@ -8,6 +8,7 @@ from .http_llm_common import (
     _raise_for_status_with_detail,
 )
 from .openai_model_policy import normalize_reasoning_effort, resolve_openai_model_policy
+from .response_protocol import LLMRequestKind
 
 
 class OpenAICompatibleClient(_CommonMixin):
@@ -69,10 +70,17 @@ class OpenAICompatibleClient(_CommonMixin):
             return "\n".join([c.get("text", "") for c in content if isinstance(c, dict)]).strip()
         return str(content).strip()
 
-    def _request_one_shot_raw(self, user_content, include_sub_prompt: bool = True) -> str:
+    def _request_one_shot_raw(
+        self,
+        user_content,
+        *,
+        request_kind: LLMRequestKind,
+        include_sub_prompt: bool = True,
+    ) -> str:
         context = self._build_request_context(
             user_content,
             provider_format="openai_chat_one_shot",
+            request_kind=request_kind,
             include_sub_prompt=include_sub_prompt,
             include_history=False,
         )
@@ -266,6 +274,7 @@ class OpenAIResponseAPIClient(_CommonMixin):
         context = self._build_request_context(
             user_content,
             provider_format="openai_responses",
+            request_kind=LLMRequestKind.FINAL_REPLY,
         )
         payload = {
             "model": self.model_name,
@@ -279,10 +288,17 @@ class OpenAIResponseAPIClient(_CommonMixin):
         data = response.json()
         return self._extract_text(data)
 
-    def _request_one_shot_raw(self, user_content, include_sub_prompt: bool = True) -> str:
+    def _request_one_shot_raw(
+        self,
+        user_content,
+        *,
+        request_kind: LLMRequestKind,
+        include_sub_prompt: bool = True,
+    ) -> str:
         context = self._build_request_context(
             user_content,
             provider_format="openai_responses_one_shot",
+            request_kind=request_kind,
             include_sub_prompt=include_sub_prompt,
             include_history=False,
         )
@@ -436,10 +452,17 @@ class MistralClient(OpenAICompatibleClient):
         content = data["choices"][0]["message"]["content"]
         return str(content).strip()
 
-    def _request_one_shot_raw(self, user_content, include_sub_prompt: bool = True) -> str:
+    def _request_one_shot_raw(
+        self,
+        user_content,
+        *,
+        request_kind: LLMRequestKind,
+        include_sub_prompt: bool = True,
+    ) -> str:
         context = self._build_request_context(
             user_content,
             provider_format="mistral_one_shot",
+            request_kind=request_kind,
             include_sub_prompt=include_sub_prompt,
             include_history=False,
         )

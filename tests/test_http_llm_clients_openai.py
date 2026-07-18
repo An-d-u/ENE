@@ -5,6 +5,7 @@ import requests
 import pytest
 
 from src.ai.http_llm_clients import OpenAICompatibleClient, OpenAIResponseAPIClient
+from src.ai.response_protocol import LLMRequestKind, ResponseMode
 from src.ai.search_tool import SearchResponse, SearchResult
 from src.ai.tool_calling import clear_web_search_cache
 
@@ -143,11 +144,38 @@ def test_openai_responses_one_shot_applies_gpt_5_6_policy(monkeypatch):
         },
     )
 
-    assert client._request_one_shot_raw("Neutral one-shot input.") == "Synthetic response."
+    assert client._request_one_shot_raw(
+        "Neutral one-shot input.",
+        request_kind=LLMRequestKind.SUMMARY,
+    ) == "Synthetic response."
     assert "temperature" not in captured["json"]
     assert "top_p" not in captured["json"]
     assert captured["json"]["reasoning"] == {"effort": "max"}
     assert captured["json"]["max_output_tokens"] == 1536
+
+
+def test_official_openai_response_request_remains_legacy_during_classification(monkeypatch):
+    captured = {}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured["json"] = json
+        return _DummyResponse(json_data={"output_text": "Synthetic response."})
+
+    monkeypatch.setattr("src.ai.http_llm_clients.requests.post", fake_post)
+    client = OpenAIResponseAPIClient(
+        api_key="synthetic-key",
+        model_name="gpt-5.4-mini",
+        endpoint="https://api.openai.com/v1/responses",
+    )
+
+    assert client._request_responses("Synthetic final request.") == "Synthetic response."
+
+    fingerprint = client.get_last_request_context_fingerprint()
+    assert fingerprint["request_kind"] == LLMRequestKind.FINAL_REPLY.value
+    assert fingerprint["response_mode"] == ResponseMode.LEGACY_TAGS.value
+    assert fingerprint["schema_version"] == "1"
+    assert "text" not in captured["json"]
+    assert "response_format" not in captured["json"]
 
 
 def test_openai_responses_gpt_5_6_defaults_reasoning_effort_to_low(monkeypatch):

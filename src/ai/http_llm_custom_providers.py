@@ -6,6 +6,9 @@ from .http_llm_common import (
     _CommonMixin,
     _normalize_generation_params,
 )
+from .response_protocol import LLMRequestKind
+
+
 class GoogleCloudClient(_CommonMixin):
     def __init__(
         self,
@@ -72,6 +75,7 @@ class GoogleCloudClient(_CommonMixin):
         context = self._build_request_context(
             message,
             provider_format="google_cloud",
+            request_kind=LLMRequestKind.FINAL_REPLY,
             include_sub_prompt=include_sub_prompt,
             attachments_metadata=self._image_context_metadata(images_data),
         )
@@ -106,10 +110,17 @@ class GoogleCloudClient(_CommonMixin):
                     return text.strip()
         return ""
 
-    def _request_one_shot_raw(self, message: str, include_sub_prompt: bool = True) -> str:
+    def _request_one_shot_raw(
+        self,
+        message: str,
+        *,
+        request_kind: LLMRequestKind,
+        include_sub_prompt: bool = True,
+    ) -> str:
         context = self._build_request_context(
             message,
             provider_format="google_cloud_one_shot",
+            request_kind=request_kind,
             include_sub_prompt=include_sub_prompt,
             include_history=False,
         )
@@ -238,6 +249,7 @@ class CohereClient(_CommonMixin):
         context = self._build_request_context(
             message,
             provider_format="cohere",
+            request_kind=LLMRequestKind.FINAL_REPLY,
             include_sub_prompt=include_sub_prompt,
         )
         chat_history = []
@@ -271,10 +283,17 @@ class CohereClient(_CommonMixin):
             return text.strip()
         return ""
 
-    def _request_one_shot_raw(self, message: str, include_sub_prompt: bool = True) -> str:
+    def _request_one_shot_raw(
+        self,
+        message: str,
+        *,
+        request_kind: LLMRequestKind,
+        include_sub_prompt: bool = True,
+    ) -> str:
         context = self._build_request_context(
             message,
             provider_format="cohere_one_shot",
+            request_kind=request_kind,
             include_sub_prompt=include_sub_prompt,
             include_history=False,
         )

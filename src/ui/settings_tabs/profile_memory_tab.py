@@ -24,6 +24,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from ...ai.response_protocol import LLMRequestKind
+
 
 PROFILE_MEMORY_SOURCE = "memory_organizer"
 PROFILE_MEMORY_SOURCE_TITLE = "기억 정리"
@@ -606,10 +608,24 @@ def _request_profile_memory_proposal(llm_client, prompt: str) -> str:
         return str(_resolve_result(custom(prompt)) or "")
     raw = getattr(llm_client, "_request_one_shot_raw", None)
     if callable(raw):
-        return str(raw(prompt, include_sub_prompt=False) or "")
+        return str(
+            raw(
+                prompt,
+                request_kind=LLMRequestKind.DECISION,
+                include_sub_prompt=False,
+            )
+            or ""
+        )
     gemini_raw = getattr(llm_client, "_generate_one_shot_text", None)
     if callable(gemini_raw):
-        return str(gemini_raw(prompt, include_sub_prompt=False) or "")
+        return str(
+            gemini_raw(
+                prompt,
+                request_kind=LLMRequestKind.DECISION,
+                include_sub_prompt=False,
+            )
+            or ""
+        )
     raise RuntimeError("현재 LLM 클라이언트가 일회성 정리 요청을 지원하지 않습니다.")
 
 

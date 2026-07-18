@@ -23,6 +23,7 @@ from .prompt import build_runtime_system_prompt, get_parseable_emotions
 from .prompt_config import get_runtime_emotions
 from .prompt_language import resolve_prompt_language
 from .response_cleanup import extract_goal_update_metadata, extract_thought_metadata
+from .response_protocol import LLMRequestKind, ResponseMode
 from .runtime_prompt_settings import build_runtime_prompt_settings_source
 from .response_parser import (
     extract_analysis_block,
@@ -169,7 +170,10 @@ class GeminiClient:
         """Gemini chat 세션을 생성한다."""
         kwargs = {
             "model": self.model_name,
-            "config": self._build_chat_config(include_sub_prompt=True),
+            "config": self._build_chat_config(
+                include_sub_prompt=True,
+                request_kind=LLMRequestKind.FINAL_REPLY,
+            ),
         }
         if history is not None:
             kwargs["history"] = history
@@ -199,11 +203,18 @@ class GeminiClient:
             pass
         return normalized
 
-    def _build_chat_config(self, include_sub_prompt: bool = True) -> dict:
+    def _build_chat_config(
+        self,
+        include_sub_prompt: bool = True,
+        *,
+        request_kind: LLMRequestKind,
+    ) -> dict:
         system_instruction = build_runtime_system_prompt(
             include_sub_prompt=include_sub_prompt,
             include_analysis_appendix=True,
             settings_source=self._runtime_prompt_settings_source(),
+            request_kind=request_kind,
+            response_mode=ResponseMode.LEGACY_TAGS,
         )
         config = {
             "system_instruction": system_instruction,
@@ -223,7 +234,10 @@ class GeminiClient:
             current = 0
         return max(SUMMARY_MIN_OUTPUT_TOKENS, current)
 
-    def _build_summary_config(self) -> dict:
+    def _build_summary_config(self, *, request_kind: LLMRequestKind) -> dict:
+        if request_kind is not LLMRequestKind.SUMMARY:
+            raise ValueError("요약 config에는 SUMMARY request kind가 필요합니다.")
+
         return {
             "temperature": 0.5,
             "top_p": self.generation_params["top_p"],
@@ -243,7 +257,7 @@ class GeminiClient:
         response = self.client.models.generate_content(
             model=self.model_name,
             contents=prompt,
-            config=self._build_summary_config(),
+            config=self._build_summary_config(request_kind=LLMRequestKind.SUMMARY),
         )
         response_text = self._extract_response_text_or_empty(response, label="요약")
         if not response_text or is_complete_summary_response(response_text):
@@ -254,22 +268,35 @@ class GeminiClient:
         retry_response = self.client.models.generate_content(
             model=self.model_name,
             contents=self._summary_retry_prompt(prompt, missing_sections),
-            config=self._build_summary_config(),
+            config=self._build_summary_config(request_kind=LLMRequestKind.SUMMARY),
         )
         return self._extract_response_text_or_empty(retry_response, label="요약 재시도")
 
-    def _generate_one_shot_text(self, message: str, include_sub_prompt: bool) -> str:
+    def _generate_one_shot_text(
+        self,
+        message: str,
+        *,
+        request_kind: LLMRequestKind,
+        include_sub_prompt: bool,
+    ) -> str:
         """히스토리를 남기지 않는 일회성 생성 호출."""
         response = self.client.models.generate_content(
             model=self.model_name,
             contents=message,
-            config=self._build_chat_config(include_sub_prompt=include_sub_prompt),
+            config=self._build_chat_config(
+                include_sub_prompt=include_sub_prompt,
+                request_kind=request_kind,
+            ),
         )
         return self._extract_response_text_or_empty(response, label="one-shot")
 
     def _create_web_search_decision_provider(self):
         return create_web_search_decision_provider(
-            lambda prompt: self._generate_one_shot_text(prompt, include_sub_prompt=False)
+            lambda prompt: self._generate_one_shot_text(
+                prompt,
+                request_kind=LLMRequestKind.DECISION,
+                include_sub_prompt=False,
+            )
         )
 
     def _empty_text_fallback_response(self) -> LLM_RESPONSE_TUPLE:
@@ -386,28 +413,44 @@ class GeminiClient:
             memory_context=memory_context,
             language=self._prompt_language(),
         )
-        return self._generate_one_shot_text(diary_prompt, include_sub_prompt=False)
+        return self._generate_one_shot_text(
+            diary_prompt,
+            request_kind=LLMRequestKind.MARKDOWN,
+            include_sub_prompt=False,
+        )
 
     async def generate_diary_completion_reply(
         self,
         context_message: str,
     ) -> LLM_RESPONSE_TUPLE:
         """파일 작성 완료 안내 응답을 생성한다."""
-        response_text = self._generate_one_shot_text(context_message, include_sub_prompt=True)
+        response_text = self._generate_one_shot_text(
+            context_message,
+            request_kind=LLMRequestKind.PLAIN_TEXT,
+            include_sub_prompt=True,
+        )
         return self._parse_response(response_text)
 
     async def generate_note_command_plan(self, context_message: str) -> str:
         """sub prompt 없이 /note 실행 계획(Markdown)을 생성한다."""
         memory_context = await self._build_memory_context(context_message)
         enhanced = f"{memory_context}\n\n{context_message}" if memory_context else context_message
-        return self._generate_one_shot_text(enhanced, include_sub_prompt=False)
+        return self._generate_one_shot_text(
+            enhanced,
+            request_kind=LLMRequestKind.DECISION,
+            include_sub_prompt=False,
+        )
 
     async def generate_note_execution_report(
         self,
         context_message: str,
     ) -> LLM_RESPONSE_TUPLE:
         """sub prompt 적용 상태로 /note 실행 결과 보고 응답을 생성한다."""
-        response_text = self._generate_one_shot_text(context_message, include_sub_prompt=True)
+        response_text = self._generate_one_shot_text(
+            context_message,
+            request_kind=LLMRequestKind.PLAIN_TEXT,
+            include_sub_prompt=True,
+        )
         return self._parse_response(response_text)
 
     async def send_message_with_memory(

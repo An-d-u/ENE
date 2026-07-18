@@ -1,5 +1,6 @@
 # ruff: noqa: E402
 import asyncio
+from copy import deepcopy
 from datetime import datetime
 import sys
 import types
@@ -19,6 +20,7 @@ from src.ai.llm_client import (
 )
 from src.ai.memory import MemoryActivationResult
 from src.ai.memory_types import MemoryChunk
+from src.ai.response_protocol import LLMRequestKind, ResponseMode
 from src.ai.search_tool import SearchResponse, SearchResult
 from src.ai.tool_calling import clear_web_search_cache
 from src.core.bridge import WebBridge
@@ -449,8 +451,12 @@ def test_gemini_send_message_with_memory_auto_search_uses_one_shot_decision(monk
     async def _build_memory_context(query, recent_context="", head_pat_count_before_message=None):
         return "Synthetic memory context."
 
-    def _generate_one_shot_text(prompt, include_sub_prompt=True):
-        decision_calls.append({"prompt": prompt, "include_sub_prompt": include_sub_prompt})
+    def _generate_one_shot_text(prompt, *, request_kind, include_sub_prompt=True):
+        decision_calls.append({
+            "prompt": prompt,
+            "request_kind": request_kind,
+            "include_sub_prompt": include_sub_prompt,
+        })
         return '{"should_search": true, "query": "neutral release schedule", "reason": "current info"}'
 
     def _send_message(enhanced_prompt, **_kwargs):
@@ -478,6 +484,7 @@ def test_gemini_send_message_with_memory_auto_search_uses_one_shot_decision(monk
     enhanced_prompt = captured["enhanced_prompt"]
     assert len(decision_calls) == 1
     assert decision_calls[0]["include_sub_prompt"] is False
+    assert decision_calls[0]["request_kind"] is LLMRequestKind.DECISION
     assert FakeTavilyProvider.queries[0].query == "neutral release schedule"
     assert "[WEB_SEARCH_RESULTS]" in enhanced_prompt
     assert "Synthetic neutral search result." in enhanced_prompt
@@ -504,8 +511,12 @@ def test_gemini_send_message_with_memory_auto_no_search_marks_status_and_still_u
     async def _build_memory_context(query, recent_context="", head_pat_count_before_message=None):
         return ""
 
-    def _generate_one_shot_text(prompt, include_sub_prompt=True):
-        decision_calls.append({"prompt": prompt, "include_sub_prompt": include_sub_prompt})
+    def _generate_one_shot_text(prompt, *, request_kind, include_sub_prompt=True):
+        decision_calls.append({
+            "prompt": prompt,
+            "request_kind": request_kind,
+            "include_sub_prompt": include_sub_prompt,
+        })
         return '{"should_search": false, "query": "", "reason": "conversation context is enough"}'
 
     def _send_message(enhanced_prompt, **_kwargs):
@@ -531,6 +542,7 @@ def test_gemini_send_message_with_memory_auto_no_search_marks_status_and_still_u
     enhanced_prompt = captured["enhanced_prompt"]
     assert len(decision_calls) == 1
     assert decision_calls[0]["include_sub_prompt"] is False
+    assert decision_calls[0]["request_kind"] is LLMRequestKind.DECISION
     assert "[WEB_SEARCH_STATUS]" in enhanced_prompt
     assert "Performed: no" in enhanced_prompt
     assert "Reason: auto_decision_no_search" in enhanced_prompt
@@ -538,6 +550,153 @@ def test_gemini_send_message_with_memory_auto_no_search_marks_status_and_still_u
     assert "[WEB_SEARCH_RESULTS]" not in enhanced_prompt
     assert enhanced_prompt.endswith("Original final prompt.")
     assert len(dummy.get_conversation_history()) == 2
+
+
+def test_gemini_chat_config_uses_final_reply_with_legacy_mode(monkeypatch):
+    captured = {}
+    dummy = types.SimpleNamespace(
+        generation_params={"temperature": 0.5, "top_p": 0.8, "max_tokens": 512},
+        _runtime_prompt_settings_source=lambda: {},
+    )
+
+    def fake_build_runtime_system_prompt(**kwargs):
+        captured.update(kwargs)
+        return "Synthetic system prompt."
+
+    monkeypatch.setattr(
+        "src.ai.llm_client.build_runtime_system_prompt",
+        fake_build_runtime_system_prompt,
+    )
+
+    config = GeminiClient._build_chat_config(
+        dummy,
+        include_sub_prompt=True,
+        request_kind=LLMRequestKind.FINAL_REPLY,
+    )
+
+    assert config["system_instruction"] == "Synthetic system prompt."
+    assert captured["request_kind"] is LLMRequestKind.FINAL_REPLY
+    assert captured["response_mode"] is ResponseMode.LEGACY_TAGS
+
+
+def test_gemini_decision_one_shot_uses_models_and_keeps_chat_history(monkeypatch):
+    captured_prompt = {}
+    model_calls = []
+    initial_history = [
+        {"role": "user", "parts": [{"text": "Synthetic prior question."}]},
+        {"role": "model", "parts": [{"text": "Synthetic prior answer."}]},
+    ]
+
+    class FakeModels:
+        def generate_content(self, **kwargs):
+            model_calls.append(kwargs)
+            return types.SimpleNamespace(text='{"decision": "continue"}')
+
+    class FakeChat:
+        def __init__(self):
+            self.history = deepcopy(initial_history)
+
+        def send_message(self, _message):
+            raise AssertionError("일회성 생성은 chat.send_message를 사용하면 안 됩니다.")
+
+    dummy = GeminiClient.__new__(GeminiClient)
+    dummy.client = types.SimpleNamespace(models=FakeModels())
+    dummy.chat = FakeChat()
+    dummy.model_name = "synthetic-model"
+    dummy.generation_params = {"temperature": 0.4, "top_p": 0.7, "max_tokens": 256}
+    dummy._runtime_prompt_settings_source = lambda: {}
+
+    def fake_build_runtime_system_prompt(**kwargs):
+        captured_prompt.update(kwargs)
+        return "Synthetic decision system prompt."
+
+    monkeypatch.setattr(
+        "src.ai.llm_client.build_runtime_system_prompt",
+        fake_build_runtime_system_prompt,
+    )
+    history_before = deepcopy(dummy.chat.history)
+
+    response_text = GeminiClient._generate_one_shot_text(
+        dummy,
+        "Synthetic decision input.",
+        request_kind=LLMRequestKind.DECISION,
+        include_sub_prompt=False,
+    )
+
+    assert response_text == '{"decision": "continue"}'
+    assert captured_prompt["request_kind"] is LLMRequestKind.DECISION
+    assert captured_prompt["include_sub_prompt"] is False
+    assert captured_prompt["response_mode"] is ResponseMode.LEGACY_TAGS
+    assert len(model_calls) == 1
+    assert model_calls[0]["model"] == "synthetic-model"
+    assert model_calls[0]["contents"] == "Synthetic decision input."
+    assert all(
+        key not in model_calls[0]["config"]
+        for key in (
+            "response_schema",
+            "response_json_schema",
+            "response_mime_type",
+            "tools",
+            "tool_config",
+        )
+    )
+    assert dummy.chat.history == history_before
+
+
+def test_gemini_chat_session_uses_final_reply_request_kind():
+    captured = {}
+    history = [{"role": "user", "parts": [{"text": "Synthetic prior turn."}]}]
+
+    class FakeChats:
+        def create(self, **kwargs):
+            captured["create"] = kwargs
+            return "synthetic-chat"
+
+    dummy = types.SimpleNamespace(
+        model_name="synthetic-model",
+        client=types.SimpleNamespace(chats=FakeChats()),
+    )
+
+    def fake_build_chat_config(*, include_sub_prompt=True, request_kind):
+        captured["config"] = (request_kind, include_sub_prompt)
+        return {"system_instruction": "Synthetic system prompt."}
+
+    dummy._build_chat_config = fake_build_chat_config
+
+    assert GeminiClient._create_chat_session(dummy, history=history) == "synthetic-chat"
+    assert captured["config"] == (LLMRequestKind.FINAL_REPLY, True)
+    assert captured["create"]["history"] == history
+
+
+def test_gemini_markdown_diary_and_note_requests_use_explicit_kinds():
+    calls = []
+    dummy = types.SimpleNamespace()
+
+    async def fake_memory_context(_message):
+        return "Synthetic memory context."
+
+    def fake_one_shot(_prompt, *, request_kind, include_sub_prompt=True):
+        calls.append((request_kind, include_sub_prompt))
+        return "Synthetic one-shot response."
+
+    dummy._build_memory_context = fake_memory_context
+    dummy._generate_one_shot_text = fake_one_shot
+    dummy._parse_response = lambda _response: (
+        "Synthetic reply.", "normal", None, [], {}, [], "", {}, [], ""
+    )
+    dummy._prompt_language = lambda: "ko"
+
+    asyncio.run(GeminiClient.generate_markdown_document(dummy, "Synthetic document request."))
+    asyncio.run(GeminiClient.generate_diary_completion_reply(dummy, "Synthetic diary completion."))
+    asyncio.run(GeminiClient.generate_note_command_plan(dummy, "Synthetic note plan."))
+    asyncio.run(GeminiClient.generate_note_execution_report(dummy, "Synthetic note completion."))
+
+    assert calls == [
+        (LLMRequestKind.MARKDOWN, False),
+        (LLMRequestKind.PLAIN_TEXT, True),
+        (LLMRequestKind.DECISION, False),
+        (LLMRequestKind.PLAIN_TEXT, True),
+    ]
 
 
 def test_gemini_send_message_keeps_context_block_out_of_native_history():

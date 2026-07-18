@@ -11,6 +11,7 @@ from src.ai.http_llm_clients import (
     OpenAICompatibleClient,
     OpenAIResponseAPIClient,
 )
+from src.ai.response_protocol import LLMRequestKind, ResponseMode
 
 
 class _DummyResponse:
@@ -273,6 +274,13 @@ def test_provider_requests_record_privacy_safe_context_fingerprint(
     assert fingerprint["user_content_sha256"]
     assert fingerprint["history_sha256"]
     assert fingerprint["history_turns"] == 2
+    assert fingerprint["request_kind"] == LLMRequestKind.FINAL_REPLY.value
+    assert fingerprint["response_mode"] == ResponseMode.LEGACY_TAGS.value
+    assert fingerprint["schema_version"] == "1"
+    assert client.get_conversation_history() == [
+        {"role": "user", "content": "비공개 이전 질문"},
+        {"role": "assistant", "content": "비공개 이전 답변"},
+    ]
     assert "비공개" not in serialized
     assert "사용자 메시지" not in serialized
     assert "이전 질문" not in serialized
@@ -349,13 +357,23 @@ def test_provider_one_shot_requests_exclude_history_and_record_one_shot_fingerpr
         {"role": "assistant", "content": "오래된 답변"},
     ]
 
-    assert client._request_one_shot_raw("요약 프롬프트") == "응답"
+    assert client._request_one_shot_raw(
+        "요약 프롬프트",
+        request_kind=LLMRequestKind.SUMMARY,
+    ) == "응답"
 
     fingerprint = client.get_last_request_context_fingerprint()
     payload_text = payload_to_text(captured["json"])
 
     assert fingerprint["provider_format"] == expected_provider_format
     assert fingerprint["history_turns"] == 0
+    assert fingerprint["request_kind"] == LLMRequestKind.SUMMARY.value
+    assert fingerprint["response_mode"] == ResponseMode.LEGACY_TAGS.value
+    assert fingerprint["schema_version"] == "1"
+    assert client.get_conversation_history() == [
+        {"role": "user", "content": "오래된 히스토리"},
+        {"role": "assistant", "content": "오래된 답변"},
+    ]
     assert "요약 프롬프트" in payload_text
     assert "오래된 히스토리" not in payload_text
     assert "오래된 답변" not in payload_text
@@ -372,7 +390,11 @@ def test_request_context_deep_copies_nested_history_before_fingerprinting():
     }
     client._history = [image_turn]
 
-    context = client._build_request_context("다음 질문", provider_format="test")
+    context = client._build_request_context(
+        "다음 질문",
+        provider_format="test",
+        request_kind=LLMRequestKind.FINAL_REPLY,
+    )
     before = context.fingerprint()
 
     image_turn["content"][0]["text"] = "변경된 히스토리"
@@ -382,6 +404,106 @@ def test_request_context_deep_copies_nested_history_before_fingerprinting():
     assert context.history[0]["content"][0]["text"] == "이전 이미지"
     assert context.history[0]["content"][1]["image_url"]["url"] == "data:image/png;base64,QUJD"
     assert after == before
+
+
+def test_request_context_fingerprint_records_kind_mode_and_schema_version():
+    client = _build_openai_compatible_client()
+
+    context = client._build_request_context(
+        "합성 요청",
+        provider_format="openai_responses",
+        request_kind=LLMRequestKind.FINAL_REPLY,
+        response_mode=ResponseMode.JSON_SCHEMA,
+    )
+
+    fingerprint = context.fingerprint()
+    assert fingerprint["request_kind"] == "final_reply"
+    assert fingerprint["response_mode"] == "json_schema"
+    assert fingerprint["schema_version"] == "1"
+
+
+def test_summary_retry_remains_a_summary_request(monkeypatch):
+    client = _build_openai_compatible_client()
+    calls = []
+    responses = iter(["[SUMMARY]\n부분 합성 요약", SUMMARY_OUTPUT])
+
+    def fake_one_shot(_prompt, *, request_kind, include_sub_prompt=True):
+        calls.append((request_kind, include_sub_prompt))
+        return next(responses)
+
+    monkeypatch.setattr(client, "_request_one_shot_raw", fake_one_shot)
+
+    assert client._request_summary_text("합성 요약 입력") == SUMMARY_OUTPUT
+    assert calls == [
+        (LLMRequestKind.SUMMARY, False),
+        (LLMRequestKind.SUMMARY, False),
+    ]
+
+
+def test_http_web_search_decision_uses_decision_request_kind(monkeypatch):
+    client = _build_openai_compatible_client()
+    calls = []
+
+    def fake_one_shot(_prompt, *, request_kind, include_sub_prompt=True):
+        calls.append((request_kind, include_sub_prompt))
+        return '{"should_search": false, "query": "", "reason": "synthetic context"}'
+
+    monkeypatch.setattr(client, "_request_one_shot_raw", fake_one_shot)
+
+    decision = client._create_web_search_decision_provider()("합성 최신 정보 질문")
+
+    assert decision.should_search is False
+    assert calls == [(LLMRequestKind.DECISION, False)]
+
+
+def test_http_markdown_diary_and_note_requests_use_explicit_kinds(monkeypatch):
+    client = _build_openai_compatible_client()
+    calls = []
+
+    async def fake_memory_context(_message):
+        return "합성 메모리 컨텍스트"
+
+    def fake_one_shot(_prompt, *, request_kind, include_sub_prompt=True):
+        calls.append((request_kind, include_sub_prompt))
+        return "합성 일회성 응답"
+
+    monkeypatch.setattr(client, "_build_memory_context", fake_memory_context)
+    monkeypatch.setattr(client, "_request_one_shot_raw", fake_one_shot)
+
+    asyncio.run(client.generate_markdown_document("합성 문서 요청"))
+    asyncio.run(client.generate_diary_completion_reply("합성 일기 완료 컨텍스트"))
+    asyncio.run(client.generate_note_command_plan("합성 노트 계획 컨텍스트"))
+    asyncio.run(client.generate_note_execution_report("합성 노트 완료 컨텍스트"))
+
+    assert calls == [
+        (LLMRequestKind.MARKDOWN, False),
+        (LLMRequestKind.PLAIN_TEXT, True),
+        (LLMRequestKind.DECISION, False),
+        (LLMRequestKind.PLAIN_TEXT, True),
+    ]
+
+
+def test_include_sub_prompt_true_does_not_make_one_shot_a_final_reply(monkeypatch):
+    captured = {}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured["json"] = json
+        return _DummyResponse({"choices": [{"message": {"content": "합성 완료 안내"}}]})
+
+    monkeypatch.setattr("src.ai.http_llm_clients.requests.post", fake_post)
+    client = _build_openai_compatible_client()
+
+    assert client._request_one_shot_raw(
+        "합성 완료 컨텍스트",
+        request_kind=LLMRequestKind.PLAIN_TEXT,
+        include_sub_prompt=True,
+    ) == "합성 완료 안내"
+
+    system_prompt = captured["json"]["messages"][0]["content"]
+    assert client.get_last_request_context_fingerprint()["request_kind"] == "plain_text"
+    assert all(marker not in system_prompt for marker in ANALYSIS_APPENDIX_MARKERS)
+    assert "[최종 응답 형식]" not in system_prompt
+    assert "[Final Response Format]" not in system_prompt
 
 
 def test_debug_context_parity_logs_only_salted_fingerprints_and_metadata(monkeypatch, capsys):
@@ -519,8 +641,9 @@ def test_provider_summarize_conversation_uses_one_shot_request_without_chat_hist
     client._history = list(original_history)
     captured = {}
 
-    def fake_one_shot(prompt, include_sub_prompt=True):
+    def fake_one_shot(prompt, *, request_kind, include_sub_prompt=True):
         captured["prompt"] = prompt
+        captured["request_kind"] = request_kind
         captured["include_sub_prompt"] = include_sub_prompt
         return SUMMARY_OUTPUT
 
@@ -540,6 +663,7 @@ def test_provider_summarize_conversation_uses_one_shot_request_without_chat_hist
     assert "요약 대상 대화" in captured["prompt"]
     assert "오래된 히스토리" not in captured["prompt"]
     assert captured["include_sub_prompt"] is False
+    assert captured["request_kind"] is LLMRequestKind.SUMMARY
     assert client.get_conversation_history() == original_history
 
 
@@ -547,8 +671,9 @@ def test_provider_summarize_conversation_accepts_loaded_topic_memory_context(mon
     client = _build_openai_compatible_client()
     captured = {}
 
-    def fake_one_shot(prompt, include_sub_prompt=True):
+    def fake_one_shot(prompt, *, request_kind, include_sub_prompt=True):
         captured["prompt"] = prompt
+        captured["request_kind"] = request_kind
         captured["include_sub_prompt"] = include_sub_prompt
         return SUMMARY_OUTPUT
 
@@ -571,6 +696,7 @@ def test_provider_summarize_conversation_accepts_loaded_topic_memory_context(mon
     assert "Project Lambda" in captured["prompt"]
     assert "비교용 기존 주제 기억" in captured["prompt"]
     assert captured["include_sub_prompt"] is False
+    assert captured["request_kind"] is LLMRequestKind.SUMMARY
 
 
 def test_provider_summarize_conversation_empty_response_returns_topic_hints_fallback(monkeypatch):
@@ -593,13 +719,15 @@ def test_provider_summarize_conversation_retries_incomplete_response_with_larger
     client = _build_openai_compatible_client()
     client.generation_params["max_tokens"] = 2048
     captured_max_tokens = []
+    captured_request_kinds = []
     responses = [
         "[SUMMARY]\n- 첫 응답은 중간에 끊겼다.",
         SUMMARY_OUTPUT,
     ]
 
-    def fake_one_shot(prompt, include_sub_prompt=True):
+    def fake_one_shot(prompt, *, request_kind, include_sub_prompt=True):
         captured_max_tokens.append(client.generation_params["max_tokens"])
+        captured_request_kinds.append(request_kind)
         return responses.pop(0)
 
     monkeypatch.setattr(client, "_request_one_shot_raw", fake_one_shot)
@@ -611,6 +739,7 @@ def test_provider_summarize_conversation_retries_incomplete_response_with_larger
     assert summary == "요약 대상 대화만 정리했다."
     assert [hint.keyword for hint in topic_hints] == ["Project Lambda"]
     assert captured_max_tokens == [4096, 4096]
+    assert captured_request_kinds == [LLMRequestKind.SUMMARY, LLMRequestKind.SUMMARY]
     assert client.generation_params["max_tokens"] == 2048
 
 
@@ -629,7 +758,10 @@ def test_mistral_one_shot_request_excludes_chat_history(monkeypatch):
         {"role": "assistant", "content": "오래된 답변"},
     ]
 
-    assert client._request_one_shot_raw("요약 프롬프트") == "응답"
+    assert client._request_one_shot_raw(
+        "요약 프롬프트",
+        request_kind=LLMRequestKind.SUMMARY,
+    ) == "응답"
 
     payload_text = str(captured["json"]["messages"])
     assert "요약 프롬프트" in payload_text

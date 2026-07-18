@@ -2,6 +2,8 @@ from types import SimpleNamespace
 
 from PyQt6.QtWidgets import QMessageBox
 
+from src.ai.response_protocol import LLMRequestKind
+
 
 class _FakeListItem:
     def __init__(self, text):
@@ -26,6 +28,35 @@ class _FakeListWidget:
 
     def item(self, index):
         return _FakeListItem(self.items[index])
+
+
+def test_profile_memory_proposal_uses_decision_request_kind():
+    from src.ui.settings_tabs.profile_memory_tab import _request_profile_memory_proposal
+
+    calls = []
+
+    class FakeHttpClient:
+        def _request_one_shot_raw(self, _prompt, *, request_kind, include_sub_prompt=True):
+            calls.append(("http", request_kind, include_sub_prompt))
+            return "Synthetic HTTP proposal."
+
+    class FakeGeminiClient:
+        def _generate_one_shot_text(self, _prompt, *, request_kind, include_sub_prompt=True):
+            calls.append(("gemini", request_kind, include_sub_prompt))
+            return "Synthetic Gemini proposal."
+
+    assert _request_profile_memory_proposal(
+        FakeHttpClient(),
+        "Synthetic profile-memory input.",
+    ) == "Synthetic HTTP proposal."
+    assert _request_profile_memory_proposal(
+        FakeGeminiClient(),
+        "Synthetic profile-memory input.",
+    ) == "Synthetic Gemini proposal."
+    assert calls == [
+        ("http", LLMRequestKind.DECISION, False),
+        ("gemini", LLMRequestKind.DECISION, False),
+    ]
 
 
 def test_profile_memory_apply_proposal_updates_editors_and_saves():
@@ -122,7 +153,13 @@ def test_profile_memory_organize_starts_worker_without_calling_llm(monkeypatch):
     workers = []
 
     class FakeLlm:
-        def _request_one_shot_raw(self, prompt, include_sub_prompt=False):
+        def _request_one_shot_raw(
+            self,
+            prompt,
+            *,
+            request_kind,
+            include_sub_prompt=False,
+        ):
             raise AssertionError("프로필 정리 LLM 호출은 버튼 핸들러에서 동기 실행되면 안 됩니다.")
 
     class FakeWorker:

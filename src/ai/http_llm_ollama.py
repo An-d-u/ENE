@@ -6,6 +6,7 @@ from .http_llm_common import (
     _CommonMixin,
     _normalize_generation_params,
 )
+from .response_protocol import LLMRequestKind
 
 
 class OllamaClient(_CommonMixin):
@@ -48,6 +49,7 @@ class OllamaClient(_CommonMixin):
         context = self._build_request_context(
             message,
             provider_format="ollama",
+            request_kind=LLMRequestKind.FINAL_REPLY,
             include_sub_prompt=include_sub_prompt,
             attachments_metadata=self._image_context_metadata(images_data),
         )
@@ -84,10 +86,17 @@ class OllamaClient(_CommonMixin):
         data = response.json()
         return str(data.get("message", {}).get("content", "")).strip()
 
-    def _request_one_shot_raw(self, message: str, include_sub_prompt: bool = True) -> str:
+    def _request_one_shot_raw(
+        self,
+        message: str,
+        *,
+        request_kind: LLMRequestKind,
+        include_sub_prompt: bool = True,
+    ) -> str:
         context = self._build_request_context(
             message,
             provider_format="ollama_one_shot",
+            request_kind=request_kind,
             include_sub_prompt=include_sub_prompt,
             include_history=False,
         )
