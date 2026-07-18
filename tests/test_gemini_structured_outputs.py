@@ -623,3 +623,304 @@ def test_gemini_direct_model_parameter_unsupported_is_detected(
     probe = gemini_harness.client([valid_envelope_json(reply="Native synthetic reply")])
     assert "response_json_schema" in gemini_harness.created_configs[0]
     assert probe.send_message("Synthetic probe prompt")[0] == "Native synthetic reply"
+
+
+def test_gemini_token_usage_accumulates_primary_regeneration_and_repair(
+    gemini_harness,
+):
+    primary = gemini_harness.response("not-json", input_tokens=10, output_tokens=4)
+    regeneration = gemini_harness.response(
+        valid_envelope_json(reply="복구 전 합성 답변", thought=""),
+        input_tokens=8,
+        output_tokens=3,
+    )
+    repair = gemini_harness.response(
+        '{"thought":"복구된 합성 생각"}',
+        input_tokens=2,
+        output_tokens=1,
+    )
+    client = gemini_harness.client(
+        [primary, regeneration],
+        repair_responses=[repair],
+        settings={"enable_ene_thoughts": True},
+    )
+
+    assert client.send_message("누산 합성 입력")[0] == "복구 전 합성 답변"
+    assert client.get_last_token_usage() == {
+        "input_tokens": 20,
+        "output_tokens": 8,
+        "total_tokens": 28,
+    }
+
+
+def test_gemini_max_tokens_retry_accumulates_both_attempts(gemini_harness):
+    incomplete = gemini_harness.response(
+        valid_envelope_json(reply="잘린 합성 답변"),
+        finish_reason="MAX_TOKENS",
+    )
+    client = gemini_harness.client(
+        [incomplete, valid_envelope_json(reply="완성 합성 답변")]
+    )
+
+    client.send_message("길이 누산 합성 입력")
+
+    assert client.get_last_token_usage() == {
+        "input_tokens": 6,
+        "output_tokens": 10,
+        "total_tokens": 16,
+    }
+
+
+def test_gemini_multimodal_retry_accumulates_both_attempts(gemini_harness):
+    client = gemini_harness.client(
+        ["not-json", valid_envelope_json(reply="이미지 합성 답변")]
+    )
+
+    client._execute_final_response(
+        [object(), "이미지 합성 입력"],
+        history_user_content="이미지 합성 입력",
+        label="멀티모달",
+    )
+
+    assert client.get_last_token_usage() == {
+        "input_tokens": 6,
+        "output_tokens": 10,
+        "total_tokens": 16,
+    }
+
+
+def test_gemini_unsupported_fallback_keeps_unknown_aggregate(gemini_harness):
+    unsupported = _SyntheticGeminiError(
+        400,
+        "Unknown parameter: response_json_schema is unsupported",
+    )
+    client = gemini_harness.client([unsupported, "하향 합성 답변 [normal]"])
+
+    assert client.send_message("하향 usage 합성 입력")[0] == "하향 합성 답변"
+    assert client.get_last_token_usage() == {
+        "input_tokens": None,
+        "output_tokens": None,
+        "total_tokens": None,
+    }
+
+
+@pytest.mark.parametrize(
+    ("code", "message"),
+    [
+        (429, "synthetic rate limit"),
+        (500, "synthetic upstream failure"),
+    ],
+)
+def test_gemini_call_exception_records_unknown_attempt_usage(
+    gemini_harness,
+    code,
+    message,
+):
+    client = gemini_harness.client([_SyntheticGeminiError(code, message)])
+
+    with pytest.raises(_SyntheticGeminiError):
+        client.send_message("예외 usage 합성 입력")
+
+    assert client.get_last_token_usage() == {
+        "input_tokens": None,
+        "output_tokens": None,
+        "total_tokens": None,
+    }
+
+
+def test_gemini_refusal_response_usage_is_recorded(gemini_harness):
+    refusal = gemini_harness.response(
+        valid_envelope_json(reply="거절 carrier"),
+        finish_reason="SAFETY",
+        input_tokens=7,
+        output_tokens=2,
+    )
+    client = gemini_harness.client([refusal])
+
+    with pytest.raises(ProviderRefusalError):
+        client.send_message("거절 usage 합성 입력")
+
+    assert client.get_last_token_usage() == {
+        "input_tokens": 7,
+        "output_tokens": 2,
+        "total_tokens": 9,
+    }
+
+
+def test_gemini_repair_exception_preserves_reply_and_nulls_turn_usage(
+    gemini_harness,
+):
+    client = gemini_harness.client(
+        [valid_envelope_json(reply="보존할 합성 답변", thought="")],
+        repair_responses=[TimeoutError("synthetic_repair_timeout")],
+        settings={"enable_ene_thoughts": True},
+    )
+
+    result = client.send_message("복구 예외 합성 입력")
+
+    assert result[0] == "보존할 합성 답변"
+    assert result[6] == ""
+    assert client.get_last_token_usage() == {
+        "input_tokens": None,
+        "output_tokens": None,
+        "total_tokens": None,
+    }
+
+
+def test_gemini_partial_usage_keeps_only_complete_aggregate_keys(gemini_harness):
+    first = gemini_harness.response("not-json", input_tokens=10, output_tokens=4)
+    first.usage_metadata.candidates_token_count = None
+    second = gemini_harness.response(
+        valid_envelope_json(reply="완성 합성 답변"),
+        input_tokens=2,
+        output_tokens=1,
+    )
+    client = gemini_harness.client([first, second])
+
+    client.send_message("부분 usage 합성 입력")
+
+    assert client.get_last_token_usage() == {
+        "input_tokens": 12,
+        "output_tokens": None,
+        "total_tokens": 17,
+    }
+
+
+def test_gemini_next_final_turn_resets_previous_aggregate(gemini_harness):
+    client = gemini_harness.client(
+        [
+            "not-json",
+            valid_envelope_json(reply="첫 합성 답변"),
+            valid_envelope_json(reply="둘째 합성 답변"),
+        ]
+    )
+
+    assert client.send_message("첫 누산 합성 입력")[0] == "첫 합성 답변"
+    assert client.get_last_token_usage()["total_tokens"] == 16
+    assert client.send_message("둘째 누산 합성 입력")[0] == "둘째 합성 답변"
+    assert client.get_last_token_usage() == {
+        "input_tokens": 3,
+        "output_tokens": 5,
+        "total_tokens": 8,
+    }
+
+
+def test_gemini_one_shot_does_not_overwrite_latest_final_turn_usage(
+    gemini_harness,
+):
+    one_shot = gemini_harness.response(
+        "일회성 합성 결과",
+        input_tokens=90,
+        output_tokens=30,
+    )
+    client = gemini_harness.client(
+        [valid_envelope_json(reply="최종 합성 답변")],
+        repair_responses=[one_shot],
+    )
+    client.send_message("최종 합성 입력")
+    final_usage = client.get_last_token_usage()
+
+    assert (
+        client._generate_one_shot_text(
+            "일회성 합성 입력",
+            request_kind=LLMRequestKind.DECISION,
+            include_sub_prompt=False,
+        )
+        == "일회성 합성 결과"
+    )
+    assert client.get_last_token_usage() == final_usage
+
+
+def test_gemini_main_timeout_records_unknown_attempt_usage(gemini_harness):
+    client = gemini_harness.client([TimeoutError("synthetic_main_timeout")])
+
+    with pytest.raises(TimeoutError):
+        client.send_message("timeout usage 합성 입력")
+
+    assert client.get_last_token_usage() == {
+        "input_tokens": None,
+        "output_tokens": None,
+        "total_tokens": None,
+    }
+
+
+def test_gemini_empty_response_usage_is_included_before_regeneration(
+    gemini_harness,
+):
+    empty = gemini_harness.response(
+        None,
+        finish_reason="",
+        input_tokens=11,
+        output_tokens=0,
+    )
+    complete = gemini_harness.response(
+        valid_envelope_json(reply="빈 응답 뒤 합성 답변"),
+        input_tokens=3,
+        output_tokens=2,
+    )
+    client = gemini_harness.client([empty, complete])
+
+    assert (
+        client.send_message("빈 응답 usage 합성 입력")[0]
+        == "빈 응답 뒤 합성 답변"
+    )
+    assert client.get_last_token_usage() == {
+        "input_tokens": 14,
+        "output_tokens": 2,
+        "total_tokens": 16,
+    }
+
+
+@pytest.mark.parametrize("failure_location", ["response", "field"])
+def test_gemini_usage_property_failure_records_one_unknown_attempt(
+    gemini_harness,
+    failure_location,
+):
+    unknown_usage = {
+        "input_tokens": None,
+        "output_tokens": None,
+        "total_tokens": None,
+    }
+
+    class FailingUsage:
+        @property
+        def prompt_token_count(self):
+            raise RuntimeError("synthetic_usage_field_failure")
+
+        candidates_token_count = 5
+        total_token_count = 8
+
+    class ResponseUsageFailure:
+        text = valid_envelope_json(reply="usage 접근 실패 뒤 합성 답변")
+        candidates = [
+            SimpleNamespace(
+                finish_reason="STOP",
+                finish_message="",
+                safety_ratings=[],
+            )
+        ]
+        prompt_feedback = None
+
+        @property
+        def usage_metadata(self):
+            if failure_location == "response":
+                raise RuntimeError("synthetic_response_usage_failure")
+            return FailingUsage()
+
+    response = ResponseUsageFailure()
+    client = gemini_harness.client([lambda: response])
+    recorded_attempts = []
+    original_record = client._record_response_turn_usage
+
+    def record_usage(usage):
+        recorded_attempts.append(usage)
+        original_record(usage)
+
+    client._record_response_turn_usage = record_usage
+
+    assert (
+        client.send_message("usage 접근 실패 합성 입력")[0]
+        == "usage 접근 실패 뒤 합성 답변"
+    )
+    assert recorded_attempts == [unknown_usage]
+    assert client.get_last_token_usage() == unknown_usage
