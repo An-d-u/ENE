@@ -116,6 +116,7 @@ class Settings:
         "head_pat_end_emotion_custom": "",
         "head_pat_end_emotion_duration_sec": 5,
         "llm_provider": "gemini",
+        "structured_response_mode": "auto",
         "llm_model": "gemini-3-flash-preview",
         "llm_models": {
             "gemini": "gemini-3-flash-preview",
@@ -316,6 +317,8 @@ class Settings:
                 if k not in self.SECRET_KEYS
             }
             merged = {**self.DEFAULT_CONFIG, **loaded_config}
+            if merged.get("structured_response_mode") not in {"auto", "legacy"}:
+                merged["structured_response_mode"] = "auto"
 
             base_models = dict(self.DEFAULT_CONFIG["llm_models"])
             loaded_models = loaded_config.get("llm_models", {})

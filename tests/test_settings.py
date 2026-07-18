@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from src.core.settings import Settings
 
 
@@ -517,3 +519,60 @@ def test_store_python_settings_loads_visible_roaming_files_when_runtime_copy_is_
     assert settings.get("llm_provider") == "openai"
     assert settings.get("llm_api_keys")["openai"] == "real-openai-key"
     assert settings.get("embedding_api_keys")["voyage"] == "real-voyage-key"
+
+
+def test_structured_response_mode_defaults_to_auto(tmp_path):
+    settings = Settings(
+        config_path=str(tmp_path / "config.json"),
+        secret_path=str(tmp_path / "api_keys.json"),
+    )
+
+    assert settings.get("structured_response_mode") == "auto"
+
+
+@pytest.mark.parametrize("saved_value", [None, 42, "AUTO"])
+def test_structured_response_mode_normalizes_unknown_saved_values_to_auto(
+    tmp_path, saved_value
+):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"structured_response_mode": saved_value}),
+        encoding="utf-8",
+    )
+
+    settings = Settings(
+        config_path=str(config_path),
+        secret_path=str(tmp_path / "api_keys.json"),
+    )
+
+    assert settings.get("structured_response_mode") == "auto"
+
+
+def test_structured_response_mode_preserves_legacy_saved_value(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"structured_response_mode": "legacy"}),
+        encoding="utf-8",
+    )
+
+    settings = Settings(
+        config_path=str(config_path),
+        secret_path=str(tmp_path / "api_keys.json"),
+    )
+
+    assert settings.get("structured_response_mode") == "legacy"
+
+
+def test_structured_response_mode_preserves_auto_saved_value(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"structured_response_mode": "auto"}),
+        encoding="utf-8",
+    )
+
+    settings = Settings(
+        config_path=str(config_path),
+        secret_path=str(tmp_path / "api_keys.json"),
+    )
+
+    assert settings.get("structured_response_mode") == "auto"
