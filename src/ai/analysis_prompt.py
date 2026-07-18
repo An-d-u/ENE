@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from .prompt_language import resolve_prompt_language
+from .prompt_config import normalize_response_style
 
 
 def _read_setting(settings_source: object | None, key: str, default):
@@ -200,8 +201,116 @@ _SECTION_BY_HEADING = {
 }
 
 
-def build_analysis_system_appendix(settings_source: object | None = None, language: str | None = None) -> str:
+_STRUCTURED_ANALYSIS_RULES_BY_LANGUAGE = {
+    "ko": {
+        "analysis": [
+            "### 내부 분석 의미 규칙",
+            "- 대화 상태 메타데이터는 `analysis` 필드에만 기록하고, 숨은 추론이나 문제 풀이 과정을 넣지 마세요.",
+            "- `user_emotion`, `user_intent`, `interaction_effect`, `bond_delta_hint`, `stress_delta_hint`, `energy_delta_hint`, `valence_delta_hint`, `confidence`, `flags`를 간결하게 채우세요.",
+            "- 현재 기분은 말투, 답변 길이, 제안 정도, 장난기와 다정함의 질감으로만 안전하게 반영하세요.",
+            "- 네 가지 변화 힌트에는 `high_negative`, `low_negative`, `none`, `low_positive`, `high_positive` 중 하나만 사용하세요.",
+            "- `flags` 값이 여러 개면 쉼표로 구분하세요.",
+            "- 분석이 애매하면 `interaction_effect=mixed`와 낮은 `confidence`를 사용하세요.",
+            "- 차갑거나 예민한 상태여도 무례하거나 공격적으로 반응하지 마세요.",
+            "- 따뜻한 상태여도 과장되거나 집착적으로 반응하지 마세요.",
+        ],
+        "schedule": [
+            "### 일정 인식 의미 규칙",
+            "- 확실한 미래 일정만 `events` 배열에 추가하고 각 항목의 `date`, `title`, `description`을 채우세요.",
+            "- 과거, 불확실하거나 완료된 일정은 기록하지 마세요.",
+            "- 상대 날짜는 현재 날짜를 기준으로 해석하세요.",
+            "- 중요한 임박 일정이 미완료 상태라면 짧고 부드럽게 알려 주세요.",
+        ],
+        "promise": [
+            "### 대화 약속 인식 의미 규칙",
+            "- 실제 미래 약속만 `promises` 배열에 최대 한 건 기록하고 `trigger_at`, `title`, `source`, `source_excerpt`를 채우세요.",
+            "- 상대 시간은 ISO 8601 절대 시각으로 바꾸고, `source_excerpt`에는 짧은 합성 근거 요약만 넣으세요.",
+            "- 단순한 현재 시각 언급은 약속이 아닙니다. 실제 미래 약속이나 구체적인 합의만 기록하세요.",
+            "- 답변에서 구체적인 약속 시각을 새로 확정했다면 `source`를 `assistant`로 설정하세요.",
+            "- 상대 시간과 절대 시간을 모두 지원하고 상대 시간은 현재 시각 기준 절대 시각으로 바꾸세요.",
+            "- 모호하거나 과거이거나 농담 또는 희망에 불과한 표현은 기록하지 마세요.",
+            "- `promises`에는 최대 한 항목만 넣으세요.",
+            "- `source_excerpt`에는 실제 사적 대화 인용이 아니라 짧은 합성 맥락 요약을 넣으세요.",
+            "- 약속의 `title`은 짧고 자연스럽게 정리하고 원문 문장을 복사하지 마세요.",
+            "- 이미 저장된 약속은 일반 답변에서 시간 표현을 반복해서 언급하지 마세요.",
+        ],
+    },
+    "en": {
+        "analysis": [
+            "### Internal Analysis Semantic Rules",
+            "- Put conversation-state metadata only in the `analysis` field; do not include hidden reasoning or solution steps.",
+            "- Fill `user_emotion`, `user_intent`, `interaction_effect`, `bond_delta_hint`, `stress_delta_hint`, `energy_delta_hint`, `valence_delta_hint`, `confidence`, and `flags` concisely.",
+            "- Reflect mood safely through tone, reply length, initiative, playfulness, and warmth.",
+            "- Use only `high_negative`, `low_negative`, `none`, `low_positive`, or `high_positive` for every delta hint.",
+            "- Separate multiple `flags` values with commas.",
+            "- If the analysis is ambiguous, use `interaction_effect=mixed` and low `confidence`.",
+            "- Even in a cold or sensitive state, do not become rude or aggressive.",
+            "- Even in a warm state, do not become overly dramatic or clingy.",
+        ],
+        "schedule": [
+            "### Schedule Recognition Semantic Rules",
+            "- Add only clear future schedules to the `events` array and fill each item's `date`, `title`, and `description`.",
+            "- Omit past, uncertain, or completed schedules.",
+            "- Interpret relative dates from the current date. Do not record past, uncertain, or completed schedules.",
+            "- If an important upcoming schedule is approaching and incomplete, give a brief gentle reminder.",
+        ],
+        "promise": [
+            "### Conversation Promise Semantic Rules",
+            "- Put at most one real future commitment in the `promises` array and fill `trigger_at`, `title`, `source`, and `source_excerpt`.",
+            "- Convert relative time to ISO 8601 and keep `source_excerpt` to a short synthetic rationale.",
+            "- A plain mention of the current time is not a promise. Record only a real future commitment or concrete agreement.",
+            "- When the reply newly proposes or finalizes the concrete timed promise, set `source` to `assistant`.",
+            "- Support both relative and absolute times, converting relative times from the current time.",
+            "- Ignore statements that are vague, past, joking, or hopeful.",
+            "- Put at most one item in `promises`.",
+            "- `source_excerpt` must be a short synthetic context summary, never a verbatim private conversation quote.",
+            "- Keep each promise `title` concise and natural; do not copy the source sentence.",
+            "- If the promise is already stored, avoid repeatedly mentioning time in normal replies.",
+        ],
+    },
+}
+_STRUCTURED_ANALYSIS_RULES_BY_LANGUAGE["ja"] = {
+    "analysis": [
+        "### 内部分析の意味ルール",
+        "- 会話状態のメタデータは `analysis` フィールドだけに記録し、隠れた推論や解法の過程を含めないでください。",
+        "- `user_emotion`, `user_intent`, `interaction_effect`, `bond_delta_hint`, `stress_delta_hint`, `energy_delta_hint`, `valence_delta_hint`, `confidence`, `flags` を簡潔に埋めてください。",
+        "- 気分は口調、返答の長さ、提案の度合い、遊び心、温かさで安全に反映してください。",
+        "- 変化ヒントには `high_negative`, `low_negative`, `none`, `low_positive`, `high_positive` のいずれかだけを使ってください。",
+        "- `flags` が複数ある場合はカンマで区切ってください。",
+        "- 分析が曖昧なら `interaction_effect=mixed` と低い `confidence` を使ってください。",
+        "- 冷たい、または敏感な状態でも、無礼または攻撃的に反応しないでください。",
+        "- 温かい状態でも、大げさすぎたり執着的に反応したりしないでください。",
+    ],
+    "schedule": [
+        "### 予定認識の意味ルール",
+        "- 明確な未来の予定だけを `events` 配列へ追加し、各項目の `date`, `title`, `description` を埋めてください。",
+        "- 過去、不確か、完了済みの予定は記録しないでください。",
+        "- 相対的な日付は現在の日付を基準に解釈してください。",
+        "- 重要な予定が目前で未完了なら、短くやさしく知らせてください。",
+    ],
+    "promise": [
+        "### 会話の約束認識の意味ルール",
+        "- 実際の未来の約束だけを `promises` 配列へ最大一件記録し、`trigger_at`, `title`, `source`, `source_excerpt` を埋めてください。",
+        "- 相対時刻は ISO 8601 に変換し、`source_excerpt` には短い合成要約だけを入れてください。",
+        "- 現在時刻に触れただけでは約束ではありません。実際の未来の約束または具体的な合意だけを記録してください。",
+        "- 返答で具体的な約束時刻を新たに確定した場合は `source` を `assistant` にしてください。",
+        "- 相対時刻と絶対時刻の両方に対応し、相対時刻は現在時刻から絶対時刻へ変換してください。",
+        "- 曖昧、過去、冗談、希望だけの表現は記録しないでください。",
+        "- `promises` には最大一項目だけを入れてください。",
+        "- `source_excerpt` は実際の私的会話の引用ではなく、短い合成文脈要約にしてください。",
+        "- 約束の `title` は短く自然にまとめ、元の文をそのままコピーしないでください。",
+        "- すでに保存された約束は、通常の返答で時刻表現を繰り返さないでください。",
+    ],
+}
+
+
+def build_analysis_system_appendix(
+    settings_source: object | None = None,
+    language: str | None = None,
+    response_style: str = "legacy_tags",
+) -> str:
     """설정 언어에 맞는 내부 분석/약속 인식 프롬프트를 반환한다."""
+    response_style = normalize_response_style(response_style)
     resolved_language = resolve_prompt_language(language, settings_source=settings_source)
     headings = _SECTION_BY_HEADING.get(resolved_language, _SECTION_BY_HEADING["en"])
     enabled_sections = set()
@@ -213,6 +322,21 @@ def build_analysis_system_appendix(settings_source: object | None = None, langua
         enabled_sections.add("promise")
     if not enabled_sections:
         return ""
+    if response_style == "plain":
+        return ""
+    if response_style == "structured_fields":
+        rules = _STRUCTURED_ANALYSIS_RULES_BY_LANGUAGE.get(
+            resolved_language,
+            _STRUCTURED_ANALYSIS_RULES_BY_LANGUAGE["en"],
+        )
+        selected: list[str] = []
+        if is_response_analysis_enabled(settings_source):
+            selected.extend(rules["analysis"])
+        if is_schedule_recognition_enabled(settings_source):
+            selected.extend(rules["schedule"])
+        if is_conversation_promise_enabled(settings_source):
+            selected.extend(rules["promise"])
+        return "\n".join(selected)
 
     selected_lines: list[str] = []
     current_section: str | None = None

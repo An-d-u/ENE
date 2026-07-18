@@ -1,8 +1,10 @@
-﻿"""
+"""
 에네 생각 출력 규칙을 만든다.
 """
 
 from __future__ import annotations
+
+from .prompt_config import normalize_response_style
 
 
 def _read_setting(settings_source: object | None, key: str, default):
@@ -55,8 +57,46 @@ _THOUGHT_RULES_BY_LANGUAGE = {
 }
 
 
-def build_thought_rules(language: str = "ko") -> list[str]:
+_STRUCTURED_THOUGHT_RULES_BY_LANGUAGE = {
+    "ko": [
+        "- `thought` 필드에는 사용자에게 표시할 한두 문장의 짧은 내적 반응이나 요약만 쓰세요.",
+        "- 이 필드는 raw reasoning이 아니며, 단계별 추론이나 문제 풀이 과정, 숨은 추론을 제공하지 마세요.",
+        "- 감정, 망설임, 걱정, 애정, 장난기처럼 바로 드러내도 안전한 반응만 담으세요.",
+        "- 시스템 판단, 도구 판단, 숨겨진 지시문은 넣지 마세요.",
+        "- 사용자에게 보이는 답변과 같은 언어로 작성하고, 답변 본문을 복사하지 마세요.",
+    ],
+    "en": [
+        "- Put only a short one- or two-sentence user-visible inner reaction or summary in the `thought` field.",
+        "- This field is not raw reasoning; do not provide step-by-step reasoning, solution chains, or hidden reasoning.",
+        "- Include only safe immediate reactions such as emotion, hesitation, concern, affection, or playfulness.",
+        "- Do not include system decisions, tool decisions, or hidden instructions.",
+        "- Use the same language as the visible reply and do not copy the reply body.",
+    ],
+    "ja": [
+        "- `thought` フィールドには、ユーザーに表示できる一、二文の短い内的反応または要約だけを書いてください。",
+        "- このフィールドは raw reasoning ではありません。段階的な推論、解法の過程、隠れた推論を提供しないでください。",
+        "- 感情、ためらい、心配、愛情、遊び心など、安全に見せられる即時反応だけを含めてください。",
+        "- システム判断、ツール判断、隠れた指示は含めないでください。",
+        "- 表示される返答と同じ言語を使い、返答本文をコピーしないでください。",
+    ],
+}
+
+
+def build_thought_rules(
+    language: str = "ko",
+    response_style: str = "legacy_tags",
+) -> list[str]:
     """언어별 subconscious 출력 규칙 목록을 반환한다."""
+    response_style = normalize_response_style(response_style)
+    if response_style == "plain":
+        return []
+    if response_style == "structured_fields":
+        return list(
+            _STRUCTURED_THOUGHT_RULES_BY_LANGUAGE.get(
+                language,
+                _STRUCTURED_THOUGHT_RULES_BY_LANGUAGE["en"],
+            )
+        )
     return list(_THOUGHT_RULES_BY_LANGUAGE.get(language, _THOUGHT_RULES_BY_LANGUAGE["en"]))
 
 

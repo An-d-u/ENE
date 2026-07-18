@@ -150,6 +150,24 @@ def test_parse_emotion_guides_accepts_backtick_wrapped_names():
     }
 
 
+def test_build_sub_prompt_text_plain_style_omits_final_format_instructions():
+    from src.ai.prompt_config import build_sub_prompt_text
+
+    prompt = build_sub_prompt_text(
+        "Keep the reply concise and neutral.",
+        ["normal", "smile"],
+        {"normal": "Neutral reply.", "smile": "Warm reply."},
+        language="en",
+        response_style="plain",
+    )
+
+    assert "Keep the reply concise and neutral." in prompt
+    assert "Emotion Usage Guide" in prompt
+    assert "[emotion]" not in prompt
+    assert "`emotion`" not in prompt
+    assert "Emotion Expression Rules" not in prompt
+
+
 def test_default_prompt_templates_keep_output_format_in_runtime_contract(tmp_path, monkeypatch):
     from src.ai import prompt as prompt_module
     from src.ai import prompt_config

@@ -17,6 +17,16 @@ from ..core.app_paths import get_bundle_prompts_defaults_dir, get_bundle_root, g
 from .prompt_language import resolve_prompt_language
 
 
+VALID_RESPONSE_STYLES = frozenset({"plain", "structured_fields", "legacy_tags"})
+
+
+def normalize_response_style(response_style: str) -> str:
+    """공개 프롬프트 빌더가 공유하는 응답 스타일을 검증한다."""
+    if not isinstance(response_style, str) or response_style not in VALID_RESPONSE_STYLES:
+        raise ValueError(f"invalid response style: {response_style!r}")
+    return response_style
+
+
 PROJECT_ROOT = get_bundle_root()
 PROMPT_CONFIG_DIR = get_user_prompts_dir()
 DEFAULT_PROMPT_CONFIG_DIR = get_bundle_prompts_defaults_dir()
@@ -387,7 +397,9 @@ def build_sub_prompt_text(
     emotions: list[str],
     emotion_guides: dict[str, str],
     language: str | None = None,
+    response_style: str = "legacy_tags",
 ) -> str:
+    response_style = normalize_response_style(response_style)
     resolved_language = resolve_prompt_language(language)
     emotion_names = ", ".join(emotions)
     text = {
@@ -398,6 +410,7 @@ def build_sub_prompt_text(
             "available": "- 사용 가능한 감정",
             "guide": "감정 사용 가이드",
             "fallback": "이 감정을 어떤 상황에서 쓰는지 설명하세요.",
+            "field": "- 최상위 `emotion` 필드에는 사용 가능한 감정 중 하나만 넣으세요.",
         },
         "en": {
             "rules": "Emotion Expression Rules",
@@ -406,6 +419,7 @@ def build_sub_prompt_text(
             "available": "- Available emotions",
             "guide": "Emotion Usage Guide",
             "fallback": "Describe when to use this emotion.",
+            "field": "- Put exactly one available emotion in the top-level `emotion` field.",
         },
         "ja": {
             "rules": "感情表現ルール",
@@ -414,16 +428,30 @@ def build_sub_prompt_text(
             "available": "- 使用可能な感情",
             "guide": "感情使用ガイド",
             "fallback": "この感情をどのような状況で使うか説明してください。",
+            "field": "- 最上位の `emotion` フィールドには、使用可能な感情を一つだけ入れてください。",
         },
     }[resolved_language]
-    rules_section = "\n".join(
-        [
-            f"### [{text['rules']}]",
-            text["tag"],
-            text["format"],
-            f"{text['available']}: `{emotion_names}`",
-        ]
-    )
+    if response_style == "legacy_tags":
+        rules_section = "\n".join(
+            [
+                f"### [{text['rules']}]",
+                text["tag"],
+                text["format"],
+                f"{text['available']}: `{emotion_names}`",
+            ]
+        )
+    elif response_style == "structured_fields":
+        rules_section = "\n".join(
+            [
+                f"### [{text['rules']}]",
+                text["field"],
+                f"{text['available']}: `{emotion_names}`",
+            ]
+        )
+    elif response_style == "plain":
+        rules_section = ""
+    else:
+        raise ValueError(f"지원하지 않는 응답 스타일입니다: {response_style}")
 
     guide_lines = [f"### [{text['guide']}]"]
     for emotion in emotions:
@@ -432,7 +460,9 @@ def build_sub_prompt_text(
             guide = text["fallback"]
         guide_lines.append(f"- {emotion}: {guide}")
 
-    parts = [rules_section]
+    parts = []
+    if rules_section:
+        parts.append(rules_section)
     cleaned_body = str(body_text or "").strip()
     if cleaned_body:
         parts.append(cleaned_body)
@@ -443,11 +473,14 @@ def build_sub_prompt_text(
 def get_sub_prompt_text(
     settings_source: dict | None = None,
     base_path: Path | None = None,
+    response_style: str = "legacy_tags",
 ) -> str:
+    response_style = normalize_response_style(response_style)
     config = load_runtime_prompt_config(settings_source=settings_source, base_path=base_path)
     return build_sub_prompt_text(
         config.get("sub_prompt_body", ""),
         list(config.get("emotions", [])),
         dict(config.get("emotion_guides", {})),
         language=resolve_prompt_language(settings_source=settings_source),
+        response_style=response_style,
     )

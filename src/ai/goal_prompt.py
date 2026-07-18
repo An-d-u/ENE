@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from .prompt_config import normalize_response_style
+
 
 def _read_setting(settings_source: object | None, key: str, default):
     if settings_source is None:
@@ -55,6 +57,56 @@ _GOAL_RULES_BY_LANGUAGE = {
 }
 
 
-def build_goal_update_rules(language: str = "ko") -> list[str]:
+_STRUCTURED_GOAL_RULES_BY_LANGUAGE = {
+    "ko": [
+        "- 목표 변경은 `goal_update` 필드에만 기록하세요.",
+        "- 변경이 없으면 `action`은 `none`으로 두고 나머지 문자열 필드는 비우세요.",
+        "- 목표를 바꿀 때 `action`은 `create`, `update`, `complete`, `cancel` 중 하나만 사용하세요.",
+        "- `short_term`은 현재 대화나 바로 이어질 작업에만 사용하고, `long_term`은 대화 간 유지할 방향에만 사용하세요.",
+        "- 목표 데이터에 사용자에게 표시할 답변 본문을 넣지 마세요.",
+        "- `create`에는 `type`, `title`, `reason`이 필요합니다.",
+        "- `update`에는 `id`와 `title` 또는 `reason` 중 하나 이상이 필요합니다.",
+        "- `complete` 또는 `cancel`에는 `id`가 필요하며, 완료할 때만 `completion_reason`을 채우세요.",
+        "- `type`은 `short_term` 또는 `long_term`만 사용하세요.",
+    ],
+    "en": [
+        "- Record goal changes only in the `goal_update` field.",
+        "- When no goal changes, set `action` to `none` and leave the remaining string fields empty.",
+        "- For a change, use only `create`, `update`, `complete`, or `cancel` as `action`.",
+        "- Use `short_term` only for the current conversation or immediate work, and `long_term` only for durable direction.",
+        "- Never put the user-visible reply body in the goal data.",
+        "- For `create`, require `type`, `title`, and `reason`.",
+        "- For `update`, require `id` and at least one of `title` or `reason`.",
+        "- For `complete` or `cancel`, require `id`; use `completion_reason` only for completion.",
+        "- Use only `short_term` or `long_term` for `type`.",
+    ],
+    "ja": [
+        "- 目標の変更は `goal_update` フィールドだけに記録してください。",
+        "- 変更がない場合は `action` を `none` にし、残りの文字列フィールドは空にしてください。",
+        "- 変更時の `action` は `create`, `update`, `complete`, `cancel` のいずれか一つだけにしてください。",
+        "- `short_term` は現在の会話や直後の作業だけに、`long_term` は長く維持する方向だけに使ってください。",
+        "- ユーザーに表示する返答本文を目標データへ入れないでください。",
+        "- `create` には `type`, `title`, `reason` が必要です。",
+        "- `update` には `id` と、`title` または `reason` の少なくとも一つが必要です。",
+        "- `complete` または `cancel` には `id` が必要で、完了時だけ `completion_reason` を使ってください。",
+        "- `type` は `short_term` または `long_term` だけを使ってください。",
+    ],
+}
+
+
+def build_goal_update_rules(
+    language: str = "ko",
+    response_style: str = "legacy_tags",
+) -> list[str]:
     """언어별 목표 업데이트 규칙 목록을 반환한다."""
+    response_style = normalize_response_style(response_style)
+    if response_style == "plain":
+        return []
+    if response_style == "structured_fields":
+        return list(
+            _STRUCTURED_GOAL_RULES_BY_LANGUAGE.get(
+                language,
+                _STRUCTURED_GOAL_RULES_BY_LANGUAGE["en"],
+            )
+        )
     return list(_GOAL_RULES_BY_LANGUAGE.get(language, _GOAL_RULES_BY_LANGUAGE["en"]))
