@@ -26,6 +26,8 @@ class AnthropicClient(_CommonMixin):
         self.api_key = api_key
         self.model_name = model_name
         self.endpoint = endpoint
+        self.provider_name = "anthropic"
+        self.wire_format = "anthropic"
         self.memory_manager = memory_manager
         self.user_profile = user_profile
         self.ene_profile = ene_profile

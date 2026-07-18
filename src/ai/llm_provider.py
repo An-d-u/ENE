@@ -116,6 +116,53 @@ class LLMProviderMeta:
 ProviderBuilder = Callable[..., LLMClientProtocol]
 
 
+_NAMED_RESPONSE_WIRE_FORMATS = {
+    "gemini": "gemini",
+    "openai": "openai_responses",
+    "openrouter": "openai_chat",
+    "deepseek": "openai_chat",
+    "anthropic": "anthropic",
+    "ollama": "ollama",
+}
+
+_CUSTOM_RESPONSE_WIRE_FORMATS = {
+    LLMFormat.OPENAI_COMPATIBLE.value: "openai_chat",
+    LLMFormat.OPENAI_RESPONSE_API.value: "openai_responses",
+    LLMFormat.ANTHROPIC.value: "anthropic",
+    LLMFormat.MISTRAL.value: "mistral",
+    LLMFormat.GOOGLE_CLOUD.value: "google_cloud",
+    LLMFormat.COHERE.value: "cohere",
+    LLMFormat.OLLAMA.value: "ollama",
+}
+
+
+def _normalized_custom_api_format(settings) -> str:
+    default_format = LLMFormat.OPENAI_COMPATIBLE.value
+    if settings is None:
+        return default_format
+    try:
+        value = settings.get("custom_api_format", default_format)
+    except Exception:
+        return default_format
+    if isinstance(value, LLMFormat):
+        value = value.value
+    return str(value or default_format).strip().lower()
+
+
+def _apply_response_identity(
+    client,
+    provider: str,
+    wire_format: str | None = None,
+) -> None:
+    normalized_provider = str(provider or "").strip().lower()
+    if wire_format is None:
+        wire_format = _NAMED_RESPONSE_WIRE_FORMATS.get(normalized_provider)
+    if wire_format is None:
+        return
+    client.provider_name = normalized_provider
+    client.wire_format = str(wire_format).strip().lower()
+
+
 def _build_gemini_client(
     *,
     api_key: str,
@@ -333,7 +380,7 @@ def _build_custom_api_client(
         OpenAIResponseAPIClient,
     )
 
-    format_value = str(settings.get("custom_api_format", LLMFormat.OPENAI_COMPATIBLE.value)) if settings else LLMFormat.OPENAI_COMPATIBLE.value
+    format_value = _normalized_custom_api_format(settings)
     endpoint = str(settings.get("custom_api_url", "") if settings else "").strip()
     if not endpoint:
         if format_value == LLMFormat.OPENAI_RESPONSE_API.value:
@@ -352,7 +399,7 @@ def _build_custom_api_client(
     request_model = str(settings.get("custom_api_request_model", "") if settings else "").strip() or model_name or "custom-model"
 
     if format_value == LLMFormat.ANTHROPIC.value:
-        return AnthropicClient(
+        client = AnthropicClient(
             api_key=api_key,
             model_name=request_model,
             endpoint=endpoint,
@@ -365,23 +412,8 @@ def _build_custom_api_client(
             mood_manager=mood_manager,
             goal_manager=goal_manager,
         )
-    if format_value == LLMFormat.OPENAI_RESPONSE_API.value:
-        return OpenAIResponseAPIClient(
-            api_key=api_key,
-            model_name=request_model,
-            endpoint=endpoint,
-            provider_name="custom_api",
-            generation_params=generation_params,
-            memory_manager=memory_manager,
-            user_profile=user_profile,
-            ene_profile=ene_profile,
-            settings=settings,
-            calendar_manager=calendar_manager,
-            mood_manager=mood_manager,
-            goal_manager=goal_manager,
-        )
-    if format_value == LLMFormat.MISTRAL.value:
-        return MistralClient(
+    elif format_value == LLMFormat.OPENAI_RESPONSE_API.value:
+        client = OpenAIResponseAPIClient(
             api_key=api_key,
             model_name=request_model,
             endpoint=endpoint,
@@ -395,8 +427,23 @@ def _build_custom_api_client(
             mood_manager=mood_manager,
             goal_manager=goal_manager,
         )
-    if format_value == LLMFormat.GOOGLE_CLOUD.value:
-        return GoogleCloudClient(
+    elif format_value == LLMFormat.MISTRAL.value:
+        client = MistralClient(
+            api_key=api_key,
+            model_name=request_model,
+            endpoint=endpoint,
+            provider_name="custom_api",
+            generation_params=generation_params,
+            memory_manager=memory_manager,
+            user_profile=user_profile,
+            ene_profile=ene_profile,
+            settings=settings,
+            calendar_manager=calendar_manager,
+            mood_manager=mood_manager,
+            goal_manager=goal_manager,
+        )
+    elif format_value == LLMFormat.GOOGLE_CLOUD.value:
+        client = GoogleCloudClient(
             api_key=api_key,
             model_name=request_model,
             endpoint=endpoint,
@@ -409,8 +456,8 @@ def _build_custom_api_client(
             mood_manager=mood_manager,
             goal_manager=goal_manager,
         )
-    if format_value == LLMFormat.COHERE.value:
-        return CohereClient(
+    elif format_value == LLMFormat.COHERE.value:
+        client = CohereClient(
             api_key=api_key,
             model_name=request_model,
             endpoint=endpoint,
@@ -423,8 +470,8 @@ def _build_custom_api_client(
             mood_manager=mood_manager,
             goal_manager=goal_manager,
         )
-    if format_value == LLMFormat.OLLAMA.value:
-        return OllamaClient(
+    elif format_value == LLMFormat.OLLAMA.value:
+        client = OllamaClient(
             api_key=api_key,
             model_name=request_model,
             endpoint=endpoint,
@@ -437,20 +484,28 @@ def _build_custom_api_client(
             mood_manager=mood_manager,
             goal_manager=goal_manager,
         )
-    return OpenAICompatibleClient(
-        api_key=api_key,
-        model_name=request_model,
-        endpoint=endpoint,
-        provider_name="custom_api",
-        generation_params=generation_params,
-        memory_manager=memory_manager,
-        user_profile=user_profile,
-        ene_profile=ene_profile,
-        settings=settings,
-        calendar_manager=calendar_manager,
-        mood_manager=mood_manager,
-        goal_manager=goal_manager,
+    else:
+        client = OpenAICompatibleClient(
+            api_key=api_key,
+            model_name=request_model,
+            endpoint=endpoint,
+            provider_name="custom_api",
+            generation_params=generation_params,
+            memory_manager=memory_manager,
+            user_profile=user_profile,
+            ene_profile=ene_profile,
+            settings=settings,
+            calendar_manager=calendar_manager,
+            mood_manager=mood_manager,
+            goal_manager=goal_manager,
+        )
+
+    _apply_response_identity(
+        client,
+        "custom_api",
+        _CUSTOM_RESPONSE_WIRE_FORMATS.get(format_value, "openai_chat"),
     )
+    return client
 
 
 PROVIDER_BUILDERS: Dict[str, ProviderBuilder] = {
@@ -462,6 +517,7 @@ PROVIDER_BUILDERS: Dict[str, ProviderBuilder] = {
     "ollama": _build_ollama_client,
     "custom_api": _build_custom_api_client,
 }
+_BUILTIN_PROVIDER_BUILDERS = dict(PROVIDER_BUILDERS)
 
 
 # RisuAI의 모델/공급자 메타 관리 방식을 참고해,
@@ -601,6 +657,8 @@ def create_llm_client(
         "goal_manager": goal_manager,
     }
     client = builder(**_filter_builder_kwargs(builder, builder_kwargs))
+    if _BUILTIN_PROVIDER_BUILDERS.get(provider) is builder:
+        _apply_response_identity(client, provider)
     try:
         client.knowledge_map_manager = knowledge_map_manager
     except Exception:

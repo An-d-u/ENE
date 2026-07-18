@@ -9,11 +9,14 @@ import binascii
 import copy
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-import hmac
 import hashlib
+import hmac
+import ipaddress
 import json
+import re
 import secrets
 from typing import Dict, List, Tuple
+from urllib.parse import urlsplit
 
 import requests
 
@@ -23,6 +26,12 @@ from .openai_model_policy import normalize_reasoning_effort
 from .persona_names import resolve_prompt_persona_names
 from .prompt import build_runtime_system_prompt, get_parseable_emotions
 from .prompt_language import resolve_prompt_language
+from .response_protocol import (
+    RESPONSE_ENVELOPE_SCHEMA_VERSION,
+    ProviderProfile,
+    ResponseCapabilityKey,
+    ResponseMode,
+)
 from .response_cleanup import extract_goal_update_metadata, extract_thought_metadata
 from .response_parser import (
     extract_analysis_block,
@@ -75,6 +84,526 @@ def _payload_length(value) -> int:
     except TypeError:
         return len(str(value))
 
+
+_CAPABILITY_ENDPOINT_FINGERPRINT_KEY = secrets.token_bytes(32)
+
+_NAMED_PROVIDER_DEFAULT_MODES = {
+    ("gemini", "gemini"): ResponseMode.JSON_SCHEMA,
+    ("openai", "openai_responses"): ResponseMode.JSON_SCHEMA,
+    ("openrouter", "openai_chat"): ResponseMode.JSON_SCHEMA,
+    ("deepseek", "openai_chat"): ResponseMode.JSON_OBJECT,
+    ("anthropic", "anthropic"): ResponseMode.JSON_SCHEMA,
+}
+
+_OFFICIAL_RESPONSE_ENDPOINTS = {
+    (
+        "openai_responses",
+        "https",
+        "api.openai.com",
+        None,
+        "/v1/responses",
+    ): ("openai", ResponseMode.JSON_SCHEMA),
+    (
+        "openai_chat",
+        "https",
+        "api.openai.com",
+        None,
+        "/v1/chat/completions",
+    ): ("openai", ResponseMode.JSON_SCHEMA),
+    (
+        "openai_chat",
+        "https",
+        "openrouter.ai",
+        None,
+        "/api/v1/chat/completions",
+    ): ("openrouter", ResponseMode.JSON_SCHEMA),
+    (
+        "openai_chat",
+        "https",
+        "api.deepseek.com",
+        None,
+        "/chat/completions",
+    ): ("deepseek", ResponseMode.JSON_OBJECT),
+    (
+        "openai_chat",
+        "https",
+        "api.deepseek.com",
+        None,
+        "/v1/chat/completions",
+    ): ("deepseek", ResponseMode.JSON_OBJECT),
+    (
+        "openai_chat",
+        "https",
+        "api.deepseek.com",
+        None,
+        "/beta/chat/completions",
+    ): ("deepseek", ResponseMode.STRICT_TOOL),
+    (
+        "anthropic",
+        "https",
+        "api.anthropic.com",
+        None,
+        "/v1/messages",
+    ): ("anthropic", ResponseMode.JSON_SCHEMA),
+}
+
+_UNAMBIGUOUS_STRUCTURED_OUTPUT_PARAMETER_NAME = (
+    r"(?:response_format(?:\.type|\.json_schema"
+    r"(?:\.(?:strict|schema|name))?)?|"
+    r"text\.format(?:\.(?:type|strict|schema|name))?|"
+    r"output_config(?:\.format(?:\.(?:schema|type))?)?|"
+    r"json_schema|response_mime_type|response_schema|"
+    r"response_json_schema)"
+)
+_OLLAMA_FORMAT_PARAMETER_NAME = r"(?:format)"
+_STRICT_TOOL_PARAMETER_NAME = r"(?:tool_choice|tools|strict)"
+_PARAMETER_SEPARATOR = r"\W{0,24}"
+_EXPLICIT_MODEL_IDENTIFIER = (
+    r"(?:\"[^\"\r\n]{1,128}\"|'[^'\r\n]{1,128}'|"
+    r"`[^`\r\n]{1,128}`|"
+    r"(?=[\w./:@+\-]*[0-9./:_@+\-])[\w./:@+\-]+)"
+)
+_NATURAL_ASSERTION_START = r"\A\s*"
+_SCHEMA_TOKEN = (
+    r"(?<![A-Za-z0-9_-])"
+    r"(?:schema|response_schema|json_schema|output_schema)"
+    r"(?![A-Za-z0-9_-])"
+)
+_SCHEMA_VALIDATION_MARKER = (
+    r"(?<![A-Za-z0-9_-])"
+    r"(?:invalid|malformed|validate|validating|validation|"
+    r"failed|mismatch|rejected)"
+    r"(?![A-Za-z0-9_-])"
+)
+_SCHEMA_VALIDATION_IDENTIFIER = (
+    r"(?<![A-Za-z0-9_-])(?:invalid|malformed)_schema"
+    r"(?![A-Za-z0-9_-])"
+)
+_SCHEMA_PARSE_FAILURE_MARKER = (
+    r"(?<![A-Za-z0-9_-])"
+    r"(?:unable|cannot|could\s+not|failed)"
+    r"(?:\s+(?:to|be))?\s+(?:parse|parsed|parsing)"
+    r"(?![A-Za-z0-9_-])"
+)
+_SCHEMA_EXPLICIT_ERROR_PATTERN = re.compile(
+    rf"(?:{_SCHEMA_TOKEN}\s+is\s+not\s+valid\b|"
+    rf"(?:\bthe\s+)?{_SCHEMA_TOKEN}\s+has\s+an\s+error\b|"
+    rf"{_SCHEMA_TOKEN}\s+error\b|"
+    rf"\berror\s+in\s+(?:the\s+)?{_SCHEMA_TOKEN}|"
+    rf"{_SCHEMA_VALIDATION_IDENTIFIER})",
+    re.IGNORECASE,
+)
+_SCHEMA_TOKEN_PATTERN = re.compile(_SCHEMA_TOKEN, re.IGNORECASE)
+_SCHEMA_VALIDATION_MARKER_PATTERN = re.compile(
+    _SCHEMA_VALIDATION_MARKER,
+    re.IGNORECASE,
+)
+_SCHEMA_PARSE_FAILURE_MARKER_PATTERN = re.compile(
+    _SCHEMA_PARSE_FAILURE_MARKER,
+    re.IGNORECASE,
+)
+_UNSUPPORTED_MARKER_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9_-])unsupported(?![A-Za-z0-9_-])",
+    re.IGNORECASE,
+)
+_SCHEMA_FEATURE_MARKER_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9_-])(?:keyword|property|feature)"
+    r"(?![A-Za-z0-9_-])",
+    re.IGNORECASE,
+)
+_SCHEMA_VIOLATION_MARKER_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9_-])violat(?:e|es|ed|ing)"
+    r"(?![A-Za-z0-9_-])",
+    re.IGNORECASE,
+)
+_SCHEMA_CONSTRAINT_MARKER_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9_-])constraint(?![A-Za-z0-9_-])",
+    re.IGNORECASE,
+)
+_ERROR_PREFIX_PATTERN = re.compile(
+    r"\A\s*(?:(?:api|request)\s+error|error|bad\s+request)\s*:\s*",
+    re.IGNORECASE,
+)
+_GUIDANCE_PREFIX_PATTERN = re.compile(
+    r"\A\s*(?:"
+    r"if\b|"
+    r"check\s+(?:whether|if|for)\b|"
+    r"(?:it|this|there)\s+(?:may|might|could)\b|"
+    r"it\s+is\s+possible\b|"
+    r"this\s+(?:is\s+not|isn't)\b|"
+    r"(?:not|no|possibly|probably|perhaps|maybe)\b|"
+    r"(?:for\s+)?example\b|"
+    r"(?:the\s+)?(?:api\s+)?documentation\b|"
+    r"docs?\s+example\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def _compile_explicit_unsupported_pattern(
+    parameter_name_pattern: str,
+) -> re.Pattern[str]:
+    parameter = (
+        rf"(?<![\w./\[\]\-]){parameter_name_pattern}"
+        rf"(?![\w/\[\]\-]|\.(?!\s|$))"
+    )
+    quoted_parameter = rf"(?:[\"'`]{parameter}[\"'`]|{parameter})"
+    asserted_parameter = (
+        rf"(?:\(\s*{quoted_parameter}\s*\)|{quoted_parameter})"
+    )
+    assertion_separator = r"(?:\s+(?:parameter\s+)?(?:is\s+)?|\s*:\s*)"
+    return re.compile(
+        rf"(?:"
+        rf"\b(?:unknown|unsupported)\s+(?:parameter|field)\b"
+        rf"{_PARAMETER_SEPARATOR}{quoted_parameter}"
+        rf"|{_NATURAL_ASSERTION_START}(?:the\s+)?(?:"
+        rf"{asserted_parameter}{assertion_separator}"
+        rf"(?:unsupported|not\s+supported)\b"
+        rf"|\b(?:parameter|field)\b{_PARAMETER_SEPARATOR}"
+        rf"{asserted_parameter}{_PARAMETER_SEPARATOR}"
+        rf"(?:is\s+)?(?:unsupported|not\s+supported)\b"
+        rf"|\b(?:the\s+)?(?:model|provider|endpoint|api)"
+        rf"(?:\s+{_EXPLICIT_MODEL_IDENTIFIER})?\s+"
+        rf"does\s+not\s+support\b{_PARAMETER_SEPARATOR}"
+        rf"(?:the\s+)?{asserted_parameter}"
+        rf")"
+        rf")",
+        re.IGNORECASE,
+    )
+
+
+_EXPLICIT_UNAMBIGUOUS_UNSUPPORTED_PATTERN = _compile_explicit_unsupported_pattern(
+    _UNAMBIGUOUS_STRUCTURED_OUTPUT_PARAMETER_NAME
+)
+_EXPLICIT_OLLAMA_FORMAT_UNSUPPORTED_PATTERN = _compile_explicit_unsupported_pattern(
+    _OLLAMA_FORMAT_PARAMETER_NAME
+)
+_EXPLICIT_STRICT_TOOL_UNSUPPORTED_PATTERN = _compile_explicit_unsupported_pattern(
+    _STRICT_TOOL_PARAMETER_NAME
+)
+
+
+def _marker_patterns_are_nearby(
+    message: str,
+    patterns: tuple[re.Pattern[str], ...],
+    *,
+    max_distance: int,
+) -> bool:
+    events = sorted(
+        (match.start(), match.end(), pattern_index)
+        for pattern_index, pattern in enumerate(patterns)
+        for match in pattern.finditer(message)
+    )
+    counts = [0] * len(patterns)
+    covered = 0
+    left = 0
+    for position, _, pattern_index in events:
+        if counts[pattern_index] == 0:
+            covered += 1
+        counts[pattern_index] += 1
+        while position - events[left][1] > max_distance:
+            expired_index = events[left][2]
+            counts[expired_index] -= 1
+            if counts[expired_index] == 0:
+                covered -= 1
+            left += 1
+        if covered == len(patterns):
+            return True
+    return False
+
+
+def _has_schema_validation_context(message: str) -> bool:
+    if _SCHEMA_EXPLICIT_ERROR_PATTERN.search(message):
+        return True
+    return (
+        _marker_patterns_are_nearby(
+            message,
+            (
+                _SCHEMA_TOKEN_PATTERN,
+                _SCHEMA_VALIDATION_MARKER_PATTERN,
+            ),
+            max_distance=32,
+        )
+        or _marker_patterns_are_nearby(
+            message,
+            (
+                _SCHEMA_TOKEN_PATTERN,
+                _SCHEMA_PARSE_FAILURE_MARKER_PATTERN,
+            ),
+            max_distance=32,
+        )
+        or _marker_patterns_are_nearby(
+            message,
+            (
+                _SCHEMA_TOKEN_PATTERN,
+                _UNSUPPORTED_MARKER_PATTERN,
+                _SCHEMA_FEATURE_MARKER_PATTERN,
+            ),
+            max_distance=64,
+        )
+        or _marker_patterns_are_nearby(
+            message,
+            (
+                _SCHEMA_TOKEN_PATTERN,
+                _SCHEMA_VIOLATION_MARKER_PATTERN,
+                _SCHEMA_CONSTRAINT_MARKER_PATTERN,
+            ),
+            max_distance=64,
+        )
+    )
+
+
+def _normalize_unsupported_candidate(message: str) -> str | None:
+    candidate = message.strip()
+    if not candidate or _GUIDANCE_PREFIX_PATTERN.search(candidate):
+        return None
+    candidate = _ERROR_PREFIX_PATTERN.sub("", candidate, count=1).strip()
+    if not candidate or _GUIDANCE_PREFIX_PATTERN.search(candidate):
+        return None
+    return candidate
+
+
+def _unsupported_match_messages(detail: str) -> tuple[str, ...]:
+    json_detail = detail.lstrip()
+    if json_detail.startswith("\ufeff"):
+        json_detail = json_detail[1:].lstrip()
+    json_like = json_detail.startswith(("{", "["))
+    try:
+        payload = json.loads(json_detail)
+    except (json.JSONDecodeError, TypeError):
+        return () if json_like else (json_detail,)
+    if not isinstance(payload, dict):
+        return ()
+
+    messages: list[str] = []
+    for key in ("message", "detail"):
+        value = payload.get(key)
+        if isinstance(value, str):
+            messages.append(value)
+
+    error = payload.get("error")
+    if isinstance(error, str):
+        messages.append(error)
+    elif isinstance(error, dict):
+        for key in ("message", "detail"):
+            value = error.get(key)
+            if isinstance(value, str):
+                messages.append(value)
+    return tuple(messages)
+
+
+def _normalize_profile_value(value) -> str:
+    return str(value or "").strip().lower()
+
+
+def _parse_endpoint_identity(
+    endpoint: str,
+) -> tuple[str, str, int | None, str] | None:
+    raw_value = str(endpoint or "")
+    if any(ord(character) < 32 or ord(character) == 127 for character in raw_value):
+        return None
+    if raw_value != raw_value.strip():
+        return None
+    value = raw_value
+    if not value:
+        return None
+    if "?" in value or "#" in value:
+        return None
+    try:
+        parsed = urlsplit(value)
+        host = parsed.hostname
+        port = parsed.port
+    except (TypeError, ValueError):
+        return None
+    if not parsed.scheme or not host:
+        return None
+    if parsed.netloc.endswith(":"):
+        return None
+    if parsed.username is not None or parsed.password is not None:
+        return None
+    if parsed.query or parsed.fragment:
+        return None
+    return (
+        parsed.scheme.lower(),
+        host.lower(),
+        port,
+        parsed.path,
+    )
+
+
+def _is_loopback_host(host: str) -> bool:
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _official_profile_for_endpoint(
+    wire_format: str,
+    endpoint: str,
+) -> tuple[str, ResponseMode] | None:
+    identity = _parse_endpoint_identity(endpoint)
+    if identity is None:
+        return None
+    scheme, host, port, path = identity
+    canonical_wire_format = _normalize_profile_value(wire_format)
+    known = _OFFICIAL_RESPONSE_ENDPOINTS.get(
+        (canonical_wire_format, scheme, host, port, path)
+    )
+    if known is not None:
+        return known
+    if (
+        canonical_wire_format == "ollama"
+        and scheme == "http"
+        and path == "/api/chat"
+        and _is_loopback_host(host)
+    ):
+        return "ollama", ResponseMode.JSON_SCHEMA
+    return None
+
+
+def default_response_mode(
+    profile: ProviderProfile,
+    configured_mode: str = "auto",
+) -> ResponseMode:
+    mode = _normalize_profile_value(configured_mode)
+    if mode == "legacy":
+        return ResponseMode.LEGACY_TAGS
+    if mode != "auto":
+        raise ValueError(f"invalid structured response mode: {configured_mode!r}")
+
+    provider = _normalize_profile_value(profile.provider)
+    wire_format = _normalize_profile_value(profile.wire_format)
+    endpoint = str(profile.endpoint or "")
+    if not endpoint:
+        return _NAMED_PROVIDER_DEFAULT_MODES.get(
+            (provider, wire_format),
+            ResponseMode.LEGACY_TAGS,
+        )
+
+    official = _official_profile_for_endpoint(wire_format, endpoint)
+    if official is None:
+        return ResponseMode.LEGACY_TAGS
+    official_provider, response_mode = official
+    if provider not in {"custom_api", official_provider}:
+        return ResponseMode.LEGACY_TAGS
+    return response_mode
+
+
+def resolve_response_mode(
+    profile: ProviderProfile,
+    configured_mode: str = "auto",
+) -> ResponseMode:
+    return default_response_mode(profile, configured_mode)
+
+
+def _endpoint_fingerprint(endpoint: str) -> str:
+    value = str(endpoint or "").encode("utf-8")
+    return hmac.new(
+        _CAPABILITY_ENDPOINT_FINGERPRINT_KEY,
+        value,
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def build_capability_key(
+    profile: ProviderProfile,
+    *,
+    schema_version: str = RESPONSE_ENVELOPE_SCHEMA_VERSION,
+) -> ResponseCapabilityKey:
+    return ResponseCapabilityKey(
+        provider=_normalize_profile_value(profile.provider),
+        wire_format=_normalize_profile_value(profile.wire_format),
+        endpoint_fingerprint=_endpoint_fingerprint(profile.endpoint),
+        model=str(profile.model or "").strip(),
+        schema_version=str(schema_version),
+    )
+
+
+class ResponseCapabilityRegistry:
+    def __init__(self) -> None:
+        self._overrides: dict[ResponseCapabilityKey, ResponseMode] = {}
+
+    def __repr__(self) -> str:
+        return (
+            f"{self.__class__.__name__}("
+            f"legacy_overrides={len(self._overrides)})"
+        )
+
+    def resolve(
+        self,
+        profile: ProviderProfile,
+        configured_mode: str = "auto",
+        *,
+        schema_version: str = RESPONSE_ENVELOPE_SCHEMA_VERSION,
+    ) -> ResponseMode:
+        default_mode = default_response_mode(profile, configured_mode)
+        if default_mode is ResponseMode.LEGACY_TAGS:
+            return default_mode
+        key = build_capability_key(
+            profile,
+            schema_version=schema_version,
+        )
+        return self._overrides.get(key, default_mode)
+
+    def mark_legacy(self, key: ResponseCapabilityKey) -> None:
+        self._overrides[key] = ResponseMode.LEGACY_TAGS
+
+    def clear(self) -> None:
+        self._overrides.clear()
+
+
+def is_explicit_structured_output_unsupported(
+    failure: BaseException,
+    *,
+    profile: ProviderProfile | None = None,
+    response_mode: ResponseMode | None = None,
+) -> bool:
+    if not isinstance(failure, requests.HTTPError):
+        return False
+    response = getattr(failure, "response", None)
+    if response is None:
+        return False
+    try:
+        status_code = int(getattr(response, "status_code", 0))
+    except (TypeError, ValueError):
+        return False
+    if status_code not in {400, 404, 422}:
+        return False
+    detail = getattr(response, "text", "")
+    if not isinstance(detail, str) or not detail.strip():
+        return False
+    match_messages = tuple(
+        candidate
+        for message in _unsupported_match_messages(detail)
+        if (candidate := _normalize_unsupported_candidate(message)) is not None
+    )
+    if any(
+        _EXPLICIT_UNAMBIGUOUS_UNSUPPORTED_PATTERN.search(message)
+        for message in match_messages
+    ):
+        return True
+    if response_mode is ResponseMode.STRICT_TOOL:
+        return any(
+            _EXPLICIT_STRICT_TOOL_UNSUPPORTED_PATTERN.search(message)
+            and not _has_schema_validation_context(message)
+            for message in match_messages
+        )
+    if (
+        response_mode is ResponseMode.JSON_SCHEMA
+        and profile is not None
+        and _normalize_profile_value(profile.provider)
+        in {"ollama", "custom_api"}
+        and _normalize_profile_value(profile.wire_format) == "ollama"
+    ):
+        return any(
+            _EXPLICIT_OLLAMA_FORMAT_UNSUPPORTED_PATTERN.search(message)
+            and not _has_schema_validation_context(message)
+            for message in match_messages
+        )
+    return False
 
 @dataclass(frozen=True)
 class LLMRequestContext:
