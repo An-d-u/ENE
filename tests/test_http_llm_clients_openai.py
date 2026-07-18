@@ -157,6 +157,7 @@ def test_openai_responses_one_shot_applies_gpt_5_6_policy(monkeypatch):
     assert "top_p" not in captured["json"]
     assert captured["json"]["reasoning"] == {"effort": "max"}
     assert captured["json"]["max_output_tokens"] == 1536
+    assert "text" not in captured["json"]
 
 
 def test_official_openai_response_request_remains_legacy_during_classification(monkeypatch):

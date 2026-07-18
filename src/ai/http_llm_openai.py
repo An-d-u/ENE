@@ -9,7 +9,12 @@ from .http_llm_common import (
     _raise_for_status_with_detail,
 )
 from .openai_model_policy import normalize_reasoning_effort, resolve_openai_model_policy
-from .response_protocol import LLMRequestKind
+from .response_protocol import (
+    LLMRequestKind,
+    ProviderResponse,
+    ResponseMode,
+    ResponseStatus,
+)
 
 
 class OpenAICompatibleClient(_CommonMixin):
@@ -253,7 +258,7 @@ class OpenAIResponseAPIClient(_CommonMixin):
                 items.append(
                     {
                         "type": "message",
-                        "status": "complete",
+                        "status": "completed",
                         "role": "assistant",
                         "content": [{"type": "output_text", "text": str(content), "annotations": []}],
                     }
@@ -271,19 +276,109 @@ class OpenAIResponseAPIClient(_CommonMixin):
         return items
 
     def _extract_text(self, data: dict) -> str:
-        output_text = data.get("output_text")
-        if isinstance(output_text, str) and output_text.strip():
-            return output_text.strip()
         for item in data.get("output", []) or []:
             if not isinstance(item, dict):
                 continue
             for part in item.get("content", []) or []:
-                if not isinstance(part, dict):
+                if not isinstance(part, dict) or part.get("type") != "output_text":
                     continue
                 text = part.get("text")
                 if isinstance(text, str) and text.strip():
                     return text.strip()
+        output_text = data.get("output_text")
+        if isinstance(output_text, str) and output_text.strip():
+            return output_text.strip()
         return ""
+
+    def _extract_refusal(self, data: dict) -> str | None:
+        for item in data.get("output", []) or []:
+            if not isinstance(item, dict):
+                continue
+            for part in item.get("content", []) or []:
+                if not isinstance(part, dict) or part.get("type") != "refusal":
+                    continue
+                refusal = part.get("refusal")
+                if isinstance(refusal, str):
+                    return refusal.strip()
+                return ""
+        return None
+
+    def _provider_response_from_data(
+        self,
+        data: dict,
+        *,
+        mode: ResponseMode,
+    ) -> ProviderResponse:
+        carrier = self._extract_text(data)
+        refusal = self._extract_refusal(data)
+        top_status = str(data.get("status", "") or "").strip().lower()
+        output_items = [
+            item
+            for item in data.get("output", []) or []
+            if isinstance(item, dict)
+        ]
+        item_statuses = [
+            str(item.get("status", "") or "").strip().lower()
+            for item in output_items
+        ]
+        finish_reason = ""
+        detail_candidates = [data.get("incomplete_details")]
+        detail_candidates.extend(
+            item.get("incomplete_details") for item in output_items
+        )
+        for details in detail_candidates:
+            if not isinstance(details, dict):
+                continue
+            reason = str(details.get("reason", "") or "").strip()
+            if reason:
+                finish_reason = reason
+                break
+
+        if refusal is not None:
+            return ProviderResponse(
+                carrier=refusal,
+                status=ResponseStatus.REFUSAL,
+                mode=mode,
+                finish_reason=finish_reason,
+            )
+
+        nonterminal_status = next(
+            (
+                status
+                for status in [top_status, *item_statuses]
+                if status and status != "completed"
+            ),
+            "",
+        )
+        if nonterminal_status:
+            return ProviderResponse(
+                carrier=carrier,
+                status=ResponseStatus.INCOMPLETE,
+                mode=mode,
+                finish_reason=finish_reason or nonterminal_status,
+            )
+        return ProviderResponse(
+            carrier=carrier,
+            status=ResponseStatus.COMPLETE if carrier else ResponseStatus.EMPTY,
+            mode=mode,
+            finish_reason=finish_reason,
+        )
+
+    def _response_output_token_cap(self) -> int:
+        model_name = str(self.model_name or "").strip().lower()
+        known_caps = {
+            "gpt-4o": 16384,
+            "gpt-4o-mini": 16384,
+        }
+        return known_caps.get(model_name, 8192)
+
+    def _expanded_output_token_budget(self, current: object) -> int:
+        try:
+            current_tokens = max(0, int(current or 0))
+        except (TypeError, ValueError):
+            current_tokens = 0
+        cap = self._response_output_token_cap()
+        return min(cap, max(current_tokens + 512, current_tokens * 2))
 
     def _apply_generation_payload(self, payload: dict, generation_params: dict | None = None) -> None:
         params = generation_params or self.generation_params
@@ -307,7 +402,7 @@ class OpenAIResponseAPIClient(_CommonMixin):
         user_content,
         *,
         request_descriptor: HTTPFinalRequestDescriptor | None = None,
-    ) -> str:
+    ) -> str | ProviderResponse:
         context = (
             request_descriptor.context
             if request_descriptor is not None
@@ -323,12 +418,41 @@ class OpenAIResponseAPIClient(_CommonMixin):
             "input": self._input_items(context.user_content, history=context.history),
             "store": False,
         }
-        self._apply_generation_payload(payload, context.generation_params)
+        if (
+            request_descriptor is not None
+            and request_descriptor.attempt.mode is ResponseMode.JSON_SCHEMA
+            and context.request_kind is LLMRequestKind.FINAL_REPLY
+            and request_descriptor.schema_name
+            and request_descriptor.schema is not None
+        ):
+            payload["text"] = {
+                "format": {
+                    "type": "json_schema",
+                    "name": request_descriptor.schema_name,
+                    "strict": True,
+                    "schema": request_descriptor.schema,
+                }
+            }
+        generation_params = dict(context.generation_params)
+        if (
+            request_descriptor is not None
+            and request_descriptor.attempt.phase == "regenerate"
+            and request_descriptor.attempt.expand_output_budget
+        ):
+            generation_params["max_tokens"] = self._expanded_output_token_budget(
+                generation_params.get("max_tokens")
+            )
+        self._apply_generation_payload(payload, generation_params)
         timeout = request_descriptor.timeout_seconds if request_descriptor is not None else 60
         response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=timeout)
         _raise_for_status_with_detail(response, self.provider_name)
         data = response.json()
-        return self._extract_text(data)
+        if request_descriptor is None:
+            return self._extract_text(data)
+        return self._provider_response_from_data(
+            data,
+            mode=request_descriptor.attempt.mode,
+        )
 
     def _request_one_shot_raw(
         self,
