@@ -2,6 +2,7 @@ import pytest
 
 pytest.importorskip("google.genai")
 
+from src.ai import response_cleanup
 from src.ai.llm_client import GeminiClient
 from src.ai.response_parser import parse_llm_response
 
@@ -50,6 +51,24 @@ confidence=0.86
     }
     assert promises == []
     assert thought == ""
+
+
+def test_parse_response_extracts_spaced_mixed_case_analysis_block_without_leak():
+    analysis_body = "synthetic_intent"
+    parsed = parse_llm_response(
+        "[ AnAlYsIs ]\n"
+        f"user_intent={analysis_body}\n"
+        "[ / analysis ]\n"
+        "VISIBLE [normal]",
+        settings_source={"ui_language": "ko", "tts_language": "ko"},
+        available_emotions={"normal"},
+    )
+
+    assert parsed[0] == "VISIBLE"
+    assert parsed[2] == "VISIBLE"
+    assert parsed[4] == {"user_intent": analysis_body}
+    assert analysis_body not in parsed[0]
+    assert analysis_body not in parsed[2]
 
 
 def test_parse_response_extracts_thought_block_without_leaking_to_text_or_tts():
@@ -171,24 +190,188 @@ def test_parse_response_extracts_leading_thought_metadata_line():
     assert thought == "마스터가 답답해하는 것 같다. 먼저 안심시켜야겠다."
 
 
-def test_parse_response_keeps_reply_when_model_wraps_everything_as_thought():
-    client = GeminiClient.__new__(GeminiClient)
-    response_text = """
-[thought]
-괜찮아요. 천천히 해도 돼요. [smile]
-大丈夫です。ゆっくりでいいですよ。
-[/thought]
-""".strip()
+def test_parse_response_does_not_promote_thought_only_block_to_reply():
+    parsed = parse_llm_response(
+        "[thought]\n가상 내면 반응\n[/thought]",
+        settings_source={"ui_language": "ko", "tts_language": "ko"},
+    )
 
-    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive, _gesture = client._parse_response(response_text)
+    assert parsed[0] == ""
+    assert parsed[2] == ""
+    assert parsed[6] == "가상 내면 반응"
 
-    assert text == "괜찮아요. 천천히 해도 돼요."
-    assert emotion == "smile"
-    assert tts_text == "大丈夫です。ゆっくりでいいですよ。"
-    assert events == []
-    assert analysis == {}
-    assert promises == []
-    assert thought == ""
+
+@pytest.mark.parametrize(
+    "start_tag",
+    [
+        "[analysis]",
+        "[subconscious]",
+        "[thought]",
+        "[ene_thought]",
+        "[inner_thought]",
+        "[생각]",
+        "[속마음]",
+        "[에네생각]",
+        "[ 에네   생각 ]",
+        "[ TtS ]",
+        "[ ene_goal_update ]",
+        "[ ProActive_Conversation ]",
+    ],
+)
+def test_parse_response_strips_unclosed_reserved_control_blocks(start_tag):
+    leak = "노출되면 안 되는 가상 메타"
+    parsed = parse_llm_response(
+        f"표시 가능한 가상 답변 [normal]\n{start_tag}\n{leak}",
+        settings_source={"ui_language": "ko", "tts_language": "ko"},
+        available_emotions={"normal"},
+    )
+
+    assert parsed[0] == "표시 가능한 가상 답변"
+    assert parsed[2] == "표시 가능한 가상 답변"
+    assert leak not in repr(parsed)
+
+
+def test_parse_response_keeps_closed_thought_before_unclosed_same_type():
+    leak = "노출 금지 가상 생각"
+    parsed = parse_llm_response(
+        "[thought]\n유효한 가상 생각\n[/thought]\n"
+        "표시 가능한 가상 답변 [normal]\n"
+        f"[thought]\n{leak}",
+        settings_source={"ui_language": "ko", "tts_language": "ko"},
+        available_emotions={"normal"},
+    )
+
+    assert parsed[0] == "표시 가능한 가상 답변"
+    assert parsed[6] == "유효한 가상 생각"
+    assert leak not in repr(parsed)
+
+
+def test_parse_response_strips_nested_unclosed_reserved_control_block():
+    leak = "노출 금지 바깥 가상 생각"
+    parsed = parse_llm_response(
+        "표시 가능한 가상 답변 [normal]\n"
+        f"[thought]\n{leak}\n"
+        "[thought]\n안쪽 가상 생각\n[/thought]",
+        settings_source={"ui_language": "ko", "tts_language": "ko"},
+        available_emotions={"normal"},
+    )
+
+    assert parsed[0] == "표시 가능한 가상 답변"
+    assert leak not in repr(parsed)
+
+
+def test_parse_response_strips_from_first_unclosed_control_block_in_combination():
+    first_leak = "노출 금지 가상 분석"
+    second_leak = "노출 금지 가상 TTS"
+    parsed = parse_llm_response(
+        "표시 가능한 가상 답변 [normal]\n"
+        f"[analysis]\n{first_leak}\n[tts]\n{second_leak}",
+        settings_source={"ui_language": "ko", "tts_language": "ko"},
+        available_emotions={"normal"},
+    )
+
+    assert parsed[0] == "표시 가능한 가상 답변"
+    assert parsed[2] == "표시 가능한 가상 답변"
+    assert first_leak not in repr(parsed)
+    assert second_leak not in repr(parsed)
+
+
+def test_parse_response_discards_interleaved_malformed_reserved_blocks():
+    response_text = """VISIBLE [normal]
+[tts]
+LEAK_A
+[ene_goal_update]
+LEAK_B
+[/tts]
+[analysis]
+LEAK_C
+[/ene_goal_update]
+[proactive_conversation]
+LEAK_D
+[/analysis]"""
+
+    parsed = parse_llm_response(
+        response_text,
+        settings_source={"ui_language": "ko", "tts_language": "ko"},
+        available_emotions={"normal"},
+    )
+
+    assert parsed[0] == "VISIBLE"
+    assert parsed[2] == "VISIBLE"
+    rendered = repr(parsed)
+    for secret in ("LEAK_A", "LEAK_B", "LEAK_C", "LEAK_D"):
+        assert secret not in rendered
+    for marker in ("[tts]", "[ene_goal_update]", "[analysis]", "[proactive_conversation]"):
+        assert marker not in rendered.lower()
+
+
+def test_reserved_control_sanitizer_discards_crossed_block_from_outer_start():
+    cleaned = response_cleanup.sanitize_reserved_control_blocks(
+        "VISIBLE [thought]OUTER [analysis]LEAK[/thought] AFTER[/analysis] END"
+    )
+
+    assert cleaned == "VISIBLE"
+    assert "[thought]OUTER" not in cleaned
+
+
+@pytest.mark.parametrize(
+    ("response_text", "secrets"),
+    [
+        (
+            "VISIBLE [thought]OUTER [thought]INNER[/thought] TAIL[/thought] END [normal]",
+            ("OUTER", "INNER", "TAIL"),
+        ),
+        (
+            "VISIBLE [thought]OUTER [analysis]user_intent=x[/thought] AFTER[/analysis] END [normal]",
+            ("OUTER", "user_intent=x", "AFTER"),
+        ),
+    ],
+)
+def test_parse_response_discards_nested_or_crossed_reserved_blocks(response_text, secrets):
+    parsed = parse_llm_response(
+        response_text,
+        settings_source={"ui_language": "ko", "tts_language": "ko"},
+        available_emotions={"normal"},
+    )
+
+    assert parsed[0] == "VISIBLE"
+    assert parsed[2] == "VISIBLE"
+    assert parsed[4] == {}
+    assert parsed[6] == ""
+    rendered = repr(parsed)
+    for secret in secrets:
+        assert secret not in rendered
+    assert "[/thought]" not in rendered.lower()
+    assert "[/analysis]" not in rendered.lower()
+
+
+def test_parse_response_strips_orphan_reserved_close_markers():
+    parsed = parse_llm_response(
+        "[/analysis] VISIBLE [normal] AFTER [/thought]",
+        settings_source={"ui_language": "ko", "tts_language": "ko"},
+        available_emotions={"normal"},
+    )
+
+    assert parsed[0] == "VISIBLE  AFTER"
+    assert parsed[2] == "VISIBLE  AFTER"
+    assert "[/analysis]" not in repr(parsed).lower()
+    assert "[/thought]" not in repr(parsed).lower()
+
+
+def test_parse_response_preserves_flat_sequential_control_blocks():
+    parsed = parse_llm_response(
+        "[analysis]\nuser_intent=synthetic_intent\n[/analysis]\n"
+        "[thought]\nsynthetic_thought\n[/thought]\n"
+        "[tts]\nSYNTHETIC_TTS\n[/tts]\n"
+        "VISIBLE [normal]",
+        settings_source={"ui_language": "ko", "tts_language": "ja"},
+        available_emotions={"normal"},
+    )
+
+    assert parsed[0] == "VISIBLE"
+    assert parsed[2] == "SYNTHETIC_TTS"
+    assert parsed[4] == {"user_intent": "synthetic_intent"}
+    assert parsed[6] == "synthetic_thought"
 
 
 def test_parse_response_extracts_plain_analysis_lines_at_top():

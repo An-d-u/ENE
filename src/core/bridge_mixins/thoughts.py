@@ -8,6 +8,8 @@ from ...ai.prompt_language import resolve_prompt_language
 from ...ai.response_cleanup import (
     extract_goal_update_metadata,
     extract_thought_metadata,
+    extract_tts_metadata,
+    sanitize_reserved_control_blocks,
     strip_proactive_conversation_blocks,
     strip_thinking_markers,
 )
@@ -30,10 +32,17 @@ class ThoughtBridgeMixin:
     def _sanitize_visible_response_text(self, text: str) -> str:
         """표시 직전 응답에서 내부 메타데이터와 잔여 감정 태그를 제거한다."""
         sanitized = strip_thinking_markers(text)
-        sanitized = re.sub(r"\[analysis\]\s*.*?\s*\[/analysis\]\s*", "", sanitized, flags=re.IGNORECASE | re.DOTALL)
+        sanitized = sanitize_reserved_control_blocks(sanitized)
+        sanitized = re.sub(
+            r"\[\s*analysis\s*\]\s*.*?\s*\[\s*/\s*analysis\s*\]\s*",
+            "",
+            sanitized,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
         sanitized, _ = extract_thought_metadata(sanitized)
         sanitized, goal_update = extract_goal_update_metadata(sanitized)
         sanitized = strip_proactive_conversation_blocks(sanitized)
+        sanitized, _ = extract_tts_metadata(sanitized)
         if goal_update:
             sanitized = re.sub(r"\n{2,}", "\n", sanitized)
 

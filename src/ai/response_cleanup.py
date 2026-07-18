@@ -29,15 +29,72 @@ _THOUGHT_TAG_PATTERN = "|".join(re.escape(alias).replace("\\ ", r"\s+") for alia
 _THOUGHT_BLOCK_PATTERN = rf"\[\s*(?:{_THOUGHT_TAG_PATTERN})\s*\]\s*(.*?)\s*\[\s*/\s*(?:{_THOUGHT_TAG_PATTERN})\s*\]"
 _THOUGHT_LABEL_PATTERN = rf"^\s*(?:{'|'.join(THOUGHT_LABEL_ALIASES)})\s*[:=：]\s*(.+?)\s*$"
 _TTS_BLOCK_PATTERN = r"\[\s*tts\s*\]\s*(.*?)\s*\[\s*/\s*tts\s*\]"
+_RESERVED_CONTROL_TAG_FAMILIES = (
+    ("thought", rf"(?:{_THOUGHT_TAG_PATTERN})"),
+    ("tts", "tts"),
+    ("analysis", "analysis"),
+    ("ene_goal_update", "ene_goal_update"),
+    ("proactive_conversation", "proactive_conversation"),
+)
+_RESERVED_CONTROL_TOKEN_PATTERN = re.compile(
+    "|".join(
+        (
+            rf"(?P<{family}_end>\[\s*/\s*{tag_pattern}\s*\])"
+            rf"|(?P<{family}_start>\[\s*{tag_pattern}\s*\])"
+        )
+        for family, tag_pattern in _RESERVED_CONTROL_TAG_FAMILIES
+    ),
+    re.IGNORECASE,
+)
 GOAL_UPDATE_KEYS = ("action", "type", "id", "title", "reason", "completion_reason")
 _GOAL_UPDATE_BLOCK_PATTERN = r"\[\s*ene_goal_update\s*\]\s*(.*?)\s*\[\s*/\s*ene_goal_update\s*\]"
-_UNCLOSED_GOAL_UPDATE_BLOCK_PATTERN = r"\[\s*ene_goal_update\s*\].*$"
 _PROACTIVE_CONVERSATION_BLOCK_PATTERN = (
     r"\[\s*proactive_conversation\s*\]\s*"
     r".*?"
     r"\s*\[\s*/\s*proactive_conversation\s*\]"
 )
-_UNCLOSED_PROACTIVE_CONVERSATION_BLOCK_PATTERN = r"\[\s*proactive_conversation\s*\].*$"
+
+
+def sanitize_reserved_control_blocks(text: str) -> str:
+    """예약 제어 태그의 flat 문법을 검증하고 잘못된 suffix와 orphan close를 제거한다."""
+    source = str(text or "")
+    active_family = ""
+    active_start = -1
+    cutoff = len(source)
+    orphan_markers: list[tuple[int, int]] = []
+
+    for token_match in _RESERVED_CONTROL_TOKEN_PATTERN.finditer(source):
+        marker_group = token_match.lastgroup or ""
+        family, marker_kind = marker_group.rsplit("_", 1)
+        if marker_kind == "start":
+            if active_family:
+                cutoff = active_start
+                break
+            active_family = family
+            active_start = token_match.start()
+            continue
+
+        if not active_family:
+            orphan_markers.append((token_match.start(), token_match.end()))
+            continue
+        if family != active_family:
+            cutoff = active_start
+            break
+        active_family = ""
+        active_start = -1
+
+    if active_family:
+        cutoff = active_start
+
+    cleaned_parts: list[str] = []
+    cursor = 0
+    for marker_start, marker_end in orphan_markers:
+        if marker_start >= cutoff:
+            break
+        cleaned_parts.append(source[cursor:marker_start])
+        cursor = marker_end
+    cleaned_parts.append(source[cursor:cutoff])
+    return "".join(cleaned_parts).strip()
 
 
 def strip_thinking_markers(text: str) -> str:
@@ -55,8 +112,6 @@ def extract_thought_metadata(text: str) -> tuple[str, str]:
     if match:
         thought = re.sub(r"\s+", " ", match.group(1)).strip()
         cleaned = re.sub(_THOUGHT_BLOCK_PATTERN, "", source, flags=re.IGNORECASE | re.DOTALL).strip()
-        if not cleaned:
-            return match.group(1).strip(), ""
         return cleaned, thought
 
     lines = source.splitlines()
@@ -94,12 +149,9 @@ def extract_thought_metadata(text: str) -> tuple[str, str]:
 
 def extract_goal_update_metadata(text: str) -> tuple[str, dict[str, str]]:
     """응답 본문에서 목표 업데이트 메타데이터를 분리한다."""
-    source = str(text or "")
+    source = sanitize_reserved_control_blocks(text)
     match = re.search(_GOAL_UPDATE_BLOCK_PATTERN, source, re.IGNORECASE | re.DOTALL)
     if not match:
-        cleaned = re.sub(_UNCLOSED_GOAL_UPDATE_BLOCK_PATTERN, "", source, flags=re.IGNORECASE | re.DOTALL).strip()
-        if cleaned != source.strip():
-            return cleaned, {}
         return source, {}
 
     parsed: dict[str, str] = {}
@@ -113,16 +165,14 @@ def extract_goal_update_metadata(text: str) -> tuple[str, dict[str, str]]:
         if normalized_key in allowed_keys:
             parsed[normalized_key] = value.strip()
 
-    cleaned = re.sub(_GOAL_UPDATE_BLOCK_PATTERN, "", source, flags=re.IGNORECASE | re.DOTALL)
-    cleaned = re.sub(_UNCLOSED_GOAL_UPDATE_BLOCK_PATTERN, "", cleaned, flags=re.IGNORECASE | re.DOTALL).strip()
+    cleaned = re.sub(_GOAL_UPDATE_BLOCK_PATTERN, "", source, flags=re.IGNORECASE | re.DOTALL).strip()
     return cleaned, parsed
 
 
 def strip_proactive_conversation_blocks(text: str) -> str:
     """화면에 노출되면 안 되는 선제 대화 예약 블록을 제거한다."""
-    source = str(text or "")
+    source = sanitize_reserved_control_blocks(text)
     cleaned = re.sub(_PROACTIVE_CONVERSATION_BLOCK_PATTERN, "", source, flags=re.IGNORECASE | re.DOTALL)
-    cleaned = re.sub(_UNCLOSED_PROACTIVE_CONVERSATION_BLOCK_PATTERN, "", cleaned, flags=re.IGNORECASE | re.DOTALL)
     return cleaned.strip()
 
 
