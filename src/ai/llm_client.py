@@ -1,7 +1,10 @@
 """
 Gemini LLM 클라이언트 (google-genai SDK 사용)
 """
+
+import copy
 from datetime import datetime
+import hashlib
 import re
 from typing import Tuple, List, Dict
 from google import genai
@@ -22,8 +25,29 @@ from .persona_names import resolve_prompt_persona_names
 from .prompt import build_runtime_system_prompt, get_parseable_emotions
 from .prompt_config import get_runtime_emotions
 from .prompt_language import resolve_prompt_language
+from .response_contract import build_response_repair_prompt
+from .response_envelope import (
+    build_response_requirements,
+    get_response_envelope_v1_schema,
+    get_response_repair_schema,
+)
+from .response_pipeline import ResponseAttempt, execute_final_response
+from .response_protocol import (
+    InvalidFinalResponseError,
+    LLMRequestKind,
+    ProviderProfile,
+    ProviderResponse,
+    RESPONSE_ENVELOPE_SCHEMA_VERSION,
+    ResponseDeliveryMetadata,
+    ResponseMode,
+    ResponseStatus,
+    StructuredOutputUnsupported,
+)
+from .http_llm_common import (
+    ResponseCapabilityRegistry,
+    build_capability_key,
+)
 from .response_cleanup import extract_goal_update_metadata, extract_thought_metadata
-from .response_protocol import LLMRequestKind, ResponseMode
 from .runtime_prompt_settings import build_runtime_prompt_settings_source
 from .response_parser import (
     extract_analysis_block,
@@ -48,13 +72,31 @@ from .tool_calling import (
     create_web_search_decision_provider,
 )
 
-LLM_RESPONSE_TUPLE = Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict], str, Dict[str, str], List[Dict], str]
+LLM_RESPONSE_TUPLE = Tuple[
+    str,
+    str,
+    str | None,
+    List[Dict],
+    Dict[str, str],
+    List[Dict],
+    str,
+    Dict[str, str],
+    List[Dict],
+    str,
+]
 SUMMARY_MIN_OUTPUT_TOKENS = 4096
+GEMINI_MAX_OUTPUT_TOKENS = 8192
+_GEMINI_RESPONSE_CAPABILITY_REGISTRY = ResponseCapabilityRegistry()
+
+
+def clear_gemini_response_capability_cache() -> None:
+    """테스트와 런타임 재설정을 위해 Gemini capability 캐시를 비운다."""
+    _GEMINI_RESPONSE_CAPABILITY_REGISTRY.clear()
 
 
 class GeminiClient:
     """Gemini API 클라이언트"""
-    
+
     def __init__(
         self,
         api_key: str,
@@ -111,8 +153,48 @@ class GeminiClient:
             proactive_manager=getattr(self, "proactive_manager", None),
         )
 
-    def _runtime_prompt_signature(self) -> tuple:
+    def _settings_snapshot(self) -> dict:
+        """현재 설정을 요청 단위의 독립 복사본으로 고정한다."""
         source = self._runtime_prompt_settings_source()
+        if isinstance(source, dict):
+            return copy.deepcopy(source)
+        config = getattr(source, "config", None)
+        if isinstance(config, dict):
+            return copy.deepcopy(config)
+        return {}
+
+    def _response_profile(self) -> ProviderProfile:
+        return ProviderProfile(
+            provider="gemini",
+            wire_format="gemini",
+            endpoint="",
+            model=str(getattr(self, "model_name", "") or ""),
+        )
+
+    def _resolve_response_mode(
+        self, settings_snapshot: dict | None = None
+    ) -> ResponseMode:
+        settings = (
+            settings_snapshot
+            if settings_snapshot is not None
+            else self._settings_snapshot()
+        )
+        configured = str(settings.get("structured_response_mode", "auto") or "auto")
+        profile = self._response_profile()
+        key = build_capability_key(profile)
+        return _GEMINI_RESPONSE_CAPABILITY_REGISTRY.resolve(
+            profile,
+            configured,
+            capability_key=key,
+        )
+
+    def _runtime_prompt_signature(
+        self,
+        *,
+        response_mode: ResponseMode | None = None,
+        settings_source: dict | None = None,
+    ) -> tuple:
+        source = settings_source if settings_source is not None else self._settings_snapshot()
         proactive_enabled = True
         keys = []
         avatar_mode = "live2d"
@@ -120,42 +202,84 @@ class GeminiClient:
         if isinstance(source, dict):
             proactive_enabled = bool(source.get("enable_proactive_conversation", True))
             keys = list(source.get("proactive_available_cooldown_keys") or [])
-            avatar_mode = str(source.get("avatar_mode", "live2d") or "live2d").strip().lower()
-            image_avatar_folder = str(source.get("image_avatar_folder", "") or "").strip()
+            avatar_mode = (
+                str(source.get("avatar_mode", "live2d") or "live2d").strip().lower()
+            )
+            image_avatar_folder = str(
+                source.get("image_avatar_folder", "") or ""
+            ).strip()
         else:
             getter = getattr(source, "get", None)
             if callable(getter):
                 try:
-                    proactive_enabled = bool(getter("enable_proactive_conversation", True))
+                    proactive_enabled = bool(
+                        getter("enable_proactive_conversation", True)
+                    )
                 except Exception:
                     proactive_enabled = True
                 try:
-                    avatar_mode = str(getter("avatar_mode", "live2d") or "live2d").strip().lower()
+                    avatar_mode = (
+                        str(getter("avatar_mode", "live2d") or "live2d").strip().lower()
+                    )
                 except Exception:
                     avatar_mode = "live2d"
                 try:
-                    image_avatar_folder = str(getter("image_avatar_folder", "") or "").strip()
+                    image_avatar_folder = str(
+                        getter("image_avatar_folder", "") or ""
+                    ).strip()
                 except Exception:
                     image_avatar_folder = ""
             config = getattr(source, "config", None)
             if isinstance(config, dict):
-                proactive_enabled = bool(config.get("enable_proactive_conversation", proactive_enabled))
-                avatar_mode = str(config.get("avatar_mode", avatar_mode) or avatar_mode).strip().lower()
-                image_avatar_folder = str(config.get("image_avatar_folder", image_avatar_folder) or "").strip()
+                proactive_enabled = bool(
+                    config.get("enable_proactive_conversation", proactive_enabled)
+                )
+                avatar_mode = (
+                    str(config.get("avatar_mode", avatar_mode) or avatar_mode)
+                    .strip()
+                    .lower()
+                )
+                image_avatar_folder = str(
+                    config.get("image_avatar_folder", image_avatar_folder) or ""
+                ).strip()
         try:
             runtime_emotions = tuple(get_runtime_emotions(settings_source=source))
         except Exception:
             runtime_emotions = ()
+        mode = response_mode or self._resolve_response_mode(source)
+        final_prompt = build_runtime_system_prompt(
+            include_sub_prompt=True,
+            include_analysis_appendix=True,
+            settings_source=source,
+            request_kind=LLMRequestKind.FINAL_REPLY,
+            response_mode=mode,
+        )
+        prompt_fingerprint = hashlib.sha256(final_prompt.encode("utf-8")).hexdigest()
         return (
             proactive_enabled,
             tuple(str(key) for key in keys),
             avatar_mode,
             image_avatar_folder,
             runtime_emotions,
+            mode.value,
+            RESPONSE_ENVELOPE_SCHEMA_VERSION,
+            prompt_fingerprint,
         )
 
-    def _refresh_chat_session_for_runtime_prompt_if_needed(self) -> None:
-        signature = self._runtime_prompt_signature()
+    def _refresh_chat_session_for_runtime_prompt_if_needed(
+        self,
+        *,
+        settings_source: dict | None = None,
+        response_mode: ResponseMode | None = None,
+    ) -> None:
+        frozen_settings = (
+            settings_source if settings_source is not None else self._settings_snapshot()
+        )
+        mode = response_mode or self._resolve_response_mode(frozen_settings)
+        signature = self._runtime_prompt_signature(
+            response_mode=mode,
+            settings_source=frozen_settings,
+        )
         previous = getattr(self, "_last_runtime_prompt_signature", None)
         if previous == signature:
             return
@@ -163,17 +287,40 @@ class GeminiClient:
             self._last_runtime_prompt_signature = signature
             return
         history = self.get_conversation_history()
-        self.chat = self._create_chat_session(history=history)
+        self.chat = self._create_chat_session(
+            history=history,
+            response_mode=mode,
+            settings_source=frozen_settings,
+        )
         self._last_runtime_prompt_signature = signature
 
-    def _create_chat_session(self, history=None):
+
+    def _create_chat_session(
+        self,
+        history=None,
+        *,
+        response_mode: ResponseMode | None = None,
+        generation_params: dict | None = None,
+        settings_source: dict | None = None,
+    ):
         """Gemini chat 세션을 생성한다."""
+        resolver = getattr(self, "_resolve_response_mode", None)
+        mode = response_mode or (
+            resolver(settings_source) if callable(resolver) else ResponseMode.LEGACY_TAGS
+        )
+        config_kwargs = {
+            "include_sub_prompt": True,
+            "request_kind": LLMRequestKind.FINAL_REPLY,
+        }
+        if callable(resolver):
+            config_kwargs["response_mode"] = mode
+        if generation_params is not None:
+            config_kwargs["generation_params"] = generation_params
+        if settings_source is not None:
+            config_kwargs["settings_source"] = settings_source
         kwargs = {
             "model": self.model_name,
-            "config": self._build_chat_config(
-                include_sub_prompt=True,
-                request_kind=LLMRequestKind.FINAL_REPLY,
-            ),
+            "config": self._build_chat_config(**config_kwargs),
         }
         if history is not None:
             kwargs["history"] = history
@@ -208,21 +355,38 @@ class GeminiClient:
         include_sub_prompt: bool = True,
         *,
         request_kind: LLMRequestKind,
+        response_mode: ResponseMode = ResponseMode.LEGACY_TAGS,
+        response_schema: dict | None = None,
+        generation_params: dict | None = None,
+        settings_source: dict | None = None,
     ) -> dict:
+        params = dict(generation_params or self.generation_params)
         system_instruction = build_runtime_system_prompt(
             include_sub_prompt=include_sub_prompt,
             include_analysis_appendix=True,
-            settings_source=self._runtime_prompt_settings_source(),
+            settings_source=(
+                settings_source
+                if settings_source is not None
+                else self._runtime_prompt_settings_source()
+            ),
             request_kind=request_kind,
-            response_mode=ResponseMode.LEGACY_TAGS,
+            response_mode=response_mode,
         )
         config = {
             "system_instruction": system_instruction,
-            "temperature": self.generation_params["temperature"],
-            "top_p": self.generation_params["top_p"],
+            "temperature": params["temperature"],
+            "top_p": params["top_p"],
         }
-        if self.generation_params["max_tokens"] > 0:
-            config["max_output_tokens"] = self.generation_params["max_tokens"]
+        if params["max_tokens"] > 0:
+            config["max_output_tokens"] = params["max_tokens"]
+        if (
+            request_kind is LLMRequestKind.FINAL_REPLY
+            and response_mode is ResponseMode.JSON_SCHEMA
+        ):
+            config["response_mime_type"] = "application/json"
+            config["response_json_schema"] = copy.deepcopy(
+                response_schema or get_response_envelope_v1_schema()
+            )
         return config
 
     def _summary_output_token_budget(self) -> int:
@@ -390,6 +554,385 @@ class GeminiClient:
         self._log_empty_response_diagnostics(response, label)
         return ""
 
+    def _expanded_output_token_budget(self, generation_params: dict) -> int:
+        try:
+            current = int(generation_params.get("max_tokens") or 0)
+        except (TypeError, ValueError):
+            current = 0
+        if current <= 0:
+            return GEMINI_MAX_OUTPUT_TOKENS
+        if current >= GEMINI_MAX_OUTPUT_TOKENS:
+            return current
+        return min(
+            GEMINI_MAX_OUTPUT_TOKENS,
+            max(current + 512, current * 2),
+        )
+
+    def _normalized_enum_text(self, value) -> str:
+        name = getattr(value, "name", None)
+        normalized = name if name is not None else getattr(value, "value", value)
+        return str(normalized or "").strip().split(".")[-1].lower()
+
+    def _finish_reason_text(self, response) -> str:
+        candidates = getattr(response, "candidates", None)
+        if not candidates:
+            return ""
+        try:
+            candidate = list(candidates)[0]
+        except (TypeError, IndexError):
+            return ""
+        reason = self._debug_field(candidate, "finish_reason")
+        return self._normalized_enum_text(reason)
+
+    def _response_usage(self, response) -> dict[str, int | None]:
+        usage = getattr(response, "usage_metadata", None)
+        if isinstance(response, dict):
+            usage = response.get("usage_metadata")
+
+        def read(*names):
+            for name in names:
+                value = self._debug_field(usage, name)
+                if isinstance(value, int):
+                    return value
+            return None
+
+        return {
+            "input_tokens": read("prompt_token_count", "input_token_count"),
+            "output_tokens": read("candidates_token_count", "output_token_count"),
+            "total_tokens": read("total_token_count", "total_tokens"),
+        }
+
+    def _provider_response(self, response, mode: ResponseMode) -> ProviderResponse:
+        carrier = self._extract_response_text_or_empty(response, label="최종 응답")
+        finish_reason = self._finish_reason_text(response)
+        normal_reasons = {"", "stop", "finish_reason_unspecified"}
+        refusal_reasons = {
+            "safety",
+            "recitation",
+            "blocklist",
+            "prohibited_content",
+            "spii",
+            "content_filter",
+            "image_safety",
+            "image_prohibited_content",
+            "image_recitation",
+        }
+        if finish_reason == "max_tokens":
+            status = ResponseStatus.INCOMPLETE
+        elif finish_reason in refusal_reasons:
+            status = ResponseStatus.REFUSAL
+            finish_reason = "content_filter"
+        elif finish_reason not in normal_reasons:
+            status = ResponseStatus.INCOMPLETE
+        elif carrier:
+            status = ResponseStatus.COMPLETE
+        else:
+            block_reason = self._debug_field(
+                getattr(response, "prompt_feedback", None),
+                "block_reason",
+            )
+            normalized_block_reason = self._normalized_enum_text(block_reason)
+            status = (
+                ResponseStatus.REFUSAL
+                if normalized_block_reason
+                not in {
+                    "",
+                    "block_reason_unspecified",
+                    "blocked_reason_unspecified",
+                }
+                else ResponseStatus.EMPTY
+            )
+        return ProviderResponse(
+            carrier=carrier,
+            status=status,
+            mode=mode,
+            finish_reason=finish_reason,
+            usage=self._response_usage(response),
+        )
+
+    def _is_explicit_structured_output_unsupported(
+        self, failure: BaseException
+    ) -> bool:
+        response = getattr(failure, "response", None)
+        status = getattr(failure, "code", None)
+        if status is None:
+            status = getattr(response, "status_code", None)
+        try:
+            status_code = int(status)
+        except (TypeError, ValueError):
+            return False
+        if status_code not in {400, 404, 422}:
+            return False
+        detail = " ".join(
+            str(value or "")
+            for value in (
+                failure,
+                getattr(failure, "message", ""),
+                getattr(response, "text", ""),
+            )
+        ).lower()
+        if any(
+            phrase in detail
+            for phrase in (
+                "invalid schema",
+                "malformed schema",
+                "schema validation",
+                "does not match schema",
+            )
+        ):
+            return False
+        marker = (
+            r"(?:response_json_schema|response_mime_type|"
+            r"responsejsonschema|responsemimetype)"
+        )
+        direct_marker = rf"{marker}(?!(?:[\w/\[\]-]|\.(?!\s|$)))"
+        direct_patterns = (
+            rf"\bunknown\s+(?:parameter|field)\s*:?\s*[\"']?{direct_marker}",
+            rf"\bunrecognized\s+(?:parameter|field)\s*:?\s*[\"']?{direct_marker}",
+            rf"\b(?:unsupported|not supported)\s+(?:parameter|field)\s*:?\s*[\"']?{direct_marker}",
+            rf"\b{direct_marker}\s+(?:parameter|field)\s+(?:is\s+)?(?:unsupported|not supported|unknown|unrecognized)\b",
+            rf"\bunknown\s+name\s+[\"']?{direct_marker}[\"']?.*?\bcannot\s+find\s+field\b",
+            rf"\bunexpected\s+keyword(?:\s+argument)?\s*:?\s*[\"']?{direct_marker}",
+            rf"\b{direct_marker}\s+is\s+(?:unsupported|not supported)\b",
+            rf"\bmodel\s+(?:does\s+not|doesn't)\s+support\s+[\"']?{direct_marker}",
+        )
+        return any(
+            re.search(pattern, detail, flags=re.DOTALL)
+            for pattern in direct_patterns
+        )
+
+
+    def _get_sdk_history_views(self) -> list[list]:
+        chat = getattr(self, "chat", None)
+        histories = []
+        getter = getattr(chat, "get_history", None)
+        if callable(getter):
+            try:
+                histories.extend([getter(curated=True), getter(curated=False)])
+            except TypeError:
+                histories.append(getter())
+            except Exception:
+                histories = []
+        if not histories:
+            try:
+                histories.append(getattr(chat, "history", None))
+            except Exception:
+                histories = []
+
+        unique_histories = []
+        seen_ids = set()
+        for history in histories:
+            if history is None or id(history) in seen_ids:
+                continue
+            seen_ids.add(id(history))
+            unique_histories.append(history)
+        return unique_histories
+
+    def _get_sdk_history(self, *, deep_copy: bool) -> list:
+        histories = self._get_sdk_history_views()
+        values = list(histories[0]) if histories else []
+        if not deep_copy:
+            return values
+        try:
+            return copy.deepcopy(values)
+        except Exception:
+            return list(values)
+
+    def _restore_history_snapshot(
+        self,
+        history_snapshot: list,
+        *,
+        response_mode: ResponseMode,
+        generation_params: dict | None = None,
+        settings_source: dict | None = None,
+    ) -> None:
+        self.chat = self._create_chat_session(
+            history=copy.deepcopy(history_snapshot),
+            response_mode=response_mode,
+            generation_params=generation_params,
+            settings_source=settings_source,
+        )
+
+    def _replace_latest_model_history_with_visible_reply(self, reply: str) -> None:
+        for history in self._get_sdk_history_views():
+            for item in reversed(history):
+                if self._get_item_role(item) not in {"model", "assistant"}:
+                    continue
+                if isinstance(item, dict):
+                    item["parts"] = [{"text": reply}]
+                    break
+                try:
+                    item.parts = [genai.types.Part.from_text(text=reply)]
+                except Exception:
+                    break
+                break
+
+    def _build_repair_config(
+        self,
+        *,
+        response_mode: ResponseMode,
+        schema: dict | None,
+        generation_params: dict,
+    ) -> dict:
+        config = {
+            "temperature": generation_params["temperature"],
+            "top_p": generation_params["top_p"],
+        }
+        if generation_params.get("max_tokens", 0) > 0:
+            config["max_output_tokens"] = generation_params["max_tokens"]
+        if response_mode is ResponseMode.JSON_SCHEMA and schema is not None:
+            config["response_mime_type"] = "application/json"
+            config["response_json_schema"] = copy.deepcopy(schema)
+        return config
+
+    def _execute_final_response(
+        self,
+        contents,
+        *,
+        history_user_content: str,
+        label: str,
+        settings_source: dict | None = None,
+        response_mode: ResponseMode | None = None,
+    ) -> LLM_RESPONSE_TUPLE:
+        """Gemini 자동 history를 한 턴 단위 transaction으로 검증하고 확정한다."""
+        self._last_response_delivery_metadata = ResponseDeliveryMetadata.empty()
+        self._last_token_usage = {
+            "input_tokens": None,
+            "output_tokens": None,
+            "total_tokens": None,
+        }
+        settings_snapshot = (
+            copy.deepcopy(settings_source)
+            if settings_source is not None
+            else self._settings_snapshot()
+        )
+        generation_snapshot = dict(self.generation_params)
+        requirements = build_response_requirements(
+            settings_snapshot,
+            get_parseable_emotions(settings_source=settings_snapshot),
+        )
+        profile = self._response_profile()
+        capability_key = build_capability_key(profile)
+        initial_mode = response_mode or _GEMINI_RESPONSE_CAPABILITY_REGISTRY.resolve(
+            profile,
+            str(settings_snapshot.get("structured_response_mode", "auto") or "auto"),
+            capability_key=capability_key,
+        )
+        history_snapshot = self._get_sdk_history(deep_copy=True)
+        non_repair_attempts = 0
+
+        def requester(attempt: ResponseAttempt) -> ProviderResponse:
+            nonlocal non_repair_attempts
+            if attempt.phase == "repair":
+                prompt = build_response_repair_prompt(
+                    attempt.preserved_reply,
+                    requirements.response_language,
+                    requirements.tts_language,
+                    attempt.repair_fields,
+                    attempt.mode,
+                )
+                schema = (
+                    get_response_repair_schema(attempt.repair_fields)
+                    if attempt.mode is ResponseMode.JSON_SCHEMA
+                    else None
+                )
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=prompt,
+                    config=self._build_repair_config(
+                        response_mode=attempt.mode,
+                        schema=schema,
+                        generation_params=generation_snapshot,
+                    ),
+                )
+                self._log_turn_token_usage(response, label="제한 복구")
+                return self._provider_response(response, attempt.mode)
+
+            attempt_params = dict(generation_snapshot)
+            if attempt.expand_output_budget:
+                attempt_params["max_tokens"] = self._expanded_output_token_budget(
+                    attempt_params
+                )
+            request_config = None
+            if non_repair_attempts:
+                self._restore_history_snapshot(
+                    history_snapshot,
+                    response_mode=attempt.mode,
+                    generation_params=generation_snapshot,
+                    settings_source=settings_snapshot,
+                )
+                request_config = self._build_chat_config(
+                    include_sub_prompt=True,
+                    request_kind=LLMRequestKind.FINAL_REPLY,
+                    response_mode=attempt.mode,
+                    generation_params=attempt_params,
+                    settings_source=settings_snapshot,
+                )
+            non_repair_attempts += 1
+            try:
+                if request_config is None:
+                    response = self.chat.send_message(contents)
+                else:
+                    response = self.chat.send_message(
+                        contents,
+                        config=request_config,
+                    )
+            except Exception as failure:
+                if (
+                    attempt.mode is not ResponseMode.LEGACY_TAGS
+                    and self._is_explicit_structured_output_unsupported(failure)
+                ):
+                    raise StructuredOutputUnsupported(
+                        attempt.mode,
+                        provider="gemini",
+                    ) from failure
+                raise
+            self._log_turn_token_usage(response, label=label)
+            return self._provider_response(response, attempt.mode)
+
+        try:
+            result = execute_final_response(
+                requester,
+                requirements=requirements,
+                initial_mode=initial_mode,
+                mark_unsupported=lambda _mode: (
+                    _GEMINI_RESPONSE_CAPABILITY_REGISTRY.mark_legacy(capability_key)
+                ),
+            )
+        except InvalidFinalResponseError:
+            self._restore_history_snapshot(
+                history_snapshot,
+                response_mode=self._resolve_response_mode(settings_snapshot),
+                generation_params=generation_snapshot,
+                settings_source=settings_snapshot,
+            )
+            return self._empty_text_fallback_response()
+        except Exception:
+            self._restore_history_snapshot(
+                history_snapshot,
+                response_mode=self._resolve_response_mode(settings_snapshot),
+                generation_params=generation_snapshot,
+                settings_source=settings_snapshot,
+            )
+            raise
+
+        self._replace_latest_user_history_text(history_user_content)
+        self._replace_latest_model_history_with_visible_reply(result.payload[0])
+        self._last_response_delivery_metadata = result.metadata
+        final_mode = ResponseMode(result.metadata.response_mode)
+        self._last_runtime_prompt_signature = self._runtime_prompt_signature(
+            response_mode=final_mode,
+            settings_source=settings_snapshot,
+        )
+        return result.payload
+
+    def get_last_response_delivery_metadata(self) -> ResponseDeliveryMetadata:
+        return getattr(
+            self,
+            "_last_response_delivery_metadata",
+            ResponseDeliveryMetadata.empty(),
+        )
+
     def _prompt_language(self) -> str:
         return resolve_prompt_language(settings_source=self.settings)
 
@@ -502,7 +1045,7 @@ class GeminiClient:
         
         # 일반 메시지 전송. 모델 입력에는 컨텍스트를 붙이되, SDK 히스토리에는 사용자 원문을 남긴다.
         return self.send_message(enhanced_message, history_user_content=message)
-    
+
     async def send_message_with_images(
         self,
         message: str,
@@ -593,6 +1136,23 @@ class GeminiClient:
             contents = pil_images + [enhanced_message]
             
             print("[LLM] Gemini 멀티모달 요청 전송...")
+            if all(
+                hasattr(self, attribute)
+                for attribute in ("client", "model_name", "generation_params")
+            ):
+                settings_snapshot = self._settings_snapshot()
+                response_mode = self._resolve_response_mode(settings_snapshot)
+                self._refresh_chat_session_for_runtime_prompt_if_needed(
+                    settings_source=settings_snapshot,
+                    response_mode=response_mode,
+                )
+                return self._execute_final_response(
+                    contents,
+                    history_user_content=message,
+                    label="멀티모달",
+                    settings_source=settings_snapshot,
+                    response_mode=response_mode,
+                )
             self._refresh_chat_session_for_runtime_prompt_if_needed()
             response = self.chat.send_message(contents)
             self._log_turn_token_usage(response, label="멀티모달")
@@ -627,7 +1187,6 @@ class GeminiClient:
         """메모리 매니저와 독립적으로 활성 목표 컨텍스트를 만든다."""
         return build_goal_context_block(self, prompt_language)
 
-    
     async def _build_memory_context(
         self,
         query: str,
@@ -652,7 +1211,7 @@ class GeminiClient:
     ) -> int:
         """정수 설정값을 안전하게 정규화한다."""
         return normalize_int_setting(value, default=default, min_value=min_value, max_value=max_value)
-    
+
     def _log_turn_token_usage(self, response, label: str = "텍스트"):
         """응답 메타데이터에서 1회 입력/출력 토큰 사용량을 로깅한다."""
         def _read_field(container, *names):
@@ -719,31 +1278,29 @@ class GeminiClient:
 
     def _replace_latest_user_history_text(self, text: str) -> None:
         """Gemini SDK가 자동 저장한 최신 사용자 턴의 텍스트를 화면 원문으로 되돌린다."""
-        try:
-            history = getattr(self.chat, "history", None)
-        except Exception:
-            return
-        if not history:
-            return
-
-        for item in reversed(list(history)):
-            if GeminiClient._get_item_role(self, item) != "user":
-                continue
-            parts = item.get("parts") if isinstance(item, dict) else getattr(item, "parts", None)
-            if not parts:
-                return
-            for part in reversed(list(parts)):
-                if isinstance(part, dict) and isinstance(part.get("text"), str):
-                    part["text"] = text
-                    return
-                part_text = getattr(part, "text", None)
-                if isinstance(part_text, str):
-                    try:
-                        setattr(part, "text", text)
-                    except Exception:
-                        return
-                    return
-            return
+        for history in GeminiClient._get_sdk_history_views(self):
+            for item in reversed(list(history)):
+                if GeminiClient._get_item_role(self, item) != "user":
+                    continue
+                parts = (
+                    item.get("parts")
+                    if isinstance(item, dict)
+                    else getattr(item, "parts", None)
+                )
+                if not parts:
+                    break
+                for part in reversed(list(parts)):
+                    if isinstance(part, dict) and isinstance(part.get("text"), str):
+                        part["text"] = text
+                        break
+                    part_text = getattr(part, "text", None)
+                    if isinstance(part_text, str):
+                        try:
+                            setattr(part, "text", text)
+                        except Exception:
+                            pass
+                        break
+                break
 
     def _get_web_search_cache(self) -> dict:
         cache = getattr(self, "_web_search_cache", None)
@@ -779,6 +1336,24 @@ class GeminiClient:
         try:
             print(f"[LLM] Sending message: {message}")
             
+            if all(
+                hasattr(self, attribute)
+                for attribute in ("client", "model_name", "generation_params")
+            ):
+                settings_snapshot = self._settings_snapshot()
+                response_mode = self._resolve_response_mode(settings_snapshot)
+                self._refresh_chat_session_for_runtime_prompt_if_needed(
+                    settings_source=settings_snapshot,
+                    response_mode=response_mode,
+                )
+                return self._execute_final_response(
+                    message,
+                    history_user_content=history_user_content or message,
+                    label="텍스트",
+                    settings_source=settings_snapshot,
+                    response_mode=response_mode,
+                )
+
             # 토큰 계산 (비동기로 실행하지 않고 로그만 출력)
             # 동기 메서드 내에서 비동기 호출이 어려우므로 여기서는 생략하거나
             # 별도의 동기 메서드로 구현해야 함. 일단은 생략하고 멀티모달에서만 적용
@@ -814,7 +1389,7 @@ class GeminiClient:
             import traceback
             traceback.print_exc()
             raise
-    
+
     async def summarize_conversation(
         self,
         messages: list,
@@ -887,7 +1462,7 @@ class GeminiClient:
             traceback.print_exc()
             # 실패 시 간단한 요약 반환
             return f"대화 {len(messages)}개 메시지", [], [], {}, []
-    
+
     def _parse_summary_memory_meta(self, meta_lines: list[str]) -> dict:
         """요약 응답의 MEMORY_META 섹션을 정규화된 딕셔너리로 파싱한다."""
         return parse_summary_memory_meta(meta_lines)
@@ -940,11 +1515,11 @@ class GeminiClient:
             available_emotions=get_parseable_emotions(settings_source=getattr(self, "settings", None)),
             log_event=print,
         )
-    
+
     def _is_japanese(self, text: str) -> bool:
         """일본어 텍스트인지 확인"""
         return is_japanese(text)
-    
+
     def clear_context(self):
         """대화 컨텍스트 초기화 - 새로운 Chat 세션 생성"""
         self.chat = self._create_chat_session()
@@ -1039,13 +1614,7 @@ class GeminiClient:
             import traceback
             traceback.print_exc()
             return False
-    
+
     def get_conversation_history(self):
         """대화 내역 반환"""
-        # Chat 세션에서 히스토리를 가져올 수 있다면 반환
-        if hasattr(self.chat, 'history'):
-            try:
-                return list(self.chat.history)
-            except Exception:
-                return self.chat.history
-        return []
+        return self._get_sdk_history(deep_copy=False)

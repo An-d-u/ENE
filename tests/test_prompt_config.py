@@ -376,7 +376,7 @@ def test_gemini_runtime_prompt_refreshes_when_proactive_setting_changes():
     client.client = object()
     recreated = []
 
-    def _create_chat_session(history=None):
+    def _create_chat_session(history=None, **_kwargs):
         recreated.append(history)
         return _Chat()
 
@@ -451,7 +451,9 @@ def test_gemini_runtime_prompt_refreshes_when_image_avatar_emotions_change(tmp_p
     client.model_name = "gemini-test"
     client.client = object()
     recreated = []
-    client._create_chat_session = lambda history=None: recreated.append(history) or _Chat()
+    client._create_chat_session = (
+        lambda history=None, **_kwargs: recreated.append(history) or _Chat()
+    )
     client._last_runtime_prompt_signature = GeminiClient._runtime_prompt_signature(client)
 
     client.settings["image_avatar_folder"] = str(second_dir)

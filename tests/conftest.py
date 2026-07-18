@@ -36,3 +36,20 @@ def _reset_http_response_capability_cache(request):
     clear_http_response_capability_cache()
     yield
     clear_http_response_capability_cache()
+
+
+@pytest.fixture
+def gemini_harness(monkeypatch):
+    from tests.gemini_structured_fixtures import GeminiHarness
+
+    return GeminiHarness(monkeypatch)
+
+
+@pytest.fixture(autouse=True)
+def _reset_gemini_response_capability_cache():
+    """Gemini capability 판정이 테스트 사이에 새지 않게 한다."""
+    from src.ai.llm_client import clear_gemini_response_capability_cache
+
+    clear_gemini_response_capability_cache()
+    yield
+    clear_gemini_response_capability_cache()
