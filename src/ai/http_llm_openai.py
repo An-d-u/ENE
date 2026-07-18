@@ -17,6 +17,12 @@ from .response_protocol import (
 )
 
 
+_OPENROUTER_CHAT_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
+_JSON_OBJECT_SYSTEM_INSTRUCTION = (
+    "Return the final response as a valid JSON object."
+)
+
+
 class OpenAICompatibleClient(_CommonMixin):
     def __init__(
         self,
@@ -59,18 +65,188 @@ class OpenAICompatibleClient(_CommonMixin):
         headers.update(self.extra_headers)
         return headers
 
+    def _response_output_token_cap(self) -> int:
+        return 8192
+
+    def _expanded_output_token_budget(self, current: object) -> int:
+        try:
+            current_tokens = max(0, int(current or 0))
+        except (TypeError, ValueError):
+            current_tokens = 0
+        cap = self._response_output_token_cap()
+        if current_tokens <= 0:
+            return cap
+        if current_tokens >= cap:
+            return current_tokens
+        return min(
+            cap,
+            max(current_tokens + 512, current_tokens * 2),
+        )
+
+    def _apply_structured_response_payload(
+        self,
+        payload: dict,
+        request_descriptor: HTTPFinalRequestDescriptor | None,
+    ) -> None:
+        if (
+            request_descriptor is None
+            or request_descriptor.context.request_kind is not LLMRequestKind.FINAL_REPLY
+            or not request_descriptor.schema_name
+            or request_descriptor.schema is None
+        ):
+            return
+
+        mode = request_descriptor.attempt.mode
+        if mode is ResponseMode.JSON_SCHEMA:
+            payload["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": request_descriptor.schema_name,
+                    "strict": True,
+                    "schema": request_descriptor.schema,
+                },
+            }
+            provider_name = str(self.provider_name or "").strip().lower()
+            if (
+                provider_name == "openrouter"
+                or self.endpoint.casefold()
+                == _OPENROUTER_CHAT_ENDPOINT.casefold()
+            ):
+                payload["provider"] = {"require_parameters": True}
+            return
+
+        if mode is ResponseMode.JSON_OBJECT:
+            payload["response_format"] = {"type": "json_object"}
+            messages = payload.get("messages")
+            if not isinstance(messages, list):
+                return
+            for index, message in enumerate(messages):
+                if (
+                    not isinstance(message, dict)
+                    or message.get("role") != "system"
+                ):
+                    continue
+                content = message.get("content")
+                if not isinstance(content, str):
+                    return
+                copied_message = dict(message)
+                if _JSON_OBJECT_SYSTEM_INSTRUCTION not in content:
+                    copied_message["content"] = (
+                        f"{content}\n\n{_JSON_OBJECT_SYSTEM_INSTRUCTION}"
+                        if content
+                        else _JSON_OBJECT_SYSTEM_INSTRUCTION
+                    )
+                copied_messages = list(messages)
+                copied_messages[index] = copied_message
+                payload["messages"] = copied_messages
+                return
+            return
+
+        if mode is ResponseMode.STRICT_TOOL:
+            function_name = f"emit_{request_descriptor.schema_name}"
+            payload["tools"] = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": function_name,
+                        "strict": True,
+                        "parameters": request_descriptor.schema,
+                    },
+                }
+            ]
+            payload["tool_choice"] = {
+                "type": "function",
+                "function": {"name": function_name},
+            }
+
+    @staticmethod
+    def _message_content_text(message: dict) -> str:
+        content = message.get("content", "")
+        if isinstance(content, list):
+            return "\n".join(
+                part.get("text", "")
+                for part in content
+                if isinstance(part, dict)
+            ).strip()
+        if content is None:
+            return ""
+        return str(content).strip()
+
+    @staticmethod
+    def _strict_tool_arguments(message: dict, function_name: str) -> str:
+        for tool_call in message.get("tool_calls", []) or []:
+            if not isinstance(tool_call, dict):
+                continue
+            function = tool_call.get("function")
+            if not isinstance(function, dict) or function.get("name") != function_name:
+                continue
+            arguments = function.get("arguments")
+            if isinstance(arguments, str) and arguments.strip():
+                return arguments.strip()
+        return ""
+
+    def _provider_response_from_chat_data(
+        self,
+        data: dict,
+        request_descriptor: HTTPFinalRequestDescriptor,
+    ) -> ProviderResponse:
+        choices = data.get("choices", []) or []
+        choice = choices[0] if choices and isinstance(choices[0], dict) else {}
+        message = choice.get("message")
+        if not isinstance(message, dict):
+            message = {}
+        finish_reason = str(choice.get("finish_reason", "") or "").strip().lower()
+        refusal = message.get("refusal")
+        if refusal is not None:
+            return ProviderResponse(
+                carrier=str(refusal or "").strip(),
+                status=ResponseStatus.REFUSAL,
+                mode=request_descriptor.attempt.mode,
+                finish_reason=finish_reason,
+            )
+
+        if request_descriptor.attempt.mode is ResponseMode.STRICT_TOOL:
+            carrier = self._strict_tool_arguments(
+                message,
+                f"emit_{request_descriptor.schema_name}",
+            )
+        else:
+            carrier = self._message_content_text(message)
+
+        complete_finish_reasons = {"", "stop", "tool_calls", "function_call"}
+        if finish_reason not in complete_finish_reasons:
+            status = ResponseStatus.INCOMPLETE
+        elif carrier:
+            status = ResponseStatus.COMPLETE
+        else:
+            status = ResponseStatus.EMPTY
+        return ProviderResponse(
+            carrier=carrier,
+            status=status,
+            mode=request_descriptor.attempt.mode,
+            finish_reason=finish_reason,
+        )
+
     def _request_openai(
         self,
         user_content,
         include_sub_prompt: bool = True,
         *,
         request_descriptor: HTTPFinalRequestDescriptor | None = None,
-    ) -> str:
-        generation_params = (
+    ) -> str | ProviderResponse:
+        generation_params = dict(
             request_descriptor.context.generation_params
             if request_descriptor is not None
             else self.generation_params
         )
+        if (
+            request_descriptor is not None
+            and request_descriptor.attempt.phase == "regenerate"
+            and request_descriptor.attempt.expand_output_budget
+        ):
+            generation_params["max_tokens"] = self._expanded_output_token_budget(
+                generation_params.get("max_tokens")
+            )
         payload = {
             "model": self.model_name,
             "messages": self._messages_for_openai(
@@ -84,14 +260,17 @@ class OpenAICompatibleClient(_CommonMixin):
         }
         if generation_params["max_tokens"] > 0:
             payload["max_tokens"] = generation_params["max_tokens"]
+        self._apply_structured_response_payload(payload, request_descriptor)
         timeout = request_descriptor.timeout_seconds if request_descriptor is not None else 60
         response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=timeout)
         _raise_for_status_with_detail(response, self.provider_name)
         data = response.json()
-        content = data["choices"][0]["message"]["content"]
-        if isinstance(content, list):
-            return "\n".join([c.get("text", "") for c in content if isinstance(c, dict)]).strip()
-        return str(content).strip()
+        if request_descriptor is None:
+            choices = data.get("choices", []) or []
+            choice = choices[0] if choices and isinstance(choices[0], dict) else {}
+            message = choice.get("message")
+            return self._message_content_text(message if isinstance(message, dict) else {})
+        return self._provider_response_from_chat_data(data, request_descriptor)
 
     def _request_one_shot_raw(
         self,
@@ -378,6 +557,10 @@ class OpenAIResponseAPIClient(_CommonMixin):
         except (TypeError, ValueError):
             current_tokens = 0
         cap = self._response_output_token_cap()
+        if current_tokens <= 0:
+            return cap
+        if current_tokens >= cap:
+            return current_tokens
         return min(cap, max(current_tokens + 512, current_tokens * 2))
 
     def _apply_generation_payload(self, payload: dict, generation_params: dict | None = None) -> None:

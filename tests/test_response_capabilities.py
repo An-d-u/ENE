@@ -917,3 +917,48 @@ def test_explicit_unsupported_body_is_not_persisted_or_logged(caplog):
     registry.mark_legacy(key)
 
     assert raw_body not in caplog.text
+
+
+def test_openrouter_legacy_override_isolated_by_full_capability_key():
+    endpoint = "https://openrouter.ai/api/v1/chat/completions"
+    current = profile(
+        "openrouter",
+        "openai_chat",
+        endpoint=endpoint,
+        model="synthetic-model-a",
+    )
+    other_provider = profile(
+        "custom_api",
+        "openai_chat",
+        endpoint=endpoint,
+        model="synthetic-model-a",
+    )
+    other_endpoint_identity = profile(
+        "openrouter",
+        "openai_chat",
+        endpoint="https://OPENROUTER.ai/api/v1/chat/completions",
+        model="synthetic-model-a",
+    )
+    other_model = profile(
+        "openrouter",
+        "openai_chat",
+        endpoint=endpoint,
+        model="synthetic-model-b",
+    )
+    registry = ResponseCapabilityRegistry()
+    current_key = build_capability_key(current)
+
+    registry.mark_legacy(current_key)
+
+    assert registry.resolve(current) is ResponseMode.LEGACY_TAGS
+    assert registry.resolve(other_provider) is ResponseMode.JSON_SCHEMA
+    assert registry.resolve(other_endpoint_identity) is ResponseMode.JSON_SCHEMA
+    assert registry.resolve(other_model) is ResponseMode.JSON_SCHEMA
+    assert (
+        registry.resolve(current, schema_version="2")
+        is ResponseMode.JSON_SCHEMA
+    )
+    assert build_capability_key(other_provider) != current_key
+    assert build_capability_key(other_endpoint_identity) != current_key
+    assert build_capability_key(other_model) != current_key
+    assert build_capability_key(current, schema_version="2") != current_key
