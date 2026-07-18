@@ -67,6 +67,11 @@ class ProviderRefusalError(RuntimeError):
         super().__init__("provider_refusal")
 
 
+class InvalidFinalResponseError(RuntimeError):
+    def __init__(self):
+        super().__init__("invalid_final_response")
+
+
 @dataclass(frozen=True)
 class ResponseDeliveryMetadata:
     response_mode: str = ""

@@ -200,6 +200,11 @@ LLM_RESPONSE_TUPLE = tuple[
 ]
 
 
+def has_valid_response_payload(payload: LLM_RESPONSE_TUPLE | None) -> bool:
+    """응답 튜플에 사용자에게 표시할 유효한 답변이 있는지 확인한다."""
+    return payload is not None and bool(payload[0].strip())
+
+
 @dataclass(frozen=True)
 class ResponseEnvelopeDecodeResult:
     payload: LLM_RESPONSE_TUPLE | None
@@ -210,7 +215,7 @@ class ResponseEnvelopeDecodeResult:
 
     @property
     def has_valid_reply(self) -> bool:
-        return self.payload is not None and bool(self.payload[0].strip())
+        return has_valid_response_payload(self.payload)
 
 
 def _add_invalid(invalid_paths: list[str], path: str) -> None:
