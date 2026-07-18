@@ -20,6 +20,7 @@ from tests.structured_response_fixtures import (
     make_valid_envelope,
     thought_and_tts_requirements,
     thought_enabled_requirements,
+    valid_envelope_json,
 )
 
 
@@ -1131,3 +1132,253 @@ def test_decoder_maps_recursion_error_to_content_free_invalid_json(monkeypatch):
     assert decoded.root_error == "invalid_json"
     assert carrier not in repr(decoded)
     assert exception_detail not in repr(decoded)
+
+
+def test_repair_schema_canonicalizes_requested_fields_and_rejects_unknowns():
+    import src.ai.response_envelope as response_envelope
+
+    schema = response_envelope.get_response_repair_schema(
+        ("tts_text", "thought", "tts_text")
+    )
+
+    assert response_envelope.RESPONSE_REPAIR_SCHEMA_NAME == "ene_response_repair_v1"
+    assert schema["required"] == ["thought", "tts_text"]
+    assert list(schema["properties"]) == ["thought", "tts_text"]
+    assert schema["additionalProperties"] is False
+    for invalid_fields in ((), ("unknown",), ("",), "thought", (None,)):
+        with pytest.raises(ValueError, match="repair fields"):
+            response_envelope.get_response_repair_schema(invalid_fields)
+
+
+def test_missing_repair_fields_follow_feature_and_language_requirements():
+    import src.ai.response_envelope as response_envelope
+
+    decoded = decode_response_envelope(
+        valid_envelope_json(thought="", tts_text=""),
+        requirements=thought_and_tts_requirements(),
+    )
+
+    assert decoded.payload is not None
+    assert response_envelope.get_missing_response_repair_fields(
+        decoded.payload,
+        requirements=thought_and_tts_requirements(),
+    ) == ("thought", "tts_text")
+    assert response_envelope.get_missing_response_repair_fields(
+        decoded.payload,
+        requirements=make_requirements(),
+    ) == ()
+
+
+def test_structured_repair_decoder_salvages_requested_nonempty_strings_only():
+    import src.ai.response_envelope as response_envelope
+    from src.ai.response_protocol import ResponseMode
+
+    carrier = json.dumps(
+        {
+            "thought": "  회수할 합성 생각  ",
+            "tts_text": 123,
+            "reply": "무시할 대체 답변",
+            "events": [{"title": "무시할 합성 일정"}],
+        },
+        ensure_ascii=False,
+    )
+
+    decoded = response_envelope.decode_response_repair(
+        carrier,
+        mode=ResponseMode.JSON_SCHEMA,
+        fields=("thought", "tts_text"),
+    )
+
+    assert decoded == {"thought": "회수할 합성 생각"}
+
+
+@pytest.mark.parametrize(
+    "carrier",
+    ("synthetic-not-json", "[]", "null", '{"thought":"  "}', None),
+)
+def test_structured_repair_decoder_safely_rejects_malformed_carriers(carrier):
+    import src.ai.response_envelope as response_envelope
+    from src.ai.response_protocol import ResponseMode
+
+    assert response_envelope.decode_response_repair(
+        carrier,
+        mode=ResponseMode.JSON_OBJECT,
+        fields=("thought",),
+    ) == {}
+
+
+def test_legacy_repair_decoder_uses_only_closed_requested_control_blocks():
+    import src.ai.response_envelope as response_envelope
+    from src.ai.response_protocol import ResponseMode
+
+    carrier = """[thought]  회수할 합성 생각  [/thought]
+[tts]Recovered synthetic speech[/tts]
+[event:2099-01-01|무시할 합성 일정|]
+[ene_goal_update]
+action=create
+[/ene_goal_update]"""
+
+    decoded = response_envelope.decode_response_repair(
+        carrier,
+        mode=ResponseMode.LEGACY_TAGS,
+        fields=("thought", "tts_text"),
+    )
+    thought_only = response_envelope.decode_response_repair(
+        carrier,
+        mode=ResponseMode.LEGACY_TAGS,
+        fields=("thought",),
+    )
+
+    assert decoded == {
+        "thought": "회수할 합성 생각",
+        "tts_text": "Recovered synthetic speech",
+    }
+    assert thought_only == {"thought": "회수할 합성 생각"}
+
+
+def test_legacy_repair_decoder_ignores_unclosed_requested_blocks():
+    import src.ai.response_envelope as response_envelope
+    from src.ai.response_protocol import ResponseMode
+
+    carrier = """[thought]닫히지 않은 합성 생각
+[tts]닫힌 합성 음성[/tts]"""
+
+    assert response_envelope.decode_response_repair(
+        carrier,
+        mode=ResponseMode.LEGACY_TAGS,
+        fields=("thought", "tts_text"),
+    ) == {}
+
+
+def test_repair_decoder_rejects_unknown_mode_and_field_contracts():
+    import src.ai.response_envelope as response_envelope
+    from src.ai.response_protocol import ResponseMode
+
+    with pytest.raises(ValueError, match="response mode"):
+        response_envelope.decode_response_repair(
+            "{}",
+            mode="synthetic-mode",
+            fields=("thought",),
+        )
+    with pytest.raises(ValueError, match="repair fields"):
+        response_envelope.decode_response_repair(
+            "{}",
+            mode=ResponseMode.JSON_SCHEMA,
+            fields=("reply",),
+        )
+
+
+@pytest.mark.parametrize(
+    "carrier",
+    [
+        "thought: 라벨로 위장한 합성 생각\n나머지 합성 텍스트",
+        "[thought]바깥 합성 생각 [tts]중첩 음성[/tts][/thought]",
+        "[thought]교차 합성 생각[/tts]",
+        "<think>[thought]숨겨진 합성 생각[/thought]</think>",
+    ],
+    ids=("plain-label", "nested", "cross-family", "think-block"),
+)
+def test_legacy_repair_decoder_rejects_non_block_and_malformed_thought(carrier):
+    import src.ai.response_envelope as response_envelope
+    from src.ai.response_protocol import ResponseMode
+
+    assert response_envelope.decode_response_repair(
+        carrier,
+        mode=ResponseMode.LEGACY_TAGS,
+        fields=("thought", "tts_text"),
+    ) == {}
+
+
+@pytest.mark.parametrize(
+    ("opening", "closing"),
+    [
+        ("thought", "subconscious"),
+        ("ene_thought", "inner_thought"),
+        ("생각", "속마음"),
+        ("에네생각", "에네 생각"),
+    ],
+    ids=("english", "ene-english", "korean", "ene-korean"),
+)
+def test_legacy_repair_decoder_rejects_mismatched_thought_alias_pairs(
+    opening,
+    closing,
+):
+    import src.ai.response_envelope as response_envelope
+    from src.ai.response_protocol import ResponseMode
+
+    assert response_envelope.decode_response_repair(
+        f"[{opening}]채택하면 안 되는 합성 생각[/{closing}]",
+        mode=ResponseMode.LEGACY_TAGS,
+        fields=("thought",),
+    ) == {}
+
+
+@pytest.mark.parametrize(
+    ("opening", "closing"),
+    [
+        ("subconscious", "SUBCONSCIOUS"),
+        (" thought ", " THOUGHT "),
+        ("ene_thought", "ENE_THOUGHT"),
+        ("inner_thought", "INNER_THOUGHT"),
+        ("생각", "생각"),
+        ("속마음", "속마음"),
+        ("에네생각", "에네생각"),
+        ("에네   생각", "에네 생각"),
+    ],
+)
+def test_legacy_repair_decoder_keeps_exact_thought_alias_compatibility(
+    opening,
+    closing,
+):
+    import src.ai.response_envelope as response_envelope
+    from src.ai.response_protocol import ResponseMode
+
+    assert response_envelope.decode_response_repair(
+        f"[{opening}]호환할 합성 생각[/{closing}]",
+        mode=ResponseMode.LEGACY_TAGS,
+        fields=("thought",),
+    ) == {"thought": "호환할 합성 생각"}
+
+
+def test_legacy_repair_decoder_discards_unclosed_think_tail():
+    import src.ai.response_envelope as response_envelope
+    from src.ai.response_protocol import ResponseMode
+
+    carrier = """<think data-synthetic="1">
+[thought]숨겨진 합성 생각[/thought]
+[tts]Hidden synthetic speech[/tts]"""
+
+    assert response_envelope.decode_response_repair(
+        carrier,
+        mode=ResponseMode.LEGACY_TAGS,
+        fields=("thought", "tts_text"),
+    ) == {}
+
+
+def test_legacy_repair_decoder_accepts_valid_block_after_closed_think():
+    import src.ai.response_envelope as response_envelope
+    from src.ai.response_protocol import ResponseMode
+
+    carrier = """<think>[thought]숨겨진 합성 생각[/thought]</think>
+[thought]채택할 합성 생각[/thought]"""
+
+    assert response_envelope.decode_response_repair(
+        carrier,
+        mode=ResponseMode.LEGACY_TAGS,
+        fields=("thought",),
+    ) == {"thought": "채택할 합성 생각"}
+
+
+def test_legacy_repair_decoder_uses_earliest_valid_exact_thought_block():
+    import src.ai.response_envelope as response_envelope
+    from src.ai.response_protocol import ResponseMode
+
+    carrier = """[thought]무시할 교차 합성 생각[/subconscious]
+[ene_thought]첫 번째 유효 합성 생각[/ene_thought]
+[thought]두 번째 유효 합성 생각[/thought]"""
+
+    assert response_envelope.decode_response_repair(
+        carrier,
+        mode=ResponseMode.LEGACY_TAGS,
+        fields=("thought",),
+    ) == {"thought": "첫 번째 유효 합성 생각"}

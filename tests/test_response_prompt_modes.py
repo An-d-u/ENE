@@ -489,3 +489,94 @@ def test_structured_disabled_features_are_localized(
     ):
         assert english_rule not in prompt
     assert all(token not in prompt for token in LEGACY_TOKENS)
+
+
+def test_native_repair_prompt_contains_only_requested_field_context():
+    from src.ai.response_contract import build_response_repair_prompt
+
+    prompt = build_response_repair_prompt(
+        preserved_reply="검증된 합성 답변",
+        response_language="ko",
+        tts_language="ja",
+        repair_fields=("thought",),
+        response_mode=ResponseMode.JSON_SCHEMA,
+    )
+
+    assert "검증된 합성 답변" in prompt
+    assert "ko" in prompt
+    assert "ja" in prompt
+    assert "`thought`" in prompt
+    assert "`tts_text`" not in prompt
+    assert all(token not in prompt for token in LEGACY_TOKENS)
+    for forbidden in (
+        "history",
+        "memory",
+        "image",
+        "profile",
+        "emotion",
+        "analysis",
+        "event",
+        "promise",
+        "goal",
+        "proactive",
+        "gesture",
+    ):
+        assert forbidden not in prompt.lower()
+
+
+@pytest.mark.parametrize(
+    ("fields", "present_tokens", "absent_tokens"),
+    [
+        (("thought",), ("[subconscious]", "[/subconscious]"), ("[tts]", "[/tts]")),
+        (("tts_text",), ("[tts]", "[/tts]"), ("[subconscious]", "[/subconscious]")),
+    ],
+    ids=("thought-only", "tts-only"),
+)
+def test_legacy_repair_prompt_uses_only_requested_minimal_blocks(
+    fields,
+    present_tokens,
+    absent_tokens,
+):
+    from src.ai.response_contract import build_response_repair_prompt
+
+    prompt = build_response_repair_prompt(
+        preserved_reply="검증된 합성 답변",
+        response_language="ko",
+        tts_language="ja",
+        repair_fields=fields,
+        response_mode=ResponseMode.LEGACY_TAGS,
+    )
+
+    assert all(token in prompt for token in present_tokens)
+    assert all(token not in prompt for token in absent_tokens)
+    for forbidden in (
+        "[emotion]",
+        "[analysis]",
+        "[event:",
+        "[약속:",
+        "[ene_goal_update]",
+        "[proactive_conversation]",
+        "[gesture:",
+    ):
+        assert forbidden not in prompt
+
+
+def test_repair_prompt_rejects_unknown_fields_and_modes():
+    from src.ai.response_contract import build_response_repair_prompt
+
+    with pytest.raises(ValueError, match="repair fields"):
+        build_response_repair_prompt(
+            preserved_reply="검증된 합성 답변",
+            response_language="ko",
+            tts_language="ja",
+            repair_fields=("reply",),
+            response_mode=ResponseMode.JSON_SCHEMA,
+        )
+    with pytest.raises(ValueError, match="response mode"):
+        build_response_repair_prompt(
+            preserved_reply="검증된 합성 답변",
+            response_language="ko",
+            tts_language="ja",
+            repair_fields=("thought",),
+            response_mode="synthetic-mode",
+        )
