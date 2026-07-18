@@ -15,7 +15,7 @@ import ipaddress
 import json
 import re
 import secrets
-from typing import Dict, List, Tuple
+from typing import Callable, Dict, List, Tuple
 from urllib.parse import urlsplit
 
 import requests
@@ -26,12 +26,26 @@ from .openai_model_policy import normalize_reasoning_effort
 from .persona_names import resolve_prompt_persona_names
 from .prompt import build_runtime_system_prompt, get_parseable_emotions
 from .prompt_language import resolve_prompt_language
+from .response_contract import build_response_repair_prompt
+from .response_envelope import (
+    RESPONSE_ENVELOPE_SCHEMA_NAME,
+    RESPONSE_REPAIR_SCHEMA_NAME,
+    build_response_requirements,
+    get_response_envelope_v1_schema,
+    get_response_repair_schema,
+)
+from .response_pipeline import ResponseAttempt, execute_final_response
 from .response_protocol import (
+    InvalidFinalResponseError,
     RESPONSE_ENVELOPE_SCHEMA_VERSION,
     LLMRequestKind,
+    ProviderResponse,
     ProviderProfile,
     ResponseCapabilityKey,
+    ResponseDeliveryMetadata,
     ResponseMode,
+    ResponseStatus,
+    StructuredOutputUnsupported,
 )
 from .response_cleanup import extract_goal_update_metadata, extract_thought_metadata
 from .response_parser import (
@@ -50,7 +64,10 @@ from .summary_parser import (
     parse_summary_response_with_topic_memory,
 )
 from .markdown_document_prompt import build_markdown_document_prompt
-from .runtime_prompt_settings import build_runtime_prompt_settings_source
+from .runtime_prompt_settings import (
+    _settings_to_dict,
+    build_runtime_prompt_settings_source,
+)
 from .summary_prompt import build_summary_prompt, build_summary_prompt_from_text
 from .tool_calling import (
     build_web_search_context_from_settings,
@@ -539,11 +556,12 @@ class ResponseCapabilityRegistry:
         configured_mode: str = "auto",
         *,
         schema_version: str = RESPONSE_ENVELOPE_SCHEMA_VERSION,
+        capability_key: ResponseCapabilityKey | None = None,
     ) -> ResponseMode:
         default_mode = default_response_mode(profile, configured_mode)
         if default_mode is ResponseMode.LEGACY_TAGS:
             return default_mode
-        key = build_capability_key(
+        key = capability_key or build_capability_key(
             profile,
             schema_version=schema_version,
         )
@@ -554,6 +572,14 @@ class ResponseCapabilityRegistry:
 
     def clear(self) -> None:
         self._overrides.clear()
+
+
+_HTTP_RESPONSE_CAPABILITY_REGISTRY = ResponseCapabilityRegistry()
+
+
+def clear_http_response_capability_cache() -> None:
+    """테스트와 런타임 재설정을 위해 HTTP 구조화 출력 capability 캐시를 비운다."""
+    _HTTP_RESPONSE_CAPABILITY_REGISTRY.clear()
 
 
 def is_explicit_structured_output_unsupported(
@@ -643,6 +669,16 @@ class LLMRequestContext:
 def _parse_summary_memory_meta_lines(meta_lines: list[str]) -> dict:
     """요약 응답의 MEMORY_META 줄을 정규화된 딕셔너리로 변환한다."""
     return parse_summary_memory_meta(meta_lines)
+
+@dataclass(frozen=True)
+class HTTPFinalRequestDescriptor:
+    """한 번의 최종 응답 시도에 고정된 HTTP 요청 정보."""
+
+    context: LLMRequestContext
+    attempt: ResponseAttempt
+    schema_name: str = ""
+    schema: dict | None = None
+    timeout_seconds: float = 60.0
 
 
 def _build_summary_prompt(conversation_text: str) -> str:
@@ -788,11 +824,29 @@ class _CommonMixin:
         include_sub_prompt: bool = True,
         include_history: bool = True,
         attachments_metadata: list[dict] | None = None,
+        settings_source: object | None = None,
+        history_snapshot: list[dict] | None = None,
+        generation_params_snapshot: dict | None = None,
     ) -> LLMRequestContext:
         normalized_request_kind = LLMRequestKind(request_kind)
         normalized_response_mode = ResponseMode(response_mode)
+        prompt_settings = (
+            settings_source
+            if settings_source is not None
+            else self._runtime_prompt_settings_source()
+        )
+        history_source = (
+            history_snapshot
+            if history_snapshot is not None
+            else list(getattr(self, "_history", []) or [])
+        )
+        generation_source = (
+            generation_params_snapshot
+            if generation_params_snapshot is not None
+            else dict(getattr(self, "generation_params", {}) or {})
+        )
         attachments = (
-            list(attachments_metadata)
+            copy.deepcopy(list(attachments_metadata))
             if attachments_metadata is not None
             else self._attachment_metadata_from_content(user_content)
         )
@@ -804,19 +858,24 @@ class _CommonMixin:
             system_prompt=build_runtime_system_prompt(
                 include_sub_prompt=include_sub_prompt,
                 include_analysis_appendix=True,
-                settings_source=self._runtime_prompt_settings_source(),
+                settings_source=prompt_settings,
                 request_kind=normalized_request_kind,
                 response_mode=normalized_response_mode,
             ),
             user_content=user_content,
-            history=copy.deepcopy(list(getattr(self, "_history", []) or [])) if include_history else [],
+            history=copy.deepcopy(history_source) if include_history else [],
             attachments_metadata=attachments,
             include_sub_prompt=include_sub_prompt,
-            generation_params=dict(getattr(self, "generation_params", {}) or {}),
+            generation_params=dict(generation_source),
         )
         fingerprint = context.fingerprint()
         self._last_request_context_fingerprint = fingerprint
-        if self._setting_enabled("debug_llm_context_parity", False):
+        debug_enabled = (
+            bool(prompt_settings.get("debug_llm_context_parity", False))
+            if isinstance(prompt_settings, dict)
+            else self._setting_enabled("debug_llm_context_parity", False)
+        )
+        if debug_enabled:
             print(f"[LLM] request context fingerprint: {fingerprint}")
         return context
 
@@ -950,11 +1009,175 @@ class _CommonMixin:
             return self._empty_text_fallback_response()
         return self._parse_response(response_text)
 
+    def _execute_final_response(
+        self,
+        requester: Callable[[HTTPFinalRequestDescriptor], str | ProviderResponse],
+        *,
+        user_content,
+        history_user_content,
+        provider_format: str,
+        attachments_metadata: list[dict] | None = None,
+    ) -> LLM_RESPONSE_TUPLE:
+        """최종 응답을 검증한 뒤 사용자에게 보이는 텍스트만 대화 기록에 저장한다."""
+        self._last_response_delivery_metadata = ResponseDeliveryMetadata.empty()
+        settings_snapshot = copy.deepcopy(
+            _settings_to_dict(self._runtime_prompt_settings_source())
+        )
+        history_snapshot = copy.deepcopy(list(getattr(self, "_history", []) or []))
+        generation_params_snapshot = dict(
+            getattr(self, "generation_params", {}) or {}
+        )
+        attachment_snapshot = (
+            copy.deepcopy(list(attachments_metadata))
+            if attachments_metadata is not None
+            else self._attachment_metadata_from_content(user_content)
+        )
+        requirements = build_response_requirements(
+            settings_snapshot,
+            get_parseable_emotions(settings_snapshot),
+        )
+        profile = ProviderProfile(
+            provider=str(
+                getattr(self, "provider_name", "custom_api") or "custom_api"
+            ),
+            wire_format=str(
+                getattr(self, "wire_format", provider_format) or provider_format
+            ),
+            endpoint=str(getattr(self, "endpoint", "") or ""),
+            model=str(getattr(self, "model_name", "") or ""),
+        )
+        capability_key = build_capability_key(profile)
+        initial_mode = _HTTP_RESPONSE_CAPABILITY_REGISTRY.resolve(
+            profile,
+            str(settings_snapshot.get("structured_response_mode", "auto") or "auto"),
+            capability_key=capability_key,
+        )
+
+        def request_attempt(attempt: ResponseAttempt) -> ProviderResponse:
+            is_repair = attempt.phase == "repair"
+            if is_repair:
+                request_user_content = build_response_repair_prompt(
+                    attempt.preserved_reply,
+                    requirements.response_language,
+                    requirements.tts_language,
+                    attempt.repair_fields,
+                    attempt.mode,
+                )
+                context = LLMRequestContext(
+                    provider_format=provider_format,
+                    request_kind=LLMRequestKind.FINAL_REPLY,
+                    response_mode=attempt.mode,
+                    schema_version=RESPONSE_ENVELOPE_SCHEMA_VERSION,
+                    system_prompt="",
+                    user_content=request_user_content,
+                    history=[],
+                    attachments_metadata=[],
+                    include_sub_prompt=False,
+                    generation_params=dict(generation_params_snapshot),
+                )
+            else:
+                context = self._build_request_context(
+                    user_content,
+                    provider_format=provider_format,
+                    request_kind=LLMRequestKind.FINAL_REPLY,
+                    response_mode=attempt.mode,
+                    attachments_metadata=attachment_snapshot,
+                    settings_source=settings_snapshot,
+                    history_snapshot=history_snapshot,
+                    generation_params_snapshot=generation_params_snapshot,
+                )
+
+            schema_name = ""
+            schema = None
+            if attempt.mode is not ResponseMode.LEGACY_TAGS:
+                if is_repair:
+                    schema_name = RESPONSE_REPAIR_SCHEMA_NAME
+                    schema = get_response_repair_schema(attempt.repair_fields)
+                else:
+                    schema_name = RESPONSE_ENVELOPE_SCHEMA_NAME
+                    schema = get_response_envelope_v1_schema()
+            descriptor = HTTPFinalRequestDescriptor(
+                context=context,
+                attempt=attempt,
+                schema_name=schema_name,
+                schema=schema,
+                timeout_seconds=20.0 if is_repair else 60.0,
+            )
+            try:
+                raw_response = requester(descriptor)
+            except Exception as failure:
+                if (
+                    attempt.mode is not ResponseMode.LEGACY_TAGS
+                    and is_explicit_structured_output_unsupported(
+                        failure,
+                        profile=profile,
+                        response_mode=attempt.mode,
+                    )
+                ):
+                    raise StructuredOutputUnsupported(
+                        attempt.mode,
+                        provider=profile.provider,
+                    ) from failure
+                raise
+
+            if isinstance(raw_response, str):
+                status = (
+                    ResponseStatus.COMPLETE
+                    if raw_response.strip()
+                    else ResponseStatus.EMPTY
+                )
+                return ProviderResponse(
+                    carrier=raw_response,
+                    status=status,
+                    mode=attempt.mode,
+                )
+            return raw_response
+
+        def commit_payload(payload: LLM_RESPONSE_TUPLE) -> None:
+            self._history = copy.deepcopy(history_snapshot)
+            self._remember_turn(
+                copy.deepcopy(history_user_content),
+                self._assistant_history_content_for_response("", payload),
+            )
+
+        try:
+            result = execute_final_response(
+                request_attempt,
+                requirements=requirements,
+                initial_mode=initial_mode,
+                mark_unsupported=(
+                    lambda _mode: _HTTP_RESPONSE_CAPABILITY_REGISTRY.mark_legacy(
+                        capability_key
+                    )
+                ),
+            )
+        except InvalidFinalResponseError:
+            fallback = self._empty_text_fallback_response()
+            commit_payload(fallback)
+            return fallback
+
+        commit_payload(result.payload)
+        self._last_response_delivery_metadata = result.metadata
+        return result.payload
+
     def _assistant_history_content_for_response(self, response_text: str, parsed_payload: LLM_RESPONSE_TUPLE) -> str:
-        raw_text = str(response_text or "").strip()
-        if raw_text:
-            return response_text
         return str(parsed_payload[0] or "")
+
+    def get_last_response_delivery_metadata(self) -> ResponseDeliveryMetadata:
+        """마지막으로 검증 완료된 최종 응답의 전달 메타데이터를 반환한다."""
+        return getattr(
+            self,
+            "_last_response_delivery_metadata",
+            ResponseDeliveryMetadata.empty(),
+        )
+
+    def get_last_token_usage(self) -> dict[str, None]:
+        """HTTP 제공자는 아직 공통 토큰 사용량을 수집하지 않으므로 빈 값을 반환한다."""
+        return {
+            "input_tokens": None,
+            "output_tokens": None,
+            "total_tokens": None,
+        }
 
     def _prompt_language(self) -> str:
         return resolve_prompt_language(settings_source=getattr(self, "settings", None))
@@ -1253,12 +1476,17 @@ class _CommonMixin:
         user_content,
         include_sub_prompt: bool = True,
         provider_format: str = "openai_chat",
+        request_descriptor: HTTPFinalRequestDescriptor | None = None,
     ):
-        context = self._build_request_context(
-            user_content,
-            provider_format=provider_format,
-            request_kind=LLMRequestKind.FINAL_REPLY,
-            include_sub_prompt=include_sub_prompt,
+        context = (
+            request_descriptor.context
+            if request_descriptor is not None
+            else self._build_request_context(
+                user_content,
+                provider_format=provider_format,
+                request_kind=LLMRequestKind.FINAL_REPLY,
+                include_sub_prompt=include_sub_prompt,
+            )
         )
         messages = [{
             "role": "system",
@@ -1272,6 +1500,7 @@ class _CommonMixin:
         self._history = []
         self._web_search_cache = {}
         self._web_search_turn_index = 0
+        self._last_response_delivery_metadata = ResponseDeliveryMetadata.empty()
 
     def _get_item_role(self, item) -> str:
         if isinstance(item, dict):

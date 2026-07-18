@@ -3,6 +3,7 @@ from __future__ import annotations
 import requests
 from .http_llm_common import (
     DEFAULT_GENERATION_PARAMS,
+    HTTPFinalRequestDescriptor,
     LLM_RESPONSE_TUPLE,
     _CommonMixin,
     _normalize_generation_params,
@@ -48,28 +49,43 @@ class AnthropicClient(_CommonMixin):
             "content-type": "application/json",
         }
 
-    def _request_anthropic(self, user_content_blocks: list[dict], include_sub_prompt: bool = True) -> str:
-        context = self._build_request_context(
-            user_content_blocks,
-            provider_format="anthropic",
-            request_kind=LLMRequestKind.FINAL_REPLY,
-            include_sub_prompt=include_sub_prompt,
+    def _request_anthropic(
+        self,
+        user_content_blocks: list[dict],
+        include_sub_prompt: bool = True,
+        *,
+        request_descriptor: HTTPFinalRequestDescriptor | None = None,
+    ) -> str:
+        context = (
+            request_descriptor.context
+            if request_descriptor is not None
+            else self._build_request_context(
+                user_content_blocks,
+                provider_format="anthropic",
+                request_kind=LLMRequestKind.FINAL_REPLY,
+                include_sub_prompt=include_sub_prompt,
+            )
         )
+        generation_params = context.generation_params
         messages = []
         for h in context.history:
             role = h.get("role", "user")
             content = h.get("content", "")
             messages.append({"role": role, "content": self._to_anthropic_blocks_from_history(content)})
-        messages.append({"role": "user", "content": context.user_content})
+        current_content = context.user_content
+        if not isinstance(current_content, list):
+            current_content = [{"type": "text", "text": str(current_content)}]
+        messages.append({"role": "user", "content": current_content})
         payload = {
             "model": self.model_name,
-            "max_tokens": max(1, self.generation_params["max_tokens"] or DEFAULT_GENERATION_PARAMS["max_tokens"]),
-            "temperature": self.generation_params["temperature"],
-            "top_p": self.generation_params["top_p"],
+            "max_tokens": max(1, generation_params["max_tokens"] or DEFAULT_GENERATION_PARAMS["max_tokens"]),
+            "temperature": generation_params["temperature"],
+            "top_p": generation_params["top_p"],
             "system": context.system_prompt,
             "messages": messages,
         }
-        response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=60)
+        timeout = request_descriptor.timeout_seconds if request_descriptor is not None else 60
+        response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=timeout)
         response.raise_for_status()
         data = response.json()
         text_parts = [p.get("text", "") for p in data.get("content", []) if p.get("type") == "text"]
@@ -162,16 +178,28 @@ class AnthropicClient(_CommonMixin):
                     "source": {"type": "base64", "media_type": media_type, "data": b64_data},
                 }
             )
-        raw_response_text = self._request_anthropic(blocks)
-        clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture = self._parse_response_with_empty_fallback(raw_response_text)
-        self._remember_turn(history_blocks, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture)))
-        return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture
+        return self._execute_final_response(
+            lambda descriptor: self._request_anthropic(
+                descriptor.context.user_content,
+                request_descriptor=descriptor,
+            ),
+            user_content=blocks,
+            history_user_content=history_blocks,
+            provider_format=self.wire_format,
+        )
 
     def send_message(self, message: str, history_user_content: str | None = None) -> LLM_RESPONSE_TUPLE:
-        raw_response_text = self._request_anthropic([{"type": "text", "text": message}])
-        clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture = self._parse_response_with_empty_fallback(raw_response_text)
-        self._remember_turn(history_user_content if history_user_content is not None else message, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture)))
-        return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture
+        return self._execute_final_response(
+            lambda descriptor: self._request_anthropic(
+                descriptor.context.user_content,
+                request_descriptor=descriptor,
+            ),
+            user_content=[{"type": "text", "text": message}],
+            history_user_content=(
+                history_user_content if history_user_content is not None else message
+            ),
+            provider_format=self.wire_format,
+        )
 
     async def summarize_conversation(
         self,

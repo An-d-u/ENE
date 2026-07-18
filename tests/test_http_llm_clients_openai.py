@@ -36,6 +36,11 @@ class _SearchSettings:
     def get(self, key, default=None):
         values = {
             "web_search_enabled": True,
+            "structured_response_mode": "legacy",
+            "ui_language": "en",
+            "prompt_language": "en",
+            "tts_language": "en",
+            "enable_ene_thoughts": False,
             "web_search_auto_enabled": self.auto_enabled,
             "web_search_provider": "tavily",
             "web_search_max_results": 2,
@@ -570,7 +575,7 @@ flags=greeting
     assert thought == ""
 
 
-def test_openai_send_message_keeps_raw_assistant_output_in_history(monkeypatch):
+def test_openai_send_message_keeps_visible_assistant_output_in_history(monkeypatch):
     raw_output = """
 [analysis]
 user_emotion=calm
@@ -590,6 +595,7 @@ confidence=0.8
         api_key="k",
         model_name="gpt-5.4-mini",
         endpoint="https://api.openai.com/v1/responses",
+        settings={"structured_response_mode": "legacy"},
     )
 
     text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive, _gesture = client.send_message("테스트")
@@ -603,4 +609,4 @@ confidence=0.8
     assert promises == []
     assert thought == ""
     assert history[-1]["role"] == "assistant"
-    assert history[-1]["content"] == raw_output
+    assert history[-1]["content"] == text
