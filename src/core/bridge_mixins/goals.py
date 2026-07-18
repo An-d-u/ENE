@@ -26,7 +26,7 @@ class GoalBridgeMixin:
                 snapshot = goal_manager.get_snapshot()
             emit(json.dumps(snapshot or {}, ensure_ascii=False))
         except Exception as e:
-            print(f"[Bridge] 목표 목록 갱신 신호 전송 실패: {e}")
+            print(f"[Bridge] goal_items category=signal_error exception_class={type(e).__name__}")
 
     def _emit_goal_notice(self, message: str, level: str = "info"):
         """목표 UI 알림을 안전하게 전달한다."""
@@ -37,8 +37,8 @@ class GoalBridgeMixin:
                 emit(str(message or ""), str(level or "info"))
                 return
             except Exception as e:
-                print(f"[Bridge] 목표 알림 신호 전송 실패: {e}")
-        print(f"[Bridge] Goal notice({level}): {message}")
+                print(f"[Bridge] goal_notice category=signal_error exception_class={type(e).__name__}")
+        print("[Bridge] goal_notice emitted=false")
 
     def _apply_goal_update_payload(self, goal_update_payload: str):
         """LLM이 보낸 목표 업데이트를 적용하고 최신 목표 스냅샷을 UI로 보낸다."""
@@ -48,7 +48,7 @@ class GoalBridgeMixin:
         try:
             parsed = json.loads(goal_update_payload)
         except Exception as e:
-            print(f"[Bridge] 목표 업데이트 JSON 파싱 실패: {e}")
+            print(f"[Bridge] goal_operation category=goal_payload_invalid exception_class={type(e).__name__}")
             return
         if not isinstance(parsed, dict):
             return
@@ -59,7 +59,7 @@ class GoalBridgeMixin:
             snapshot = goal_manager.apply_llm_update(parsed)
             GoalBridgeMixin._emit_goal_items_updated(self, snapshot)
         except Exception as e:
-            print(f"[Bridge] 목표 업데이트 적용 실패: {e}")
+            print(f"[Bridge] goal_operation category=goal_apply_failed exception_class={type(e).__name__}")
 
 
     @pyqtSlot()
@@ -80,7 +80,7 @@ class GoalBridgeMixin:
             snapshot = self.goal_manager.add_manual_goal(goal_type, title, reason)
             GoalBridgeMixin._emit_goal_items_updated(self, snapshot)
         except Exception as e:
-            print(f"[Bridge] 수동 목표 추가 실패: {e}")
+            print(f"[Bridge] goal_operation category=goal_add_failed exception_class={type(e).__name__}")
             GoalBridgeMixin._emit_goal_notice(self, "목표 추가 중 오류가 발생했어요.", "error")
 
     @pyqtSlot(str, str, str)
@@ -93,7 +93,7 @@ class GoalBridgeMixin:
             snapshot = self.goal_manager.update_goal(goal_id, {"title": title, "reason": reason})
             GoalBridgeMixin._emit_goal_items_updated(self, snapshot)
         except Exception as e:
-            print(f"[Bridge] 목표 수정 실패: {e}")
+            print(f"[Bridge] goal_operation category=goal_update_failed exception_class={type(e).__name__}")
             GoalBridgeMixin._emit_goal_notice(self, "목표 수정 중 오류가 발생했어요.", "error")
 
     @pyqtSlot(str, str)
@@ -106,7 +106,7 @@ class GoalBridgeMixin:
             snapshot = self.goal_manager.complete_goal(goal_id, reason)
             GoalBridgeMixin._emit_goal_items_updated(self, snapshot)
         except Exception as e:
-            print(f"[Bridge] 목표 완료 실패: {e}")
+            print(f"[Bridge] goal_operation category=goal_complete_failed exception_class={type(e).__name__}")
             GoalBridgeMixin._emit_goal_notice(self, "목표 완료 중 오류가 발생했어요.", "error")
 
     @pyqtSlot(str, str)
@@ -119,5 +119,5 @@ class GoalBridgeMixin:
             snapshot = self.goal_manager.cancel_goal(goal_id, reason)
             GoalBridgeMixin._emit_goal_items_updated(self, snapshot)
         except Exception as e:
-            print(f"[Bridge] 목표 취소 실패: {e}")
+            print(f"[Bridge] goal_operation category=goal_cancel_failed exception_class={type(e).__name__}")
             GoalBridgeMixin._emit_goal_notice(self, "목표 취소 중 오류가 발생했어요.", "error")

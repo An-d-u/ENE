@@ -794,10 +794,10 @@ def test_gemini_history_rewrite_ignores_non_text_parts_with_text_attribute():
     assert image_part.inline_data == {"data": "QUJD"}
 
 
-def test_gemini_send_message_logs_prompt_and_response_content(capsys):
-    user_text = "Synthetic Gemini prompt visible in console logs"
-    raw_response_text = "Synthetic Gemini response visible in console logs"
-    tts_text = "Synthetic Gemini TTS visible in console logs"
+def test_gemini_send_message_logs_are_content_free(capsys):
+    user_text = "Synthetic Gemini private prompt sentinel"
+    raw_response_text = "Synthetic Gemini private response sentinel"
+    tts_text = "Synthetic Gemini private TTS sentinel"
 
     class FakeResponse:
         text = raw_response_text
@@ -828,9 +828,10 @@ def test_gemini_send_message_logs_prompt_and_response_content(capsys):
     GeminiClient.send_message(dummy, user_text)
 
     captured = capsys.readouterr().out
-    assert user_text in captured
-    assert raw_response_text in captured
-    assert tts_text in captured
+    assert user_text not in captured
+    assert raw_response_text not in captured
+    assert tts_text not in captured
+    assert "category=final_response" in captured
 
 
 def test_build_memory_context_includes_goal_context_without_memory_manager():

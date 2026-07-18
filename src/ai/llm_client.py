@@ -90,6 +90,39 @@ SUMMARY_MIN_OUTPUT_TOKENS = 4096
 GEMINI_MAX_OUTPUT_TOKENS = 8192
 _GEMINI_RESPONSE_CAPABILITY_REGISTRY = ResponseCapabilityRegistry()
 
+_SAFE_GEMINI_ENUM_CATEGORIES = {
+    "block_reason_unspecified",
+    "blocked_reason_unspecified",
+    "blocklist",
+    "content_filter",
+    "finish_reason_unspecified",
+    "image_prohibited_content",
+    "image_recitation",
+    "image_safety",
+    "max_tokens",
+    "prohibited_content",
+    "recitation",
+    "safety",
+    "spii",
+    "stop",
+}
+_SAFE_GEMINI_LOG_LABELS = {
+    "one-shot": "one_shot",
+    "멀티모달": "multimodal",
+    "요약": "summary",
+    "요약 재시도": "summary_retry",
+    "제한 복구": "repair",
+    "최종 응답": "final_response",
+    "텍스트": "text",
+}
+
+
+def _safe_builtin_count(value) -> int | None:
+    """사용자 정의 길이 hook을 호출하지 않고 내장 컨테이너 수만 센다."""
+    if type(value) in {dict, list, set, str, tuple}:
+        return len(value)
+    return None
+
 
 def clear_gemini_response_capability_cache() -> None:
     """테스트와 런타임 재설정을 위해 Gemini capability 캐시를 비운다."""
@@ -145,7 +178,7 @@ class GeminiClient:
         self.chat = self._create_chat_session()
         self._last_runtime_prompt_signature = self._runtime_prompt_signature()
         
-        print(f"[LLM] Chat session created with model: {self.model_name}")
+        print("[LLM] category=session_created provider=gemini model_family=gemini")
         if self.memory_manager:
             print("[LLM] Memory manager connected")
 
@@ -431,7 +464,10 @@ class GeminiClient:
             return response_text
 
         missing_sections = missing_summary_response_sections(response_text)
-        print(f"[LLM] 요약 응답이 불완전해 재시도합니다. missing={missing_sections}")
+        missing_count = _safe_builtin_count(missing_sections)
+        print(
+            f"[LLM] category=summary_retry missing_count={missing_count or 0}"
+        )
         retry_response = self.client.models.generate_content(
             model=self.model_name,
             contents=self._summary_retry_prompt(prompt, missing_sections),
@@ -492,66 +528,61 @@ class GeminiClient:
             return value.get(field, default)
         return getattr(value, field, default)
 
-    def _summarize_debug_value(self, value, max_length: int = 500) -> str:
-        """응답 객체 일부를 로그에 과도하게 길지 않게 남긴다."""
-        if value is None:
-            return "None"
-        try:
-            text = repr(value)
-        except Exception as exc:
-            text = f"<unrepresentable {type(value).__name__}: {exc}>"
-        if len(text) > max_length:
-            return text[:max_length] + "...(truncated)"
-        return text
+    def _safe_log_label(self, value) -> str:
+        """호출자가 준 label을 고정 내부 category로만 바꾼다."""
+        if type(value) is not str:
+            return "other"
+        return _SAFE_GEMINI_LOG_LABELS.get(value, "other")
+
+    def _safe_exception_class(self, failure: BaseException) -> str:
+        """예외 본문이나 문자열 hook 없이 클래스 이름만 반환한다."""
+        name = type(failure).__name__
+        if type(name) is str and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+            return name
+        return "Exception"
 
     def _log_empty_response_diagnostics(self, response, label: str):
-        """Gemini가 텍스트 없는 응답을 준 원인 추적에 필요한 정보를 남긴다."""
-        print(f"[LLM] 빈 텍스트 응답 감지 ({label})")
-        print(
-            "[LLM] Empty response settings | "
-            f"enable_ene_thoughts={self._read_runtime_setting_for_log('enable_ene_thoughts', True)}, "
-            f"include_ene_thoughts_in_context={self._read_runtime_setting_for_log('include_ene_thoughts_in_context', False)}"
-        )
-
+        """Gemini 빈 응답을 SDK 원문 없이 분류해 기록한다."""
         prompt_feedback = getattr(response, "prompt_feedback", None)
-        if prompt_feedback is not None:
-            print(f"[LLM] Empty response prompt_feedback: {self._summarize_debug_value(prompt_feedback)}")
+        block_reason = self._debug_field(prompt_feedback, "block_reason")
+        block_category = self._normalized_enum_text(block_reason) or "none"
 
         candidates = getattr(response, "candidates", None)
-        if candidates is None:
-            print("[LLM] Empty response candidates: None")
-            return
+        if type(candidates) is list:
+            candidate_count = list.__len__(candidates)
+            iterable = candidates[:3]
+        elif type(candidates) is tuple:
+            candidate_count = tuple.__len__(candidates)
+            iterable = candidates[:3]
+        else:
+            candidate_count = None
+            iterable = ()
 
-        try:
-            candidate_count = len(candidates)
-        except Exception:
-            candidate_count = "unknown"
-        print(f"[LLM] Empty response candidates_count: {candidate_count}")
-
-        try:
-            iterable = list(candidates[:3])
-        except Exception:
-            try:
-                iterable = list(candidates)[:3]
-            except Exception:
-                print(f"[LLM] Empty response candidates_repr: {self._summarize_debug_value(candidates)}")
-                return
+        print(
+            "[LLM] 빈 텍스트 응답 감지 "
+            "category=empty_response "
+            f"request_kind={self._safe_log_label(label)} "
+            f"candidate_count={candidate_count if candidate_count is not None else 'unknown'} "
+            f"block_category={block_category}"
+        )
 
         for index, candidate in enumerate(iterable):
             finish_reason = self._debug_field(candidate, "finish_reason")
             finish_message = self._debug_field(candidate, "finish_message")
             safety_ratings = self._debug_field(candidate, "safety_ratings")
+            safety_count = _safe_builtin_count(safety_ratings)
             print(
-                f"[LLM] Empty response candidate[{index}] | "
-                f"finish_reason={self._summarize_debug_value(finish_reason, 120)}, "
-                f"finish_message={self._summarize_debug_value(finish_message, 200)}, "
-                f"safety_ratings={self._summarize_debug_value(safety_ratings, 300)}"
+                "[LLM] category=empty_response_candidate "
+                f"candidate_index={index} "
+                f"finish_category={self._normalized_enum_text(finish_reason) or 'none'} "
+                f"finish_message_present={finish_message is not None} "
+                f"safety_count={safety_count if safety_count is not None else 'unknown'}"
             )
 
     def _extract_response_text_or_empty(self, response, label: str) -> str:
         """Gemini 응답에서 텍스트를 안전하게 꺼내고, 비어 있으면 진단 로그를 남긴다."""
         raw_text = getattr(response, "text", None)
-        response_text = str(raw_text).strip() if raw_text is not None else ""
+        response_text = raw_text.strip() if type(raw_text) is str else ""
         if response_text:
             return response_text
         self._log_empty_response_diagnostics(response, label)
@@ -572,17 +603,37 @@ class GeminiClient:
         )
 
     def _normalized_enum_text(self, value) -> str:
-        name = getattr(value, "name", None)
-        normalized = name if name is not None else getattr(value, "value", value)
-        return str(normalized or "").strip().split(".")[-1].lower()
+        if value is None:
+            return ""
+        if type(value) is str:
+            normalized = value
+        else:
+            name = getattr(value, "name", None)
+            raw_value = getattr(value, "value", None)
+            if type(name) is str:
+                normalized = name
+            elif type(raw_value) is str:
+                normalized = raw_value
+            else:
+                return "other"
+        normalized = normalized.strip().split(".")[-1].lower()
+        if not normalized:
+            return ""
+        if normalized in _SAFE_GEMINI_ENUM_CATEGORIES:
+            return normalized
+        return "other"
 
     def _finish_reason_text(self, response) -> str:
         candidates = getattr(response, "candidates", None)
-        if not candidates:
-            return ""
-        try:
-            candidate = list(candidates)[0]
-        except (TypeError, IndexError):
+        if type(candidates) is list:
+            if list.__len__(candidates) == 0:
+                return ""
+            candidate = candidates[0]
+        elif type(candidates) is tuple:
+            if tuple.__len__(candidates) == 0:
+                return ""
+            candidate = candidates[0]
+        else:
             return ""
         reason = self._debug_field(candidate, "finish_reason")
         return self._normalized_enum_text(reason)
@@ -685,14 +736,17 @@ class GeminiClient:
             return False
         if status_code not in {400, 404, 422}:
             return False
-        detail = " ".join(
-            str(value or "")
-            for value in (
-                failure,
-                getattr(failure, "message", ""),
-                getattr(response, "text", ""),
-            )
-        ).lower()
+        details = []
+        message = getattr(failure, "message", None)
+        if type(message) is str:
+            details.append(message)
+        args = getattr(failure, "args", ())
+        if type(args) is tuple and tuple.__len__(args) > 0 and type(args[0]) is str:
+            details.append(args[0])
+        response_text = getattr(response, "text", None)
+        if type(response_text) is str:
+            details.append(response_text)
+        detail = " ".join(details).lower()
         if any(
             phrase in detail
             for phrase in (
@@ -1085,7 +1139,10 @@ class GeminiClient:
             web_search_context=web_search_context,
         )
         if memory_context:
-            print(f"[LLM] 메모리 컨텍스트 추가 (길이: {len(memory_context)})")
+            print(
+                "[LLM] category=memory_context_added "
+                f"char_count={_safe_builtin_count(memory_context) or 0}"
+            )
         
         # 일반 메시지 전송. 모델 입력에는 컨텍스트를 붙이되, SDK 히스토리에는 사용자 원문을 남긴다.
         return self.send_message(enhanced_message, history_user_content=message)
@@ -1140,13 +1197,21 @@ class GeminiClient:
         from PIL import Image
         import io
         
-        print(f"[LLM] 멀티모달 요청: {len(images_data)}개 이미지")
+        image_count = _safe_builtin_count(images_data)
+        print(
+            "[LLM] category=final_request request_kind=multimodal "
+            f"image_count={image_count if image_count is not None else 'unknown'} "
+            f"prompt_chars={_safe_builtin_count(message) or 0}"
+        )
         
         try:
             # 이미지 준비
             pil_images = []
             for img_data in images_data:
+                if type(img_data) is not dict:
+                    continue
                 data_url = img_data.get('dataUrl', '')
+                data_url = data_url if type(data_url) is str else ""
                 if not data_url:
                     continue
                 
@@ -1161,9 +1226,12 @@ class GeminiClient:
                     image_bytes = base64.b64decode(base64_data)
                     pil_image = Image.open(io.BytesIO(image_bytes))
                     pil_images.append(pil_image)
-                    print(f"[LLM] 이미지 로드: {pil_image.size}")
-                except Exception as e:
-                    print(f"[LLM] 이미지 디코딩 실패: {e}")
+                    print("[LLM] category=image_decode_success")
+                except Exception as failure:
+                    print(
+                        "[LLM] category=image_decode_error "
+                        f"exception_class={GeminiClient._safe_exception_class(self, failure)}"
+                    )
             
             if not pil_images:
                 print("[LLM] 유효한 이미지가 없음, 텍스트만 전송")
@@ -1205,7 +1273,6 @@ class GeminiClient:
             # contents에 이미지와 텍스트를 함께 전달
             contents = pil_images + [enhanced_message]
             
-            print("[LLM] Gemini 멀티모달 요청 전송...")
             if all(
                 hasattr(self, attribute)
                 for attribute in ("client", "model_name", "generation_params")
@@ -1216,13 +1283,17 @@ class GeminiClient:
                     settings_source=settings_snapshot,
                     response_mode=response_mode,
                 )
-                return self._execute_final_response(
+                result = self._execute_final_response(
                     contents,
                     history_user_content=message,
                     label="멀티모달",
                     settings_source=settings_snapshot,
                     response_mode=response_mode,
                 )
+                GeminiClient._log_final_response_metadata(
+                    self, result, request_kind="multimodal"
+                )
+                return result
             self._refresh_chat_session_for_runtime_prompt_if_needed()
             response = self.chat.send_message(contents)
             self._log_turn_token_usage(response, label="멀티모달")
@@ -1231,27 +1302,18 @@ class GeminiClient:
             GeminiClient._replace_latest_user_history_text(self, message)
             if not response_text:
                 return self._empty_text_fallback_response()
-            print(f"[LLM] 멀티모달 응답: {response_text}")
-            
             # 응답에서 텍스트, 감정, 일정 분리 (기존 메서드 활용)
-            clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture = self._parse_response(response_text)
-            
-            # TTS 텍스트가 있으면 로깅
-            if tts_text:
-                print(f"[LLM] TTS text: {tts_text}")
-            
-            # 일정이 있으면 로깅
-            if events:
-                print(f"[LLM] {len(events)}개 일정 추출됨")
-            
-            return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture
+            result = self._parse_response(response_text)
+            GeminiClient._log_final_response_metadata(self, result, request_kind="multimodal")
+            return result
 
             
-        except Exception as e:
-            print(f"[LLM] 멀티모달 처리 실패: {e}")
-            import traceback
-            traceback.print_exc()
-            return f"이미지를 처리하는 중에 문제가 생겼어요... ({str(e)[:50]})", "confused", None, [], {}, [], "", {}, [], ""
+        except Exception as failure:
+            print(
+                "[LLM] category=multimodal_error "
+                f"exception_class={GeminiClient._safe_exception_class(self, failure)}"
+            )
+            return "이미지를 처리하는 중에 문제가 생겼어요.", "confused", None, [], {}, [], "", {}, [], ""
 
     def _build_goal_context_block(self, prompt_language: str | None = None) -> str:
         """메모리 매니저와 독립적으로 활성 목표 컨텍스트를 만든다."""
@@ -1313,15 +1375,48 @@ class GeminiClient:
     ) -> None:
         def display(key: str) -> str:
             value = usage.get(key)
-            if is_valid_token_count(value):
-                return str(value)
+            if is_valid_token_count(value) and type(value) is int:
+                return int.__repr__(value)
             return "N/A"
 
         print(
-            f"[LLM] 🎫 Token Usage ({label}) | "
+            "[LLM] category=token_usage "
+            f"request_kind={self._safe_log_label(label)} "
             f"input={display('input_tokens')}, "
             f"output={display('output_tokens')}, "
             f"total={display('total_tokens')}"
+        )
+
+    def _log_final_response_metadata(
+        self,
+        payload: LLM_RESPONSE_TUPLE,
+        *,
+        request_kind: str,
+    ) -> None:
+        """파싱된 응답 본문 대신 길이와 item 수만 기록한다."""
+        if type(payload) is not tuple or tuple.__len__(payload) < 10:
+            print("[LLM] category=final_response result=invalid_shape")
+            return
+        request_category = (
+            request_kind if request_kind in {"text", "multimodal"} else "other"
+        )
+        goal_update = payload[7]
+        goal_count = (
+            1
+            if type(goal_update) is dict and dict.__len__(goal_update) > 0
+            else 0
+        )
+        print(
+            "[LLM] category=final_response "
+            f"request_kind={request_category} "
+            f"reply_chars={_safe_builtin_count(payload[0]) or 0} "
+            f"tts_chars={_safe_builtin_count(payload[2]) or 0} "
+            f"event_count={_safe_builtin_count(payload[3]) or 0} "
+            f"analysis_count={_safe_builtin_count(payload[4]) or 0} "
+            f"promise_count={_safe_builtin_count(payload[5]) or 0} "
+            f"thought_chars={_safe_builtin_count(payload[6]) or 0} "
+            f"goal_count={goal_count} "
+            f"proactive_count={_safe_builtin_count(payload[8]) or 0}"
         )
 
     def _record_and_print_response_turn_usage(self, response, *, label: str) -> None:
@@ -1412,8 +1507,10 @@ class GeminiClient:
             (응답 텍스트, 감정 태그, TTS 텍스트, 이벤트 리스트, analysis 메타, 약속 리스트, 속마음, 목표 업데이트) 튜플
         """
         try:
-            print(f"[LLM] Sending message: {message}")
-            
+            print(
+                "[LLM] category=final_request request_kind=text "
+                f"prompt_chars={_safe_builtin_count(message) or 0}"
+            )
             if all(
                 hasattr(self, attribute)
                 for attribute in ("client", "model_name", "generation_params")
@@ -1424,48 +1521,32 @@ class GeminiClient:
                     settings_source=settings_snapshot,
                     response_mode=response_mode,
                 )
-                return self._execute_final_response(
+                result = self._execute_final_response(
                     message,
                     history_user_content=history_user_content or message,
                     label="텍스트",
                     settings_source=settings_snapshot,
                     response_mode=response_mode,
                 )
+                GeminiClient._log_final_response_metadata(self, result, request_kind="text")
+                return result
 
-            # 토큰 계산 (비동기로 실행하지 않고 로그만 출력)
-            # 동기 메서드 내에서 비동기 호출이 어려우므로 여기서는 생략하거나
-            # 별도의 동기 메서드로 구현해야 함. 일단은 생략하고 멀티모달에서만 적용
-            
-            # Chat 세션으로 메시지 전송
             self._refresh_chat_session_for_runtime_prompt_if_needed()
             response = self.chat.send_message(message)
             self._log_turn_token_usage(response, label="텍스트")
-            
-            # 응답 텍스트 추출
             response_text = self._extract_response_text_or_empty(response, label="텍스트")
             if history_user_content is not None:
                 GeminiClient._replace_latest_user_history_text(self, history_user_content)
             if not response_text:
                 return self._empty_text_fallback_response()
-            print(f"[LLM] Received response: {response_text}")
-            
-            # 응답에서 텍스트와 감정 분리
-            text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture = self._parse_response(response_text)
-            
-            # TTS 텍스트가 있으면 로깅
-            if tts_text:
-                print(f"[LLM] TTS text: {tts_text}")
-            
-            # 일정이 있으면 로깅
-            if events:
-                print(f"[LLM] {len(events)}개 일정 추출됨")
-            
-            return text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture
-            
-        except Exception as e:
-            print(f"[LLM] Error: {e}")
-            import traceback
-            traceback.print_exc()
+            result = self._parse_response(response_text)
+            GeminiClient._log_final_response_metadata(self, result, request_kind="text")
+            return result
+        except Exception as failure:
+            print(
+                "[LLM] category=provider_error "
+                f"exception_class={GeminiClient._safe_exception_class(self, failure)}"
+            )
             raise
 
     async def summarize_conversation(
@@ -1482,6 +1563,7 @@ class GeminiClient:
         Returns:
             (요약 텍스트, 사용자 정보 목록, 에네 정보 목록, 메모리 메타데이터) 튜플
         """
+        message_count = _safe_builtin_count(messages) or 0
         try:
             prompt_language = self._prompt_language()
             prompt_names = resolve_prompt_persona_names(
@@ -1499,7 +1581,10 @@ class GeminiClient:
             summarize_prompt = summary_prompt.prompt
             time_range = summary_prompt.time_range
 
-            print(f"[LLM] 대화 요약 및 정보 추출 중... (메시지 수: {len(messages)})")
+            print(
+                "[LLM] category=summary_request "
+                f"message_count={message_count}"
+            )
             
             # 일회성 요청으로 요약 생성 (Chat 세션과 별도)
             response_text = self._request_summary_text(summarize_prompt)
@@ -1524,22 +1609,23 @@ class GeminiClient:
             if not has_date:
                 summary = f"[{time_range}] {summary}".strip()
             
-            print(f"[LLM] 요약 생성 완료: {summary}")
-            if user_facts:
-                print(f"[LLM] 마스터 정보 {len(user_facts)}개 추출")
-            if ene_facts:
-                print(f"[LLM] 에네 정보 {len(ene_facts)}개 추출")
-            if memory_meta:
-                print(f"[LLM] 메모리 메타 추출 keys={len(memory_meta)}")
+            print(
+                "[LLM] category=summary_success "
+                f"summary_chars={_safe_builtin_count(summary) or 0} "
+                f"user_fact_count={_safe_builtin_count(user_facts) or 0} "
+                f"ene_fact_count={_safe_builtin_count(ene_facts) or 0} "
+                f"memory_meta_count={_safe_builtin_count(memory_meta) or 0} "
+                f"topic_hint_count={_safe_builtin_count(topic_hints) or 0}"
+            )
             
             return summary, user_facts, ene_facts, memory_meta, topic_hints
             
-        except Exception as e:
-            print(f"[LLM] 요약 생성 실패: {e}")
-            import traceback
-            traceback.print_exc()
-            # 실패 시 간단한 요약 반환
-            return f"대화 {len(messages)}개 메시지", [], [], {}, []
+        except Exception as failure:
+            print(
+                "[LLM] category=summary_error "
+                f"exception_class={GeminiClient._safe_exception_class(self, failure)}"
+            )
+            return f"대화 {message_count}개 메시지", [], [], {}, []
 
     def _parse_summary_memory_meta(self, meta_lines: list[str]) -> dict:
         """요약 응답의 MEMORY_META 섹션을 정규화된 딕셔너리로 파싱한다."""
@@ -1591,7 +1677,9 @@ class GeminiClient:
             response_text,
             settings_source=getattr(self, "settings", None),
             available_emotions=get_parseable_emotions(settings_source=getattr(self, "settings", None)),
-            log_event=print,
+            log_event=lambda _event: print(
+                "[LLM] category=schedule_event_extracted event_count=1"
+            ),
         )
 
     def _is_japanese(self, text: str) -> bool:
@@ -1610,10 +1698,16 @@ class GeminiClient:
         """히스토리 아이템에서 role 값을 안전하게 추출한다."""
         if item is None:
             return ""
-        if isinstance(item, dict):
-            return str(item.get("role", "")).lower()
-        role = getattr(item, "role", "")
-        return str(role).lower()
+        if type(item) is dict:
+            role = item.get("role", "")
+        else:
+            role = getattr(item, "role", "")
+        if type(role) is not str:
+            return ""
+        normalized = role.strip().lower()
+        if normalized in {"assistant", "model", "system", "user"}:
+            return normalized
+        return "other"
 
     def rollback_last_assistant_turn(self) -> bool:
         """
@@ -1621,44 +1715,42 @@ class GeminiClient:
         끝부분이 [user, model] 형태일 때만 안전하게 롤백하고,
         모호한 히스토리 구조에서는 실패로 반환해 리롤을 중단하게 한다.
         """
-        history = self.get_conversation_history()
-        if not history:
-            print("[LLM] rollback skipped: history empty")
-            return False
-
-        trimmed_history = list(history)
-        if not trimmed_history:
-            print("[LLM] rollback skipped: history conversion failed")
-            return False
-
-        # 리롤은 마지막 assistant 응답 1개를 기준으로 동작하므로
-        # 히스토리 tail이 반드시 model/assistant여야 한다.
-        last_role = self._get_item_role(trimmed_history[-1])
-        if last_role not in ("assistant", "model"):
-            print(f"[LLM] rollback skipped: unexpected tail role '{last_role}'")
-            return False
-
-        # 마지막 assistant/model 제거
-        trimmed_history.pop()
-
-        # 직전 user 제거 (같은 user 입력 재전송 시 누적 방지)
-        if not trimmed_history:
-            print("[LLM] rollback skipped: missing user turn before assistant")
-            return False
-        last_user_role = self._get_item_role(trimmed_history[-1])
-        if last_user_role != "user":
-            print(f"[LLM] rollback skipped: expected user before assistant, got '{last_user_role}'")
-            return False
-        trimmed_history.pop()
-
         try:
+            history = self.get_conversation_history()
+            if not history:
+                print("[LLM] rollback skipped: history empty")
+                return False
+
+            trimmed_history = list(history)
+            if not trimmed_history:
+                print("[LLM] rollback skipped: history conversion failed")
+                return False
+
+            # 리롤은 마지막 assistant 응답 1개를 기준으로 동작하므로
+            # 히스토리 tail이 반드시 model/assistant여야 한다.
+            last_role = self._get_item_role(trimmed_history[-1])
+            if last_role not in ("assistant", "model"):
+                print("[LLM] rollback skipped category=unexpected_tail_role")
+                return False
+
+            # 마지막 assistant/model 제거
+            trimmed_history.pop()
+
+            # 직전 user 제거 (같은 user 입력 재전송 시 누적 방지)
+            if not trimmed_history:
+                print("[LLM] rollback skipped: missing user turn before assistant")
+                return False
+            last_user_role = self._get_item_role(trimmed_history[-1])
+            if last_user_role != "user":
+                print("[LLM] rollback skipped category=missing_user_before_assistant")
+                return False
+            trimmed_history.pop()
+
             self.chat = self._create_chat_session(history=trimmed_history)
             print("[LLM] rollback_last_assistant_turn: success (user+assistant rolled back)")
             return True
-        except Exception as e:
-            print(f"[LLM] rollback_last_assistant_turn failed: {e}")
-            import traceback
-            traceback.print_exc()
+        except Exception:
+            print("[LLM] category=history_rollback_error")
             return False
 
     def rebuild_context_from_conversation(self, conversation_buffer: list) -> bool:
@@ -1668,12 +1760,18 @@ class GeminiClient:
         """
         try:
             history = []
-            for item in conversation_buffer or []:
-                if not item or len(item) < 2:
+            source = (
+                conversation_buffer
+                if type(conversation_buffer) in {list, tuple}
+                else ()
+            )
+            for item in source:
+                item_count = _safe_builtin_count(item)
+                if item_count is None or item_count < 2:
                     continue
-                role = str(item[0]).strip().lower()
-                raw_content = str(item[1]) if item[1] is not None else ""
-                timestamp = str(item[2]).strip() if len(item) >= 3 and item[2] else ""
+                role = item[0].strip().lower() if type(item[0]) is str else ""
+                raw_content = item[1] if type(item[1]) is str else ""
+                timestamp = item[2].strip() if item_count >= 3 and type(item[2]) is str else ""
                 content = prepend_message_time(raw_content, timestamp)
                 if role == "assistant":
                     role = "model"
@@ -1685,12 +1783,13 @@ class GeminiClient:
                 })
 
             self.chat = self._create_chat_session(history=history)
-            print(f"[LLM] rebuild_context_from_conversation: success ({len(history)} turns)")
+            print(f"[LLM] category=history_rebuild_success turn_count={list.__len__(history)}")
             return True
-        except Exception as e:
-            print(f"[LLM] rebuild_context_from_conversation failed: {e}")
-            import traceback
-            traceback.print_exc()
+        except Exception as failure:
+            print(
+                "[LLM] category=history_rebuild_error "
+                f"exception_class={GeminiClient._safe_exception_class(self, failure)}"
+            )
             return False
 
     def get_conversation_history(self):

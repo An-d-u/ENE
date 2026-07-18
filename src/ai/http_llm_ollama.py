@@ -6,6 +6,8 @@ from .http_llm_common import (
     LLM_RESPONSE_TUPLE,
     _CommonMixin,
     _normalize_generation_params,
+    _post_with_safe_errors,
+    _raise_for_status_with_detail,
 )
 from .response_protocol import (
     LLMRequestKind,
@@ -149,8 +151,8 @@ class OllamaClient(_CommonMixin):
         ):
             payload["format"] = request_descriptor.schema
         timeout = request_descriptor.timeout_seconds if request_descriptor is not None else 60
-        response = requests.post(self.endpoint, json=payload, timeout=timeout)
-        response.raise_for_status()
+        response = _post_with_safe_errors(self.provider_name, self.endpoint, requests.post, json=payload, timeout=timeout)
+        _raise_for_status_with_detail(response, self.provider_name)
         data = response.json()
         if request_descriptor is None:
             return str(data.get("message", {}).get("content", "")).strip()
@@ -187,8 +189,8 @@ class OllamaClient(_CommonMixin):
         }
         if self.generation_params["max_tokens"] > 0:
             payload["options"]["num_predict"] = self.generation_params["max_tokens"]
-        response = requests.post(self.endpoint, json=payload, timeout=60)
-        response.raise_for_status()
+        response = _post_with_safe_errors(self.provider_name, self.endpoint, requests.post, json=payload, timeout=60)
+        _raise_for_status_with_detail(response, self.provider_name)
         data = response.json()
         return str(data.get("message", {}).get("content", "")).strip()
 

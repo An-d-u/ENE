@@ -203,7 +203,7 @@ def test_request_pending_stage_normalizes_unknown_stage_to_thinking():
     ]
 
 
-def test_send_to_ai_logs_raw_message_and_timestamped_prompt(monkeypatch, capsys):
+def test_send_to_ai_logs_only_prompt_lengths(monkeypatch, capsys):
     monkeypatch.setattr(chat_flow, "AIWorker", _DummyWorker)
     bridge = _SendToAiBridge()
     raw_message = "synthetic prompt alpha"
@@ -212,14 +212,15 @@ def test_send_to_ai_logs_raw_message_and_timestamped_prompt(monkeypatch, capsys)
     bridge.send_to_ai(raw_message)
 
     captured = capsys.readouterr()
-    assert f"Received message from JS: {raw_message}" in captured.out
-    assert "Message with timestamp:" in captured.out
-    assert timestamped_prompt in captured.out
-    assert raw_message in captured.out
-    assert "VISIBLE_CONTEXT" in captured.out
+    combined = captured.out + captured.err
+    assert raw_message not in combined
+    assert timestamped_prompt not in combined
+    assert "VISIBLE_CONTEXT" not in combined
+    assert f"message_chars={len(raw_message)}" in combined
+    assert f"prompt_chars={len(timestamped_prompt)}" in combined
 
 
-def test_response_ready_schedule_success_log_includes_event_content(capsys):
+def test_response_ready_schedule_success_log_omits_event_content(capsys):
     bridge = _ResponseReadyBridge(_CalendarManager())
     event_title = "Synthetic schedule title"
     event_date = "2099-12-31"
@@ -232,12 +233,14 @@ def test_response_ready_schedule_success_log_includes_event_content(capsys):
         [{"date": event_date, "title": event_title, "description": "Synthetic note."}],
     )
 
-    captured = capsys.readouterr().out
-    assert event_title in captured
-    assert event_date in captured
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+    assert event_title not in combined
+    assert event_date not in combined
+    assert "category=schedule_add_success" in combined
 
 
-def test_response_ready_schedule_failure_log_includes_exception_message(capsys):
+def test_response_ready_schedule_failure_log_omits_event_and_exception_content(capsys):
     error_message = "Synthetic exception message"
     bridge = _ResponseReadyBridge(_CalendarManager(error_message=error_message))
     event_title = "Synthetic failed title"
@@ -251,19 +254,24 @@ def test_response_ready_schedule_failure_log_includes_exception_message(capsys):
         [{"date": event_date, "title": event_title, "description": ""}],
     )
 
-    captured = capsys.readouterr().out
-    assert event_title in captured
-    assert event_date in captured
-    assert error_message in captured
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+    assert event_title not in combined
+    assert event_date not in combined
+    assert error_message not in combined
+    assert "category=schedule_add_failed" in combined
+    assert "exception_class=RuntimeError" in combined
 
 
-def test_log_from_js_logs_raw_message(capsys):
+def test_log_from_js_logs_only_message_length(capsys):
     raw_message = "Synthetic JS console message"
 
     WebBridge.log_from_js(object(), raw_message)
 
-    captured = capsys.readouterr().out
-    assert raw_message in captured
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+    assert raw_message not in combined
+    assert f"message_chars={len(raw_message)}" in combined
 
 
 def test_start_diary_worker_emits_request_pending_changed(monkeypatch):
@@ -318,7 +326,7 @@ def test_reset_pending_ui_state_emits_request_pending_false():
     assert dummy._is_rerolling is False
 
 
-def test_on_error_emits_request_pending_false():
+def test_on_error_emits_request_pending_false(capsys):
     dummy = type("BridgeDummy", (), {})()
     dummy._active_promise_id = ""
     dummy._active_promise_signature = None
@@ -329,11 +337,16 @@ def test_on_error_emits_request_pending_false():
     dummy.message_received = _DummySignal()
     dummy.reroll_state_changed = _DummySignal()
 
-    WebBridge._on_error(dummy, "API timeout")
+    raw_error = "SYNTHETIC-BRIDGE-PROVIDER-ERROR-SENTINEL"
+    WebBridge._on_error(dummy, raw_error)
 
     assert dummy.request_pending_changed.emitted == [(False,)]
     assert dummy.request_pending_stage_changed.emitted == [("thinking",)]
     assert dummy.message_received.emitted == [("음... 무슨 일이 있었나봐요.", "confused", "")]
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+    assert raw_error not in combined
+    assert "category=provider_error" in combined
 
 
 def test_manual_summary_does_not_emit_request_pending_while_llm_summary_runs():

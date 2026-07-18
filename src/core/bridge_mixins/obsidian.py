@@ -177,7 +177,9 @@ class ObsidianBridgeMixin:
 
     def _on_checked_files_context_error(self, error_msg: str, signature_payload: str):
         """체크 파일 캐시 갱신 실패를 기록하고, 필요하면 다시 시도한다."""
-        print(f"[Bridge] 체크 파일 컨텍스트 갱신 실패: {error_msg}")
+        print("[Bridge] checked_files_context_failed category=obsidian_checked_files_error")
+        if not signature_payload:
+            return
         signature = self._decode_checked_files_signature(signature_payload)
         if signature != self._get_checked_files_signature():
             self._schedule_checked_files_context_refresh(force=True)

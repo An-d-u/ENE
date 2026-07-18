@@ -16,7 +16,7 @@ def _ensure_qt_app():
     return QCoreApplication.instance() or QCoreApplication([])
 
 
-def test_ai_worker_rejects_images_when_client_declares_no_image_support():
+def test_ai_worker_rejects_images_when_client_declares_no_image_support(capsys):
     _ensure_qt_app()
 
     class DummyLLM:
@@ -37,6 +37,10 @@ def test_ai_worker_rejects_images_when_client_declares_no_image_support():
 
     assert len(errors) == 1
     assert "이미지 입력을 지원하지 않습니다" in errors[0]
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+    assert "이미지 설명해줘" not in combined
+    assert "category=validation_error" in combined
 
 
 def test_ai_worker_sends_images_when_client_declares_image_support():
@@ -105,7 +109,7 @@ def test_ai_worker_forwards_progress_callback_to_memory_client():
     assert worker.response_metadata == STRUCTURED_METADATA
 
 
-def test_ai_worker_logs_chat_content(capsys):
+def test_ai_worker_logs_chat_metadata_without_content(capsys):
     _ensure_qt_app()
 
     user_text = "Synthetic user text visible in logs"
@@ -113,6 +117,9 @@ def test_ai_worker_logs_chat_content(capsys):
     tts_text = "Synthetic TTS text visible in logs"
 
     class DummyLLM:
+        def get_last_response_delivery_metadata(self):
+            return STRUCTURED_METADATA
+
         async def send_message_with_memory(self, *_args, **_kwargs):
             return response_text, "normal", tts_text, [], {}, [], "", {}, [], ""
 
@@ -123,8 +130,11 @@ def test_ai_worker_logs_chat_content(capsys):
 
     worker.run()
 
-    captured = capsys.readouterr().out
-    assert user_text in captured
-    assert response_text in captured
-    assert tts_text in captured
-    assert "emotion=normal" in captured
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+    assert user_text not in combined
+    assert response_text not in combined
+    assert tts_text not in combined
+    assert "response_mode=json_schema" in combined
+    assert "reply_chars=" in combined
+    assert "tts_chars=" in combined

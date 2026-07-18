@@ -58,7 +58,7 @@ class CalendarManager:
             print(f"[Calendar] 로드 완료: {len(self.events)}개 일정, {len(self.conversation_counts)}일 대화 기록")
         except Exception as e:
             if self.calendar_file.exists():
-                print(f"[Calendar] 로드 실패: {e}")
+                print(f"[Calendar] load_failed category=storage_error exception_class={type(e).__name__}")
             else:
                 print("[Calendar] 새 캘린더 파일 생성 예정")
             self.events = []
@@ -82,7 +82,7 @@ class CalendarManager:
             )
             print("[Calendar] 저장 완료")
         except Exception as e:
-            print(f"[Calendar] 저장 실패: {e}")
+            print(f"[Calendar] save_failed category=storage_error exception_class={type(e).__name__}")
     
     def add_event(
         self,
@@ -113,7 +113,7 @@ class CalendarManager:
         )
         self.events.append(event)
         self.save()
-        print(f"[Calendar] 일정 추가: {date} - {title}")
+        print(f"[Calendar] event_changed category=event_added event_count={len(self.events)}")
         return event
     
     def get_events_by_date(self, date: str) -> List[CalendarEvent]:
@@ -161,7 +161,7 @@ class CalendarManager:
         """
         self.events = [e for e in self.events if e.id != event_id]
         self.save()
-        print(f"[Calendar] 일정 삭제: {event_id}")
+        print(f"[Calendar] event_changed category=event_deleted event_count={len(self.events)}")
     
     def toggle_event_completion(self, event_id: str) -> bool:
         """
@@ -177,7 +177,7 @@ class CalendarManager:
             if event.id == event_id:
                 event.completed = not event.completed
                 self.save()
-                print(f"[Calendar] 일정 완료 상태 변경: {event_id} -> {event.completed}")
+                print(f"[Calendar] event_changed category=event_completion completed={str(event.completed).lower()}")
                 return event.completed
         return False
     

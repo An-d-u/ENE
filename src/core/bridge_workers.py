@@ -7,9 +7,35 @@ from PyQt6.QtCore import QThread, pyqtSignal
 
 from ..ai.diary_service import DiaryService
 from ..ai.note_service import NoteCommand, NoteCommandResult, NotePlan, NoteService
-from ..ai.response_protocol import ResponseDeliveryMetadata
+from ..ai.response_protocol import (
+    RESPONSE_ENVELOPE_SCHEMA_VERSION,
+    ResponseDeliveryMetadata,
+    ResponseMode,
+    is_valid_token_count,
+)
 from ..ai.persona_names import resolve_prompt_persona_names
 from ..ai.prompt_language import resolve_prompt_language
+
+_LOCAL_VALIDATION_ERROR_MESSAGES = {
+    "현재 LLM 공급자는 이미지 입력을 지원하지 않습니다. 이미지 지원 공급자나 모델로 변경해 주세요.",
+    "현재 LLM 클라이언트는 /diary를 지원하지 않습니다.",
+    "현재 LLM 클라이언트는 /note를 지원하지 않습니다.",
+    "현재 LLM 클라이언트는 /note 계획 생성을 지원하지 않습니다.",
+    "현재 LLM 클라이언트는 /note 결과 보고 생성을 지원하지 않습니다.",
+    "지원하지 않는 응답 형식입니다.",
+}
+
+_ALLOWED_RESPONSE_LOG_MODES = frozenset(mode.value for mode in ResponseMode)
+
+
+def _safe_text_length(value: object) -> int:
+    """로그에서 사용자 정의 문자열 훅을 호출하지 않고 길이를 센다."""
+    return len(value) if type(value) is str else 0
+
+
+def _safe_list_count(value: object) -> int:
+    """로그에서 사용자 정의 컬렉션 훅을 호출하지 않고 항목 수를 센다."""
+    return len(value) if type(value) is list else 0
 
 
 def _obsidian_checked_context_labels(language: str) -> dict[str, str]:
@@ -125,7 +151,7 @@ class AIWorker(QThread):
         loop = None
         """스레드 실행"""
         try:
-            print(f"[AI Worker] Processing message: {self.message}")
+            print(f"[AI Worker] request_started message_chars={_safe_text_length(self.message)}")
 
             # 비동기 메서드이므로 asyncio로 실행
             import asyncio
@@ -191,12 +217,38 @@ class AIWorker(QThread):
                 )
                 self._capture_response_delivery_metadata()
 
-            print(f"[AI Worker] response: {response_text} emotion={emotion}")
-            if tts_text:
-                print(f"[AI Worker] TTS text: {tts_text}")
-            if events:
-                print(f"[AI Worker] {len(events)}개 일정 추출")
             token_usage_payload = self._build_token_usage_payload()
+            token_usage = json.loads(token_usage_payload)
+            metadata = self.response_metadata
+            response_mode = (
+                metadata.response_mode
+                if type(metadata.response_mode) is str
+                and metadata.response_mode in _ALLOWED_RESPONSE_LOG_MODES
+                else "unknown"
+            )
+            schema_version = (
+                metadata.schema_version
+                if type(metadata.schema_version) is str
+                and metadata.schema_version == RESPONSE_ENVELOPE_SCHEMA_VERSION
+                else "none"
+            )
+            print(
+                "[AI Worker] response_completed "
+                f"response_mode={response_mode} "
+                f"schema_version={schema_version} "
+                f"repair_performed={'true' if metadata.repair_performed is True else 'false'} "
+                f"reply_chars={_safe_text_length(response_text)} "
+                f"tts_chars={_safe_text_length(tts_text)} "
+                f"thought_chars={_safe_text_length(thought)} "
+                f"event_count={_safe_list_count(events)} "
+                f"analysis_item_count={len(analysis) if type(analysis) is dict else 0} "
+                f"promise_count={_safe_list_count(promises)} "
+                f"goal_item_count={1 if type(goal_update) is dict and goal_update else 0} "
+                f"proactive_count={_safe_list_count(proactive_conversations)} "
+                f"input_tokens={token_usage.get('input_tokens')} "
+                f"output_tokens={token_usage.get('output_tokens')} "
+                f"total_tokens={token_usage.get('total_tokens')}"
+            )
 
             # events도 함께 emit (signal에는 리스트로 전달 가능)
             self.response_ready.emit(
@@ -214,10 +266,20 @@ class AIWorker(QThread):
             )
         except Exception as e:
             self.response_metadata = ResponseDeliveryMetadata.empty()
-            print(f"[AI Worker] Error: {e}")
-            import traceback
-            traceback.print_exc()
-            self.error_occurred.emit(str(e))
+            exception_class = type(e).__name__
+            error_args = e.args
+            error_message = (
+                error_args[0]
+                if type(error_args) is tuple
+                and len(error_args) == 1
+                and type(error_args[0]) is str
+                else ""
+            )
+            is_local_validation = error_message in _LOCAL_VALIDATION_ERROR_MESSAGES
+            category = "validation_error" if is_local_validation else "provider_error"
+            public_error = error_message if is_local_validation else category
+            print(f"[AI Worker] request_failed category={category} exception_class={exception_class}")
+            self.error_occurred.emit(public_error)
         finally:
             if loop is not None:
                 loop.close()
@@ -231,7 +293,7 @@ class AIWorker(QThread):
             metadata = getter()
         except Exception:
             return
-        if isinstance(metadata, ResponseDeliveryMetadata):
+        if type(metadata) is ResponseDeliveryMetadata:
             self.response_metadata = metadata
 
     def _build_token_usage_payload(self) -> str:
@@ -247,11 +309,11 @@ class AIWorker(QThread):
                 raw = getter()
             except Exception:
                 raw = None
-            if isinstance(raw, dict):
+            if type(raw) is dict:
                 usage = {
-                    "input_tokens": raw.get("input_tokens") if isinstance(raw.get("input_tokens"), int) else None,
-                    "output_tokens": raw.get("output_tokens") if isinstance(raw.get("output_tokens"), int) else None,
-                    "total_tokens": raw.get("total_tokens") if isinstance(raw.get("total_tokens"), int) else None,
+                    "input_tokens": raw.get("input_tokens") if is_valid_token_count(raw.get("input_tokens")) else None,
+                    "output_tokens": raw.get("output_tokens") if is_valid_token_count(raw.get("output_tokens")) else None,
+                    "total_tokens": raw.get("total_tokens") if is_valid_token_count(raw.get("total_tokens")) else None,
                 }
         return json.dumps(usage, ensure_ascii=False)
 
@@ -449,7 +511,7 @@ class TTSWorker(QThread):
             from pathlib import Path
             from src.ai.audio_analyzer import AudioAnalyzer
 
-            print(f"[TTS Worker] Generating speech: {self.text}")
+            print(f"[TTS Worker] generation_started text_chars={_safe_text_length(self.text)}")
 
             # 새 이벤트 루프 생성
             loop = asyncio.new_event_loop()
@@ -460,7 +522,7 @@ class TTSWorker(QThread):
                 self.tts_client.generate_speech(self.text)
             )
 
-            print(f"[TTS Worker] Audio generated: {len(audio_data)} bytes")
+            print(f"[TTS Worker] Audio generated: {len(audio_data) if type(audio_data) is bytes else 0} bytes")
 
             # 임시 WAV 파일로 저장 (분석용)
             temp_fd, temp_path = tempfile.mkstemp(suffix=".wav")
@@ -471,9 +533,12 @@ class TTSWorker(QThread):
             try:
                 analyzer = AudioAnalyzer(frame_duration_ms=50)
                 lip_sync_data = analyzer.analyze(temp_path)
-                print(f"[TTS Worker] Lip sync data: {len(lip_sync_data)} frames")
+                print(f"[TTS Worker] Lip sync data: {_safe_list_count(lip_sync_data)} frames")
             except Exception as e:
-                print(f"[TTS Worker] Lip sync analysis failed: {e}")
+                print(
+                    "[TTS Worker] lip_sync_failed "
+                    f"category=analysis_error exception_class={type(e).__name__}"
+                )
                 lip_sync_data = []
 
             # 임시 파일 정리
@@ -486,10 +551,10 @@ class TTSWorker(QThread):
             self.tts_ready.emit(audio_data, lip_sync_data)
 
         except Exception as e:
-            print(f"[TTS Worker] Error: {e}")
-            import traceback
-            traceback.print_exc()
-            self.error_occurred.emit(str(e))
+            print(
+                f"[TTS Worker] generation_failed category=tts_error exception_class={type(e).__name__}"
+            )
+            self.error_occurred.emit("tts_error")
         finally:
             if loop is not None:
                 loop.close()
@@ -519,7 +584,7 @@ class StreamingTTSWorker(QThread):
             import asyncio
             from src.ai.audio_analyzer import RealtimeLipSyncAnalyzer, StreamingWavDecoder
 
-            print(f"[StreamingTTSWorker] Streaming speech: {self.text}")
+            print(f"[StreamingTTSWorker] stream_started text_chars={_safe_text_length(self.text)}")
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
 
@@ -560,10 +625,10 @@ class StreamingTTSWorker(QThread):
             loop.run_until_complete(_consume_stream())
             self.stream_finished.emit()
         except Exception as e:
-            print(f"[StreamingTTSWorker] Error: {e}")
-            import traceback
-            traceback.print_exc()
-            self.error_occurred.emit(str(e))
+            print(
+                f"[StreamingTTSWorker] stream_failed category=tts_stream_error exception_class={type(e).__name__}"
+            )
+            self.error_occurred.emit("tts_stream_error")
         finally:
             if loop is not None:
                 loop.close()
@@ -584,8 +649,8 @@ class ObsidianTreeWorker(QThread):
         try:
             payload = self.obsidian_manager.get_tree_json(allow_retry=self.allow_retry)
             self.tree_ready.emit(payload)
-        except Exception as e:
-            self.error_occurred.emit(str(e))
+        except Exception:
+            self.error_occurred.emit("obsidian_tree_error")
 
 
 class ObsidianCheckedFilesWorker(QThread):
@@ -618,5 +683,5 @@ class ObsidianCheckedFilesWorker(QThread):
             )
             context = build_obsidian_checked_context(checked_contents, self.language)
             self.context_ready.emit(context, signature_payload)
-        except Exception as e:
-            self.error_occurred.emit(str(e), signature_payload)
+        except Exception:
+            self.error_occurred.emit("obsidian_checked_files_error", "")

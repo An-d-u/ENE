@@ -6,6 +6,7 @@ from .http_llm_common import (
     LLM_RESPONSE_TUPLE,
     _CommonMixin,
     _normalize_generation_params,
+    _post_with_safe_errors,
     _raise_for_status_with_detail,
 )
 from .openai_model_policy import normalize_reasoning_effort, resolve_openai_model_policy
@@ -262,7 +263,7 @@ class OpenAICompatibleClient(_CommonMixin):
             payload["max_tokens"] = generation_params["max_tokens"]
         self._apply_structured_response_payload(payload, request_descriptor)
         timeout = request_descriptor.timeout_seconds if request_descriptor is not None else 60
-        response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=timeout)
+        response = _post_with_safe_errors(self.provider_name, self.endpoint, requests.post, headers=self._headers(), json=payload, timeout=timeout)
         _raise_for_status_with_detail(response, self.provider_name)
         data = response.json()
         if request_descriptor is None:
@@ -301,7 +302,7 @@ class OpenAICompatibleClient(_CommonMixin):
         }
         if self.generation_params["max_tokens"] > 0:
             payload["max_tokens"] = self.generation_params["max_tokens"]
-        response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=60)
+        response = _post_with_safe_errors(self.provider_name, self.endpoint, requests.post, headers=self._headers(), json=payload, timeout=60)
         _raise_for_status_with_detail(response, self.provider_name)
         data = response.json()
         content = data["choices"][0]["message"]["content"]
@@ -627,7 +628,7 @@ class OpenAIResponseAPIClient(_CommonMixin):
             )
         self._apply_generation_payload(payload, generation_params)
         timeout = request_descriptor.timeout_seconds if request_descriptor is not None else 60
-        response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=timeout)
+        response = _post_with_safe_errors(self.provider_name, self.endpoint, requests.post, headers=self._headers(), json=payload, timeout=timeout)
         _raise_for_status_with_detail(response, self.provider_name)
         data = response.json()
         if request_descriptor is None:
@@ -673,7 +674,7 @@ class OpenAIResponseAPIClient(_CommonMixin):
             "store": False,
         }
         self._apply_generation_payload(payload)
-        response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=60)
+        response = _post_with_safe_errors(self.provider_name, self.endpoint, requests.post, headers=self._headers(), json=payload, timeout=60)
         _raise_for_status_with_detail(response, self.provider_name)
         data = response.json()
         return self._extract_text(data)
@@ -830,8 +831,8 @@ class MistralClient(OpenAICompatibleClient):
         if generation_params["max_tokens"] > 0:
             payload["max_tokens"] = generation_params["max_tokens"]
         timeout = request_descriptor.timeout_seconds if request_descriptor is not None else 60
-        response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=timeout)
-        response.raise_for_status()
+        response = _post_with_safe_errors(self.provider_name, self.endpoint, requests.post, headers=self._headers(), json=payload, timeout=timeout)
+        _raise_for_status_with_detail(response, self.provider_name)
         data = response.json()
         content = data["choices"][0]["message"]["content"]
         return str(content).strip()
@@ -867,8 +868,8 @@ class MistralClient(OpenAICompatibleClient):
         }
         if self.generation_params["max_tokens"] > 0:
             payload["max_tokens"] = self.generation_params["max_tokens"]
-        response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=60)
-        response.raise_for_status()
+        response = _post_with_safe_errors(self.provider_name, self.endpoint, requests.post, headers=self._headers(), json=payload, timeout=60)
+        _raise_for_status_with_detail(response, self.provider_name)
         data = response.json()
         content = data["choices"][0]["message"]["content"]
         return str(content).strip()

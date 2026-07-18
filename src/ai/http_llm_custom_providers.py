@@ -6,6 +6,8 @@ from .http_llm_common import (
     LLM_RESPONSE_TUPLE,
     _CommonMixin,
     _normalize_generation_params,
+    _post_with_safe_errors,
+    _raise_for_status_with_detail,
 )
 from .response_protocol import LLMRequestKind
 
@@ -111,8 +113,8 @@ class GoogleCloudClient(_CommonMixin):
         if generation_params["max_tokens"] > 0:
             payload["generation_config"]["maxOutputTokens"] = generation_params["max_tokens"]
         timeout = request_descriptor.timeout_seconds if request_descriptor is not None else 60
-        response = requests.post(self._endpoint(), headers=self._headers(), json=payload, timeout=timeout)
-        response.raise_for_status()
+        response = _post_with_safe_errors(self.provider_name, self._endpoint(), requests.post, headers=self._headers(), json=payload, timeout=timeout)
+        _raise_for_status_with_detail(response, self.provider_name)
         data = response.json()
         candidates = data.get("candidates", []) or []
         for cand in candidates:
@@ -151,8 +153,8 @@ class GoogleCloudClient(_CommonMixin):
         }
         if self.generation_params["max_tokens"] > 0:
             payload["generation_config"]["maxOutputTokens"] = self.generation_params["max_tokens"]
-        response = requests.post(self._endpoint(), headers=self._headers(), json=payload, timeout=60)
-        response.raise_for_status()
+        response = _post_with_safe_errors(self.provider_name, self._endpoint(), requests.post, headers=self._headers(), json=payload, timeout=60)
+        _raise_for_status_with_detail(response, self.provider_name)
         data = response.json()
         candidates = data.get("candidates", []) or []
         for cand in candidates:
@@ -316,8 +318,8 @@ class CohereClient(_CommonMixin):
             payload["max_tokens"] = generation_params["max_tokens"]
 
         timeout = request_descriptor.timeout_seconds if request_descriptor is not None else 60
-        response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=timeout)
-        response.raise_for_status()
+        response = _post_with_safe_errors(self.provider_name, self.endpoint, requests.post, headers=self._headers(), json=payload, timeout=timeout)
+        _raise_for_status_with_detail(response, self.provider_name)
         data = response.json()
         text = data.get("text")
         if isinstance(text, str):
@@ -348,8 +350,8 @@ class CohereClient(_CommonMixin):
         }
         if self.generation_params["max_tokens"] > 0:
             payload["max_tokens"] = self.generation_params["max_tokens"]
-        response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=60)
-        response.raise_for_status()
+        response = _post_with_safe_errors(self.provider_name, self.endpoint, requests.post, headers=self._headers(), json=payload, timeout=60)
+        _raise_for_status_with_detail(response, self.provider_name)
         data = response.json()
         text = data.get("text")
         if isinstance(text, str):

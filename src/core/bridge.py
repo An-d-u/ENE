@@ -222,9 +222,9 @@ class WebBridge(
             self.settings.set("chat_panel_height", numeric_height)
             self.settings.save()
         except Exception as e:
-            print(f"[Bridge] chat panel height save failed: {e}")
+            print(f"[Bridge] settings_save_failed category=storage_error exception_class={type(e).__name__}")
 
     @pyqtSlot(str)
     def log_from_js(self, message: str):
         """JavaScript에서 로그 받기"""
-        print(f"[JS] {message}")
+        print(f"[JS] message_received message_chars={len(str(message or ''))}")
