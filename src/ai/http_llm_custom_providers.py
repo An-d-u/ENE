@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import requests
 from .http_llm_common import (
+    HTTPFinalRequestDescriptor,
     LLM_RESPONSE_TUPLE,
     _CommonMixin,
     _normalize_generation_params,
@@ -28,6 +29,8 @@ class GoogleCloudClient(_CommonMixin):
         self.api_key = api_key
         self.model_name = model_name
         self.endpoint = endpoint or "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+        self.provider_name = "custom_api"
+        self.wire_format = "google_cloud"
         self.memory_manager = memory_manager
         self.user_profile = user_profile
         self.ene_profile = ene_profile
@@ -71,14 +74,23 @@ class GoogleCloudClient(_CommonMixin):
         message: str,
         images_data: list | None = None,
         include_sub_prompt: bool = True,
+        *,
+        request_descriptor: HTTPFinalRequestDescriptor | None = None,
     ) -> str:
-        context = self._build_request_context(
-            message,
-            provider_format="google_cloud",
-            request_kind=LLMRequestKind.FINAL_REPLY,
-            include_sub_prompt=include_sub_prompt,
-            attachments_metadata=self._image_context_metadata(images_data),
+        context = (
+            request_descriptor.context
+            if request_descriptor is not None
+            else self._build_request_context(
+                message,
+                provider_format="google_cloud",
+                request_kind=LLMRequestKind.FINAL_REPLY,
+                include_sub_prompt=include_sub_prompt,
+                attachments_metadata=self._image_context_metadata(images_data),
+            )
         )
+        generation_params = context.generation_params
+        if request_descriptor is not None and request_descriptor.attempt.phase == "repair":
+            images_data = None
         contents = []
         for h in context.history:
             role = "model" if h.get("role") == "assistant" else "user"
@@ -87,8 +99,8 @@ class GoogleCloudClient(_CommonMixin):
         payload = {
             "contents": contents,
             "generation_config": {
-                "temperature": self.generation_params["temperature"],
-                "topP": self.generation_params["top_p"],
+                "temperature": generation_params["temperature"],
+                "topP": generation_params["top_p"],
             },
             "systemInstruction": {
                 "parts": [{
@@ -96,9 +108,10 @@ class GoogleCloudClient(_CommonMixin):
                 }]
             },
         }
-        if self.generation_params["max_tokens"] > 0:
-            payload["generation_config"]["maxOutputTokens"] = self.generation_params["max_tokens"]
-        response = requests.post(self._endpoint(), headers=self._headers(), json=payload, timeout=60)
+        if generation_params["max_tokens"] > 0:
+            payload["generation_config"]["maxOutputTokens"] = generation_params["max_tokens"]
+        timeout = request_descriptor.timeout_seconds if request_descriptor is not None else 60
+        response = requests.post(self._endpoint(), headers=self._headers(), json=payload, timeout=timeout)
         response.raise_for_status()
         data = response.json()
         candidates = data.get("candidates", []) or []
@@ -188,16 +201,30 @@ class GoogleCloudClient(_CommonMixin):
             progress_callback=progress_callback,
         )
         history_parts = self._to_parts(message, images_data)
-        raw_response_text = self._request_google(enhanced, images_data=images_data)
-        clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture = self._parse_response_with_empty_fallback(raw_response_text)
-        self._remember_turn(history_parts, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture)))
-        return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture
+        return self._execute_final_response(
+            lambda descriptor: self._request_google(
+                descriptor.context.user_content,
+                images_data=images_data,
+                request_descriptor=descriptor,
+            ),
+            user_content=enhanced,
+            history_user_content=history_parts,
+            provider_format=self.wire_format,
+            attachments_metadata=self._image_context_metadata(images_data),
+        )
 
     def send_message(self, message: str, history_user_content: str | None = None) -> LLM_RESPONSE_TUPLE:
-        raw_response_text = self._request_google(message)
-        clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture = self._parse_response_with_empty_fallback(raw_response_text)
-        self._remember_turn(history_user_content if history_user_content is not None else message, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture)))
-        return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture
+        return self._execute_final_response(
+            lambda descriptor: self._request_google(
+                descriptor.context.user_content,
+                request_descriptor=descriptor,
+            ),
+            user_content=message,
+            history_user_content=(
+                history_user_content if history_user_content is not None else message
+            ),
+            provider_format=self.wire_format,
+        )
 
     async def summarize_conversation(
         self,
@@ -229,6 +256,8 @@ class CohereClient(_CommonMixin):
         self.api_key = api_key
         self.model_name = model_name
         self.endpoint = endpoint or "https://api.cohere.com/v1/chat"
+        self.provider_name = "custom_api"
+        self.wire_format = "cohere"
         self.memory_manager = memory_manager
         self.user_profile = user_profile
         self.ene_profile = ene_profile
@@ -245,13 +274,24 @@ class CohereClient(_CommonMixin):
             "Content-Type": "application/json",
         }
 
-    def _request_cohere(self, message: str, include_sub_prompt: bool = True) -> str:
-        context = self._build_request_context(
-            message,
-            provider_format="cohere",
-            request_kind=LLMRequestKind.FINAL_REPLY,
-            include_sub_prompt=include_sub_prompt,
+    def _request_cohere(
+        self,
+        message: str,
+        include_sub_prompt: bool = True,
+        *,
+        request_descriptor: HTTPFinalRequestDescriptor | None = None,
+    ) -> str:
+        context = (
+            request_descriptor.context
+            if request_descriptor is not None
+            else self._build_request_context(
+                message,
+                provider_format="cohere",
+                request_kind=LLMRequestKind.FINAL_REPLY,
+                include_sub_prompt=include_sub_prompt,
+            )
         )
+        generation_params = context.generation_params
         chat_history = []
         preamble = context.system_prompt
         for h in context.history:
@@ -269,13 +309,14 @@ class CohereClient(_CommonMixin):
             "message": context.user_content,
             "chat_history": chat_history,
             "preamble": preamble,
-            "temperature": self.generation_params["temperature"],
-            "p": self.generation_params["top_p"],
+            "temperature": generation_params["temperature"],
+            "p": generation_params["top_p"],
         }
-        if self.generation_params["max_tokens"] > 0:
-            payload["max_tokens"] = self.generation_params["max_tokens"]
+        if generation_params["max_tokens"] > 0:
+            payload["max_tokens"] = generation_params["max_tokens"]
 
-        response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=60)
+        timeout = request_descriptor.timeout_seconds if request_descriptor is not None else 60
+        response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=timeout)
         response.raise_for_status()
         data = response.json()
         text = data.get("text")
@@ -355,10 +396,17 @@ class CohereClient(_CommonMixin):
         return self.send_message(enhanced, history_user_content=message)
 
     def send_message(self, message: str, history_user_content: str | None = None) -> LLM_RESPONSE_TUPLE:
-        raw_response_text = self._request_cohere(message)
-        clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture = self._parse_response_with_empty_fallback(raw_response_text)
-        self._remember_turn(history_user_content if history_user_content is not None else message, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture)))
-        return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture
+        return self._execute_final_response(
+            lambda descriptor: self._request_cohere(
+                descriptor.context.user_content,
+                request_descriptor=descriptor,
+            ),
+            user_content=message,
+            history_user_content=(
+                history_user_content if history_user_content is not None else message
+            ),
+            provider_format=self.wire_format,
+        )
 
     async def summarize_conversation(
         self,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import requests
 from .http_llm_common import (
+    HTTPFinalRequestDescriptor,
     LLM_RESPONSE_TUPLE,
     _CommonMixin,
     _normalize_generation_params,
@@ -33,6 +34,7 @@ class OpenAICompatibleClient(_CommonMixin):
         self.model_name = model_name
         self.endpoint = endpoint
         self.provider_name = provider_name
+        self.wire_format = str(getattr(type(self), "wire_format", "openai_chat"))
         self.memory_manager = memory_manager
         self.user_profile = user_profile
         self.ene_profile = ene_profile
@@ -52,17 +54,33 @@ class OpenAICompatibleClient(_CommonMixin):
         headers.update(self.extra_headers)
         return headers
 
-    def _request_openai(self, user_content, include_sub_prompt: bool = True) -> str:
+    def _request_openai(
+        self,
+        user_content,
+        include_sub_prompt: bool = True,
+        *,
+        request_descriptor: HTTPFinalRequestDescriptor | None = None,
+    ) -> str:
+        generation_params = (
+            request_descriptor.context.generation_params
+            if request_descriptor is not None
+            else self.generation_params
+        )
         payload = {
             "model": self.model_name,
-            "messages": self._messages_for_openai(user_content, include_sub_prompt=include_sub_prompt),
-            "temperature": self.generation_params["temperature"],
-            "top_p": self.generation_params["top_p"],
+            "messages": self._messages_for_openai(
+                user_content,
+                include_sub_prompt=include_sub_prompt,
+                request_descriptor=request_descriptor,
+            ),
+            "temperature": generation_params["temperature"],
+            "top_p": generation_params["top_p"],
             "stream": False,
         }
-        if self.generation_params["max_tokens"] > 0:
-            payload["max_tokens"] = self.generation_params["max_tokens"]
-        response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=60)
+        if generation_params["max_tokens"] > 0:
+            payload["max_tokens"] = generation_params["max_tokens"]
+        timeout = request_descriptor.timeout_seconds if request_descriptor is not None else 60
+        response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=timeout)
         _raise_for_status_with_detail(response, self.provider_name)
         data = response.json()
         content = data["choices"][0]["message"]["content"]
@@ -152,16 +170,28 @@ class OpenAICompatibleClient(_CommonMixin):
                 parts.append({"type": "image_url", "image_url": {"url": data_url}})
                 history_parts.append({"type": "image_url", "image_url": {"url": data_url}})
 
-        raw_response_text = self._request_openai(parts)
-        clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture = self._parse_response_with_empty_fallback(raw_response_text)
-        self._remember_turn(history_parts, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture)))
-        return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture
+        return self._execute_final_response(
+            lambda descriptor: self._request_openai(
+                descriptor.context.user_content,
+                request_descriptor=descriptor,
+            ),
+            user_content=parts,
+            history_user_content=history_parts,
+            provider_format=self.wire_format,
+        )
 
     def send_message(self, message: str, history_user_content: str | None = None) -> LLM_RESPONSE_TUPLE:
-        raw_response_text = self._request_openai(message)
-        clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture = self._parse_response_with_empty_fallback(raw_response_text)
-        self._remember_turn(history_user_content if history_user_content is not None else message, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture)))
-        return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture
+        return self._execute_final_response(
+            lambda descriptor: self._request_openai(
+                descriptor.context.user_content,
+                request_descriptor=descriptor,
+            ),
+            user_content=message,
+            history_user_content=(
+                history_user_content if history_user_content is not None else message
+            ),
+            provider_format=self.wire_format,
+        )
 
     async def summarize_conversation(
         self,
@@ -204,6 +234,7 @@ class OpenAIResponseAPIClient(_CommonMixin):
         self.generation_params = _normalize_generation_params(generation_params)
         self._history = []
         self.provider_name = str(provider_name or "openai").strip().lower()
+        self.wire_format = "openai_responses"
 
     def _headers(self):
         return {
@@ -254,27 +285,37 @@ class OpenAIResponseAPIClient(_CommonMixin):
                     return text.strip()
         return ""
 
-    def _apply_generation_payload(self, payload: dict) -> None:
+    def _apply_generation_payload(self, payload: dict, generation_params: dict | None = None) -> None:
+        params = generation_params or self.generation_params
         policy = resolve_openai_model_policy(self.provider_name, self.model_name)
         if policy.supports_temperature:
-            payload["temperature"] = self.generation_params["temperature"]
+            payload["temperature"] = params["temperature"]
         if policy.supports_top_p:
-            payload["top_p"] = self.generation_params["top_p"]
+            payload["top_p"] = params["top_p"]
         if policy.supports_reasoning_effort:
             payload["reasoning"] = {
                 "effort": normalize_reasoning_effort(
-                    self.generation_params.get("reasoning_effort"),
+                    params.get("reasoning_effort"),
                     default=policy.default_reasoning_effort,
                 )
             }
-        if self.generation_params["max_tokens"] > 0:
-            payload["max_output_tokens"] = self.generation_params["max_tokens"]
+        if params["max_tokens"] > 0:
+            payload["max_output_tokens"] = params["max_tokens"]
 
-    def _request_responses(self, user_content) -> str:
-        context = self._build_request_context(
-            user_content,
-            provider_format="openai_responses",
-            request_kind=LLMRequestKind.FINAL_REPLY,
+    def _request_responses(
+        self,
+        user_content,
+        *,
+        request_descriptor: HTTPFinalRequestDescriptor | None = None,
+    ) -> str:
+        context = (
+            request_descriptor.context
+            if request_descriptor is not None
+            else self._build_request_context(
+                user_content,
+                provider_format="openai_responses",
+                request_kind=LLMRequestKind.FINAL_REPLY,
+            )
         )
         payload = {
             "model": self.model_name,
@@ -282,8 +323,9 @@ class OpenAIResponseAPIClient(_CommonMixin):
             "input": self._input_items(context.user_content, history=context.history),
             "store": False,
         }
-        self._apply_generation_payload(payload)
-        response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=60)
+        self._apply_generation_payload(payload, context.generation_params)
+        timeout = request_descriptor.timeout_seconds if request_descriptor is not None else 60
+        response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=timeout)
         _raise_for_status_with_detail(response, self.provider_name)
         data = response.json()
         return self._extract_text(data)
@@ -374,17 +416,28 @@ class OpenAIResponseAPIClient(_CommonMixin):
                 parts.append({"type": "image_url", "image_url": {"url": data_url}})
                 history_parts.append({"type": "image_url", "image_url": {"url": data_url}})
 
-        raw_response_text = self._request_responses(parts)
-        clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture = self._parse_response_with_empty_fallback(raw_response_text)
-        self._remember_turn(history_parts, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture)))
-        return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture
+        return self._execute_final_response(
+            lambda descriptor: self._request_responses(
+                descriptor.context.user_content,
+                request_descriptor=descriptor,
+            ),
+            user_content=parts,
+            history_user_content=history_parts,
+            provider_format=self.wire_format,
+        )
 
     def send_message(self, message: str, history_user_content: str | None = None) -> LLM_RESPONSE_TUPLE:
-        raw_response_text = self._request_responses(message)
-        clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture = self._parse_response_with_empty_fallback(raw_response_text)
-        self._history.append({"role": "user", "content": history_user_content if history_user_content is not None else message})
-        self._history.append({"role": "assistant", "content": self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture))})
-        return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture
+        return self._execute_final_response(
+            lambda descriptor: self._request_responses(
+                descriptor.context.user_content,
+                request_descriptor=descriptor,
+            ),
+            user_content=message,
+            history_user_content=(
+                history_user_content if history_user_content is not None else message
+            ),
+            provider_format=self.wire_format,
+        )
 
     async def summarize_conversation(
         self,
@@ -398,11 +451,19 @@ class OpenAIResponseAPIClient(_CommonMixin):
 
 
 class MistralClient(OpenAICompatibleClient):
-    def _mistral_messages(self, user_content, include_sub_prompt: bool = True) -> list[dict]:
+    wire_format = "mistral"
+
+    def _mistral_messages(
+        self,
+        user_content,
+        include_sub_prompt: bool = True,
+        request_descriptor: HTTPFinalRequestDescriptor | None = None,
+    ) -> list[dict]:
         source = self._messages_for_openai(
             user_content,
             include_sub_prompt=include_sub_prompt,
             provider_format="mistral",
+            request_descriptor=request_descriptor,
         )
         reformatted = []
         for idx, msg in enumerate(source):
@@ -435,18 +496,34 @@ class MistralClient(OpenAICompatibleClient):
                 reformatted.append({"role": role, "content": content})
         return reformatted
 
-    def _request_openai(self, user_content, include_sub_prompt: bool = True) -> str:
+    def _request_openai(
+        self,
+        user_content,
+        include_sub_prompt: bool = True,
+        *,
+        request_descriptor: HTTPFinalRequestDescriptor | None = None,
+    ) -> str:
+        generation_params = (
+            request_descriptor.context.generation_params
+            if request_descriptor is not None
+            else self.generation_params
+        )
         payload = {
             "model": self.model_name,
-            "messages": self._mistral_messages(user_content, include_sub_prompt=include_sub_prompt),
+            "messages": self._mistral_messages(
+                user_content,
+                include_sub_prompt=include_sub_prompt,
+                request_descriptor=request_descriptor,
+            ),
             "safe_prompt": False,
-            "temperature": self.generation_params["temperature"],
-            "top_p": self.generation_params["top_p"],
+            "temperature": generation_params["temperature"],
+            "top_p": generation_params["top_p"],
             "stream": False,
         }
-        if self.generation_params["max_tokens"] > 0:
-            payload["max_tokens"] = self.generation_params["max_tokens"]
-        response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=60)
+        if generation_params["max_tokens"] > 0:
+            payload["max_tokens"] = generation_params["max_tokens"]
+        timeout = request_descriptor.timeout_seconds if request_descriptor is not None else 60
+        response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=timeout)
         response.raise_for_status()
         data = response.json()
         content = data["choices"][0]["message"]["content"]

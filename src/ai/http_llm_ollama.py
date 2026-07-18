@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import requests
 from .http_llm_common import (
+    HTTPFinalRequestDescriptor,
     LLM_RESPONSE_TUPLE,
     _CommonMixin,
     _normalize_generation_params,
@@ -45,14 +46,23 @@ class OllamaClient(_CommonMixin):
         message: str,
         images_data: list | None = None,
         include_sub_prompt: bool = True,
+        *,
+        request_descriptor: HTTPFinalRequestDescriptor | None = None,
     ) -> str:
-        context = self._build_request_context(
-            message,
-            provider_format="ollama",
-            request_kind=LLMRequestKind.FINAL_REPLY,
-            include_sub_prompt=include_sub_prompt,
-            attachments_metadata=self._image_context_metadata(images_data),
+        context = (
+            request_descriptor.context
+            if request_descriptor is not None
+            else self._build_request_context(
+                message,
+                provider_format="ollama",
+                request_kind=LLMRequestKind.FINAL_REPLY,
+                include_sub_prompt=include_sub_prompt,
+                attachments_metadata=self._image_context_metadata(images_data),
+            )
         )
+        generation_params = context.generation_params
+        if request_descriptor is not None and request_descriptor.attempt.phase == "repair":
+            images_data = None
         messages = [{
             "role": "system",
             "content": context.system_prompt,
@@ -75,13 +85,14 @@ class OllamaClient(_CommonMixin):
             "messages": messages,
             "stream": False,
             "options": {
-                "temperature": self.generation_params["temperature"],
-                "top_p": self.generation_params["top_p"],
+                "temperature": generation_params["temperature"],
+                "top_p": generation_params["top_p"],
             },
         }
-        if self.generation_params["max_tokens"] > 0:
-            payload["options"]["num_predict"] = self.generation_params["max_tokens"]
-        response = requests.post(self.endpoint, json=payload, timeout=60)
+        if generation_params["max_tokens"] > 0:
+            payload["options"]["num_predict"] = generation_params["max_tokens"]
+        timeout = request_descriptor.timeout_seconds if request_descriptor is not None else 60
+        response = requests.post(self.endpoint, json=payload, timeout=timeout)
         response.raise_for_status()
         data = response.json()
         return str(data.get("message", {}).get("content", "")).strip()
@@ -159,8 +170,6 @@ class OllamaClient(_CommonMixin):
             head_pat_count_before_message=head_pat_count_before_message,
             progress_callback=progress_callback,
         )
-        raw_response_text = self._request_ollama(enhanced, images_data=images_data)
-        clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture = self._parse_response_with_empty_fallback(raw_response_text)
         user_content = {"content": message}
         images = []
         for img in images_data or []:
@@ -170,14 +179,30 @@ class OllamaClient(_CommonMixin):
                 images.append(b64)
         if images:
             user_content["images"] = images
-        self._remember_turn(user_content, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture)))
-        return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture
+        return self._execute_final_response(
+            lambda descriptor: self._request_ollama(
+                descriptor.context.user_content,
+                images_data=images_data,
+                request_descriptor=descriptor,
+            ),
+            user_content=enhanced,
+            history_user_content=user_content,
+            provider_format=self.wire_format,
+            attachments_metadata=self._image_context_metadata(images_data),
+        )
 
     def send_message(self, message: str, history_user_content: str | None = None) -> LLM_RESPONSE_TUPLE:
-        raw_response_text = self._request_ollama(message)
-        clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture = self._parse_response_with_empty_fallback(raw_response_text)
-        self._remember_turn(history_user_content if history_user_content is not None else message, self._assistant_history_content_for_response(raw_response_text, (clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture)))
-        return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture
+        return self._execute_final_response(
+            lambda descriptor: self._request_ollama(
+                descriptor.context.user_content,
+                request_descriptor=descriptor,
+            ),
+            user_content=message,
+            history_user_content=(
+                history_user_content if history_user_content is not None else message
+            ),
+            provider_format=self.wire_format,
+        )
 
     async def summarize_conversation(
         self,

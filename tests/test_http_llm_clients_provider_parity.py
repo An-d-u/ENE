@@ -1,6 +1,7 @@
 import asyncio
 
 import pytest
+import requests
 
 from src.ai.http_llm_clients import (
     AnthropicClient,
@@ -560,7 +561,7 @@ def test_debug_context_parity_logs_only_salted_fingerprints_and_metadata(monkeyp
     ],
     ids=["openai_compatible", "google_cloud", "cohere", "anthropic", "ollama"],
 )
-def test_provider_send_message_keeps_raw_assistant_output_in_history(monkeypatch, factory, request_method):
+def test_provider_send_message_keeps_visible_assistant_output_in_history(monkeypatch, factory, request_method):
     client = factory()
     monkeypatch.setattr(client, request_method, lambda *args, **kwargs: RAW_OUTPUT)
 
@@ -582,7 +583,7 @@ def test_provider_send_message_keeps_raw_assistant_output_in_history(monkeypatch
     ]
     assert thought == ""
     assert history[-1]["role"] == "assistant"
-    assert history[-1]["content"] == RAW_OUTPUT
+    assert history[-1]["content"] == text
 
 
 @pytest.mark.parametrize(
@@ -824,7 +825,339 @@ def test_provider_parse_response_removes_leading_orphan_thinking_close_tag(facto
     assert text == "좋은 저녁이에요."
     assert emotion == "smile"
     assert tts_text == "こんばんは。"
-    assert events == []
     assert analysis == {}
     assert promises == []
     assert thought == ""
+    assert events == []
+
+
+def _build_task10_openai_chat_client():
+    from tests.http_structured_fixtures import structured_settings
+
+    return OpenAICompatibleClient(
+        api_key="synthetic-key",
+        model_name="synthetic-model",
+        endpoint="https://api.openai.com/v1/chat/completions",
+        provider_name="openai",
+        settings=structured_settings(),
+    )
+
+
+def _build_task10_openai_responses_client():
+    from tests.http_structured_fixtures import structured_settings
+
+    return OpenAIResponseAPIClient(
+        api_key="synthetic-key",
+        model_name="synthetic-model",
+        endpoint="https://api.openai.com/v1/responses",
+        settings=structured_settings(),
+    )
+
+
+def _build_task10_mistral_client():
+    from tests.http_structured_fixtures import structured_settings
+
+    return MistralClient(
+        api_key="synthetic-key",
+        model_name="synthetic-model",
+        endpoint="https://example.com/v1/chat/completions",
+        provider_name="mistral",
+        settings=structured_settings(),
+    )
+
+
+def _build_task10_google_client():
+    from tests.http_structured_fixtures import structured_settings
+
+    return GoogleCloudClient(
+        api_key="synthetic-key",
+        model_name="synthetic-model",
+        endpoint="https://example.com/v1beta/models/{model}:generateContent",
+        settings=structured_settings(),
+    )
+
+
+def _build_task10_cohere_client():
+    from tests.http_structured_fixtures import structured_settings
+
+    return CohereClient(
+        api_key="synthetic-key",
+        model_name="synthetic-model",
+        endpoint="https://example.com/v1/chat",
+        settings=structured_settings(),
+    )
+
+
+def _build_task10_anthropic_client():
+    from tests.http_structured_fixtures import structured_settings
+
+    return AnthropicClient(
+        api_key="synthetic-key",
+        model_name="synthetic-model",
+        endpoint="https://api.anthropic.com/v1/messages",
+        settings=structured_settings(),
+    )
+
+
+def _build_task10_ollama_client():
+    from tests.http_structured_fixtures import structured_settings
+
+    return OllamaClient(
+        api_key="synthetic-key",
+        model_name="synthetic-model",
+        endpoint="http://localhost:11434/api/chat",
+        settings=structured_settings(),
+    )
+
+
+@pytest.mark.parametrize(
+    ("factory", "request_method", "native"),
+    [
+        (_build_task10_openai_chat_client, "_request_openai", True),
+        (_build_task10_openai_responses_client, "_request_responses", True),
+        (_build_task10_mistral_client, "_request_openai", False),
+        (_build_task10_google_client, "_request_google", False),
+        (_build_task10_cohere_client, "_request_cohere", False),
+        (_build_task10_anthropic_client, "_request_anthropic", True),
+        (_build_task10_ollama_client, "_request_ollama", True),
+    ],
+    ids=(
+        "openai-chat",
+        "openai-responses",
+        "mistral",
+        "google",
+        "cohere",
+        "anthropic",
+        "ollama",
+    ),
+)
+def test_provider_send_message_stores_visible_reply_only_in_history(
+    monkeypatch,
+    factory,
+    request_method,
+    native,
+):
+    from tests.http_structured_fixtures import (
+        install_client_request_sequence,
+        legacy_final_reply,
+        native_final_reply,
+    )
+
+    visible_reply = "검증된 합성 표시 답변"
+    carrier = (
+        native_final_reply(visible_reply)
+        if native
+        else legacy_final_reply(visible_reply)
+    )
+    client = factory()
+    records = install_client_request_sequence(
+        monkeypatch,
+        client,
+        request_method,
+        [carrier],
+    )
+
+    payload = client.send_message("중립 합성 입력")
+    history = client.get_conversation_history()
+
+    assert payload[0] == visible_reply
+    assert history == [
+        {"role": "user", "content": "중립 합성 입력"},
+        {"role": "assistant", "content": visible_reply},
+    ]
+    assert records[0].context.response_mode is (
+        ResponseMode.JSON_SCHEMA if native else ResponseMode.LEGACY_TAGS
+    )
+    metadata = client.get_last_response_delivery_metadata()
+    assert metadata.response_mode == records[0].context.response_mode.value
+    assert metadata.schema_version == "1"
+    assert client.get_last_token_usage() == {
+        "input_tokens": None,
+        "output_tokens": None,
+        "total_tokens": None,
+    }
+
+
+def test_http_final_response_regenerates_from_same_history_snapshot(monkeypatch):
+    from tests.http_structured_fixtures import (
+        install_client_request_sequence,
+        native_final_reply,
+    )
+
+    client = _build_task10_openai_chat_client()
+    client._history = [
+        {"role": "user", "content": "Earlier synthetic question."},
+        {"role": "assistant", "content": "Earlier synthetic answer."},
+    ]
+    records = install_client_request_sequence(
+        monkeypatch,
+        client,
+        "_request_openai",
+        ["not-json", native_final_reply("Regenerated visible reply.")],
+    )
+
+    payload = client.send_message("Current synthetic question.")
+
+    assert payload[0] == "Regenerated visible reply."
+    assert [record.attempt.phase for record in records] == ["primary", "regenerate"]
+    assert records[0].context.history == records[1].context.history == [
+        {"role": "user", "content": "Earlier synthetic question."},
+        {"role": "assistant", "content": "Earlier synthetic answer."},
+    ]
+    assert client.get_conversation_history()[-2:] == [
+        {"role": "user", "content": "Current synthetic question."},
+        {"role": "assistant", "content": "Regenerated visible reply."},
+    ]
+
+
+def test_explicit_unsupported_downgrades_and_caches_only_same_profile(monkeypatch):
+    from tests.http_structured_fixtures import (
+        explicit_unsupported_error,
+        install_client_request_sequence,
+        legacy_final_reply,
+        native_final_reply,
+    )
+
+    client = _build_task10_openai_chat_client()
+    records = install_client_request_sequence(
+        monkeypatch,
+        client,
+        "_request_openai",
+        [
+            explicit_unsupported_error(),
+            legacy_final_reply("Legacy fallback reply."),
+            legacy_final_reply("Cached legacy reply."),
+            native_final_reply("Different model native reply."),
+        ],
+    )
+
+    assert client.send_message("First request.")[0] == "Legacy fallback reply."
+    assert client.send_message("Second request.")[0] == "Cached legacy reply."
+    client.model_name = "different-synthetic-model"
+    assert client.send_message("Third request.")[0] == "Different model native reply."
+
+    assert [record.context.response_mode for record in records] == [
+        ResponseMode.JSON_SCHEMA,
+        ResponseMode.LEGACY_TAGS,
+        ResponseMode.LEGACY_TAGS,
+        ResponseMode.JSON_SCHEMA,
+    ]
+
+
+def test_http_failure_keeps_history_and_clears_delivery_metadata(monkeypatch):
+    from tests.http_structured_fixtures import (
+        install_client_request_sequence,
+        native_final_reply,
+    )
+
+    client = _build_task10_openai_chat_client()
+    install_client_request_sequence(
+        monkeypatch,
+        client,
+        "_request_openai",
+        [native_final_reply("Committed reply."), requests.Timeout("synthetic timeout")],
+    )
+
+    client.send_message("Committed request.")
+    committed_history = client.get_conversation_history()
+    assert client.get_last_response_delivery_metadata().response_mode == "json_schema"
+
+    with pytest.raises(requests.Timeout, match="synthetic timeout"):
+        client.send_message("Failed request.")
+
+    assert client.get_conversation_history() == committed_history
+    assert client.get_last_response_delivery_metadata().response_mode == ""
+
+
+def test_repair_is_historyless_and_uses_frozen_turn_context(monkeypatch):
+    from tests.http_structured_fixtures import native_final_reply, structured_settings
+
+    client = OpenAICompatibleClient(
+        api_key="synthetic-key",
+        model_name="synthetic-model",
+        endpoint="https://api.openai.com/v1/chat/completions",
+        provider_name="openai",
+        generation_params={"max_tokens": 321},
+        settings=structured_settings(enable_ene_thoughts=True),
+    )
+    original_history = [
+        {"role": "user", "content": "Earlier private-free fixture."},
+        {"role": "assistant", "content": "Earlier visible fixture."},
+    ]
+    client._history = list(original_history)
+    records = []
+
+    def fake_request(*_args, request_descriptor=None, **_kwargs):
+        records.append(request_descriptor)
+        if len(records) == 1:
+            client.settings["prompt_language"] = "en"
+            client.generation_params["max_tokens"] = 999
+            client._history.append(
+                {"role": "assistant", "content": "Transient mutation."}
+            )
+            return native_final_reply("Validated visible reply.")
+        return '{"thought":"Synthetic short inner note."}'
+
+    monkeypatch.setattr(client, "_request_openai", fake_request)
+
+    payload = client.send_message("Current repair request.")
+
+    assert payload[0] == "Validated visible reply."
+    assert payload[6] == "Synthetic short inner note."
+    assert [record.attempt.phase for record in records] == ["primary", "repair"]
+    primary, repair = records
+    assert primary.context.history == original_history
+    assert repair.context.history == []
+    assert repair.context.attachments_metadata == []
+    assert repair.context.system_prompt == ""
+    assert repair.context.include_sub_prompt is False
+    assert repair.context.generation_params == primary.context.generation_params
+    assert repair.context.generation_params["max_tokens"] == 321
+    assert repair.schema_name == "ene_response_repair_v1"
+    assert tuple(repair.schema["properties"]) == ("thought",)
+    assert "Response language: ko" in repair.context.user_content
+    assert "Current repair request." not in repair.context.user_content
+    assert "Earlier private-free fixture." not in repair.context.user_content
+    assert client.get_conversation_history() == original_history + [
+        {"role": "user", "content": "Current repair request."},
+        {"role": "assistant", "content": "Validated visible reply."},
+    ]
+    assert client.get_last_response_delivery_metadata().repair_performed is True
+
+
+def test_memory_path_commits_original_user_message_only(monkeypatch):
+    from tests.http_structured_fixtures import (
+        install_client_request_sequence,
+        legacy_final_reply,
+    )
+
+    client = _build_task10_mistral_client()
+
+    async def fake_memory_context(
+        _message,
+        recent_context="",
+        head_pat_count_before_message=None,
+    ):
+        return "Synthetic memory context."
+
+    monkeypatch.setattr(client, "_build_memory_context", fake_memory_context)
+    records = install_client_request_sequence(
+        monkeypatch,
+        client,
+        "_request_openai",
+        [legacy_final_reply("Visible memory reply.")],
+    )
+
+    payload = asyncio.run(
+        client.send_message_with_memory(
+            "Original synthetic user message.",
+            latest_user_message="Original synthetic user message.",
+        )
+    )
+
+    assert payload[0] == "Visible memory reply."
+    assert records[0].context.user_content != "Original synthetic user message."
+    assert client.get_conversation_history() == [
+        {"role": "user", "content": "Original synthetic user message."},
+        {"role": "assistant", "content": "Visible memory reply."},
+    ]

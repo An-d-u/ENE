@@ -9,6 +9,8 @@ from src.ai.http_llm_clients import (
     OpenAICompatibleClient,
     OpenAIResponseAPIClient,
 )
+from tests.http_structured_fixtures import structured_settings
+
 
 
 IMAGE_DATA_URL = "data:image/png;base64,QUJD"
@@ -41,6 +43,7 @@ def _build_openai_compatible_client():
         model_name="m",
         endpoint="https://example.com/v1/chat/completions",
         provider_name="compat",
+        settings=structured_settings(),
     )
 
 
@@ -49,6 +52,7 @@ def _build_openai_response_client():
         api_key="k",
         model_name="m",
         endpoint="https://example.com/v1/responses",
+        settings=structured_settings(),
     )
 
 
@@ -57,6 +61,7 @@ def _build_google_client():
         api_key="k",
         model_name="m",
         endpoint="https://example.com/v1beta/models/{model}:generateContent",
+        settings=structured_settings(),
     )
 
 
@@ -65,6 +70,7 @@ def _build_anthropic_client():
         api_key="k",
         model_name="m",
         endpoint="https://example.com/v1/messages",
+        settings=structured_settings(),
     )
 
 
@@ -73,6 +79,7 @@ def _build_ollama_client():
         api_key="k",
         model_name="m",
         endpoint="https://example.com/api/chat",
+        settings=structured_settings(),
     )
 
 
@@ -137,11 +144,12 @@ def test_multimodal_turn_is_preserved_in_history(monkeypatch, factory, request_m
     monkeypatch.setattr(client, "_build_memory_context", fake_memory_context)
     monkeypatch.setattr(client, request_method, lambda *args, **kwargs: RAW_OUTPUT)
 
-    asyncio.run(client.send_message_with_images("설명", [{"dataUrl": IMAGE_DATA_URL}]))
+    payload = asyncio.run(client.send_message_with_images("설명", [{"dataUrl": IMAGE_DATA_URL}]))
 
     history = client.get_conversation_history()
     assert history[0]["role"] == "user"
     assert assert_history(history)
+    assert history[1]["content"] == payload[0]
 
 
 @pytest.mark.parametrize(
