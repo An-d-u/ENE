@@ -4,9 +4,12 @@ import pytest
 import requests
 
 from src.ai.http_llm_clients import (
+    AnthropicClient,
+    OllamaClient,
     OpenAICompatibleClient,
     OpenAIResponseAPIClient,
 )
+from src.ai.llm_provider import LLMProviderConfig, create_llm_client
 from src.ai.response_envelope import (
     RESPONSE_ENVELOPE_SCHEMA_NAME,
     RESPONSE_ENVELOPE_V1_SCHEMA,
@@ -1455,3 +1458,788 @@ def test_openai_compatible_noncomplete_finish_reason_regenerates_without_expansi
         1024,
         1024,
     ]
+
+
+def test_anthropic_final_reply_uses_output_config_json_schema(monkeypatch):
+    captured = []
+
+    def fake_post(_url, *, headers=None, json=None, timeout=None):
+        captured.append(json)
+        return DummyHTTPResponse(
+            {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": valid_envelope_json(reply="Synthetic Anthropic reply."),
+                    }
+                ],
+                "stop_reason": "end_turn",
+            }
+        )
+
+    monkeypatch.setattr(
+        "src.ai.http_llm_anthropic.requests.post",
+        fake_post,
+    )
+    client = AnthropicClient(
+        api_key="synthetic-key",
+        model_name="synthetic-model",
+        endpoint="https://api.anthropic.com/v1/messages",
+        settings=structured_settings(),
+    )
+
+    assert client.send_message("Synthetic Anthropic request.")[0] == (
+        "Synthetic Anthropic reply."
+    )
+    assert captured[0]["output_config"]["format"] == {
+        "type": "json_schema",
+        "schema": RESPONSE_ENVELOPE_V1_SCHEMA,
+    }
+
+
+def test_local_ollama_final_reply_uses_schema_object_format(monkeypatch):
+    captured = []
+
+    def fake_post(_url, *, json=None, timeout=None):
+        captured.append(json)
+        return DummyHTTPResponse(
+            {
+                "message": {
+                    "content": valid_envelope_json(reply="Synthetic Ollama reply.")
+                },
+                "done": True,
+                "done_reason": "stop",
+            }
+        )
+
+    monkeypatch.setattr(
+        "src.ai.http_llm_ollama.requests.post",
+        fake_post,
+    )
+    client = OllamaClient(
+        api_key="",
+        model_name="synthetic-model",
+        endpoint="http://127.0.0.1:11434/api/chat",
+        settings=structured_settings(),
+    )
+
+    assert client.send_message("Synthetic Ollama request.")[0] == (
+        "Synthetic Ollama reply."
+    )
+    assert captured[0]["format"] == RESPONSE_ENVELOPE_V1_SCHEMA
+
+
+def _install_adapter_sequence(monkeypatch, target: str, responses):
+    captured = []
+    queue = list(responses)
+
+    def fake_post(_url, *, headers=None, json=None, timeout=None):
+        captured.append(
+            {
+                "url": _url,
+                "headers": headers,
+                "json": json,
+                "timeout": timeout,
+            }
+        )
+        outcome = queue.pop(0)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+
+    monkeypatch.setattr(target, fake_post)
+    return captured
+
+
+def _anthropic_body(carrier: str, *, stop_reason: str | None = "end_turn"):
+    return {
+        "content": [{"type": "text", "text": carrier}],
+        "stop_reason": stop_reason,
+    }
+
+
+def _ollama_body(
+    carrier: str,
+    *,
+    done: bool | None = True,
+    done_reason: str | None = "stop",
+):
+    body = {
+        "message": {"content": carrier},
+        "done_reason": done_reason,
+    }
+    if done is not None:
+        body["done"] = done
+    return body
+
+
+def _anthropic_structured_client(**overrides):
+    values = {
+        "api_key": "synthetic-key",
+        "model_name": "synthetic-model",
+        "endpoint": "https://api.anthropic.com/v1/messages",
+        "settings": structured_settings(),
+    }
+    values.update(overrides)
+    return AnthropicClient(**values)
+
+
+def _ollama_structured_client(**overrides):
+    values = {
+        "api_key": "",
+        "model_name": "synthetic-model",
+        "endpoint": "http://127.0.0.1:11434/api/chat",
+        "settings": structured_settings(),
+    }
+    values.update(overrides)
+    return OllamaClient(**values)
+
+
+def test_anthropic_repair_uses_descriptor_schema(monkeypatch):
+    captured = _install_adapter_sequence(
+        monkeypatch,
+        "src.ai.http_llm_anthropic.requests.post",
+        [
+            DummyHTTPResponse(
+                _anthropic_body(
+                    valid_envelope_json(
+                        reply="Synthetic Anthropic reply needing repair."
+                    )
+                )
+            ),
+            DummyHTTPResponse(
+                _anthropic_body('{"thought":"Synthetic Anthropic repaired thought."}')
+            ),
+        ],
+    )
+    client = _anthropic_structured_client(
+        settings=structured_settings(enable_ene_thoughts=True),
+    )
+
+    payload = client.send_message("Synthetic Anthropic repair request.")
+
+    assert payload[6] == "Synthetic Anthropic repaired thought."
+    primary_format = captured[0]["json"]["output_config"]["format"]
+    repair_format = captured[1]["json"]["output_config"]["format"]
+    assert primary_format == {
+        "type": "json_schema",
+        "schema": RESPONSE_ENVELOPE_V1_SCHEMA,
+    }
+    assert repair_format == {
+        "type": "json_schema",
+        "schema": get_response_repair_schema(("thought",)),
+    }
+
+
+def test_anthropic_refusal_is_terminal_without_native_downgrade(monkeypatch):
+    captured = _install_adapter_sequence(
+        monkeypatch,
+        "src.ai.http_llm_anthropic.requests.post",
+        [
+            DummyHTTPResponse(
+                _anthropic_body(
+                    valid_envelope_json(reply="Synthetic refused carrier."),
+                    stop_reason="refusal",
+                )
+            ),
+            DummyHTTPResponse(
+                _anthropic_body(
+                    valid_envelope_json(
+                        reply="Synthetic Anthropic reply after refusal."
+                    )
+                )
+            ),
+        ],
+    )
+    client = _anthropic_structured_client()
+
+    with pytest.raises(ProviderRefusalError):
+        client.send_message("Synthetic Anthropic refusal request.")
+
+    assert client.get_conversation_history() == []
+    assert client.send_message("Synthetic Anthropic request after refusal.")[0] == (
+        "Synthetic Anthropic reply after refusal."
+    )
+    assert all("output_config" in request["json"] for request in captured)
+
+
+@pytest.mark.parametrize(
+    ("current_tokens", "expected_budgets"),
+    [
+        (0, [2048, 1536]),
+        (2048, [2048, 2048]),
+        (256, [256, 768]),
+    ],
+)
+def test_anthropic_max_tokens_regeneration_budget_boundaries(
+    monkeypatch,
+    current_tokens,
+    expected_budgets,
+):
+    captured = _install_adapter_sequence(
+        monkeypatch,
+        "src.ai.http_llm_anthropic.requests.post",
+        [
+            DummyHTTPResponse(
+                _anthropic_body(
+                    valid_envelope_json(
+                        reply="Synthetic Anthropic incomplete carrier."
+                    ),
+                    stop_reason="max_tokens",
+                )
+            ),
+            DummyHTTPResponse(
+                _anthropic_body(
+                    valid_envelope_json(reply="Synthetic Anthropic regenerated reply.")
+                )
+            ),
+        ],
+    )
+    client = _anthropic_structured_client(
+        generation_params={"max_tokens": current_tokens},
+    )
+    monkeypatch.setattr(
+        client,
+        "_response_output_token_cap",
+        lambda: 1536,
+        raising=False,
+    )
+    original_generation_params = dict(client.generation_params)
+
+    payload = client.send_message("Synthetic Anthropic length request.")
+
+    assert payload[0] == "Synthetic Anthropic regenerated reply."
+    assert [request["json"]["max_tokens"] for request in captured] == (expected_budgets)
+    assert client.generation_params == original_generation_params
+    assert all("output_config" in request["json"] for request in captured)
+
+
+def test_anthropic_unknown_stop_regenerates_without_budget_expansion(monkeypatch):
+    captured = _install_adapter_sequence(
+        monkeypatch,
+        "src.ai.http_llm_anthropic.requests.post",
+        [
+            DummyHTTPResponse(
+                _anthropic_body(
+                    valid_envelope_json(
+                        reply="Synthetic Anthropic unknown-stop carrier."
+                    ),
+                    stop_reason="synthetic_unknown_stop",
+                )
+            ),
+            DummyHTTPResponse(
+                _anthropic_body(
+                    valid_envelope_json(reply="Synthetic Anthropic recovered reply.")
+                )
+            ),
+        ],
+    )
+    client = _anthropic_structured_client(
+        generation_params={"max_tokens": 1024},
+    )
+
+    payload = client.send_message("Synthetic Anthropic unknown-stop request.")
+
+    assert payload[0] == "Synthetic Anthropic recovered reply."
+    assert [request["json"]["max_tokens"] for request in captured] == [
+        1024,
+        1024,
+    ]
+
+
+def test_anthropic_unknown_stop_during_repair_is_not_merged(monkeypatch):
+    captured = _install_adapter_sequence(
+        monkeypatch,
+        "src.ai.http_llm_anthropic.requests.post",
+        [
+            DummyHTTPResponse(
+                _anthropic_body(
+                    valid_envelope_json(reply="Synthetic Anthropic preserved reply.")
+                )
+            ),
+            DummyHTTPResponse(
+                _anthropic_body(
+                    '{"thought":"Synthetic untrusted repaired thought."}',
+                    stop_reason="synthetic_unknown_stop",
+                )
+            ),
+        ],
+    )
+    client = _anthropic_structured_client(
+        settings=structured_settings(enable_ene_thoughts=True),
+    )
+
+    payload = client.send_message("Synthetic Anthropic repair-status request.")
+
+    assert payload[0] == "Synthetic Anthropic preserved reply."
+    assert payload[6] == ""
+    assert len(captured) == 2
+
+
+def test_anthropic_stop_sequence_is_complete(monkeypatch):
+    captured = _install_adapter_sequence(
+        monkeypatch,
+        "src.ai.http_llm_anthropic.requests.post",
+        [
+            DummyHTTPResponse(
+                _anthropic_body(
+                    valid_envelope_json(
+                        reply="Synthetic Anthropic stop-sequence reply."
+                    ),
+                    stop_reason="stop_sequence",
+                )
+            ),
+        ],
+    )
+    client = _anthropic_structured_client()
+
+    assert client.send_message("Synthetic Anthropic stop sequence.")[0] == (
+        "Synthetic Anthropic stop-sequence reply."
+    )
+    assert len(captured) == 1
+
+
+def test_anthropic_direct_and_one_shot_remain_plain_text(monkeypatch):
+    captured = _install_adapter_sequence(
+        monkeypatch,
+        "src.ai.http_llm_anthropic.requests.post",
+        [
+            DummyHTTPResponse(
+                _anthropic_body(
+                    "Synthetic Anthropic direct text.",
+                    stop_reason="refusal",
+                )
+            ),
+            DummyHTTPResponse(_anthropic_body("Synthetic Anthropic one-shot text.")),
+        ],
+    )
+    client = _anthropic_structured_client()
+
+    assert (
+        client._request_anthropic(
+            [{"type": "text", "text": "Synthetic direct request."}]
+        )
+        == "Synthetic Anthropic direct text."
+    )
+    assert (
+        client._request_one_shot_raw(
+            "Synthetic one-shot request.",
+            request_kind=LLMRequestKind.SUMMARY,
+        )
+        == "Synthetic Anthropic one-shot text."
+    )
+    assert all("output_config" not in request["json"] for request in captured)
+
+
+def test_ollama_repair_uses_descriptor_schema(monkeypatch):
+    captured = _install_adapter_sequence(
+        monkeypatch,
+        "src.ai.http_llm_ollama.requests.post",
+        [
+            DummyHTTPResponse(
+                _ollama_body(
+                    valid_envelope_json(reply="Synthetic Ollama reply needing repair.")
+                )
+            ),
+            DummyHTTPResponse(
+                _ollama_body('{"thought":"Synthetic Ollama repaired thought."}')
+            ),
+        ],
+    )
+    client = _ollama_structured_client(
+        settings=structured_settings(enable_ene_thoughts=True),
+    )
+
+    payload = client.send_message("Synthetic Ollama repair request.")
+
+    assert payload[6] == "Synthetic Ollama repaired thought."
+    assert captured[0]["json"]["format"] == RESPONSE_ENVELOPE_V1_SCHEMA
+    assert captured[1]["json"]["format"] == get_response_repair_schema(("thought",))
+
+
+def test_ollama_done_false_regenerates_without_budget_expansion(monkeypatch):
+    captured = _install_adapter_sequence(
+        monkeypatch,
+        "src.ai.http_llm_ollama.requests.post",
+        [
+            DummyHTTPResponse(
+                _ollama_body(
+                    valid_envelope_json(reply="Synthetic Ollama unfinished carrier."),
+                    done=False,
+                    done_reason=None,
+                )
+            ),
+            DummyHTTPResponse(
+                _ollama_body(
+                    valid_envelope_json(reply="Synthetic Ollama completed reply.")
+                )
+            ),
+        ],
+    )
+    client = _ollama_structured_client(
+        generation_params={"max_tokens": 1024},
+    )
+
+    payload = client.send_message("Synthetic Ollama unfinished request.")
+
+    assert payload[0] == "Synthetic Ollama completed reply."
+    assert [request["json"]["options"]["num_predict"] for request in captured] == [
+        1024,
+        1024,
+    ]
+
+
+@pytest.mark.parametrize(
+    ("current_tokens", "expected_budgets"),
+    [
+        (0, [None, 1536]),
+        (2048, [2048, 2048]),
+        (256, [256, 768]),
+    ],
+)
+def test_ollama_length_regeneration_budget_boundaries(
+    monkeypatch,
+    current_tokens,
+    expected_budgets,
+):
+    captured = _install_adapter_sequence(
+        monkeypatch,
+        "src.ai.http_llm_ollama.requests.post",
+        [
+            DummyHTTPResponse(
+                _ollama_body(
+                    valid_envelope_json(reply="Synthetic Ollama length carrier."),
+                    done=True,
+                    done_reason="length",
+                )
+            ),
+            DummyHTTPResponse(
+                _ollama_body(
+                    valid_envelope_json(reply="Synthetic Ollama regenerated reply.")
+                )
+            ),
+        ],
+    )
+    client = _ollama_structured_client(
+        generation_params={"max_tokens": current_tokens},
+    )
+    monkeypatch.setattr(
+        client,
+        "_response_output_token_cap",
+        lambda: 1536,
+        raising=False,
+    )
+    original_generation_params = dict(client.generation_params)
+
+    payload = client.send_message("Synthetic Ollama length request.")
+
+    assert payload[0] == "Synthetic Ollama regenerated reply."
+    assert [
+        request["json"]["options"].get("num_predict") for request in captured
+    ] == expected_budgets
+    assert client.generation_params == original_generation_params
+    assert all("format" in request["json"] for request in captured)
+
+
+def test_ollama_unknown_done_reason_regenerates_without_budget_expansion(
+    monkeypatch,
+):
+    captured = _install_adapter_sequence(
+        monkeypatch,
+        "src.ai.http_llm_ollama.requests.post",
+        [
+            DummyHTTPResponse(
+                _ollama_body(
+                    valid_envelope_json(
+                        reply="Synthetic Ollama unknown-reason carrier."
+                    ),
+                    done=True,
+                    done_reason="synthetic_unknown_reason",
+                )
+            ),
+            DummyHTTPResponse(
+                _ollama_body(
+                    valid_envelope_json(reply="Synthetic Ollama recovered reply.")
+                )
+            ),
+        ],
+    )
+    client = _ollama_structured_client(
+        generation_params={"max_tokens": 1024},
+    )
+
+    payload = client.send_message("Synthetic Ollama unknown-reason request.")
+
+    assert payload[0] == "Synthetic Ollama recovered reply."
+    assert [request["json"]["options"]["num_predict"] for request in captured] == [
+        1024,
+        1024,
+    ]
+
+
+def test_ollama_unknown_done_reason_during_repair_is_not_merged(monkeypatch):
+    captured = _install_adapter_sequence(
+        monkeypatch,
+        "src.ai.http_llm_ollama.requests.post",
+        [
+            DummyHTTPResponse(
+                _ollama_body(
+                    valid_envelope_json(reply="Synthetic Ollama preserved reply.")
+                )
+            ),
+            DummyHTTPResponse(
+                _ollama_body(
+                    '{"thought":"Synthetic untrusted Ollama thought."}',
+                    done=True,
+                    done_reason="synthetic_unknown_reason",
+                )
+            ),
+        ],
+    )
+    client = _ollama_structured_client(
+        settings=structured_settings(enable_ene_thoughts=True),
+    )
+
+    payload = client.send_message("Synthetic Ollama repair-status request.")
+
+    assert payload[0] == "Synthetic Ollama preserved reply."
+    assert payload[6] == ""
+    assert len(captured) == 2
+
+
+def test_ollama_cloud_uses_legacy_without_schema_format(monkeypatch):
+    captured = _install_adapter_sequence(
+        monkeypatch,
+        "src.ai.http_llm_ollama.requests.post",
+        [
+            DummyHTTPResponse(
+                _ollama_body(legacy_final_reply("Synthetic Ollama Cloud legacy reply."))
+            )
+        ],
+    )
+    client = _ollama_structured_client(
+        endpoint="https://ollama.com/api/chat",
+    )
+
+    assert client.send_message("Synthetic Ollama Cloud request.")[0] == (
+        "Synthetic Ollama Cloud legacy reply."
+    )
+    assert "format" not in captured[0]["json"]
+    assert client.get_last_response_delivery_metadata().response_mode == "legacy_tags"
+
+
+def test_ollama_missing_done_metadata_keeps_compatibility(monkeypatch):
+    captured = _install_adapter_sequence(
+        monkeypatch,
+        "src.ai.http_llm_ollama.requests.post",
+        [
+            DummyHTTPResponse(
+                {
+                    "message": {
+                        "content": valid_envelope_json(
+                            reply="Synthetic Ollama compatibility reply."
+                        )
+                    }
+                }
+            )
+        ],
+    )
+    client = _ollama_structured_client()
+
+    assert client.send_message("Synthetic Ollama compatibility request.")[0] == (
+        "Synthetic Ollama compatibility reply."
+    )
+    assert len(captured) == 1
+
+
+def test_ollama_missing_done_unknown_reason_regenerates_without_budget_expansion(
+    monkeypatch,
+):
+    captured = _install_adapter_sequence(
+        monkeypatch,
+        "src.ai.http_llm_ollama.requests.post",
+        [
+            DummyHTTPResponse(
+                {
+                    "message": {
+                        "content": valid_envelope_json(
+                            reply="Synthetic Ollama unknown-reason carrier."
+                        )
+                    },
+                    "done_reason": "synthetic_unknown_reason",
+                }
+            ),
+            DummyHTTPResponse(
+                _ollama_body(
+                    valid_envelope_json(
+                        reply="Synthetic Ollama unknown-reason recovered reply."
+                    )
+                )
+            ),
+        ],
+    )
+    client = _ollama_structured_client(
+        generation_params={"max_tokens": 1024},
+    )
+
+    payload = client.send_message("Synthetic Ollama missing-done unknown request.")
+
+    assert payload[0] == "Synthetic Ollama unknown-reason recovered reply."
+    assert [request["json"]["options"]["num_predict"] for request in captured] == [
+        1024,
+        1024,
+    ]
+    assert len(captured) == 2
+
+
+def test_ollama_missing_done_length_regenerates_and_expands_budget(monkeypatch):
+    captured = _install_adapter_sequence(
+        monkeypatch,
+        "src.ai.http_llm_ollama.requests.post",
+        [
+            DummyHTTPResponse(
+                {
+                    "message": {
+                        "content": valid_envelope_json(
+                            reply="Synthetic Ollama missing-done length carrier."
+                        )
+                    },
+                    "done_reason": "length",
+                }
+            ),
+            DummyHTTPResponse(
+                _ollama_body(
+                    valid_envelope_json(
+                        reply="Synthetic Ollama missing-done regenerated reply."
+                    )
+                )
+            ),
+        ],
+    )
+    client = _ollama_structured_client(
+        generation_params={"max_tokens": 1024},
+    )
+    monkeypatch.setattr(
+        client,
+        "_response_output_token_cap",
+        lambda: 1536,
+        raising=False,
+    )
+    original_generation_params = dict(client.generation_params)
+
+    payload = client.send_message("Synthetic Ollama missing-done length request.")
+
+    assert payload[0] == "Synthetic Ollama missing-done regenerated reply."
+    assert [request["json"]["options"]["num_predict"] for request in captured] == [
+        1024,
+        1536,
+    ]
+    assert client.generation_params == original_generation_params
+    assert len(captured) == 2
+
+
+def test_ollama_direct_and_one_shot_remain_plain_text(monkeypatch):
+    captured = _install_adapter_sequence(
+        monkeypatch,
+        "src.ai.http_llm_ollama.requests.post",
+        [
+            DummyHTTPResponse(
+                _ollama_body(
+                    "Synthetic Ollama direct text.",
+                    done=False,
+                    done_reason="length",
+                )
+            ),
+            DummyHTTPResponse(_ollama_body("Synthetic Ollama one-shot text.")),
+        ],
+    )
+    client = _ollama_structured_client()
+
+    assert client._request_ollama("Synthetic direct request.") == (
+        "Synthetic Ollama direct text."
+    )
+    assert (
+        client._request_one_shot_raw(
+            "Synthetic one-shot request.",
+            request_kind=LLMRequestKind.SUMMARY,
+        )
+        == "Synthetic Ollama one-shot text."
+    )
+    assert all("format" not in request["json"] for request in captured)
+
+
+def test_custom_anthropic_exact_endpoint_reuses_native_adapter_wire(monkeypatch):
+    endpoint = "https://api.anthropic.com/v1/messages"
+    captured = _install_adapter_sequence(
+        monkeypatch,
+        "src.ai.http_llm_anthropic.requests.post",
+        [
+            DummyHTTPResponse(
+                _anthropic_body(
+                    valid_envelope_json(reply="Synthetic custom Anthropic reply.")
+                )
+            )
+        ],
+    )
+    client = create_llm_client(
+        LLMProviderConfig(
+            provider="custom_api",
+            api_key="synthetic-key",
+            model_name="",
+        ),
+        settings=structured_settings(
+            custom_api_format="anthropic",
+            custom_api_url=endpoint,
+            custom_api_request_model="synthetic-model",
+        ),
+    )
+
+    assert type(client) is AnthropicClient
+    assert (client.provider_name, client.wire_format, client.endpoint) == (
+        "custom_api",
+        "anthropic",
+        endpoint,
+    )
+    assert client.send_message("Synthetic custom Anthropic request.")[0] == (
+        "Synthetic custom Anthropic reply."
+    )
+    assert captured[0]["json"]["output_config"]["format"] == {
+        "type": "json_schema",
+        "schema": RESPONSE_ENVELOPE_V1_SCHEMA,
+    }
+
+
+def test_custom_ollama_exact_endpoint_reuses_native_adapter_wire(monkeypatch):
+    endpoint = "http://127.0.0.1:11434/api/chat"
+    captured = _install_adapter_sequence(
+        monkeypatch,
+        "src.ai.http_llm_ollama.requests.post",
+        [
+            DummyHTTPResponse(
+                _ollama_body(valid_envelope_json(reply="Synthetic custom Ollama reply."))
+            )
+        ],
+    )
+    client = create_llm_client(
+        LLMProviderConfig(
+            provider="custom_api",
+            api_key="",
+            model_name="",
+        ),
+        settings=structured_settings(
+            custom_api_format="ollama",
+            custom_api_url=endpoint,
+            custom_api_request_model="synthetic-model",
+        ),
+    )
+
+    assert type(client) is OllamaClient
+    assert (client.provider_name, client.wire_format, client.endpoint) == (
+        "custom_api",
+        "ollama",
+        endpoint,
+    )
+    assert client.send_message("Synthetic custom Ollama request.")[0] == (
+        "Synthetic custom Ollama reply."
+    )
+    assert captured[0]["json"]["format"] == RESPONSE_ENVELOPE_V1_SCHEMA
