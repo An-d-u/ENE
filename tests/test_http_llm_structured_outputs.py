@@ -344,8 +344,10 @@ def test_openai_responses_timeout_keeps_native_capability(monkeypatch):
     )
     client = _client()
 
-    with pytest.raises(requests.Timeout, match="synthetic timeout"):
+    with pytest.raises(requests.Timeout, match="category=network_error") as exc_info:
         client.send_message("Synthetic timeout request.")
+
+    assert "synthetic timeout" not in str(exc_info.value)
 
     assert client.get_conversation_history() == []
     assert client.send_message("Synthetic retry after timeout.")[0] == (

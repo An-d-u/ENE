@@ -708,14 +708,67 @@ def _extract_error_detail(response) -> str:
     return ""
 
 
+def _safe_error_provider(provider_name: object) -> str:
+    if type(provider_name) is not str:
+        return "unknown"
+    provider = re.sub(
+        r"[^a-z0-9_.-]+",
+        "_",
+        provider_name.strip().lower(),
+    )[:64]
+    return provider or "unknown"
+
+
+def _safe_error_status(response) -> str:
+    try:
+        status_code = getattr(response, "status_code", None)
+    except Exception:
+        return "unknown"
+    if type(status_code) is int:
+        return str(status_code) if 100 <= status_code <= 599 else "unknown"
+    if type(status_code) is str:
+        candidate = status_code.strip()
+        if candidate.isascii() and candidate.isdigit():
+            parsed = int(candidate)
+            if 100 <= parsed <= 599:
+                return str(parsed)
+    return "unknown"
+
+
 def _raise_for_status_with_detail(response, provider_name: str) -> None:
     try:
         response.raise_for_status()
-    except requests.HTTPError as exc:
-        detail = _extract_error_detail(response)
-        if detail:
-            raise requests.HTTPError(f"{exc} | {provider_name}: {detail}", response=response) from exc
-        raise
+        return
+    except requests.HTTPError:
+        pass
+    provider = _safe_error_provider(provider_name)
+    status = _safe_error_status(response)
+    raise requests.HTTPError(
+        f"provider={provider} status={status} category=http_error",
+        response=response,
+    ) from None
+
+
+def _post_with_safe_errors(
+    provider_name: str,
+    url: str,
+    post_request: Callable[..., object],
+    **kwargs,
+):
+    try:
+        return post_request(url, **kwargs)
+    except requests.RequestException as failure:
+        if isinstance(failure, requests.Timeout):
+            error_type = requests.Timeout
+        elif isinstance(failure, requests.ConnectionError):
+            error_type = requests.ConnectionError
+        else:
+            error_type = requests.RequestException
+
+    provider = _safe_error_provider(provider_name)
+    raise error_type(
+        f"provider={provider} status=unknown category=network_error"
+    ) from None
 
 
 def _normalize_generation_params(params: dict | None) -> dict:

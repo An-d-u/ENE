@@ -73,7 +73,7 @@ def test_head_pat_pending_count_accumulates_separately_from_daily_total(tmp_path
     assert manager.get_head_pat_count(today) == 2
 
 
-def test_add_event_log_includes_event_fields(tmp_path, capsys):
+def test_add_event_log_omits_event_fields(tmp_path, capsys):
     manager = CalendarManager(calendar_file=str(tmp_path / "calendar.json"))
     capsys.readouterr()
 
@@ -88,7 +88,11 @@ def test_add_event_log_includes_event_fields(tmp_path, capsys):
         source="user",
     )
 
-    captured = capsys.readouterr().out
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
 
-    assert event_title in captured
-    assert event_date in captured
+    assert event_title not in combined
+    assert event_date not in combined
+    assert event_description not in combined
+    assert "category=event_added" in combined
+    assert "event_count=1" in combined

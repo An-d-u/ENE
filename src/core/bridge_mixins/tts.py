@@ -5,11 +5,30 @@ import json
 import time
 
 from ...ai.prompt_language import resolve_prompt_language, resolve_tts_language
+from ...ai.response_protocol import is_valid_token_count
 from ...ai.viseme_stream_analyzer import VisemeStreamAnalyzer
 from ..bridge_workers import StreamingTTSWorker, TTSWorker
 from ..model_lip_sync_profile import load_model_lip_sync_profile_for_model_json
 from ..tts_sync_controller import TTSSyncController
 from .thoughts import ThoughtBridgeMixin
+
+
+def _safe_text_length(value: object) -> int:
+    return len(value) if type(value) is str else 0
+
+
+def _normalize_token_usage(source: object) -> dict[str, int | None]:
+    usage = {
+        "input_tokens": None,
+        "output_tokens": None,
+        "total_tokens": None,
+    }
+    if type(source) is not dict:
+        return usage
+    return {
+        key: source.get(key) if is_valid_token_count(source.get(key)) else None
+        for key in usage
+    }
 
 
 class TTSBridgeMixin:
@@ -84,7 +103,7 @@ class TTSBridgeMixin:
             if not ok:
                 print("[Bridge] LLM 히스토리 재구성 실패")
         except Exception as e:
-            print(f"[Bridge] LLM 히스토리 재구성 중 오류: {e}")
+            print(f"[Bridge] history_rebuild_failed category=local_error exception_class={type(e).__name__}")
 
     def _should_use_streaming_tts(self) -> bool:
         """현재 응답에서 스트리밍 TTS 경로를 사용할지 판단한다."""
@@ -270,7 +289,7 @@ class TTSBridgeMixin:
         try:
             parent.web_view.page().runJavaScript(script)
         except Exception as e:
-            print(f"[Bridge] JS 실행 실패: {e}")
+            print(f"[Bridge] javascript_failed category=local_error exception_class={type(e).__name__}")
 
     def _play_browser_tts(self, text: str):
         """브라우저 기본 speechSynthesis로 음성을 재생한다."""
@@ -278,8 +297,8 @@ class TTSBridgeMixin:
             return
         try:
             payload = self.tts_client.build_request(text)
-        except Exception as e:
-            self._on_tts_error(str(e))
+        except Exception:
+            self._on_tts_error("tts_error")
             return
 
         self.lip_sync_data = None
@@ -304,7 +323,10 @@ class TTSBridgeMixin:
             text, emotion = self.pending_response
             thought = ""
         gesture = self.pending_response[3] if len(self.pending_response) >= 4 else ""
-        print(f"[Bridge] 보류된 응답 즉시 전송: {text} emotion={emotion}")
+        print(
+            "[Bridge] pending_response_flushed "
+            f"reply_chars={_safe_text_length(text)} thought_chars={_safe_text_length(thought)}"
+        )
         emit_pending = getattr(self, "_emit_request_pending_changed", None)
         if callable(emit_pending):
             emit_pending(False)
@@ -324,23 +346,15 @@ class TTSBridgeMixin:
 
     def _resolve_token_usage_payload(self, token_usage_payload: str = "") -> str:
         """브리지에서 사용할 토큰 사용량 JSON을 정규화한다."""
-        usage = {
-            "input_tokens": None,
-            "output_tokens": None,
-            "total_tokens": None,
-        }
+        usage = _normalize_token_usage(None)
 
-        if token_usage_payload:
+        if type(token_usage_payload) is str and token_usage_payload:
             try:
                 parsed = json.loads(token_usage_payload)
             except Exception:
                 parsed = None
-            if isinstance(parsed, dict):
-                usage = {
-                    "input_tokens": parsed.get("input_tokens") if isinstance(parsed.get("input_tokens"), int) else None,
-                    "output_tokens": parsed.get("output_tokens") if isinstance(parsed.get("output_tokens"), int) else None,
-                    "total_tokens": parsed.get("total_tokens") if isinstance(parsed.get("total_tokens"), int) else None,
-                }
+            if type(parsed) is dict:
+                usage = _normalize_token_usage(parsed)
                 return json.dumps(usage, ensure_ascii=False)
 
         getter = getattr(self.llm_client, "get_last_token_usage", None)
@@ -349,12 +363,8 @@ class TTSBridgeMixin:
                 latest_usage = getter()
             except Exception:
                 latest_usage = None
-            if isinstance(latest_usage, dict):
-                usage = {
-                    "input_tokens": latest_usage.get("input_tokens") if isinstance(latest_usage.get("input_tokens"), int) else None,
-                    "output_tokens": latest_usage.get("output_tokens") if isinstance(latest_usage.get("output_tokens"), int) else None,
-                    "total_tokens": latest_usage.get("total_tokens") if isinstance(latest_usage.get("total_tokens"), int) else None,
-                }
+            if type(latest_usage) is dict:
+                usage = _normalize_token_usage(latest_usage)
 
         return json.dumps(usage, ensure_ascii=False)
 
@@ -572,7 +582,7 @@ class TTSBridgeMixin:
             try:
                 self.audio_player.stop()
             except Exception as e:
-                print(f"[Bridge] PTT TTS 중단 실패(audio): {e}")
+                print(f"[Bridge] tts_interrupt_failed category=audio_error exception_class={type(e).__name__}")
 
         # 립싱크 중단 및 입 닫기
         if self.lip_sync_timer:
@@ -599,7 +609,9 @@ class TTSBridgeMixin:
 
     def _on_tts_ready(self, audio_data: bytes, lip_sync_data: list):
         """비동기 TTS 완료 후 오디오 재생"""
-        print(f"[Bridge] TTS 준비 완료: {len(audio_data)} bytes, {len(lip_sync_data)} 프레임")
+        audio_bytes = len(audio_data) if type(audio_data) is bytes else 0
+        frame_count = len(lip_sync_data) if type(lip_sync_data) is list else 0
+        print(f"[Bridge] TTS 준비 완료: {audio_bytes} bytes, {frame_count} 프레임")
         self._stop_streaming_lip_sync(reset_mouth=False)
         
         # 립싱크 데이터 저장
@@ -625,7 +637,7 @@ class TTSBridgeMixin:
     
     def _on_tts_error(self, error_msg: str):
         """TTS 오류 처리"""
-        print(f"[Bridge] TTS 오류: {error_msg}")
+        print("[Bridge] tts_failed category=tts_error")
         self._stop_streaming_lip_sync(reset_mouth=True)
         # TTS 실패 시 보류 중이던 텍스트를 즉시 복구 전송한다.
         self._flush_pending_response_if_any()

@@ -527,7 +527,7 @@ def test_openai_compatible_image_request_puts_search_context_in_text_part(monkey
     assert content[0]["text"].endswith("Describe this synthetic image.")
 
 
-def test_openai_responses_error_includes_response_body(monkeypatch):
+def test_openai_responses_error_hides_response_body_but_preserves_response(monkeypatch):
     def fake_post(url, headers=None, json=None, timeout=None):
         return _DummyResponse(
             status_code=400,
@@ -543,8 +543,13 @@ def test_openai_responses_error_includes_response_body(monkeypatch):
         endpoint="https://api.openai.com/v1/responses",
     )
 
-    with pytest.raises(requests.HTTPError, match="Unsupported parameter: max_tokens"):
+    with pytest.raises(requests.HTTPError) as exc_info:
         client._request_responses("테스트")
+
+    assert "Unsupported parameter: max_tokens" not in str(exc_info.value)
+    assert exc_info.value.response.text == (
+        '{"error":{"message":"Unsupported parameter: max_tokens"}}'
+    )
 
 
 def test_openai_client_parse_response_hides_analysis_metadata_and_japanese():

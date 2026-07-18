@@ -10,7 +10,11 @@ from ...ai.chat_commands import parse_diary_command, parse_note_command
 from ...ai.analysis_prompt import is_schedule_recognition_enabled
 from ...ai.persona_names import role_label_for_prompt
 from ...ai.prompt_language import resolve_prompt_language
-from ...ai.response_protocol import ResponseDeliveryMetadata
+from ...ai.response_protocol import (
+    RESPONSE_ENVELOPE_SCHEMA_VERSION,
+    ResponseDeliveryMetadata,
+    ResponseMode,
+)
 from ..bridge_workers import AIWorker
 from ..chat_attachments import (
     build_attachment_context_block,
@@ -33,6 +37,36 @@ def _prompt_time_header(timestamp: str, language: str) -> str:
 
 def _prompt_role_label(role: str, language: str, settings_source=None) -> str:
     return role_label_for_prompt(role, settings_source=settings_source, language=language)
+
+
+_ALLOWED_RESPONSE_LOG_MODES = frozenset(mode.value for mode in ResponseMode)
+
+
+def _safe_text_length(value: object) -> int:
+    return len(value) if type(value) is str else 0
+
+
+def _safe_list_count(value: object) -> int:
+    return len(value) if type(value) is list else 0
+
+
+def _response_log_metadata(metadata: object) -> tuple[str, str, str]:
+    if type(metadata) is not ResponseDeliveryMetadata:
+        return "unknown", "none", "false"
+    response_mode = (
+        metadata.response_mode
+        if type(metadata.response_mode) is str
+        and metadata.response_mode in _ALLOWED_RESPONSE_LOG_MODES
+        else "unknown"
+    )
+    schema_version = (
+        metadata.schema_version
+        if type(metadata.schema_version) is str
+        and metadata.schema_version == RESPONSE_ENVELOPE_SCHEMA_VERSION
+        else "none"
+    )
+    repair_performed = "true" if metadata.repair_performed is True else "false"
+    return response_mode, schema_version, repair_performed
 
 
 class ChatFlowBridgeMixin:
@@ -320,7 +354,7 @@ class ChatFlowBridgeMixin:
     @pyqtSlot(str)
     def send_to_ai(self, message: str):
         """JavaScript에서 호출: 사용자 텍스트 메시지를 AI로 전송."""
-        print(f"[Bridge] Received message from JS: {message}")
+        print(f"[Bridge] message_received message_chars={_safe_text_length(message)}")
 
         if hasattr(self, 'calendar_manager') and self.calendar_manager:
             self.calendar_manager.increment_conversation_count()
@@ -355,7 +389,7 @@ class ChatFlowBridgeMixin:
         head_pat_count_before_message = 0
         if hasattr(self, 'calendar_manager') and self.calendar_manager:
             head_pat_count_before_message = int(self.calendar_manager.drain_pending_head_pat_count())
-        print(f"[Bridge] Message with timestamp: {message_with_time}")
+        print(f"[Bridge] prompt_built prompt_chars={_safe_text_length(message_with_time)}")
 
         cancel_proactive = getattr(self, "_cancel_pending_proactive_conversations_for_user_message", None)
         if callable(cancel_proactive):
@@ -608,7 +642,7 @@ class ChatFlowBridgeMixin:
             response_worker if response_worker is not None else getattr(self, "worker", None)
         )
         response_metadata = getattr(worker, "response_metadata", None)
-        if not isinstance(response_metadata, ResponseDeliveryMetadata):
+        if type(response_metadata) is not ResponseDeliveryMetadata:
             response_metadata = ResponseDeliveryMetadata.empty()
         try:
             return ChatFlowBridgeMixin._handle_response_ready(
@@ -714,7 +748,21 @@ class ChatFlowBridgeMixin:
             thoughts_enabled = lambda: ThoughtBridgeMixin._are_ene_thoughts_enabled(self)
         if not thoughts_enabled():
             thought = ""
-        print(f"[Bridge] Response ready: {text} emotion={emotion}")
+        response_mode, schema_version, repair_performed = _response_log_metadata(
+            response_metadata
+        )
+        print(
+            "[Bridge] response_ready "
+            f"response_mode={response_mode} "
+            f"schema_version={schema_version} "
+            f"repair_performed={repair_performed} "
+            f"reply_chars={_safe_text_length(text)} "
+            f"tts_chars={_safe_text_length(tts_text)} "
+            f"thought_chars={_safe_text_length(thought)} "
+            f"event_count={_safe_list_count(events)} "
+            f"promise_count={_safe_list_count(scheduled_promises)} "
+            f"proactive_count={_safe_list_count(proactive_conversations)}"
+        )
         self._last_assistant_response = {"text": text, "emotion": emotion}
         analysis = {}
         if analysis_payload:
@@ -756,24 +804,24 @@ class ChatFlowBridgeMixin:
         ):
             for event_data in events:
                 try:
-                    event = self.calendar_manager.add_event(
+                    self.calendar_manager.add_event(
                         date=event_data['date'],
                         title=event_data['title'],
                         description=event_data.get('description', ''),
                         source="ai_extracted"
                     )
-                    print(f"[Bridge] 일정 추가: {event.date} - {event.title}")
+                    print("[Bridge] schedule_event category=schedule_add_success")
                 except Exception as e:
                     print(
-                        "[Bridge] 일정 추가 실패: "
-                        f"{event_data.get('date', '')} - {event_data.get('title', '')}: {e}"
+                        "[Bridge] schedule_event category=schedule_add_failed "
+                        f"exception_class={type(e).__name__}"
                     )
 
         stored_promise_ids: list[str] = []
         llm_promises = list(scheduled_promises or [])
         promises_authoritative = (
-            isinstance(response_metadata, ResponseDeliveryMetadata)
-            and response_metadata.promises_authoritative
+            type(response_metadata) is ResponseDeliveryMetadata
+            and response_metadata.promises_authoritative is True
         )
         use_fallback = not llm_promises and not promises_authoritative
         store_promises = getattr(self, "_store_scheduled_promises", None)
@@ -828,7 +876,7 @@ class ChatFlowBridgeMixin:
                 self._is_rerolling = False
                 self.reroll_state_changed.emit(False)
             if tts_text:
-                print(f"[Bridge] TTS 비활성화 또는 클라이언트 없음 (TTS: {tts_text})")
+                print(f"[Bridge] tts_skipped tts_chars={_safe_text_length(tts_text)}")
         
         # 자동 요약 확인
         self._check_auto_summarize()
@@ -908,7 +956,7 @@ class ChatFlowBridgeMixin:
 
     def _on_error(self, error_msg: str):
         """오류 발생"""
-        print(f"[Bridge] Error occurred: {error_msg}")
+        print("[Bridge] request_failed category=provider_error")
         ChatFlowBridgeMixin._emit_request_pending_changed(self, False)
         reminder_id = str(getattr(self, "_active_promise_id", "") or "").strip()
         promise_manager = getattr(self, "promise_manager", None)

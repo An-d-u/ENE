@@ -13,7 +13,7 @@ class _DummyChat:
 
 class _DummyResponse:
     text = None
-    prompt_feedback = "blocked-for-test"
+    prompt_feedback = "synthetic-private-prompt-feedback"
     candidates = []
     usage_metadata = None
 
@@ -39,8 +39,8 @@ def test_send_message_returns_fallback_when_gemini_text_is_none(capsys):
 
     captured = capsys.readouterr().out
     assert "빈 텍스트 응답" in captured
-    assert "prompt_feedback" in captured
-    assert "enable_ene_thoughts=True" in captured
+    assert "synthetic-private-prompt-feedback" not in captured
+    assert "category=empty_response" in captured
 
 
 def test_send_message_returns_fallback_when_gemini_text_is_blank(capsys):
@@ -63,4 +63,4 @@ def test_send_message_returns_fallback_when_gemini_text_is_blank(capsys):
 
     captured = capsys.readouterr().out
     assert "빈 텍스트 응답" in captured
-    assert "enable_ene_thoughts=False" in captured
+    assert "category=empty_response" in captured

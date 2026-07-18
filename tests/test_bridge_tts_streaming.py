@@ -15,11 +15,13 @@ def _ensure_qt_app():
     return app
 
 
-def test_bridge_tts_error_restores_pending_response():
+def test_bridge_tts_error_restores_pending_response_without_logging_content(capsys):
     _ensure_qt_app()
 
     bridge = WebBridge()
-    bridge.pending_response = ("복구할 응답", "normal")
+    pending_text = "SYNTHETIC-PENDING-REPLY-SENTINEL"
+    raw_error = "SYNTHETIC-TTS-BRIDGE-ERROR-SENTINEL"
+    bridge.pending_response = (pending_text, "normal")
     bridge._is_rerolling = True
 
     received = []
@@ -27,12 +29,17 @@ def test_bridge_tts_error_restores_pending_response():
     bridge.message_received.connect(lambda text, emotion, thought: received.append((text, emotion, thought)))
     bridge.reroll_state_changed.connect(lambda state: reroll_states.append(bool(state)))
 
-    bridge._on_tts_error("mock error")
+    bridge._on_tts_error(raw_error)
 
-    assert received == [("복구할 응답", "normal", "")]
+    assert received == [(pending_text, "normal", "")]
     assert bridge.pending_response is None
     assert bridge._is_rerolling is False
     assert reroll_states and reroll_states[-1] is False
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+    assert pending_text not in combined
+    assert raw_error not in combined
+    assert "category=tts_error" in combined
 
 
 def test_bridge_should_use_streaming_tts_only_when_enabled_and_supported():

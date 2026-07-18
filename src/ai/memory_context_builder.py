@@ -178,7 +178,7 @@ def build_goal_context_block(client, prompt_language: str | None = None) -> str:
     try:
         return str(goal_manager.build_context_block(language=prompt_language) or "").strip()
     except Exception as e:
-        print(f"[LLM] Goal context append failed: {e}")
+        print(f"[LLM] context_failed category=goal_context_error exception_class={type(e).__name__}")
         return ""
 
 
@@ -210,7 +210,7 @@ async def build_topic_memory_context_block(
             or ""
         ).strip()
     except Exception as e:
-        print(f"[LLM] Topic memory context append failed: {e}")
+        print(f"[LLM] Topic memory context append failed category=topic_memory_error exception_class={type(e).__name__}")
         return ""
 
 
@@ -461,7 +461,7 @@ async def build_memory_context(
                 context_parts.append("\n" + mood_block)
                 print("[LLM] Mood context included")
         except Exception as e:
-            print(f"[LLM] Mood context append failed: {e}")
+            print(f"[LLM] context_failed category=mood_context_error exception_class={type(e).__name__}")
 
     if goal_block:
         context_parts.append("\n" + goal_block)
@@ -520,7 +520,7 @@ async def build_memory_context(
         context_parts.append(f"\n[{labels['important']}]")
         for memory in important_memories[:max_important]:
             context_parts.append(f"- {memory.summary}")
-            print(f"  {memory.summary[:50]}...")
+            print("[LLM] important_memory_selected")
     else:
         print("[LLM] 중요 기억 없음")
 
@@ -555,17 +555,15 @@ async def build_memory_context(
             related_memories_reported = True
             print(f"[LLM] 유사 기억 {len(similar_memories)}개 발견")
             context_parts.append(f"\n[{labels['related']}]")
-            for memory, similarity in similar_memories:
+            for memory, _similarity in similar_memories:
                 context_parts.append(f"- {memory.summary}")
-                print(f"  [{similarity:.2f}] {memory.summary[:50]}...")
+                print("[LLM] similar_memory_selected")
         else:
             related_memories_reported = True
             print("[LLM] 유사 기억 없음")
 
     except Exception as e:
-        print(f"[LLM] 기억 검색 실패: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"[LLM] memory_search category=memory_search_failed exception_class={type(e).__name__}")
 
         if activation_attempted:
             try:
@@ -575,17 +573,15 @@ async def build_memory_context(
                     min_similarity=min_sim,
                 )
             except Exception as fallback_error:
-                print(f"[LLM] 유사 기억 fallback 실패: {fallback_error}")
-                import traceback
-                traceback.print_exc()
+                print(f"[LLM] memory_search category=memory_fallback_failed exception_class={type(fallback_error).__name__}")
 
     if not related_memories_reported:
         if similar_memories:
             print(f"[LLM] 유사 기억 {len(similar_memories)}개 발견")
             context_parts.append(f"\n[{labels['related']}]")
-            for memory, similarity in similar_memories:
+            for memory, _similarity in similar_memories:
                 context_parts.append(f"- {memory.summary}")
-                print(f"  [{similarity:.2f}] {memory.summary[:50]}...")
+                print("[LLM] similar_memory_selected")
         else:
             print("[LLM] 유사 기억 없음")
 
@@ -601,25 +597,18 @@ async def build_memory_context(
             if raw_chunks:
                 print(f"[LLM] raw chunk {len(raw_chunks)}개 선택")
                 context_parts.append(f"\n[{labels['raw_chunks']}]")
-                for index, (chunk, score, score_meta) in enumerate(raw_chunks, start=1):
+                for index, (chunk, _score, _score_meta) in enumerate(raw_chunks, start=1):
                     context_parts.append(
                         f"- {labels['chunk']} {index} (turn {chunk.start_turn_index}-{chunk.end_turn_index})"
                     )
                     for line in str(chunk.text or "").splitlines():
                         context_parts.append(f"  {line}")
-                    print(
-                        "[LLM] raw chunk 선택 "
-                        f"{index}: score={score:.3f}, "
-                        f"primary={score_meta.get('primary_similarity', 0.0):.3f}, "
-                        f"support={score_meta.get('support_similarity', 0.0):.3f}, "
-                        f"keyword={score_meta.get('keyword_score', 0.0):.3f}"
-                    )
+                    print(f"[LLM] raw_chunk_selected index={index}")
+
             else:
                 print("[LLM] raw chunk 없음")
         except Exception as e:
-            print(f"[LLM] raw chunk 검색 실패: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"[LLM] raw_chunk_search category=raw_chunk_error exception_class={type(e).__name__}")
 
     recent_memories = memory_manager.get_recent(count=max_recent)
     if recent_memories:
@@ -630,10 +619,10 @@ async def build_memory_context(
                 dt = datetime.fromisoformat(memory.timestamp)
                 date_str = _format_context_full_date(dt, prompt_language)
                 context_parts.append(f"- [{date_str}] {memory.summary}")
-                print(f"  [{date_str}] {memory.summary[:40]}...")
+                print("[LLM] recent_memory_selected")
             except Exception:
                 context_parts.append(f"- {memory.summary}")
-                print(f"  {memory.summary[:50]}...")
+                print("[LLM] recent_memory_selected")
 
     calendar_manager = getattr(client, "calendar_manager", None)
     if calendar_manager:
@@ -651,7 +640,7 @@ async def build_memory_context(
                     else:
                         event_info = f"- {date_str}: {event.title}{status}"
                     context_parts.append(event_info)
-                    print(f"  {event_info}")
+                    print("[LLM] upcoming_event_selected")
                 except Exception:
                     pass
 

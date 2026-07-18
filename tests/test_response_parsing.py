@@ -549,7 +549,7 @@ def test_parse_response_logs_schedule_event_payload():
     assert "Synthetic room details" in log_output
 
 
-def test_gemini_parse_response_logs_schedule_event_content(capsys):
+def test_gemini_parse_response_logs_schedule_event_metadata_without_content(capsys):
     client = GeminiClient.__new__(GeminiClient)
     client.settings = {"ui_language": "en", "tts_language": "en"}
     response_text = (
@@ -567,6 +567,9 @@ def test_gemini_parse_response_logs_schedule_event_content(capsys):
             "description": "Synthetic suite note",
         }
     ]
-    assert "2099-04-05" in captured.out
-    assert "Synthetic Board Review" in captured.out
-    assert "Synthetic suite note" in captured.out
+    assert "2099-04-05" not in captured.out
+    assert "Synthetic Board Review" not in captured.out
+    assert "Synthetic suite note" not in captured.out
+    assert "category=schedule_event_extracted" in captured.out
+    assert "event_count=1" in captured.out
+    assert captured.err == ""

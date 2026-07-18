@@ -7,6 +7,8 @@ from .http_llm_common import (
     LLM_RESPONSE_TUPLE,
     _CommonMixin,
     _normalize_generation_params,
+    _post_with_safe_errors,
+    _raise_for_status_with_detail,
 )
 from .response_protocol import (
     LLMRequestKind,
@@ -158,8 +160,8 @@ class AnthropicClient(_CommonMixin):
                 }
             }
         timeout = request_descriptor.timeout_seconds if request_descriptor is not None else 60
-        response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=timeout)
-        response.raise_for_status()
+        response = _post_with_safe_errors(self.provider_name, self.endpoint, requests.post, headers=self._headers(), json=payload, timeout=timeout)
+        _raise_for_status_with_detail(response, self.provider_name)
         data = response.json()
         if request_descriptor is None:
             return self._response_text(data)
@@ -187,8 +189,8 @@ class AnthropicClient(_CommonMixin):
             "system": context.system_prompt,
             "messages": [{"role": "user", "content": [{"type": "text", "text": str(context.user_content)}]}],
         }
-        response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=60)
-        response.raise_for_status()
+        response = _post_with_safe_errors(self.provider_name, self.endpoint, requests.post, headers=self._headers(), json=payload, timeout=60)
+        _raise_for_status_with_detail(response, self.provider_name)
         data = response.json()
         text_parts = [p.get("text", "") for p in data.get("content", []) if p.get("type") == "text"]
         return "\n".join(text_parts).strip()
