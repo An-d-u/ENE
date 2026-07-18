@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
+import re
 from dataclasses import dataclass
 from typing import Iterable, Sequence
 
@@ -14,11 +15,18 @@ from .analysis_prompt import (
 )
 from .goal_prompt import is_goal_prompt_enabled
 from .prompt_language import resolve_prompt_language, resolve_tts_language
+from .response_cleanup import (
+    THOUGHT_TAG_ALIASES,
+    extract_tts_metadata,
+    sanitize_reserved_control_blocks,
+)
 from .response_contract import (
+    canonicalize_response_repair_fields,
     get_available_proactive_cooldown_keys,
     is_proactive_conversation_enabled,
     is_synthetic_gesture_enabled,
 )
+from .response_protocol import ResponseMode
 from .thought_prompt import is_thought_prompt_enabled
 
 
@@ -640,3 +648,146 @@ def decode_response_envelope(
         missing_required_fields=tuple(missing_required_fields),
         invalid_paths=tuple(sorted(set(invalid_paths))),
     )
+
+
+RESPONSE_REPAIR_SCHEMA_NAME = "ene_response_repair_v1"
+_REPAIR_THOUGHT_TAG_PATTERNS = tuple(
+    re.escape(alias).replace("\\ ", r"\s+")
+    for alias in THOUGHT_TAG_ALIASES
+)
+_REPAIR_THOUGHT_ALIAS_PATTERNS = tuple(
+    (
+        re.compile(rf"\[\s*{tag_pattern}\s*\]", re.IGNORECASE),
+        re.compile(rf"\[\s*/\s*{tag_pattern}\s*\]", re.IGNORECASE),
+    )
+    for tag_pattern in _REPAIR_THOUGHT_TAG_PATTERNS
+)
+_REPAIR_ANY_THOUGHT_MARKER_PATTERN = re.compile(
+    rf"\[\s*/?\s*(?:{'|'.join(_REPAIR_THOUGHT_TAG_PATTERNS)})\s*\]",
+    re.IGNORECASE,
+)
+_THINK_MARKER_PATTERN = re.compile(
+    r"</?think\b[^>]*>",
+    re.IGNORECASE,
+)
+
+
+def _strip_repair_thinking_regions(source: str) -> str:
+    """완결 think 영역을 제거하고 열린 think 뒤의 숨은 꼬리를 버린다."""
+    cleaned_parts: list[str] = []
+    cursor = 0
+    depth = 0
+
+    for marker in _THINK_MARKER_PATTERN.finditer(source):
+        marker_text = marker.group(0)
+        is_closing = marker_text.startswith("</")
+        if is_closing:
+            if depth:
+                depth -= 1
+                if not depth:
+                    cursor = marker.end()
+            else:
+                cleaned_parts.append(source[cursor:marker.start()])
+                cursor = marker.end()
+            continue
+
+        if not depth:
+            cleaned_parts.append(source[cursor:marker.start()])
+        depth += 1
+
+    if not depth:
+        cleaned_parts.append(source[cursor:])
+    return "".join(cleaned_parts).strip()
+
+
+def _extract_exact_repair_thought(source: str) -> str:
+    """시작과 종료 alias가 같은 가장 이른 thought 블록만 추출한다."""
+    earliest: tuple[int, str] | None = None
+    for start_pattern, end_pattern in _REPAIR_THOUGHT_ALIAS_PATTERNS:
+        cursor = 0
+        while True:
+            start = start_pattern.search(source, cursor)
+            if start is None:
+                break
+            marker = _REPAIR_ANY_THOUGHT_MARKER_PATTERN.search(source, start.end())
+            if marker is None:
+                break
+            cursor = marker.end()
+            if end_pattern.fullmatch(marker.group(0)) is None:
+                continue
+            thought = re.sub(r"\s+", " ", source[start.end():marker.start()]).strip()
+            if not thought:
+                continue
+            candidate = (start.start(), thought)
+            if earliest is None or candidate[0] < earliest[0]:
+                earliest = candidate
+            break
+
+    return earliest[1] if earliest is not None else ""
+
+
+def get_response_repair_schema(fields: Iterable[str]) -> dict:
+    """요청한 복구 필드만 가진 strict schema의 새 복사본을 반환한다."""
+    canonical_fields = canonicalize_response_repair_fields(fields)
+    return _strict_object(_string_fields(canonical_fields))
+
+
+def get_missing_response_repair_fields(
+    payload: LLM_RESPONSE_TUPLE,
+    *,
+    requirements: ResponseRequirements,
+) -> tuple[str, ...]:
+    """검증된 응답에서 원격 제한 복구가 필요한 필드만 찾는다."""
+    missing: list[str] = []
+    if requirements.require_thought and not payload[6]:
+        missing.append("thought")
+    translation_tts_required = (
+        requirements.require_tts_text
+        and requirements.tts_language != requirements.response_language
+    )
+    if translation_tts_required and not payload[2]:
+        missing.append("tts_text")
+    return tuple(missing)
+
+
+def decode_response_repair(
+    carrier: str,
+    *,
+    mode: ResponseMode,
+    fields: Iterable[str],
+) -> dict[str, str]:
+    """복구 carrier에서 요청한 nonempty thought/TTS 값만 회수한다."""
+    canonical_fields = canonicalize_response_repair_fields(fields)
+    try:
+        normalized_mode = mode if isinstance(mode, ResponseMode) else ResponseMode(mode)
+    except (TypeError, ValueError):
+        raise ValueError("invalid response mode") from None
+
+    if normalized_mode is ResponseMode.LEGACY_TAGS:
+        source = carrier if isinstance(carrier, str) else ""
+        source = _strip_repair_thinking_regions(source)
+        source = sanitize_reserved_control_blocks(source)
+        repaired: dict[str, str] = {}
+        if "thought" in canonical_fields:
+            thought = _extract_exact_repair_thought(source)
+            if thought:
+                repaired["thought"] = thought
+        if "tts_text" in canonical_fields:
+            _cleaned, tts_text = extract_tts_metadata(source)
+            if tts_text:
+                repaired["tts_text"] = tts_text
+        return repaired
+
+    try:
+        root = json.loads(carrier, parse_constant=_reject_nonstandard_json_constant)
+    except (RecursionError, TypeError, ValueError):
+        return {}
+    if not isinstance(root, dict):
+        return {}
+
+    repaired = {}
+    for field_name in canonical_fields:
+        value = root.get(field_name)
+        if isinstance(value, str) and value.strip():
+            repaired[field_name] = value.strip()
+    return repaired

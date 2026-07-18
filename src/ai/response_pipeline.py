@@ -9,6 +9,8 @@ from .response_envelope import (
     LLM_RESPONSE_TUPLE,
     ResponseRequirements,
     decode_response_envelope,
+    decode_response_repair,
+    get_missing_response_repair_fields,
     has_valid_response_payload,
 )
 from .response_parser import parse_llm_response
@@ -69,6 +71,95 @@ def _needs_expanded_output_budget(response: ProviderResponse) -> bool:
     )
 
 
+def _build_final_result(
+    payload: LLM_RESPONSE_TUPLE,
+    *,
+    mode: ResponseMode,
+    schema_version: str,
+    attempts: list[ResponseAttempt],
+    repair_performed: bool,
+) -> FinalResponseResult:
+    return FinalResponseResult(
+        payload=payload,
+        metadata=ResponseDeliveryMetadata(
+            response_mode=mode.value,
+            schema_version=schema_version,
+            promises_authoritative=mode is not ResponseMode.LEGACY_TAGS,
+            repair_performed=repair_performed,
+        ),
+        attempts=tuple(attempts),
+    )
+
+
+def _repair_missing_response_fields(
+    requester: Callable[[ResponseAttempt], ProviderResponse],
+    *,
+    payload: LLM_RESPONSE_TUPLE,
+    requirements: ResponseRequirements,
+    mode: ResponseMode,
+    schema_version: str,
+    attempts: list[ResponseAttempt],
+) -> FinalResponseResult:
+    repair_fields = get_missing_response_repair_fields(
+        payload,
+        requirements=requirements,
+    )
+    if not repair_fields:
+        return _build_final_result(
+            payload,
+            mode=mode,
+            schema_version=schema_version,
+            attempts=attempts,
+            repair_performed=False,
+        )
+
+    repair_attempt = ResponseAttempt(
+        phase="repair",
+        mode=mode,
+        repair_fields=repair_fields,
+        preserved_reply=payload[0],
+        expand_output_budget=False,
+    )
+    attempts.append(repair_attempt)
+    try:
+        response = requester(repair_attempt)
+    except MemoryError:
+        raise
+    except Exception:
+        return _build_final_result(
+            payload,
+            mode=mode,
+            schema_version=schema_version,
+            attempts=attempts,
+            repair_performed=True,
+        )
+
+    repaired_fields: dict[str, str] = {}
+    if (
+        isinstance(response, ProviderResponse)
+        and response.mode is mode
+        and response.status is ResponseStatus.COMPLETE
+    ):
+        repaired_fields = decode_response_repair(
+            response.carrier,
+            mode=mode,
+            fields=repair_fields,
+        )
+
+    merged_payload = list(payload)
+    if "tts_text" in repair_fields and "tts_text" in repaired_fields:
+        merged_payload[2] = repaired_fields["tts_text"]
+    if "thought" in repair_fields and "thought" in repaired_fields:
+        merged_payload[6] = repaired_fields["thought"]
+    return _build_final_result(
+        tuple(merged_payload),
+        mode=mode,
+        schema_version=schema_version,
+        attempts=attempts,
+        repair_performed=True,
+    )
+
+
 def execute_final_response(
     requester: Callable[[ResponseAttempt], ProviderResponse],
     *,
@@ -118,15 +209,13 @@ def execute_final_response(
         payload = _decode_provider_response(response, requirements=requirements)
         if has_valid_response_payload(payload):
             assert payload is not None
-            return FinalResponseResult(
+            return _repair_missing_response_fields(
+                requester,
                 payload=payload,
-                metadata=ResponseDeliveryMetadata(
-                    response_mode=current_mode.value,
-                    schema_version=schema_version,
-                    promises_authoritative=current_mode is not ResponseMode.LEGACY_TAGS,
-                    repair_performed=False,
-                ),
-                attempts=tuple(attempts),
+                requirements=requirements,
+                mode=current_mode,
+                schema_version=schema_version,
+                attempts=attempts,
             )
 
         if regeneration_used:

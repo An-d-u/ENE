@@ -634,3 +634,96 @@ def _build_proactive_conversation_rules(language: str = "ko", cooldown_keys: lis
         "[/proactive_conversation]",
         "```",
     ]
+
+
+RESPONSE_REPAIR_FIELDS = ("thought", "tts_text")
+
+
+def canonicalize_response_repair_fields(fields: Iterable[str]) -> tuple[str, ...]:
+    """복구 allowlist를 고정 순서로 정규화하고 알 수 없는 필드를 거부한다."""
+    if isinstance(fields, (str, bytes)):
+        raise ValueError("invalid response repair fields")
+    try:
+        candidates = tuple(fields)
+    except TypeError:
+        raise ValueError("invalid response repair fields") from None
+
+    requested: set[str] = set()
+    allowed = set(RESPONSE_REPAIR_FIELDS)
+    for field_name in candidates:
+        if not isinstance(field_name, str) or field_name not in allowed:
+            raise ValueError("invalid response repair fields")
+        requested.add(field_name)
+    if not requested:
+        raise ValueError("invalid response repair fields")
+    return tuple(name for name in RESPONSE_REPAIR_FIELDS if name in requested)
+
+
+def build_response_repair_prompt(
+    preserved_reply: str,
+    response_language: str,
+    tts_language: str,
+    repair_fields: Iterable[str],
+    response_mode,
+) -> str:
+    """검증된 답변과 누락 필드만 담은 historyless 복구 프롬프트를 만든다."""
+    from .response_protocol import ResponseMode
+
+    if not isinstance(preserved_reply, str) or not preserved_reply.strip():
+        raise ValueError("invalid preserved reply")
+    normalized_response_language = str(response_language or "").strip()
+    normalized_tts_language = str(tts_language or "").strip()
+    if not normalized_response_language or not normalized_tts_language:
+        raise ValueError("invalid response repair language")
+    fields = canonicalize_response_repair_fields(repair_fields)
+    try:
+        mode = (
+            response_mode
+            if isinstance(response_mode, ResponseMode)
+            else ResponseMode(response_mode)
+        )
+    except (TypeError, ValueError):
+        raise ValueError("invalid response mode") from None
+
+    lines = [
+        "Complete only the requested auxiliary fields for the validated text below.",
+        "<validated_text>",
+        preserved_reply,
+        "</validated_text>",
+        f"Response language: {normalized_response_language}",
+        f"TTS language: {normalized_tts_language}",
+    ]
+    if mode is ResponseMode.LEGACY_TAGS:
+        lines.append("Return only the following closed blocks and no other text.")
+        if "thought" in fields:
+            lines.extend(
+                (
+                    "[subconscious]",
+                    f"<non-empty short inner reaction in {normalized_response_language}>",
+                    "[/subconscious]",
+                )
+            )
+        if "tts_text" in fields:
+            lines.extend(
+                (
+                    "[tts]",
+                    f"<non-empty spoken translation in {normalized_tts_language}>",
+                    "[/tts]",
+                )
+            )
+        return "\n".join(lines)
+
+    rendered_fields = ", ".join(f"`{field_name}`" for field_name in fields)
+    lines.append(
+        f"Return one JSON object with exactly these non-empty string fields: {rendered_fields}."
+    )
+    if "thought" in fields:
+        lines.append(
+            f"Write `thought` in {normalized_response_language} as a short inner reaction, not raw reasoning."
+        )
+    if "tts_text" in fields:
+        lines.append(
+            f"Write `tts_text` in {normalized_tts_language} as a faithful spoken translation."
+        )
+    lines.append("Do not rewrite the validated text.")
+    return "\n".join(lines)
