@@ -1,6 +1,15 @@
 from PyQt6.QtCore import QCoreApplication
 
+from src.ai.response_protocol import ResponseDeliveryMetadata
 from src.core.bridge_workers import AIWorker
+
+
+STRUCTURED_METADATA = ResponseDeliveryMetadata(
+    response_mode="json_schema",
+    schema_version="1",
+    promises_authoritative=True,
+    repair_performed=False,
+)
 
 
 def _ensure_qt_app():
@@ -39,6 +48,9 @@ def test_ai_worker_sends_images_when_client_declares_image_support():
         def __init__(self):
             self.calls = []
 
+        def get_last_response_delivery_metadata(self):
+            return STRUCTURED_METADATA
+
         async def send_message_with_images(self, message, images, *_args, **_kwargs):
             self.calls.append((message, images))
             return "이미지 응답", "normal", "", [], {}, [], "", {}
@@ -56,6 +68,7 @@ def test_ai_worker_sends_images_when_client_declares_image_support():
 
     assert client.calls == [("이미지 설명해줘", [{"dataUrl": "data:image/png;base64,QUJD"}])]
     assert responses == ["이미지 응답"]
+    assert worker.response_metadata == STRUCTURED_METADATA
 
 
 def test_ai_worker_forwards_progress_callback_to_memory_client():
@@ -64,6 +77,9 @@ def test_ai_worker_forwards_progress_callback_to_memory_client():
     stages = []
 
     class DummyLLM:
+        def get_last_response_delivery_metadata(self):
+            return STRUCTURED_METADATA
+
         async def send_message_with_memory(self, *args, progress_callback=None):
             if progress_callback:
                 progress_callback("searching")
@@ -86,6 +102,7 @@ def test_ai_worker_forwards_progress_callback_to_memory_client():
     assert client.progress_callback is progress_callback
     assert stages == ["searching"]
     assert responses == ["Synthetic response."]
+    assert worker.response_metadata == STRUCTURED_METADATA
 
 
 def test_ai_worker_logs_chat_content(capsys):

@@ -2,6 +2,7 @@
 WebBridge의 일반 채팅 요청, 재시도, 응답 완료 흐름.
 """
 import json
+from functools import partial
 
 from PyQt6.QtCore import pyqtSlot
 
@@ -9,6 +10,7 @@ from ...ai.chat_commands import parse_diary_command, parse_note_command
 from ...ai.analysis_prompt import is_schedule_recognition_enabled
 from ...ai.persona_names import role_label_for_prompt
 from ...ai.prompt_language import resolve_prompt_language
+from ...ai.response_protocol import ResponseDeliveryMetadata
 from ..bridge_workers import AIWorker
 from ..chat_attachments import (
     build_attachment_context_block,
@@ -98,7 +100,9 @@ class ChatFlowBridgeMixin:
             head_pat_count_before_message=head_pat_count_before_message,
             progress_callback=self._emit_request_pending_stage_changed,
         )
-        self.worker.response_ready.connect(self._on_response_ready)
+        self.worker.response_ready.connect(
+            partial(self._on_response_ready, response_worker=self.worker)
+        )
         self.worker.error_occurred.connect(self._on_error)
         self._connect_worker_finished_drain()
         self._emit_request_pending_stage_changed("thinking")
@@ -118,7 +122,9 @@ class ChatFlowBridgeMixin:
             diary_service=self.diary_service,
             use_obsidian_priority=use_obsidian_priority,
         )
-        self.worker.response_ready.connect(self._on_response_ready)
+        self.worker.response_ready.connect(
+            partial(self._on_response_ready, response_worker=self.worker)
+        )
         self.worker.error_occurred.connect(self._on_error)
         self._connect_worker_finished_drain()
         self._emit_request_pending_stage_changed("thinking")
@@ -139,7 +145,9 @@ class ChatFlowBridgeMixin:
             note_service=self.note_service,
             obsidian_manager=self.obsidian_manager,
         )
-        self.worker.response_ready.connect(self._on_response_ready)
+        self.worker.response_ready.connect(
+            partial(self._on_response_ready, response_worker=self.worker)
+        )
         self.worker.error_occurred.connect(self._on_error)
         self._connect_worker_finished_drain()
         self._emit_request_pending_stage_changed("thinking")
@@ -595,12 +603,26 @@ class ChatFlowBridgeMixin:
         )
         print("[Bridge] Edit last user message started")
 
-    def _on_response_ready(self, *args, **kwargs):
+    def _on_response_ready(self, *args, response_worker=None, **kwargs):
+        worker = (
+            response_worker if response_worker is not None else getattr(self, "worker", None)
+        )
+        response_metadata = getattr(worker, "response_metadata", None)
+        if not isinstance(response_metadata, ResponseDeliveryMetadata):
+            response_metadata = ResponseDeliveryMetadata.empty()
         try:
-            return ChatFlowBridgeMixin._handle_response_ready(self, *args, **kwargs)
+            return ChatFlowBridgeMixin._handle_response_ready(
+                self,
+                *args,
+                response_metadata=response_metadata,
+                **kwargs,
+            )
         except Exception:
             ChatFlowBridgeMixin._emit_request_pending_changed(self, False)
             raise
+        finally:
+            if worker is not None:
+                worker.response_metadata = ResponseDeliveryMetadata.empty()
 
     def _remember_loaded_topic_memory_context_for_summary(self) -> None:
         """이번 응답 생성에 실제 주입된 주제 기억을 요약 비교용 side-buffer에 남긴다."""
@@ -661,6 +683,8 @@ class ChatFlowBridgeMixin:
         goal_update_payload: str = "",
         proactive_conversations: list | None = None,
         gesture: str = "",
+        *,
+        response_metadata: ResponseDeliveryMetadata | None = None,
     ):
         """AI 응답 준비 완료"""
         completed_promise_id = str(getattr(self, "_active_promise_id", "") or "").strip()
@@ -747,16 +771,21 @@ class ChatFlowBridgeMixin:
 
         stored_promise_ids: list[str] = []
         llm_promises = list(scheduled_promises or [])
+        promises_authoritative = (
+            isinstance(response_metadata, ResponseDeliveryMetadata)
+            and response_metadata.promises_authoritative
+        )
+        use_fallback = not llm_promises and not promises_authoritative
         store_promises = getattr(self, "_store_scheduled_promises", None)
         if callable(store_promises):
             stored = store_promises(llm_promises)
             stored_promise_ids.extend(self._collect_promise_ids(stored))
         maybe_store_user_promises = getattr(self, "_maybe_store_user_promise_candidates", None)
-        if callable(maybe_store_user_promises) and not llm_promises:
+        if callable(maybe_store_user_promises) and use_fallback:
             stored = maybe_store_user_promises(llm_promises)
             stored_promise_ids.extend(self._collect_promise_ids(stored))
         maybe_store_assistant_promises = getattr(self, "_maybe_store_assistant_promise_candidates", None)
-        if callable(maybe_store_assistant_promises) and not llm_promises:
+        if callable(maybe_store_assistant_promises) and use_fallback:
             stored = maybe_store_assistant_promises(text)
             stored_promise_ids.extend(self._collect_promise_ids(stored))
         self._remember_tracked_promise_ids(stored_promise_ids)

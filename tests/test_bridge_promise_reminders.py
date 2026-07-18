@@ -1,6 +1,7 @@
 import sys
 import types
 import json
+from types import SimpleNamespace
 
 
 google_module = types.ModuleType("google")
@@ -12,6 +13,7 @@ sys.modules.setdefault("google.genai", genai_module)
 
 from src.core.bridge import AIWorker, WebBridge
 from src.ai.promise_reminder_manager import PromiseReminderManager
+from src.ai.response_protocol import ResponseDeliveryMetadata
 
 
 class _DummySignal:
@@ -109,6 +111,62 @@ def _attach_bridge_promise_helpers(dummy):
     dummy._dismiss_duplicate_promise_payload = lambda payload=None: WebBridge._dismiss_duplicate_promise_payload(dummy, payload)
     dummy._mark_promise_fire_started = lambda payload=None: WebBridge._mark_promise_fire_started(dummy, payload)
     return dummy
+
+
+def build_promise_bridge_dummy(*, response_metadata=None):
+    """실제 저장소 없이 응답 완료 분기를 실행하는 합성 브리지다."""
+    dummy = SimpleNamespace()
+    _attach_bridge_promise_helpers(dummy)
+    dummy.worker = SimpleNamespace(
+        response_metadata=response_metadata or ResponseDeliveryMetadata.empty()
+    )
+    dummy.promise_manager = _DummyPromiseManager()
+    dummy.promise_notice = _DummySignal()
+    dummy.promise_items_updated = _DummySignal()
+    dummy.message_received = _DummySignal()
+    dummy.token_usage_ready = _DummySignal()
+    dummy.reroll_state_changed = _DummySignal()
+    dummy.conversation_buffer = [("user", "합성 요청", "2026-07-19 10:00")]
+    dummy.mood_manager = None
+    dummy.calendar_manager = None
+    dummy.goal_manager = None
+    dummy.enable_tts = False
+    dummy.tts_client = None
+    dummy.audio_player = None
+    dummy.pending_response = None
+    dummy.pending_token_usage_payload = ""
+    dummy._is_rerolling = False
+    dummy._active_promise_id = ""
+    dummy._active_proactive_id = ""
+    dummy._last_assistant_response = None
+    dummy._emit_mood_changed = lambda _snapshot: None
+    dummy._sanitize_visible_response_text = lambda text: text
+    dummy._sanitize_visible_thought_text = lambda text: str(text or "").strip()
+    dummy._are_ene_thoughts_enabled = lambda: True
+    dummy._resolve_token_usage_payload = lambda payload="": payload
+    dummy._append_conversation = lambda role, text, timestamp=None: dummy.conversation_buffer.append(
+        (role, text, timestamp or "2026-07-19 10:00")
+    )
+    dummy._remember_ene_thought_for_context = lambda _thought: None
+    dummy._remember_loaded_topic_memory_context_for_summary = lambda: None
+    dummy._refresh_llm_history_from_visible_conversation = lambda: None
+    dummy._check_auto_summarize = lambda: None
+    dummy._store_scheduled_promises = lambda _items: []
+    dummy._maybe_store_user_promise_candidates = lambda _items=None: []
+    dummy._maybe_store_assistant_promise_candidates = lambda _text: []
+    dummy._drain_promise_queue_if_idle = lambda: None
+    return dummy
+
+
+def test_legacy_empty_promises_run_existing_heuristics_once():
+    dummy = build_promise_bridge_dummy()
+    calls = []
+    dummy._maybe_store_user_promise_candidates = lambda _items=None: calls.append("user") or []
+    dummy._maybe_store_assistant_promise_candidates = lambda _text: calls.append("assistant") or []
+
+    WebBridge._on_response_ready(dummy, "합성 답변", "normal", "", [], "", "", [])
+
+    assert calls == ["user", "assistant"]
 
 
 def test_ai_worker_normalize_response_payload_supports_promises():

@@ -7,6 +7,7 @@ from PyQt6.QtCore import QThread, pyqtSignal
 
 from ..ai.diary_service import DiaryService
 from ..ai.note_service import NoteCommand, NoteCommandResult, NotePlan, NoteService
+from ..ai.response_protocol import ResponseDeliveryMetadata
 from ..ai.persona_names import resolve_prompt_persona_names
 from ..ai.prompt_language import resolve_prompt_language
 
@@ -84,6 +85,7 @@ class AIWorker(QThread):
         self.obsidian_manager = obsidian_manager
         self.use_obsidian_priority = bool(use_obsidian_priority)
         self.progress_callback = progress_callback
+        self.response_metadata = ResponseDeliveryMetadata.empty()
 
     def _prompt_language(self) -> str:
         return resolve_prompt_language(settings_source=getattr(self.llm_client, "settings", None))
@@ -119,6 +121,7 @@ class AIWorker(QThread):
             raise RuntimeError("현재 LLM 공급자는 이미지 입력을 지원하지 않습니다. 이미지 지원 공급자나 모델로 변경해 주세요.")
 
     def run(self):
+        self.response_metadata = ResponseDeliveryMetadata.empty()
         loop = None
         """스레드 실행"""
         try:
@@ -165,6 +168,7 @@ class AIWorker(QThread):
                         )
                     )
                 )
+                self._capture_response_delivery_metadata()
             elif self.use_memory and hasattr(self.llm_client, 'send_message_with_memory'):
                 print(f"[AI Worker] 메모리 활용 모드")
                 response_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture = self._normalize_response_payload(
@@ -179,11 +183,13 @@ class AIWorker(QThread):
                         )
                     )
                 )
+                self._capture_response_delivery_metadata()
             else:
                 print(f"[AI Worker] 일반 모드 (메모리 없음)")
                 response_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture = self._normalize_response_payload(
                     self.llm_client.send_message(self.message)
                 )
+                self._capture_response_delivery_metadata()
 
             print(f"[AI Worker] response: {response_text} emotion={emotion}")
             if tts_text:
@@ -207,6 +213,7 @@ class AIWorker(QThread):
                 gesture,
             )
         except Exception as e:
+            self.response_metadata = ResponseDeliveryMetadata.empty()
             print(f"[AI Worker] Error: {e}")
             import traceback
             traceback.print_exc()
@@ -214,6 +221,18 @@ class AIWorker(QThread):
         finally:
             if loop is not None:
                 loop.close()
+
+    def _capture_response_delivery_metadata(self) -> None:
+        """성공한 일반 응답의 요청 범위 메타데이터만 보관한다."""
+        getter = getattr(self.llm_client, "get_last_response_delivery_metadata", None)
+        if not callable(getter):
+            return
+        try:
+            metadata = getter()
+        except Exception:
+            return
+        if isinstance(metadata, ResponseDeliveryMetadata):
+            self.response_metadata = metadata
 
     def _build_token_usage_payload(self) -> str:
         """최근 토큰 사용량을 JSON 문자열로 직렬화한다."""
