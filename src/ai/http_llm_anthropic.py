@@ -8,7 +8,12 @@ from .http_llm_common import (
     _CommonMixin,
     _normalize_generation_params,
 )
-from .response_protocol import LLMRequestKind
+from .response_protocol import (
+    LLMRequestKind,
+    ProviderResponse,
+    ResponseMode,
+    ResponseStatus,
+)
 
 
 class AnthropicClient(_CommonMixin):
@@ -49,13 +54,61 @@ class AnthropicClient(_CommonMixin):
             "content-type": "application/json",
         }
 
+    def _response_output_token_cap(self) -> int:
+        return 8192
+
+    def _expanded_output_token_budget(self, current: object) -> int:
+        try:
+            current_tokens = max(0, int(current or 0))
+        except (TypeError, ValueError):
+            current_tokens = 0
+        cap = self._response_output_token_cap()
+        if current_tokens <= 0:
+            return cap
+        if current_tokens >= cap:
+            return current_tokens
+        return min(cap, max(current_tokens + 512, current_tokens * 2))
+
+    @staticmethod
+    def _response_text(data: dict) -> str:
+        text_parts = [
+            part.get("text", "")
+            for part in data.get("content", [])
+            if isinstance(part, dict) and part.get("type") == "text"
+        ]
+        return "\n".join(text_parts).strip()
+
+    def _provider_response_from_data(
+        self,
+        data: dict,
+        request_descriptor: HTTPFinalRequestDescriptor,
+    ) -> ProviderResponse:
+        carrier = self._response_text(data)
+        stop_reason = str(data.get("stop_reason", "") or "").strip().lower()
+        if stop_reason == "refusal":
+            status = ResponseStatus.REFUSAL
+        elif stop_reason == "max_tokens":
+            status = ResponseStatus.INCOMPLETE
+        elif stop_reason not in {"", "end_turn", "stop_sequence"}:
+            status = ResponseStatus.INCOMPLETE
+        elif carrier:
+            status = ResponseStatus.COMPLETE
+        else:
+            status = ResponseStatus.EMPTY
+        return ProviderResponse(
+            carrier=carrier,
+            status=status,
+            mode=request_descriptor.attempt.mode,
+            finish_reason=stop_reason,
+        )
+
     def _request_anthropic(
         self,
         user_content_blocks: list[dict],
         include_sub_prompt: bool = True,
         *,
         request_descriptor: HTTPFinalRequestDescriptor | None = None,
-    ) -> str:
+    ) -> str | ProviderResponse:
         context = (
             request_descriptor.context
             if request_descriptor is not None
@@ -66,7 +119,15 @@ class AnthropicClient(_CommonMixin):
                 include_sub_prompt=include_sub_prompt,
             )
         )
-        generation_params = context.generation_params
+        generation_params = dict(context.generation_params)
+        if (
+            request_descriptor is not None
+            and request_descriptor.attempt.phase == "regenerate"
+            and request_descriptor.attempt.expand_output_budget
+        ):
+            generation_params["max_tokens"] = self._expanded_output_token_budget(
+                generation_params.get("max_tokens")
+            )
         messages = []
         for h in context.history:
             role = h.get("role", "user")
@@ -84,12 +145,25 @@ class AnthropicClient(_CommonMixin):
             "system": context.system_prompt,
             "messages": messages,
         }
+        if (
+            request_descriptor is not None
+            and request_descriptor.attempt.mode is ResponseMode.JSON_SCHEMA
+            and context.request_kind is LLMRequestKind.FINAL_REPLY
+            and request_descriptor.schema is not None
+        ):
+            payload["output_config"] = {
+                "format": {
+                    "type": "json_schema",
+                    "schema": request_descriptor.schema,
+                }
+            }
         timeout = request_descriptor.timeout_seconds if request_descriptor is not None else 60
         response = requests.post(self.endpoint, headers=self._headers(), json=payload, timeout=timeout)
         response.raise_for_status()
         data = response.json()
-        text_parts = [p.get("text", "") for p in data.get("content", []) if p.get("type") == "text"]
-        return "\n".join(text_parts).strip()
+        if request_descriptor is None:
+            return self._response_text(data)
+        return self._provider_response_from_data(data, request_descriptor)
 
     def _request_one_shot_raw(
         self,

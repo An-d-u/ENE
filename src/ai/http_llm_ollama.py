@@ -7,7 +7,12 @@ from .http_llm_common import (
     _CommonMixin,
     _normalize_generation_params,
 )
-from .response_protocol import LLMRequestKind
+from .response_protocol import (
+    LLMRequestKind,
+    ProviderResponse,
+    ResponseMode,
+    ResponseStatus,
+)
 
 
 class OllamaClient(_CommonMixin):
@@ -41,6 +46,43 @@ class OllamaClient(_CommonMixin):
         self.generation_params = _normalize_generation_params(generation_params)
         self._history = []
 
+    def _response_output_token_cap(self) -> int:
+        return 8192
+
+    def _expanded_output_token_budget(self, current: object) -> int:
+        try:
+            current_tokens = max(0, int(current or 0))
+        except (TypeError, ValueError):
+            current_tokens = 0
+        cap = self._response_output_token_cap()
+        if current_tokens <= 0:
+            return cap
+        if current_tokens >= cap:
+            return current_tokens
+        return min(cap, max(current_tokens + 512, current_tokens * 2))
+
+    def _provider_response_from_data(
+        self,
+        data: dict,
+        request_descriptor: HTTPFinalRequestDescriptor,
+    ) -> ProviderResponse:
+        carrier = str(data.get("message", {}).get("content", "")).strip()
+        done_reason = str(data.get("done_reason", "") or "").strip().lower()
+        done = data.get("done")
+        complete_reason = done_reason in {"", "stop"}
+        if done is False or not complete_reason:
+            status = ResponseStatus.INCOMPLETE
+        elif carrier:
+            status = ResponseStatus.COMPLETE
+        else:
+            status = ResponseStatus.EMPTY
+        return ProviderResponse(
+            carrier=carrier,
+            status=status,
+            mode=request_descriptor.attempt.mode,
+            finish_reason=done_reason,
+        )
+
     def _request_ollama(
         self,
         message: str,
@@ -48,7 +90,7 @@ class OllamaClient(_CommonMixin):
         include_sub_prompt: bool = True,
         *,
         request_descriptor: HTTPFinalRequestDescriptor | None = None,
-    ) -> str:
+    ) -> str | ProviderResponse:
         context = (
             request_descriptor.context
             if request_descriptor is not None
@@ -60,7 +102,15 @@ class OllamaClient(_CommonMixin):
                 attachments_metadata=self._image_context_metadata(images_data),
             )
         )
-        generation_params = context.generation_params
+        generation_params = dict(context.generation_params)
+        if (
+            request_descriptor is not None
+            and request_descriptor.attempt.phase == "regenerate"
+            and request_descriptor.attempt.expand_output_budget
+        ):
+            generation_params["max_tokens"] = self._expanded_output_token_budget(
+                generation_params.get("max_tokens")
+            )
         if request_descriptor is not None and request_descriptor.attempt.phase == "repair":
             images_data = None
         messages = [{
@@ -91,11 +141,20 @@ class OllamaClient(_CommonMixin):
         }
         if generation_params["max_tokens"] > 0:
             payload["options"]["num_predict"] = generation_params["max_tokens"]
+        if (
+            request_descriptor is not None
+            and request_descriptor.attempt.mode is ResponseMode.JSON_SCHEMA
+            and context.request_kind is LLMRequestKind.FINAL_REPLY
+            and request_descriptor.schema is not None
+        ):
+            payload["format"] = request_descriptor.schema
         timeout = request_descriptor.timeout_seconds if request_descriptor is not None else 60
         response = requests.post(self.endpoint, json=payload, timeout=timeout)
         response.raise_for_status()
         data = response.json()
-        return str(data.get("message", {}).get("content", "")).strip()
+        if request_descriptor is None:
+            return str(data.get("message", {}).get("content", "")).strip()
+        return self._provider_response_from_data(data, request_descriptor)
 
     def _request_one_shot_raw(
         self,
