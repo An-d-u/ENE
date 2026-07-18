@@ -1,6 +1,9 @@
 import json
 
+import pytest
+
 from src.core.bridge import AIWorker, WebBridge
+from src.core.bridge_mixins.thoughts import ThoughtBridgeMixin
 
 
 class _DummySignal:
@@ -110,6 +113,104 @@ def test_on_response_ready_continues_message_emit_without_goal_manager_or_payloa
 
     assert dummy.message_received.emitted == [("그대로 보여줄 응답", "normal", "")]
     assert dummy.goal_items_updated.emitted == []
+
+
+@pytest.mark.parametrize(
+    ("response_text", "secrets"),
+    [
+        (
+            "VISIBLE [normal] [thought]OUTER [thought]INNER[/thought] TAIL[/thought] END",
+            ("OUTER", "INNER", "TAIL", "END"),
+        ),
+        (
+            "VISIBLE [normal] [thought]OUTER [analysis]user_intent=x[/thought] AFTER[/analysis] END",
+            ("OUTER", "user_intent=x", "AFTER", "END"),
+        ),
+        (
+            """VISIBLE [normal]
+[tts]
+LEAK_A
+[ene_goal_update]
+LEAK_B
+[/tts]
+[analysis]
+LEAK_C
+[/ene_goal_update]
+[proactive_conversation]
+LEAK_D
+[/analysis]""",
+            ("LEAK_A", "LEAK_B", "LEAK_C", "LEAK_D"),
+        ),
+    ],
+)
+def test_bridge_visible_sanitizer_discards_malformed_reserved_blocks(response_text, secrets):
+    sanitized = ThoughtBridgeMixin._sanitize_visible_response_text(
+        ThoughtBridgeMixin(),
+        response_text,
+    )
+
+    assert sanitized == "VISIBLE"
+    for secret in secrets:
+        assert secret not in sanitized
+    assert "[" not in sanitized
+    assert "]" not in sanitized
+
+
+def test_bridge_visible_sanitizer_strips_orphan_reserved_close_markers():
+    sanitized = ThoughtBridgeMixin._sanitize_visible_response_text(
+        ThoughtBridgeMixin(),
+        "[/analysis] VISIBLE [normal] AFTER [/thought]",
+    )
+
+    assert sanitized == "VISIBLE  AFTER"
+    assert "[/analysis]" not in sanitized.lower()
+    assert "[/thought]" not in sanitized.lower()
+
+
+def test_bridge_visible_sanitizer_preserves_reply_around_flat_metadata():
+    response_text = """VISIBLE [normal]
+[thought]
+SYNTHETIC_THOUGHT
+[/thought]
+[ene_goal_update]
+action=none
+[/ene_goal_update]
+[proactive_conversation]
+SYNTHETIC_PROACTIVE
+[/proactive_conversation]
+END"""
+
+    sanitized = ThoughtBridgeMixin._sanitize_visible_response_text(
+        ThoughtBridgeMixin(),
+        response_text,
+    )
+
+    assert sanitized.split() == ["VISIBLE", "END"]
+    assert "SYNTHETIC_THOUGHT" not in sanitized
+    assert "SYNTHETIC_PROACTIVE" not in sanitized
+    assert "[" not in sanitized
+
+
+def test_bridge_visible_sanitizer_extracts_spaced_mixed_case_analysis():
+    sanitized = ThoughtBridgeMixin._sanitize_visible_response_text(
+        ThoughtBridgeMixin(),
+        "[ AnAlYsIs ]\nuser_intent=synthetic_intent\n[ / analysis ]\nVISIBLE",
+    )
+
+    assert sanitized == "VISIBLE"
+    assert "synthetic_intent" not in sanitized
+    assert "analysis" not in sanitized.lower()
+
+
+def test_bridge_visible_sanitizer_removes_closed_tts_block():
+    sanitized = ThoughtBridgeMixin._sanitize_visible_response_text(
+        ThoughtBridgeMixin(),
+        "VISIBLE\n[tts]\nSYNTHETIC_TTS\n[/tts]",
+    )
+
+    assert sanitized == "VISIBLE"
+    assert "SYNTHETIC_TTS" not in sanitized
+    assert "tts" not in sanitized.lower()
 
 
 def test_sanitize_visible_response_text_removes_leaked_goal_update_block():

@@ -18,6 +18,7 @@ from .response_cleanup import (
     extract_goal_update_metadata,
     extract_thought_metadata,
     extract_tts_metadata,
+    sanitize_reserved_control_blocks,
     strip_proactive_conversation_blocks,
     strip_thinking_markers,
 )
@@ -73,7 +74,7 @@ def parse_analysis_lines(raw_block: str) -> Dict[str, str]:
 
 def extract_analysis_block(response_text: str) -> tuple[str, Dict[str, str]]:
     """응답의 analysis 블록 또는 상단 메타 줄을 분리해 구조화된 딕셔너리로 반환한다."""
-    pattern = r"\[analysis\]\s*(.*?)\s*\[/analysis\]"
+    pattern = r"\[\s*analysis\s*\]\s*(.*?)\s*\[\s*/\s*analysis\s*\]"
     match = re.search(pattern, response_text, re.IGNORECASE | re.DOTALL)
     if match:
         analysis = parse_analysis_lines(match.group(1))
@@ -232,6 +233,7 @@ def parse_llm_response(
 ) -> LLM_RESPONSE_TUPLE:
     """최종 응답 텍스트에서 표시 텍스트, 감정, 메타데이터를 분리한다."""
     response_text = strip_thinking_markers(response_text)
+    response_text = sanitize_reserved_control_blocks(response_text)
     response_text, analysis = extract_analysis_block(response_text)
     response_text, goal_update = extract_goal_update_metadata(response_text)
     response_text, thought = extract_thought_metadata(response_text)
