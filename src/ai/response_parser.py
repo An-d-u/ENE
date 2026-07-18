@@ -5,10 +5,15 @@ LLM 최종 응답 파싱 유틸리티.
 from __future__ import annotations
 
 import re
-from typing import Callable, Dict, List, Tuple
+from typing import Callable, Dict, List
 
 from .analysis_prompt import is_conversation_promise_enabled, is_schedule_recognition_enabled
 from .prompt_language import resolve_prompt_language, resolve_tts_language
+from .response_envelope import (
+    LLM_RESPONSE_TUPLE,
+    build_response_requirements,
+    normalize_response_tuple,
+)
 from .response_cleanup import (
     extract_goal_update_metadata,
     extract_thought_metadata,
@@ -39,18 +44,6 @@ AVAILABLE_GESTURES = {
     "sway",
 }
 
-LLM_RESPONSE_TUPLE = Tuple[
-    str,
-    str,
-    str | None,
-    List[Dict],
-    Dict[str, str],
-    List[Dict],
-    str,
-    Dict[str, str],
-    List[Dict],
-    str,
-]
 
 PROACTIVE_CONVERSATION_KEYS = {
     "trigger_at",
@@ -155,7 +148,7 @@ def extract_proactive_conversation_blocks(response_text: str) -> tuple[str, List
         if parsed:
             proactive_conversations.append(parsed)
     cleaned = strip_proactive_conversation_blocks(response_text)
-    return cleaned, proactive_conversations[:1]
+    return cleaned, proactive_conversations
 
 
 def is_japanese(text: str) -> bool:
@@ -300,4 +293,23 @@ def parse_llm_response(
     else:
         clean_text, tts_text = extract_tts_text(clean_text, settings_source=settings_source)
 
-    return clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture
+    requirements = build_response_requirements(
+        settings_source,
+        available_emotions=available_emotions or ("normal",),
+    )
+    return normalize_response_tuple(
+        (
+            clean_text,
+            emotion,
+            tts_text,
+            events,
+            analysis,
+            promises,
+            thought,
+            goal_update,
+            proactive_conversations,
+            gesture,
+        ),
+        requirements=requirements,
+        preserve_none_goal=True,
+    )
