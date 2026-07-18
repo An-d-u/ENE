@@ -64,6 +64,8 @@ ENE는 최종 LLM 응답 한 번에서 사용자에게 보일 답변과 감정, 
 
 제공자 교집합을 유지하기 위해 최상위 10개 키는 모두 `required`로 두고, 모든 object에는 `additionalProperties: false`를 사용한다. `null`, `oneOf`, 조건부 스키마, `pattern`, `minLength`처럼 제공자별 차이가 큰 제약은 공통 스키마에 사용하지 않는다. 내용 필수 여부와 조건부 필드 규칙은 로컬 도메인 검증기가 담당한다.
 
+이 strict schema는 **모델 생성을 강제하기 위한 송신 계약**이다. 수신기는 전체 스키마 적합 여부를 all-or-nothing 사용 조건으로 삼지 않는다. 응답이 JSON object이고 유효한 `reply`를 포함하면 먼저 각 필드의 존재와 타입을 독립적으로 기록하고, 유효한 필드만 회수한다. 따라서 thought/TTS 누락은 제한 복구로, 잘못된 부작용 항목은 개별 폐기로 처리할 수 있다. JSON 자체를 파싱할 수 없거나 root가 object가 아니거나 유효한 `reply`가 없을 때만 전체 응답 재생성 경로로 간다.
+
 스키마 버전은 요청과 capability cache에서 사용하는 내부 상수이며 모델 출력 필드로 추가하지 않는다.
 
 ### 5.2 하위 객체
@@ -129,7 +131,7 @@ capability key는 `(provider, wire_format, endpoint_fingerprint, model, schema_v
 
 내부 설정 `structured_response_mode`는 `auto`와 `legacy`만 제공한다. 기본은 `auto`이고, `legacy`는 네이티브 구조화만 끄는 긴급 전환 수단이다. V1에는 이 설정을 위한 새 UI를 만들지 않는다.
 
-임의 Custom API의 지원 능력은 안전하게 추론할 수 없으므로 `auto`에서 기본 `legacy_tags`를 사용한다. 이미 공식 어댑터로 식별할 수 있는 알려진 endpoint profile만 해당 네이티브 경로를 사용할 수 있다. 이 제한은 호환성을 우선하며, Custom API의 명시적 네이티브 opt-in UI는 V1 범위 밖이다.
+임의 Custom API의 지원 능력은 안전하게 추론할 수 없으므로 `auto`에서 기본 `legacy_tags`를 사용한다. 이는 `openai_chat`, `openai_responses`, `anthropic`, `mistral`, `google_cloud`, `cohere`, `ollama` Custom API 형식에 모두 적용한다. endpoint가 기존 named provider의 공식 profile로 식별되는 경우에만 그 profile의 네이티브 경로를 재사용한다. 이 제한은 호환성을 우선하며, 임의 Custom API의 네이티브 opt-in UI와 설정은 V1 범위 밖이다.
 
 ### 6.4 API 형식별 어댑터
 
@@ -149,17 +151,34 @@ capability key는 `(provider, wire_format, endpoint_fingerprint, model, schema_v
 
 1. 제공자 종료 상태 확인
 2. 구조화 carrier 추출
-3. JSON 문법과 고정 스키마 검증
-4. `present_fields` 기록
-5. `ResponseRequirements` 기반 도메인 검증
-6. 비활성 필드 제거와 기존 자료형 정규화
-7. 기존 10개 `LLM_RESPONSE_TUPLE`로 변환
+3. JSON 문법 검증과 root object 확인
+4. root에 실제로 온 `present_fields` 기록
+5. allowlist 기반 필드별 타입 디코딩
+6. 전체 송신 schema 적합 여부를 진단 정보로 기록
+7. `ResponseRequirements` 기반 도메인 검증
+8. 비활성 필드 제거와 기존 자료형 정규화
+9. 기존 10개 `LLM_RESPONSE_TUPLE`로 변환
+
+전체 송신 schema 불일치만으로 유효한 `reply`를 버리지 않는다. 알 수 없는 최상위 키는 기록 후 무시한다. `events`, `promises`, `goal_update`, `proactive_conversations` 같은 부작용 객체에 알 수 없는 키, 잘못된 타입, 동작별 필수값 누락이 있으면 해당 항목 전체를 폐기한다. `analysis`는 허용된 key의 비어 있지 않은 문자열만 남긴다. thought/TTS가 없거나 문자열이 아니면 누락으로 분류한다.
 
 태그 경로는 기존 `parse_llm_response`를 호출한 뒤 같은 도메인 검증과 정규화를 거친다. 닫히지 않은 thought/TTS/analysis/goal/proactive 제어 블록은 사용자에게 보이는 `reply`에서 제거하고 해당 메타데이터를 누락으로 취급한다.
 
 ### 6.6 턴 사용량 누산기
 
-기본 호출, 미지원 하향 호출, 전체 재생성, 제한 복구의 input/output/total token을 한 턴 단위로 합산한다. 개별 호출에는 응답 방식과 실패 이유 코드만 연결하고 원문은 저장하지 않는다. 기존 `get_last_token_usage()`는 최종 합산값을 반환해야 한다.
+기본 호출, 미지원 하향 호출, 전체 재생성, 제한 복구의 input/output/total token을 한 턴 단위로 합산한다. 개별 호출에는 응답 방식과 실패 이유 코드만 연결하고 원문은 저장하지 않는다. 기존에 사용량을 제공하는 클라이언트는 `get_last_token_usage()`에서 최종 합산값을 반환한다. 사용량을 제공하지 않는 HTTP 클라이언트는 V1에서 새 계측을 강제하지 않으며 기존처럼 각 값이 `null`이어도 된다. 일부 호출의 특정 수치만 누락된 경우 해당 합계도 `null`로 두어 불완전한 합계를 실제 총량처럼 표시하지 않는다.
+
+### 6.7 적용 요청 종류
+
+| 요청 종류 | `ResponseEnvelopeV1` 적용 |
+|---|---|
+| `send_message` 일반 대화 | 적용 |
+| `send_message_with_memory` | 적용 |
+| `send_message_with_images` | 적용 |
+| 선제 대화·약속 실행 결과가 위 최종 대화 경로를 사용하는 경우 | 적용 |
+| summary와 topic-memory 추출 | 미적용 |
+| 웹 검색 필요 여부 판단 | 미적용 |
+| `/diary`, `/note`, Markdown 문서 생성과 완료 안내 | 미적용 |
+| 그 밖의 `include_sub_prompt=False` one-shot | 미적용 |
 
 ## 7. 제공자별 정책
 
@@ -171,7 +190,7 @@ capability key는 `(provider, wire_format, endpoint_fingerprint, model, schema_v
 | OpenRouter Chat Completions | strict `response_format.json_schema` | `provider.require_parameters=true`로 실제 라우팅 제공자의 지원을 요구하고, 지원 route 부재 시 태그로 하향 |
 | DeepSeek Chat Completions | 안정 API의 `json_object` | 키와 타입은 로컬 검증. strict tool은 사용자가 이미 beta endpoint를 명시한 profile에서만 사용하며 자동 endpoint 변경 금지 |
 | 로컬 Ollama | `/api/chat`의 schema object `format` | `message.content` JSON을 다시 검증. structured output 미지원 Ollama Cloud는 태그 사용 |
-| Custom API | 선택 wire format의 어댑터 | 알 수 없는 endpoint는 `auto`에서도 태그 사용. 알려진 profile만 네이티브 사용 |
+| Custom API | 모든 형식에서 기본 태그 | named provider의 공식 endpoint profile로 식별되는 경우에만 해당 네이티브 어댑터 재사용 |
 
 OpenAI-compatible이라는 이유만으로 OpenRouter, DeepSeek, 임의 Custom API를 같은 capability로 간주하지 않는다.
 
@@ -182,7 +201,7 @@ OpenAI-compatible이라는 이유만으로 OpenRouter, DeepSeek, 임의 Custom A
 3. 계약 생성기가 의미 규칙과 해당 출력 계약을 만든다.
 4. 기존 클라이언트가 메모리, 이미지, 사용자 입력과 함께 요청을 한 번 전송한다.
 5. 어댑터가 종료 상태와 응답 carrier를 추출한다.
-6. envelope 디코더가 구조와 도메인 규칙을 검증한다.
+6. envelope 디코더가 JSON object에서 유효한 필드를 회수하고 구조 적합성과 도메인 규칙을 검증한다.
 7. 필요한 경우에만 생각/TTS 제한 복구를 한 번 수행한다.
 8. 최종 envelope를 기존 10개 튜플로 변환한다.
 9. `bridge_workers`와 `chat_flow`가 기존 순서로 UI, TTS, 목표, 일정, 약속, 기분, 선제 대화 소비부에 전달한다.
@@ -193,6 +212,8 @@ OpenAI-compatible이라는 이유만으로 OpenRouter, DeepSeek, 임의 Custom A
 제공자가 반환한 JSON envelope, tool call, 태그 원문은 다음 대화의 assistant history로 보존하지 않는다. 검증 후 사용자에게 실제 표시한 `reply`만 저장한다.
 
 HTTP 클라이언트는 `_assistant_history_content_for_response`에서 정규화된 `reply`를 사용한다. Gemini SDK 채팅 세션도 직전 assistant history를 같은 `reply`로 교체하거나 정규화된 visible conversation으로 재구성한다. 기존 브릿지의 visible conversation 기반 history refresh와 같은 의미를 유지한다.
+
+Gemini의 primary 응답이 미지원 오류, 잘못된 root JSON, reply 부재, 출력 절단으로 재요청 대상이 되면 재요청 전에 턴 시작 시점의 history snapshot으로 chat session을 재구성한다. 실패한 user/assistant turn이 SDK 자동 history에 남은 상태로 전체 재생성하거나 태그 하향하지 않는다. thought/TTS 제한 복구는 주 chat session이 아닌 historyless one-shot을 사용한다.
 
 이 정책은 다음을 방지한다.
 
@@ -277,7 +298,8 @@ HTTP 클라이언트는 `_assistant_history_content_for_response`에서 정규�
 ### 13.1 계약 단위 테스트
 
 - 유효한 envelope를 기존 10개 튜플로 정확히 변환한다.
-- 모든 object가 extra key를 거부한다.
+- 송신 schema의 모든 object가 extra key를 금지한다.
+- 수신 root의 알 수 없는 키는 무시하고, extra key가 있는 부작용 항목은 폐기하면서 유효한 reply는 보존한다.
 - 활성 thought와 번역 TTS의 내용 필수 조건을 검증한다.
 - 비활성 기능을 빈 값으로 정규화한다.
 - goal action별 필수값과 proactive 최대 한 항목을 검증한다.
@@ -294,7 +316,7 @@ HTTP 클라이언트는 `_assistant_history_content_for_response`에서 정규�
 - OpenAI Responses의 완료 status를 올바르게 직렬화하고 해석한다.
 - OpenRouter native 요청은 parameter-support routing을 요구한다.
 - Gemini mode/schema 변경이 chat session signature에 반영된다.
-- Ollama Cloud와 알려지지 않은 Custom API는 태그 경로를 사용한다.
+- Ollama Cloud와 모든 알려지지 않은 Custom API 형식은 태그 경로를 사용한다.
 
 ### 13.3 capability와 오류 테스트
 
@@ -310,7 +332,8 @@ HTTP 클라이언트는 `_assistant_history_content_for_response`에서 정규�
 - 복구 요청에는 history, 메모리, 이미지, 프로필이 없다.
 - 복구 응답의 추가 action 필드는 무시한다.
 - 제한 timeout 또는 재검증 실패 시 reply를 반환하고 누락 기능만 비운다.
-- primary, 전체 재생성, 복구 사용량을 정확히 합산한다.
+- 사용량을 제공하는 클라이언트는 primary, 전체 재생성, 복구 사용량을 정확히 합산한다.
+- 일부 호출의 사용량이 없으면 불완전한 합계를 만들지 않고 `null`을 유지한다.
 
 ### 13.5 통합·회귀 테스트
 
@@ -319,6 +342,7 @@ HTTP 클라이언트는 `_assistant_history_content_for_response`에서 정규�
 - 태그 전용 모델의 thought도 같은 경로로 전달된다.
 - 유효한 부작용 후보만 정확히 한 번 관리자에 전달된다.
 - 리롤, 이미지 대화, 메모리 대화, context reset, visible history rebuild가 유지된다.
+- Gemini 재요청 전 실패한 자동 history가 제거되고, 성공 후 표시 reply만 남는다.
 - 기존 전체 테스트와 신규 테스트가 모두 통과한다.
 
 실제 API smoke test는 자동 테스트의 필수 조건으로 두지 않는다. 사용자가 명시적으로 실행할 때만 개인 데이터가 없는 합성 입력으로 제공자별 한 번씩 확인한다.
@@ -337,6 +361,7 @@ HTTP 클라이언트는 `_assistant_history_content_for_response`에서 정규�
 - 생각 기능 활성화 상태에서 primary thought 누락 시 정확히 한 번 제한 복구가 실행된다.
 - 복구 성공 시 비어 있지 않은 thought가 기존 UI 버튼 경로에 전달된다.
 - 복구 실패 시 원래 reply가 표시되고 thought만 생략된다.
+- parse 가능한 object에 유효한 reply가 있으면 다른 필드의 schema 오류 때문에 reply를 버리지 않는다.
 - 닫히지 않은 thought 제어 블록이 사용자에게 노출되지 않는다.
 - 번역 TTS만 내용 필수로 검증되고 동일 언어 TTS는 reply를 재사용한다.
 - 네이티브 지원 모델은 제공자별 구조화 경로를 사용한다.
