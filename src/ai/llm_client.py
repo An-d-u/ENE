@@ -42,6 +42,8 @@ from .response_protocol import (
     ResponseMode,
     ResponseStatus,
     StructuredOutputUnsupported,
+    TurnTokenUsageAccumulator,
+    is_valid_token_count,
 )
 from .http_llm_common import (
     ResponseCapabilityRegistry,
@@ -137,6 +139,7 @@ class GeminiClient:
             "output_tokens": None,
             "total_tokens": None,
         }
+        self._response_turn_usage_stack = []
         
         # Chat 세션 생성
         self.chat = self._create_chat_session()
@@ -585,22 +588,41 @@ class GeminiClient:
         return self._normalized_enum_text(reason)
 
     def _response_usage(self, response) -> dict[str, int | None]:
-        usage = getattr(response, "usage_metadata", None)
-        if isinstance(response, dict):
-            usage = response.get("usage_metadata")
-
-        def read(*names):
-            for name in names:
-                value = self._debug_field(usage, name)
-                if isinstance(value, int):
-                    return value
-            return None
-
-        return {
-            "input_tokens": read("prompt_token_count", "input_token_count"),
-            "output_tokens": read("candidates_token_count", "output_token_count"),
-            "total_tokens": read("total_token_count", "total_tokens"),
+        unknown = {
+            "input_tokens": None,
+            "output_tokens": None,
+            "total_tokens": None,
         }
+        try:
+            usage = getattr(response, "usage_metadata", None)
+            if isinstance(response, dict):
+                usage = response.get("usage_metadata")
+
+            def read(*names):
+                for name in names:
+                    value = self._debug_field(usage, name)
+                    if is_valid_token_count(value):
+                        return value
+                return None
+
+            return {
+                "input_tokens": read(
+                    "prompt_token_count",
+                    "input_token_count",
+                    "prompt_tokens",
+                    "input_tokens",
+                ),
+                "output_tokens": read(
+                    "candidates_token_count",
+                    "output_token_count",
+                    "completion_token_count",
+                    "output_tokens",
+                    "completion_tokens",
+                ),
+                "total_tokens": read("total_token_count", "total_tokens"),
+            }
+        except Exception:
+            return unknown
 
     def _provider_response(self, response, mode: ResponseMode) -> ProviderResponse:
         carrier = self._extract_response_text_or_empty(response, label="최종 응답")
@@ -794,13 +816,30 @@ class GeminiClient:
         settings_source: dict | None = None,
         response_mode: ResponseMode | None = None,
     ) -> LLM_RESPONSE_TUPLE:
+        """Gemini final 응답 호출 전체를 하나의 usage transaction으로 처리한다."""
+        self._begin_response_turn_usage()
+        try:
+            return self._execute_final_response_transaction(
+                contents,
+                history_user_content=history_user_content,
+                label=label,
+                settings_source=settings_source,
+                response_mode=response_mode,
+            )
+        finally:
+            self._finish_response_turn_usage()
+
+    def _execute_final_response_transaction(
+        self,
+        contents,
+        *,
+        history_user_content: str,
+        label: str,
+        settings_source: dict | None = None,
+        response_mode: ResponseMode | None = None,
+    ) -> LLM_RESPONSE_TUPLE:
         """Gemini 자동 history를 한 턴 단위 transaction으로 검증하고 확정한다."""
         self._last_response_delivery_metadata = ResponseDeliveryMetadata.empty()
-        self._last_token_usage = {
-            "input_tokens": None,
-            "output_tokens": None,
-            "total_tokens": None,
-        }
         settings_snapshot = (
             copy.deepcopy(settings_source)
             if settings_source is not None
@@ -836,16 +875,20 @@ class GeminiClient:
                     if attempt.mode is ResponseMode.JSON_SCHEMA
                     else None
                 )
-                response = self.client.models.generate_content(
-                    model=self.model_name,
-                    contents=prompt,
-                    config=self._build_repair_config(
-                        response_mode=attempt.mode,
-                        schema=schema,
-                        generation_params=generation_snapshot,
-                    ),
-                )
-                self._log_turn_token_usage(response, label="제한 복구")
+                try:
+                    response = self.client.models.generate_content(
+                        model=self.model_name,
+                        contents=prompt,
+                        config=self._build_repair_config(
+                            response_mode=attempt.mode,
+                            schema=schema,
+                            generation_params=generation_snapshot,
+                        ),
+                    )
+                except Exception:
+                    self._record_response_turn_usage(None)
+                    raise
+                self._record_and_print_response_turn_usage(response, label="제한 복구")
                 return self._provider_response(response, attempt.mode)
 
             attempt_params = dict(generation_snapshot)
@@ -878,6 +921,7 @@ class GeminiClient:
                         config=request_config,
                     )
             except Exception as failure:
+                self._record_response_turn_usage(None)
                 if (
                     attempt.mode is not ResponseMode.LEGACY_TAGS
                     and self._is_explicit_structured_output_unsupported(failure)
@@ -887,7 +931,7 @@ class GeminiClient:
                         provider="gemini",
                     ) from failure
                 raise
-            self._log_turn_token_usage(response, label=label)
+            self._record_and_print_response_turn_usage(response, label=label)
             return self._provider_response(response, attempt.mode)
 
         try:
@@ -1056,6 +1100,32 @@ class GeminiClient:
         head_pat_count_before_message: int | None = None,
         progress_callback=None,
     ) -> LLM_RESPONSE_TUPLE:
+        """이미지 final 응답의 전처리부터 usage transaction으로 처리한다."""
+        self._last_response_delivery_metadata = ResponseDeliveryMetadata.empty()
+        self._begin_response_turn_usage()
+        try:
+            return await self._send_message_with_images_transaction(
+                message,
+                images_data,
+                memory_search_text=memory_search_text,
+                latest_user_message=latest_user_message,
+                recent_memory_context=recent_memory_context,
+                head_pat_count_before_message=head_pat_count_before_message,
+                progress_callback=progress_callback,
+            )
+        finally:
+            self._finish_response_turn_usage()
+
+    async def _send_message_with_images_transaction(
+        self,
+        message: str,
+        images_data: list,
+        memory_search_text: str | None = None,
+        latest_user_message: str | None = None,
+        recent_memory_context: str | None = None,
+        head_pat_count_before_message: int | None = None,
+        progress_callback=None,
+    ) -> LLM_RESPONSE_TUPLE:
         """
         이미지와 함께 메시지 전송 (멀티모달)
         
@@ -1212,54 +1282,62 @@ class GeminiClient:
         """정수 설정값을 안전하게 정규화한다."""
         return normalize_int_setting(value, default=default, min_value=min_value, max_value=max_value)
 
+    def _begin_response_turn_usage(self) -> None:
+        stack = getattr(self, "_response_turn_usage_stack", None)
+        if not isinstance(stack, list):
+            stack = []
+            self._response_turn_usage_stack = stack
+        stack.append(TurnTokenUsageAccumulator())
+
+    def _record_response_turn_usage(
+        self,
+        usage: dict[str, int | None] | None,
+    ) -> None:
+        stack = getattr(self, "_response_turn_usage_stack", None)
+        for accumulator in tuple(stack) if isinstance(stack, list) else ():
+            accumulator.record(usage)
+
+    def _finish_response_turn_usage(self) -> None:
+        stack = getattr(self, "_response_turn_usage_stack", None)
+        if not isinstance(stack, list) or not stack:
+            return
+        accumulator = stack.pop()
+        if not stack:
+            self._last_token_usage = accumulator.snapshot()
+
+    def _print_token_usage(
+        self,
+        usage: dict[str, int | None],
+        *,
+        label: str,
+    ) -> None:
+        def display(key: str) -> str:
+            value = usage.get(key)
+            if is_valid_token_count(value):
+                return str(value)
+            return "N/A"
+
+        print(
+            f"[LLM] 🎫 Token Usage ({label}) | "
+            f"input={display('input_tokens')}, "
+            f"output={display('output_tokens')}, "
+            f"total={display('total_tokens')}"
+        )
+
+    def _record_and_print_response_turn_usage(self, response, *, label: str) -> None:
+        usage = self._response_usage(response)
+        self._record_response_turn_usage(usage)
+        self._print_token_usage(usage, label=label)
+
     def _log_turn_token_usage(self, response, label: str = "텍스트"):
-        """응답 메타데이터에서 1회 입력/출력 토큰 사용량을 로깅한다."""
-        def _read_field(container, *names):
-            if container is None:
-                return None
-            for name in names:
-                if hasattr(container, name):
-                    value = getattr(container, name)
-                    if value is not None:
-                        return value
-                if isinstance(container, dict) and name in container:
-                    value = container.get(name)
-                    if value is not None:
-                        return value
-            return None
-
-        usage = None
-        if hasattr(response, "usage_metadata"):
-            usage = getattr(response, "usage_metadata")
-        elif isinstance(response, dict):
-            usage = response.get("usage_metadata")
-
-        input_tokens = _read_field(
-            usage,
-            "prompt_token_count",
-            "input_token_count",
-            "prompt_tokens",
-            "input_tokens",
-        )
-        output_tokens = _read_field(
-            usage,
-            "candidates_token_count",
-            "output_token_count",
-            "completion_token_count",
-            "output_tokens",
-            "completion_tokens",
-        )
-        total_tokens = _read_field(usage, "total_token_count", "total_tokens")
-        self._last_token_usage = {
-            "input_tokens": input_tokens if isinstance(input_tokens, int) else None,
-            "output_tokens": output_tokens if isinstance(output_tokens, int) else None,
-            "total_tokens": total_tokens if isinstance(total_tokens, int) else None,
-        }
-
-        in_str = str(input_tokens) if isinstance(input_tokens, int) else "N/A"
-        out_str = str(output_tokens) if isinstance(output_tokens, int) else "N/A"
-        total_str = str(total_tokens) if isinstance(total_tokens, int) else "N/A"
-        print(f"[LLM] 🎫 Token Usage ({label}) | input={in_str}, output={out_str}, total={total_str}")
+        """활성 transaction에는 누산하고, 아니면 최신 스냅샷을 덮어쓴다."""
+        usage = self._response_usage(response)
+        stack = getattr(self, "_response_turn_usage_stack", None)
+        if isinstance(stack, list) and stack:
+            self._record_response_turn_usage(usage)
+        else:
+            self._last_token_usage = usage
+        self._print_token_usage(usage, label=label)
 
     def get_last_token_usage(self) -> dict:
         """가장 최근 응답의 토큰 사용량 스냅샷을 반환한다."""

@@ -41,6 +41,34 @@ def test_bridge_response_ready_emits_token_usage_payload():
     ]
 
 
+def test_bridge_response_ready_preserves_partial_null_token_usage():
+    _ensure_qt_app()
+
+    bridge = WebBridge()
+
+    class DummyLLMClient:
+        def get_last_token_usage(self):
+            return {
+                "input_tokens": 111,
+                "output_tokens": None,
+                "total_tokens": None,
+            }
+
+    bridge.llm_client = DummyLLMClient()
+    payloads = []
+    bridge.token_usage_ready.connect(lambda payload: payloads.append(json.loads(payload)))
+
+    bridge._on_response_ready("합성 응답", "normal", "", [])
+
+    assert payloads == [
+        {
+            "input_tokens": 111,
+            "output_tokens": None,
+            "total_tokens": None,
+        }
+    ]
+
+
 def test_open_settings_dialog_slot_calls_registered_callback():
     _ensure_qt_app()
 
