@@ -39,7 +39,7 @@ def is_synthetic_gesture_enabled(settings_source: object | None = None) -> bool:
     return bool(_read_setting(settings_source, "enable_synthetic_gestures", True))
 
 
-def _available_proactive_cooldown_keys(settings_source: object | None = None) -> list[str]:
+def get_available_proactive_cooldown_keys(settings_source: object | None = None) -> list[str]:
     raw_keys = _read_setting(settings_source, "proactive_available_cooldown_keys", None)
     if raw_keys is None:
         return list(COOLDOWN_KEY_ORDER)
@@ -214,7 +214,7 @@ def build_response_contract_appendix(settings_source: object | None = None) -> s
     goal_enabled = is_goal_prompt_enabled(settings_source)
     thought_enabled = is_thought_prompt_enabled(settings_source)
     gesture_enabled = is_synthetic_gesture_enabled(settings_source)
-    proactive_cooldown_keys = _available_proactive_cooldown_keys(settings_source)
+    proactive_cooldown_keys = get_available_proactive_cooldown_keys(settings_source)
     proactive_enabled = is_proactive_conversation_enabled(settings_source) and bool(proactive_cooldown_keys)
 
     names_key = "names_with_tts" if tts_language != language else "names"
