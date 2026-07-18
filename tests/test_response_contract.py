@@ -1,5 +1,9 @@
 from src.ai.goal_prompt import build_goal_update_rules, is_goal_prompt_enabled
-from src.ai.response_contract import build_response_contract_appendix, is_proactive_conversation_enabled
+from src.ai.response_contract import (
+    build_legacy_response_contract_appendix,
+    build_response_contract_appendix,
+    is_proactive_conversation_enabled,
+)
 from src.ai.thought_prompt import is_thought_prompt_enabled
 
 
@@ -44,6 +48,12 @@ def test_response_contract_includes_goal_and_thought_sections_when_enabled():
     assert "complete" in appendix
     assert "cancel" in appendix
     assert "[subconscious]" in appendix
+
+
+def test_response_contract_appendix_keeps_legacy_builder_compatibility():
+    settings = {"ui_language": "en", "enable_ene_goals": True, "enable_ene_thoughts": True}
+
+    assert build_response_contract_appendix(settings) == build_legacy_response_contract_appendix(settings)
 
 
 def test_response_contract_goal_format_uses_canonical_key_value_block():
