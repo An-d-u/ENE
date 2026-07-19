@@ -1157,3 +1157,95 @@ def test_response_attempt_has_no_conversation_context_payload_fields():
         "preserved_reply",
         "expand_output_budget",
     }
+
+
+def test_control_only_native_reply_uses_the_single_regeneration_budget():
+    requester = RecordingRequester(
+        [
+            provider_response(
+                valid_envelope_json(
+                    reply="[subconscious]Hidden synthetic reaction[/subconscious]"
+                )
+            ),
+            provider_response(
+                valid_envelope_json(reply="Visible regenerated synthetic reply")
+            ),
+        ]
+    )
+
+    result = execute_final_response(
+        requester,
+        requirements=no_repair_requirements(),
+    )
+
+    assert [attempt.phase for attempt in requester.attempts] == [
+        "primary",
+        "regenerate",
+    ]
+    assert result.payload[0] == "Visible regenerated synthetic reply"
+
+
+def test_sanitized_empty_thought_repairs_once_and_strips_repair_wrapper():
+    reply = "Preserved synthetic reply"
+    requester = RecordingRequester(
+        [
+            provider_response(
+                valid_envelope_json(
+                    reply=reply,
+                    thought="<think>Hidden synthetic reasoning</think>",
+                    tts_text="[tts]Synthetic translated speech[/tts]",
+                )
+            ),
+            provider_response(
+                json.dumps(
+                    {
+                        "thought": (
+                            "[subconscious]Recovered public synthetic reaction"
+                            "[/subconscious]"
+                        )
+                    }
+                )
+            ),
+        ]
+    )
+
+    result = execute_final_response(
+        requester,
+        requirements=thought_and_tts_requirements(),
+    )
+
+    assert [attempt.phase for attempt in requester.attempts] == ["primary", "repair"]
+    assert requester.attempts[1].repair_fields == ("thought",)
+    assert requester.attempts[1].preserved_reply == reply
+    assert result.payload[0] == reply
+    assert result.payload[2] == "Synthetic translated speech"
+    assert result.payload[6] == "Recovered public synthetic reaction"
+
+
+def test_sanitized_empty_tts_repairs_once_and_never_keeps_wrapper_tags():
+    requester = RecordingRequester(
+        [
+            provider_response(
+                valid_envelope_json(
+                    thought="[thought]Existing public synthetic reaction[/thought]",
+                    tts_text="<think>Hidden synthetic reasoning</think>",
+                )
+            ),
+            provider_response(
+                json.dumps(
+                    {"tts_text": "[tts]Recovered synthetic speech[/tts]"}
+                )
+            ),
+        ]
+    )
+
+    result = execute_final_response(
+        requester,
+        requirements=thought_and_tts_requirements(),
+    )
+
+    assert [attempt.phase for attempt in requester.attempts] == ["primary", "repair"]
+    assert requester.attempts[1].repair_fields == ("tts_text",)
+    assert result.payload[2] == "Recovered synthetic speech"
+    assert "[tts]" not in result.payload[2]
+    assert result.payload[6] == "Existing public synthetic reaction"

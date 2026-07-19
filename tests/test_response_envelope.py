@@ -1382,3 +1382,61 @@ def test_legacy_repair_decoder_uses_earliest_valid_exact_thought_block():
         mode=ResponseMode.LEGACY_TAGS,
         fields=("thought",),
     ) == {"thought": "첫 번째 유효 합성 생각"}
+
+
+def test_native_envelope_sanitizes_legacy_wrapped_accessory_text():
+    decoded = decode_response_envelope(
+        valid_envelope_json(
+            reply="[normal] Visible synthetic reply",
+            thought="[subconscious] Public synthetic reaction [/subconscious]",
+            tts_text="[tts]Synthetic translated speech[/tts]",
+        ),
+        requirements=thought_and_tts_requirements(),
+    )
+
+    assert decoded.payload is not None
+    assert decoded.payload[0] == "Visible synthetic reply"
+    assert decoded.payload[2] == "Synthetic translated speech"
+    assert decoded.payload[6] == "Public synthetic reaction"
+    assert decoded.missing_required_fields == ()
+
+
+def test_native_envelope_rejects_reply_that_is_empty_after_visible_cleanup():
+    decoded = decode_response_envelope(
+        valid_envelope_json(
+            reply="<think>hidden synthetic reasoning</think>"
+        ),
+        requirements=make_requirements(),
+    )
+
+    assert decoded.payload is None
+    assert decoded.root_error == "reply_missing_or_invalid"
+    assert "reply" in decoded.invalid_paths
+
+
+def test_native_same_language_tts_reuses_the_sanitized_visible_reply():
+    decoded = decode_response_envelope(
+        valid_envelope_json(
+            reply="[normal] Visible synthetic reply",
+            tts_text="[tts]Unused synthetic speech[/tts]",
+        ),
+        requirements=make_requirements(),
+    )
+
+    assert decoded.payload is not None
+    assert decoded.payload[0] == "Visible synthetic reply"
+    assert decoded.payload[2] == "Visible synthetic reply"
+
+
+def test_native_tts_preserves_legitimate_bracketed_plain_content():
+    spoken_text = "Press [Enter] to continue the synthetic flow."
+    decoded = decode_response_envelope(
+        valid_envelope_json(tts_text=spoken_text),
+        requirements=make_requirements(
+            tts_language="en",
+            require_tts_text=True,
+        ),
+    )
+
+    assert decoded.payload is not None
+    assert decoded.payload[2] == spoken_text

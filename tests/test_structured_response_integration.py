@@ -385,3 +385,35 @@ def test_one_shot_flows_never_attach_final_reply_envelope(monkeypatch):
             marker not in system_prompt
             for marker in forbidden_contract_markers
         )
+
+
+def test_hidden_native_thought_is_repaired_before_the_ui_consumes_it():
+    reply = "Visible synthetic reply"
+    repaired_thought = "Recovered public synthetic reaction"
+
+    client, bridge, signal_payload = _run_final_response_flow(
+        [
+            _provider_response(
+                valid_envelope_json(
+                    reply=reply,
+                    thought="<think>Hidden synthetic reasoning</think>",
+                )
+            ),
+            _provider_response(
+                json.dumps(
+                    {
+                        "thought": (
+                            f"[subconscious]{repaired_thought}[/subconscious]"
+                        )
+                    }
+                )
+            ),
+        ],
+        requirements=make_requirements(require_thought=True),
+    )
+
+    assert [attempt.phase for attempt in client.attempts] == ["primary", "repair"]
+    assert signal_payload[0] == reply
+    assert signal_payload[7] == repaired_thought
+    assert bridge.message_received.emitted == [(reply, "normal", repaired_thought)]
+    assert client.metadata.repair_performed is True

@@ -19,6 +19,9 @@ from .response_cleanup import (
     THOUGHT_TAG_ALIASES,
     extract_tts_metadata,
     sanitize_reserved_control_blocks,
+    sanitize_spoken_response_text,
+    sanitize_visible_response_text,
+    sanitize_visible_thought_text,
 )
 from .response_contract import (
     canonicalize_response_repair_fields,
@@ -443,7 +446,12 @@ def _normalize_response_tuple(
     if len(payload) != 10:
         raise ValueError("invalid_response_tuple")
 
-    reply = _normalize_string(payload[0], "reply", invalid_paths)
+    normalized_reply = _normalize_string(payload[0], "reply", invalid_paths)
+    reply = (
+        sanitize_visible_response_text(normalized_reply)
+        if exact_objects
+        else normalized_reply
+    )
     emotion = _normalize_string(payload[1], "emotion", invalid_paths).lower()
     allowed_emotions = {item.lower() for item in requirements.allowed_emotions}
     if not emotion or emotion not in allowed_emotions:
@@ -456,6 +464,8 @@ def _normalize_response_tuple(
         if exact_objects or requirements.tts_language != requirements.response_language
         else ""
     )
+    if exact_objects:
+        normalized_tts = sanitize_spoken_response_text(normalized_tts)
     tts_text: str | None = (
         reply
         if requirements.tts_language == requirements.response_language
@@ -506,6 +516,8 @@ def _normalize_response_tuple(
         if exact_objects or requirements.require_thought
         else ""
     )
+    if exact_objects:
+        normalized_thought = sanitize_visible_thought_text(normalized_thought)
     thought = normalized_thought if requirements.require_thought else ""
 
     normalized_goal_update = (
@@ -632,6 +644,16 @@ def decode_response_envelope(
         preserve_none_goal=False,
         exact_objects=True,
     )
+    if not payload[0]:
+        _add_invalid(invalid_paths, "reply")
+        return ResponseEnvelopeDecodeResult(
+            payload=None,
+            present_fields=present_fields,
+            missing_required_fields=(),
+            invalid_paths=tuple(sorted(set(invalid_paths))),
+            root_error="reply_missing_or_invalid",
+        )
+
     missing_required_fields: list[str] = []
     if requirements.require_thought and not payload[6]:
         missing_required_fields.append("thought")
@@ -788,6 +810,13 @@ def decode_response_repair(
     repaired = {}
     for field_name in canonical_fields:
         value = root.get(field_name)
-        if isinstance(value, str) and value.strip():
-            repaired[field_name] = value.strip()
+        if not isinstance(value, str):
+            continue
+        normalized_value = (
+            sanitize_visible_thought_text(value)
+            if field_name == "thought"
+            else sanitize_spoken_response_text(value)
+        )
+        if normalized_value:
+            repaired[field_name] = normalized_value
     return repaired
