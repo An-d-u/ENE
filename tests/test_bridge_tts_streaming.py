@@ -5,6 +5,7 @@ from PyQt6.QtCore import QCoreApplication
 from src.ai.tts_client import create_tts_client
 from src.ai.viseme_stream_analyzer import VisemeFrame
 from src.core.bridge import WebBridge
+from src.core.bridge_mixins import chat_flow
 from src.core.model_lip_sync_profile import build_model_lip_sync_profile_from_params
 
 
@@ -244,10 +245,51 @@ def test_bridge_adds_current_turn_tts_format_reminder_when_tts_language_differs(
     with_reminder = bridge._with_tts_output_reminder(message)
 
     assert message in with_reminder
-    assert "[tts]" in with_reminder
-    assert "[/tts]" in with_reminder
+    assert "[tts]" not in with_reminder
+    assert "[/tts]" not in with_reminder
     assert "일본어" in with_reminder
     assert "한국어" in with_reminder
+    assert "TTS 전용 필드 또는 지정 위치" in with_reminder
+
+
+def test_start_ai_worker_receives_provider_neutral_tts_reminder(monkeypatch):
+    _ensure_qt_app()
+
+    class DummySignal:
+        def connect(self, _callback):
+            pass
+
+    class CapturingWorker:
+        def __init__(self, *args, **kwargs):
+            self.args = args
+            self.kwargs = kwargs
+            self.response_ready = DummySignal()
+            self.error_occurred = DummySignal()
+            self.started = False
+
+        def start(self):
+            self.started = True
+
+    monkeypatch.setattr(chat_flow, "AIWorker", CapturingWorker)
+    bridge = WebBridge(
+        settings={
+            "ui_language": "ko",
+            "tts_language": "ja",
+            "enable_tts": True,
+            "enable_ene_thoughts": False,
+        }
+    )
+    bridge.llm_client = object()
+
+    bridge._start_ai_worker("[현재 시각: 2099-01-01 12:00]\n합성 입력")
+
+    worker_message = bridge.worker.args[1]
+    assert bridge.worker.started is True
+    assert "[tts]" not in worker_message
+    assert "[/tts]" not in worker_message
+    assert "한국어" in worker_message
+    assert "일본어" in worker_message
+    assert "TTS 전용 필드 또는 지정 위치" in worker_message
 
 
 def test_bridge_does_not_add_tts_format_reminder_when_tts_language_matches_response():

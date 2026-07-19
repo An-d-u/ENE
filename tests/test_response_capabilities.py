@@ -561,6 +561,198 @@ def test_direct_structured_parameter_errors_are_explicitly_unsupported(
     )
 
 
+def test_openai_invalid_response_format_parameter_not_supported_is_explicit():
+    current = profile(
+        "openai",
+        "openai_responses",
+        endpoint="https://api.openai.com/v1/responses",
+    )
+
+    assert is_explicit_structured_output_unsupported(
+        http_error(
+            400,
+            "Invalid parameter: response_format is not supported with this model.",
+        ),
+        profile=current,
+        response_mode=ResponseMode.JSON_SCHEMA,
+    )
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "Invalid parameter: response_format of type json_schema is not supported with this model.",
+        "Invalid parameter: 'response_format' of type 'json_schema' is not supported with this model.",
+        'Invalid parameter: "response_format" of type "json_schema" is not supported with this model.',
+        "This model does not support response_format parameter.",
+        "Invalid parameter: response_format. This parameter is not supported with this model.",
+    ],
+)
+def test_openai_direct_response_format_not_supported_variants_are_explicit(body):
+    current = profile(
+        "openai",
+        "openai_responses",
+        endpoint="https://api.openai.com/v1/responses",
+    )
+
+    assert is_explicit_structured_output_unsupported(
+        http_error(400, body),
+        profile=current,
+        response_mode=ResponseMode.JSON_SCHEMA,
+    )
+
+
+@pytest.mark.parametrize(
+    "type_name",
+    ["json_schema", "'json_schema'", '"json_schema"', "`json_schema`"],
+)
+def test_openai_response_format_bounded_type_modifier_is_explicit(type_name):
+    current = profile(
+        "openai",
+        "openai_responses",
+        endpoint="https://api.openai.com/v1/responses",
+    )
+
+    assert is_explicit_structured_output_unsupported(
+        http_error(
+            400,
+            f"Invalid parameter: response_format of type {type_name} is not supported.",
+        ),
+        profile=current,
+        response_mode=ResponseMode.JSON_SCHEMA,
+    )
+
+
+def test_deepseek_json_object_type_modifier_is_explicit():
+    current = profile("deepseek", "openai_chat")
+
+    assert is_explicit_structured_output_unsupported(
+        http_error(
+            400,
+            "Invalid parameter: 'response_format' of type 'json_object' is not supported.",
+        ),
+        profile=current,
+        response_mode=ResponseMode.JSON_OBJECT,
+    )
+
+
+@pytest.mark.parametrize("type_name", ["xml", "'arbitrary_type'", '"json"'])
+def test_response_format_arbitrary_type_modifier_is_not_explicit(type_name):
+    assert not is_explicit_structured_output_unsupported(
+        http_error(
+            400,
+            f"Invalid parameter: response_format of type {type_name} is not supported.",
+        ),
+        profile=profile("openai", "openai_responses"),
+        response_mode=ResponseMode.JSON_SCHEMA,
+    )
+
+
+def test_official_openrouter_404_without_structured_route_is_explicit():
+    current = profile(
+        "openrouter",
+        "openai_chat",
+        endpoint="https://openrouter.ai/api/v1/chat/completions",
+    )
+
+    assert is_explicit_structured_output_unsupported(
+        http_error(
+            404,
+            '{"error":{"message":"No endpoints found that support the requested parameters."}}',
+        ),
+        profile=current,
+        response_mode=ResponseMode.JSON_SCHEMA,
+    )
+
+
+@pytest.mark.parametrize(
+    ("current", "status_code", "body", "response_mode"),
+    [
+        (
+            profile(
+                "openai",
+                "openai_chat",
+                endpoint="https://openrouter.ai/api/v1/chat/completions",
+            ),
+            404,
+            "No endpoints found that support the requested parameters.",
+            ResponseMode.JSON_SCHEMA,
+        ),
+        (
+            profile(
+                "openrouter",
+                "openai_chat",
+                endpoint="https://openrouter.ai/api/v1/chat/completions",
+            ),
+            429,
+            "No endpoints found that support the requested parameters.",
+            ResponseMode.JSON_SCHEMA,
+        ),
+        (
+            profile(
+                "openrouter",
+                "openai_chat",
+                endpoint="https://openrouter.ai/api/v1/chat/completions",
+            ),
+            503,
+            "No endpoints found that support the requested parameters.",
+            ResponseMode.JSON_SCHEMA,
+        ),
+        (
+            profile(
+                "openrouter",
+                "openai_chat",
+                endpoint="https://openrouter.ai/api/v1/chat/completions",
+            ),
+            404,
+            "No endpoints found.",
+            ResponseMode.JSON_SCHEMA,
+        ),
+        (
+            profile(
+                "openrouter",
+                "openai_chat",
+                endpoint="https://openrouter.ai/api/v1/chat/completions",
+            ),
+            404,
+            "No endpoints found that support the requested parameters: schema validation failed.",
+            ResponseMode.JSON_SCHEMA,
+        ),
+        (
+            profile(
+                "openrouter",
+                "openai_chat",
+                endpoint="https://synthetic.invalid/v1/chat/completions",
+            ),
+            404,
+            "No endpoints found that support the requested parameters.",
+            ResponseMode.JSON_SCHEMA,
+        ),
+        (
+            profile(
+                "openrouter",
+                "openai_chat",
+                endpoint="https://openrouter.ai/api/v1/chat/completions",
+            ),
+            404,
+            "No endpoints found that support the requested parameters.",
+            ResponseMode.JSON_OBJECT,
+        ),
+    ],
+)
+def test_openrouter_route_absence_requires_exact_official_404_boundary(
+    current,
+    status_code,
+    body,
+    response_mode,
+):
+    assert is_explicit_structured_output_unsupported(
+        http_error(status_code, body),
+        profile=current,
+        response_mode=response_mode,
+    ) is False
+
+
 @pytest.mark.parametrize(
     "body",
     [

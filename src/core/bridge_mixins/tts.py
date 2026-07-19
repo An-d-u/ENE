@@ -63,21 +63,24 @@ class TTSBridgeMixin:
         if response_language == "en":
             return (
                 "[TTS Output Reminder]\n"
-                f"TTS is enabled. In this response, keep the visible reply in {response_name}, "
-                f"then always add a [tts]...[/tts] block containing only the {tts_name} text to read aloud.\n"
+                f"TTS is enabled. Keep the visible reply in {response_name}. "
+                "In the current response contract's dedicated TTS field or location, "
+                f"provide only the {tts_name} spoken translation.\n"
                 "[/TTS Output Reminder]"
             )
         if response_language == "ja":
             return (
                 "[TTS出力リマインダー]\n"
-                f"TTSが有効です。今回の返答では、表示される返答本文は{response_name}のままにし、"
-                f"本文の後に必ず [tts]...[/tts] ブロックを追加して、その中には読み上げ用の{tts_name}文だけを書いてください。\n"
+                f"TTSが有効です。表示される返答本文は{response_name}のままにしてください。"
+                "現在の応答契約のTTS専用フィールドまたは指定位置には、"
+                f"読み上げ用の{tts_name}翻訳文だけを書いてください。\n"
                 "[/TTS出力リマインダー]"
             )
         return (
             "[TTS 출력 리마인더]\n"
-            f"TTS가 켜져 있습니다. 이번 응답에서는 화면에 보이는 답변 본문은 {response_name}로 유지하고, "
-            f"본문 뒤에 반드시 [tts]...[/tts] 블록을 추가해 그 안에는 읽기용 {tts_name} 문장만 작성하세요.\n"
+            f"TTS가 켜져 있습니다. 화면에 보이는 답변 본문은 {response_name}로 유지하세요. "
+            "현재 응답 계약의 TTS 전용 필드 또는 지정 위치에는 "
+            f"읽기용 {tts_name} 번역문만 작성하세요.\n"
             "[/TTS 출력 리마인더]"
         )
 

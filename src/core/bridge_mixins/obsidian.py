@@ -10,6 +10,28 @@ from ...ai.chat_commands import parse_obs_command
 from ..bridge_workers import ObsidianCheckedFilesWorker, ObsidianTreeWorker, build_obsidian_checked_context
 
 
+_OBSIDIAN_TREE_ERROR_MESSAGE = "Obsidian 트리를 불러오지 못했어요."
+
+
+def _safe_obsidian_result_path(value) -> str:
+    """성공 안내에 표시해도 되는 정규 상대 Markdown 경로만 반환한다."""
+    if type(value) is not str:
+        return ""
+    if (
+        not value
+        or len(value) > 512
+        or value != value.strip()
+        or not value.lower().endswith(".md")
+        or value.startswith("/")
+        or "\\" in value
+        or ":" in value
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+    ):
+        return ""
+    parts = value.split("/")
+    return value if all(part not in {"", ".", ".."} for part in parts) else ""
+
+
 class ObsidianBridgeMixin:
     def set_obs_panel_window(self, panel_window):
         """Obsidian 플로팅 패널 참조를 등록한다."""
@@ -131,8 +153,8 @@ class ObsidianBridgeMixin:
         """캐시된 체크 파일이 현재 Obsidian 트리에 여전히 존재하는지 확인한다."""
         try:
             tree = self.obsidian_manager.build_tree(allow_retry=False)
-        except Exception as e:
-            print(f"[Bridge] 체크 파일 캐시 검증 실패: {e}")
+        except Exception:
+            print("[Bridge] obsidian_cache category=obsidian_cache_validation_error")
             self._invalidate_checked_files_context_cache()
             return False
 
@@ -148,14 +170,14 @@ class ObsidianBridgeMixin:
         if callable(setter):
             try:
                 setter(list(checked_files))
-            except Exception as e:
-                print(f"[Bridge] 체크 파일 설정 정리 실패: {e}")
+            except Exception:
+                print("[Bridge] obsidian_cache category=obsidian_checked_files_cleanup_error")
         self._invalidate_checked_files_context_cache()
         try:
             self._cached_obs_tree_json = json.dumps(tree, ensure_ascii=False)
             self.obs_tree_updated.emit(self._cached_obs_tree_json)
-        except Exception as e:
-            print(f"[Bridge] 체크 파일 정리 후 트리 emit 실패: {e}")
+        except Exception:
+            print("[Bridge] obsidian_cache category=obsidian_tree_signal_error")
         if checked_files:
             self._schedule_checked_files_context_refresh(force=True)
         return False
@@ -250,26 +272,36 @@ class ObsidianBridgeMixin:
                 if len(text) > len(preview):
                     preview += "\n...(생략)"
                 self.message_received.emit(preview, "normal", "")
-            except Exception as e:
-                self.message_received.emit(f"파일 읽기 실패: {e}", "confused", "")
+            except Exception:
+                self.message_received.emit("파일을 읽는 중 오류가 발생했어요.", "confused", "")
             return True
 
         if command == "append":
             result = self.obsidian_manager.append_file(payload["path"], payload["content"], create_if_missing=True)
             if result.ok:
                 self._invalidate_checked_files_context_cache()
-                self.message_received.emit(f"추가 완료: {result.path}", "smile", "")
+                try:
+                    safe_path = _safe_obsidian_result_path(getattr(result, "path", ""))
+                except Exception:
+                    safe_path = ""
+                message = f"추가 완료: {safe_path}" if safe_path else "추가 완료"
+                self.message_received.emit(message, "smile", "")
             else:
-                self.message_received.emit(f"추가 실패: {result.message}", "confused", "")
+                self.message_received.emit("추가 실패", "confused", "")
             return True
 
         if command == "replace":
             result = self.obsidian_manager.replace_in_file(payload["path"], payload["before"], payload["after"])
             if result.ok:
                 self._invalidate_checked_files_context_cache()
-                self.message_received.emit(f"교체 완료: {result.path}", "smile", "")
+                try:
+                    safe_path = _safe_obsidian_result_path(getattr(result, "path", ""))
+                except Exception:
+                    safe_path = ""
+                message = f"교체 완료: {safe_path}" if safe_path else "교체 완료"
+                self.message_received.emit(message, "smile", "")
             else:
-                self.message_received.emit(f"교체 실패: {result.message}", "confused", "")
+                self.message_received.emit("교체 실패", "confused", "")
             return True
 
         # summarize/ask: Obsidian 컨텍스트 포함하여 LLM 질의
@@ -279,8 +311,8 @@ class ObsidianBridgeMixin:
         if command == "summarize":
             try:
                 target = self.obsidian_manager.read_file(payload["path"])
-            except Exception as e:
-                self.message_received.emit(f"요약 대상 파일 읽기 실패: {e}", "confused", "")
+            except Exception:
+                self.message_received.emit("요약할 파일을 읽는 중 오류가 발생했어요.", "confused", "")
                 return True
             if language == "en":
                 prompt = (
@@ -326,8 +358,8 @@ class ObsidianBridgeMixin:
         try:
             files = self.obs_settings.get_checked_files()
             return json.dumps({"checked_files": files}, ensure_ascii=False)
-        except Exception as e:
-            return json.dumps({"checked_files": [], "error": str(e)}, ensure_ascii=False)
+        except Exception:
+            return json.dumps({"checked_files": [], "error": "체크 파일 목록을 불러오지 못했어요."}, ensure_ascii=False)
 
     @pyqtSlot(str, bool)
     def set_obs_file_checked(self, rel_path: str, checked: bool):
@@ -337,8 +369,8 @@ class ObsidianBridgeMixin:
             # 체크 상태 변경은 CLI 재호출 없이 캐시에 즉시 반영해 UI 지연을 줄인다.
             self._emit_obs_tree_with_updated_checked_files()
             self._schedule_checked_files_context_refresh(force=True)
-        except Exception as e:
-            print(f"[Bridge] set_obs_file_checked failed: {e}")
+        except Exception:
+            print("[Bridge] obsidian_checked_state category=obsidian_checked_state_error")
 
     @pyqtSlot()
     def refresh_obs_tree(self):
@@ -372,8 +404,8 @@ class ObsidianBridgeMixin:
                 self.obs_settings.save()
                 # 표시를 먼저 완료하고 트리는 백그라운드에서 갱신한다.
                 QTimer.singleShot(0, lambda: self._start_obs_tree_refresh(allow_retry=False, retry_sequence=True))
-        except Exception as e:
-            print(f"[Bridge] toggle_obs_panel failed: {e}")
+        except Exception:
+            print("[Bridge] obsidian_panel category=obsidian_panel_error")
 
     def _start_obs_tree_refresh(self, allow_retry: bool = False, retry_sequence: bool = False):
         """Obsidian 트리 갱신을 백그라운드 워커로 실행한다."""
@@ -416,6 +448,11 @@ class ObsidianBridgeMixin:
         except Exception:
             parsed = {}
         ok = isinstance(parsed, dict) and bool(parsed.get("ok"))
+        if not ok:
+            tree_json = json.dumps(
+                {"ok": False, "error": _OBSIDIAN_TREE_ERROR_MESSAGE, "nodes": []},
+                ensure_ascii=False,
+            )
         if ok:
             self.obs_tree_retry_timer.stop()
             self._obs_tree_retry_remaining = 0
@@ -427,7 +464,10 @@ class ObsidianBridgeMixin:
             self._schedule_obs_tree_retry_if_needed()
 
     def _on_obs_tree_error(self, error_msg: str):
-        payload = json.dumps({"ok": False, "error": f"Obsidian 트리 갱신 실패: {error_msg}", "nodes": []}, ensure_ascii=False)
+        payload = json.dumps(
+            {"ok": False, "error": _OBSIDIAN_TREE_ERROR_MESSAGE, "nodes": []},
+            ensure_ascii=False,
+        )
         self._cached_obs_tree_json = payload
         self.obs_tree_updated.emit(payload)
         self._schedule_obs_tree_retry_if_needed()
@@ -443,6 +483,9 @@ class ObsidianBridgeMixin:
 
         if "ok" not in parsed:
             parsed["ok"] = True
+        elif not parsed["ok"]:
+            parsed["error"] = _OBSIDIAN_TREE_ERROR_MESSAGE
+            parsed["nodes"] = []
         parsed["checked_files"] = checked
         if "nodes" not in parsed:
             parsed["nodes"] = []
