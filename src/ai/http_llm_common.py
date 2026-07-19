@@ -257,6 +257,10 @@ _GUIDANCE_PREFIX_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+_OPENROUTER_STRUCTURED_ROUTE_ABSENCE_PATTERN = re.compile(
+    r"\Ano endpoints found that support the requested parameters\.?\Z",
+    re.IGNORECASE,
+)
 
 def _compile_explicit_unsupported_pattern(
     parameter_name_pattern: str,
@@ -270,6 +274,12 @@ def _compile_explicit_unsupported_pattern(
         rf"(?:\(\s*{quoted_parameter}\s*\)|{quoted_parameter})"
     )
     assertion_separator = r"(?:\s+(?:parameter\s+)?(?:is\s+)?|\s*:\s*)"
+    bounded_response_type = r"(?:json_schema|json_object)"
+    bounded_response_type_value = (
+        rf"(?:{bounded_response_type}|'{bounded_response_type}'|"
+        rf'"{bounded_response_type}"|`{bounded_response_type}`)'
+    )
+    response_type_modifier = rf"(?:\s+of\s+type\s+{bounded_response_type_value})?"
     return re.compile(
         rf"(?:"
         rf"\b(?:unknown|unsupported)\s+(?:parameter|field)\b"
@@ -277,13 +287,22 @@ def _compile_explicit_unsupported_pattern(
         rf"|{_NATURAL_ASSERTION_START}(?:the\s+)?(?:"
         rf"{asserted_parameter}{assertion_separator}"
         rf"(?:unsupported|not\s+supported)\b"
+        rf"|\binvalid\s+(?:parameter|field)\b"
+        rf"{_PARAMETER_SEPARATOR}{asserted_parameter}{response_type_modifier}"
+        rf"{_PARAMETER_SEPARATOR}(?:is\s+)?"
+        rf"(?:unsupported|not\s+supported)\b"
+        rf"|\binvalid\s+(?:parameter|field)\b"
+        rf"{_PARAMETER_SEPARATOR}{asserted_parameter}"
+        rf"\s*\.\s*this\s+(?:parameter|field)\s+is\s+"
+        rf"(?:unsupported|not\s+supported)\b"
         rf"|\b(?:parameter|field)\b{_PARAMETER_SEPARATOR}"
         rf"{asserted_parameter}{_PARAMETER_SEPARATOR}"
         rf"(?:is\s+)?(?:unsupported|not\s+supported)\b"
-        rf"|\b(?:the\s+)?(?:model|provider|endpoint|api)"
+        rf"|\b(?:this\s+|the\s+)?(?:model|provider|endpoint|api)"
         rf"(?:\s+{_EXPLICIT_MODEL_IDENTIFIER})?\s+"
         rf"does\s+not\s+support\b{_PARAMETER_SEPARATOR}"
         rf"(?:the\s+)?{asserted_parameter}"
+        rf"(?:\s+(?:parameter|field))?\b"
         rf")"
         rf")",
         re.IGNORECASE,
@@ -602,11 +621,26 @@ def is_explicit_structured_output_unsupported(
     detail = getattr(response, "text", "")
     if not isinstance(detail, str) or not detail.strip():
         return False
+    raw_match_messages = _unsupported_match_messages(detail)
     match_messages = tuple(
         candidate
-        for message in _unsupported_match_messages(detail)
+        for message in raw_match_messages
         if (candidate := _normalize_unsupported_candidate(message)) is not None
     )
+    if (
+        status_code == 404
+        and response_mode is ResponseMode.JSON_SCHEMA
+        and profile is not None
+        and _normalize_profile_value(profile.provider)
+        in {"openrouter", "custom_api"}
+        and _official_profile_for_endpoint(profile.wire_format, profile.endpoint)
+        == ("openrouter", ResponseMode.JSON_SCHEMA)
+        and any(
+            _OPENROUTER_STRUCTURED_ROUTE_ABSENCE_PATTERN.fullmatch(message.strip())
+            for message in raw_match_messages
+        )
+    ):
+        return True
     if any(
         _EXPLICIT_UNAMBIGUOUS_UNSUPPORTED_PATTERN.search(message)
         for message in match_messages

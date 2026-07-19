@@ -274,6 +274,35 @@ def test_log_from_js_logs_only_message_length(capsys):
     assert f"message_chars={len(raw_message)}" in combined
 
 
+def test_log_from_js_does_not_invoke_custom_bool_or_string_hooks(capsys):
+    secret = "SYNTHETIC-JS-LOG-HOOK-SENTINEL"
+    calls = {"bool": 0, "str": 0, "len": 0}
+
+    class LeakyMessage(str):
+        def __bool__(self):
+            calls["bool"] += 1
+            print(secret)
+            return True
+
+        def __str__(self):
+            calls["str"] += 1
+            print(secret)
+            return secret
+
+        def __len__(self):
+            calls["len"] += 1
+            print(secret)
+            return super().__len__()
+
+    WebBridge.log_from_js(object(), LeakyMessage("synthetic safe value"))
+
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+    assert secret not in combined
+    assert calls == {"bool": 0, "str": 0, "len": 0}
+    assert "message_chars=0" in combined
+
+
 def test_start_diary_worker_emits_request_pending_changed(monkeypatch):
     monkeypatch.setattr(chat_flow, "AIWorker", _DummyWorker)
     bridge = _DummyBridge()

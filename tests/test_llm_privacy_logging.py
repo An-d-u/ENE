@@ -627,3 +627,393 @@ def test_promises_authoritative_logical_check_does_not_invoke_custom_bool(capsys
     combined = _combined_output(capsys)
     assert secret not in combined
     assert fallback_calls == ["user", "assistant"]
+
+
+class _ObsidianPrivacySignal:
+    def __init__(self, *, fail=False):
+        self.emitted = []
+        self.fail = fail
+
+    def emit(self, *args):
+        if self.fail:
+            raise _ObsidianLeakyError("SYNTHETIC-OBSIDIAN-SIGNAL-SENTINEL")
+        self.emitted.append(args)
+
+
+class _ObsidianLeakyError(RuntimeError):
+    string_calls = 0
+    repr_calls = 0
+
+    def __str__(self):
+        type(self).string_calls += 1
+        print(self.args[0])
+        return self.args[0]
+
+    def __repr__(self):
+        type(self).repr_calls += 1
+        print(self.args[0])
+        return self.args[0]
+
+
+@pytest.fixture(autouse=False)
+def reset_obsidian_leaky_error_hooks():
+    _ObsidianLeakyError.string_calls = 0
+    _ObsidianLeakyError.repr_calls = 0
+
+
+def _assert_obsidian_exception_was_not_rendered(capsys, secret):
+    combined = _combined_output(capsys)
+    assert secret not in combined
+    assert _ObsidianLeakyError.string_calls == 0
+    assert _ObsidianLeakyError.repr_calls == 0
+    return combined
+
+
+def test_obsidian_cache_validation_error_does_not_render_exception(
+    capsys,
+    reset_obsidian_leaky_error_hooks,
+):
+    secret = "SYNTHETIC-OBSIDIAN-CACHE-ERROR-SENTINEL"
+
+    class FailingManager:
+        def build_tree(self, **_kwargs):
+            raise _ObsidianLeakyError(secret)
+
+    invalidations = []
+    bridge = SimpleNamespace(
+        obsidian_manager=FailingManager(),
+        _invalidate_checked_files_context_cache=lambda: invalidations.append(True),
+    )
+
+    valid = ObsidianBridgeMixin._validate_cached_checked_files_context(
+        bridge,
+        ("synthetic/note.md",),
+    )
+
+    combined = _assert_obsidian_exception_was_not_rendered(capsys, secret)
+    assert valid is False
+    assert invalidations == [True]
+    assert "category=obsidian_cache_validation_error" in combined
+
+
+@pytest.mark.parametrize("failing_stage", ["settings", "signal"])
+def test_obsidian_cache_cleanup_errors_do_not_render_exceptions(
+    capsys,
+    reset_obsidian_leaky_error_hooks,
+    failing_stage,
+):
+    secret = f"SYNTHETIC-OBSIDIAN-{failing_stage.upper()}-ERROR-SENTINEL"
+
+    class Manager:
+        def build_tree(self, **_kwargs):
+            return {"ok": True, "checked_files": [], "nodes": []}
+
+    class Settings:
+        def set_checked_files(self, _files):
+            if failing_stage == "settings":
+                raise _ObsidianLeakyError(secret)
+
+    signal = _ObsidianPrivacySignal(fail=failing_stage == "signal")
+    if failing_stage == "signal":
+        secret = "SYNTHETIC-OBSIDIAN-SIGNAL-SENTINEL"
+    invalidations = []
+    bridge = SimpleNamespace(
+        obsidian_manager=Manager(),
+        obs_settings=Settings(),
+        obs_tree_updated=signal,
+        _cached_obs_tree_json="{}",
+        _invalidate_checked_files_context_cache=lambda: invalidations.append(True),
+        _schedule_checked_files_context_refresh=lambda **_kwargs: None,
+    )
+
+    valid = ObsidianBridgeMixin._validate_cached_checked_files_context(
+        bridge,
+        ("synthetic/old.md",),
+    )
+
+    combined = _assert_obsidian_exception_was_not_rendered(capsys, secret)
+    assert valid is False
+    assert invalidations == [True]
+    expected_category = {
+        "settings": "obsidian_checked_files_cleanup_error",
+        "signal": "obsidian_tree_signal_error",
+    }[failing_stage]
+    assert f"category={expected_category}" in combined
+
+
+@pytest.mark.parametrize(
+    ("command", "expected_message"),
+    [
+        ("read", "파일을 읽는 중 오류가 발생했어요."),
+        ("summarize", "요약할 파일을 읽는 중 오류가 발생했어요."),
+    ],
+)
+def test_obsidian_read_errors_use_fixed_safe_user_messages(
+    capsys,
+    reset_obsidian_leaky_error_hooks,
+    command,
+    expected_message,
+):
+    secret = f"SYNTHETIC-OBSIDIAN-{command.upper()}-ERROR-SENTINEL"
+
+    class FailingManager:
+        def read_file(self, _path):
+            raise _ObsidianLeakyError(secret)
+
+    messages = _ObsidianPrivacySignal()
+    bridge = SimpleNamespace(
+        mood_manager=None,
+        obsidian_manager=FailingManager(),
+        message_received=messages,
+        _cancel_pending_proactive_conversations_for_user_message=lambda: None,
+        _mark_user_activity=lambda: None,
+        _activate_obsidian_integration=lambda: None,
+        _parse_obs_subcommand=lambda _body: (command, {"path": "synthetic/note.md"}),
+        _build_obsidian_context_block=lambda **_kwargs: "safe context",
+        _now_timestamp=lambda: "2099-01-01 00:00",
+        _prompt_language=lambda: "ko",
+        _last_request_payload=None,
+        _is_rerolling=False,
+    )
+
+    handled = ObsidianBridgeMixin._handle_obs_command(
+        bridge,
+        f"/obs {command} synthetic/note.md",
+    )
+
+    _assert_obsidian_exception_was_not_rendered(capsys, secret)
+    assert handled is True
+    assert messages.emitted == [(expected_message, "confused", "")]
+
+
+def test_obsidian_checked_files_json_error_is_fixed_and_content_free(
+    capsys,
+    reset_obsidian_leaky_error_hooks,
+):
+    secret = "SYNTHETIC-OBSIDIAN-CHECKED-JSON-ERROR-SENTINEL"
+
+    class FailingSettings:
+        def get_checked_files(self):
+            raise _ObsidianLeakyError(secret)
+
+    bridge = SimpleNamespace(obs_settings=FailingSettings())
+
+    payload = ObsidianBridgeMixin.get_obs_checked_files_json(bridge)
+
+    _assert_obsidian_exception_was_not_rendered(capsys, secret)
+    assert json.loads(payload) == {
+        "checked_files": [],
+        "error": "체크 파일 목록을 불러오지 못했어요.",
+    }
+
+
+def test_obsidian_checked_state_error_log_does_not_render_exception(
+    capsys,
+    reset_obsidian_leaky_error_hooks,
+):
+    secret = "SYNTHETIC-OBSIDIAN-CHECKED-STATE-ERROR-SENTINEL"
+
+    class FailingSettings:
+        def set_file_checked(self, _path, _checked):
+            raise _ObsidianLeakyError(secret)
+
+    bridge = SimpleNamespace(obs_settings=FailingSettings())
+
+    ObsidianBridgeMixin.set_obs_file_checked(bridge, "synthetic/private.md", True)
+
+    combined = _assert_obsidian_exception_was_not_rendered(capsys, secret)
+    assert "synthetic/private.md" not in combined
+    assert "category=obsidian_checked_state_error" in combined
+
+
+def test_obsidian_panel_error_log_does_not_render_exception(
+    capsys,
+    reset_obsidian_leaky_error_hooks,
+):
+    secret = "SYNTHETIC-OBSIDIAN-PANEL-ERROR-SENTINEL"
+
+    class FailingPanel:
+        def isVisible(self):
+            raise _ObsidianLeakyError(secret)
+
+    bridge = SimpleNamespace(obs_panel_window=FailingPanel())
+
+    ObsidianBridgeMixin.toggle_obs_panel(bridge)
+
+    combined = _assert_obsidian_exception_was_not_rendered(capsys, secret)
+    assert "category=obsidian_panel_error" in combined
+
+
+def test_obsidian_tree_error_signal_uses_fixed_safe_message(capsys):
+    secret = "SYNTHETIC-OBSIDIAN-TREE-CONSUMER-ERROR-SENTINEL"
+    signal = _ObsidianPrivacySignal()
+    retries = []
+    bridge = SimpleNamespace(
+        _cached_obs_tree_json="{}",
+        obs_tree_updated=signal,
+        _schedule_obs_tree_retry_if_needed=lambda: retries.append(True),
+    )
+
+    ObsidianBridgeMixin._on_obs_tree_error(bridge, secret)
+
+    combined = _combined_output(capsys)
+    assert secret not in combined
+    assert secret not in str(signal.emitted)
+    assert json.loads(signal.emitted[0][0]) == {
+        "ok": False,
+        "error": "Obsidian 트리를 불러오지 못했어요.",
+        "nodes": [],
+    }
+    assert retries == [True]
+
+
+@pytest.mark.parametrize(
+    ("command", "ok", "expected_message"),
+    [
+        ("append", True, "추가 완료"),
+        ("append", False, "추가 실패"),
+        ("replace", True, "교체 완료"),
+        ("replace", False, "교체 실패"),
+    ],
+)
+def test_obsidian_operation_results_do_not_emit_raw_message_or_path(
+    capsys,
+    command,
+    ok,
+    expected_message,
+):
+    secret = f"SYNTHETIC-OBSIDIAN-{command.upper()}-MESSAGE-SENTINEL"
+    unsafe_path = f"C:/private/{command}-path-sentinel.md"
+    result = SimpleNamespace(ok=ok, message=secret, path=unsafe_path)
+
+    class Manager:
+        def append_file(self, *_args, **_kwargs):
+            return result
+
+        def replace_in_file(self, *_args, **_kwargs):
+            return result
+
+    payload = {
+        "path": "synthetic/note.md",
+        "content": "synthetic content",
+        "before": "synthetic before",
+        "after": "synthetic after",
+    }
+    messages = _ObsidianPrivacySignal()
+    invalidations = []
+    bridge = SimpleNamespace(
+        mood_manager=None,
+        obsidian_manager=Manager(),
+        message_received=messages,
+        _cancel_pending_proactive_conversations_for_user_message=lambda: None,
+        _mark_user_activity=lambda: None,
+        _activate_obsidian_integration=lambda: None,
+        _parse_obs_subcommand=lambda _body: (command, payload),
+        _invalidate_checked_files_context_cache=lambda: invalidations.append(True),
+        _last_request_payload=None,
+        _is_rerolling=False,
+    )
+
+    handled = ObsidianBridgeMixin._handle_obs_command(
+        bridge,
+        f"/obs {command} synthetic/note.md",
+    )
+
+    combined = _combined_output(capsys)
+    assert handled is True
+    assert secret not in combined
+    assert unsafe_path not in combined
+    assert secret not in str(messages.emitted)
+    assert unsafe_path not in str(messages.emitted)
+    assert messages.emitted == [(expected_message, "smile" if ok else "confused", "")]
+    assert invalidations == ([True] if ok else [])
+
+
+@pytest.mark.parametrize(
+    ("command", "label"),
+    [
+        ("append", "추가 완료"),
+        ("replace", "교체 완료"),
+    ],
+)
+def test_obsidian_success_result_keeps_safe_relative_path(command, label):
+    safe_path = "synthetic/folder/note.md"
+    result = SimpleNamespace(
+        ok=True,
+        message="SYNTHETIC-OBSIDIAN-SUCCESS-MESSAGE-SENTINEL",
+        path=safe_path,
+    )
+
+    class Manager:
+        def append_file(self, *_args, **_kwargs):
+            return result
+
+        def replace_in_file(self, *_args, **_kwargs):
+            return result
+
+    payload = {
+        "path": safe_path,
+        "content": "synthetic content",
+        "before": "synthetic before",
+        "after": "synthetic after",
+    }
+    messages = _ObsidianPrivacySignal()
+    bridge = SimpleNamespace(
+        mood_manager=None,
+        obsidian_manager=Manager(),
+        message_received=messages,
+        _cancel_pending_proactive_conversations_for_user_message=lambda: None,
+        _mark_user_activity=lambda: None,
+        _activate_obsidian_integration=lambda: None,
+        _parse_obs_subcommand=lambda _body: (command, payload),
+        _invalidate_checked_files_context_cache=lambda: None,
+        _last_request_payload=None,
+        _is_rerolling=False,
+    )
+
+    handled = ObsidianBridgeMixin._handle_obs_command(
+        bridge,
+        f"/obs {command} {safe_path}",
+    )
+
+    assert handled is True
+    assert messages.emitted == [(f"{label}: {safe_path}", "smile", "")]
+
+
+def test_obsidian_failed_tree_payload_is_sanitized_before_signal(capsys):
+    secret = "SYNTHETIC-OBSIDIAN-TREE-PAYLOAD-SENTINEL"
+    signal = _ObsidianPrivacySignal()
+    retries = []
+    bridge = SimpleNamespace(
+        _cached_obs_tree_json="{}",
+        obs_tree_updated=signal,
+        _schedule_obs_tree_retry_if_needed=lambda: retries.append(True),
+    )
+
+    ObsidianBridgeMixin._on_obs_tree_ready(
+        bridge,
+        json.dumps({"ok": False, "error": secret, "nodes": []}),
+    )
+
+    combined = _combined_output(capsys)
+    assert secret not in combined
+    assert secret not in bridge._cached_obs_tree_json
+    assert secret not in str(signal.emitted)
+    assert json.loads(signal.emitted[0][0])["error"] == "Obsidian 트리를 불러오지 못했어요."
+    assert retries == [True]
+
+
+def test_obsidian_cached_tree_error_is_sanitized_before_checked_files_signal():
+    secret = "SYNTHETIC-OBSIDIAN-CACHED-TREE-ERROR-SENTINEL"
+    signal = _ObsidianPrivacySignal()
+    bridge = SimpleNamespace(
+        _cached_obs_tree_json=json.dumps({"ok": False, "error": secret, "nodes": []}),
+        obs_settings=SimpleNamespace(get_checked_files=lambda: ["synthetic/note.md"]),
+        obs_tree_updated=signal,
+    )
+
+    ObsidianBridgeMixin._emit_obs_tree_with_updated_checked_files(bridge)
+
+    assert secret not in bridge._cached_obs_tree_json
+    assert secret not in str(signal.emitted)
+    assert json.loads(signal.emitted[0][0])["error"] == "Obsidian 트리를 불러오지 못했어요."
