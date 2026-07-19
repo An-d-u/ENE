@@ -12,7 +12,7 @@
 
 ## Current Context
 
-- Repo root: `C:/Users/umpad/Desktop/coding/ENE`
+- Repo root: `C:/workspace/ENE`
 - Spec: `docs/superpowers/specs/2026-06-23-idle-micro-gesture-design.md`
 - There are already unstaged gesture-scale changes in the working tree. Do not revert them.
 - The new idle gestures must reuse the existing `synthetic_gesture_scale` setting.
@@ -45,7 +45,7 @@ Use this PowerShell prefix for pytest commands:
 
 ```powershell
 $repo = (Get-Location).Path
-$site = 'C:\Users\umpad\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.12_qbz5n2kfra8p0\LocalCache\local-packages\Python312\site-packages'
+$site = 'C:\synthetic\python\site-packages'
 $env:PYTHONPATH = "$repo;$site"
 ```
 
@@ -54,8 +54,8 @@ $env:PYTHONPATH = "$repo;$site"
 ### Task 1: Settings Defaults
 
 **Files:**
-- Modify: `C:/Users/umpad/Desktop/coding/ENE/tests/test_settings.py`
-- Modify: `C:/Users/umpad/Desktop/coding/ENE/src/core/settings.py`
+- Modify: `C:/workspace/ENE/tests/test_settings.py`
+- Modify: `C:/workspace/ENE/src/core/settings.py`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -71,7 +71,7 @@ assert settings.get("idle_synthetic_gesture_frequency") == "normal"
 Run:
 
 ```powershell
-& 'C:\Users\umpad\AppData\Local\Programs\Python\Python312\python.exe' -m pytest -p no:cacheprovider tests/test_settings.py::test_load_missing_file_uses_default_config -q
+python -m pytest -p no:cacheprovider tests/test_settings.py::test_load_missing_file_uses_default_config -q
 ```
 
 Expected: FAIL because the settings are not in defaults yet.
@@ -105,12 +105,12 @@ git commit -m "feat: add idle gesture settings defaults"
 ### Task 2: Settings Dialog Controls
 
 **Files:**
-- Modify: `C:/Users/umpad/Desktop/coding/ENE/tests/test_ui_i18n_smoke.py`
-- Modify: `C:/Users/umpad/Desktop/coding/ENE/src/ui/settings_tabs/behavior_tab.py`
-- Modify: `C:/Users/umpad/Desktop/coding/ENE/src/ui/settings_dialog_values.py`
-- Modify: `C:/Users/umpad/Desktop/coding/ENE/src/locales/ko.json`
-- Modify: `C:/Users/umpad/Desktop/coding/ENE/src/locales/en.json`
-- Modify: `C:/Users/umpad/Desktop/coding/ENE/src/locales/ja.json`
+- Modify: `C:/workspace/ENE/tests/test_ui_i18n_smoke.py`
+- Modify: `C:/workspace/ENE/src/ui/settings_tabs/behavior_tab.py`
+- Modify: `C:/workspace/ENE/src/ui/settings_dialog_values.py`
+- Modify: `C:/workspace/ENE/src/locales/ko.json`
+- Modify: `C:/workspace/ENE/src/locales/en.json`
+- Modify: `C:/workspace/ENE/src/locales/ja.json`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -147,7 +147,7 @@ assert current_values["idle_synthetic_gesture_frequency"] == "low"
 Run:
 
 ```powershell
-& 'C:\Users\umpad\AppData\Local\Programs\Python\Python312\python.exe' -m pytest -p no:cacheprovider tests/test_ui_i18n_smoke.py::test_settings_dialog_exposes_synthetic_gesture_controls_and_saves_values -q
+python -m pytest -p no:cacheprovider tests/test_ui_i18n_smoke.py::test_settings_dialog_exposes_synthetic_gesture_controls_and_saves_values -q
 ```
 
 Expected: FAIL because the checkbox/combo attributes do not exist.
@@ -242,8 +242,8 @@ git commit -m "feat: add idle gesture settings controls"
 ### Task 3: WebView Sync
 
 **Files:**
-- Modify: `C:/Users/umpad/Desktop/coding/ENE/tests/test_ui_i18n_smoke.py`
-- Modify: `C:/Users/umpad/Desktop/coding/ENE/src/core/overlay_window.py`
+- Modify: `C:/workspace/ENE/tests/test_ui_i18n_smoke.py`
+- Modify: `C:/workspace/ENE/src/core/overlay_window.py`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -295,7 +295,7 @@ def test_overlay_window_syncs_idle_synthetic_gesture_settings_to_webview(tmp_pat
 Run:
 
 ```powershell
-& 'C:\Users\umpad\AppData\Local\Programs\Python\Python312\python.exe' -m pytest -p no:cacheprovider tests/test_ui_i18n_smoke.py::test_overlay_window_syncs_idle_synthetic_gesture_settings_to_webview -q
+python -m pytest -p no:cacheprovider tests/test_ui_i18n_smoke.py::test_overlay_window_syncs_idle_synthetic_gesture_settings_to_webview -q
 ```
 
 Expected: FAIL because no JS sync exists.
@@ -342,8 +342,8 @@ git commit -m "feat: sync idle gesture settings to webview"
 ### Task 4: Runtime Scheduler
 
 **Files:**
-- Modify: `C:/Users/umpad/Desktop/coding/ENE/tests/test_chat_ui_assets.py`
-- Modify: `C:/Users/umpad/Desktop/coding/ENE/assets/web/runtime_gesture_engine.js`
+- Modify: `C:/workspace/ENE/tests/test_chat_ui_assets.py`
+- Modify: `C:/workspace/ENE/assets/web/runtime_gesture_engine.js`
 
 - [ ] **Step 1: Write the failing asset smoke test**
 
@@ -363,7 +363,7 @@ assert "lastSyntheticSpeechActivityAt" in script
 Run:
 
 ```powershell
-& 'C:\Users\umpad\AppData\Local\Programs\Python\Python312\python.exe' -m pytest -p no:cacheprovider tests/test_chat_ui_assets.py::test_gesture_engine_exposes_chat_gesture_player -q
+python -m pytest -p no:cacheprovider tests/test_chat_ui_assets.py::test_gesture_engine_exposes_chat_gesture_player -q
 ```
 
 Expected: FAIL because scheduler API is missing.
@@ -519,7 +519,7 @@ window.setIdleSyntheticGestureConfig = setIdleSyntheticGestureConfig;
 Run:
 
 ```powershell
-& 'C:\Users\umpad\AppData\Local\Programs\Python\Python312\python.exe' -m pytest -p no:cacheprovider tests/test_chat_ui_assets.py::test_gesture_engine_exposes_chat_gesture_player -q
+python -m pytest -p no:cacheprovider tests/test_chat_ui_assets.py::test_gesture_engine_exposes_chat_gesture_player -q
 node --check .\assets\web\runtime_gesture_engine.js
 ```
 
@@ -544,7 +544,7 @@ git commit -m "feat: add idle synthetic gesture scheduler"
 Run:
 
 ```powershell
-& 'C:\Users\umpad\AppData\Local\Programs\Python\Python312\python.exe' -m pytest -p no:cacheprovider tests/test_settings.py::test_load_missing_file_uses_default_config tests/test_ui_i18n_smoke.py::test_settings_dialog_exposes_synthetic_gesture_controls_and_saves_values tests/test_ui_i18n_smoke.py::test_overlay_window_syncs_synthetic_gesture_scale_to_webview tests/test_ui_i18n_smoke.py::test_overlay_window_syncs_idle_synthetic_gesture_settings_to_webview tests/test_chat_ui_assets.py::test_gesture_engine_exposes_chat_gesture_player -q
+python -m pytest -p no:cacheprovider tests/test_settings.py::test_load_missing_file_uses_default_config tests/test_ui_i18n_smoke.py::test_settings_dialog_exposes_synthetic_gesture_controls_and_saves_values tests/test_ui_i18n_smoke.py::test_overlay_window_syncs_synthetic_gesture_scale_to_webview tests/test_ui_i18n_smoke.py::test_overlay_window_syncs_idle_synthetic_gesture_settings_to_webview tests/test_chat_ui_assets.py::test_gesture_engine_exposes_chat_gesture_player -q
 ```
 
 Expected: all selected tests PASS.
