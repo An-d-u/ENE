@@ -185,3 +185,86 @@ def extract_tts_metadata(text: str) -> tuple[str, str]:
     tts_text = match.group(1).strip()
     cleaned = re.sub(_TTS_BLOCK_PATTERN, "", source, flags=re.IGNORECASE | re.DOTALL).strip()
     return cleaned, tts_text
+
+
+_VISIBLE_RESPONSE_ANALYSIS_KEYS = (
+    "user_emotion",
+    "user_intent",
+    "interaction_effect",
+    "bond_delta_hint",
+    "stress_delta_hint",
+    "energy_delta_hint",
+    "valence_delta_hint",
+    "confidence",
+    "flags",
+)
+
+
+def sanitize_visible_response_text(text: str) -> str:
+    """화면에 전달할 답변에서 숨김 추론과 레거시 제어 블록을 제거한다."""
+    sanitized = strip_thinking_markers(text)
+    sanitized = sanitize_reserved_control_blocks(sanitized)
+    sanitized = re.sub(
+        r"\[\s*analysis\s*\]\s*.*?\s*\[\s*/\s*analysis\s*\]\s*",
+        "",
+        sanitized,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    sanitized, _ = extract_thought_metadata(sanitized)
+    sanitized, goal_update = extract_goal_update_metadata(sanitized)
+    sanitized = strip_proactive_conversation_blocks(sanitized)
+    sanitized, _ = extract_tts_metadata(sanitized)
+    if goal_update:
+        sanitized = re.sub(r"\n{2,}", "\n", sanitized)
+
+    key_pattern = "|".join(
+        re.escape(key) for key in _VISIBLE_RESPONSE_ANALYSIS_KEYS
+    )
+    leading_meta_pattern = (
+        rf"^\s*(?:(?:{key_pattern})\s*=\s*.*(?:\r?\n|$))+"
+    )
+    sanitized = re.sub(
+        leading_meta_pattern,
+        "",
+        sanitized,
+        flags=re.IGNORECASE,
+    )
+    sanitized = re.sub(r"^\s*\n+", "", sanitized)
+    sanitized = re.sub(r"\[(\w+)\]", "", sanitized)
+    return sanitized.strip()
+
+
+def sanitize_visible_thought_text(text: str) -> str:
+    """공개 생각 필드에서 think 영역과 레거시 thought wrapper를 정리한다."""
+    sanitized = strip_thinking_markers(text)
+    _, extracted = extract_thought_metadata(sanitized)
+    if extracted:
+        sanitized = extracted
+    sanitized = re.sub(
+        rf"\[/?\s*(?:{_THOUGHT_TAG_PATTERN})\s*\]",
+        "",
+        sanitized,
+        flags=re.IGNORECASE,
+    )
+    return re.sub(r"\s+", " ", sanitized).strip()
+
+
+def sanitize_spoken_response_text(text: str) -> str:
+    """TTS 필드의 예약 제어 블록만 제거하고 정상적인 평문은 보존한다."""
+    sanitized = strip_thinking_markers(text)
+    sanitized = sanitize_reserved_control_blocks(sanitized)
+    cleaned, extracted = extract_tts_metadata(sanitized)
+    if extracted:
+        sanitized = extracted
+    else:
+        sanitized = cleaned
+    sanitized = re.sub(
+        r"\[\s*analysis\s*\]\s*.*?\s*\[\s*/\s*analysis\s*\]\s*",
+        "",
+        sanitized,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    sanitized, _ = extract_thought_metadata(sanitized)
+    sanitized, _ = extract_goal_update_metadata(sanitized)
+    sanitized = strip_proactive_conversation_blocks(sanitized)
+    return sanitized.strip()
