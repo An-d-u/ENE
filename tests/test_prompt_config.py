@@ -1180,7 +1180,7 @@ def test_save_prompt_config_mirrors_visible_roaming_prompts_under_store_python(t
 def test_store_python_sync_uses_visible_to_runtime_bridge_when_strings_match(monkeypatch):
     from src.ai import prompt_config
 
-    same_dir = Path(r"C:\Users\umpad\AppData\Roaming\ENE\prompts")
+    same_dir = Path("synthetic/shared-prompt-dir")
     calls: list[tuple[Path, Path]] = []
 
     monkeypatch.setattr(prompt_config, "PROMPT_CONFIG_DIR", same_dir)
