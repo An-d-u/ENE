@@ -8,7 +8,7 @@
 
 ## 2. V1 성공 기준
 
-- 정상 종료에서는 실제 ENE 프로세스 종료 시각부터, 비정상 종료에서는 마지막 생존 확인 시각부터 다음 실행 후 첫 일반 대화 시각까지의 전체 구간을 기록한다.
+- 정상 종료에서는 worker 정리가 끝난 뒤 세션 상태를 durable commit한 종료 기준 시각부터, 비정상 종료에서는 마지막 생존 확인 시각부터 다음 실행 후 첫 일반 대화 수신 시각까지의 전체 구간을 기록한다.
 - 비활성 구간이 설정된 최소 시간 이상일 때만 기록을 생성한다.
 - 첫 일반 답변보다 먼저 기록을 생성하고, 성공한 최신 기록을 그 답변의 맥락에 포함한다.
 - 기록 항목 사이에 공백이나 겹침이 없고 전체 시작·종료 시각이 실제 구간과 정확히 일치한다.
@@ -88,6 +88,10 @@
 - 기록 스키마와 시간 연속성을 검증한다.
 - 같은 시간 구간의 중복 저장을 막는다.
 - 최신 기록 재생성 시 기존 기록을 성공 전까지 보존하고 성공 후 같은 ID로 교체한다.
+- Microsoft Store Python에서는 사용자가 보는 Roaming 파일을 유일한 권위 저장소로 사용하고 런타임 가상화 파일은 재생성 가능한 캐시로만 취급한다. 일반 환경에서는 전달받은 데이터 파일 자체가 권위 저장소다.
+- 권위 파일의 같은 디렉터리에 고유 임시 파일을 만들고 flush·디스크 동기화·원자 교체한 시점만 저장 성공으로 본다. Store Python의 visible 파일 교체는 기존 PowerShell 우회 계층 안에서 수행한다.
+- 권위 파일 교체 성공 뒤 런타임 캐시 갱신이 실패해도 저장은 성공으로 유지하며, 다음 읽기에서 권위 파일이 캐시를 복구한다. 오래된 캐시가 권위 파일을 덮어쓸 수 없다.
+- 손상된 권위 파일은 원본 bytes를 보존하고 읽기 오류 상태가 해소되기 전까지 추가·교체 쓰기를 거부한다.
 
 ### 6.2 `LifeRecordPromptBuilder`
 
@@ -103,29 +107,49 @@
 
 - 대화 히스토리가 없는 생활 기록 전용 one-shot 호출을 수행한다.
 - 공급자가 네이티브 구조화 출력을 지원하면 JSON 스키마를 사용하고, 지원하지 않으면 엄격한 JSON 텍스트 출력으로 폴백한다.
+- one-shot 결과는 text와 함께 `status`, `finish_reason`, usage를 보존한다. 명시적 capability 미지원에 대한 native→strict JSON 협상은 최대 한 번이며 내용 재시도와 별개다.
 - 생성 결과를 파싱하고 `LifeRecordManager`의 검증을 거친다.
-- 첫 검증 실패 시 오류 코드만 추가해 한 번 다시 생성한다.
+- `COMPLETE` 출력의 첫 host 검증 실패에만 오류 코드만 추가해 한 번 다시 생성한다. refusal, incomplete, max_tokens와 transport 오류는 내용 재시도하지 않는다.
 - 생성 호출은 기존 LLM 대화 히스토리를 변경하지 않는다.
 
 모델은 호스트가 이미 알고 있는 메타데이터를 반환하지 않는다. 모델 출력은 `entries`와 `ending_state`만 포함하고, ID·전체 구간·시간대·기분·생성 시각·revision은 검증 후 호스트가 조립한다.
 
 ### 6.4 `AppSessionTracker`
 
-- `life_session_state.json`은 `version`, `session_id`, `status`, `started_at`, `last_seen_at`, `stopped_at`을 가진다.
+- `life_session_state.json`은 정확히 `version`, `session_id`, `status`, `started_at`, `last_seen_at`, `stopped_at`만 가지며 `version == 1`, UUIDv4 세션 ID, 오프셋이 있는 시각을 요구한다.
 - 앱 시작 시 파일을 읽고 복귀 공백 후보를 메모리에 먼저 보관한다.
   - 이전 `status`가 `stopped`이고 `stopped_at`이 유효하면 그 시각을 `graceful_exit` 후보로 사용한다.
   - 이전 `status`가 `running`이고 `last_seen_at`이 유효하면 그 시각을 `heartbeat_recovery` 후보로 사용한다.
   - 이전 파일이 없거나 유효 후보가 없으면 복귀 공백 후보를 만들지 않는다.
-- 이전 후보를 보관한 직후 새 `session_id`를 만들고 현재 시각으로 `status=running`, `started_at`, `last_seen_at`을 기록하며 `stopped_at`은 비운다. 이 전이로 이전 정상 종료 플래그가 현재 세션 크래시까지 남지 않게 한다.
+- 이전 후보를 임시로 읽은 직후 새 `session_id`를 만들고 현재 시각으로 `status=running`, `started_at`, `last_seen_at`을 기록하며 `stopped_at`은 비운다. 이 전이가 durable commit된 경우에만 이전 후보를 반환한다. 저장 실패 시 후보를 폐기하고 해당 세션의 자동 생성을 비활성화하되 일반 채팅은 계속한다.
 - 실행 중 1분 간격으로 현재 `session_id`의 `last_seen_at`만 갱신한다.
-- 정상 종료 시 하트비트를 멈추고 현재 시각으로 `status=stopped`, `last_seen_at`, `stopped_at`을 한 번에 저장한다.
+- `running`은 `stopped_at=null`, `stopped`는 `started_at <= last_seen_at <= stopped_at`을 UTC 절대 시각으로 만족해야 한다. heartbeat와 stop은 디스크의 세션 ID가 자기 ID와 같을 때만 저장하며, 이전 시각보다 clock이 후퇴하면 `last_seen_at`을 후퇴시키지 않는다.
+- 정상 종료 시 하트비트를 멈추고 `shutdown_at = max(canonical_now, persisted_last_seen_at)`으로 정규화해 `status=stopped`, `last_seen_at=shutdown_at`, `stopped_at=shutdown_at`을 한 번에 저장한다. `stop_session()`은 멱등이며 tray 종료와 `QApplication.aboutToQuit`가 연속 호출해도 한 번만 commit한다.
+- tracker는 `life_session_state.lock`의 프로세스 수명 lease를 먼저 획득한다. 이미 다른 프로세스가 lease를 보유하면 그 프로세스에서는 생활 기록을 읽기 전용으로 두어 세션 추적·자동 생성·수동 재생성을 모두 비활성화하되 채팅과 기록 열람은 계속한다. stale tracker가 다른 세션 상태를 덮어쓰지 못하도록 세션 ID 비교도 저장 직전에 다시 수행한다.
+- lease는 `stop_session()` 직후가 아니라 최종 앱 teardown에서 해제해 정상 종료 commit과 실제 프로세스 종료 사이에 다른 tracker가 시작되는 틈을 막는다.
 - 비정상 종료에서는 실제 종료 시각을 알 수 없으므로 복구 시작 시각이 최대 하트비트 간격과 스케줄링 지연만큼 실제 종료보다 이를 수 있음을 허용한다.
 - 현재 실행 세션의 첫 일반 대화 처리 여부를 메모리에서 추적한다.
 
-### 6.5 `LifeRecordBridgeMixin`
+### 6.5 `LocalTimeContext`
+
+- tracker 시작·heartbeat·종료, 첫 요청 수신 시각, 임계값, 저장 검증, 날짜 조회가 같은 `LocalTimeContext`를 주입받는다.
+- `now()`는 timezone-aware datetime을 반환하고 `timezone_name`은 `tzlocal`로 해석한 뒤 `tzdata`가 제공하는 `zoneinfo.ZoneInfo`로 검증한 IANA 이름이다.
+- IANA 이름을 해석하지 못하면 해당 세션의 자동 생성과 재생성을 비활성화하고 안전 코드를 표시한다. 기록 열람은 `view_timezone=UTC`로 폴백해 계속하며 UI에 UTC 표시 중임을 알린다.
+- 모든 구간 endpoint는 캡처 즉시 마이크로초를 버린 정수 초로 정규화한다. 임계값·순서·동등성·ID·연속성은 UTC 절대 시각으로 계산한다.
+- 저장된 기록의 timestamp offset은 그 instant에서 기록 timezone의 IANA 규칙과 일치해야 한다. DST의 봄 건너뜀과 가을 중복 시각은 절대 시각과 `fold` 의미를 보존한다.
+- 패널의 날짜 경계·겹침 조회·날짜와 시각 표시는 요청 시점의 현재 `view_timezone` 하나로 통일한다. 기록의 `timezone`은 생성·재생성 검증용 원래 시간대로 보존한다.
+- 수동 재생성의 구간 해석, 현지 날짜·요일, timestamp offset, 모델 계약과 validator는 저장된 기록의 `timezone`을 사용한다. 현재 `view_timezone`은 패널 조회·표시에만 사용한다.
+
+### 6.6 `LifeRecordBridgeMixin`
 
 - 일반 텍스트와 첨부 채팅의 공통 진입점에서 첫 대화 파이프라인을 조정한다.
-- 생활 기록 생성 중 사용자 입력과 중복 실행을 막는다.
+- `life_records_writable` capability와 안정적인 read-only 사유 코드(`session_lease_unavailable`, `timezone_unavailable`, `session_tracker_degraded`)를 단일 상태로 보관한다. 자동 생성 gate와 수동 재생성 gate는 phase와 함께 이 capability를 필수 검사한다.
+- GUI 스레드에서 `idle`, `auto_generating`, `resuming_reply`, `normal_reply`, `manual_regenerating`, `shutting_down` 상태와 단조 증가 `operation_id`를 관리한다.
+- 모든 텍스트·첨부·명령·리롤·수정·재생성·약속·선제·자리비움 시작 경로는 부수효과보다 먼저 같은 작업 상태 관리자를 확인한다. busy 요청은 실행·큐잉하지 않고 안전하게 거부한다.
+- 일반 답변·명령은 기존 `self.worker`, 자동 생성·재생성은 별도 `life_record_worker`에 강한 참조를 유지한다. 두 worker의 상호 배제는 `isRunning()`이 아니라 공통 phase가 결정한다.
+- worker callback은 캡처한 `operation_id`가 현재 작업과 같을 때만 저장·UI·답변 재개를 수행하고 stale callback은 무시한다. GUI 스레드에서 `worker.wait()`를 호출하지 않는다.
+- 보류 요청은 불변 `PreparedChatRequest`로 보관하고 `take_pending(operation_id)`가 정확히 한 번만 꺼낸다. 모든 성공·실패·취소는 하나의 finalize 경로로 수렴한다.
+- `normal_reply`는 worker thread 종료가 아니라 기존 응답·TTS 보류 처리와 최종 pending 해제가 모두 끝날 때까지 유지한다.
 - 생성 결과를 저장한 후 보류한 일반 답변 작업을 시작한다.
 - 날짜별 기록과 최신 기록 상태를 웹 UI에 전달한다.
 - 수동 재생성을 실행하고 성공 시 패널과 런타임 컨텍스트를 갱신한다.
@@ -153,12 +177,16 @@
    - 자동 생성에서는 현재 최신 기록
    - 수동 재생성에서는 교체 대상 기록 자체를 제외한 바로 앞 기록
 6. 에네의 기분 스냅샷
-   - 라벨, 긍정, 활력, 친밀, 긴장, 단기 분위기의 제한된 상태
+   - `label`, `valence`, `energy`, `bond`, `stress`, `short_term_mood` 여섯 키만 전용 adapter로 복사한다.
+   - label과 단기 분위기는 로케일 문장 대신 안정적인 canonical code를 사용하고 프로필·표정 특성·갱신 시각 같은 원본 상태는 전달하거나 저장하지 않는다.
    - 첫 일반 메시지가 기분 상태를 변경하기 전에, 요청 수신 직후 복원된 현재 기분을 캡처한다.
 7. 복귀 사실
    - 사용자는 종료 시각부터 끝 시각 직전까지 돌아오지 않았다.
    - 사용자의 복귀를 확인하는 행동은 끝 시각 이전에 발생할 수 없다.
 8. 출력 계약과 최대 24개 제한
+9. 실행 시점의 해석된 UI 언어 코드
+   - `ko`, `en`, `ja` 중 하나를 전달하고 활동·마지막 상태를 그 언어로 생성하도록 지시한다.
+   - 수동 재생성은 최초 생성 언어가 아니라 실행 시점의 현재 언어를 사용한다.
 
 다음 정보는 생성 컨텍스트에서 명시적으로 제외한다.
 
@@ -176,15 +204,15 @@
 ## 8. 자동 생성 흐름
 
 1. 앱 시작 시 `AppSessionTracker`가 이전 종료 또는 마지막 생존 시각을 복구한다.
-2. 일반 대화가 들어오면 수신 시각을 비활성 구간의 끝으로 고정하고, 메시지 내용이나 첨부에 따른 기분 변경보다 먼저 현재 기분 스냅샷을 캡처한다.
+2. 일반 텍스트·첨부 slot 진입 즉시, 명령 판정·캘린더 증가·첨부 JSON 파싱·분석·기분 변경보다 먼저 `received_at`을 정수 초로 캡처한다. 명령이면 이 값을 버리고, 일반 요청이면 `PreparedChatRequest`가 비활성 구간 끝과 기분·첨부·선행 토큰 snapshot을 소유한다. 이후 gate와 worker는 새 `now()`를 호출하지 않는다.
 3. 도구 명령이면 생활 기록 상태를 소비하지 않고 기존 명령 흐름으로 보낸다.
 4. 해당 앱 세션에서 이미 자동 생성을 판단했으면 기존 일반 대화 흐름으로 보낸다.
-5. 기능 비활성화, 이전 시각 부재, 빈 생활 환경, 임계값 미만, 0 이하 구간이면 자동 생성을 시도하지 않은 것으로 기록하고 일반 대화를 진행한다. 기능이 켜져 있고 기존 최신 기록이 있으면 기존 기록 컨텍스트를 유지한다.
-6. 생성 조건을 만족하면 사용자 입력을 잠그고 `복귀 기록 정리 중…`을 표시한다.
+5. 기능 비활성화, `life_records_writable=false`, 이전 시각 부재, 빈 생활 환경, 임계값 미만, 0 이하 구간이면 자동 생성을 시도하지 않은 것으로 기록하고 일반 대화를 진행한다. read-only 사유는 안전 코드로 UI에 전달한다. 기능이 켜져 있고 기존 최신 기록이 있으면 기존 기록 컨텍스트를 유지한다.
+6. 생성 조건을 만족하면 `auto_generating`으로 전이해 모든 생성형 입력을 잠그고 `복귀 기록 정리 중…`을 표시한다. 사용자 활동 갱신과 대기 선제 대화 취소는 요청 수락 직후 수행하되 conversation append, 기분 변경, head-pat drain, 캘린더 증가, 첨부 session commit은 보류 요청 commit에서 정확히 한 번 수행한다.
 7. 첫 사용자 메시지와 일반 답변 요청 정보를 보류하고 생활 기록 전용 호출을 실행한다.
 8. 검증 실패 시 한 번 재생성한다.
 9. 성공하면 기록을 원자적으로 저장하고 패널 데이터를 갱신한다.
-10. 성공한 최신 기록을 임시 런타임 맥락으로 포함해 보류한 일반 답변을 생성한다.
+10. 성공한 최신 기록을 임시 런타임 맥락으로 포함해 `resuming_reply`에서 보류 요청을 한 번 꺼내고 `normal_reply` 일반 답변을 생성한다. 이 전환 사이에는 pending 해제나 자동 queue drain이 없다.
 11. 실패하면 새 기록을 저장하지 않는다. 기능이 켜져 있고 기존 최신 기록이 있으면 기존 기록을 사용하고, 기존 기록도 없으면 생활 기록 없이 보류한 일반 답변을 생성한다.
 12. 일반 답변 단계에서는 기존 `생각 중…` 표시를 사용한다.
 
@@ -196,10 +224,13 @@
 - 기능을 끄면 저장 기록을 삭제하지 않지만 일반 대화 컨텍스트에는 포함하지 않는다.
 - 기능이 켜진 상태에서 현재 세션이 임계값 미만, 이전 시각 부재, 빈 생활 환경 또는 새 생성 실패인 경우에도 기존 최신 성공 기록은 계속 포함한다.
 - 저장된 성공 기록이 없으면 생활 기록 블록을 만들지 않는다.
-- 생활 기록은 모든 일반 텍스트·첨부 대화에서 사용할 수 있는 별도 임시 컨텍스트 블록으로 조립한다.
+- 생활 기록은 사용자 주도의 일반 텍스트·첨부 대화에서만 사용할 수 있는 별도 임시 컨텍스트 블록으로 조립한다.
+- 포함 여부는 호출자가 넘긴 명시적 request scope로 결정한다. 사용자 주도의 일반 텍스트·첨부와 그 리롤·수정 재전송만 포함하고 `/note`, `/diary`, 요약·판정 one-shot, 약속·선제·자리비움에는 포함하지 않는다.
+- request scope는 요청 객체의 불변 값이며 전역 client 상태를 임시 변경하는 방식으로 전달하지 않는다.
 - 생활 기록 블록은 LLM에 전달되지만 SDK 또는 HTTP 대화 히스토리와 화면의 `conversation_buffer`에는 저장하지 않는다.
 - 과거 기록은 날짜별 열람에만 사용하고 일반 대화 컨텍스트에는 포함하지 않는다.
 - 첫 일반 대화에서 생활 기록 생성과 일반 답변에 사용된 토큰은 한 턴 사용량으로 합산한다.
+- native capability fallback, 내용 재시도, 일반 답변의 공급자 usage를 모두 합산하되 공급자가 주지 않은 값은 `None`으로 유지하고 0으로 만들지 않는다.
 
 ## 10. 리롤과 메시지 수정
 
@@ -216,9 +247,10 @@
 - `prompts/life_world.md`: 사용자가 편집하는 생활 환경
 - `life_records.json`: 전체 생활 기록
 - `life_session_state.json`: 정상 종료·마지막 생존 시각
+- `life_session_state.lock`: 다중 프로세스 세션 추적 충돌을 막는 수명 lease
 - `config.json`: 기능 활성화와 최소 비활성 시간
 
-새 런타임 JSON 파일은 `.gitignore`와 커밋 전 개인정보 검사 대상에 포함한다.
+새 런타임 파일 전체는 `.gitignore`와 커밋 전 개인정보 검사 대상에 포함한다. `life_records.json`, `life_session_state.json`, `life_session_state.lock`, 사용자 `prompts/life_world.md`는 절대 추적하거나 release에 포함하지 않는다.
 
 `life_records.json`의 최상위 형식은 다음과 같다.
 
@@ -273,12 +305,12 @@
   "timezone": "Asia/Seoul",
   "inactive_start_source": "graceful_exit",
   "mood_snapshot": {
-    "label": "평온",
+    "label": "calm",
     "valence": 0.1,
     "energy": 0.0,
     "bond": 0.2,
     "stress": 0.0,
-    "short_term_mood": "차분함"
+    "short_term_mood": "steady"
   },
   "entries": [
     {
@@ -295,7 +327,8 @@
 }
 ```
 
-- `id`는 시작·종료 시각을 UTC, 초 단위, `Z` 표기로 정규화한 두 문자열을 `|`로 연결하고 SHA-256을 계산해 안정적으로 만든다.
+- 모든 interval endpoint는 저장 전에 마이크로초가 없는 정수 초로 canonicalize한다. `id`는 이 시작·종료 시각을 UTC `Z` 표기로 정규화한 두 문자열을 `|`로 연결하고 SHA-256을 계산해 안정적으로 만든다.
+- 저장소 전체에서 ID는 유일해야 하며 중복 ID가 이미 존재하는 파일은 손상 상태로 취급한다. 원시 시각의 마이크로초만 다른 구간을 서로 다른 유효 구간으로 받지 않고 캡처 단계에서 같은 정수 초 규칙을 적용한다.
 - `inactive_start_source`는 `graceful_exit` 또는 `heartbeat_recovery`만 허용한다.
 - 수동 재생성은 `id`, `inactive_started_at`, `returned_at`, `created_at`, `timezone`, `inactive_start_source`, `mood_snapshot`을 유지한다.
 - 수동 재생성 성공 시 `updated_at`과 `revision`을 갱신하고 생성된 활동과 마지막 상태를 교체한다.
@@ -315,18 +348,21 @@
 - 각 항목의 장소·활동 설명과 `ending_state`의 장소·요약이 비어 있지 않다.
 - `ending_state.place`가 마지막 항목 장소와 같다.
 - 동일한 구간 ID가 자동 생성으로 중복 추가되지 않는다.
+- 모든 순서·기간·경계 비교는 UTC에서 수행하고, 각 timestamp의 offset이 저장된 IANA timezone의 해당 instant 규칙과 일치한다.
+- 봄 DST 건너뜀·가을 중복 시각에서도 절대 시각이 연속이어야 하며 존재하지 않는 현지 시각과 잘못된 fold/offset 조합은 거부한다.
 
 검증은 절대 시각으로 수행하고 표시는 현지 시간대로 변환한다. 시스템 시계 이동으로 종료가 시작과 같거나 빠르면 생성을 건너뛴다.
 
 ## 13. 날짜별 조회
 
-- 패널 기본 날짜는 오늘이다.
-- 선택한 현지 날짜의 `[00:00, 다음 날 00:00)` 구간과 겹치는 모든 기록을 찾는다.
+- 패널 기본 날짜는 현재 `view_timezone`의 오늘이다.
+- 선택한 `view_timezone` 날짜의 `[00:00, 다음 날 00:00)` 구간과 겹치는 모든 기록을 찾는다. DST 날짜는 실제 23시간 또는 25시간일 수 있다.
 - 자정을 넘긴 기록은 양쪽 날짜에서 모두 조회된다.
 - 어느 날짜에서 열어도 잘린 일부가 아니라 기록 전체를 표시한다.
 - 같은 날짜에 여러 기록이 있으면 최신 기록부터 표시한다.
 - 정렬은 `returned_at` 내림차순, 값이 같으면 `created_at` 내림차순, 다시 같으면 `id` 오름차순으로 고정한다.
 - 기록은 V1에서 자동 삭제하지 않는다.
+- 조회 경계 생성, 겹침 판정, 자정 표시와 카드 날짜·시각 포맷은 동일한 `view_timezone`과 resolved locale을 사용한다.
 
 ## 14. UI
 
@@ -355,6 +391,17 @@
 
 삭제와 직접 편집은 V1에서 제공하지 않는다.
 
+접근성과 반응형 계약:
+
+- 생활 버튼은 `aria-controls`와 `aria-expanded`를 갖고, 패널은 접근 가능한 제목이 연결된 `role="region"`이다.
+- 패널을 열면 날짜 입력으로 초점을 이동한다. Escape 또는 닫기로 패널을 닫으면 생활 버튼으로 초점을 돌려준다.
+- 재생성 확인창은 제목·설명이 연결된 `role="alertdialog"`이며 취소에 기본 초점을 두고 열린 동안 Tab 초점을 내부에 가둔다. 닫을 때 원래 재생성 버튼이 연결·표시 가능하면 그곳으로, 아니면 열린 패널의 날짜 입력으로, 패널도 닫혔으면 생활 메뉴 버튼으로 초점을 복원한다.
+- 진행·성공·실패 안내는 `role="status"`, `aria-live="polite"`, `aria-atomic="true"`로 알린다. 모든 조작 요소는 visible focus와 최소 44×44px hit target을 가진다.
+- 생활 패널 폭은 `min(420px, calc(100vw - 24px))` 범위로 두고 내부 세로 스크롤과 긴 문장 줄바꿈을 사용한다. 375×667 화면에서 가로 스크롤 없이 날짜 조작과 전체 카드 열람이 가능해야 한다.
+- 초기 로딩, 기록 없음, 생활 환경 비어 있음, 읽기 실패, 생성 실패, 저장 실패, 재생성 실패를 서로 다른 상태로 표시한다. 빈 환경에는 `생활 환경 설정 열기`, 재생성 실패에는 기존 기록이 유지됐다는 행동 안내를 제공한다.
+- 날짜 요청마다 request ID와 요청 날짜를 함께 검증해 빠른 날짜 전환 뒤 도착한 stale 응답이 현재 패널을 덮지 못하게 한다.
+- `life_records_writable=false`에서는 재생성 버튼을 비활성화하고 read-only 사유를 안내한다. backend도 같은 capability를 다시 검사해 직접 호출을 안전하게 거부한다.
+
 ### 14.2 설정 UI
 
 동작 설정에 다음 항목을 추가한다.
@@ -371,12 +418,17 @@
 
 한국어, 영어, 일본어 문자열을 기존 로케일 체계에 추가한다.
 
+- 생활 환경 편집기는 기존 2열 편집기 아래 전체 폭 카드로 배치한다.
+- 설정창은 화면 `availableGeometry` 안으로 크기를 제한해 1024×768에서도 열고 저장할 수 있어야 한다.
+- Qt 레이블은 `setBuddy` 또는 명시적 accessible name으로 대응 입력과 연결한다.
+- backend는 `resolvedLanguage`를 웹 payload에 포함하고 웹은 `document.documentElement.lang`, 표시 문구, ARIA 레이블, 날짜·시간 포맷을 같은 `ko`·`en`·`ja` 값으로 갱신한다.
+
 ## 15. 최신 기록 수동 재생성
 
 1. 최신 기록 카드의 `재생성`을 누른다.
 2. API 호출과 기록 교체를 알리는 확인 UI를 표시한다.
-3. 일반 답변 생성 또는 다른 재생성이 진행 중이면 실행하지 않는다.
-4. 확인하면 채팅 입력과 재생성 버튼을 잠그고 `생활 기록 다시 만드는 중…`을 표시한다.
+3. 공통 작업 상태가 `idle`이 아니거나 `life_records_writable=false`이면 실행하지 않고 안전한 사유 코드를 표시한다.
+4. 확인하면 `manual_regenerating`으로 전이하고 textarea, 전송, 첨부, 파일 선택, 메시지 수정, 리롤, 재생성을 하나의 생성 잠금으로 막은 뒤 `생활 기록 다시 만드는 중…`을 표시한다. 패널 닫기와 날짜 읽기 탐색은 허용하고 작성 중 초안은 보존한다.
 5. 같은 시작·종료 시각과 최초 생성 당시 `mood_snapshot`을 사용한다.
 6. 현재 생활 환경, 현재 에네 프로필, 현재 `base_system_prompt.md`와 생활 기록 전용 우선 계약을 사용한다.
 7. 교체 대상 자체가 아니라 그보다 앞선 기록 한 개만 연속성 자료로 사용한다.
@@ -386,6 +438,8 @@
 11. 성공하면 같은 ID로 원자 교체하고 `revision`과 `updated_at`을 갱신한다.
 12. 패널과 최신 일반 대화 컨텍스트를 즉시 갱신한다.
 13. 별도 채팅 답변은 만들지 않는다.
+
+성공·실패·취소·거부와 stale callback을 포함한 모든 종료 경로는 공통 finalizer를 거쳐 잠금과 초점을 정확히 한 번 복원한다.
 
 ## 16. 오류 처리와 복구
 
@@ -405,6 +459,14 @@
 
 사용자에게 보이는 실패 안내는 짧은 토스트 또는 패널 상태로 제공하고 일반 대화 실패처럼 표시하지 않는다.
 
+종료는 다음 barrier를 따른다.
+
+1. `begin_shutdown()`이 phase를 terminal `shutting_down`으로 바꾸고 새 요청을 차단하며 operation ID를 무효화한다.
+2. 일반·생활 기록 worker에 cooperative cancel을 요청하고 모든 worker 종료와 참조 정리를 확인한다. 늦은 signal은 저장·UI·답변 재개를 하지 않는다.
+3. worker가 안전하게 끝난 뒤 heartbeat timer를 멈추고, 실제 teardown 직전의 마지막 비차단 단계에서 `stop_session()`을 durable commit한다.
+4. 그 뒤 overlay·tray를 정리한다. 제한 시간 안에 worker를 안전하게 종료하지 못해 강제 종료하면 `stopped`를 기록하지 않고 `running`을 남겨 다음 실행에서 heartbeat recovery를 사용한다.
+5. tray 종료가 주 경로이고 `QApplication.aboutToQuit`은 멱등 fallback이다.
+
 ## 17. 개인정보와 로그 정책
 
 - 생활 환경, 에네 프로필 원문, 기분 설명, 생활 기록 활동 문장, 첫 채팅 내용을 진단 로그에 출력하지 않는다.
@@ -412,6 +474,8 @@
 - 테스트 fixture와 문서는 합성 인물·합성 날짜·중립 문장만 사용한다.
 - `life_records.json`과 `life_session_state.json`은 런타임 파일로 간주하고 절대 커밋하지 않는다.
 - 공개 커밋 전 파일명, 사용자 대화 문장, 프로필·건강·일정·취업 관련 표현, API 키 패턴을 검사한다.
+- `.env*`, `memory.json`, `user_profile.json`, `ene_profile.json`, `config.json`, `api_keys.json`, `obs_config.json`, `mood_state.json`, `calendar.json`, `diary.json`, `life_session_state.lock`, `api_key.txt`와 사용자 데이터 루트의 `prompts/**` 전체를 같은 런타임·민감·비커밋·비로그·release scan 정책에 포함한다. 번들 `prompts/defaults/**`의 검증된 합성 기본값만 공개 자산으로 허용한다.
+- release/tag 전에는 변경 파일뿐 아니라 tracked tree, 전체 Git history, tag 대상, release archive의 경로와 압축 내부를 검사한다. 실제 release와 tag 생성은 이 기능 구현 계획의 범위 밖이며 별도 승인과 검사를 요구한다.
 
 ## 18. 테스트 계획
 
@@ -423,20 +487,32 @@
 - 앱 시작 직후 현재 세션을 `running`으로 전이해 이전 `stopped` 상태가 남지 않는지 확인한다.
 - 비정상 종료 복구 시 `inactive_start_source=heartbeat_recovery`를 사용하고 하트비트 근사를 허용한다.
 - 손상된 `life_session_state.json`은 이전 후보 없음으로 처리하고 현재 세션의 유효한 `running` 상태로 다시 시작한다.
+- 새 `running` commit 실패는 후보를 폐기하고 fail-closed로 자동 생성을 끄며, stale session ID의 heartbeat/stop과 clock rollback을 거부한다.
+- `stop_session()` 이중 호출은 한 번만 저장하고 UUIDv4·exact keys·상태별 시각 불변조건을 검증한다.
+- clock rollback 종료는 `max(now, persisted_last_seen_at)`을 사용해 `last_seen_at == stopped_at`을 보존한다.
+- session lease 경합·stale lock 회수·teardown 해제와 lease 미보유 프로세스의 자동 생성·수동 재생성 쓰기 차단을 검증한다.
+- lease 미보유·tracker degraded·IANA 실패가 각각 `life_records_writable=false`와 안전 사유 코드를 만드는지 검증한다. `timezone_unavailable`만 UTC view로 폴백하고, 나머지 두 상태는 유효하게 해석된 현재 view timezone으로 열람한다.
+- Windows에서 IANA 이름과 `Asia/Seoul`을 해석하고 `America/New_York`의 DST 봄·가을 경계와 fold를 검증한다.
 - 0 이하 시간 구간은 생성하지 않는다.
 - 생성 프롬프트에 첫 채팅, 캘린더, 사용자 프로필 상세, 장기 기억이 들어가지 않는다.
 - 실제 공급자 payload의 system instruction에 현재 `base_system_prompt.md`가 포함되고, `sub_prompt`·일반 응답 계약·분석 부록·메모리 컨텍스트는 포함되지 않는다.
 - 기본 시스템 프롬프트가 JSON과 충돌하는 말투·출력 지시를 포함해도 뒤에 붙는 생활 기록 전용 계약이 우선한다.
 - 수동 재생성도 실행 시점의 현재 `base_system_prompt.md`와 같은 우선 계약을 사용하고 일반 채팅용 프롬프트·메모리를 제외한다.
+- 사용자가 다른 timezone으로 이동해도 수동 재생성의 날짜·요일·offset·검증은 저장된 record timezone을 사용하고 UI만 현재 view timezone을 사용하는지 확인한다.
 - 생성 프롬프트에 허용된 에네 프로필 필드·fact 카테고리, 호출명, 생활 환경, 시각, 기분, 직전 기록 한 개만 들어간다.
 - 에네 프로필 facts의 우선순위·최신순·개수 제한을 확인한다.
 - 첫 일반 메시지로 기분이 변경되기 전 스냅샷을 생성에 사용한다.
+- 기분 adapter가 여섯 canonical 키만 복사하고 profile·expression traits·updated_at을 제외하는지 확인한다.
+- ko/en/ja마다 현재 생성 언어 지시가 들어가고 수동 재생성은 실행 시점 언어를 사용하는지 확인한다.
 - 직전 기록이 없을 때 해당 블록을 생략한다.
 - 공백, 겹침, 범위 이탈, 역순, 빈 장소·활동, 25개 항목, 잘못된 마지막 장소를 거부한다.
 - 안정적인 구간 ID가 중복을 막는다.
 - 서로 다른 오프셋 표기가 같은 절대 시작·종료 시각을 나타내면 같은 구간 ID를 만든다.
+- sub-second endpoint를 정수 초로 canonicalize하고 저장소 중복 ID를 거부한다.
+- DST의 23시간·25시간 날짜 경계와 기록 당시 timezone·현재 view timezone이 다른 자정 인접 조회를 검증한다.
 - UTF-8(BOM 없음)으로 설정과 Markdown을 저장한다.
 - 손상된 기존 저장 파일을 덮어쓰지 않는다.
+- Store Python에서 visible 권위 우선, 손상 visible의 runtime fallback 금지, 권위 저장 성공 뒤 cache 실패, stale cache 역덮어쓰기 금지를 검증한다.
 - 자정을 넘긴 기록을 양쪽 날짜에서 조회한다.
 - 같은 날짜의 여러 기록을 최신순으로 정렬한다.
 - 최신 기록 한 개만 일반 대화 컨텍스트로 만든다.
@@ -450,6 +526,8 @@
 - 생성 실패 후 일반 답변을 정상 시작한다.
 - 생성 호출은 기존 LLM 대화 히스토리를 변경하지 않는다.
 - 네이티브 구조화 출력과 텍스트 JSON 폴백이 동일한 `entries`·`ending_state` 계약을 사용한다.
+- native 미지원 fallback은 최대 한 번, COMPLETE host 검증 실패 내용 재시도는 최대 한 번이며 refusal·incomplete·max_tokens·transport 오류는 내용 재시도하지 않는 상태표를 검증한다.
+- native/fallback·내용 재시도·최종 답변의 제공된 usage를 합산하고 미제공 값은 `None`으로 전파한다.
 - 기능 비활성화 시 기존 최신 기록을 주입하지 않는다.
 - 기능 활성화 상태의 임계값 미만·빈 환경·생성 실패에서는 기존 최신 기록을 유지한다.
 - 기능 활성화 여부, 기존 기록 유무, 임계값 충족 여부, 생성 성공·실패, 저장 성공·실패, 리롤 여부의 컨텍스트 결과를 상태표 기반으로 검증한다.
@@ -459,6 +537,11 @@
 - 수동 재생성 후 다음 대화와 리롤은 교체된 기록을 사용한다.
 - 수동 재생성 실패 시 기존 기록과 컨텍스트를 유지한다.
 - 재생성 중 중복 클릭과 채팅 동시 실행을 막는다.
+- 생활 기록은 사용자 일반 텍스트·첨부·리롤·수정에만 포함하고 `/note`, `/diary`, 요약·판정, 약속·선제·자리비움에는 포함하지 않는다.
+- 자동 생성 중 두 번째 텍스트·첨부·명령·리롤·수정과 자동 queue가 모두 부수효과 없이 거부되는지 검증한다.
+- result/error/finished 교차, 중복 signal, stale operation ID, prompt·worker start·검증·저장·commit 예외에서도 보류 답변과 잠금이 정확히 한 번 finalize되는지 검증한다.
+- 자동 생성에서 `life_record → thinking` 사이 pending 해제가 없고 성공·실패 event 순서가 계약과 일치하는지 검증한다.
+- 자동 생성·수동 재생성·일반 답변 실행 중 종료와 cancel 불가 timeout에서 worker drain 및 `running` 보존 규칙을 검증한다.
 
 ### 18.3 UI 테스트
 
@@ -470,6 +553,12 @@
 - 빈 상태와 실패 상태를 표시한다.
 - 동작 설정과 생활 환경 편집기가 저장·재로드된다.
 - 한국어·영어·일본어 문자열이 모두 연결된다.
+- 키보드만으로 패널 열기·날짜 이동·Escape 닫기·재생성 취소/승인을 수행하고 초점 이동·trap·복귀와 ARIA live status를 검증한다.
+- 자동 생성·재생성 중 textarea·전송·첨부·파일·수정·리롤·재생성 전체 잠금과 초안 보존, 종료 시 한 번 복원을 검증한다.
+- 375×667 웹 UI의 무가로스크롤·44px hit target과 1024×768 설정창의 available geometry·전체 폭 편집기를 검증한다.
+- `resolvedLanguage`가 `<html lang>`, 표시·ARIA 문자열, 날짜 포맷을 ko/en/ja 각각으로 바꾸는지 검증한다.
+- 빠른 날짜 전환에서 stale 응답을 버리고 loading·empty·world empty·read/generation/save/regeneration failure 상태와 회복 행동을 구분한다.
+- read-only capability에서 재생성 버튼이 비활성화되고 backend 직접 호출도 같은 사유 코드로 거부되는지 검증한다.
 
 ### 18.4 수동 검증
 
@@ -478,6 +567,7 @@
 - 오늘 패널과 전날 패널에서 같은 자정 교차 기록 전체를 확인한다.
 - 최신 기록 재생성 성공·실패·취소를 확인한다.
 - 기능 비활성 상태에서 기존 채팅 지연과 동작이 달라지지 않는지 확인한다.
+- 키보드 전용과 스크린리더로 패널·확인창·상태 안내를 확인하고 375×667 웹, 1024×768 설정창, ko/en/ja 런타임 전환을 확인한다.
 
 ## 19. V2 후보
 
@@ -506,3 +596,8 @@
 - 수동 재생성: 최신 기록만, 성공 전 원본 보존
 - 재생성 입력: 같은 구간과 당시 기분, 현재 생활 환경과 에네 프로필
 - 기본 시스템 프롬프트: 자동 생성과 수동 재생성 모두 실행 시점의 현재 `base_system_prompt.md`를 포함하되 `sub_prompt`·일반 응답 계약·분석 부록·메모리 컨텍스트는 제외하고 생활 기록 전용 계약을 우선
+- 저장 권위: Store Python은 visible Roaming 파일이 권위 저장소이고 runtime 파일은 캐시, 일반 환경은 전달된 데이터 파일이 권위 저장소
+- 시간 기준: 단일 `LocalTimeContext`, 정수 초 endpoint, UTC 계산, 현재 view timezone 조회·표시, 기록 timezone 보존
+- 생성 언어: 자동 생성과 수동 재생성 모두 실행 시점의 resolved ko/en/ja
+- 대화 컨텍스트 범위: 사용자 일반 텍스트·첨부·리롤·수정만 포함, 명령·one-shot·약속·선제·자리비움 제외
+- 동시성: 별도 생활 기록 worker와 공통 phase·operation ID arbiter, busy 요청 거부, 종료 시 cooperative drain
