@@ -376,13 +376,15 @@ git commit -m "feat: add life world prompt settings"
 - facts 순서: 잠금 수동 → 수동 → 자동, 각 그룹 최신순
 - facts 최대 개수: 기존 `max_profile_facts_in_context`, 기본 10
 - 제외: `speaking_style`, 사용자 상세 프로필, 대화/장기 기억, 일정, 첨부, 첫 채팅 본문
+- system instruction 포함: 현재 `base_system_prompt.md` 전체
+- system instruction 제외: 일반 채팅용 `sub_prompt`, 응답 계약, 분석 부록, 메모리 컨텍스트
 - 이름: 설정에 명시된 ENE·사용자 호출명만 포함
 - 포함: 현재 `life_world.md` 전체, exact interval·IANA timezone·현지 날짜/요일, 직전 레코드 한 개, 선캡처 mood snapshot, 복귀 사실, 최대 24개/전 구간 규칙
 - 기간별 세분화 지시: 1일 이하는 30분~수시간, 1일 초과 7일 이하는 수시간~하루, 7일 초과는 여러 날 단위의 반복 생활 요약
 - 수동 재생성: 대상 레코드가 아니라 그 바로 전 레코드만 포함
 - 빈 world는 `LifeWorldEmptyError`로 생성 호출 전 중단
 
-검증은 민감한 문자열이 `prompt`에 없음을 직접 확인한다.
+검증은 첫 채팅·프로필 상세·일정·기억 sentinel이 생활 기록용 user prompt에 없음을 직접 확인한다. `base_system_prompt.md`는 별도 system instruction으로 전달하므로 이 화이트리스트 user prompt에 중복 결합하지 않는다.
 
 - [ ] **Step 2: 실패 확인**
 
@@ -432,6 +434,7 @@ git commit -m "feat: build private life record prompts"
 - Modify: `src/ai/response_protocol.py`
 - Modify: `src/ai/llm_provider.py`
 - Modify: `src/ai/llm_client.py`
+- Modify: `src/ai/prompt.py`
 - Create: `tests/test_life_record_llm_contract.py`
 - Modify: `tests/test_llm_provider.py`
 - Modify: `tests/test_llm_privacy_logging.py`
@@ -442,8 +445,12 @@ git commit -m "feat: build private life record prompts"
 
 - `LLMRequestKind.LIFE_RECORD` 존재
 - 공통 `LLMClientProtocol`과 Gemini client가 `generate_life_record_once(prompt)` 비동기 계약 제공
+- 현재 `base_system_prompt.md`가 system instruction에 포함됨
+- `sub_prompt`, 일반 응답 계약, 분석 부록, 일반 채팅 메모리 컨텍스트는 system instruction과 user payload에 포함되지 않음
+- 기본 프롬프트 뒤에 고정 생활 기록 작업 계약을 배치해 충돌하는 말투·출력 형식보다 JSON 계약을 우선
 - Gemini는 `entries`와 `ending_state`만 허용하는 response schema 사용
 - Gemini SDK가 native schema capability를 명시적으로 거부하면 같은 내용 생성 시도 안에서 strict JSON text config로 한 번 fallback하고 양쪽 사용량 합산
+- Gemini native와 fallback의 실제 `generate_content` config가 동일한 base-first·life-contract-last system instruction을 사용
 - SDK 대화 히스토리를 읽거나 쓰지 않는 one-shot 호출
 - provider는 원문과 토큰 사용량만 반환하고 출력 검증·재시도를 수행하지 않음
 - 로그에는 프롬프트·응답 본문이 없음
@@ -463,7 +470,9 @@ Expected: 새 request kind/API 부재로 FAIL.
 
 - [ ] **Step 3: 공통 API와 Gemini 구조화 호출 구현**
 
-`llm_provider.py`의 공통 Protocol과 Gemini client·필요한 Gemini 테스트 double에 `generate_life_record_once`를 추가한다. HTTP 실제 구현 완료 조건은 Task 8A/8B가 소유한다. `llm_client.py`는 기존 `_generate_one_shot_text`를 재사용하되 LIFE_RECORD 전용 config를 만들고 일반 final-response 파서를 통과시키지 않는다. 이 API는 한 번의 모델 내용 생성 시도와 토큰 정규화만 책임진다. transport가 native capability 거부를 반환해 JSON text wire 형식으로 대체하는 것은 같은 내용 생성 시도 안의 협상으로 보며, 그 과정의 사용량도 결과에 합산한다. exact interval·timezone을 가진 내용 검증, 오류 코드 재프롬프트, 최대 1회 내용 재시도는 Task 10B의 `LifeRecordWorker`만 담당한다.
+`prompt.py`에 `build_life_record_system_instruction(settings_source)`를 추가한다. 이 함수는 `base_system_prompt.md`만 읽고 그 뒤에 고정 생활 기록 작업 계약을 붙이며, `sub_prompt`, 일반 응답 계약, 분석 부록을 호출하지 않는다. 고정 계약은 충돌 시 생활 기록의 행동·JSON 규칙을 우선한다고 명시한다.
+
+`llm_provider.py`의 공통 Protocol과 Gemini client·필요한 Gemini 테스트 double에 `generate_life_record_once`를 추가한다. HTTP 실제 구현 완료 조건은 Task 8A/8B가 소유한다. `llm_client.py`는 기존 `_generate_one_shot_text`의 historyless transport를 재사용하되 `build_life_record_system_instruction()`을 받는 LIFE_RECORD 전용 config를 만들고 일반 final-response 파서를 통과시키지 않는다. 이 API는 한 번의 모델 내용 생성 시도와 토큰 정규화만 책임진다. transport가 native capability 거부를 반환해 JSON text wire 형식으로 대체하는 것은 같은 내용 생성 시도 안의 협상으로 보며, 그 과정의 사용량도 결과에 합산한다. exact interval·timezone을 가진 내용 검증, 오류 코드 재프롬프트, 최대 1회 내용 재시도는 Task 10B의 `LifeRecordWorker`만 담당한다.
 
 - [ ] **Step 4: 통과 확인**
 
@@ -474,7 +483,7 @@ Expected: PASS.
 - [ ] **Step 5: 커밋**
 
 ```text
-git add src/ai/response_protocol.py src/ai/llm_provider.py src/ai/llm_client.py tests/test_life_record_llm_contract.py tests/test_llm_provider.py tests/test_llm_privacy_logging.py
+git add src/ai/response_protocol.py src/ai/llm_provider.py src/ai/llm_client.py src/ai/prompt.py tests/test_life_record_llm_contract.py tests/test_llm_provider.py tests/test_llm_privacy_logging.py
 git commit -m "feat: add structured life record generation"
 ```
 
@@ -496,6 +505,7 @@ git commit -m "feat: add structured life record generation"
 - Anthropic: strict tool 입력으로 동일 schema 강제
 - 호출당 네트워크 요청은 정확히 한 번이며 validator·재시도는 실행하지 않음
 - 대화 히스토리 payload에 생성 요청이 섞이지 않음
+- 모든 native HTTP payload가 현재 기본 시스템 프롬프트와 고정 생활 기록 계약을 포함하고 `sub_prompt`·일반 응답 계약·분석 부록·일반 채팅 메모리 컨텍스트는 제외
 - 원문을 로그·예외에 포함하지 않음
 
 공통 요청 객체를 먼저 테스트한다.
@@ -504,6 +514,7 @@ git commit -m "feat: add structured life record generation"
 request = StructuredOneShotRequest(
     kind=LLMRequestKind.LIFE_RECORD,
     prompt="합성 생성 지시",
+    system_instruction="합성 기본 성격\n\n생활 기록 전용 계약",
     schema=LIFE_RECORD_OUTPUT_SCHEMA,
 )
 ```
@@ -516,7 +527,7 @@ Expected: LIFE_RECORD 처리 부재로 FAIL.
 
 - [ ] **Step 3: 최소 공통 descriptor와 transport 분기 구현**
 
-`http_llm_common.py`에 one-shot 구조화 요청 descriptor를 두고 OpenAI Chat/Responses와 Anthropic transport의 기존 `_request_one_shot_raw`에 선택적 schema/tool 설정만 추가한다. 일반 채팅용 final-response 파서를 공유하지 말고, 네트워크 호출·토큰 정규화 코드만 재사용한다.
+`http_llm_common.py`에 `repr=False`인 system instruction을 가진 one-shot 구조화 요청 descriptor를 두고 OpenAI Chat/Responses와 Anthropic transport의 기존 `_request_one_shot_raw`에 선택적 schema/tool 설정만 추가한다. system instruction은 Task 7의 `build_life_record_system_instruction()` 결과만 사용한다. 일반 채팅용 final-response 파서를 공유하지 말고, 네트워크 호출·토큰 정규화 코드만 재사용한다.
 
 - [ ] **Step 4: 통과 확인**
 
@@ -558,6 +569,8 @@ git commit -m "feat: add native HTTP life record requests"
 - `LIFE_RECORD_SCHEMA_VERSION` 또는 request kind가 포함된 capability key로 일반 FINAL_REPLY structured capability 캐시와 완전히 분리
 - 생활 기록 native 거부가 일반 답변을 legacy로 낮추지 않고, 일반 답변의 cached legacy 상태도 생활 기록 native 시도를 막지 않음
 - Task 8A/8B 완료 시 Gemini를 제외한 모든 실제 HTTP client class가 공통 `generate_life_record_once` 계약을 충족
+- Ollama·Mistral·Google Cloud·Cohere와 모든 custom wire format의 native, 처음부터 strict JSON, capability 거부 후 fallback 실제 payload가 동일한 base-first·life-contract-last system instruction을 유지
+- 각 wire payload의 system carrier와 user body 모두에 `sub_prompt`·일반 응답 계약·분석 부록·메모리 sentinel이 없음
 
 - [ ] **Step 2: 실패 확인**
 
@@ -567,7 +580,9 @@ Expected: LIFE_RECORD capability routing 부재로 FAIL.
 
 - [ ] **Step 3: capability 기반 payload 분기 구현**
 
-기존 response capability registry와 wire format 정보를 재사용해 `StructuredOneShotRequest`를 native schema/tool 또는 strict JSON text로 직렬화한다. `ResponseCapabilityKey`에는 request kind를 추가하거나 생활 기록 전용 `LIFE_RECORD_SCHEMA_VERSION`을 사용해 FINAL_REPLY 캐시와 충돌할 수 없게 한다. capability 거부 fallback은 같은 provider의 기존 오류 분류를 사용하고 응답·프롬프트 원문은 예외나 로그에 넣지 않는다.
+기존 response capability registry와 wire format 정보를 재사용해 `StructuredOneShotRequest`를 native schema/tool 또는 strict JSON text로 직렬화한다. `ResponseCapabilityKey`에는 request kind를 추가하거나 생활 기록 전용 `LIFE_RECORD_SCHEMA_VERSION`을 사용해 FINAL_REPLY 캐시와 충돌할 수 없게 한다. capability 거부 fallback은 같은 provider의 기존 오류 분류를 사용하되 `StructuredOneShotRequest.system_instruction`을 그대로 유지하고 일반 `build_runtime_system_prompt()`로 다시 조립하지 않는다. 응답·프롬프트 원문은 예외나 로그에 넣지 않는다.
+
+`tests/test_life_record_http_format_parity.py`는 wire format별 실제 요청 payload를 캡처한다. `messages[0].content`, `instructions`, `system`, `systemInstruction.parts[].text`, `preamble` 등 각 공급자의 system carrier에서 현재 base 전체가 먼저, 고정 생활 기록 계약이 뒤에 있는지 확인한다. native 성공, 처음부터 strict JSON, native capability 거부 후 fallback을 각각 검증하고 system·user 양쪽에 제외 sentinel이 없음을 확인한다.
 
 - [ ] **Step 4: 통과 확인**
 
@@ -792,6 +807,7 @@ git commit -m "feat: generate life records before first replies"
 - 최신 기록 ID만 허용하고 과거 ID 거부
 - 같은 interval·timezone·source·mood·created_at·id 사용
 - 현재 world와 현재 ENE 프로필 사용
+- 현재 `base_system_prompt.md`와 생활 기록 전용 우선 계약 사용, 일반 채팅용 `sub_prompt`·응답 계약·분석 부록·메모리 컨텍스트 제외
 - 대상 자체는 이전 기록 컨텍스트에서 제외하고 바로 전 한 개만 사용
 - 성공 시 같은 ID 원자 교체, `revision+1`, `updated_at` 갱신
 - 실패/취소 시 기존 파일·메모리·일반 대화 컨텍스트 유지
