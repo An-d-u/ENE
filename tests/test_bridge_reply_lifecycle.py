@@ -299,6 +299,22 @@ class _AudioRecorder:
     def finish_stream(self):
         self.finished += 1
 
+    def start_stream(self, *_args):
+        self.finished += 10
+
+    def append_stream_pcm(self, audio_data):
+        self.played.append(audio_data)
+
+
+class _RaisingStreamAudioPlayer:
+    def start_stream(self, *_args):
+        raise RuntimeError("SYNTHETIC-STREAM-FORMAT-SENTINEL")
+
+
+class _RaisingStreamAnalyzer:
+    def push_pcm(self, _pcm_bytes):
+        raise RuntimeError("SYNTHETIC-STREAM-CHUNK-SENTINEL")
+
 
 def test_pending_response_signal_failure_still_clears_and_finalizes():
     state = LifeRecordBridgeState()
@@ -544,6 +560,99 @@ def test_tts_ready_audio_tail_is_allowed_after_normal_operation_is_idle():
 
     assert bridge.audio_player.played == [b"synthetic-audio-tail"]
     assert bridge._active_tts_operation is None
+
+
+@pytest.mark.parametrize("discard_reason", ["shutdown", "ownership_mismatch"])
+@pytest.mark.parametrize("callback_name", ["format", "chunk"])
+def test_nonterminal_tts_callback_discards_without_side_effects_or_releasing_worker(
+    monkeypatch,
+    discard_reason,
+    callback_name,
+):
+    _ensure_qt_app()
+    bridge = WebBridge()
+    operation_id = 91
+    owned_worker = object()
+    callback_worker = owned_worker if discard_reason == "shutdown" else object()
+    bridge.tts_worker = owned_worker
+    bridge._active_tts_operation = (operation_id, owned_worker)
+    bridge.audio_player = _AudioRecorder()
+    effects = []
+    bridge._maybe_start_stream_sync = lambda: effects.append("sync")
+    bridge._append_stream_lip_sync_values = (
+        lambda *_args, **_kwargs: effects.append("lip")
+    )
+    bridge._ensure_stream_audio_output_started = lambda: effects.append("audio-start")
+    monkeypatch.setattr(
+        tts,
+        "VisemeStreamAnalyzer",
+        lambda **_kwargs: effects.append("analyzer") or object(),
+    )
+    if discard_reason == "shutdown":
+        bridge.life_record_state.begin_shutdown()
+
+    if callback_name == "format":
+        bridge._on_tts_stream_format(
+            16000,
+            1,
+            2,
+            operation_id=operation_id,
+            tts_worker=callback_worker,
+        )
+        assert bridge._stream_audio_format is None
+    else:
+        bridge._stream_audio_format = (16000, 1, 2)
+        bridge._stream_viseme_analyzer = _RaisingStreamAnalyzer()
+        bridge._on_tts_stream_chunk(
+            b"synthetic-pcm",
+            [0.4],
+            operation_id=operation_id,
+            tts_worker=callback_worker,
+        )
+
+    assert effects == []
+    assert bridge.audio_player.played == []
+    assert bridge.audio_player.finished == 0
+    assert bridge.tts_worker is owned_worker
+    assert bridge._active_tts_operation == (operation_id, owned_worker)
+
+
+@pytest.mark.parametrize("callback_name", ["format", "chunk"])
+def test_nonterminal_tts_callback_contains_private_exception(callback_name, capsys):
+    _ensure_qt_app()
+    bridge = WebBridge()
+    operation_id = 92
+    tts_worker = object()
+    bridge.tts_worker = tts_worker
+    bridge._active_tts_operation = (operation_id, tts_worker)
+
+    if callback_name == "format":
+        bridge.audio_player = _RaisingStreamAudioPlayer()
+        bridge._on_tts_stream_format(
+            16000,
+            1,
+            2,
+            operation_id=operation_id,
+            tts_worker=tts_worker,
+        )
+        sentinel = "SYNTHETIC-STREAM-FORMAT-SENTINEL"
+    else:
+        bridge._stream_audio_format = (16000, 1, 2)
+        bridge._stream_viseme_analyzer = _RaisingStreamAnalyzer()
+        bridge._on_tts_stream_chunk(
+            b"synthetic-pcm",
+            [],
+            operation_id=operation_id,
+            tts_worker=tts_worker,
+        )
+        sentinel = "SYNTHETIC-STREAM-CHUNK-SENTINEL"
+
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+    assert sentinel not in combined
+    assert "exception_class=RuntimeError" in combined
+    assert bridge.tts_worker is tts_worker
+    assert bridge._active_tts_operation == (operation_id, tts_worker)
 
 
 def test_start_ai_worker_can_suppress_duplicate_pending_signals(monkeypatch):
