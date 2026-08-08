@@ -134,6 +134,24 @@ Common files:
 8. Enable and tune TTS only after text chat is working.
 9. Enable Obsidian CLI integration only if you want ENE to work with local notes.
 
+## Life Records
+
+Life records can describe what ENE did in a text-based world while the app was not running. The feature is disabled by default. Enable it under `Settings → Behavior → Life records`; the default minimum inactive time is 60 minutes and can be changed there.
+
+Edit the freeform Markdown world under `Settings → Prompts → Life World`. The runtime file is `%AppData%/ENE/prompts/life_world.md`. If the world is intentionally empty, ENE skips generation and normal chat continues.
+
+On the first normal chat after a qualifying inactive period, ENE may make two sequential LLM calls: one to generate the life record and one for the normal reply with the newest successful record as temporary context. Reported token usage for the turn combines both calls. Commands do not consume this first-chat trigger, and rerolling the reply does not regenerate the record.
+
+Open `··· → Life records` to browse records by date. Past records are read-only; only the newest record can be regenerated, with the previous version retained if regeneration fails. Corrupt record data or a generation failure never blocks the normal chat reply.
+
+Back up these three user-owned files together before moving or restoring ENE data:
+
+- `%AppData%/ENE/life_records.json`
+- `%AppData%/ENE/life_session_state.json`
+- `%AppData%/ENE/prompts/life_world.md`
+
+See [Life records: operation and recovery](docs/life_records.md) for storage, recovery, privacy, and release checks.
+
 ## Recommended Provider Setup
 
 If you want a simple starting point that fits ENE well, this is the recommended baseline:
