@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import requests
 from .http_llm_common import (
     DEFAULT_GENERATION_PARAMS,
@@ -20,6 +21,23 @@ from .response_protocol import (
     ResponseMode,
     ResponseStatus,
 )
+
+
+def _anthropic_output_schema(schema: dict) -> dict:
+    """Anthropic wire에서 지원하지 않는 배열 상한만 복사본에서 제거한다."""
+    copied = copy.deepcopy(schema)
+
+    def remove_max_items(value) -> None:
+        if isinstance(value, dict):
+            value.pop("maxItems", None)
+            for nested in value.values():
+                remove_max_items(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                remove_max_items(nested)
+
+    remove_max_items(copied)
+    return copied
 
 
 class AnthropicClient(_CommonMixin):
@@ -121,7 +139,10 @@ class AnthropicClient(_CommonMixin):
                 generation_params["max_tokens"]
                 or DEFAULT_GENERATION_PARAMS["max_tokens"],
             ),
-            "temperature": generation_params["temperature"],
+            "temperature": max(
+                0.0,
+                min(1.0, generation_params["temperature"]),
+            ),
             "top_p": generation_params["top_p"],
             "system": request.system_instruction,
             "messages": [
@@ -133,7 +154,7 @@ class AnthropicClient(_CommonMixin):
             "output_config": {
                 "format": {
                     "type": "json_schema",
-                    "schema": request.schema,
+                    "schema": _anthropic_output_schema(request.schema),
                 }
             },
         }
