@@ -99,6 +99,72 @@ def build_prompt_tab(dialog):
     prompt_row.addWidget(sub_group, 1)
     layout.addLayout(prompt_row)
 
+    dialog._life_world_group = QGroupBox()
+    dialog._life_world_group.setProperty("fullWidth", True)
+    dialog._bind_group_title(
+        dialog._life_world_group,
+        "settings.prompt.life_world.title",
+        "생활 환경",
+    )
+    life_world_layout = QVBoxLayout(dialog._life_world_group)
+    life_world_layout.setSpacing(10)
+
+    dialog._life_world_label = QLabel()
+    dialog._bind_widget_text(
+        dialog._life_world_label,
+        "settings.prompt.life_world.label",
+        "생활 환경 Markdown",
+    )
+    life_world_layout.addWidget(dialog._life_world_label)
+
+    dialog._life_world_path_label = QLabel(str(dialog._life_world_path))
+    dialog._life_world_path_label.setObjectName("FooterBody")
+    dialog._life_world_path_label.setWordWrap(True)
+    life_world_layout.addWidget(dialog._life_world_path_label)
+
+    dialog.life_world_editor = QPlainTextEdit()
+    dialog.life_world_editor.setMinimumHeight(220)
+    dialog._register_text_binding(
+        dialog.life_world_editor.setAccessibleName,
+        "settings.prompt.life_world.accessible_name",
+        "생활 환경 Markdown 편집기",
+    )
+    dialog._life_world_label.setBuddy(dialog.life_world_editor)
+    dialog.life_world_editor.textChanged.connect(dialog._on_life_world_text_changed)
+    life_world_layout.addWidget(dialog.life_world_editor, 1)
+
+    dialog._life_world_warning_label = QLabel()
+    dialog._bind_widget_text(
+        dialog._life_world_warning_label,
+        "settings.prompt.life_world.empty_warning",
+        "생활 환경이 비어 있으면 생활 기록을 생성하지 않습니다.",
+    )
+    dialog._life_world_warning_label.setObjectName("InlineHint")
+    dialog._life_world_warning_label.setWordWrap(True)
+    life_world_layout.addWidget(dialog._life_world_warning_label)
+
+    life_world_footer = QHBoxLayout()
+    dialog._life_world_token_label = QLabel("생활 환경 현재 토큰: 0개 · 문자 수: 0자")
+    dialog._life_world_token_label.setObjectName("FooterBody")
+    life_world_footer.addWidget(dialog._life_world_token_label)
+    life_world_footer.addStretch()
+
+    life_world_default_btn = QPushButton()
+    dialog._bind_widget_text(
+        life_world_default_btn,
+        "settings.prompt.life_world.default",
+        "기본값 불러오기",
+    )
+    dialog._register_text_binding(
+        life_world_default_btn.setAccessibleName,
+        "settings.prompt.life_world.default",
+        "생활 환경 기본값 불러오기",
+    )
+    life_world_default_btn.clicked.connect(dialog._load_default_life_world_prompt)
+    life_world_footer.addWidget(life_world_default_btn)
+    life_world_layout.addLayout(life_world_footer)
+    layout.addWidget(dialog._life_world_group)
+
     emotion_group = QGroupBox()
     dialog._bind_group_title(emotion_group, "settings.prompt.emotions.title", "감정 목록과 사용 가이드")
     emotion_layout = QHBoxLayout(emotion_group)
@@ -163,6 +229,11 @@ def build_prompt_tab(dialog):
     reload_btn = QPushButton()
     dialog._bind_widget_text(reload_btn, "settings.prompt.reload", "다시 불러오기")
     reload_btn.clicked.connect(dialog._load_prompt_configuration)
+    dialog._register_text_binding(
+        reload_btn.setAccessibleName,
+        "settings.prompt.reload",
+        "프롬프트 다시 불러오기",
+    )
     footer_row.addWidget(reload_btn)
 
     save_btn = QPushButton()
@@ -171,6 +242,11 @@ def build_prompt_tab(dialog):
     save_btn.style().unpolish(save_btn)
     save_btn.style().polish(save_btn)
     save_btn.clicked.connect(dialog._save_prompt_configuration)
+    dialog._register_text_binding(
+        save_btn.setAccessibleName,
+        "settings.prompt.save",
+        "프롬프트 저장",
+    )
     footer_row.addWidget(save_btn)
     layout.addLayout(footer_row)
 

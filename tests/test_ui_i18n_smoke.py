@@ -750,7 +750,7 @@ def test_settings_dialog_translates_known_korean_leftovers_in_english_and_japane
             dialog.close()
 
 
-def test_settings_dialog_uses_wider_default_size():
+def test_settings_dialog_default_size_fits_available_screen():
     _get_qapp()
     locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
     configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
@@ -768,8 +768,13 @@ def test_settings_dialog_uses_wider_default_size():
             bridge=SimpleNamespace(ene_profile=_DummyEneProfile(), parent=lambda: None),
         )
 
-        assert dialog.minimumWidth() >= 1280
-        assert dialog.width() >= 1460
+        available = dialog._available_screen_geometry()
+        assert dialog.minimumWidth() <= available.width()
+        assert dialog.minimumHeight() <= available.height()
+        assert dialog.maximumWidth() == available.width()
+        assert dialog.maximumHeight() == available.height()
+        assert dialog.width() <= available.width()
+        assert dialog.height() <= available.height()
 
         dialog.close()
 

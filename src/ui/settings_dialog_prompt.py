@@ -70,6 +70,29 @@ class SettingsDialogPromptMixin:
             self._sub_prompt_token_label.setText(
                 self._format_token_count_text("SUB_PROMPT", self.sub_prompt_editor.toPlainText())
             )
+        if self._life_world_token_label is not None and hasattr(self, "life_world_editor"):
+            title = SettingsDialogPromptMixin._prompt_text(
+                self,
+                "settings.prompt.life_world.token_title",
+                "생활 환경",
+            )
+            self._life_world_token_label.setText(
+                self._format_token_count_text(title, self.life_world_editor.toPlainText())
+            )
+
+    def _on_life_world_text_changed(self) -> None:
+        if hasattr(self, "_life_world_warning_label"):
+            self._life_world_warning_label.setVisible(
+                not bool(self.life_world_editor.toPlainText().strip())
+            )
+        self._schedule_prompt_token_refresh()
+
+    def _load_default_life_world_prompt(self) -> None:
+        try:
+            text = prompt_config.DEFAULT_LIFE_WORLD_PROMPT_PATH.read_text(encoding="utf-8-sig")
+        except Exception:
+            text = ""
+        self.life_world_editor.setPlainText(text.strip("\n"))
 
     def _split_sub_prompt_content(self, text: str) -> tuple[str, dict[str, str]]:
         content = (text or "").strip()
@@ -235,6 +258,8 @@ class SettingsDialogPromptMixin:
 
             self.base_prompt_editor.setPlainText(str(config.get("base_system_prompt", "")).strip("\n"))
             self.sub_prompt_editor.setPlainText(str(config.get("sub_prompt_body", "")).strip("\n"))
+            self.life_world_editor.setPlainText(prompt_config.load_life_world_prompt())
+            self._on_life_world_text_changed()
             self._emotion_items = merged_items
             self._refresh_emotion_list()
             self._sync_emotion_combo_options()
@@ -285,6 +310,8 @@ class SettingsDialogPromptMixin:
                     },
                 }
             )
+            prompt_config.save_life_world_prompt(self.life_world_editor.toPlainText())
+            self._on_life_world_text_changed()
             self._sync_emotion_combo_options()
 
             SettingsDialogPromptMixin._set_prompt_status_text(

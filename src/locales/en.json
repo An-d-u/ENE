@@ -1118,6 +1118,15 @@
           "label": "Additional retry count:",
           "suffix": " retries"
         }
+      },
+      "life_records": {
+        "title": "Life records",
+        "enable": "Enable life records",
+        "min_inactive": {
+          "label": "Minimum inactive time:",
+          "suffix": " min"
+        },
+        "hint": "A life record is created on the next first chat only after this much inactive time."
       }
     },
     "memory": {
@@ -1152,6 +1161,14 @@
       "sub": {
         "title": "SUB_PROMPT Body",
         "note": "Emotion rules and the emotion usage guide are managed separately in the editor below."
+      },
+      "life_world": {
+        "title": "Life World",
+        "label": "Life World Markdown",
+        "token_title": "Life World",
+        "default": "Load Default",
+        "empty_warning": "Life records are not generated while the Life World is empty.",
+        "accessible_name": "Life World Markdown editor"
       },
       "emotions": {
         "title": "Emotion List and Usage Guide",
