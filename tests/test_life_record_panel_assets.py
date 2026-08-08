@@ -198,6 +198,32 @@ result = { staleCount, ids: cards.map((card) => card.dataset.recordId), state: w
     assert result["state"]["status"] == "ready"
 
 
+def test_invalid_current_response_becomes_retryable_error_while_invalid_stale_is_ignored():
+    result = _run_panel_case(
+        """
+window.eneLifeRecordPanel.setNowProvider(() => new Date(2099, 7, 7, 10, 0, 0));
+window.eneLifeRecordPanel.open();
+const stale = requests[0];
+elements['life-records-previous-btn'].click();
+const current = requests[1];
+window.eneLifeRecordPanel.receive({ status: 'ready', requested_date: stale[0], request_id: stale[1], records: 'invalid' });
+const afterStale = window.eneLifeRecordPanel.getState().status;
+window.eneLifeRecordPanel.receive({ status: 'ready', requested_date: current[0], request_id: current[1], records: 'invalid' });
+result = {
+  afterStale,
+  afterCurrent: window.eneLifeRecordPanel.getState().status,
+  retryCount: elements['life-records-list'].querySelectorAll('.life-record-retry').length,
+};
+"""
+    )
+
+    assert result == {
+        "afterStale": "loading",
+        "afterCurrent": "error",
+        "retryCount": 1,
+    }
+
+
 def test_midnight_entries_show_dates_and_record_text_never_uses_inner_html():
     result = _run_panel_case(
         """

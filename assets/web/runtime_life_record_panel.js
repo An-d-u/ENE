@@ -279,7 +279,16 @@
             return true;
         }
         if (payload.requested_date !== state.selectedDate || String(payload.request_id || '') !== state.requestId) return false;
-        if (payload.status !== 'ready' || !Array.isArray(payload.records)) return false;
+        const validRecords = Array.isArray(payload.records) && payload.records.every((record) => (
+            record && typeof record === 'object'
+            && typeof record.id === 'string'
+            && Array.isArray(record.entries)
+            && record.ending_state && typeof record.ending_state === 'object'
+        ));
+        if (payload.status !== 'ready' || !validRecords) {
+            showNotice('read_error');
+            return false;
+        }
         state.language = normalizeLanguage(payload.language);
         state.viewTimezone = typeof payload.view_timezone === 'string' && payload.view_timezone ? payload.view_timezone : 'UTC';
         state.latestId = typeof payload.latest_id === 'string' ? payload.latest_id : null;
