@@ -142,11 +142,6 @@ class AnthropicClient(_CommonMixin):
                 generation_params["max_tokens"]
                 or DEFAULT_GENERATION_PARAMS["max_tokens"],
             ),
-            "temperature": max(
-                0.0,
-                min(1.0, generation_params["temperature"]),
-            ),
-            "top_p": generation_params["top_p"],
             "system": request.system_instruction,
             "messages": [
                 {

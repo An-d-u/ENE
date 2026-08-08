@@ -8,6 +8,7 @@ import re
 
 OPENAI_REASONING_EFFORTS = ("none", "low", "medium", "high", "xhigh", "max")
 _GPT_5_6_PATTERN = re.compile(r"^gpt-5\.6(?:$|-)")
+_O_SERIES_PATTERN = re.compile(r"^o\d+(?:$|-)")
 
 
 @dataclass(frozen=True)
@@ -20,7 +21,7 @@ class OpenAIModelPolicy:
 
 
 _DEFAULT_POLICY = OpenAIModelPolicy()
-_GPT_5_6_POLICY = OpenAIModelPolicy(
+_REASONING_MODEL_POLICY = OpenAIModelPolicy(
     supports_temperature=False,
     supports_top_p=False,
     supports_reasoning_effort=True,
@@ -45,6 +46,9 @@ def resolve_openai_model_policy(provider: object, model_name: object) -> OpenAIM
     """공급자와 모델명에 맞는 요청 파라미터 정책을 반환한다."""
     normalized_provider = str(provider or "").strip().lower()
     normalized_model_name = str(model_name or "").strip().lower()
-    if normalized_provider == "openai" and _GPT_5_6_PATTERN.match(normalized_model_name):
-        return _GPT_5_6_POLICY
+    if normalized_provider == "openai" and (
+        _GPT_5_6_PATTERN.match(normalized_model_name)
+        or _O_SERIES_PATTERN.match(normalized_model_name)
+    ):
+        return _REASONING_MODEL_POLICY
     return _DEFAULT_POLICY
