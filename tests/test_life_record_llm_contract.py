@@ -1,4 +1,5 @@
 import asyncio
+from copy import deepcopy
 import inspect
 from dataclasses import fields, replace
 from types import SimpleNamespace
@@ -228,6 +229,136 @@ def test_one_shot_token_usage_rejects_invalid_counts(field_name, invalid_value):
         OneShotTokenUsage(**values)
 
 
+class _AsyncModelsAdapter:
+    def __init__(self, sdk):
+        self._sdk = sdk
+
+    async def generate_content(self, **kwargs):
+        await asyncio.sleep(0)
+        self._sdk.repair_calls.append(deepcopy(kwargs))
+        if not self._sdk.repair_responses:
+            raise AssertionError("준비된 async 합성 응답이 없습니다.")
+        response = self._sdk.repair_responses.pop(0)
+        if isinstance(response, BaseException):
+            raise response
+        return response
+
+
+def _enable_aio_models(client):
+    sdk = client.client
+    sync_models = _SyncModelsTrap()
+    sdk.models = sync_models
+    client.client.aio = SimpleNamespace(
+        models=_AsyncModelsAdapter(sdk)
+    )
+    client._life_test_sync_models = sync_models
+    return client
+
+
+def _life_client(gemini_harness, *args, **kwargs):
+    return _enable_aio_models(gemini_harness.client(*args, **kwargs))
+
+
+class _SyncModelsTrap:
+    def __init__(self):
+        self.call_count = 0
+
+    def generate_content(self, **_kwargs):
+        self.call_count += 1
+        raise AssertionError("동기 Gemini transport를 호출하면 안 됩니다.")
+
+
+class _BlockingAsyncModels:
+    def __init__(self, response):
+        self.response = response
+        self.calls = []
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def generate_content(self, **kwargs):
+        self.calls.append(deepcopy(kwargs))
+        self.started.set()
+        await self.release.wait()
+        return self.response
+
+
+def test_gemini_life_record_awaits_aio_transport_without_blocking_event_loop(
+    gemini_harness,
+):
+    client = _life_client(gemini_harness, [], repair_responses=[])
+    sync_models = _SyncModelsTrap()
+    async_models = _BlockingAsyncModels(
+        gemini_harness.response("SYNTHETIC-ASYNC-RESULT")
+    )
+    client.client.models = sync_models
+    client.client.aio = SimpleNamespace(models=async_models)
+
+    async def exercise():
+        generation = asyncio.create_task(
+            client.generate_life_record_once("SYNTHETIC-ASYNC-PROMPT")
+        )
+        await asyncio.sleep(0)
+        assert async_models.started.is_set()
+        assert not generation.done()
+
+        event_loop_progress = []
+
+        async def tick():
+            await asyncio.sleep(0)
+            event_loop_progress.append("advanced")
+
+        await asyncio.create_task(tick())
+        assert event_loop_progress == ["advanced"]
+        async_models.release.set()
+        return await generation
+
+    result = asyncio.run(exercise())
+
+    assert result.text == "SYNTHETIC-ASYNC-RESULT"
+    assert len(async_models.calls) == 1
+    assert sync_models.call_count == 0
+
+
+def test_gemini_life_record_cancellation_skips_fallback_cache_and_second_call(
+    gemini_harness,
+):
+    client = _life_client(gemini_harness, [], repair_responses=[])
+    sync_models = _SyncModelsTrap()
+    async_models = _BlockingAsyncModels(
+        gemini_harness.response("SYNTHETIC-CANCELLED-RESULT")
+    )
+    client.client.models = sync_models
+    client.client.aio = SimpleNamespace(models=async_models)
+
+    async def cancel_generation():
+        generation = asyncio.create_task(
+            client.generate_life_record_once("SYNTHETIC-CANCEL-PROMPT")
+        )
+        await asyncio.sleep(0)
+        assert async_models.started.is_set()
+        generation.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await generation
+        await asyncio.sleep(0)
+
+    asyncio.run(cancel_generation())
+
+    assert len(async_models.calls) == 1
+    assert sync_models.call_count == 0
+
+    probe = _life_client(
+        gemini_harness,
+        [],
+        repair_responses=[gemini_harness.response("SYNTHETIC-NATIVE-PROBE")],
+    )
+    result = asyncio.run(
+        probe.generate_life_record_once("SYNTHETIC-NATIVE-PROBE-PROMPT")
+    )
+    assert result.text == "SYNTHETIC-NATIVE-PROBE"
+    assert len(gemini_harness.repair_calls) == 1
+    assert "response_json_schema" in gemini_harness.repair_calls[0]["config"]
+
+
 def test_gemini_life_record_native_call_is_historyless_and_uses_current_contract(
     gemini_harness,
     monkeypatch,
@@ -242,7 +373,8 @@ def test_gemini_life_record_native_call_is_historyless_and_uses_current_contract
         input_tokens=2,
         output_tokens=3,
     )
-    client = gemini_harness.client(
+    client = _life_client(
+        gemini_harness,
         [],
         repair_responses=[first_response, second_response],
         settings={"life_contract_marker": "first"},
@@ -329,7 +461,7 @@ def test_gemini_life_record_preserves_non_complete_status_without_retry(
     expected_reason,
 ):
     response = gemini_harness.response(text, finish_reason=finish_reason)
-    client = gemini_harness.client([], repair_responses=[response])
+    client = _life_client(gemini_harness, [], repair_responses=[response])
 
     result = asyncio.run(client.generate_life_record_once("SYNTHETIC-STATUS-PROMPT"))
 
@@ -363,7 +495,11 @@ def test_gemini_life_record_explicit_capability_fallback_accumulates_and_caches(
         input_tokens=5,
         output_tokens=4,
     )
-    client = gemini_harness.client([], repair_responses=[unsupported, fallback])
+    client = _life_client(
+        gemini_harness,
+        [],
+        repair_responses=[unsupported, fallback],
+    )
 
     result = asyncio.run(client.generate_life_record_once("SYNTHETIC-FALLBACK-PROMPT"))
 
@@ -380,7 +516,8 @@ def test_gemini_life_record_explicit_capability_fallback_accumulates_and_caches(
     assert "response_json_schema" not in fallback_call["config"]
     assert "response_mime_type" not in fallback_call["config"]
 
-    cached = gemini_harness.client(
+    cached = _life_client(
+        gemini_harness,
         [],
         repair_responses=[gemini_harness.response("SYNTHETIC-CACHED-STRICT-JSON")],
     )
@@ -411,7 +548,11 @@ def test_gemini_life_record_sdk_client_error_falls_back_and_keeps_unknown_usage(
         input_tokens=3,
         output_tokens=4,
     )
-    client = gemini_harness.client([], repair_responses=[unsupported, fallback])
+    client = _life_client(
+        gemini_harness,
+        [],
+        repair_responses=[unsupported, fallback],
+    )
 
     result = asyncio.run(client.generate_life_record_once("SYNTHETIC-SDK-PROMPT"))
 
@@ -430,7 +571,8 @@ def test_gemini_final_reply_fallback_cache_does_not_disable_life_record_native(
     final_client = gemini_harness.client([unsupported, "SYNTHETIC FINAL [normal]"])
     assert final_client.send_message("SYNTHETIC-FINAL-PROMPT")[0] == "SYNTHETIC FINAL"
 
-    life_client = gemini_harness.client(
+    life_client = _life_client(
+        gemini_harness,
         [],
         repair_responses=[gemini_harness.response("SYNTHETIC-LIFE-NATIVE")],
     )
@@ -455,7 +597,8 @@ def test_gemini_life_record_non_capability_errors_are_not_retried(
     code,
     message,
 ):
-    client = gemini_harness.client(
+    client = _life_client(
+        gemini_harness,
         [],
         repair_responses=[_SyntheticGeminiCapabilityError(code, message)],
     )

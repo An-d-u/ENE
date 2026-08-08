@@ -527,6 +527,7 @@ class GeminiClient:
         prompt: str,
     ) -> OneShotGenerationResult:
         """현재 설정으로 생활 기록을 히스토리 없이 한 번 생성한다."""
+        setup_failed = False
         try:
             settings_source = self._runtime_prompt_settings_source()
             system_instruction = build_life_record_system_instruction(settings_source)
@@ -544,7 +545,9 @@ class GeminiClient:
                 capability_key=capability_key,
             )
         except Exception:
-            raise RuntimeError("life_record_generation_failed") from None
+            setup_failed = True
+        if setup_failed:
+            raise RuntimeError("life_record_generation_failed")
         use_native_schema = response_mode is ResponseMode.JSON_SCHEMA
         result_mode = (
             ResponseMode.JSON_SCHEMA
@@ -553,8 +556,10 @@ class GeminiClient:
         )
         usage_accumulator = TurnTokenUsageAccumulator()
 
+        native_failed = False
+        fallback_required = False
         try:
-            response = self.client.models.generate_content(
+            response = await self.client.aio.models.generate_content(
                 model=self.model_name,
                 contents=prompt,
                 config=self._build_life_record_config(
@@ -564,16 +569,27 @@ class GeminiClient:
                 ),
             )
         except Exception as failure:
-            usage_accumulator.record(self._response_usage(failure))
-            if not (
-                use_native_schema
-                and self._is_explicit_structured_output_unsupported(failure)
-            ):
-                raise RuntimeError("life_record_generation_failed") from None
+            native_failed = True
+            try:
+                failure_usage = self._response_usage(failure)
+            except Exception:
+                failure_usage = None
+            usage_accumulator.record(failure_usage)
+            try:
+                fallback_required = (
+                    use_native_schema
+                    and self._is_explicit_structured_output_unsupported(failure)
+                )
+            except Exception:
+                fallback_required = False
+        if native_failed and not fallback_required:
+            raise RuntimeError("life_record_generation_failed")
+        if fallback_required:
             _GEMINI_RESPONSE_CAPABILITY_REGISTRY.mark_legacy(capability_key)
             result_mode = ResponseMode.LEGACY_TAGS
+            fallback_failed = False
             try:
-                response = self.client.models.generate_content(
+                response = await self.client.aio.models.generate_content(
                     model=self.model_name,
                     contents=prompt,
                     config=self._build_life_record_config(
@@ -583,28 +599,38 @@ class GeminiClient:
                     ),
                 )
             except Exception as fallback_failure:
-                usage_accumulator.record(self._response_usage(fallback_failure))
-                raise RuntimeError("life_record_generation_failed") from None
+                try:
+                    failure_usage = self._response_usage(fallback_failure)
+                except Exception:
+                    failure_usage = None
+                usage_accumulator.record(failure_usage)
+                fallback_failed = True
+            if fallback_failed:
+                raise RuntimeError("life_record_generation_failed")
 
-        usage_accumulator.record(self._response_usage(response))
+        normalization_failed = False
         try:
+            usage_accumulator.record(self._response_usage(response))
             provider_response = self._provider_response(
                 response,
                 result_mode,
             )
+            usage = usage_accumulator.snapshot()
+            result = OneShotGenerationResult(
+                text=provider_response.carrier,
+                status=provider_response.status,
+                finish_reason=provider_response.finish_reason,
+                token_usage=OneShotTokenUsage(
+                    input_tokens=usage["input_tokens"],
+                    output_tokens=usage["output_tokens"],
+                    total_tokens=usage["total_tokens"],
+                ),
+            )
         except Exception:
-            raise RuntimeError("life_record_generation_failed") from None
-        usage = usage_accumulator.snapshot()
-        return OneShotGenerationResult(
-            text=provider_response.carrier,
-            status=provider_response.status,
-            finish_reason=provider_response.finish_reason,
-            token_usage=OneShotTokenUsage(
-                input_tokens=usage["input_tokens"],
-                output_tokens=usage["output_tokens"],
-                total_tokens=usage["total_tokens"],
-            ),
-        )
+            normalization_failed = True
+        if normalization_failed:
+            raise RuntimeError("life_record_generation_failed")
+        return result
 
     def _create_web_search_decision_provider(self):
         return create_web_search_decision_provider(

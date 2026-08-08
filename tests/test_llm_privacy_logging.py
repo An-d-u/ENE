@@ -36,6 +36,55 @@ SAFE_METADATA = ResponseDeliveryMetadata(
 )
 
 
+class _AsyncModelsAdapter:
+    def __init__(self, sdk):
+        self._sdk = sdk
+
+    async def generate_content(self, **kwargs):
+        await asyncio.sleep(0)
+        self._sdk.repair_calls.append(kwargs)
+        if not self._sdk.repair_responses:
+            raise AssertionError("준비된 async 합성 응답이 없습니다.")
+        response = self._sdk.repair_responses.pop(0)
+        if isinstance(response, BaseException):
+            raise response
+        return response
+
+
+class _SyncModelsTrap:
+    def generate_content(self, **_kwargs):
+        raise AssertionError("동기 Gemini transport를 호출하면 안 됩니다.")
+
+
+def _enable_aio_models(client):
+    sdk = client.client
+    sdk.models = _SyncModelsTrap()
+    client.client.aio = SimpleNamespace(
+        models=_AsyncModelsAdapter(sdk)
+    )
+    return client
+
+
+def _assert_safe_life_record_error(error, sentinels):
+    assert str(error) == "life_record_generation_failed"
+    pending = [error]
+    chain = []
+    seen = set()
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        chain.append(current)
+        if current.__context__ is not None:
+            pending.append(current.__context__)
+        if current.__cause__ is not None:
+            pending.append(current.__cause__)
+    assert chain == [error]
+    combined = " ".join(repr(item) for item in chain)
+    assert all(sentinel not in combined for sentinel in sentinels)
+
+
 def test_life_record_one_shot_result_repr_omits_raw_text():
     raw_text = "SYNTHETIC-LIFE-RECORD-RAW-SENTINEL"
     finish_reason = "SYNTHETIC-LIFE-RECORD-FINISH-SENTINEL"
@@ -79,37 +128,47 @@ def test_gemini_life_record_success_fallback_and_error_hide_sensitive_transport_
         raising=False,
     )
 
-    success_client = gemini_harness.client(
-        [],
-        repair_responses=[gemini_harness.response(raw_sentinel)],
+    success_client = _enable_aio_models(
+        gemini_harness.client(
+            [],
+            repair_responses=[gemini_harness.response(raw_sentinel)],
+        )
     )
     success_result = asyncio.run(
         success_client.generate_life_record_once(prompt_sentinel)
     )
     assert raw_sentinel not in repr(success_result)
 
-    fallback_client = gemini_harness.client(
-        [],
-        repair_responses=[
-            SyntheticError(
-                400,
-                "Unknown parameter: response_json_schema is unsupported " + raw_sentinel,
-            ),
-            gemini_harness.response(raw_sentinel),
-        ],
+    fallback_client = _enable_aio_models(
+        gemini_harness.client(
+            [],
+            repair_responses=[
+                SyntheticError(
+                    400,
+                    "Unknown parameter: response_json_schema is unsupported "
+                    + raw_sentinel,
+                ),
+                gemini_harness.response(raw_sentinel),
+            ],
+        )
     )
     fallback_result = asyncio.run(
         fallback_client.generate_life_record_once(prompt_sentinel)
     )
     assert raw_sentinel not in repr(fallback_result)
 
-    error_client = gemini_harness.client(
-        [],
-        repair_responses=[SyntheticError(500, raw_sentinel + prompt_sentinel)],
+    error_client = _enable_aio_models(
+        gemini_harness.client(
+            [],
+            repair_responses=[SyntheticError(500, raw_sentinel + prompt_sentinel)],
+        )
     )
     with pytest.raises(RuntimeError) as captured_error:
         asyncio.run(error_client.generate_life_record_once(prompt_sentinel))
-    assert str(captured_error.value) == "life_record_generation_failed"
+    _assert_safe_life_record_error(
+        captured_error.value,
+        (prompt_sentinel, system_sentinel, raw_sentinel),
+    )
 
     combined = repr(success_result) + repr(fallback_result) + repr(captured_error.value)
     combined += _combined_output(capsys)
@@ -122,11 +181,97 @@ def test_gemini_life_record_success_fallback_and_error_hide_sensitive_transport_
         "build_life_record_system_instruction",
         lambda _settings: (_ for _ in ()).throw(RuntimeError(system_sentinel)),
     )
-    setup_client = gemini_harness.client([], repair_responses=[])
+    setup_client = _enable_aio_models(
+        gemini_harness.client([], repair_responses=[])
+    )
     with pytest.raises(RuntimeError) as setup_error:
         asyncio.run(setup_client.generate_life_record_once(prompt_sentinel))
-    assert str(setup_error.value) == "life_record_generation_failed"
-    assert system_sentinel not in repr(setup_error.value)
+    _assert_safe_life_record_error(
+        setup_error.value,
+        (prompt_sentinel, system_sentinel, raw_sentinel),
+    )
+
+
+def test_gemini_life_record_fallback_and_parse_errors_drop_original_context(
+    gemini_harness,
+    monkeypatch,
+):
+    prompt_sentinel = "SYNTHETIC-CONTEXT-PROMPT-SENTINEL"
+    system_sentinel = "SYNTHETIC-CONTEXT-SYSTEM-SENTINEL"
+    raw_sentinel = "SYNTHETIC-CONTEXT-RAW-SENTINEL"
+    sentinels = (prompt_sentinel, system_sentinel, raw_sentinel)
+
+    class SyntheticError(RuntimeError):
+        def __init__(self, code, message):
+            super().__init__(message)
+            self.code = code
+            self.message = message
+
+    monkeypatch.setattr(
+        llm_client_module,
+        "build_life_record_system_instruction",
+        lambda _settings: system_sentinel,
+    )
+    llm_client_module.clear_gemini_response_capability_cache()
+    fallback_error_client = _enable_aio_models(
+        gemini_harness.client(
+            [],
+            repair_responses=[
+                SyntheticError(
+                    400,
+                    "Unknown parameter: response_json_schema is unsupported",
+                ),
+                SyntheticError(500, raw_sentinel + prompt_sentinel),
+            ],
+        )
+    )
+    with pytest.raises(RuntimeError) as fallback_error:
+        asyncio.run(
+            fallback_error_client.generate_life_record_once(prompt_sentinel)
+        )
+    _assert_safe_life_record_error(fallback_error.value, sentinels)
+
+    class ExplodingResponse:
+        usage_metadata = None
+        candidates = []
+
+        @property
+        def text(self):
+            raise RuntimeError(raw_sentinel + system_sentinel)
+
+    llm_client_module.clear_gemini_response_capability_cache()
+    parse_error_client = _enable_aio_models(
+        gemini_harness.client([], repair_responses=[])
+    )
+    gemini_harness.sdk.repair_responses.append(ExplodingResponse())
+    with pytest.raises(RuntimeError) as parse_error:
+        asyncio.run(parse_error_client.generate_life_record_once(prompt_sentinel))
+    _assert_safe_life_record_error(parse_error.value, sentinels)
+
+
+def test_gemini_life_record_classifier_failure_drops_original_context(
+    gemini_harness,
+):
+    raw_sentinel = "SYNTHETIC-CLASSIFIER-RAW-SENTINEL"
+
+    class ExplodingClassifierError(RuntimeError):
+        @property
+        def code(self):
+            raise RuntimeError(raw_sentinel)
+
+    client = _enable_aio_models(
+        gemini_harness.client(
+            [],
+            repair_responses=[ExplodingClassifierError("synthetic failure")],
+        )
+    )
+
+    with pytest.raises(RuntimeError) as captured:
+        asyncio.run(
+            client.generate_life_record_once("SYNTHETIC-CLASSIFIER-PROMPT")
+        )
+
+    _assert_safe_life_record_error(captured.value, (raw_sentinel,))
 
 
 def _ensure_qt_app():
