@@ -4,6 +4,7 @@ ENE 메인 애플리케이션
 """
 import asyncio
 import json
+from pathlib import Path
 
 from PyQt6.QtWidgets import QApplication, QMessageBox
 from PyQt6.QtCore import QObject, QTimer
@@ -13,7 +14,15 @@ from ..ai.embedding_rebuild import (
     has_embedding_regenerator,
     regenerate_saved_embeddings,
 )
+from ..ai.life_record_manager import LifeRecordManager
+from .app_paths import get_user_data_dir
 from .i18n import configure_i18n, tr
+from .life_session_tracker import (
+    AppSessionTracker,
+    SESSION_LEASE_UNAVAILABLE,
+    SESSION_TRACKER_DEGRADED,
+)
+from .local_time import TIMEZONE_UNAVAILABLE, resolve_local_time_context
 from .settings import Settings
 from .system_theme import get_theme_preset, get_windows_theme_mode
 from .overlay_window import OverlayWindow
@@ -62,8 +71,21 @@ def _embedding_api_url_for(settings_source, provider: str) -> str:
 class ENEApplication(QObject):
     """ENE 메인 애플리케이션 클래스"""
     
-    def __init__(self):
+    def __init__(
+        self,
+        *,
+        life_time_resolver=None,
+        life_session_tracker_factory=None,
+        life_record_manager_factory=None,
+        life_timer_factory=None,
+        life_data_root=None,
+    ):
         super().__init__()
+        self._life_time_resolver = life_time_resolver or resolve_local_time_context
+        self._life_session_tracker_factory = life_session_tracker_factory or AppSessionTracker
+        self._life_record_manager_factory = life_record_manager_factory or LifeRecordManager
+        self._life_timer_factory = life_timer_factory or QTimer
+        self._life_data_root = Path(life_data_root or get_user_data_dir())
         
         # 설정 관리자
         self.settings = Settings()
@@ -75,6 +97,7 @@ class ENEApplication(QObject):
         self._init_memory_manager()
         self._init_profiles()
         self._init_mood_manager()
+        self._init_life_record_runtime()
         
         # LLM 클라이언트 초기화
         self._init_llm_client()
@@ -85,8 +108,13 @@ class ENEApplication(QObject):
         self._init_proactive_manager()
         
         # 오버레이 윈도우 생성
-        self.overlay_window = OverlayWindow(self.settings)
+        self.overlay_window = OverlayWindow(
+            self.settings,
+            life_time_context=self.life_time_context,
+            life_view_timezone=self.life_view_timezone,
+        )
         self.overlay_window.set_llm_client(self.llm_client)  # LLM 클라이언트 연결
+        self._bind_life_record_runtime_to_bridge()
         if hasattr(self, "goal_manager") and self.goal_manager and hasattr(self.overlay_window.bridge, "set_goal_manager"):
             self.overlay_window.bridge.set_goal_manager(self.goal_manager)
         
@@ -128,6 +156,145 @@ class ENEApplication(QObject):
         # 전역 PTT 초기화
         self._init_global_ptt()
         self._init_system_theme_sync()
+        self._start_life_session_heartbeat()
+
+    def _init_life_record_runtime(self) -> None:
+        """생활 기록 시작 상태를 실패 폐쇄 방식으로 준비한다."""
+        self.life_time_context = None
+        self.life_view_timezone = "UTC"
+        self.life_session_tracker = None
+        self.life_record_manager = None
+        self.life_record_candidate = None
+        self.life_records_writable = False
+        self.life_record_read_only_reason = SESSION_TRACKER_DEGRADED
+        self.life_heartbeat_timer = None
+        self._life_session_id = None
+
+        try:
+            resolution = self._life_time_resolver()
+            view_zone = getattr(resolution, "view_timezone", None)
+            self.life_view_timezone = str(getattr(view_zone, "key", "UTC") or "UTC")
+            self.life_time_context = getattr(resolution, "context", None)
+            if self.life_time_context is None:
+                self.life_view_timezone = "UTC"
+                self.life_record_read_only_reason = TIMEZONE_UNAVAILABLE
+                return
+
+            records_path = self._life_data_root / "life_records.json"
+            session_path = self._life_data_root / "life_session_state.json"
+            self.life_record_manager = self._life_record_manager_factory(records_path)
+            tracker = self._life_session_tracker_factory(
+                session_path,
+                time_context=self.life_time_context,
+            )
+            self.life_session_tracker = tracker
+            candidate = tracker.start_session()
+            session_id = getattr(tracker, "session_id", None)
+            writable = (
+                getattr(tracker, "life_records_writable", False) is True
+                and isinstance(session_id, str)
+                and bool(session_id)
+            )
+            if not writable:
+                reason = getattr(tracker, "reason", None)
+                self.life_record_read_only_reason = (
+                    reason
+                    if reason in {
+                        SESSION_LEASE_UNAVAILABLE,
+                        SESSION_TRACKER_DEGRADED,
+                        TIMEZONE_UNAVAILABLE,
+                    }
+                    else SESSION_TRACKER_DEGRADED
+                )
+                return
+
+            self.life_record_candidate = candidate
+            self.life_records_writable = True
+            self.life_record_read_only_reason = None
+            self._life_session_id = session_id
+        except Exception:
+            self.life_record_candidate = None
+            self.life_records_writable = False
+            self.life_record_read_only_reason = SESSION_TRACKER_DEGRADED
+            print("WARNING: life_record_startup_failed code=session_tracker_degraded")
+
+    def _bind_life_record_runtime_to_bridge(self) -> None:
+        """동일한 관리자와 시간 문맥을 bridge와 실제 LLM client에 연결한다."""
+        client = getattr(self, "llm_client", None)
+        manager = getattr(self, "life_record_manager", None)
+        if client is not None:
+            client.life_record_manager = manager
+
+        overlay = getattr(self, "overlay_window", None)
+        bridge = getattr(overlay, "bridge", None)
+        if bridge is None:
+            return
+        bridge.life_record_manager = manager
+        bridge.life_session_tracker = getattr(self, "life_session_tracker", None)
+        bridge.settings = getattr(self, "settings", getattr(bridge, "settings", None))
+        bridge.ene_profile = getattr(self, "ene_profile", getattr(bridge, "ene_profile", None))
+        bridge.mood_manager = getattr(self, "mood_manager", getattr(bridge, "mood_manager", None))
+        if client is not None:
+            bridge.llm_client = client
+
+        state = bridge._get_life_record_state()
+        state.candidate = self.life_record_candidate if self.life_records_writable else None
+        state.life_records_writable = self.life_records_writable is True
+        state.read_only_reason = self.life_record_read_only_reason
+        state.time_context = self.life_time_context
+        state.view_timezone = self.life_view_timezone
+
+    def _start_life_session_heartbeat(self) -> None:
+        """권위 running 세션이 열린 경우에만 60초 heartbeat를 시작한다."""
+        if not self.life_records_writable or not self._life_session_id:
+            return
+        try:
+            timer = self._life_timer_factory(self)
+            timer.setInterval(60_000)
+            timer.timeout.connect(self._heartbeat_life_session)
+            timer.start()
+            self.life_heartbeat_timer = timer
+        except Exception:
+            self._set_life_records_read_only(SESSION_TRACKER_DEGRADED)
+
+    def _heartbeat_life_session(self) -> None:
+        """현재 소유 세션만 갱신하고 실패하면 즉시 쓰기를 막는다."""
+        tracker = self.life_session_tracker
+        if tracker is None or getattr(tracker, "session_id", None) != self._life_session_id:
+            self._set_life_records_read_only(SESSION_TRACKER_DEGRADED)
+            return
+        try:
+            succeeded = tracker.heartbeat()
+        except Exception:
+            succeeded = False
+        if succeeded is True:
+            return
+        reason = getattr(tracker, "reason", None)
+        if reason not in {
+            SESSION_LEASE_UNAVAILABLE,
+            SESSION_TRACKER_DEGRADED,
+            TIMEZONE_UNAVAILABLE,
+        }:
+            reason = SESSION_TRACKER_DEGRADED
+        self._set_life_records_read_only(reason)
+
+    def _set_life_records_read_only(self, reason: str) -> None:
+        self.life_records_writable = False
+        self.life_record_candidate = None
+        self.life_record_read_only_reason = reason
+        timer = getattr(self, "life_heartbeat_timer", None)
+        if timer is not None:
+            try:
+                timer.stop()
+            except Exception:
+                pass
+        overlay = getattr(self, "overlay_window", None)
+        bridge = getattr(overlay, "bridge", None)
+        if bridge is not None:
+            state = bridge._get_life_record_state()
+            state.candidate = None
+            state.life_records_writable = False
+            state.read_only_reason = reason
     
     def _init_llm_client(self):
         """LLM 클라이언트 초기화"""
@@ -152,6 +319,7 @@ class ENEApplication(QObject):
                     goal_manager=self.goal_manager if hasattr(self, "goal_manager") else None,
                 ),
             )
+            self.llm_client.life_record_manager = self.life_record_manager
             if hasattr(self, "promise_manager") and self.promise_manager:
                 self.llm_client.promise_manager = self.promise_manager
             print(f"OK: LLM 클라이언트 초기화 성공 (provider={llm_config.provider}, model={llm_config.model_name or 'default'})")
