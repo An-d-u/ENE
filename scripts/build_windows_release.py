@@ -21,6 +21,7 @@ PYINSTALLER_COLLECT_ALL = (
     "tokenizers",
     "tiktoken",
     "tiktoken_ext",
+    "tzdata",
 )
 
 
