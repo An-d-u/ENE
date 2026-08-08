@@ -26,9 +26,17 @@ from .model_tracking_params import load_model_tracking_parameter_map_for_model_j
 class OverlayWindow(QWidget):
     """Transparent always-on-top overlay hosting the Live2D web view."""
 
-    def __init__(self, settings_manager):
+    def __init__(
+        self,
+        settings_manager,
+        *,
+        life_time_context=None,
+        life_view_timezone: str = "UTC",
+    ):
         super().__init__()
         self.settings = settings_manager
+        self.life_time_context = life_time_context
+        self.life_view_timezone = str(life_view_timezone or "UTC")
         self._page_loaded = False
         self._shutting_down = False
         self._last_sent_mouse_pos = None
