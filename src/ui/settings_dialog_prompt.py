@@ -301,14 +301,33 @@ class SettingsDialogPromptMixin:
             )
 
     def _save_prompt_configuration(self):
-        try:
-            life_world_editor = getattr(self, "life_world_editor", None)
-            if (
-                life_world_editor is not None
-                and getattr(self, "_prompt_bundle_snapshot_valid", True) is False
-            ):
-                raise RuntimeError("prompt_bundle_load_required")
+        life_world_editor = getattr(self, "life_world_editor", None)
+        if (
+            life_world_editor is not None
+            and getattr(self, "_prompt_bundle_snapshot_valid", True) is False
+        ):
+            SettingsDialogPromptMixin._set_prompt_status_text(
+                self,
+                "settings.prompt.status.reload_required",
+                "프롬프트를 다시 불러온 뒤 저장하세요.",
+            )
+            QMessageBox.warning(
+                self,
+                SettingsDialogPromptMixin._prompt_text(
+                    self,
+                    "settings.prompt.message.reload_required.title",
+                    "다시 불러오기 필요",
+                ),
+                SettingsDialogPromptMixin._prompt_text(
+                    self,
+                    "settings.prompt.message.reload_required.body",
+                    "일부 프롬프트를 불러오지 못해 저장을 중단했습니다. "
+                    "프롬프트를 다시 불러온 뒤 저장하세요.",
+                ),
+            )
+            return
 
+        try:
             emotion_names = [item["name"] for item in self._emotion_items if item["name"].strip()]
             if not emotion_names:
                 raise ValueError("감정은 하나 이상 있어야 합니다.")

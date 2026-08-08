@@ -170,13 +170,44 @@ def test_life_world_default_read_failure_preserves_editor_and_shows_safe_status(
     dialog.close()
 
 
+@pytest.mark.parametrize(
+    ("language", "expected_status", "expected_title", "expected_body"),
+    [
+        (
+            "ko",
+            "프롬프트를 다시 불러온 뒤 저장하세요.",
+            "다시 불러오기 필요",
+            "일부 프롬프트를 불러오지 못해 저장을 중단했습니다. "
+            "프롬프트를 다시 불러온 뒤 저장하세요.",
+        ),
+        (
+            "en",
+            "Reload the prompts before saving.",
+            "Reload required",
+            "Saving was stopped because some prompts could not be loaded. "
+            "Reload the prompts before saving.",
+        ),
+        (
+            "ja",
+            "プロンプトを再読み込みしてから保存してください。",
+            "再読み込みが必要です",
+            "一部のプロンプトを読み込めなかったため、保存を中止しました。"
+            "プロンプトを再読み込みしてから保存してください。",
+        ),
+    ],
+)
 def test_prompt_bundle_load_failure_preserves_editors_and_blocks_stale_save(
-    prompt_paths, monkeypatch
+    prompt_paths,
+    monkeypatch,
+    language,
+    expected_status,
+    expected_title,
+    expected_body,
 ):
     runtime_dir, _default_dir = prompt_paths
-    life_world_path = runtime_dir / "life_world.md"
-    stored_life_world = life_world_path.read_bytes()
-    dialog = _dialog(prompt_paths, monkeypatch)
+    prompt_paths_on_disk = list(runtime_dir.glob("*.md"))
+    stored_bundle = {path: path.read_bytes() for path in prompt_paths_on_disk}
+    dialog = _dialog(prompt_paths, monkeypatch, {"ui_language": language})
     dialog.focus_section("prompt")
     dialog.base_prompt_editor.setPlainText("draft base prompt")
     dialog.sub_prompt_editor.setPlainText("draft sub prompt")
@@ -195,10 +226,19 @@ def test_prompt_bundle_load_failure_preserves_editors_and_blocks_stale_save(
     assert dialog.life_world_editor.toPlainText() == "stale life world"
     assert dialog._emotion_items == before_emotions
 
+    warnings = []
+    monkeypatch.setattr(
+        QMessageBox,
+        "warning",
+        lambda _parent, title, body: warnings.append((title, body)),
+    )
     dialog._save_prompt_configuration()
 
-    assert life_world_path.read_bytes() == stored_life_world
-    assert dialog._prompt_status_label.text()
+    assert {path: path.read_bytes() for path in prompt_paths_on_disk} == stored_bundle
+    assert dialog._prompt_status_label.text() == expected_status
+    assert warnings == [(expected_title, expected_body)]
+    exposed = repr((dialog._prompt_status_label.text(), warnings))
+    assert "prompt_bundle_load_required" not in exposed
     dialog.close()
 
 
