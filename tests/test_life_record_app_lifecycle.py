@@ -351,10 +351,17 @@ def test_shutdown_timeout_preserves_running_session_and_still_releases_lease(mon
     )
 
     app._finish_quit_application()
+
+    assert "promise_timer" not in order
+    assert "proactive_timer" not in order
+    assert "obs_tree_retry_timer" not in order
+    assert "life_timer" not in order
     scheduler.run_next()
 
     assert app.life_session_tracker.stop_calls == 0
     assert app.life_session_tracker.release_calls == 1
+    assert order.index("promise_timer") < order.index("life_timer")
+    assert order.index("life_timer") < order.index("overlay_shutdown")
     assert "overlay_shutdown" in order
     assert worker in app._shutdown_worker_refs
 
@@ -503,23 +510,39 @@ def test_shutdown_discovers_replacement_worker_and_keeps_it_until_drained(monkey
     assert app.life_session_tracker.stop_calls == 1
 
 
-def test_shutdown_stops_worker_producers_before_first_snapshot(monkeypatch):
-    app, bridge, _scheduler, order = _shutdown_app(monkeypatch)
-    observed = []
-    original_collect = app._collect_shutdown_workers
+def test_shutdown_stops_timers_only_after_worker_drain(monkeypatch):
+    app, bridge, scheduler, order = _shutdown_app(monkeypatch)
+    worker = _ShutdownWorker(order, "reply")
+    bridge.worker = worker
+    spawned = _ShutdownWorker(order, "late")
+    timer_callbacks = []
 
-    def collect(current_bridge):
-        observed.extend(order)
-        return original_collect(current_bridge)
-
-    app._collect_shutdown_workers = collect
+    def guarded_timer_callback():
+        timer_callbacks.append("called")
+        if bridge.life_record_state.phase != "shutting_down":
+            bridge.obs_tree_worker = spawned
 
     app._finish_quit_application()
+    guarded_timer_callback()
 
-    assert observed.index("begin_shutdown") < observed.index("stop_away_monitor")
-    for event in ("promise_timer", "proactive_timer", "obs_tree_retry_timer"):
-        assert event in observed
-    assert "life_timer" not in observed
+    assert timer_callbacks == ["called"]
+    assert getattr(bridge, "obs_tree_worker", None) is None
+    for event in (
+        "stop_away_monitor",
+        "promise_timer",
+        "proactive_timer",
+        "obs_tree_retry_timer",
+        "life_timer",
+    ):
+        assert event not in order
+    assert app.life_session_tracker.stop_calls == 0
+
+    worker.finish()
+    while scheduler.pending:
+        scheduler.run_next()
+
+    assert order.index("interrupt:reply") < order.index("stop_away_monitor")
+    assert order.index("obs_tree_retry_timer") < order.index("life_timer")
     assert order.index("life_timer") < order.index("stop_session")
 
 
