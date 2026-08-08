@@ -497,6 +497,8 @@ def test_bridge_general_chat_includes_checked_obsidian_context(monkeypatch):
         latest_user_message: str = "",
         recent_memory_context: str = "",
         head_pat_count_before_message: int = 0,
+        include_life_record_context: bool = False,
+        prior_token_usage=None,
     ):
         captured["message_with_time"] = message_with_time
 
@@ -537,6 +539,8 @@ def test_bridge_general_chat_skips_obsidian_context_when_disconnected(monkeypatc
         latest_user_message: str = "",
         recent_memory_context: str = "",
         head_pat_count_before_message: int = 0,
+        include_life_record_context: bool = False,
+        prior_token_usage=None,
     ):
         captured["message_with_time"] = message_with_time
 
@@ -570,6 +574,8 @@ def test_bridge_general_chat_cache_miss_before_obsidian_activation_skips_backgro
         latest_user_message: str = "",
         recent_memory_context: str = "",
         head_pat_count_before_message: int = 0,
+        include_life_record_context: bool = False,
+        prior_token_usage=None,
     ):
         captured["message_with_time"] = message_with_time
 
@@ -605,6 +611,8 @@ def test_bridge_general_chat_cache_miss_after_obsidian_activation_schedules_back
         latest_user_message: str = "",
         recent_memory_context: str = "",
         head_pat_count_before_message: int = 0,
+        include_life_record_context: bool = False,
+        prior_token_usage=None,
     ):
         captured["message_with_time"] = message_with_time
 
