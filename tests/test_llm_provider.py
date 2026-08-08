@@ -25,6 +25,7 @@ from src.ai.llm_provider import (
     register_llm_provider,
 )
 from src.ai.response_protocol import (
+    OneShotGenerationResult,
     ProviderProfile,
     ResponseMode,
 )
@@ -51,6 +52,13 @@ def test_llm_client_protocol_parsed_response_methods_include_goal_update_and_pro
         assert return_type.__args__[-3] == Dict[str, str]
         assert return_type.__args__[-2] == List[Dict]
         assert return_type.__args__[-1] is str
+
+
+def test_llm_client_protocol_exposes_async_life_record_one_shot():
+    method = LLMClientProtocol.generate_life_record_once
+
+    assert inspect.iscoroutinefunction(method)
+    assert inspect.signature(method).return_annotation is OneShotGenerationResult
 
 
 def test_register_provider_and_create_client():

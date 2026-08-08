@@ -7,6 +7,8 @@ from enum import Enum
 import inspect
 from typing import Callable, Dict, List, Protocol, Tuple, runtime_checkable
 
+from .response_protocol import OneShotGenerationResult
+
 LLM_RESPONSE_TUPLE = Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict], str, Dict[str, str], List[Dict], str]
 SUMMARY_RESPONSE_TUPLE = (
     tuple[str, list[str], list[str], dict]
@@ -16,6 +18,12 @@ SUMMARY_RESPONSE_TUPLE = (
 
 @runtime_checkable
 class LLMClientProtocol(Protocol):
+    async def generate_life_record_once(
+        self,
+        prompt: str,
+    ) -> OneShotGenerationResult:
+        ...
+
     async def send_message_with_memory(
         self,
         message: str,
