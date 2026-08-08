@@ -37,6 +37,7 @@ _MOOD_FIELDS = frozenset(
     {"label", "valence", "energy", "bond", "stress", "short_term_mood"}
 )
 _MOOD_AXES = ("valence", "energy", "bond", "stress")
+_MOOD_INTEGER_ABS_LIMIT = 10**4096
 _INACTIVE_SOURCES = frozenset({"graceful_exit", "heartbeat_recovery"})
 _JSON_FENCE = re.compile(r"\A```(?:json)?\s*\n(?P<body>.*)\n```\s*\Z", re.DOTALL)
 
@@ -274,6 +275,8 @@ def _mood_snapshot(value: object) -> Mapping[str, object]:
     for field in _MOOD_AXES:
         number = data[field]
         if isinstance(number, bool) or not isinstance(number, (int, float)):
+            _fail("invalid_mood")
+        if isinstance(number, int) and abs(number) >= _MOOD_INTEGER_ABS_LIMIT:
             _fail("invalid_mood")
         if isinstance(number, float) and not math.isfinite(number):
             _fail("invalid_mood")
