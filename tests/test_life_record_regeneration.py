@@ -401,6 +401,56 @@ def test_success_replaces_same_id_after_finished_and_updates_runtime_and_panel(
     assert bridge.events[-1] == ("pending", False)
 
 
+@pytest.mark.parametrize("failure_step", ["serialization", "signal"])
+def test_post_commit_panel_refresh_failure_keeps_committed_context_and_is_not_save_failure(
+    monkeypatch, tmp_path, failure_step
+):
+    path = tmp_path / "life_records.json"
+    manager = LifeRecordManager(path)
+    _previous, latest = _seed(manager)
+    bridge = _Bridge(manager)
+    _Worker.instances.clear()
+    monkeypatch.setattr("src.core.bridge_mixins.life_records.LifeRecordWorker", _Worker)
+    bridge.regenerate_latest_life_record(latest.id)
+    worker = _Worker.instances[-1]
+    operation_id = bridge.life_record_state.operation_id
+    result = LifeRecordWorkerResult(
+        operation_id=operation_id,
+        output=_replacement_output(latest),
+        status=ResponseStatus.COMPLETE,
+        token_usage=OneShotTokenUsage(1, 1, 2),
+        attempt_count=1,
+    )
+    if failure_step == "serialization":
+        monkeypatch.setattr(
+            LifeRecordManager,
+            "to_public_dict",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                RuntimeError("private-refresh-detail")
+            ),
+        )
+    else:
+        original_emit = bridge.life_record_items_updated.emit
+
+        def fail_after_signal(payload):
+            original_emit(payload)
+            raise RuntimeError("private-refresh-detail")
+
+        monkeypatch.setattr(bridge.life_record_items_updated, "emit", fail_after_signal)
+
+    worker.result_ready.emit(operation_id, result)
+    worker.finished.emit()
+
+    committed = LifeRecordManager(path).latest()
+    assert committed.id == latest.id
+    assert committed.revision == latest.revision + 1
+    assert bridge.life_record_manager.latest() == committed
+    assert bridge.llm_client.life_record_manager.latest() == committed
+    assert ("notice", "refresh_failed") in bridge.events
+    assert ("notice", "save_failed") not in bridge.events
+    assert "private-refresh-detail" not in repr(bridge.events)
+
+
 @pytest.mark.parametrize(
     ("state_changes", "expected_code"),
     [

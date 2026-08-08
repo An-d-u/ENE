@@ -758,32 +758,30 @@ class LifeRecordBridgeMixin:
         if success:
             try:
                 manager = self._reload_authoritative_life_record_manager()
-                current = manager.latest()
-                if current != pending.record:
-                    raise LifeRecordStoreError("stale_record")
-                manager.replace_latest(
-                    pending.record.id,
+                replacement = manager.replace_latest_if_unchanged(
+                    pending.record,
                     result.output,
                     pending.updated_at,
-                )
-                authoritative = LifeRecordManager(manager.store_path)
-                replacement = authoritative.latest()
-                if (
-                    authoritative.store_status != "ready"
-                    or replacement is None
-                    or replacement.id != pending.record.id
-                    or replacement.revision != pending.record.revision + 1
-                ):
-                    raise LifeRecordStoreError("read_error")
-                self._install_authoritative_life_record_manager(authoritative)
-                self._emit_saved_life_record(
-                    replacement,
-                    locale=pending.language,
-                    manager=authoritative,
                 )
             except Exception:
                 success = False
                 notice = "save_failed"
+            else:
+                refresh_succeeded = True
+                try:
+                    self._install_authoritative_life_record_manager(manager)
+                    refresh_succeeded = self._emit_saved_life_record(
+                        replacement,
+                        locale=pending.language,
+                        manager=manager,
+                    )
+                except Exception:
+                    refresh_succeeded = False
+                if not refresh_succeeded:
+                    try:
+                        self._emit_life_record_notice("refresh_failed")
+                    except Exception:
+                        pass
         elif error == "cancelled":
             notice = "cancelled"
         if not success:
@@ -821,10 +819,15 @@ class LifeRecordBridgeMixin:
         if success:
             try:
                 saved = self._save_generated_life_record(result)
-                self._emit_saved_life_record(saved)
             except Exception:
                 success = False
                 notice = "save_failed"
+            else:
+                if not self._emit_saved_life_record(saved):
+                    try:
+                        self._emit_life_record_notice("refresh_failed")
+                    except Exception:
+                        pass
         if not success:
             try:
                 self._emit_life_record_notice(notice)
@@ -920,38 +923,42 @@ class LifeRecordBridgeMixin:
         *,
         locale: str | None = None,
         manager: LifeRecordManager | None = None,
-    ) -> None:
-        manager = manager or self._life_record_manager()
-        state = self._get_life_record_state()
-        locale = locale or self._resolve_life_prompt_language()
-        public = manager.to_public_dict(record, state.view_timezone, locale)
-        view_resolution = resolve_local_time_context(state.view_timezone)
-        zone = view_resolution.view_timezone
-        local_start = record.inactive_started_at.astimezone(zone).date()
-        local_last = (
-            record.returned_at.astimezone(zone) - timedelta(microseconds=1)
-        ).date()
-        affected = []
-        current = local_start
-        while current <= local_last:
-            affected.append(current.isoformat())
-            current += timedelta(days=1)
-        payload = json.dumps(
-            {
-                "record": public,
-                "affected_dates": affected,
-                "latest_id": manager.latest().id
-                if manager.latest() is not None
-                else None,
-            },
-            ensure_ascii=False,
-        )
-        signal = getattr(self, "life_record_items_updated", None)
-        if signal is not None and hasattr(signal, "emit"):
-            try:
+    ) -> bool:
+        try:
+            manager = manager or self._life_record_manager()
+            state = self._get_life_record_state()
+            locale = locale or self._resolve_life_prompt_language()
+            public = manager.to_public_dict(record, state.view_timezone, locale)
+            view_resolution = resolve_local_time_context(state.view_timezone)
+            if view_resolution.context is None:
+                return False
+            zone = view_resolution.view_timezone
+            local_start = record.inactive_started_at.astimezone(zone).date()
+            local_last = (
+                record.returned_at.astimezone(zone) - timedelta(microseconds=1)
+            ).date()
+            affected = []
+            current = local_start
+            while current <= local_last:
+                affected.append(current.isoformat())
+                current += timedelta(days=1)
+            payload = json.dumps(
+                {
+                    "record": public,
+                    "affected_dates": affected,
+                    "latest_id": manager.latest().id
+                    if manager.latest() is not None
+                    else None,
+                },
+                ensure_ascii=False,
+            )
+            signal = getattr(self, "life_record_items_updated", None)
+            if signal is not None and hasattr(signal, "emit"):
                 signal.emit(payload)
-            except Exception:
-                pass
+                return True
+        except Exception:
+            return False
+        return False
 
     def _finish_life_record_without_reply(self, operation_id: int) -> None:
         state = self._get_life_record_state()

@@ -1,6 +1,7 @@
 import json
 from datetime import date, datetime, timezone
 from pathlib import Path
+from threading import Event, Thread
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -387,6 +388,111 @@ def test_replace_latest_rejects_non_latest_id_without_mutation(tmp_path):
         manager.replace_latest(previous.id, _generated(previous), previous.updated_at)
 
     assert manager.records == before
+
+
+def test_replace_latest_compare_and_swap_rejects_stale_manager_snapshot(tmp_path):
+    path = tmp_path / "life_records.json"
+    seed = LifeRecordManager(path)
+    latest = _record(
+        datetime(2099, 6, 1, 9, tzinfo=SEOUL),
+        datetime(2099, 6, 1, 10, tzinfo=SEOUL),
+    )
+    assert seed.add(latest)
+    first = LifeRecordManager(path)
+    stale = LifeRecordManager(path)
+
+    committed = first.replace_latest_if_unchanged(
+        latest,
+        _generated(latest, activity="첫 합성 교체"),
+        datetime(2099, 6, 1, 10, 1, tzinfo=SEOUL),
+    )
+
+    with pytest.raises(LifeRecordStoreError, match="stale_record"):
+        stale.replace_latest_if_unchanged(
+            latest,
+            _generated(latest, activity="덮어쓰면 안 되는 합성 교체"),
+            datetime(2099, 6, 1, 10, 2, tzinfo=SEOUL),
+        )
+    authoritative = LifeRecordManager(path).latest()
+    assert authoritative == committed
+    assert authoritative.entries[0].activity == "첫 합성 교체"
+
+
+def test_replace_latest_compare_and_swap_serializes_interleaving_writers(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "life_records.json"
+    seed = LifeRecordManager(path)
+    latest = _record(
+        datetime(2099, 6, 1, 9, tzinfo=SEOUL),
+        datetime(2099, 6, 1, 10, tzinfo=SEOUL),
+    )
+    assert seed.add(latest)
+    first = LifeRecordManager(path)
+    second = LifeRecordManager(path)
+    first_entered_commit = Event()
+    allow_first_commit = Event()
+    second_started = Event()
+    outcomes = []
+    original_commit = first._commit
+
+    def delayed_commit(records):
+        first_entered_commit.set()
+        assert allow_first_commit.wait(timeout=5)
+        return original_commit(records)
+
+    monkeypatch.setattr(first, "_commit", delayed_commit)
+
+    def run_first():
+        try:
+            outcomes.append(
+                (
+                    "first",
+                    first.replace_latest_if_unchanged(
+                        latest,
+                        _generated(latest, activity="직렬화된 첫 합성 교체"),
+                        datetime(2099, 6, 1, 10, 1, tzinfo=SEOUL),
+                    ),
+                )
+            )
+        except Exception as failure:
+            outcomes.append(("first_error", type(failure).__name__))
+
+    def run_second():
+        second_started.set()
+        try:
+            outcomes.append(
+                (
+                    "second",
+                    second.replace_latest_if_unchanged(
+                        latest,
+                        _generated(latest, activity="거부될 두 번째 합성 교체"),
+                        datetime(2099, 6, 1, 10, 2, tzinfo=SEOUL),
+                    ),
+                )
+            )
+        except LifeRecordStoreError as failure:
+            outcomes.append(("second_error", failure.code))
+        except Exception as failure:
+            outcomes.append(("second_unexpected", type(failure).__name__))
+
+    first_thread = Thread(target=run_first)
+    second_thread = Thread(target=run_second)
+    first_thread.start()
+    assert first_entered_commit.wait(timeout=5)
+    second_thread.start()
+    assert second_started.wait(timeout=5)
+    allow_first_commit.set()
+    first_thread.join(timeout=5)
+    second_thread.join(timeout=5)
+
+    assert first_thread.is_alive() is False
+    assert second_thread.is_alive() is False
+    assert sorted(kind for kind, _value in outcomes) == ["first", "second_error"]
+    assert ("second_error", "stale_record") in outcomes
+    authoritative = LifeRecordManager(path).latest()
+    assert authoritative.revision == latest.revision + 1
+    assert authoritative.entries[0].activity == "직렬화된 첫 합성 교체"
 
 
 def test_public_dict_is_detached_and_uses_requested_view_timezone(tmp_path):
