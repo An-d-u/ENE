@@ -3,13 +3,22 @@ from __future__ import annotations
 import requests
 from .http_llm_common import (
     HTTPFinalRequestDescriptor,
+    HTTPStructuredOneShotRequestDescriptor,
+    HTTPStructuredOneShotResponse,
     LLM_RESPONSE_TUPLE,
     _CommonMixin,
     _normalize_generation_params,
     _post_with_safe_errors,
     _raise_for_status_with_detail,
+    _thaw_transport_value,
+    normalize_one_shot_usage,
 )
-from .response_protocol import LLMRequestKind
+from .response_protocol import (
+    LLMRequestKind,
+    OneShotGenerationResult,
+    ResponseMode,
+    ResponseStatus,
+)
 
 
 class GoogleCloudClient(_CommonMixin):
@@ -57,6 +66,25 @@ class GoogleCloudClient(_CommonMixin):
         if self.api_key and "key=" in self.endpoint:
             headers["x-goog-api-key"] = self.api_key
         return headers
+
+    def _life_record_headers(self):
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["x-goog-api-key"] = self.api_key
+        return headers
+
+    @staticmethod
+    def _life_record_endpoint(
+        endpoint: str,
+        model_name: str,
+    ) -> str:
+        resolved = endpoint.replace("{model}", model_name)
+        if "{model}" not in endpoint and ":generateContent" not in resolved:
+            return (
+                resolved.rstrip("/")
+                + f"/v1beta/models/{model_name}:generateContent"
+            )
+        return resolved
 
     def _to_parts(self, message: str, images_data: list | None = None) -> list[dict]:
         parts = [{"text": message}]
@@ -164,6 +192,110 @@ class GoogleCloudClient(_CommonMixin):
                 if isinstance(text, str) and text.strip():
                     return text.strip()
         return ""
+
+    def _request_google_life_record(
+        self,
+        descriptor: HTTPStructuredOneShotRequestDescriptor,
+    ) -> HTTPStructuredOneShotResponse:
+        request = descriptor.request
+        generation_params = _thaw_transport_value(request.generation_params)
+        schema = _thaw_transport_value(request.schema)
+        headers = _thaw_transport_value(descriptor.headers)
+        generation_config = {
+            "temperature": generation_params["temperature"],
+            "topP": generation_params["top_p"],
+        }
+        if generation_params["max_tokens"] > 0:
+            generation_config["maxOutputTokens"] = generation_params["max_tokens"]
+        if descriptor.response_mode is ResponseMode.JSON_SCHEMA:
+            generation_config["responseFormat"] = {
+                "text": {
+                    "mimeType": "application/json",
+                    "schema": schema,
+                }
+            }
+        payload = {
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [{"text": request.prompt}],
+                }
+            ],
+            "generation_config": generation_config,
+            "systemInstruction": {
+                "parts": [{"text": request.system_instruction}]
+            },
+        }
+        response = _post_with_safe_errors(
+            descriptor.profile.provider,
+            self._life_record_endpoint(
+                descriptor.profile.endpoint,
+                descriptor.profile.model,
+            ),
+            requests.post,
+            headers=headers,
+            json=payload,
+            timeout=descriptor.timeout_seconds,
+        )
+        _raise_for_status_with_detail(response, descriptor.profile.provider)
+        data = response.json()
+        candidates = data.get("candidates", []) or []
+        candidate = (
+            candidates[0]
+            if candidates and isinstance(candidates[0], dict)
+            else {}
+        )
+        content = candidate.get("content")
+        if not isinstance(content, dict):
+            content = {}
+        text = "\n".join(
+            part.get("text", "")
+            for part in content.get("parts", []) or []
+            if isinstance(part, dict) and isinstance(part.get("text"), str)
+        ).strip()
+        finish_reason = str(
+            candidate.get("finishReason", "") or ""
+        ).strip().lower()
+        prompt_feedback = data.get("promptFeedback")
+        block_reason = (
+            str(prompt_feedback.get("blockReason", "") or "").strip().lower()
+            if isinstance(prompt_feedback, dict)
+            else ""
+        )
+        if block_reason or finish_reason in {
+            "safety",
+            "recitation",
+            "prohibited_content",
+        }:
+            status = ResponseStatus.REFUSAL
+            finish_reason = finish_reason or block_reason
+        elif finish_reason not in {"", "stop"}:
+            status = ResponseStatus.INCOMPLETE
+        elif text:
+            status = ResponseStatus.COMPLETE
+        else:
+            status = ResponseStatus.EMPTY
+        return HTTPStructuredOneShotResponse(
+            text=text,
+            status=status,
+            finish_reason=finish_reason,
+            usage=normalize_one_shot_usage(
+                data.get("usageMetadata"),
+                input_key="promptTokenCount",
+                output_key="candidatesTokenCount",
+                total_key="totalTokenCount",
+            ),
+        )
+
+    async def generate_life_record_once(
+        self,
+        prompt: str,
+    ) -> OneShotGenerationResult:
+        """Google generateContent 형식으로 생활 기록을 한 번 생성한다."""
+        return await self._generate_life_record_once(
+            prompt,
+            self._request_google_life_record,
+        )
 
     async def send_message_with_memory(
         self,
@@ -357,6 +489,79 @@ class CohereClient(_CommonMixin):
         if isinstance(text, str):
             return text.strip()
         return ""
+
+    def _request_cohere_life_record(
+        self,
+        descriptor: HTTPStructuredOneShotRequestDescriptor,
+    ) -> HTTPStructuredOneShotResponse:
+        request = descriptor.request
+        generation_params = _thaw_transport_value(request.generation_params)
+        schema = _thaw_transport_value(request.schema)
+        headers = _thaw_transport_value(descriptor.headers)
+        payload = {
+            "model": descriptor.profile.model,
+            "message": request.prompt,
+            "chat_history": [],
+            "preamble": request.system_instruction,
+            "temperature": generation_params["temperature"],
+            "p": generation_params["top_p"],
+        }
+        if generation_params["max_tokens"] > 0:
+            payload["max_tokens"] = generation_params["max_tokens"]
+        if descriptor.response_mode is ResponseMode.JSON_SCHEMA:
+            payload["response_format"] = {
+                "type": "json_object",
+                "schema": schema,
+            }
+        response = _post_with_safe_errors(
+            descriptor.profile.provider,
+            descriptor.profile.endpoint,
+            requests.post,
+            headers=headers,
+            json=payload,
+            timeout=descriptor.timeout_seconds,
+        )
+        _raise_for_status_with_detail(response, descriptor.profile.provider)
+        data = response.json()
+        raw_text = data.get("text")
+        text = raw_text.strip() if isinstance(raw_text, str) else ""
+        finish_reason = str(
+            data.get("finish_reason", "") or ""
+        ).strip().lower()
+        if finish_reason in {"error_toxic", "safety", "refusal"}:
+            status = ResponseStatus.REFUSAL
+        elif finish_reason not in {"", "complete", "stop", "end_turn"}:
+            status = ResponseStatus.INCOMPLETE
+        elif text:
+            status = ResponseStatus.COMPLETE
+        else:
+            status = ResponseStatus.EMPTY
+        meta = data.get("meta")
+        billed_units = (
+            meta.get("billed_units")
+            if isinstance(meta, dict)
+            else None
+        )
+        return HTTPStructuredOneShotResponse(
+            text=text,
+            status=status,
+            finish_reason=finish_reason,
+            usage=normalize_one_shot_usage(
+                billed_units,
+                input_key="input_tokens",
+                output_key="output_tokens",
+            ),
+        )
+
+    async def generate_life_record_once(
+        self,
+        prompt: str,
+    ) -> OneShotGenerationResult:
+        """Cohere Chat 형식으로 생활 기록을 한 번 생성한다."""
+        return await self._generate_life_record_once(
+            prompt,
+            self._request_cohere_life_record,
+        )
 
     async def send_message_with_memory(
         self,
