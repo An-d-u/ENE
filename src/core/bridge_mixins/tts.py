@@ -593,8 +593,19 @@ class TTSBridgeMixin:
         tts_worker=None,
     ):
         """스트리밍 TTS의 PCM 포맷이 준비되면 재생기를 시작한다."""
-        if not self._matches_tts_operation(operation_id, tts_worker):
+        if self._should_discard_nonterminal_tts_callback(operation_id, tts_worker):
             return
+        try:
+            self._process_tts_stream_format(sample_rate, channels, sample_width)
+        except Exception as exc:
+            _log_tts_callback_exception("tts_stream_format_callback_failed", exc)
+
+    def _process_tts_stream_format(
+        self,
+        sample_rate: int,
+        channels: int,
+        sample_width: int,
+    ) -> None:
         self._stream_audio_format = (int(sample_rate), int(channels), int(sample_width))
         self._stream_viseme_analyzer = VisemeStreamAnalyzer(
             sample_rate=sample_rate,
@@ -618,8 +629,18 @@ class TTSBridgeMixin:
         tts_worker=None,
     ):
         """스트리밍 PCM 청크를 재생 버퍼와 실시간 립싱크 큐에 전달한다."""
-        if not self._matches_tts_operation(operation_id, tts_worker):
+        if self._should_discard_nonterminal_tts_callback(operation_id, tts_worker):
             return
+        try:
+            self._process_tts_stream_chunk(pcm_bytes, mouth_values)
+        except Exception as exc:
+            _log_tts_callback_exception("tts_stream_chunk_callback_failed", exc)
+
+    def _process_tts_stream_chunk(
+        self,
+        pcm_bytes: bytes,
+        mouth_values: list,
+    ) -> None:
         if self._tts_interrupted_for_ptt:
             print("[Bridge] PTT 중단 플래그로 스트리밍 청크 무시")
             return
@@ -649,6 +670,16 @@ class TTSBridgeMixin:
             self._append_stream_lip_sync_values(mouth_values, target_pending=not self._sync_started)
             if self._sync_started and not self.lip_sync_timer and self.lip_sync_data:
                 self._start_lip_sync()
+
+    def _should_discard_nonterminal_tts_callback(
+        self,
+        operation_id=None,
+        tts_worker=None,
+    ) -> bool:
+        state = getattr(self, "life_record_state", None)
+        if getattr(state, "phase", None) == "shutting_down":
+            return True
+        return not self._matches_tts_operation(operation_id, tts_worker)
 
     def _matches_tts_operation(self, operation_id=None, tts_worker=None) -> bool:
         if operation_id is None:
