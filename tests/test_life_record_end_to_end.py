@@ -94,10 +94,17 @@ def _isolated_runtime(monkeypatch, tmp_path):
     (bundle_root / "prompts" / "defaults").mkdir(parents=True)
     monkeypatch.setenv("ENE_USER_DATA_DIR", str(runtime_root))
     monkeypatch.setenv("ENE_BUNDLE_DIR", str(bundle_root))
-    QCoreApplication.instance() or QCoreApplication([])
+    app = QCoreApplication.instance() or QCoreApplication([])
     _LifeWorker.instances.clear()
-    yield
+    yield app
+    app.processEvents()
     _LifeWorker.instances.clear()
+
+
+def _process_deferred_life_finalizers() -> None:
+    app = QCoreApplication.instance()
+    assert app is not None
+    app.processEvents()
 
 
 def _time_context(now: datetime = RETURNED_AT) -> LocalTimeContext:
@@ -214,6 +221,17 @@ def _bridge(monkeypatch, data_root, candidate, *, now: datetime = RETURNED_AT):
     bridge._load_life_world_for_gate = lambda: (
         "# 합성 마을\n\n- 기록실\n- 온실\n- 작은 광장"
     )
+    bridge._resolve_prepared_attachments = lambda _items: [
+        {
+            "id": "synthetic-file",
+            "name": "sample.txt",
+            "type": "text/plain",
+            "category": "document",
+            "status": "ready",
+            "extractedText": "Synthetic document content.",
+            "tokenEstimate": 3,
+        }
+    ]
     bridge._handle_obs_command = lambda _message: False
     bridge._handle_diary_command = lambda _message: False
     bridge.command_messages = []
@@ -222,36 +240,17 @@ def _bridge(monkeypatch, data_root, candidate, *, now: datetime = RETURNED_AT):
         if message.startswith("/note")
         else False
     )
-    bridge.committed_requests = []
     bridge.normal_worker_calls = []
-    bridge.deferred_life_finalizers = []
     bridge.queue_drains = 0
-
-    def commit_prepared(self, request, *, emit_pending_state=True):
-        self.committed_requests.append(request)
-        state = self.life_record_state
-        if state.matches_operation(state.operation_id, "resuming_reply"):
-            state.transition_operation(state.operation_id, "normal_reply")
 
     def start_normal(self, *args, **kwargs):
         self.normal_worker_calls.append((args, kwargs))
-
-    def defer_life(self, callback):
-        self.deferred_life_finalizers.append(callback)
-
-    def flush_life(self):
-        callbacks = tuple(self.deferred_life_finalizers)
-        self.deferred_life_finalizers.clear()
-        for callback in callbacks:
-            callback()
+        return self._begin_normal_reply_operation() is not None
 
     def drain_queues(self):
         self.queue_drains += 1
 
-    bridge._commit_prepared_chat_request = MethodType(commit_prepared, bridge)
     bridge._start_ai_worker = MethodType(start_normal, bridge)
-    bridge._defer_life_record_worker_finalization = MethodType(defer_life, bridge)
-    bridge.flush_life_finalizers = MethodType(flush_life, bridge)
     bridge._drain_queues_after_worker_finished = MethodType(drain_queues, bridge)
     monkeypatch.setattr("src.core.bridge_mixins.life_records.LifeRecordWorker", _LifeWorker)
     return bridge, manager
@@ -314,7 +313,7 @@ def test_recovered_first_chat_covers_exact_eleven_hours_without_gaps(
         assert "sample.txt" not in worker.request.prompt
 
         _complete_worker(worker, _output())
-        bridge.flush_life_finalizers()
+        _process_deferred_life_finalizers()
 
         record = manager.latest()
         assert record is not None
@@ -331,8 +330,18 @@ def test_recovered_first_chat_covers_exact_eleven_hours_without_gaps(
             left.ended_at == right.started_at
             for left, right in pairwise(record.entries)
         )
-        assert len(bridge.committed_requests) == 1
-        assert bridge.committed_requests[0].request_type == first_request
+        assert len(bridge.normal_worker_calls) == 1
+        normal_args, normal_kwargs = bridge.normal_worker_calls[0]
+        assert normal_kwargs["include_life_record_context"] is True
+        assert normal_kwargs["prior_token_usage"] == {
+            "input_tokens": 7,
+            "output_tokens": 5,
+            "total_tokens": 12,
+        }
+        assert normal_kwargs["emit_pending_state"] is False
+        assert bridge._last_request_payload["type"] == first_request
+        assert bridge.conversation_buffer[-1][0] == "user"
+        assert len(normal_args) == (1 if first_request == "text" else 2)
 
         payloads = []
         bridge.life_record_items_updated.connect(payloads.append)
@@ -375,11 +384,12 @@ def test_generation_failure_falls_back_then_reroll_does_not_regenerate(
         ),
     )
     worker.finished.emit()
-    bridge.flush_life_finalizers()
+    _process_deferred_life_finalizers()
 
     assert manager.latest() == previous
     assert notices == ["generation_failed"]
-    assert len(bridge.committed_requests) == 1
+    assert len(bridge.normal_worker_calls) == 1
+    assert bridge.normal_worker_calls[0][1]["include_life_record_context"] is True
     life_worker_count = len(_LifeWorker.instances)
 
     bridge.life_record_state.finish_operation(bridge.life_record_state.operation_id)
@@ -400,8 +410,8 @@ def test_generation_failure_falls_back_then_reroll_does_not_regenerate(
     bridge.reroll_last_response()
 
     assert len(_LifeWorker.instances) == life_worker_count
-    assert len(bridge.normal_worker_calls) == 1
-    assert bridge.normal_worker_calls[0][1]["include_life_record_context"] is True
+    assert len(bridge.normal_worker_calls) == 2
+    assert bridge.normal_worker_calls[-1][1]["include_life_record_context"] is True
 
 
 @pytest.mark.parametrize("outcome", ["success", "failure"])
@@ -461,7 +471,7 @@ def test_manual_regeneration_replaces_only_after_success(
             ),
         )
         worker.finished.emit()
-    bridge.flush_life_finalizers()
+    _process_deferred_life_finalizers()
 
     current = LifeRecordManager(tmp_path / "life_records.json").latest()
     assert current is not None
@@ -497,12 +507,12 @@ def test_busy_auto_and_manual_operations_reject_competing_inputs_and_queue(
     bridge._enqueue_due_proactive_conversation({"id": "synthetic-proactive"})
 
     assert _LifeWorker.instances == [first_worker]
-    assert bridge.committed_requests == []
+    assert bridge.normal_worker_calls == []
     assert bridge.command_messages == []
     assert bridge.proactive_run_queue == []
 
     _complete_worker(first_worker, _output())
-    bridge.flush_life_finalizers()
+    _process_deferred_life_finalizers()
     bridge.life_record_state.finish_operation(bridge.life_record_state.operation_id)
     record = manager.latest()
     assert record is not None
@@ -511,10 +521,10 @@ def test_busy_auto_and_manual_operations_reject_competing_inputs_and_queue(
     manual_worker = _LifeWorker.instances[-1]
     bridge.send_to_ai("수동 재생성 중 합성 요청")
     assert _LifeWorker.instances[-1] is manual_worker
-    assert len(bridge.committed_requests) == 1
+    assert len(bridge.normal_worker_calls) == 1
 
     bridge.begin_shutdown()
-    bridge.flush_life_finalizers()
+    _process_deferred_life_finalizers()
     bridge.life_record_state = LifeRecordBridgeState(
         auto_decision_completed=True,
         life_records_writable=True,
@@ -540,10 +550,10 @@ def test_worker_result_and_finished_signal_orders_commit_once(
     worker = _LifeWorker.instances[-1]
 
     _complete_worker(worker, _output(suffix=signal_order), order=signal_order)
-    bridge.flush_life_finalizers()
+    _process_deferred_life_finalizers()
     worker.finished.emit()
-    bridge.flush_life_finalizers()
+    _process_deferred_life_finalizers()
 
     assert manager.latest() is not None
     assert len(manager.records) == 1
-    assert len(bridge.committed_requests) == 1
+    assert len(bridge.normal_worker_calls) == 1
