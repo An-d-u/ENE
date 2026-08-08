@@ -39,11 +39,15 @@ class _DummyBridge:
         self.goal_manager = None
         self.proactive_manager = None
         self.llm_client = None
+        self.life_record_state = SimpleNamespace()
         self.obs_settings = type(
             "ObsSettings",
             (),
             {"get": lambda _self, key, default=None: obs_panel_visible if key == "panel_visible" else default},
         )()
+
+    def _get_life_record_state(self):
+        return self.life_record_state
 
     def set_goal_manager(self, goal_manager):
         self.goal_manager = goal_manager
@@ -58,8 +62,16 @@ class _DummyBridge:
 class _DummyOverlayWindow:
     obs_panel_visible = False
 
-    def __init__(self, settings):
+    def __init__(
+        self,
+        settings,
+        *,
+        life_time_context=None,
+        life_view_timezone=None,
+    ):
         self.settings = settings
+        self.life_time_context = life_time_context
+        self.life_view_timezone = life_view_timezone
         self.bridge = _DummyBridge(obs_panel_visible=self.obs_panel_visible)
 
     def set_llm_client(self, llm_client):
