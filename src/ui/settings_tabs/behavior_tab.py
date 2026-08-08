@@ -687,7 +687,7 @@ def build_behavior_tab(dialog):
         "settings.behavior.life_records.enable",
         "생활 기록 사용",
     )
-    self.enable_life_records_check.toggled.connect(self._on_setting_changed)
+    self.enable_life_records_check.toggled.connect(self._on_life_records_toggle)
     life_record_layout.addRow(self.enable_life_records_check)
 
     self.life_record_min_inactive_minutes_spin = QSpinBox()

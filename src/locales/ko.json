@@ -1190,6 +1190,7 @@
         "idle": "로드 대기",
         "load_done": "프롬프트 Markdown 로드 완료",
         "load_failed": "로드 실패: {error}",
+        "life_world_default_failed": "생활 환경 기본값을 불러오지 못했습니다.",
         "save_done": "프롬프트 Markdown 저장 완료",
         "save_failed": "저장 실패: {error}"
       },

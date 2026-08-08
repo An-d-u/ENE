@@ -1188,6 +1188,7 @@
         "idle": "Waiting to load",
         "load_done": "Prompt Markdown loaded",
         "load_failed": "Load failed: {error}",
+        "life_world_default_failed": "Could not load the default Life World.",
         "save_done": "Prompt Markdown saved",
         "save_failed": "Save failed: {error}"
       },

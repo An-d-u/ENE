@@ -540,6 +540,15 @@ class SettingsDialogValuesMixin:
         self._refresh_away_input_grace_limit()
         self._on_setting_changed()
 
+    def _refresh_life_record_controls(self) -> None:
+        enabled = bool(self.enable_life_records_check.isChecked())
+        self._life_record_min_inactive_label.setEnabled(enabled)
+        self.life_record_min_inactive_minutes_spin.setEnabled(enabled)
+
+    def _on_life_records_toggle(self, *_):
+        self._refresh_life_record_controls()
+        self._on_setting_changed()
+
     def _load_values(self):
         self._loading = True
         try:
@@ -772,6 +781,7 @@ class SettingsDialogValuesMixin:
             self.life_record_min_inactive_minutes_spin.setValue(
                 max(1, life_record_min_inactive_minutes)
             )
+            self._refresh_life_record_controls()
 
             self.model_scale_spin.setValue(self._original_settings.get("model_scale", 1.0))
             self.model_x_slider.setValue(int(self._original_settings.get("model_x_percent", 50)))

@@ -91,7 +91,12 @@ class SettingsDialogPromptMixin:
         try:
             text = prompt_config.DEFAULT_LIFE_WORLD_PROMPT_PATH.read_text(encoding="utf-8-sig")
         except Exception:
-            text = ""
+            SettingsDialogPromptMixin._set_prompt_status_text(
+                self,
+                "settings.prompt.status.life_world_default_failed",
+                "생활 환경 기본값을 불러오지 못했습니다.",
+            )
+            return
         self.life_world_editor.setPlainText(text.strip("\n"))
 
     def _split_sub_prompt_content(self, text: str) -> tuple[str, dict[str, str]]:
@@ -298,7 +303,7 @@ class SettingsDialogPromptMixin:
             if not emotion_names:
                 raise ValueError("감정은 하나 이상 있어야 합니다.")
 
-            prompt_config.save_prompt_config(
+            prompt_config.save_prompt_bundle(
                 {
                     "base_system_prompt": self.base_prompt_editor.toPlainText(),
                     "sub_prompt_body": self.sub_prompt_editor.toPlainText(),
@@ -308,9 +313,9 @@ class SettingsDialogPromptMixin:
                         for item in self._emotion_items
                         if item["name"].strip()
                     },
-                }
+                },
+                self.life_world_editor.toPlainText(),
             )
-            prompt_config.save_life_world_prompt(self.life_world_editor.toPlainText())
             self._on_life_world_text_changed()
             self._sync_emotion_combo_options()
 

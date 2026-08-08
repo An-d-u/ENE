@@ -4,8 +4,10 @@
 
 from __future__ import annotations
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QFrame,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -14,6 +16,7 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -23,15 +26,23 @@ def build_prompt_tab(dialog):
     """프롬프트 설정 탭 위젯을 구성한다."""
     scroll = QScrollArea()
     scroll.setWidgetResizable(True)
+    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
     scroll.setFrameShape(QFrame.Shape.NoFrame)
     scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+    dialog._prompt_scroll = scroll
 
     widget = QWidget()
-    layout = QVBoxLayout(widget)
+    widget.setMinimumWidth(0)
+    widget.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+    dialog._prompt_content = widget
+    layout = QGridLayout(widget)
+    dialog._prompt_grid = layout
     layout.setSpacing(12)
     layout.setContentsMargins(10, 10, 10, 10)
 
     header = QFrame()
+    header.setMinimumWidth(0)
+    header.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
     header.setObjectName("FooterCard")
     header_layout = QVBoxLayout(header)
     header_layout.setContentsMargins(20, 18, 20, 18)
@@ -51,35 +62,41 @@ def build_prompt_tab(dialog):
     body.setObjectName("FooterBody")
     body.setWordWrap(True)
     header_layout.addWidget(body)
-    layout.addWidget(header)
-
-    prompt_row = QHBoxLayout()
-    prompt_row.setSpacing(12)
+    layout.addWidget(header, 0, 0, 1, 2)
 
     base_group = QGroupBox("BASE_SYSTEM_PROMPT")
+    base_group.setMinimumWidth(0)
+    base_group.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
     base_layout = QVBoxLayout(base_group)
     base_layout.setSpacing(10)
-    base_path = QLabel(str(dialog._prompt_path))
-    base_path.setObjectName("FooterBody")
-    base_path.setWordWrap(True)
-    base_layout.addWidget(base_path)
+    dialog._prompt_path_label = QLabel(str(dialog._prompt_path))
+    dialog._prompt_path_label.setObjectName("FooterBody")
+    dialog._prompt_path_label.setWordWrap(True)
+    dialog._prompt_path_label.setMinimumWidth(0)
+    dialog._prompt_path_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+    base_layout.addWidget(dialog._prompt_path_label)
     dialog.base_prompt_editor = QPlainTextEdit()
+    dialog.base_prompt_editor.setMinimumWidth(0)
     dialog.base_prompt_editor.setMinimumHeight(320)
     dialog.base_prompt_editor.textChanged.connect(dialog._schedule_prompt_token_refresh)
     base_layout.addWidget(dialog.base_prompt_editor, 1)
     dialog._base_prompt_token_label = QLabel("BASE_SYSTEM_PROMPT 현재 토큰: 0개 · 문자 수: 0자")
     dialog._base_prompt_token_label.setObjectName("FooterBody")
     base_layout.addWidget(dialog._base_prompt_token_label)
-    prompt_row.addWidget(base_group, 1)
+    layout.addWidget(base_group, 1, 0)
 
     sub_group = QGroupBox()
+    sub_group.setMinimumWidth(0)
+    sub_group.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
     dialog._bind_group_title(sub_group, "settings.prompt.sub.title", "SUB_PROMPT 본문")
     sub_layout = QVBoxLayout(sub_group)
     sub_layout.setSpacing(10)
-    sub_path = QLabel(str(dialog._sub_prompt_path))
-    sub_path.setObjectName("FooterBody")
-    sub_path.setWordWrap(True)
-    sub_layout.addWidget(sub_path)
+    dialog._sub_prompt_path_label = QLabel(str(dialog._sub_prompt_path))
+    dialog._sub_prompt_path_label.setObjectName("FooterBody")
+    dialog._sub_prompt_path_label.setWordWrap(True)
+    dialog._sub_prompt_path_label.setMinimumWidth(0)
+    dialog._sub_prompt_path_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+    sub_layout.addWidget(dialog._sub_prompt_path_label)
     sub_note = QLabel()
     dialog._bind_widget_text(
         sub_note,
@@ -90,16 +107,20 @@ def build_prompt_tab(dialog):
     sub_note.setWordWrap(True)
     sub_layout.addWidget(sub_note)
     dialog.sub_prompt_editor = QPlainTextEdit()
+    dialog.sub_prompt_editor.setMinimumWidth(0)
     dialog.sub_prompt_editor.setMinimumHeight(320)
     dialog.sub_prompt_editor.textChanged.connect(dialog._schedule_prompt_token_refresh)
     sub_layout.addWidget(dialog.sub_prompt_editor, 1)
     dialog._sub_prompt_token_label = QLabel("SUB_PROMPT 현재 토큰: 0개 · 문자 수: 0자")
     dialog._sub_prompt_token_label.setObjectName("FooterBody")
     sub_layout.addWidget(dialog._sub_prompt_token_label)
-    prompt_row.addWidget(sub_group, 1)
-    layout.addLayout(prompt_row)
+    layout.addWidget(sub_group, 1, 1)
+    layout.setColumnStretch(0, 1)
+    layout.setColumnStretch(1, 1)
 
     dialog._life_world_group = QGroupBox()
+    dialog._life_world_group.setMinimumWidth(0)
+    dialog._life_world_group.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
     dialog._life_world_group.setProperty("fullWidth", True)
     dialog._bind_group_title(
         dialog._life_world_group,
@@ -120,9 +141,12 @@ def build_prompt_tab(dialog):
     dialog._life_world_path_label = QLabel(str(dialog._life_world_path))
     dialog._life_world_path_label.setObjectName("FooterBody")
     dialog._life_world_path_label.setWordWrap(True)
+    dialog._life_world_path_label.setMinimumWidth(0)
+    dialog._life_world_path_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
     life_world_layout.addWidget(dialog._life_world_path_label)
 
     dialog.life_world_editor = QPlainTextEdit()
+    dialog.life_world_editor.setMinimumWidth(0)
     dialog.life_world_editor.setMinimumHeight(220)
     dialog._register_text_binding(
         dialog.life_world_editor.setAccessibleName,
@@ -163,9 +187,11 @@ def build_prompt_tab(dialog):
     life_world_default_btn.clicked.connect(dialog._load_default_life_world_prompt)
     life_world_footer.addWidget(life_world_default_btn)
     life_world_layout.addLayout(life_world_footer)
-    layout.addWidget(dialog._life_world_group)
+    layout.addWidget(dialog._life_world_group, 2, 0, 1, 2)
 
     emotion_group = QGroupBox()
+    emotion_group.setMinimumWidth(0)
+    emotion_group.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
     dialog._bind_group_title(emotion_group, "settings.prompt.emotions.title", "감정 목록과 사용 가이드")
     emotion_layout = QHBoxLayout(emotion_group)
     emotion_layout.setSpacing(12)
@@ -214,7 +240,7 @@ def build_prompt_tab(dialog):
 
     emotion_editor_col.addLayout(emotion_actions)
     emotion_layout.addLayout(emotion_editor_col, 1)
-    layout.addWidget(emotion_group)
+    layout.addWidget(emotion_group, 3, 0, 1, 2)
 
     footer_row = QHBoxLayout()
     footer_row.setSpacing(10)
@@ -248,9 +274,9 @@ def build_prompt_tab(dialog):
         "프롬프트 저장",
     )
     footer_row.addWidget(save_btn)
-    layout.addLayout(footer_row)
+    layout.addLayout(footer_row, 4, 0, 1, 2)
 
-    layout.addStretch()
+    layout.setRowStretch(5, 1)
     scroll.setWidget(widget)
     dialog._load_prompt_configuration()
     dialog._refresh_prompt_token_counts()
