@@ -1219,7 +1219,7 @@
       "status": {
         "idle": "Waiting to load",
         "load_done": "Prompt Markdown loaded",
-        "load_failed": "Load failed: {error}",
+        "load_failed": "Could not load the prompts. Review the prompt files and try again.",
         "life_world_default_failed": "Could not load the default Life World.",
         "reload_required": "Reload the prompts before saving.",
         "save_done": "Prompt Markdown saved",
@@ -1238,8 +1238,8 @@
           "body": "At least one emotion is required."
         },
         "load_failed": {
-          "title": "Load failed",
-          "body": "Could not load prompt settings.\n{error}"
+          "title": "Prompt loading failed",
+          "body": "Could not load the prompts. Review the prompt files and try again."
         },
         "reload_required": {
           "title": "Reload required",
