@@ -5,7 +5,7 @@ import asyncio
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Literal, Mapping
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
@@ -370,6 +370,7 @@ class AIWorker(QThread):
         use_obsidian_priority: bool = False,
         progress_callback=None,
         include_life_record_context: bool = False,
+        prior_token_usage: Mapping[str, object] | None = None,
     ):
         super().__init__()
         self.llm_client = llm_client
@@ -381,6 +382,9 @@ class AIWorker(QThread):
         self.recent_memory_context = (recent_memory_context or "").strip()
         self.head_pat_count_before_message = max(0, int(head_pat_count_before_message or 0))
         self.include_life_record_context = include_life_record_context is True
+        self.prior_token_usage = (
+            dict(prior_token_usage) if isinstance(prior_token_usage, Mapping) else None
+        )
         self.diary_request = (diary_request or "").strip()
         self.note_request = (note_request or "").strip()
         self.note_recent_context = (note_recent_context or "").strip()
@@ -603,6 +607,11 @@ class AIWorker(QThread):
                     "output_tokens": raw.get("output_tokens") if is_valid_token_count(raw.get("output_tokens")) else None,
                     "total_tokens": raw.get("total_tokens") if is_valid_token_count(raw.get("total_tokens")) else None,
                 }
+        if self.prior_token_usage is not None:
+            accumulator = TurnTokenUsageAccumulator()
+            accumulator.record(self.prior_token_usage)
+            accumulator.record(usage)
+            usage = accumulator.snapshot()
         return json.dumps(usage, ensure_ascii=False)
 
     async def _run_diary_flow(self):

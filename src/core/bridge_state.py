@@ -176,6 +176,8 @@ class LifeRecordBridgeState:
     pending_request: Any = None
     pending_world_markdown: str = ""
     worker: Any = None
+    worker_result: Any = None
+    worker_error: Any = None
     prior_token_usage: Any = None
 
     def __post_init__(self) -> None:
@@ -243,6 +245,8 @@ class LifeRecordBridgeState:
         self.pending_world_markdown = ""
         self.prior_token_usage = None
         self.worker = None
+        self.worker_result = None
+        self.worker_error = None
         return True
 
     def begin_shutdown(self) -> int:
@@ -251,6 +255,15 @@ class LifeRecordBridgeState:
         self.phase = "shutting_down"
         self.pending_request = None
         self.pending_world_markdown = ""
+        worker = self.worker
+        request_interruption = getattr(worker, "requestInterruption", None)
+        if callable(request_interruption):
+            try:
+                request_interruption()
+            except Exception:
+                pass
+        self.worker_result = None
+        self.worker_error = None
         return self.operation_id
 
 
