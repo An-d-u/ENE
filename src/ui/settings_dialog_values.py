@@ -760,6 +760,18 @@ class SettingsDialogValuesMixin:
             away_input_grace_minutes = int(self._original_settings.get("away_input_grace_minutes", 5))
             self.away_input_grace_minutes_spin.setValue(max(1, min(away_input_grace_minutes, away_idle_minutes)))
             self.away_retry_limit_spin.setValue(int(self._original_settings.get("away_additional_retry_limit", 0)))
+            self.enable_life_records_check.setChecked(
+                bool(self._original_settings.get("enable_life_records", False))
+            )
+            try:
+                life_record_min_inactive_minutes = int(
+                    self._original_settings.get("life_record_min_inactive_minutes", 60)
+                )
+            except (TypeError, ValueError):
+                life_record_min_inactive_minutes = 60
+            self.life_record_min_inactive_minutes_spin.setValue(
+                max(1, life_record_min_inactive_minutes)
+            )
 
             self.model_scale_spin.setValue(self._original_settings.get("model_scale", 1.0))
             self.model_x_slider.setValue(int(self._original_settings.get("model_x_percent", 50)))
@@ -1111,6 +1123,8 @@ class SettingsDialogValuesMixin:
                 self.away_idle_minutes_spin.value(),
             ),
             "away_additional_retry_limit": self.away_retry_limit_spin.value(),
+            "enable_life_records": self.enable_life_records_check.isChecked(),
+            "life_record_min_inactive_minutes": self.life_record_min_inactive_minutes_spin.value(),
             "model_scale": self.model_scale_spin.value(),
             "model_x_percent": self.model_x_slider.value(),
             "model_y_percent": self.model_y_slider.value(),

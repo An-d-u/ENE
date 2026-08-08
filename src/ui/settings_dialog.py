@@ -10,8 +10,8 @@ try:
     import tiktoken_ext.openai_public  # noqa: F401
 except ImportError:
     tiktoken = None
-from PyQt6.QtCore import QEvent, QPoint, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QIcon
+from PyQt6.QtCore import QEvent, QPoint, QRect, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QGuiApplication, QIcon
 from PyQt6.QtWidgets import (
     QAbstractSpinBox,
     QComboBox,
@@ -89,11 +89,13 @@ class SettingsDialog(
         self._project_root = self._bundle_root
         self._prompt_path = prompt_config.BASE_SYSTEM_PROMPT_PATH
         self._sub_prompt_path = prompt_config.SUB_PROMPT_BODY_PATH
+        self._life_world_path = prompt_config.LIFE_WORLD_PROMPT_PATH
         self._user_profile_path = get_user_file("user_profile.json")
         self._prompt_status_label: QLabel | None = None
         self._profile_status_label: QLabel | None = None
         self._base_prompt_token_label: QLabel | None = None
         self._sub_prompt_token_label: QLabel | None = None
+        self._life_world_token_label: QLabel | None = None
         self._prompt_status_state = ("settings.prompt.status.idle", "로드 대기", {})
         self._profile_status_state = ("settings.profile.status.idle", "로드 대기", {})
         self._fact_timestamp_state = ("settings.profile.facts.timestamp.new", "신규 항목", {})
@@ -237,8 +239,7 @@ class SettingsDialog(
             icon_path = self._project_root / "assets" / "icons" / "tray_icon.png"
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
-        self.setMinimumSize(1280, 740)
-        self.resize(1460, 860)
+        self._apply_initial_screen_geometry()
         self.setWindowFlags(
             Qt.WindowType.Dialog 
             | Qt.WindowType.FramelessWindowHint 
@@ -360,8 +361,30 @@ class SettingsDialog(
 
     def _add_form_row(self, form: QFormLayout, key: str, fallback: str, field) -> QLabel:
         label = self._create_form_label(key, fallback)
+        if isinstance(field, QWidget):
+            label.setBuddy(field)
         form.addRow(label, field)
         return label
+
+    def _available_screen_geometry(self) -> QRect:
+        screen = self.screen() or QGuiApplication.primaryScreen()
+        if screen is None:
+            return QRect(0, 0, 1024, 768)
+        return screen.availableGeometry()
+
+    def _apply_initial_screen_geometry(self) -> None:
+        available = self._available_screen_geometry()
+        minimum_width = min(900, available.width())
+        minimum_height = min(640, available.height())
+        width = min(1460, available.width())
+        height = min(860, available.height())
+        self.setMinimumSize(minimum_width, minimum_height)
+        self.setMaximumSize(available.size())
+        self.resize(width, height)
+        self.move(
+            available.x() + max(0, (available.width() - width) // 2),
+            available.y() + max(0, (available.height() - height) // 2),
+        )
 
     def _localized_secret_toggle_text(self, is_password: bool) -> str:
         if is_password:

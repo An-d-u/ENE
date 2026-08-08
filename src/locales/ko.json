@@ -1120,6 +1120,15 @@
           "label": "추가 재실행 횟수:",
           "suffix": " 회"
         }
+      },
+      "life_records": {
+        "title": "생활 기록",
+        "enable": "생활 기록 사용",
+        "min_inactive": {
+          "label": "최소 비활성 시간:",
+          "suffix": " 분"
+        },
+        "hint": "이 시간 이상 비활성 상태였을 때만 다음 첫 대화에서 생활 기록을 만듭니다."
       }
     },
     "memory": {
@@ -1154,6 +1163,14 @@
       "sub": {
         "title": "SUB_PROMPT 본문",
         "note": "감정 규칙과 감정 사용 가이드는 아래 감정 편집 카드에서 별도로 관리됩니다."
+      },
+      "life_world": {
+        "title": "생활 환경",
+        "label": "생활 환경 Markdown",
+        "token_title": "생활 환경",
+        "default": "기본값 불러오기",
+        "empty_warning": "생활 환경이 비어 있으면 생활 기록을 생성하지 않습니다.",
+        "accessible_name": "생활 환경 Markdown 편집기"
       },
       "emotions": {
         "title": "감정 목록과 사용 가이드",

@@ -1066,6 +1066,15 @@
           "label": "Additional retry count:",
           "suffix": " retries"
         }
+      },
+      "life_records": {
+        "title": "生活記録",
+        "enable": "生活記録を使用",
+        "min_inactive": {
+          "label": "最小非アクティブ時間:",
+          "suffix": " 分"
+        },
+        "hint": "この時間以上非アクティブだった場合にのみ、次の最初の会話で生活記録を作成します。"
       }
     },
     "memory": {
@@ -1100,6 +1109,14 @@
       "sub": {
         "title": "SUB_PROMPT 本文",
         "note": "感情ルールと感情の使用ガイドは、下の感情編集カードで別々に管理します。"
+      },
+      "life_world": {
+        "title": "生活環境",
+        "label": "生活環境 Markdown",
+        "token_title": "生活環境",
+        "default": "既定値を読み込む",
+        "empty_warning": "生活環境が空の場合、生活記録は生成されません。",
+        "accessible_name": "生活環境 Markdown エディター"
       },
       "emotions": {
         "title": "感情一覧と使用ガイド",

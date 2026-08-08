@@ -1,4 +1,4 @@
-﻿"""
+"""
 동작 설정 탭 빌더.
 """
 
@@ -666,6 +666,57 @@ def build_behavior_tab(dialog):
     self._add_form_row(away_layout, "settings.behavior.away.retry_limit.label", "추가 재실행 횟수:", self.away_retry_limit_spin)
 
     layout.addWidget(away_group)
+
+    life_record_group = QGroupBox("생활 기록")
+    self._bind_group_title(
+        life_record_group,
+        "settings.behavior.life_records.title",
+        "생활 기록",
+    )
+    life_record_layout = QFormLayout(life_record_group)
+    life_record_layout.setSpacing(8)
+    life_record_layout.setContentsMargins(10, 15, 10, 10)
+
+    self.enable_life_records_check = self._create_toggle(
+        "생활 기록 사용",
+        key="settings.behavior.life_records.enable",
+    )
+    self.enable_life_records_check.setMinimumHeight(44)
+    self._register_text_binding(
+        self.enable_life_records_check.setAccessibleName,
+        "settings.behavior.life_records.enable",
+        "생활 기록 사용",
+    )
+    self.enable_life_records_check.toggled.connect(self._on_setting_changed)
+    life_record_layout.addRow(self.enable_life_records_check)
+
+    self.life_record_min_inactive_minutes_spin = QSpinBox()
+    self.life_record_min_inactive_minutes_spin.setRange(1, 525600)
+    self.life_record_min_inactive_minutes_spin.setMinimumHeight(44)
+    self._bind_suffix(
+        self.life_record_min_inactive_minutes_spin,
+        "settings.behavior.life_records.min_inactive.suffix",
+        " 분",
+    )
+    self._register_text_binding(
+        self.life_record_min_inactive_minutes_spin.setAccessibleName,
+        "settings.behavior.life_records.min_inactive.label",
+        "최소 비활성 시간",
+    )
+    self.life_record_min_inactive_minutes_spin.valueChanged.connect(self._on_setting_changed)
+    self._life_record_min_inactive_label = self._add_form_row(
+        life_record_layout,
+        "settings.behavior.life_records.min_inactive.label",
+        "최소 비활성 시간:",
+        self.life_record_min_inactive_minutes_spin,
+    )
+    life_record_layout.addRow(
+        self._build_hint_label(
+            "이 시간 이상 비활성 상태였을 때만 다음 첫 대화에서 생활 기록을 만듭니다.",
+            key="settings.behavior.life_records.hint",
+        )
+    )
+    layout.addWidget(life_record_group)
 
     layout.addStretch()
     scroll.setWidget(widget)
