@@ -1,5 +1,8 @@
 import asyncio
+from copy import deepcopy
 import inspect
+import json
+from types import SimpleNamespace
 from typing import get_type_hints
 
 import pytest
@@ -25,6 +28,8 @@ from src.ai.response_protocol import (
     OneShotGenerationResult,
     ResponseMode,
 )
+from tests.gemini_structured_fixtures import FakeResponse, FakeSdkClient
+from tests.http_structured_fixtures import DummyHTTPResponse
 
 
 class _DummyResponse:
@@ -144,7 +149,272 @@ _RUNTIME_CUSTOM_FORMATS = (
     "mistral",
     "google_cloud",
     "cohere",
+    "ollama",
 )
+
+_RUNTIME_PROVIDER_CASES = (
+    ("gemini", None, "gemini", ""),
+    ("openai", None, "openai_responses", ""),
+    ("openrouter", None, "openai_chat", ""),
+    ("deepseek", None, "openai_chat", ""),
+    ("anthropic", None, "anthropic", ""),
+    ("ollama", None, "ollama", ""),
+    ("custom_api", None, "openai_chat", "https://synthetic.invalid/v1/generate"),
+    (
+        "custom_api",
+        "openai_compatible",
+        "openai_chat",
+        "https://api.openai.com/v1/chat/completions",
+    ),
+    (
+        "custom_api",
+        "openai_response_api",
+        "openai_responses",
+        "https://api.openai.com/v1/responses",
+    ),
+    (
+        "custom_api",
+        "anthropic",
+        "anthropic",
+        "https://api.anthropic.com/v1/messages",
+    ),
+    (
+        "custom_api",
+        "mistral",
+        "mistral",
+        "https://api.mistral.ai/v1/chat/completions",
+    ),
+    (
+        "custom_api",
+        "google_cloud",
+        "google_cloud",
+        "https://generativelanguage.googleapis.com/"
+        "v1beta/models/{model}:generateContent",
+    ),
+    (
+        "custom_api",
+        "cohere",
+        "cohere",
+        "https://api.cohere.com/v1/chat",
+    ),
+    (
+        "custom_api",
+        "ollama",
+        "ollama",
+        "http://127.0.0.1:11434/api/chat",
+    ),
+)
+
+_LIFE_RESULT = '{"entries":[],"ending_state":{}}'
+_LIFE_PROMPT = "SYNTHETIC-RUNTIME-LIFE-PROMPT"
+_HISTORY_SENTINEL = "SYNTHETIC-OLD-HISTORY-MUST-NOT-BE-SENT"
+
+
+class _AsyncGeminiModels:
+    def __init__(self, response):
+        self.response = response
+        self.calls = []
+
+    async def generate_content(self, **kwargs):
+        self.calls.append(deepcopy(kwargs))
+        return self.response
+
+
+def _life_response_for_wire(wire_format):
+    if wire_format in {"openai_chat", "mistral"}:
+        return {
+            "choices": [
+                {
+                    "message": {"content": _LIFE_RESULT},
+                    "finish_reason": "stop",
+                }
+            ]
+        }
+    if wire_format == "openai_responses":
+        return {
+            "status": "completed",
+            "output_text": _LIFE_RESULT,
+        }
+    if wire_format == "anthropic":
+        return {
+            "content": [{"type": "text", "text": _LIFE_RESULT}],
+            "stop_reason": "end_turn",
+        }
+    if wire_format == "google_cloud":
+        return {
+            "candidates": [
+                {
+                    "content": {"parts": [{"text": _LIFE_RESULT}]},
+                    "finishReason": "STOP",
+                }
+            ]
+        }
+    if wire_format == "cohere":
+        return {"text": _LIFE_RESULT, "finish_reason": "COMPLETE"}
+    if wire_format == "ollama":
+        return {
+            "message": {"content": _LIFE_RESULT},
+            "done": True,
+            "done_reason": "stop",
+        }
+    raise AssertionError(f"지원하지 않는 합성 wire입니다: {wire_format}")
+
+
+def _assert_life_payload_uses_selected_wire(payload, wire_format):
+    if wire_format in {"openai_chat", "mistral", "ollama"}:
+        assert payload["messages"][0] == {
+            "role": "system",
+            "content": "SYNTHETIC-RUNTIME-LIFE-SYSTEM",
+        }
+        assert payload["messages"][-1] == {
+            "role": "user",
+            "content": _LIFE_PROMPT,
+        }
+        if wire_format == "mistral":
+            assert payload["response_format"]["type"] == "json_schema"
+        elif wire_format == "ollama":
+            assert payload["format"]["type"] == "object"
+    elif wire_format == "openai_responses":
+        assert payload["instructions"] == "SYNTHETIC-RUNTIME-LIFE-SYSTEM"
+        assert payload["input"] == [
+            {
+                "role": "user",
+                "content": [{"type": "input_text", "text": _LIFE_PROMPT}],
+            }
+        ]
+    elif wire_format == "anthropic":
+        assert payload["system"] == "SYNTHETIC-RUNTIME-LIFE-SYSTEM"
+        assert payload["messages"] == [
+            {
+                "role": "user",
+                "content": [{"type": "text", "text": _LIFE_PROMPT}],
+            }
+        ]
+    elif wire_format == "google_cloud":
+        assert payload["systemInstruction"] == {
+            "parts": [{"text": "SYNTHETIC-RUNTIME-LIFE-SYSTEM"}]
+        }
+        assert payload["contents"] == [
+            {"role": "user", "parts": [{"text": _LIFE_PROMPT}]}
+        ]
+    elif wire_format == "cohere":
+        assert payload["preamble"] == "SYNTHETIC-RUNTIME-LIFE-SYSTEM"
+        assert payload["message"] == _LIFE_PROMPT
+        assert payload["chat_history"] == []
+    else:
+        raise AssertionError(f"지원하지 않는 합성 wire입니다: {wire_format}")
+
+
+@pytest.mark.parametrize(
+    ("provider", "custom_format", "expected_wire", "endpoint"),
+    _RUNTIME_PROVIDER_CASES,
+    ids=(
+        "gemini",
+        "openai",
+        "openrouter",
+        "deepseek",
+        "anthropic",
+        "ollama",
+        "custom-default",
+        "custom-openai-chat",
+        "custom-openai-responses",
+        "custom-anthropic",
+        "custom-mistral",
+        "custom-google",
+        "custom-cohere",
+        "custom-ollama",
+    ),
+)
+def test_every_runtime_client_executes_life_record_on_selected_wire_without_history(
+    monkeypatch,
+    provider,
+    custom_format,
+    expected_wire,
+    endpoint,
+):
+    monkeypatch.setattr(
+        "src.ai.http_llm_common.build_life_record_system_instruction",
+        lambda _settings: "SYNTHETIC-RUNTIME-LIFE-SYSTEM",
+    )
+    settings = {}
+    if provider == "custom_api":
+        settings = {
+            "custom_api_format": custom_format or "openai_compatible",
+            "custom_api_url": endpoint,
+            "custom_api_request_model": "synthetic-model",
+        }
+
+    gemini_models = None
+    if provider == "gemini":
+        sdk = FakeSdkClient(chat_responses=[], repair_responses=[])
+        gemini_models = _AsyncGeminiModels(FakeResponse(_LIFE_RESULT))
+        sdk.aio = SimpleNamespace(models=gemini_models)
+        monkeypatch.setattr(
+            "src.ai.llm_client.genai.Client",
+            lambda **_kwargs: sdk,
+        )
+        monkeypatch.setattr(
+            "src.ai.llm_client.build_life_record_system_instruction",
+            lambda _settings: "SYNTHETIC-RUNTIME-LIFE-SYSTEM",
+        )
+
+    captured = []
+
+    def fake_post(url, *, headers=None, json=None, timeout=None):
+        captured.append(
+            {
+                "url": url,
+                "headers": deepcopy(headers),
+                "json": deepcopy(json),
+                "timeout": timeout,
+            }
+        )
+        return DummyHTTPResponse(_life_response_for_wire(expected_wire))
+
+    monkeypatch.setattr(requests, "post", fake_post)
+    client = create_llm_client(
+        LLMProviderConfig(
+            provider=provider,
+            api_key="synthetic-key",
+            model_name="synthetic-model",
+        ),
+        settings=settings,
+    )
+
+    if provider == "gemini":
+        client.chat = client._create_chat_session(
+            history=[{"role": "user", "parts": [{"text": _HISTORY_SENTINEL}]}]
+        )
+        original_history = deepcopy(client.chat.get_history(curated=True))
+    else:
+        client._history = [{"role": "user", "content": _HISTORY_SENTINEL}]
+        original_history = deepcopy(client._history)
+
+    result = asyncio.run(client.generate_life_record_once(_LIFE_PROMPT))
+
+    assert isinstance(result, OneShotGenerationResult)
+    assert result.text == _LIFE_RESULT
+    if provider == "gemini":
+        assert gemini_models is not None
+        assert len(gemini_models.calls) == 1
+        assert gemini_models.calls[0]["contents"] == _LIFE_PROMPT
+        assert _HISTORY_SENTINEL not in json.dumps(
+            gemini_models.calls[0],
+            ensure_ascii=False,
+        )
+        assert client.chat.get_history(curated=True) == original_history
+        return
+
+    assert client.wire_format == expected_wire
+    assert len(captured) == 1
+    payload = captured[0]["json"]
+    _assert_life_payload_uses_selected_wire(payload, expected_wire)
+    assert _HISTORY_SENTINEL not in json.dumps(payload, ensure_ascii=False)
+    assert client._history == original_history
+    if custom_format == "ollama":
+        assert client.provider_name == "custom_api"
+        assert client.wire_format == "ollama"
+        assert payload["format"]["type"] == "object"
 
 
 @pytest.mark.parametrize(
