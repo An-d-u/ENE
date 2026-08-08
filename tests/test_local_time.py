@@ -59,6 +59,34 @@ def test_resolver_fails_closed_when_tzlocal_returns_invalid_name(monkeypatch):
     assert resolution.is_read_only is True
 
 
+def test_resolver_fails_closed_on_operating_system_timezone_lookup_error(monkeypatch):
+    from src.core import local_time
+
+    def raise_lookup_error():
+        raise OSError("합성 운영체제 시간대 조회 실패")
+
+    monkeypatch.setattr(local_time.tzlocal, "get_localzone_name", raise_lookup_error)
+
+    resolution = local_time.resolve_local_time_context()
+
+    assert resolution.context is None
+    assert resolution.reason == "timezone_unavailable"
+    assert resolution.view_timezone.key == "UTC"
+    assert resolution.is_read_only is True
+
+
+def test_resolver_propagates_unexpected_tzlocal_runtime_error(monkeypatch):
+    from src.core import local_time
+
+    def raise_unexpected_error():
+        raise RuntimeError("합성 resolver 결함")
+
+    monkeypatch.setattr(local_time.tzlocal, "get_localzone_name", raise_unexpected_error)
+
+    with pytest.raises(RuntimeError, match="합성 resolver 결함"):
+        local_time.resolve_local_time_context()
+
+
 @pytest.mark.parametrize("timezone_name", ["Invalid/Zone", ""])
 def test_invalid_timezone_is_fail_closed_with_read_only_utc_view(timezone_name):
     from src.core.local_time import resolve_local_time_context
@@ -111,7 +139,7 @@ def test_clock_provider_rejects_naive_datetime():
         context.now()
 
 
-def test_canonicalize_endpoint_preserves_integer_second_instant_in_context_zone():
+def test_canonicalize_endpoint_floors_subsecond_to_matching_utc_integer_second():
     from src.core.local_time import LocalTimeContext
 
     context = LocalTimeContext(
@@ -122,10 +150,11 @@ def test_canonicalize_endpoint_preserves_integer_second_instant_in_context_zone(
     value = datetime(2099, 6, 7, 1, 2, 3, 987654, tzinfo=timezone.utc)
 
     canonical = context.canonicalize_endpoint(value)
+    floored_utc_instant = value.astimezone(timezone.utc).replace(microsecond=0)
 
     assert canonical == datetime(2099, 6, 7, 10, 2, 3, tzinfo=ZoneInfo("Asia/Seoul"))
     assert canonical.microsecond == 0
-    assert canonical.timestamp() == value.replace(microsecond=0).timestamp()
+    assert canonical.astimezone(timezone.utc) == floored_utc_instant
 
 
 def test_canonicalize_endpoint_rejects_naive_datetime():
