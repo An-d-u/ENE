@@ -174,7 +174,7 @@ class LifeRecordBridgeState:
     phase: LifeRecordPhase = "idle"
     operation_id: int = 0
     pending_request: Any = None
-    pending_world_markdown: str = ""
+    pending_world_markdown: str = field(default="", repr=False)
     worker: Any = None
     worker_result: Any = None
     worker_error: Any = None
