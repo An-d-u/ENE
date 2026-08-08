@@ -187,7 +187,9 @@ class LifeRecordWorker(QThread):
                 return None
             try:
                 response = await self.llm_client.generate_life_record_once(prompt)
-            except Exception:
+            except BaseException:
+                if self.isInterruptionRequested():
+                    return None
                 accumulator.record(None)
                 return self._result(
                     accumulator=accumulator,
@@ -272,10 +274,14 @@ class LifeRecordWorker(QThread):
                 f"error_code={result.error_code or 'none'}"
             )
             if result.output is not None and result.error_code is None:
+                if self.isInterruptionRequested():
+                    return
                 self.result_ready.emit(result.operation_id, result)
             else:
+                if self.isInterruptionRequested():
+                    return
                 self.error_occurred.emit(result.operation_id, result)
-        except Exception:
+        except BaseException:
             if not self.isInterruptionRequested():
                 result = LifeRecordWorkerResult(
                     operation_id=self.request.operation_id,
@@ -290,6 +296,8 @@ class LifeRecordWorker(QThread):
                     "attempt_count=0 entry_count=0 input_tokens=None "
                     "output_tokens=None total_tokens=None error_code=generation_failed"
                 )
+                if self.isInterruptionRequested():
+                    return
                 self.error_occurred.emit(result.operation_id, result)
         finally:
             if loop is not None:
