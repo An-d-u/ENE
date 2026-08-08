@@ -37,6 +37,7 @@ from .response_envelope import (
 from .response_pipeline import ResponseAttempt, execute_final_response
 from .response_protocol import (
     InvalidFinalResponseError,
+    RESPONSE_ENVELOPE_SCHEMA_ID,
     RESPONSE_ENVELOPE_SCHEMA_VERSION,
     LLMRequestKind,
     ProviderResponse,
@@ -548,6 +549,8 @@ def _endpoint_fingerprint(endpoint: str) -> str:
 def build_capability_key(
     profile: ProviderProfile,
     *,
+    request_kind: LLMRequestKind = LLMRequestKind.FINAL_REPLY,
+    schema_id: str = RESPONSE_ENVELOPE_SCHEMA_ID,
     schema_version: str = RESPONSE_ENVELOPE_SCHEMA_VERSION,
 ) -> ResponseCapabilityKey:
     return ResponseCapabilityKey(
@@ -555,6 +558,8 @@ def build_capability_key(
         wire_format=_normalize_profile_value(profile.wire_format),
         endpoint_fingerprint=_endpoint_fingerprint(profile.endpoint),
         model=str(profile.model or "").strip(),
+        request_kind=request_kind,
+        schema_id=str(schema_id),
         schema_version=str(schema_version),
     )
 

@@ -1,10 +1,13 @@
 """공급자 중립 구조화 응답의 공통 프로토콜 타입."""
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum
+from types import MappingProxyType
 
 
 RESPONSE_ENVELOPE_SCHEMA_VERSION = "1"
+RESPONSE_ENVELOPE_SCHEMA_ID = "response_envelope"
 LIFE_RECORD_SCHEMA_ID = "life_record_output"
 LIFE_RECORD_SCHEMA_VERSION = "1"
 
@@ -18,7 +21,7 @@ def _strict_object(properties: dict[str, dict]) -> dict:
     }
 
 
-LIFE_RECORD_OUTPUT_SCHEMA = _strict_object(
+_LIFE_RECORD_OUTPUT_SCHEMA_TEMPLATE = _strict_object(
     {
         "entries": {
             "type": "array",
@@ -41,6 +44,24 @@ LIFE_RECORD_OUTPUT_SCHEMA = _strict_object(
         ),
     }
 )
+
+
+def _freeze_schema(value):
+    if isinstance(value, dict):
+        return MappingProxyType(
+            {key: _freeze_schema(item) for key, item in value.items()}
+        )
+    if isinstance(value, list):
+        return tuple(_freeze_schema(item) for item in value)
+    return value
+
+
+LIFE_RECORD_OUTPUT_SCHEMA = _freeze_schema(_LIFE_RECORD_OUTPUT_SCHEMA_TEMPLATE)
+
+
+def get_life_record_output_schema() -> dict:
+    """transport별 변경이 전역 스키마를 오염시키지 않도록 새 복사본을 반환한다."""
+    return deepcopy(_LIFE_RECORD_OUTPUT_SCHEMA_TEMPLATE)
 
 
 class LLMRequestKind(str, Enum):
@@ -131,6 +152,14 @@ class OneShotTokenUsage:
     input_tokens: int | None
     output_tokens: int | None
     total_tokens: int | None
+
+    def __post_init__(self) -> None:
+        values = (self.input_tokens, self.output_tokens, self.total_tokens)
+        if any(
+            value is not None and not is_valid_token_count(value)
+            for value in values
+        ):
+            raise ValueError("invalid_token_usage")
 
 
 @dataclass(frozen=True)

@@ -11,8 +11,13 @@ from src.ai.http_llm_common import (
     resolve_response_mode,
 )
 from src.ai.response_protocol import (
+    LIFE_RECORD_SCHEMA_ID,
+    LIFE_RECORD_SCHEMA_VERSION,
+    LLMRequestKind,
     ProviderProfile,
     ProviderRefusalError,
+    RESPONSE_ENVELOPE_SCHEMA_ID,
+    RESPONSE_ENVELOPE_SCHEMA_VERSION,
     ResponseMode,
 )
 
@@ -386,6 +391,37 @@ def test_capability_key_uses_process_local_fingerprint_without_raw_endpoint():
     assert endpoint not in repr(key)
     assert endpoint not in repr(current)
     assert endpoint not in repr(registry)
+
+
+def test_capability_key_defaults_to_final_reply_and_life_override_is_isolated():
+    current = profile(
+        "openai",
+        "openai_responses",
+        endpoint="https://api.openai.com/v1/responses",
+    )
+
+    final_key = build_capability_key(current)
+    life_key = build_capability_key(
+        current,
+        request_kind=LLMRequestKind.LIFE_RECORD,
+        schema_id=LIFE_RECORD_SCHEMA_ID,
+        schema_version=LIFE_RECORD_SCHEMA_VERSION,
+    )
+    registry = ResponseCapabilityRegistry()
+    registry.mark_legacy(final_key)
+
+    assert final_key.request_kind is LLMRequestKind.FINAL_REPLY
+    assert final_key.schema_id == RESPONSE_ENVELOPE_SCHEMA_ID
+    assert final_key.schema_version == RESPONSE_ENVELOPE_SCHEMA_VERSION
+    assert life_key.request_kind is LLMRequestKind.LIFE_RECORD
+    assert life_key.schema_id == LIFE_RECORD_SCHEMA_ID
+    assert life_key.schema_version == LIFE_RECORD_SCHEMA_VERSION
+    assert life_key != final_key
+    assert registry.resolve(current) is ResponseMode.LEGACY_TAGS
+    assert (
+        registry.resolve(current, capability_key=life_key)
+        is ResponseMode.JSON_SCHEMA
+    )
 
 
 def test_endpoint_fingerprint_changes_when_process_secret_changes(monkeypatch):
