@@ -57,6 +57,21 @@ def _openai_responses():
     )
 
 
+def _openai_responses_with_policy(model_name):
+    return OpenAIResponseAPIClient(
+        api_key="synthetic-key",
+        model_name=model_name,
+        endpoint="https://api.openai.com/v1/responses",
+        provider_name="openai",
+        generation_params={
+            "temperature": 2.0,
+            "top_p": 0.4,
+            "max_tokens": 1234,
+            "reasoning_effort": " HIGH ",
+        },
+    )
+
+
 def _anthropic():
     return AnthropicClient(
         api_key="synthetic-key",
@@ -617,13 +632,17 @@ def test_anthropic_wire_schema_removes_only_max_items_from_a_fresh_copy(
 
 
 @pytest.mark.parametrize(
-    ("temperature", "expected"),
-    [(2.0, 1.0), (0.35, 0.35)],
+    "model_name",
+    (
+        "claude-sonnet-4-5-synthetic",
+        "claude-sonnet-4-6-synthetic",
+        "claude-sonnet-4-7-synthetic",
+        "claude-sonnet-5-synthetic",
+    ),
 )
-def test_anthropic_life_record_temperature_is_clamped_to_provider_range(
+def test_anthropic_life_record_omits_sampling_parameters_for_future_models(
     monkeypatch,
-    temperature,
-    expected,
+    model_name,
 ):
     captured = {}
     monkeypatch.setattr(
@@ -639,11 +658,15 @@ def test_anthropic_life_record_temperature_is_clamped_to_provider_range(
         ),
     )
     client = _anthropic()
-    client.generation_params["temperature"] = temperature
+    client.model_name = model_name
 
     asyncio.run(client.generate_life_record_once("SYNTHETIC-PROMPT"))
 
-    assert captured["payload"]["temperature"] == expected
+    payload = captured["payload"]
+    assert "temperature" not in payload
+    assert "top_p" not in payload
+    assert payload["max_tokens"] == 2048
+    assert payload["output_config"]["format"]["type"] == "json_schema"
 
 
 @pytest.mark.parametrize(
@@ -654,6 +677,7 @@ def test_anthropic_life_record_temperature_is_clamped_to_provider_range(
             _openai_chat_with_policy(
                 provider_name="openrouter",
                 endpoint="https://openrouter.ai/api/v1/chat/completions",
+                model_name="o3-mini",
             ),
             True,
         ),
@@ -694,6 +718,71 @@ def test_openai_chat_life_record_applies_model_parameter_policy(
         assert payload["reasoning_effort"] == "xhigh"
         assert payload["max_completion_tokens"] == 1234
         assert "max_tokens" not in payload
+
+
+@pytest.mark.parametrize("model_name", ("o1-mini", "o3-2025-01-31", "o4"))
+def test_openai_chat_life_record_applies_o_series_reasoning_policy(
+    monkeypatch,
+    model_name,
+):
+    captured = {}
+    monkeypatch.setattr(
+        "src.ai.http_llm_common.build_life_record_system_instruction",
+        lambda _settings: SYSTEM_INSTRUCTION,
+    )
+    monkeypatch.setattr(
+        requests,
+        "post",
+        lambda *args, **kwargs: (
+            captured.update(payload=kwargs["json"])
+            or _Response(_chat_body())
+        ),
+    )
+
+    asyncio.run(
+        _openai_chat_with_policy(model_name=model_name).generate_life_record_once(
+            "SYNTHETIC-PROMPT"
+        )
+    )
+
+    payload = captured["payload"]
+    assert "temperature" not in payload
+    assert "top_p" not in payload
+    assert "max_tokens" not in payload
+    assert payload["reasoning_effort"] == "xhigh"
+    assert payload["max_completion_tokens"] == 1234
+
+
+@pytest.mark.parametrize("model_name", ("o1-mini", "o3-2025-01-31", "o4"))
+def test_openai_responses_life_record_applies_o_series_reasoning_policy(
+    monkeypatch,
+    model_name,
+):
+    captured = {}
+    monkeypatch.setattr(
+        "src.ai.http_llm_common.build_life_record_system_instruction",
+        lambda _settings: SYSTEM_INSTRUCTION,
+    )
+    monkeypatch.setattr(
+        requests,
+        "post",
+        lambda *args, **kwargs: (
+            captured.update(payload=kwargs["json"])
+            or _Response(_responses_body())
+        ),
+    )
+
+    asyncio.run(
+        _openai_responses_with_policy(model_name).generate_life_record_once(
+            "SYNTHETIC-PROMPT"
+        )
+    )
+
+    payload = captured["payload"]
+    assert "temperature" not in payload
+    assert "top_p" not in payload
+    assert payload["reasoning"] == {"effort": "high"}
+    assert payload["max_output_tokens"] == 1234
 
 
 @pytest.mark.parametrize(
