@@ -13,6 +13,7 @@ import json
 import os
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 
 
@@ -171,7 +172,11 @@ def _get_visible_store_python_path(path_like: str | Path, *, user_root: Path | N
     return None
 
 
-def _run_powershell_command(command: str) -> subprocess.CompletedProcess[str]:
+def _run_powershell_command(
+    command: str,
+    *,
+    input_text: str | None = None,
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["powershell", "-NoProfile", "-Command", command],
         check=True,
@@ -179,7 +184,29 @@ def _run_powershell_command(command: str) -> subprocess.CompletedProcess[str]:
         text=True,
         encoding="utf-8",
         errors="replace",
+        input=input_text,
     )
+
+
+def _powershell_orphan_temp_cleanup_lines() -> list[str]:
+    return [
+        "$fileName = [IO.Path]::GetFileName($path)",
+        "$tempPrefix = \".$fileName.\"",
+        "if (Test-Path -LiteralPath $parent) {",
+        "  Get-ChildItem -LiteralPath $parent -File -ErrorAction SilentlyContinue |",
+        "    Where-Object { $_.Name.StartsWith($tempPrefix) -and $_.Name.EndsWith('.tmp') } |",
+        "    ForEach-Object {",
+        "      $middle = $_.Name.Substring($tempPrefix.Length, $_.Name.Length - $tempPrefix.Length - 4)",
+        "      $match = [Regex]::Match($middle, '^(?<pid>\\d+)\\.[0-9a-fA-F]{32}$')",
+        "      if ($match.Success) {",
+        "        $ownerText = $match.Groups['pid'].Value",
+        "        $ownerAlive = $false",
+        "        try { Get-Process -Id ([int]$ownerText) -ErrorAction Stop | Out-Null; $ownerAlive = $true } catch {}",
+        "        if (-not $ownerAlive) { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }",
+        "      }",
+        "    }",
+        "}",
+    ]
 
 
 def _read_file_bytes_via_powershell(path: Path) -> bytes | None:
@@ -188,15 +215,20 @@ def _read_file_bytes_via_powershell(path: Path) -> bytes | None:
         "\n".join(
             [
                 f"$path = '{file_text}'",
-                "if (-not (Test-Path -LiteralPath $path)) { exit 0 }",
-                "[Console]::Write([Convert]::ToBase64String([IO.File]::ReadAllBytes($path)))",
+                "$parent = Split-Path -Parent $path",
+                *_powershell_orphan_temp_cleanup_lines(),
+                "if (-not (Test-Path -LiteralPath $path)) { [Console]::Write('MISSING'); exit 0 }",
+                "$encoded = [Convert]::ToBase64String([IO.File]::ReadAllBytes($path))",
+                "[Console]::Write('PRESENT:' + $encoded)",
             ]
         )
     )
     payload = str(result.stdout or "").strip()
-    if not payload:
+    if payload == "MISSING":
         return None
-    return base64.b64decode(payload)
+    if not payload.startswith("PRESENT:"):
+        raise OSError("PowerShell returned an invalid file-read response")
+    return base64.b64decode(payload.removeprefix("PRESENT:"), validate=True)
 
 
 def _write_file_bytes_via_powershell(path: Path, payload: bytes) -> None:
@@ -206,13 +238,165 @@ def _write_file_bytes_via_powershell(path: Path, payload: bytes) -> None:
         "\n".join(
             [
                 f"$path = '{file_text}'",
-                f"$payload = '{encoded}'",
                 "$parent = Split-Path -Parent $path",
                 "New-Item -ItemType Directory -Path $parent -Force | Out-Null",
-                "[IO.File]::WriteAllBytes($path, [Convert]::FromBase64String($payload))",
+                *_powershell_orphan_temp_cleanup_lines(),
+                "$temp = Join-Path $parent ('.' + [IO.Path]::GetFileName($path) + '.' + $PID + '.' + [Guid]::NewGuid().ToString('N') + '.tmp')",
+                "$payload = [Console]::In.ReadToEnd()",
+                "if (-not ('EneAtomicFileNativeMethods' -as [type])) {",
+                "Add-Type -TypeDefinition @'",
+                "using System;",
+                "using System.Runtime.InteropServices;",
+                "using Microsoft.Win32.SafeHandles;",
+                "public static class EneAtomicFileNativeMethods {",
+                "  [DllImport(\"kernel32.dll\", SetLastError = true)]",
+                "  [return: MarshalAs(UnmanagedType.Bool)]",
+                "  public static extern bool FlushFileBuffers(SafeFileHandle handle);",
+                "  [DllImport(\"kernel32.dll\", CharSet = CharSet.Unicode, SetLastError = true)]",
+                "  [return: MarshalAs(UnmanagedType.Bool)]",
+                "  public static extern bool MoveFileEx(string source, string destination, int flags);",
+                "}",
+                "'@",
+                "}",
+                "try {",
+                "  $bytes = [Convert]::FromBase64String($payload)",
+                "  $stream = [IO.FileStream]::new($temp, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)",
+                "  try {",
+                "    $stream.Write($bytes, 0, $bytes.Length)",
+                "    $stream.Flush()",
+                "    if (-not [EneAtomicFileNativeMethods]::FlushFileBuffers($stream.SafeFileHandle)) {",
+                "      throw [ComponentModel.Win32Exception]::new([Runtime.InteropServices.Marshal]::GetLastWin32Error())",
+                "    }",
+                "  } finally { $stream.Dispose() }",
+                "  if (-not [EneAtomicFileNativeMethods]::MoveFileEx($temp, $path, 9)) {",
+                "    throw [ComponentModel.Win32Exception]::new([Runtime.InteropServices.Marshal]::GetLastWin32Error())",
+                "  }",
+                "} finally {",
+                "  if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue }",
+                "}",
             ]
-        )
+        ),
+        input_text=encoded,
     )
+
+
+def _is_process_running(process_id: int) -> bool:
+    if process_id <= 0:
+        return False
+    if process_id == os.getpid():
+        return True
+    if os.name != "nt":
+        try:
+            os.kill(process_id, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
+    import ctypes
+
+    process_query_limited_information = 0x1000
+    handle = ctypes.windll.kernel32.OpenProcess(
+        process_query_limited_information,
+        False,
+        process_id,
+    )
+    if handle:
+        ctypes.windll.kernel32.CloseHandle(handle)
+        return True
+    return ctypes.get_last_error() == 5
+
+
+def _cleanup_orphaned_atomic_temp_files(path: Path) -> None:
+    prefix = f".{path.name}."
+    suffix = ".tmp"
+    try:
+        candidates = tuple(path.parent.iterdir())
+    except OSError:
+        return
+
+    for candidate in candidates:
+        name = candidate.name
+        if not candidate.is_file() or not name.startswith(prefix) or not name.endswith(suffix):
+            continue
+        middle = name[len(prefix) : -len(suffix)]
+        parts = middle.split(".", 1)
+        if (
+            len(parts) != 2
+            or not parts[0].isdigit()
+            or len(parts[1]) != 32
+            or any(character not in "0123456789abcdefABCDEF" for character in parts[1])
+        ):
+            continue
+        owner_alive = _is_process_running(int(parts[0]))
+        if owner_alive:
+            continue
+        try:
+            candidate.unlink()
+        except OSError:
+            pass
+
+
+def _write_file_bytes_atomic_python(path: Path, payload: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _cleanup_orphaned_atomic_temp_files(path)
+    temporary_path: Path | None = None
+    try:
+        while True:
+            candidate = path.parent / f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
+            try:
+                file_descriptor = os.open(
+                    candidate,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0),
+                    0o600,
+                )
+            except FileExistsError:
+                continue
+            temporary_path = candidate
+            break
+        try:
+            handle = os.fdopen(file_descriptor, "wb")
+        except Exception:
+            os.close(file_descriptor)
+            raise
+        with handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, path)
+        temporary_path = None
+    finally:
+        if temporary_path is not None:
+            try:
+                temporary_path.unlink()
+            except FileNotFoundError:
+                pass
+
+
+def _write_file_bytes_atomic(
+    path: Path,
+    payload: bytes,
+    *,
+    user_root: Path | None = None,
+) -> None:
+    target = _normalize_path(path)
+    visible_path = _get_visible_store_python_path(target, user_root=user_root)
+    if visible_path is None:
+        _write_file_bytes_atomic_python(target, payload)
+        return
+
+    _write_file_bytes_via_powershell(visible_path, payload)
+    try:
+        _write_file_bytes_atomic_python(target, payload)
+    except Exception:
+        pass
+
+
+def save_json_data_atomic(path: Path, data: object) -> None:
+    """JSON을 UTF-8(BOM 없음) 임시 파일에 쓴 뒤 원자적으로 교체한다."""
+    payload = json.dumps(data, indent=2, ensure_ascii=False).encode("utf-8")
+    _write_file_bytes_atomic(path, payload)
 
 
 def sync_visible_store_python_file_to_runtime(
@@ -266,7 +450,20 @@ def load_json_data(
     user_root: Path | None = None,
 ):
     """Store Python 경로 가상화를 고려해 JSON 파일을 읽는다."""
-    target = sync_visible_store_python_file_to_runtime(path_like, user_root=user_root)
+    target = _normalize_path(path_like)
+    visible_path = _get_visible_store_python_path(target, user_root=user_root)
+    if visible_path is not None:
+        payload = _read_file_bytes_via_powershell(visible_path)
+        if payload is None:
+            raise FileNotFoundError(2, "Authoritative JSON file does not exist", str(visible_path))
+        loaded = json.loads(payload.decode(encoding))
+        try:
+            _write_file_bytes_atomic_python(target, payload)
+        except Exception:
+            pass
+        return loaded
+
+    _cleanup_orphaned_atomic_temp_files(target)
     with open(target, "r", encoding=encoding) as handle:
         return json.load(handle)
 
@@ -294,12 +491,10 @@ def save_json_data(
 ) -> Path:
     """Store Python 경로 가상화를 고려해 JSON 파일을 저장한다."""
     target = _normalize_path(path_like)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    with open(target, "w", encoding=encoding) as handle:
-        json.dump(payload, handle, indent=indent, ensure_ascii=ensure_ascii)
-        if trailing_newline:
-            handle.write("\n")
-    sync_runtime_store_python_file_to_visible(target, user_root=user_root)
+    serialized = json.dumps(payload, indent=indent, ensure_ascii=ensure_ascii)
+    if trailing_newline:
+        serialized += os.linesep
+    _write_file_bytes_atomic(target, serialized.encode(encoding), user_root=user_root)
     return target
 
 
