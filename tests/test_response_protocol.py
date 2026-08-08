@@ -31,7 +31,12 @@ def test_response_protocol_uses_content_free_delivery_metadata_defaults():
 def test_request_kinds_and_response_modes_are_explicit():
     assert RESPONSE_ENVELOPE_SCHEMA_VERSION == "1"
     assert {item.value for item in LLMRequestKind} == {
-        "final_reply", "summary", "decision", "markdown", "plain_text"
+        "final_reply",
+        "summary",
+        "decision",
+        "markdown",
+        "plain_text",
+        "life_record",
     }
     assert {item.value for item in ResponseMode} == {
         "json_schema", "strict_tool", "json_object", "legacy_tags"
