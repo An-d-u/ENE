@@ -1,20 +1,34 @@
 """
 브릿지에서 사용하는 백그라운드 워커 모음.
 """
+import asyncio
 import json
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Literal
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from ..ai.diary_service import DiaryService
+from ..ai.life_record_types import (
+    LifeRecordOutput,
+    LifeRecordValidationError,
+    parse_and_validate_life_record_output,
+)
 from ..ai.note_service import NoteCommand, NoteCommandResult, NotePlan, NoteService
 from ..ai.response_protocol import (
+    OneShotGenerationResult,
+    OneShotTokenUsage,
     RESPONSE_ENVELOPE_SCHEMA_VERSION,
     ResponseDeliveryMetadata,
     ResponseMode,
+    ResponseStatus,
+    TurnTokenUsageAccumulator,
     is_valid_token_count,
 )
 from ..ai.persona_names import resolve_prompt_persona_names
 from ..ai.prompt_language import resolve_prompt_language
+from .local_time import resolve_local_time_context
 
 _LOCAL_VALIDATION_ERROR_MESSAGES = {
     "현재 LLM 공급자는 이미지 입력을 지원하지 않습니다. 이미지 지원 공급자나 모델로 변경해 주세요.",
@@ -26,6 +40,260 @@ _LOCAL_VALIDATION_ERROR_MESSAGES = {
 }
 
 _ALLOWED_RESPONSE_LOG_MODES = frozenset(mode.value for mode in ResponseMode)
+_LIFE_RECORD_LANGUAGES = frozenset({"ko", "en", "ja"})
+_LIFE_RECORD_REPAIR_SUFFIX = """
+
+[생활 기록 출력 재검증]
+이전 출력이 호스트 검증을 통과하지 못했다.
+validation_error_code: {error_code}
+원문을 복사하지 말고 전체 JSON 객체를 처음부터 다시 생성한다.
+"""
+
+
+@dataclass(frozen=True, repr=False)
+class LifeRecordGenerationRequest:
+    """GUI 스레드에서 확정해 worker에 넘기는 불변 생성 요청."""
+
+    operation_id: int
+    prompt: str
+    inactive_started_at: datetime
+    returned_at: datetime
+    timezone: str
+    language: Literal["ko", "en", "ja"]
+
+    def __post_init__(self) -> None:
+        if type(self.operation_id) is not int or self.operation_id < 0:
+            raise ValueError("invalid_operation_id")
+        if type(self.prompt) is not str or not self.prompt:
+            raise ValueError("invalid_prompt")
+        if self.language not in _LIFE_RECORD_LANGUAGES:
+            raise ValueError("invalid_language")
+        resolution = resolve_local_time_context(self.timezone)
+        context = resolution.context
+        if context is None:
+            raise ValueError("invalid_timezone")
+        start = self.inactive_started_at
+        end = self.returned_at
+        if (
+            not isinstance(start, datetime)
+            or not isinstance(end, datetime)
+            or start.tzinfo is None
+            or end.tzinfo is None
+            or start.utcoffset() is None
+            or end.utcoffset() is None
+            or start.microsecond != 0
+            or end.microsecond != 0
+        ):
+            raise ValueError("invalid_interval")
+        try:
+            matches_zone = context.matches_zone_rules(start) and context.matches_zone_rules(end)
+            ordered = start.astimezone(timezone.utc) < end.astimezone(timezone.utc)
+        except (OverflowError, ValueError):
+            raise ValueError("invalid_interval") from None
+        if not matches_zone:
+            raise ValueError("invalid_timezone_offset")
+        if not ordered:
+            raise ValueError("invalid_interval")
+
+    def __repr__(self) -> str:
+        return (
+            "LifeRecordGenerationRequest("
+            f"operation_id={self.operation_id}, "
+            f"inactive_started_at={self.inactive_started_at.isoformat()!r}, "
+            f"returned_at={self.returned_at.isoformat()!r}, "
+            f"timezone={self.timezone!r}, "
+            f"language={self.language!r}, "
+            f"prompt_chars={len(self.prompt)})"
+        )
+
+
+@dataclass(frozen=True, repr=False)
+class LifeRecordWorkerResult:
+    """생활 기록 worker가 bridge에 전달하는 개인정보 비노출 결과."""
+
+    operation_id: int
+    output: LifeRecordOutput | None
+    status: ResponseStatus | None
+    token_usage: OneShotTokenUsage
+    attempt_count: int
+    error_code: str | None = None
+
+    def __repr__(self) -> str:
+        entry_count = len(self.output.entries) if self.output is not None else 0
+        status = self.status.value if self.status is not None else "error"
+        return (
+            "LifeRecordWorkerResult("
+            f"operation_id={self.operation_id}, "
+            f"status={status!r}, "
+            f"attempt_count={self.attempt_count}, "
+            f"entry_count={entry_count}, "
+            f"error_code={self.error_code!r})"
+        )
+
+
+class LifeRecordWorker(QThread):
+    """히스토리 없는 생활 기록 호출과 host 검증 재시도를 소유한다."""
+
+    result_ready = pyqtSignal(int, object)
+    error_occurred = pyqtSignal(int, object)
+
+    def __init__(self, llm_client, request: LifeRecordGenerationRequest):
+        super().__init__()
+        if not isinstance(request, LifeRecordGenerationRequest):
+            raise ValueError("invalid_life_record_request")
+        self.llm_client = llm_client
+        self.request = request
+
+    @staticmethod
+    def _usage_dict(result: OneShotGenerationResult) -> dict[str, int | None]:
+        usage = result.token_usage
+        return {
+            "input_tokens": usage.input_tokens,
+            "output_tokens": usage.output_tokens,
+            "total_tokens": usage.total_tokens,
+        }
+
+    @staticmethod
+    def _usage_snapshot(accumulator: TurnTokenUsageAccumulator) -> OneShotTokenUsage:
+        usage = accumulator.snapshot()
+        return OneShotTokenUsage(
+            input_tokens=usage["input_tokens"],
+            output_tokens=usage["output_tokens"],
+            total_tokens=usage["total_tokens"],
+        )
+
+    def _result(
+        self,
+        *,
+        accumulator: TurnTokenUsageAccumulator,
+        output: LifeRecordOutput | None,
+        status: ResponseStatus | None,
+        error_code: str | None,
+    ) -> LifeRecordWorkerResult:
+        return LifeRecordWorkerResult(
+            operation_id=self.request.operation_id,
+            output=output,
+            status=status,
+            token_usage=self._usage_snapshot(accumulator),
+            attempt_count=accumulator.attempt_count,
+            error_code=error_code,
+        )
+
+    async def _generate(self) -> LifeRecordWorkerResult | None:
+        accumulator = TurnTokenUsageAccumulator()
+        prompt = self.request.prompt
+        for attempt_index in range(2):
+            if self.isInterruptionRequested():
+                return None
+            try:
+                response = await self.llm_client.generate_life_record_once(prompt)
+            except Exception:
+                accumulator.record(None)
+                return self._result(
+                    accumulator=accumulator,
+                    output=None,
+                    status=None,
+                    error_code="generation_failed",
+                )
+            if self.isInterruptionRequested():
+                return None
+            if not isinstance(response, OneShotGenerationResult):
+                accumulator.record(None)
+                return self._result(
+                    accumulator=accumulator,
+                    output=None,
+                    status=None,
+                    error_code="generation_failed",
+                )
+            accumulator.record(self._usage_dict(response))
+            if response.status is not ResponseStatus.COMPLETE:
+                error_code = {
+                    ResponseStatus.REFUSAL: "provider_refusal",
+                    ResponseStatus.INCOMPLETE: "provider_incomplete",
+                    ResponseStatus.EMPTY: "provider_empty",
+                }.get(response.status, "generation_failed")
+                return self._result(
+                    accumulator=accumulator,
+                    output=None,
+                    status=response.status,
+                    error_code=error_code,
+                )
+            try:
+                output = parse_and_validate_life_record_output(
+                    response.text,
+                    inactive_started_at=self.request.inactive_started_at,
+                    returned_at=self.request.returned_at,
+                    timezone_name=self.request.timezone,
+                )
+            except LifeRecordValidationError as failure:
+                if attempt_index == 0:
+                    prompt = self.request.prompt + _LIFE_RECORD_REPAIR_SUFFIX.format(
+                        error_code=failure.code
+                    )
+                    continue
+                return self._result(
+                    accumulator=accumulator,
+                    output=None,
+                    status=response.status,
+                    error_code=failure.code,
+                )
+            return self._result(
+                accumulator=accumulator,
+                output=output,
+                status=response.status,
+                error_code=None,
+            )
+        return self._result(
+            accumulator=accumulator,
+            output=None,
+            status=None,
+            error_code="generation_failed",
+        )
+
+    def run(self) -> None:
+        loop = None
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            result = loop.run_until_complete(self._generate())
+            if result is None or self.isInterruptionRequested():
+                return
+            token_usage = result.token_usage
+            entry_count = len(result.output.entries) if result.output is not None else 0
+            status = result.status.value if result.status is not None else "error"
+            print(
+                "[Life Record Worker] request_finished "
+                f"status={status} "
+                f"attempt_count={result.attempt_count} "
+                f"entry_count={entry_count} "
+                f"input_tokens={token_usage.input_tokens} "
+                f"output_tokens={token_usage.output_tokens} "
+                f"total_tokens={token_usage.total_tokens} "
+                f"error_code={result.error_code or 'none'}"
+            )
+            if result.output is not None and result.error_code is None:
+                self.result_ready.emit(result.operation_id, result)
+            else:
+                self.error_occurred.emit(result.operation_id, result)
+        except Exception:
+            if not self.isInterruptionRequested():
+                result = LifeRecordWorkerResult(
+                    operation_id=self.request.operation_id,
+                    output=None,
+                    status=None,
+                    token_usage=OneShotTokenUsage(None, None, None),
+                    attempt_count=0,
+                    error_code="generation_failed",
+                )
+                print(
+                    "[Life Record Worker] request_finished status=error "
+                    "attempt_count=0 entry_count=0 input_tokens=None "
+                    "output_tokens=None total_tokens=None error_code=generation_failed"
+                )
+                self.error_occurred.emit(result.operation_id, result)
+        finally:
+            if loop is not None:
+                loop.close()
 
 
 def _safe_text_length(value: object) -> int:
