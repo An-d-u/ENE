@@ -1,4 +1,5 @@
 import asyncio
+import os
 from types import SimpleNamespace
 
 from PyQt6.QtCore import QCoreApplication
@@ -12,6 +13,7 @@ from src.core.bridge_workers import (
     AIWorker,
     ObsidianCheckedFilesWorker,
     ObsidianTreeWorker,
+    TTSWorker,
 )
 
 
@@ -38,6 +40,16 @@ class _PrivateBaseFailure(BaseException):
     def __repr__(self):
         type(self).repr_calls += 1
         return "SYNTHETIC-PRIVATE-WORKER-REPR"
+
+
+class _ExplosiveArgsFailure(BaseException):
+    args_reads = 0
+
+    @property
+    def args(self):
+        type(self).args_reads += 1
+        print("SYNTHETIC-PRIVATE-ARGS-DETAIL")
+        raise RuntimeError("SYNTHETIC-PRIVATE-ARGS-ESCAPE")
 
 
 def test_ai_worker_contains_provider_base_exception_with_fixed_safe_error(capsys):
@@ -79,6 +91,31 @@ def test_ai_worker_provider_cancelled_error_is_silent_after_interruption():
     worker.run()
 
     assert errors == []
+
+
+def test_ai_worker_never_reads_provider_exception_args_or_chain(capsys):
+    _ensure_qt_app()
+    _ExplosiveArgsFailure.args_reads = 0
+    failure = _ExplosiveArgsFailure()
+    failure.__cause__ = RuntimeError("SYNTHETIC-PRIVATE-CAUSE")
+    failure.__context__ = RuntimeError("SYNTHETIC-PRIVATE-CONTEXT")
+
+    class Client:
+        async def send_message_with_memory(self, *_args, **_kwargs):
+            raise failure
+
+    errors = []
+    worker = AIWorker(Client(), "Synthetic request.")
+    worker.error_occurred.connect(errors.append)
+
+    worker.run()
+
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+    assert errors == ["provider_error"]
+    assert _ExplosiveArgsFailure.args_reads == 0
+    assert "SYNTHETIC-PRIVATE" not in combined
+    assert "Traceback" not in combined
 
 
 def test_summary_review_worker_cancellation_before_start_skips_builder():
@@ -322,3 +359,231 @@ def test_obsidian_worker_creators_and_retry_timer_ignore_shutdown(monkeypatch):
     assert bridge._cached_checked_files_context == "unchanged"
     assert bridge._cached_checked_files_signature == ("notes/example.md",)
     assert bridge._obs_tree_retry_remaining == 2
+
+
+def test_tts_worker_cancellation_before_start_has_no_provider_or_temp_side_effect(monkeypatch):
+    _ensure_qt_app()
+
+    class Client:
+        async def generate_speech(self, _text):
+            raise AssertionError("취소된 TTS 워커가 공급자를 호출하면 안 됩니다.")
+
+    monkeypatch.setattr(
+        "tempfile.mkstemp",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("취소된 TTS 워커가 임시 파일을 만들면 안 됩니다.")
+        ),
+    )
+    ready = []
+    errors = []
+    worker = TTSWorker(Client(), "Synthetic speech.")
+    worker.tts_ready.connect(lambda *args: ready.append(args))
+    worker.error_occurred.connect(errors.append)
+    worker.requestInterruption()
+
+    worker.run()
+
+    assert ready == []
+    assert errors == []
+
+
+def test_tts_worker_cancellation_after_provider_skips_temp_and_signals(monkeypatch):
+    _ensure_qt_app()
+    worker = None
+
+    class Client:
+        async def generate_speech(self, _text):
+            worker.requestInterruption()
+            return b"synthetic-wave"
+
+    monkeypatch.setattr(
+        "tempfile.mkstemp",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("공급자 이후 취소된 TTS가 임시 파일을 만들면 안 됩니다.")
+        ),
+    )
+    ready = []
+    errors = []
+    worker = TTSWorker(Client(), "Synthetic speech.")
+    worker.tts_ready.connect(lambda *args: ready.append(args))
+    worker.error_occurred.connect(errors.append)
+
+    worker.run()
+
+    assert ready == []
+    assert errors == []
+
+
+def test_tts_worker_cancellation_after_temp_creation_cleans_file_before_analysis(
+    monkeypatch,
+    tmp_path,
+):
+    _ensure_qt_app()
+    worker = None
+    temp_path = tmp_path / "synthetic-audio.wav"
+
+    class Client:
+        async def generate_speech(self, _text):
+            return b"synthetic-wave"
+
+    def create_then_cancel(**_kwargs):
+        descriptor = os.open(temp_path, os.O_CREAT | os.O_RDWR)
+        worker.requestInterruption()
+        return descriptor, str(temp_path)
+
+    class ForbiddenAnalyzer:
+        def __init__(self, **_kwargs):
+            raise AssertionError("취소된 TTS가 오디오 분석을 시작하면 안 됩니다.")
+
+    monkeypatch.setattr("tempfile.mkstemp", create_then_cancel)
+    monkeypatch.setattr("src.ai.audio_analyzer.AudioAnalyzer", ForbiddenAnalyzer)
+    ready = []
+    errors = []
+    worker = TTSWorker(Client(), "Synthetic speech.")
+    worker.tts_ready.connect(lambda *args: ready.append(args))
+    worker.error_occurred.connect(errors.append)
+
+    worker.run()
+
+    assert ready == []
+    assert errors == []
+    assert not temp_path.exists()
+
+
+def test_tts_worker_cancellation_during_analysis_cleans_temp_and_skips_ready(
+    monkeypatch,
+    tmp_path,
+):
+    _ensure_qt_app()
+    worker = None
+    temp_path = tmp_path / "synthetic-analysis.wav"
+
+    class Client:
+        async def generate_speech(self, _text):
+            return b"synthetic-wave"
+
+    def create_temp(**_kwargs):
+        descriptor = os.open(temp_path, os.O_CREAT | os.O_RDWR)
+        return descriptor, str(temp_path)
+
+    class CancellingAnalyzer:
+        def __init__(self, **_kwargs):
+            pass
+
+        def analyze(self, _path):
+            worker.requestInterruption()
+            return [0.2]
+
+    monkeypatch.setattr("tempfile.mkstemp", create_temp)
+    monkeypatch.setattr("src.ai.audio_analyzer.AudioAnalyzer", CancellingAnalyzer)
+    ready = []
+    errors = []
+    worker = TTSWorker(Client(), "Synthetic speech.")
+    worker.tts_ready.connect(lambda *args: ready.append(args))
+    worker.error_occurred.connect(errors.append)
+
+    worker.run()
+
+    assert ready == []
+    assert errors == []
+    assert not temp_path.exists()
+
+
+def test_tts_worker_contains_provider_base_exception_without_reading_attrs(
+    capsys,
+    monkeypatch,
+):
+    _ensure_qt_app()
+    _ExplosiveArgsFailure.args_reads = 0
+    failure = _ExplosiveArgsFailure()
+    failure.__cause__ = RuntimeError("SYNTHETIC-PRIVATE-TTS-CAUSE")
+    failure.__context__ = RuntimeError("SYNTHETIC-PRIVATE-TTS-CONTEXT")
+
+    class Client:
+        async def generate_speech(self, _text):
+            raise failure
+
+    monkeypatch.setattr(
+        "tempfile.mkstemp",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("실패한 TTS가 임시 파일을 만들면 안 됩니다.")
+        ),
+    )
+    errors = []
+    worker = TTSWorker(Client(), "Synthetic speech.")
+    worker.error_occurred.connect(errors.append)
+
+    worker.run()
+
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+    assert errors == ["tts_error"]
+    assert _ExplosiveArgsFailure.args_reads == 0
+    assert "SYNTHETIC-PRIVATE" not in combined
+    assert "Traceback" not in combined
+
+
+def test_tts_worker_contains_unrequested_provider_cancelled_error(capsys):
+    _ensure_qt_app()
+
+    class Client:
+        async def generate_speech(self, _text):
+            raise asyncio.CancelledError("SYNTHETIC-PRIVATE-TTS-CANCEL")
+
+    errors = []
+    worker = TTSWorker(Client(), "Synthetic speech.")
+    worker.error_occurred.connect(errors.append)
+
+    worker.run()
+
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+    assert errors == ["tts_error"]
+    assert "SYNTHETIC-PRIVATE" not in combined
+    assert "Traceback" not in combined
+    assert "exception_class=CancelledError" in combined
+
+
+def test_tts_worker_provider_cancelled_error_is_silent_after_interruption():
+    _ensure_qt_app()
+    worker = None
+
+    class Client:
+        async def generate_speech(self, _text):
+            worker.requestInterruption()
+            raise asyncio.CancelledError("SYNTHETIC-PRIVATE-TTS-CANCEL")
+
+    ready = []
+    errors = []
+    worker = TTSWorker(Client(), "Synthetic speech.")
+    worker.tts_ready.connect(lambda *args: ready.append(args))
+    worker.error_occurred.connect(errors.append)
+
+    worker.run()
+
+    assert ready == []
+    assert errors == []
+
+
+def test_tts_worker_interruption_before_error_signal_is_silent(monkeypatch):
+    _ensure_qt_app()
+
+    class Client:
+        async def generate_speech(self, _text):
+            raise RuntimeError("SYNTHETIC-PRIVATE-TTS-FAILURE")
+
+    errors = []
+    worker = TTSWorker(Client(), "Synthetic speech.")
+    worker.error_occurred.connect(errors.append)
+    original_print = print
+
+    def interrupting_print(*args, **kwargs):
+        if args and "generation_failed" in str(args[0]):
+            worker.requestInterruption()
+        original_print(*args, **kwargs)
+
+    monkeypatch.setattr("builtins.print", interrupting_print)
+
+    worker.run()
+
+    assert errors == []
