@@ -20,9 +20,15 @@ FIXED_NOW = datetime(2099, 4, 12, 9, 30, tzinfo=timezone.utc)
 class _Signal:
     def __init__(self) -> None:
         self.callback = None
+        self.callbacks = []
 
     def connect(self, callback) -> None:
         self.callback = callback
+        self.callbacks.append(callback)
+
+    def emit(self) -> None:
+        for callback in list(self.callbacks):
+            callback()
 
 
 class _Timer:
@@ -198,3 +204,204 @@ def test_timezone_failure_uses_utc_read_view_without_starting_tracker_or_timer(t
     assert bridge.life_record_state.read_only_reason == "timezone_unavailable"
     assert bridge.life_record_state.life_records_writable is False
     assert app.life_heartbeat_timer is None
+
+
+class _ShutdownWorker:
+    def __init__(self, order: list[str], name: str, *, running: bool = True) -> None:
+        self.order = order
+        self.name = name
+        self.running = running
+        self.finished = _Signal()
+        self.stop_requests = 0
+
+    def isRunning(self) -> bool:
+        return self.running
+
+    def requestInterruption(self) -> None:
+        self.order.append(f"interrupt:{self.name}")
+
+    def request_stop(self) -> None:
+        self.stop_requests += 1
+
+    def finish(self) -> None:
+        self.running = False
+        self.finished.emit()
+
+
+class _ShutdownScheduler:
+    def __init__(self, _parent) -> None:
+        self.pending = []
+
+    def schedule(self, _delay_ms: int, callback) -> None:
+        self.pending.append(callback)
+
+    def run_next(self) -> None:
+        self.pending.pop(0)()
+
+
+class _ShutdownTracker:
+    def __init__(self, order: list[str], *, stop_result: bool = True) -> None:
+        self.order = order
+        self.stop_result = stop_result
+        self.stop_calls = 0
+        self.release_calls = 0
+
+    def stop_session(self) -> bool:
+        self.stop_calls += 1
+        self.order.append("stop_session")
+        return self.stop_result
+
+    def release_lease(self) -> bool:
+        self.release_calls += 1
+        self.order.append("release_lease")
+        return True
+
+
+def _shutdown_app(monkeypatch, *, workers=(), stop_result=True, poll_limit=3):
+    order = []
+    scheduler = _ShutdownScheduler(None)
+    app = ENEApplication.__new__(ENEApplication)
+    QObject.__init__(app)
+    bridge = _Bridge()
+    bridge.worker = workers[0] if len(workers) > 0 else None
+    bridge.tts_worker = workers[1] if len(workers) > 1 else None
+    bridge._summary_review_worker = workers[2] if len(workers) > 2 else None
+    bridge.stop_away_monitor = lambda: order.append("stop_away_monitor")
+    bridge.begin_shutdown = lambda: (
+        order.append("begin_shutdown"),
+        bridge.life_record_state.begin_shutdown(),
+    )[-1]
+    bridge.promise_timer = SimpleNamespace(stop=lambda: order.append("promise_timer"))
+    bridge.proactive_timer = SimpleNamespace(stop=lambda: order.append("proactive_timer"))
+    app.overlay_window = SimpleNamespace(
+        bridge=bridge,
+        shutdown=lambda: order.append("overlay_shutdown"),
+        close=lambda: order.append("overlay_close"),
+    )
+    app.tray_icon = SimpleNamespace(
+        tray_icon=SimpleNamespace(hide=lambda: order.append("tray_hide"))
+    )
+    app.obsidian_panel_window = SimpleNamespace(close=lambda: order.append("obsidian_close"))
+    app.global_ptt = SimpleNamespace(shutdown=lambda: order.append("ptt_shutdown"))
+    app.system_theme_timer = SimpleNamespace(stop=lambda: order.append("theme_timer"))
+    app.life_heartbeat_timer = SimpleNamespace(stop=lambda: order.append("life_timer"))
+    app.life_session_tracker = _ShutdownTracker(order, stop_result=stop_result)
+    app._settings_dialog = None
+    app._quit_in_progress = False
+    app._quit_after_summary_review = False
+    app._shutdown_drain_scheduler_factory = lambda _parent: scheduler
+    app._shutdown_drain_poll_limit = poll_limit
+    app._shutdown_drain_poll_interval_ms = 1
+    monkeypatch.setattr(
+        "src.core.app.QApplication.quit",
+        lambda: order.append("qapplication_quit"),
+    )
+    return app, bridge, scheduler, order
+
+
+def test_shutdown_without_workers_commits_before_teardown_and_releases_lease_last(monkeypatch):
+    app, _bridge, _scheduler, order = _shutdown_app(monkeypatch)
+
+    app._finish_quit_application()
+
+    assert order.index("begin_shutdown") < order.index("life_timer")
+    assert order.index("life_timer") < order.index("stop_session")
+    assert order.index("stop_session") < order.index("overlay_shutdown")
+    assert order.index("overlay_close") < order.index("tray_hide")
+    assert order.index("tray_hide") < order.index("release_lease")
+    assert order.index("release_lease") < order.index("qapplication_quit")
+
+
+def test_shutdown_drains_normal_life_tts_and_summary_workers_without_gui_wait(monkeypatch):
+    order = []
+    workers = tuple(_ShutdownWorker(order, name) for name in ("reply", "tts", "summary"))
+    app, bridge, scheduler, shutdown_order = _shutdown_app(monkeypatch, workers=workers)
+    order.extend(shutdown_order)
+    life_worker = _ShutdownWorker(order, "life")
+    bridge.life_record_state.worker = life_worker
+
+    app._finish_quit_application()
+
+    assert all(f"interrupt:{name}" in order for name in ("reply", "life", "tts", "summary"))
+    assert workers[1].stop_requests == 1
+    assert "stop_session" not in order
+    assert scheduler.pending
+
+    for worker in (*workers, life_worker):
+        worker.finish()
+    while scheduler.pending:
+        scheduler.run_next()
+
+    assert app.life_session_tracker.stop_calls == 1
+    assert app.life_session_tracker.release_calls == 1
+
+
+def test_shutdown_timeout_preserves_running_session_and_still_releases_lease(monkeypatch):
+    worker_order = []
+    worker = _ShutdownWorker(worker_order, "reply")
+    app, _bridge, scheduler, order = _shutdown_app(
+        monkeypatch,
+        workers=(worker,),
+        poll_limit=1,
+    )
+
+    app._finish_quit_application()
+    scheduler.run_next()
+
+    assert app.life_session_tracker.stop_calls == 0
+    assert app.life_session_tracker.release_calls == 1
+    assert "overlay_shutdown" in order
+    assert worker in app._shutdown_worker_refs
+
+
+def test_shutdown_finalizer_is_idempotent_when_tray_and_fallback_both_fire(monkeypatch):
+    app, bridge, _scheduler, order = _shutdown_app(monkeypatch)
+
+    app._finish_quit_application()
+    app._finish_quit_application(_about_to_quit=True)
+
+    assert bridge.life_record_state.phase == "shutting_down"
+    assert order.count("begin_shutdown") == 1
+    assert app.life_session_tracker.stop_calls == 1
+    assert app.life_session_tracker.release_calls == 1
+    assert order.count("qapplication_quit") == 1
+
+
+def test_shutdown_stop_failure_logs_only_safe_code_and_continues(monkeypatch, capsys):
+    app, _bridge, _scheduler, order = _shutdown_app(monkeypatch, stop_result=False)
+
+    app._finish_quit_application()
+
+    captured = capsys.readouterr()
+    assert "life_record_shutdown_failed code=session_stop_failed" in captured.out
+    assert "release_lease" in order
+    assert "qapplication_quit" in order
+
+
+def test_about_to_quit_fallback_connection_is_idempotent(monkeypatch):
+    signal = _Signal()
+    monkeypatch.setattr(
+        "src.core.app.QApplication.instance",
+        lambda: SimpleNamespace(aboutToQuit=signal),
+    )
+    app = ENEApplication.__new__(ENEApplication)
+    QObject.__init__(app)
+    calls = []
+    app._finish_quit_application = lambda **kwargs: calls.append(kwargs)
+
+    app._connect_application_quit_fallback()
+    app._connect_application_quit_fallback()
+    signal.emit()
+
+    assert calls == [{"_about_to_quit": True}]
+
+
+def test_about_to_quit_with_running_worker_uses_forced_path_without_stop_commit(monkeypatch):
+    worker = _ShutdownWorker([], "reply")
+    app, _bridge, _scheduler, order = _shutdown_app(monkeypatch, workers=(worker,))
+
+    app._finish_quit_application(_about_to_quit=True)
+
+    assert app.life_session_tracker.stop_calls == 0
+    assert app.life_session_tracker.release_calls == 1
+    assert "qapplication_quit" not in order

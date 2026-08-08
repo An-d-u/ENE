@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+from PyQt6.QtCore import QObject
 from PyQt6.QtWidgets import QMessageBox
 
 from src.core import app as app_module
@@ -68,6 +69,7 @@ class _DummyTimer:
 
 def _build_quit_app(monkeypatch, bridge, question_reply):
     app = app_module.ENEApplication.__new__(app_module.ENEApplication)
+    QObject.__init__(app)
     app.overlay_window = _DummyWindow(bridge)
     app.obsidian_panel_window = _DummyWindow()
     app.global_ptt = SimpleNamespace(shutdown_calls=0)

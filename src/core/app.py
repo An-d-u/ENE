@@ -79,6 +79,9 @@ class ENEApplication(QObject):
         life_record_manager_factory=None,
         life_timer_factory=None,
         life_data_root=None,
+        shutdown_drain_scheduler_factory=None,
+        shutdown_drain_poll_interval_ms: int = 25,
+        shutdown_drain_timeout_ms: int = 2_000,
     ):
         super().__init__()
         self._life_time_resolver = life_time_resolver or resolve_local_time_context
@@ -86,6 +89,19 @@ class ENEApplication(QObject):
         self._life_record_manager_factory = life_record_manager_factory or LifeRecordManager
         self._life_timer_factory = life_timer_factory or QTimer
         self._life_data_root = Path(life_data_root or get_user_data_dir())
+        self._shutdown_drain_scheduler_factory = (
+            shutdown_drain_scheduler_factory
+            or (lambda _parent: _QtShutdownDrainScheduler())
+        )
+        self._shutdown_drain_poll_interval_ms = max(
+            1,
+            int(shutdown_drain_poll_interval_ms),
+        )
+        self._shutdown_drain_poll_limit = max(
+            1,
+            int(shutdown_drain_timeout_ms)
+            // self._shutdown_drain_poll_interval_ms,
+        )
         
         # 설정 관리자
         self.settings = Settings()
@@ -149,6 +165,8 @@ class ENEApplication(QObject):
         self._quit_after_summary_review = False
         self._quit_in_progress = False
         self._quit_summary_review_connected = False
+        self._shutdown_completed = False
+        self._shutdown_worker_refs = []
         
         # 시그널 연결
         self._connect_signals()
@@ -502,6 +520,19 @@ class ENEApplication(QObject):
         self.tray_icon.toggle_drag_bar_requested.connect(self._toggle_drag_bar)
         self.tray_icon.toggle_mouse_tracking_requested.connect(self._toggle_mouse_tracking)
         self.tray_icon.quit_requested.connect(self._quit_application)
+
+        self._connect_application_quit_fallback()
+
+    def _connect_application_quit_fallback(self) -> None:
+        """Qt 자체 종료도 동일한 멱등 finalizer로 한 번만 연결한다."""
+        if getattr(self, "_application_quit_fallback_connected", False):
+            return
+        qt_app = QApplication.instance()
+        if qt_app is not None:
+            qt_app.aboutToQuit.connect(
+                lambda: self._finish_quit_application(_about_to_quit=True)
+            )
+            self._application_quit_fallback_connected = True
 
     def _init_global_ptt(self):
         """전역 PTT 컨트롤러 초기화"""
@@ -990,27 +1021,239 @@ class ENEApplication(QObject):
 
         self._finish_quit_application()
 
-    def _finish_quit_application(self):
-        """요약 여부가 결정된 뒤 실제 애플리케이션을 종료한다."""
-        if getattr(self, "_quit_in_progress", False):
+    @staticmethod
+    def _shutdown_worker_is_running(worker) -> bool:
+        checker = getattr(worker, "isRunning", None)
+        if not callable(checker):
+            return False
+        try:
+            return checker() is True
+        except Exception:
+            return True
+
+    def _collect_shutdown_workers(self, bridge) -> list:
+        """종료 barrier가 소유해야 할 실행 중 worker를 중복 없이 모은다."""
+        candidates = [
+            getattr(bridge, "worker", None),
+            getattr(bridge, "tts_worker", None),
+            getattr(bridge, "_summary_review_worker", None),
+            getattr(bridge, "obs_tree_worker", None),
+            getattr(bridge, "obs_checked_files_worker", None),
+        ]
+        state = getattr(bridge, "life_record_state", None)
+        candidates.append(getattr(state, "worker", None))
+        workers = []
+        seen = set()
+        for worker in candidates:
+            identity = id(worker)
+            if worker is None or identity in seen:
+                continue
+            seen.add(identity)
+            if self._shutdown_worker_is_running(worker):
+                workers.append(worker)
+        return workers
+
+    def _schedule_shutdown_drain_check(self) -> None:
+        if getattr(self, "_shutdown_completed", False):
             return
+        scheduler = getattr(self, "_shutdown_drain_scheduler", None)
+        if scheduler is None:
+            factory = getattr(
+                self,
+                "_shutdown_drain_scheduler_factory",
+                lambda _parent: _QtShutdownDrainScheduler(),
+            )
+            scheduler = factory(self)
+            self._shutdown_drain_scheduler = scheduler
+        scheduler.schedule(
+            int(getattr(self, "_shutdown_drain_poll_interval_ms", 25)),
+            self._check_shutdown_workers,
+        )
+
+    def _check_shutdown_workers(self) -> None:
+        if getattr(self, "_shutdown_completed", False):
+            return
+        workers = list(getattr(self, "_shutdown_worker_refs", []))
+        if not any(self._shutdown_worker_is_running(worker) for worker in workers):
+            self._complete_shutdown(workers_drained=True)
+            return
+        remaining = int(getattr(self, "_shutdown_drain_polls_remaining", 0)) - 1
+        self._shutdown_drain_polls_remaining = remaining
+        if remaining <= 0:
+            self._complete_shutdown(workers_drained=False)
+            return
+        self._schedule_shutdown_drain_check()
+
+    @staticmethod
+    def _stop_timer_safely(timer) -> None:
+        stop = getattr(timer, "stop", None)
+        if callable(stop):
+            try:
+                stop()
+            except Exception:
+                pass
+
+    def _stop_shutdown_timers(self, bridge) -> None:
+        self._stop_timer_safely(getattr(self, "system_theme_timer", None))
+        self._stop_timer_safely(getattr(self, "life_heartbeat_timer", None))
+        stop_away = getattr(bridge, "stop_away_monitor", None)
+        if callable(stop_away):
+            try:
+                stop_away()
+            except Exception:
+                pass
+        for name in ("promise_timer", "proactive_timer", "obs_tree_retry_timer"):
+            self._stop_timer_safely(getattr(bridge, name, None))
+
+    def _complete_shutdown(self, *, workers_drained: bool) -> None:
+        """drain 결과에 맞춰 세션 commit과 UI teardown을 한 번만 수행한다."""
+        if getattr(self, "_shutdown_completed", False):
+            return
+        self._shutdown_completed = True
+        overlay = getattr(self, "overlay_window", None)
+        bridge = getattr(overlay, "bridge", None)
+        self._stop_shutdown_timers(bridge)
+
+        tracker = getattr(self, "life_session_tracker", None)
+        if workers_drained and tracker is not None:
+            stop_session = getattr(tracker, "stop_session", None)
+            if callable(stop_session):
+                try:
+                    if stop_session() is not True:
+                        print(
+                            "WARNING: life_record_shutdown_failed "
+                            "code=session_stop_failed"
+                        )
+                except Exception:
+                    print(
+                        "WARNING: life_record_shutdown_failed "
+                        "code=session_stop_failed"
+                    )
+
+        dialog = getattr(self, "_settings_dialog", None)
+        if dialog is not None:
+            try:
+                if dialog.isVisible():
+                    dialog.close()
+            except Exception:
+                pass
+        if overlay is not None:
+            for method_name in ("shutdown", "close"):
+                method = getattr(overlay, method_name, None)
+                if callable(method):
+                    try:
+                        method()
+                    except Exception:
+                        pass
+        panel = getattr(self, "obsidian_panel_window", None)
+        close_panel = getattr(panel, "close", None)
+        if callable(close_panel):
+            try:
+                close_panel()
+            except Exception:
+                pass
+        global_ptt = getattr(self, "global_ptt", None)
+        shutdown_ptt = getattr(global_ptt, "shutdown", None)
+        if callable(shutdown_ptt):
+            try:
+                shutdown_ptt()
+            except Exception:
+                pass
+        tray = getattr(getattr(self, "tray_icon", None), "tray_icon", None)
+        hide_tray = getattr(tray, "hide", None)
+        if callable(hide_tray):
+            try:
+                hide_tray()
+            except Exception:
+                pass
+
+        release_lease = getattr(tracker, "release_lease", None)
+        if callable(release_lease):
+            try:
+                release_lease()
+            except Exception:
+                print(
+                    "WARNING: life_record_shutdown_failed "
+                    "code=session_lease_release_failed"
+                )
+        if not getattr(self, "_shutdown_from_about_to_quit", False):
+            QApplication.quit()
+
+    def _finish_quit_application(self, *, _about_to_quit: bool = False):
+        """모든 종료 진입점이 공유하는 비차단 멱등 finalizer다."""
+        if getattr(self, "_shutdown_completed", False):
+            return
+        if getattr(self, "_quit_in_progress", False):
+            if _about_to_quit:
+                workers = list(getattr(self, "_shutdown_worker_refs", []))
+                drained = not any(
+                    self._shutdown_worker_is_running(worker) for worker in workers
+                )
+                self._shutdown_from_about_to_quit = True
+                self._complete_shutdown(workers_drained=drained)
+            return
+
         self._quit_in_progress = True
         self._quit_after_summary_review = False
+        self._shutdown_from_about_to_quit = _about_to_quit is True
 
-        if hasattr(self, "system_theme_timer") and self.system_theme_timer:
-            self.system_theme_timer.stop()
+        overlay = getattr(self, "overlay_window", None)
+        bridge = getattr(overlay, "bridge", None)
+        life_state = getattr(bridge, "life_record_state", None)
+        life_worker = getattr(life_state, "worker", None)
+        begin_shutdown = getattr(bridge, "begin_shutdown", None)
+        if callable(begin_shutdown):
+            try:
+                begin_shutdown()
+            except Exception:
+                pass
+        elif life_state is not None:
+            begin_state_shutdown = getattr(life_state, "begin_shutdown", None)
+            if callable(begin_state_shutdown):
+                try:
+                    begin_state_shutdown()
+                except Exception:
+                    pass
 
-        if hasattr(self, 'overlay_window') and hasattr(self.overlay_window, 'bridge'):
-            bridge = self.overlay_window.bridge
-            bridge.stop_away_monitor()
+        workers = self._collect_shutdown_workers(bridge)
+        self._shutdown_worker_refs = workers
+        for worker in workers:
+            if worker is not life_worker:
+                interrupt = getattr(worker, "requestInterruption", None)
+                if callable(interrupt):
+                    try:
+                        interrupt()
+                    except Exception:
+                        pass
+            request_stop = getattr(worker, "request_stop", None)
+            if callable(request_stop):
+                try:
+                    request_stop()
+                except Exception:
+                    pass
+            finished = getattr(worker, "finished", None)
+            connect = getattr(finished, "connect", None)
+            if callable(connect):
+                try:
+                    connect(self._schedule_shutdown_drain_check)
+                except Exception:
+                    pass
 
-        if hasattr(self, "_settings_dialog") and self._settings_dialog and self._settings_dialog.isVisible():
-            self._settings_dialog.close()
+        if not any(self._shutdown_worker_is_running(worker) for worker in workers):
+            self._complete_shutdown(workers_drained=True)
+            return
+        if _about_to_quit:
+            self._complete_shutdown(workers_drained=False)
+            return
+        self._shutdown_drain_polls_remaining = int(
+            getattr(self, "_shutdown_drain_poll_limit", 80)
+        )
+        self._schedule_shutdown_drain_check()
 
-        self.overlay_window.shutdown()
-        self.overlay_window.close()
-        if hasattr(self, "obsidian_panel_window") and self.obsidian_panel_window:
-            self.obsidian_panel_window.close()
-        if hasattr(self, "global_ptt") and self.global_ptt:
-            self.global_ptt.shutdown()
-        QApplication.quit()
+
+class _QtShutdownDrainScheduler:
+    """GUI 스레드를 막지 않는 기본 종료 drain 스케줄러."""
+
+    @staticmethod
+    def schedule(delay_ms: int, callback) -> None:
+        QTimer.singleShot(delay_ms, callback)

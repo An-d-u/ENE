@@ -394,6 +394,15 @@ class AIWorker(QThread):
         self.use_obsidian_priority = bool(use_obsidian_priority)
         self.progress_callback = progress_callback
         self.response_metadata = ResponseDeliveryMetadata.empty()
+        self._cancellation_requested = False
+
+    def requestInterruption(self) -> None:
+        """시작 직전 요청도 잃지 않도록 Python 측 취소 상태를 함께 보관한다."""
+        self._cancellation_requested = True
+        super().requestInterruption()
+
+    def _is_cancelled(self) -> bool:
+        return self._cancellation_requested or self.isInterruptionRequested()
 
     def _prompt_language(self) -> str:
         return resolve_prompt_language(settings_source=getattr(self.llm_client, "settings", None))
@@ -433,6 +442,8 @@ class AIWorker(QThread):
         loop = None
         """스레드 실행"""
         try:
+            if self._is_cancelled():
+                return
             print(f"[AI Worker] request_started message_chars={_safe_text_length(self.message)}")
 
             # 비동기 메서드이므로 asyncio로 실행
@@ -451,63 +462,63 @@ class AIWorker(QThread):
 
             if self.note_request and self.note_service and self.obsidian_manager:
                 print("[AI Worker] /note 모드")
-                response_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture = self._normalize_response_payload(
-                    loop.run_until_complete(self._run_note_flow())
-                )
+                response_payload = loop.run_until_complete(self._run_note_flow())
             elif self.diary_request and self.diary_service:
                 print("[AI Worker] /diary 모드")
-                response_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture = self._normalize_response_payload(
-                    loop.run_until_complete(self._run_diary_flow())
-                )
+                response_payload = loop.run_until_complete(self._run_diary_flow())
             # 이미지가 있으면 멀티모달로 처리
             elif self.images:
                 self._ensure_image_input_supported()
                 print(f"[AI Worker] 이미지 {len(self.images)}개 포함 - 멀티모달 모드")
-                response_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture = self._normalize_response_payload(
-                    loop.run_until_complete(
-                        self.llm_client.send_message_with_images(
-                            self.message,
-                            self.images,
-                            self.memory_search_text,
-                            self.latest_user_message,
-                            self.recent_memory_context,
-                            self.head_pat_count_before_message,
-                            progress_callback=self.progress_callback,
-                            **(
-                                {"include_life_record_context": True}
-                                if self.include_life_record_context
-                                else {}
-                            ),
-                        )
+                response_payload = loop.run_until_complete(
+                    self.llm_client.send_message_with_images(
+                        self.message,
+                        self.images,
+                        self.memory_search_text,
+                        self.latest_user_message,
+                        self.recent_memory_context,
+                        self.head_pat_count_before_message,
+                        progress_callback=self.progress_callback,
+                        **(
+                            {"include_life_record_context": True}
+                            if self.include_life_record_context
+                            else {}
+                        ),
                     )
                 )
+                if self._is_cancelled():
+                    return
                 self._capture_response_delivery_metadata()
             elif self.use_memory and hasattr(self.llm_client, 'send_message_with_memory'):
-                print(f"[AI Worker] 메모리 활용 모드")
-                response_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture = self._normalize_response_payload(
-                    loop.run_until_complete(
-                        self.llm_client.send_message_with_memory(
-                            self.message,
-                            self.memory_search_text,
-                            self.latest_user_message,
-                            self.recent_memory_context,
-                            self.head_pat_count_before_message,
-                            progress_callback=self.progress_callback,
-                            **(
-                                {"include_life_record_context": True}
-                                if self.include_life_record_context
-                                else {}
-                            ),
-                        )
+                print("[AI Worker] 메모리 활용 모드")
+                response_payload = loop.run_until_complete(
+                    self.llm_client.send_message_with_memory(
+                        self.message,
+                        self.memory_search_text,
+                        self.latest_user_message,
+                        self.recent_memory_context,
+                        self.head_pat_count_before_message,
+                        progress_callback=self.progress_callback,
+                        **(
+                            {"include_life_record_context": True}
+                            if self.include_life_record_context
+                            else {}
+                        ),
                     )
                 )
+                if self._is_cancelled():
+                    return
                 self._capture_response_delivery_metadata()
             else:
-                print(f"[AI Worker] 일반 모드 (메모리 없음)")
-                response_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture = self._normalize_response_payload(
-                    self.llm_client.send_message(self.message)
-                )
+                print("[AI Worker] 일반 모드 (메모리 없음)")
+                response_payload = self.llm_client.send_message(self.message)
                 self._capture_response_delivery_metadata()
+
+            if self._is_cancelled():
+                return
+            response_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture = self._normalize_response_payload(
+                response_payload
+            )
 
             token_usage_payload = self._build_token_usage_payload()
             token_usage = json.loads(token_usage_payload)
@@ -543,6 +554,8 @@ class AIWorker(QThread):
             )
 
             # events도 함께 emit (signal에는 리스트로 전달 가능)
+            if self._is_cancelled():
+                return
             self.response_ready.emit(
                 response_text,
                 emotion,
@@ -557,6 +570,8 @@ class AIWorker(QThread):
                 gesture,
             )
         except Exception as e:
+            if self._is_cancelled():
+                return
             self.response_metadata = ResponseDeliveryMetadata.empty()
             exception_class = type(e).__name__
             error_args = e.args
@@ -571,6 +586,8 @@ class AIWorker(QThread):
             category = "validation_error" if is_local_validation else "provider_error"
             public_error = error_message if is_local_validation else category
             print(f"[AI Worker] request_failed category={category} exception_class={exception_class}")
+            if self._is_cancelled():
+                return
             self.error_occurred.emit(public_error)
         finally:
             if loop is not None:
@@ -620,6 +637,8 @@ class AIWorker(QThread):
             raise RuntimeError("현재 LLM 클라이언트는 /diary를 지원하지 않습니다.")
 
         markdown_text = await self.llm_client.generate_markdown_document(self.message)
+        if self._is_cancelled():
+            return None
         if self.use_obsidian_priority:
             result = self.diary_service.save_markdown_via_priority(self.diary_request, markdown_text)
         else:
@@ -686,8 +705,13 @@ class AIWorker(QThread):
             completion_context += f"\n- {note_label}: {result.obsidian_cli_error}"
 
         if hasattr(self.llm_client, "generate_diary_completion_reply"):
+            completion_payload = await self.llm_client.generate_diary_completion_reply(
+                completion_context
+            )
+            if self._is_cancelled():
+                return None
             text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture = self._normalize_response_payload(
-                await self.llm_client.generate_diary_completion_reply(completion_context)
+                completion_payload
             )
             if required not in text:
                 text = f"{required}\n{text}".strip()
@@ -716,6 +740,8 @@ class AIWorker(QThread):
             language=self._prompt_language(),
         )
         plan_raw = await self.llm_client.generate_note_command_plan(plan_prompt)
+        if self._is_cancelled():
+            return None
         planner_error = ""
         plan = NotePlan(summary="요청 기반 실행", commands=[], stop_on_error=True)
         results: list[NoteCommandResult] = []
@@ -738,6 +764,8 @@ class AIWorker(QThread):
             )
             if target:
                 generated_markdown = await self.llm_client.generate_markdown_document(self.note_request)
+                if self._is_cancelled():
+                    return None
                 if not (generated_markdown or "").strip():
                     generated_markdown = self.note_service.build_default_markdown(self.note_request, target)
                 fallback_cmd = NoteCommand(
@@ -784,7 +812,10 @@ class AIWorker(QThread):
             planner_error=planner_error,
             language=self._prompt_language(),
         )
-        return await self.llm_client.generate_note_execution_report(report_context)
+        report = await self.llm_client.generate_note_execution_report(report_context)
+        if self._is_cancelled():
+            return None
+        return report
 
 
 class TTSWorker(QThread):
