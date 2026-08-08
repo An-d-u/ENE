@@ -32,6 +32,12 @@
     --ene-floating-panel-muted-text: rgba(255, 255, 255, 0.75);
     --ene-floating-panel-button-bg: rgba(255, 255, 255, 0.10);
     --ene-floating-panel-button-hover: rgba(255, 255, 255, 0.18);
+    --ene-life-panel-bg: rgba(17, 18, 20, 0.96);
+    --ene-life-card-bg: rgba(255, 255, 255, 0.08);
+    --ene-life-card-border: rgba(255, 255, 255, 0.18);
+    --ene-life-text: #F7F8FA;
+    --ene-life-muted-text: #C7CDD6;
+    --ene-life-focus: #7CC4FF;
 }
 
 html,
@@ -2026,4 +2032,331 @@ body.thought-feature-disabled .message-thought {
     height: 20px;
     object-fit: cover;
     border-radius: 50%;
+}
+
+/* 생활 기록 날짜별 탐색 패널 */
+#life-records-panel {
+    position: fixed;
+    top: 112px;
+    right: 12px;
+    z-index: 1210;
+    display: flex;
+    flex-direction: column;
+    width: min(420px, calc(100vw - 24px));
+    max-width: 100%;
+    max-height: calc(100vh - 124px);
+    min-height: 0;
+    overflow: hidden;
+    border: 1px solid var(--ene-life-card-border);
+    border-radius: 14px;
+    background: var(--ene-life-panel-bg);
+    color: var(--ene-life-text);
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.36);
+}
+
+#life-records-panel.hidden {
+    display: none;
+}
+
+#life-records-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px 6px 16px;
+    flex-shrink: 0;
+}
+
+#life-records-panel-title {
+    min-width: 0;
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+
+#life-records-date-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px 10px;
+    flex-shrink: 0;
+}
+
+#life-records-close-btn,
+#life-records-previous-btn,
+#life-records-next-btn,
+#life-records-today-btn,
+.life-record-retry,
+.life-record-state-action {
+    min-width: 44px;
+    min-height: 44px;
+    border: 1px solid var(--ene-life-card-border);
+    border-radius: 10px;
+    background: var(--ene-floating-panel-button-bg);
+    color: var(--ene-life-text);
+    cursor: pointer;
+    font: inherit;
+    line-height: 1.2;
+    transition: background 0.18s ease, border-color 0.18s ease;
+}
+
+#life-records-close-btn,
+#life-records-previous-btn,
+#life-records-next-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    flex: 0 0 44px;
+    font-size: 20px;
+}
+
+#life-records-today-btn,
+.life-record-retry,
+.life-record-state-action {
+    padding: 8px 14px;
+}
+
+#life-records-close-btn:hover,
+#life-records-previous-btn:hover,
+#life-records-next-btn:hover,
+#life-records-today-btn:hover,
+.life-record-retry:hover,
+.life-record-state-action:hover {
+    background: var(--ene-floating-panel-button-hover);
+    border-color: rgba(255, 255, 255, 0.32);
+}
+
+#life-records-date-input {
+    min-width: 0;
+    min-height: 44px;
+    flex: 1 1 160px;
+    max-width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--ene-life-card-border);
+    border-radius: 10px;
+    background: var(--ene-floating-panel-button-bg);
+    color: var(--ene-life-text);
+    color-scheme: dark;
+    font: inherit;
+}
+
+#life-records-panel :focus-visible {
+    outline: 3px solid var(--ene-life-focus);
+    outline-offset: 2px;
+}
+
+#life-records-status {
+    min-height: 0;
+    padding: 0 16px 8px;
+    color: var(--ene-life-muted-text);
+    font-size: 13px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+
+#life-records-status:empty {
+    display: none;
+}
+
+#life-records-list {
+    min-width: 0;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 0 12px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    scrollbar-gutter: stable;
+}
+
+.life-record-card {
+    min-width: 0;
+    padding: 12px;
+    border: 1px solid var(--ene-life-card-border);
+    border-radius: 12px;
+    background: var(--ene-life-card-bg);
+    color: var(--ene-life-text);
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.life-record-card p,
+.life-record-card li,
+.life-record-card div,
+#life-records-list > :not(.life-record-card) {
+    max-width: 100%;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.life-record-card + .life-record-card {
+    margin-top: 0;
+}
+
+.life-record-card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.life-record-range {
+    min-width: 0;
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.45;
+}
+
+.life-record-latest {
+    flex-shrink: 0;
+    padding: 3px 8px;
+    border: 1px solid rgba(var(--ene-accent-rgb), 0.68);
+    border-radius: 999px;
+    background: rgba(var(--ene-accent-rgb), 0.24);
+    color: #EAF5FF;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.3;
+}
+
+.life-record-entry-time,
+.life-record-entry-place,
+.life-record-ending-place {
+    color: var(--ene-life-muted-text);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.life-record-entry {
+    display: grid;
+    grid-template-columns: minmax(104px, auto) minmax(0, 1fr);
+    gap: 3px 10px;
+    min-width: 0;
+    padding: 8px 0;
+}
+
+.life-record-entry + .life-record-entry {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--ene-life-card-border);
+}
+
+.life-record-entry-place {
+    text-align: right;
+}
+
+.life-record-entry-activity {
+    grid-column: 1 / -1;
+    color: var(--ene-life-text);
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+.life-record-entry-activity > :first-child,
+.life-record-ending-summary > :first-child {
+    margin-top: 0;
+}
+
+.life-record-entry-activity > :last-child,
+.life-record-ending-summary > :last-child {
+    margin-bottom: 0;
+}
+
+.life-record-ending {
+    margin-top: 10px;
+    padding: 10px;
+    border-radius: 10px;
+    background: rgba(var(--ene-accent-rgb), 0.14);
+}
+
+.life-record-ending-title {
+    margin-bottom: 3px;
+    color: #D9ECFF;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.life-record-ending-summary {
+    margin-top: 5px;
+    font-size: 13px;
+    line-height: 1.55;
+}
+
+.life-record-empty,
+.life-record-error,
+.life-record-world_empty,
+.life-record-generation_failed,
+.life-record-save_failed,
+.life-record-regeneration_failed {
+    max-width: 100%;
+    padding: 16px 4px 8px;
+    color: var(--ene-life-muted-text);
+    font-size: 13px;
+    line-height: 1.6;
+    text-align: center;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.life-record-error,
+.life-record-generation_failed,
+.life-record-save_failed,
+.life-record-regeneration_failed {
+    color: #FFD0D0;
+}
+
+.life-record-retry,
+.life-record-state-action {
+    align-self: flex-start;
+    margin-top: 8px;
+}
+
+@media (max-width: 420px) {
+    #life-records-panel {
+        left: 12px;
+        right: 12px;
+        width: auto;
+        max-width: 100%;
+    }
+
+    #life-records-date-controls > * {
+        max-width: 100%;
+    }
+
+    #life-records-date-input {
+        flex-basis: calc(100% - 104px);
+    }
+
+    #life-records-today-btn {
+        flex: 1 1 100%;
+    }
+
+    .life-record-entry {
+        grid-template-columns: 1fr;
+    }
+
+    .life-record-entry-place,
+    .life-record-entry-activity {
+        grid-column: 1;
+        text-align: left;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #life-records-panel,
+    #life-records-panel *,
+    #life-records-panel *::before,
+    #life-records-panel *::after {
+        scroll-behavior: auto !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
 }
