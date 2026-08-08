@@ -4,6 +4,7 @@ OpenAI 호환, Anthropic, Ollama 경로를 제공한다.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import copy
@@ -24,7 +25,11 @@ from ..conversation_format import prepend_message_time
 from .memory_context_builder import build_memory_context as build_common_memory_context
 from .openai_model_policy import normalize_reasoning_effort
 from .persona_names import resolve_prompt_persona_names
-from .prompt import build_runtime_system_prompt, get_parseable_emotions
+from .prompt import (
+    build_life_record_system_instruction,
+    build_runtime_system_prompt,
+    get_parseable_emotions,
+)
 from .prompt_language import resolve_prompt_language
 from .response_contract import build_response_repair_prompt
 from .response_envelope import (
@@ -37,6 +42,10 @@ from .response_envelope import (
 from .response_pipeline import ResponseAttempt, execute_final_response
 from .response_protocol import (
     InvalidFinalResponseError,
+    LIFE_RECORD_SCHEMA_ID,
+    LIFE_RECORD_SCHEMA_VERSION,
+    OneShotGenerationResult,
+    OneShotTokenUsage,
     RESPONSE_ENVELOPE_SCHEMA_ID,
     RESPONSE_ENVELOPE_SCHEMA_VERSION,
     LLMRequestKind,
@@ -47,6 +56,8 @@ from .response_protocol import (
     ResponseMode,
     ResponseStatus,
     StructuredOutputUnsupported,
+    get_life_record_output_schema,
+    is_valid_token_count,
 )
 from .response_cleanup import extract_goal_update_metadata, extract_thought_metadata
 from .response_parser import (
@@ -720,6 +731,62 @@ class HTTPFinalRequestDescriptor:
     timeout_seconds: float = 60.0
 
 
+@dataclass(frozen=True)
+class StructuredOneShotRequest:
+    """민감한 원문을 repr에 노출하지 않는 구조화 one-shot 요청."""
+
+    kind: LLMRequestKind
+    prompt: str = field(repr=False)
+    system_instruction: str = field(repr=False)
+    schema: dict = field(repr=False)
+    schema_id: str = LIFE_RECORD_SCHEMA_ID
+    schema_version: str = LIFE_RECORD_SCHEMA_VERSION
+    generation_params: dict = field(default_factory=dict, repr=False)
+
+
+@dataclass(frozen=True)
+class HTTPStructuredOneShotRequestDescriptor:
+    """공급자 transport에 전달하는 단일 구조화 요청 정보."""
+
+    request: StructuredOneShotRequest = field(repr=False)
+    profile: ProviderProfile
+    capability_key: ResponseCapabilityKey
+    response_mode: ResponseMode = ResponseMode.JSON_SCHEMA
+    timeout_seconds: float = 60.0
+
+
+@dataclass(frozen=True)
+class HTTPStructuredOneShotResponse:
+    """공급자 원문을 숨긴 HTTP one-shot 정규화 결과."""
+
+    text: str = field(repr=False)
+    status: ResponseStatus
+    finish_reason: str = field(default="", repr=False)
+    usage: dict[str, int | None] = field(default_factory=dict, repr=False)
+
+
+def normalize_one_shot_usage(
+    usage: object,
+    *,
+    input_key: str,
+    output_key: str,
+    total_key: str = "total_tokens",
+) -> dict[str, int | None]:
+    """공급자가 실제로 제공한 안전한 정수 토큰 수만 보존한다."""
+
+    source = usage if isinstance(usage, dict) else {}
+
+    def read(key: str) -> int | None:
+        value = source.get(key)
+        return value if is_valid_token_count(value) else None
+
+    return {
+        "input_tokens": read(input_key),
+        "output_tokens": read(output_key),
+        "total_tokens": read(total_key),
+    }
+
+
 def _build_summary_prompt(conversation_text: str) -> str:
     """HTTP 공급자 공통 요약 프롬프트를 생성한다."""
     return build_summary_prompt_from_text(conversation_text).prompt
@@ -1270,6 +1337,88 @@ class _CommonMixin:
             "output_tokens": None,
             "total_tokens": None,
         }
+
+    def _build_life_record_request_descriptor(
+        self,
+        prompt: str,
+    ) -> HTTPStructuredOneShotRequestDescriptor:
+        """현재 설정과 fresh schema로 native 생활 기록 요청을 고정한다."""
+        profile = ProviderProfile(
+            provider=str(getattr(self, "provider_name", "") or ""),
+            wire_format=str(getattr(self, "wire_format", "") or ""),
+            endpoint=str(getattr(self, "endpoint", "") or ""),
+            model=str(getattr(self, "model_name", "") or ""),
+        )
+        if resolve_response_mode(profile, "auto") is not ResponseMode.JSON_SCHEMA:
+            raise ValueError("life_record_native_profile_required")
+        request = StructuredOneShotRequest(
+            kind=LLMRequestKind.LIFE_RECORD,
+            prompt=prompt,
+            system_instruction=build_life_record_system_instruction(
+                self._runtime_prompt_settings_source()
+            ),
+            schema=get_life_record_output_schema(),
+            schema_id=LIFE_RECORD_SCHEMA_ID,
+            schema_version=LIFE_RECORD_SCHEMA_VERSION,
+            generation_params=dict(getattr(self, "generation_params", {}) or {}),
+        )
+        return HTTPStructuredOneShotRequestDescriptor(
+            request=request,
+            profile=profile,
+            capability_key=build_capability_key(
+                profile,
+                request_kind=request.kind,
+                schema_id=request.schema_id,
+                schema_version=request.schema_version,
+            ),
+        )
+
+    async def _generate_life_record_once(
+        self,
+        prompt: str,
+        requester: Callable[
+            [HTTPStructuredOneShotRequestDescriptor],
+            HTTPStructuredOneShotResponse,
+        ],
+    ) -> OneShotGenerationResult:
+        """동기 HTTP transport를 이벤트 루프 밖에서 정확히 한 번 실행한다."""
+        setup_failed = False
+        descriptor = None
+        try:
+            descriptor = self._build_life_record_request_descriptor(prompt)
+        except Exception:
+            setup_failed = True
+        if setup_failed or descriptor is None:
+            raise RuntimeError("life_record_generation_failed")
+
+        transport_failed = False
+        response = None
+        try:
+            response = await asyncio.to_thread(requester, descriptor)
+        except Exception:
+            transport_failed = True
+        if transport_failed or response is None:
+            raise RuntimeError("life_record_generation_failed")
+
+        normalization_failed = False
+        result = None
+        try:
+            usage = response.usage
+            result = OneShotGenerationResult(
+                text=response.text,
+                status=response.status,
+                finish_reason=response.finish_reason,
+                token_usage=OneShotTokenUsage(
+                    input_tokens=usage.get("input_tokens"),
+                    output_tokens=usage.get("output_tokens"),
+                    total_tokens=usage.get("total_tokens"),
+                ),
+            )
+        except Exception:
+            normalization_failed = True
+        if normalization_failed or result is None:
+            raise RuntimeError("life_record_generation_failed")
+        return result
 
     def _prompt_language(self) -> str:
         return resolve_prompt_language(settings_source=getattr(self, "settings", None))

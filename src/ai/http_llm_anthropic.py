@@ -4,14 +4,18 @@ import requests
 from .http_llm_common import (
     DEFAULT_GENERATION_PARAMS,
     HTTPFinalRequestDescriptor,
+    HTTPStructuredOneShotRequestDescriptor,
+    HTTPStructuredOneShotResponse,
     LLM_RESPONSE_TUPLE,
     _CommonMixin,
     _normalize_generation_params,
     _post_with_safe_errors,
     _raise_for_status_with_detail,
+    normalize_one_shot_usage,
 )
 from .response_protocol import (
     LLMRequestKind,
+    OneShotGenerationResult,
     ProviderResponse,
     ResponseMode,
     ResponseStatus,
@@ -102,6 +106,78 @@ class AnthropicClient(_CommonMixin):
             status=status,
             mode=request_descriptor.attempt.mode,
             finish_reason=stop_reason,
+        )
+
+    def _request_anthropic_life_record(
+        self,
+        descriptor: HTTPStructuredOneShotRequestDescriptor,
+    ) -> HTTPStructuredOneShotResponse:
+        request = descriptor.request
+        generation_params = request.generation_params
+        payload = {
+            "model": self.model_name,
+            "max_tokens": max(
+                1,
+                generation_params["max_tokens"]
+                or DEFAULT_GENERATION_PARAMS["max_tokens"],
+            ),
+            "temperature": generation_params["temperature"],
+            "top_p": generation_params["top_p"],
+            "system": request.system_instruction,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [{"type": "text", "text": request.prompt}],
+                }
+            ],
+            "output_config": {
+                "format": {
+                    "type": "json_schema",
+                    "schema": request.schema,
+                }
+            },
+        }
+        response = _post_with_safe_errors(
+            self.provider_name,
+            self.endpoint,
+            requests.post,
+            headers=self._headers(),
+            json=payload,
+            timeout=descriptor.timeout_seconds,
+        )
+        _raise_for_status_with_detail(response, self.provider_name)
+        data = response.json()
+        text = self._response_text(data)
+        stop_reason = str(data.get("stop_reason", "") or "").strip().lower()
+        if stop_reason == "refusal":
+            status = ResponseStatus.REFUSAL
+        elif stop_reason == "max_tokens":
+            status = ResponseStatus.INCOMPLETE
+        elif stop_reason not in {"", "end_turn", "stop_sequence"}:
+            status = ResponseStatus.INCOMPLETE
+        elif text:
+            status = ResponseStatus.COMPLETE
+        else:
+            status = ResponseStatus.EMPTY
+        return HTTPStructuredOneShotResponse(
+            text=text,
+            status=status,
+            finish_reason=stop_reason,
+            usage=normalize_one_shot_usage(
+                data.get("usage"),
+                input_key="input_tokens",
+                output_key="output_tokens",
+            ),
+        )
+
+    async def generate_life_record_once(
+        self,
+        prompt: str,
+    ) -> OneShotGenerationResult:
+        """Anthropic output_config JSON schema로 생활 기록을 한 번 생성한다."""
+        return await self._generate_life_record_once(
+            prompt,
+            self._request_anthropic_life_record,
         )
 
     def _request_anthropic(
