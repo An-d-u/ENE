@@ -36,7 +36,7 @@ Microsoft Store Python에서는 탐색기에서 보이는 `%AppData%/ENE`의 두
 - 권위 파일 저장에 성공한 뒤 캐시 갱신만 실패해도 저장 성공은 유지한다.
 - 권위 파일이 없거나 손상됐을 때 오래된 캐시로 폴백하지 않는다.
 
-`prompts/life_world.md`는 이 JSON 권위 저장소 계층을 사용하지 않는다. 설정 화면에서 저장하면 앱은 `base_system_prompt.md`, `sub_prompt_body.md`, `emotion_guides.md`, `life_world.md` 네 런타임 파일을 staging한 뒤 하나의 복구 가능한 저장 단위로 교체한다. Microsoft Store Python에서는 네 visible Roaming 파일의 기존 스냅샷을 확보하고 같은 내용으로 동기화한다. 저장 과정이 실패하면 런타임과 visible 양쪽을 기존 스냅샷으로 rollback하고 설정 화면에 저장 실패를 표시한다. 저장 성공이 표시되면 런타임과 visible의 네 프롬프트 파일이 일치하는 것이 정상이다.
+`prompts/life_world.md`는 이 JSON 권위 저장소 계층을 사용하지 않는다. 설정 화면에서 저장하면 앱은 `base_system_prompt.md`, `sub_prompt_body.md`, `emotion_guides.md`, `life_world.md` 네 런타임 파일을 staging한 뒤 하나의 복구 가능한 저장 단위로 교체한다. Microsoft Store Python에서는 네 visible Roaming 파일의 기존 스냅샷을 확보하고 같은 내용으로 동기화한다. 저장 과정이 실패하면 런타임과 visible 양쪽의 기존 스냅샷 복원을 시도하고 설정 화면에 저장 실패를 표시한다. 드물게 rollback 자체가 실패하면 양쪽에 불일치가 남을 수 있으므로 아래의 종료 전 외부 복사 절차를 따른다. 저장 성공이 표시되면 런타임과 visible의 네 프롬프트 파일이 일치하는 것이 정상이다.
 
 저장 실패가 표시되거나 편집기 내용과 `%AppData%/ENE/prompts/life_world.md`가 일치하지 않으면 앱을 종료하기 **전에** 생활 환경 편집기 내용을 외부 Markdown 파일에 복사한다. 문제를 해결하고 설정 화면에서 다시 저장한 뒤 성공 표시와 visible 파일의 일치를 확인하고 백업한다.
 
