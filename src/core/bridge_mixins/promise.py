@@ -454,6 +454,9 @@ class PromiseBridgeMixin:
 
     def _poll_promise_reminders(self) -> None:
         """도래한 대화 약속을 찾아 즉시 실행하거나 큐에 넣는다."""
+        accepts_input = getattr(self, "_life_operation_accepts_input", None)
+        if callable(accepts_input) and not accepts_input():
+            return
         if not self.promise_manager:
             return
 

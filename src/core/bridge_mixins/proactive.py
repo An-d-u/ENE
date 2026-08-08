@@ -250,6 +250,9 @@ class ProactiveBridgeMixin:
 
     def _poll_proactive_conversations(self) -> None:
         """도래한 선제 대화 예약을 찾아 즉시 실행하거나 큐에 넣는다."""
+        accepts_input = getattr(self, "_life_operation_accepts_input", None)
+        if callable(accepts_input) and not accepts_input():
+            return
         if not self.proactive_manager:
             return
         if not self._is_proactive_conversation_enabled():
