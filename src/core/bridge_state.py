@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import json
-from typing import Any
+from typing import Any, Literal
 
 from .attachment_session import AttachmentSession
 from .tts_sync_controller import TTSSyncController
@@ -133,6 +133,127 @@ class AttachmentBridgeState:
     session: AttachmentSession = field(default_factory=AttachmentSession)
 
 
+LifeRecordPhase = Literal[
+    "idle",
+    "auto_generating",
+    "resuming_reply",
+    "normal_reply",
+    "manual_regenerating",
+    "shutting_down",
+]
+
+_LIFE_RECORD_PHASES = frozenset(
+    {
+        "idle",
+        "auto_generating",
+        "resuming_reply",
+        "normal_reply",
+        "manual_regenerating",
+        "shutting_down",
+    }
+)
+_LIFE_RECORD_READ_ONLY_REASONS = frozenset(
+    {
+        "session_lease_unavailable",
+        "timezone_unavailable",
+        "session_tracker_degraded",
+    }
+)
+
+
+@dataclass
+class LifeRecordBridgeState:
+    """생활 기록 생성과 일반 답변 사이의 단일 작업 상태."""
+
+    candidate: Any = None
+    auto_decision_completed: bool = False
+    life_records_writable: bool = False
+    read_only_reason: str | None = None
+    time_context: Any = None
+    view_timezone: str = "UTC"
+    phase: LifeRecordPhase = "idle"
+    operation_id: int = 0
+    pending_request: Any = None
+    pending_world_markdown: str = ""
+    worker: Any = None
+    prior_token_usage: Any = None
+
+    def __post_init__(self) -> None:
+        if (
+            self.read_only_reason is not None
+            and self.read_only_reason not in _LIFE_RECORD_READ_ONLY_REASONS
+        ):
+            raise ValueError("invalid_life_record_read_only_reason")
+        if self.phase not in _LIFE_RECORD_PHASES:
+            raise ValueError("invalid_life_record_phase")
+
+    def try_begin_operation(
+        self,
+        phase: LifeRecordPhase,
+        *,
+        pending_request: Any = None,
+    ) -> int | None:
+        """idle에서만 새 작업을 시작하고 단조 증가 식별자를 돌려준다."""
+        if phase not in _LIFE_RECORD_PHASES or phase in {"idle", "shutting_down"}:
+            raise ValueError("invalid_life_record_phase")
+        if self.phase != "idle":
+            return None
+        self.operation_id += 1
+        self.phase = phase
+        self.pending_request = pending_request
+        return self.operation_id
+
+    def matches_operation(self, operation_id: int, *phases: LifeRecordPhase) -> bool:
+        """늦게 도착한 콜백이 현재 작업에 속하는지 확인한다."""
+        return (
+            type(operation_id) is int
+            and operation_id == self.operation_id
+            and self.phase != "idle"
+            and self.phase != "shutting_down"
+            and (not phases or self.phase in phases)
+        )
+
+    def take_pending(self, operation_id: int) -> Any:
+        """현재 작업의 보류 요청을 정확히 한 번 꺼낸다."""
+        if not self.matches_operation(operation_id):
+            return None
+        request = self.pending_request
+        self.pending_request = None
+        return request
+
+    def transition_operation(
+        self,
+        operation_id: int,
+        phase: LifeRecordPhase,
+    ) -> bool:
+        """현재 작업 식별자를 유지한 채 허용된 다음 phase로 전이한다."""
+        if phase not in _LIFE_RECORD_PHASES or phase in {"idle", "shutting_down"}:
+            raise ValueError("invalid_life_record_phase")
+        if not self.matches_operation(operation_id):
+            return False
+        self.phase = phase
+        return True
+
+    def finish_operation(self, operation_id: int) -> bool:
+        """현재 작업만 idle로 되돌리고 stale 종료는 무시한다."""
+        if not self.matches_operation(operation_id):
+            return False
+        self.phase = "idle"
+        self.pending_request = None
+        self.pending_world_markdown = ""
+        self.prior_token_usage = None
+        self.worker = None
+        return True
+
+    def begin_shutdown(self) -> int:
+        """작업 식별자를 무효화하고 terminal 종료 상태로 전이한다."""
+        self.operation_id += 1
+        self.phase = "shutting_down"
+        self.pending_request = None
+        self.pending_world_markdown = ""
+        return self.operation_id
+
+
 BRIDGE_STATE_ALIASES = {
     "obs_panel_window": ("obsidian_state", "panel_window"),
     "obs_tree_worker": ("obsidian_state", "tree_worker"),
@@ -218,6 +339,7 @@ class BridgeStateAliasMixin:
         self.proactive_state = ProactiveBridgeState()
         self.away_state = AwayBridgeState()
         self.attachment_state = AttachmentBridgeState()
+        self.life_record_state = LifeRecordBridgeState()
 
 
 def _make_state_alias(legacy_name: str, state_name: str, field_name: str) -> property:
