@@ -15,6 +15,30 @@ from .response_contract import (
 from .response_protocol import LLMRequestKind, ResponseMode
 
 
+_LIFE_RECORD_SYSTEM_CONTRACT = """## 생활 기록 전용 계약
+
+이 지시는 앞의 기본 시스템 프롬프트와 충돌할 경우 생활 기록 행동과 JSON 출력에 대해 우선합니다.
+주어진 비활성 구간 동안 에네가 생활 환경에서 한 행동을 시간순으로 구성하세요.
+출력은 Markdown이나 설명을 섞지 말고 JSON 객체 하나만 반환하세요.
+최상위 키는 `entries`, `ending_state`만 허용합니다.
+`entries`는 1개 이상 24개 이하이며 각 항목은 문자열 `started_at`, `ended_at`, `place`, `activity`만 포함합니다.
+`ending_state`는 문자열 `place`, `summary`만 포함합니다.
+각 객체에 추가 필드를 만들지 마세요.
+모든 시각은 요청에 지정된 오프셋 포함 ISO 8601 형식을 사용하세요.
+항목은 전체 구간을 빈틈이나 겹침 없이 정확히 덮고, 마지막 항목의 장소는 `ending_state.place`와 같아야 합니다."""
+
+
+def build_life_record_system_instruction(
+    settings_source: dict | None = None,
+) -> str:
+    """현재 기본 프롬프트 뒤에 생활 기록 전용 우선 계약만 붙인다."""
+    config = load_runtime_prompt_config(settings_source=settings_source)
+    base_system_prompt = str(config.get("base_system_prompt", "") or "").strip("\n")
+    if not base_system_prompt:
+        return _LIFE_RECORD_SYSTEM_CONTRACT
+    return base_system_prompt + "\n\n" + _LIFE_RECORD_SYSTEM_CONTRACT
+
+
 def get_system_prompt(
     include_sub_prompt: bool = True,
     settings_source: dict | None = None,

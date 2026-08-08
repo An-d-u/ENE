@@ -7,7 +7,12 @@ from PyQt6.QtCore import QCoreApplication
 
 from src.ai.calendar_manager import CalendarManager
 from src.ai.memory_context_builder import build_memory_context
-from src.ai.response_protocol import ResponseDeliveryMetadata
+from src.ai.response_protocol import (
+    OneShotGenerationResult,
+    OneShotTokenUsage,
+    ResponseDeliveryMetadata,
+    ResponseStatus,
+)
 from src.core.bridge_mixins.chat_flow import ChatFlowBridgeMixin
 from src.core.bridge_mixins.goals import GoalBridgeMixin
 from src.core.bridge_mixins.obsidian import ObsidianBridgeMixin
@@ -28,6 +33,27 @@ SAFE_METADATA = ResponseDeliveryMetadata(
     promises_authoritative=True,
     repair_performed=False,
 )
+
+
+def test_life_record_one_shot_result_repr_omits_raw_text():
+    raw_text = "SYNTHETIC-LIFE-RECORD-RAW-SENTINEL"
+    finish_reason = "SYNTHETIC-LIFE-RECORD-FINISH-SENTINEL"
+    result = OneShotGenerationResult(
+        text=raw_text,
+        status=ResponseStatus.COMPLETE,
+        finish_reason=finish_reason,
+        token_usage=OneShotTokenUsage(
+            input_tokens=None,
+            output_tokens=4,
+            total_tokens=None,
+        ),
+    )
+
+    assert raw_text not in repr(result)
+    assert finish_reason not in repr(result)
+    assert "text=" not in repr(result)
+    assert "finish_reason=" not in repr(result)
+    assert result.text == raw_text
 
 
 def _ensure_qt_app():

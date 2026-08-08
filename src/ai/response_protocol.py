@@ -5,6 +5,51 @@ from enum import Enum
 
 
 RESPONSE_ENVELOPE_SCHEMA_VERSION = "1"
+LIFE_RECORD_SCHEMA_ID = "life_record_output"
+LIFE_RECORD_SCHEMA_VERSION = "1"
+
+
+def _strict_object(properties: dict[str, dict]) -> dict:
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": list(properties),
+        "additionalProperties": False,
+    }
+
+
+LIFE_RECORD_OUTPUT_SCHEMA = _strict_object(
+    {
+        "entries": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 24,
+            "items": _strict_object(
+                {
+                    "started_at": {"type": "string"},
+                    "ended_at": {"type": "string"},
+                    "place": {"type": "string"},
+                    "activity": {"type": "string"},
+                }
+            ),
+        },
+        "ending_state": _strict_object(
+            {
+                "place": {"type": "string"},
+                "summary": {"type": "string"},
+            }
+        ),
+    }
+)
+
+
+class LLMRequestKind(str, Enum):
+    FINAL_REPLY = "final_reply"
+    SUMMARY = "summary"
+    DECISION = "decision"
+    MARKDOWN = "markdown"
+    PLAIN_TEXT = "plain_text"
+    LIFE_RECORD = "life_record"
 
 
 @dataclass(frozen=True)
@@ -21,15 +66,9 @@ class ResponseCapabilityKey:
     wire_format: str
     endpoint_fingerprint: str
     model: str
+    request_kind: LLMRequestKind
+    schema_id: str
     schema_version: str
-
-
-class LLMRequestKind(str, Enum):
-    FINAL_REPLY = "final_reply"
-    SUMMARY = "summary"
-    DECISION = "decision"
-    MARKDOWN = "markdown"
-    PLAIN_TEXT = "plain_text"
 
 
 class ResponseMode(str, Enum):
@@ -83,6 +122,25 @@ class ResponseStatus(str, Enum):
     INCOMPLETE = "incomplete"
     REFUSAL = "refusal"
     EMPTY = "empty"
+
+
+@dataclass(frozen=True)
+class OneShotTokenUsage:
+    """공급자가 실제로 제공한 one-shot 토큰 사용량."""
+
+    input_tokens: int | None
+    output_tokens: int | None
+    total_tokens: int | None
+
+
+@dataclass(frozen=True)
+class OneShotGenerationResult:
+    """파싱·검증 전 공급자 one-shot 생성 결과."""
+
+    text: str = field(repr=False)
+    status: ResponseStatus
+    finish_reason: str = field(repr=False)
+    token_usage: OneShotTokenUsage
 
 
 @dataclass(frozen=True)
