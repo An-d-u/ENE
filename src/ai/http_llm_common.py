@@ -8,6 +8,7 @@ import asyncio
 import base64
 import binascii
 import copy
+from concurrent.futures import Future
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 import hashlib
@@ -16,6 +17,7 @@ import ipaddress
 import json
 import re
 import secrets
+import threading
 from types import MappingProxyType
 from typing import Callable, Dict, List, Mapping, Tuple
 from urllib.parse import urlsplit
@@ -580,6 +582,9 @@ def build_capability_key(
 class ResponseCapabilityRegistry:
     def __init__(self) -> None:
         self._overrides: dict[ResponseCapabilityKey, ResponseMode] = {}
+        self._verified_native: set[ResponseCapabilityKey] = set()
+        self._inflight_probes: dict[ResponseCapabilityKey, Future] = {}
+        self._lock = threading.Lock()
 
     def __repr__(self) -> str:
         return (
@@ -602,13 +607,81 @@ class ResponseCapabilityRegistry:
             profile,
             schema_version=schema_version,
         )
-        return self._overrides.get(key, default_mode)
+        with self._lock:
+            return self._overrides.get(key, default_mode)
 
     def mark_legacy(self, key: ResponseCapabilityKey) -> None:
-        self._overrides[key] = ResponseMode.LEGACY_TAGS
+        with self._lock:
+            self._overrides[key] = ResponseMode.LEGACY_TAGS
+            self._verified_native.discard(key)
+
+    def reserve_native_probe(
+        self,
+        key: ResponseCapabilityKey,
+    ) -> tuple[bool, Future]:
+        """capability별 최초 native probe의 단일 소유권을 예약한다."""
+        with self._lock:
+            resolved = self._overrides.get(key)
+            if resolved is ResponseMode.LEGACY_TAGS:
+                completed = Future()
+                completed.set_result(ResponseMode.LEGACY_TAGS)
+                return False, completed
+            if key in self._verified_native:
+                completed = Future()
+                completed.set_result(ResponseMode.JSON_SCHEMA)
+                return False, completed
+            existing = self._inflight_probes.get(key)
+            if existing is not None:
+                return False, existing
+            probe = Future()
+            self._inflight_probes[key] = probe
+            return True, probe
+
+    def complete_native_probe(
+        self,
+        key: ResponseCapabilityKey,
+        probe: Future,
+        response_mode: ResponseMode,
+    ) -> None:
+        """현재 probe 결과만 cache에 반영하고 모든 waiter를 해제한다."""
+        should_complete = False
+        with self._lock:
+            if self._inflight_probes.get(key) is not probe:
+                return
+            del self._inflight_probes[key]
+            if response_mode is ResponseMode.LEGACY_TAGS:
+                self._overrides[key] = ResponseMode.LEGACY_TAGS
+                self._verified_native.discard(key)
+            else:
+                self._verified_native.add(key)
+            should_complete = True
+        if should_complete and not probe.done():
+            probe.set_result(response_mode)
+
+    def abandon_native_probe(
+        self,
+        key: ResponseCapabilityKey,
+        probe: Future,
+    ) -> None:
+        """실패·취소된 probe를 cache 변경 없이 포기하고 waiter를 해제한다."""
+        should_complete = False
+        with self._lock:
+            if self._inflight_probes.get(key) is not probe:
+                return
+            del self._inflight_probes[key]
+            should_complete = True
+        if should_complete and not probe.done():
+            probe.set_result(None)
 
     def clear(self) -> None:
-        self._overrides.clear()
+        with self._lock:
+            probes = tuple(self._inflight_probes.values())
+            self._overrides.clear()
+            self._verified_native.clear()
+            self._inflight_probes.clear()
+        for probe in probes:
+            if not probe.done():
+                probe.set_result(None)
 
 
 _HTTP_RESPONSE_CAPABILITY_REGISTRY = ResponseCapabilityRegistry()
@@ -963,6 +1036,25 @@ async def _await_life_record_transport(
             except BaseException:
                 pass
         raise
+
+
+async def _await_life_record_native_probe(probe: Future) -> ResponseMode | None:
+    """waiter 취소가 공유 probe 결과를 취소하지 않게 기다린다."""
+    return await asyncio.shield(asyncio.wrap_future(probe))
+
+
+def _life_record_descriptor_with_mode(
+    descriptor: HTTPStructuredOneShotRequestDescriptor,
+    response_mode: ResponseMode,
+) -> HTTPStructuredOneShotRequestDescriptor:
+    return HTTPStructuredOneShotRequestDescriptor(
+        request=descriptor.request,
+        profile=descriptor.profile,
+        capability_key=descriptor.capability_key,
+        headers=descriptor.headers,
+        response_mode=response_mode,
+        timeout_seconds=descriptor.timeout_seconds,
+    )
 
 
 def _one_shot_result_from_response(
@@ -1564,11 +1656,16 @@ class _CommonMixin:
             schema_id=request.schema_id,
             schema_version=request.schema_version,
         )
-        response_mode = _HTTP_RESPONSE_CAPABILITY_REGISTRY.resolve(
+        resolved_mode = _HTTP_RESPONSE_CAPABILITY_REGISTRY.resolve(
             profile,
             "auto",
             schema_version=request.schema_version,
             capability_key=capability_key,
+        )
+        response_mode = (
+            ResponseMode.JSON_SCHEMA
+            if resolved_mode is ResponseMode.JSON_SCHEMA
+            else ResponseMode.LEGACY_TAGS
         )
         headers = self._headers()
         return HTTPStructuredOneShotRequestDescriptor(
@@ -1597,6 +1694,26 @@ class _CommonMixin:
         if setup_failed or descriptor is None:
             raise RuntimeError("life_record_generation_failed")
 
+        probe_owner = False
+        probe = None
+        if descriptor.response_mode is not ResponseMode.LEGACY_TAGS:
+            while True:
+                probe_owner, probe = (
+                    _HTTP_RESPONSE_CAPABILITY_REGISTRY.reserve_native_probe(
+                        descriptor.capability_key
+                    )
+                )
+                if probe_owner:
+                    break
+                resolved_mode = await _await_life_record_native_probe(probe)
+                if resolved_mode is None:
+                    continue
+                descriptor = _life_record_descriptor_with_mode(
+                    descriptor,
+                    resolved_mode,
+                )
+                break
+
         capability_failure = None
         response = None
         transport_failed = False
@@ -1607,29 +1724,49 @@ class _CommonMixin:
             )
         except StructuredOutputUnsupported as failure:
             capability_failure = failure
+        except asyncio.CancelledError:
+            if probe_owner and probe is not None:
+                _HTTP_RESPONSE_CAPABILITY_REGISTRY.abandon_native_probe(
+                    descriptor.capability_key,
+                    probe,
+                )
+            raise
         except Exception:
             transport_failed = True
         if transport_failed:
+            if probe_owner and probe is not None:
+                _HTTP_RESPONSE_CAPABILITY_REGISTRY.abandon_native_probe(
+                    descriptor.capability_key,
+                    probe,
+                )
             raise RuntimeError("life_record_generation_failed")
 
         attempt_usages: list[Mapping[str, int | None]] = []
         if capability_failure is not None:
             if descriptor.response_mode is ResponseMode.LEGACY_TAGS:
+                if probe_owner and probe is not None:
+                    _HTTP_RESPONSE_CAPABILITY_REGISTRY.abandon_native_probe(
+                        descriptor.capability_key,
+                        probe,
+                    )
                 raise RuntimeError("life_record_generation_failed")
             failure_usage = getattr(capability_failure, "usage", {})
             attempt_usages.append(
                 failure_usage if isinstance(failure_usage, Mapping) else {}
             )
-            _HTTP_RESPONSE_CAPABILITY_REGISTRY.mark_legacy(
-                descriptor.capability_key
-            )
-            fallback_descriptor = HTTPStructuredOneShotRequestDescriptor(
-                request=descriptor.request,
-                profile=descriptor.profile,
-                capability_key=descriptor.capability_key,
-                headers=descriptor.headers,
-                response_mode=ResponseMode.LEGACY_TAGS,
-                timeout_seconds=descriptor.timeout_seconds,
+            if probe_owner and probe is not None:
+                _HTTP_RESPONSE_CAPABILITY_REGISTRY.complete_native_probe(
+                    descriptor.capability_key,
+                    probe,
+                    ResponseMode.LEGACY_TAGS,
+                )
+            else:
+                _HTTP_RESPONSE_CAPABILITY_REGISTRY.mark_legacy(
+                    descriptor.capability_key
+                )
+            fallback_descriptor = _life_record_descriptor_with_mode(
+                descriptor,
+                ResponseMode.LEGACY_TAGS,
             )
             fallback_failed = False
             try:
@@ -1641,6 +1778,12 @@ class _CommonMixin:
                 fallback_failed = True
             if fallback_failed:
                 raise RuntimeError("life_record_generation_failed")
+        elif probe_owner and probe is not None:
+            _HTTP_RESPONSE_CAPABILITY_REGISTRY.complete_native_probe(
+                descriptor.capability_key,
+                probe,
+                descriptor.response_mode,
+            )
 
         if response is None:
             raise RuntimeError("life_record_generation_failed")

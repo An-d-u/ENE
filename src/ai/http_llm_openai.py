@@ -259,15 +259,16 @@ class OpenAICompatibleClient(_CommonMixin):
                 {"role": "user", "content": request.prompt},
             ],
             "stream": False,
-            "response_format": {
+        }
+        if descriptor.response_mode is ResponseMode.JSON_SCHEMA:
+            payload["response_format"] = {
                 "type": "json_schema",
                 "json_schema": {
                     "name": request.schema_id,
                     "strict": True,
                     "schema": schema,
                 },
-            },
-        }
+            }
         if policy.supports_temperature:
             payload["temperature"] = generation_params["temperature"]
         if policy.supports_top_p:
@@ -670,15 +671,16 @@ class OpenAIResponseAPIClient(_CommonMixin):
                 }
             ],
             "store": False,
-            "text": {
+        }
+        if descriptor.response_mode is ResponseMode.JSON_SCHEMA:
+            payload["text"] = {
                 "format": {
                     "type": "json_schema",
                     "name": request.schema_id,
                     "strict": True,
                     "schema": schema,
                 }
-            },
-        }
+            }
         policy = resolve_openai_model_policy(
             descriptor.profile.provider,
             descriptor.profile.model,
