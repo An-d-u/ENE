@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
 from datetime import date, datetime, timezone
 from pathlib import Path
+from threading import Lock, RLock
 from typing import Iterable
+
+from PyQt6.QtCore import QLockFile
 
 from src.core import app_paths
 from src.core.local_time import resolve_local_time_context
@@ -25,6 +29,35 @@ class LifeRecordStoreError(RuntimeError):
     def __init__(self, code: str) -> None:
         self.code = code
         super().__init__(code)
+
+
+_STORE_LOCKS_GUARD = Lock()
+_STORE_LOCKS: dict[str, RLock] = {}
+
+
+def _process_store_lock(path: Path) -> RLock:
+    key = str(path.resolve()).casefold()
+    with _STORE_LOCKS_GUARD:
+        lock = _STORE_LOCKS.get(key)
+        if lock is None:
+            lock = RLock()
+            _STORE_LOCKS[key] = lock
+        return lock
+
+
+@contextmanager
+def _exclusive_store_write(path: Path):
+    """프로세스·파일 경계를 함께 잠가 read-check-write를 직렬화한다."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    process_lock = _process_store_lock(path)
+    with process_lock:
+        lock_file = QLockFile(str(path.with_name(f"{path.name}.write.lock")))
+        if not lock_file.tryLock(5_000):
+            raise LifeRecordStoreError("store_busy")
+        try:
+            yield
+        finally:
+            lock_file.unlock()
 
 
 def _utc(value: datetime) -> datetime:
@@ -191,6 +224,36 @@ class LifeRecordManager:
         current = self.latest()
         if current is None or current.id != record_id:
             raise LifeRecordStoreError("not_latest")
+        return self.replace_latest_if_unchanged(current, generated, updated_at)
+
+    def replace_latest_if_unchanged(
+        self,
+        expected: LifeRecord,
+        generated: LifeRecordOutput,
+        updated_at: datetime,
+    ) -> LifeRecord:
+        """권위 파일의 최신값이 예상 사본과 같을 때만 원자 교체한다."""
+        if not isinstance(expected, LifeRecord):
+            raise LifeRecordStoreError("invalid_expected_record")
+        with _exclusive_store_write(self.store_path):
+            self._load()
+            self._require_healthy_store()
+            current = self.latest()
+            if current != expected:
+                raise LifeRecordStoreError("stale_record")
+            replacement = self._replacement_record(current, generated, updated_at)
+            committed = self._commit((replacement, *self._records[1:]))
+            authoritative = committed[0] if committed else None
+            if authoritative != replacement:
+                raise LifeRecordStoreError("commit_verification_failed")
+            return authoritative
+
+    @staticmethod
+    def _replacement_record(
+        current: LifeRecord,
+        generated: LifeRecordOutput,
+        updated_at: datetime,
+    ) -> LifeRecord:
         replacement = create_life_record(
             id=current.id,
             inactive_started_at=current.inactive_started_at,
@@ -215,7 +278,6 @@ class LifeRecordManager:
                 "summary": generated.ending_state.summary,
             },
         )
-        self._commit((replacement, *self._records[1:]))
         return replacement
 
     def to_public_dict(
