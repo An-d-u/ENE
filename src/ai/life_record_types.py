@@ -16,7 +16,7 @@ from src.core.local_time import LocalTimeContext, resolve_local_time_context
 
 _OUTPUT_FIELDS = frozenset({"entries", "ending_state"})
 _ENTRY_FIELDS = frozenset({"started_at", "ended_at", "place", "activity"})
-_ENDING_FIELDS = frozenset({"place", "status"})
+_ENDING_FIELDS = frozenset({"place", "summary"})
 _STORE_FIELDS = frozenset({"version", "records"})
 _RECORD_FIELDS = frozenset(
     {
@@ -60,7 +60,7 @@ class LifeRecordEntry:
 @dataclass(frozen=True)
 class LifeRecordEndingState:
     place: str
-    status: str
+    summary: str
 
 
 @dataclass(frozen=True)
@@ -100,9 +100,12 @@ def _strict_fields(value: object, expected: frozenset[str]) -> dict[str, object]
 
 
 def _non_empty_text(value: object) -> str:
-    if not isinstance(value, str) or not value.strip():
+    if not isinstance(value, str):
         _fail("invalid_text")
-    return value
+    stripped = value.strip()
+    if not stripped:
+        _fail("invalid_text")
+    return stripped
 
 
 def _time_context(timezone_name: object) -> LocalTimeContext:
@@ -167,7 +170,7 @@ def _ending_state(value: object) -> LifeRecordEndingState:
     data = _strict_fields(value, _ENDING_FIELDS)
     return LifeRecordEndingState(
         place=_non_empty_text(data["place"]),
-        status=_non_empty_text(data["status"]),
+        summary=_non_empty_text(data["summary"]),
     )
 
 
@@ -303,13 +306,16 @@ def create_life_record(
         _fail("invalid_range")
     if isinstance(revision, bool) or not isinstance(revision, int) or revision <= 0:
         _fail("invalid_revision")
-    if inactive_start_source not in _INACTIVE_SOURCES:
+    if (
+        not isinstance(inactive_start_source, str)
+        or inactive_start_source not in _INACTIVE_SOURCES
+    ):
         _fail("invalid_source")
     expected_id = stable_life_record_id(start, end)
     if not isinstance(id, str) or id != expected_id:
         _fail("invalid_id")
     frozen_ending = MappingProxyType(
-        {"place": parsed_ending.place, "status": parsed_ending.status}
+        {"place": parsed_ending.place, "summary": parsed_ending.summary}
     )
     return LifeRecord(
         id=id,
