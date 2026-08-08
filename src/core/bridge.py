@@ -20,6 +20,7 @@ from .bridge_mixins.away import AwayNudgeBridgeMixin
 from .bridge_mixins.chat_flow import ChatFlowBridgeMixin
 from .bridge_mixins.goals import GoalBridgeMixin
 from .bridge_mixins.live2d_parameters import Live2DParameterBridgeMixin
+from .bridge_mixins.life_records import LifeRecordBridgeMixin
 from .bridge_mixins.memory_summary import MemorySummaryBridgeMixin
 from .bridge_mixins.mood import MoodBridgeMixin
 from .bridge_mixins.obsidian import ObsidianBridgeMixin
@@ -43,6 +44,7 @@ class WebBridge(
     AwayNudgeBridgeMixin,
     AttachmentBridgeMixin,
     Live2DParameterBridgeMixin,
+    LifeRecordBridgeMixin,
     ChatFlowBridgeMixin,
     GoalBridgeMixin,
     MoodBridgeMixin,
@@ -62,6 +64,7 @@ class WebBridge(
     gesture_requested = pyqtSignal(str)  # 합성 Live2D 제스처 키
     request_pending_changed = pyqtSignal(bool)  # LLM 응답 생성 진행 상태
     request_pending_stage_changed = pyqtSignal(str)  # thinking/searching
+    life_record_notice = pyqtSignal(str)  # 안전한 생활 기록 상태 코드
     expression_changed = pyqtSignal(str)     # 표정 변경
     lip_sync_update = pyqtSignal(float)      # 립싱크 업데이트 (mouth_value)
     mouth_pose_update = pyqtSignal(str)      # 모델 적응형 입모양 JSON

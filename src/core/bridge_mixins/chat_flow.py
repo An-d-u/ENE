@@ -2,6 +2,7 @@
 WebBridge의 일반 채팅 요청, 재시도, 응답 완료 흐름.
 """
 import json
+from datetime import datetime
 from functools import partial
 
 from PyQt6.QtCore import pyqtSlot
@@ -16,6 +17,7 @@ from ...ai.response_protocol import (
     ResponseMode,
 )
 from ..bridge_workers import AIWorker
+from .life_records import LifeRecordBridgeMixin, PreparedChatRequest
 from ..chat_attachments import (
     build_attachment_context_block,
     build_attachment_note,
@@ -72,7 +74,12 @@ def _response_log_metadata(metadata: object) -> tuple[str, str, str]:
 class ChatFlowBridgeMixin:
     def _emit_request_pending_stage_changed(self, stage: str):
         normalized = str(stage or "").strip().lower()
-        if normalized not in {"thinking", "searching"}:
+        if normalized not in {
+            "life_record",
+            "life_record_regeneration",
+            "thinking",
+            "searching",
+        }:
             normalized = "thinking"
         signal = getattr(self, "request_pending_stage_changed", None)
         if signal and hasattr(signal, "emit"):
@@ -290,7 +297,13 @@ class ChatFlowBridgeMixin:
         print("[Bridge] /note worker thread started")
         return True
 
-    def _build_general_chat_prompt(self, message: str, attachment_context: str = "") -> str:
+    def _build_general_chat_prompt(
+        self,
+        message: str,
+        attachment_context: str = "",
+        *,
+        language: str | None = None,
+    ) -> str:
         """
         일반 채팅 프롬프트를 구성한다.
         체크된 파일 본문과 이번 턴 첨부 자료만 현재 요청에 포함한다.
@@ -300,7 +313,11 @@ class ChatFlowBridgeMixin:
             message,
             obsidian_context=obs_context,
             attachment_context=str(attachment_context or "").strip(),
-            language=self._prompt_language(),
+            language=(
+                language
+                if language in {"ko", "en", "ja"}
+                else self._prompt_language()
+            ),
         )
 
     def _resolve_memory_search_turns(self) -> int:
@@ -356,11 +373,17 @@ class ChatFlowBridgeMixin:
     @pyqtSlot(str)
     def send_to_ai(self, message: str):
         """JavaScript에서 호출: 사용자 텍스트 메시지를 AI로 전송."""
+        capture_received_at = getattr(self, "_capture_life_received_at", None)
+        received_at = (
+            capture_received_at()
+            if callable(capture_received_at)
+            else datetime.now().astimezone().replace(microsecond=0)
+        )
+        accepts_input = getattr(self, "_life_operation_accepts_input", None)
+        if callable(accepts_input) and not accepts_input():
+            print("[Bridge] request_rejected category=busy request_type=text")
+            return
         print(f"[Bridge] message_received message_chars={_safe_text_length(message)}")
-
-        if hasattr(self, 'calendar_manager') and self.calendar_manager:
-            self.calendar_manager.increment_conversation_count()
-            print("[Bridge] 대화 횟수 증가")
 
         if not self.llm_client:
             print("[Bridge] LLM client not initialized")
@@ -376,42 +399,89 @@ class ChatFlowBridgeMixin:
         if self._handle_diary_command(message):
             return
 
-        timestamp = self._now_timestamp()
-        prompt = self._build_general_chat_prompt(message)
-        with_prompt_time = getattr(self, "_with_prompt_time", None)
-        if callable(with_prompt_time):
-            message_with_time = with_prompt_time(timestamp, prompt)
-        else:
-            message_with_time = _prompt_time_header(
-                timestamp,
-                resolve_prompt_language(settings_source=getattr(self, "settings", None)),
-            ) + f"\n{prompt}"
-        memory_search_inputs = self._build_memory_search_inputs(message, timestamp)
-        memory_search_text = memory_search_inputs["memory_search_text"]
         head_pat_count_before_message = 0
         if hasattr(self, 'calendar_manager') and self.calendar_manager:
-            head_pat_count_before_message = int(self.calendar_manager.drain_pending_head_pat_count())
+            getter = getattr(self.calendar_manager, "get_pending_head_pat_count", None)
+            if callable(getter):
+                head_pat_count_before_message = int(getter())
+        prepare_request = getattr(self, "_prepare_chat_request", None)
+        if callable(prepare_request):
+            prepared = prepare_request(
+                received_at=received_at,
+                request_type="text",
+                message=message,
+                head_pat_count_before_message=head_pat_count_before_message,
+            )
+        else:
+            prepared = PreparedChatRequest(
+                received_at=received_at,
+                language=resolve_prompt_language(
+                    settings_source=getattr(self, "settings", None)
+                ),
+                mood_snapshot=LifeRecordBridgeMixin._snapshot_life_mood(self),
+                request_type="text",
+                message=message,
+                head_pat_count_before_message=head_pat_count_before_message,
+            )
+        dispatch = getattr(self, "_dispatch_general_request", None)
+        if callable(dispatch):
+            dispatch(prepared)
+        else:
+            self._mark_user_activity()
+            self._commit_prepared_chat_request(prepared)
+
+    def _commit_prepared_chat_request(self, request: PreparedChatRequest) -> None:
+        """보류 가능 요청의 일반 대화 부수효과를 정확히 한 번 적용한다."""
+        if request.request_type == "attachments":
+            commit_attachments = getattr(self, "_commit_prepared_attachment_request", None)
+            if not callable(commit_attachments):
+                raise RuntimeError("attachment_commit_unavailable")
+            commit_attachments(request)
+            return
+
+        legacy_direct_mixin = not hasattr(self, "life_record_state")
+        timestamp = (
+            self._now_timestamp()
+            if legacy_direct_mixin
+            else request.received_at.strftime("%Y-%m-%d %H:%M")
+        )
+        if legacy_direct_mixin:
+            prompt = self._build_general_chat_prompt(request.message)
+        else:
+            prompt = self._build_general_chat_prompt(
+                request.message,
+                language=request.language,
+            )
+        message_with_time = (
+            self._with_prompt_time(timestamp, prompt)
+            if legacy_direct_mixin
+            else f"{_prompt_time_header(timestamp, request.language)}\n{prompt}"
+        )
+        memory_search_inputs = self._build_memory_search_inputs(request.message, timestamp)
+        memory_search_text = memory_search_inputs["memory_search_text"]
+        if hasattr(self, "calendar_manager") and self.calendar_manager:
+            self.calendar_manager.increment_conversation_count()
+            drain = getattr(self.calendar_manager, "drain_pending_head_pat_count", None)
+            if callable(drain):
+                drain()
+            print("[Bridge] 대화 횟수 증가")
         print(f"[Bridge] prompt_built prompt_chars={_safe_text_length(message_with_time)}")
 
-        cancel_proactive = getattr(self, "_cancel_pending_proactive_conversations_for_user_message", None)
-        if callable(cancel_proactive):
-            cancel_proactive()
-        self._mark_user_activity()
-        self._append_conversation("user", message, timestamp)
+        self._append_conversation("user", request.message, timestamp)
         if self.mood_manager:
-            snapshot = self.mood_manager.on_user_message(message, image_count=0)
+            snapshot = self.mood_manager.on_user_message(request.message, image_count=0)
             self._emit_mood_changed(snapshot)
 
         self._last_request_payload = {
             "type": "text",
-            "message": message,
+            "message": request.message,
             "message_with_time": message_with_time,
             "images": [],
             "attachment_context": "",
             "memory_search_text": memory_search_text,
             "latest_user_message": memory_search_inputs["latest_user_message"],
             "recent_memory_context": memory_search_inputs["recent_context_text"],
-            "head_pat_count_before_message": head_pat_count_before_message,
+            "head_pat_count_before_message": request.head_pat_count_before_message,
             "include_life_record_context": True,
         }
         self._is_rerolling = False
@@ -421,7 +491,7 @@ class ChatFlowBridgeMixin:
             memory_search_text=memory_search_text,
             latest_user_message=memory_search_inputs["latest_user_message"],
             recent_memory_context=memory_search_inputs["recent_context_text"],
-            head_pat_count_before_message=head_pat_count_before_message,
+            head_pat_count_before_message=request.head_pat_count_before_message,
             include_life_record_context=True,
         )
         print("[Bridge] Worker thread started")
