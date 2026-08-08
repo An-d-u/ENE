@@ -1169,6 +1169,7 @@
         "load_done": "プロンプト Markdown 読み込み完了",
         "load_failed": "読み込み失敗: {error}",
         "life_world_default_failed": "生活環境の既定値を読み込めませんでした。",
+        "reload_required": "プロンプトを再読み込みしてから保存してください。",
         "save_done": "プロンプト Markdown 保存完了",
         "save_failed": "保存失敗: {error}"
       },
@@ -1187,6 +1188,10 @@
         "load_failed": {
           "title": "読み込み失敗",
           "body": "プロンプト設定を読み込めませんでした。\n{error}"
+        },
+        "reload_required": {
+          "title": "再読み込みが必要です",
+          "body": "一部のプロンプトを読み込めなかったため、保存を中止しました。プロンプトを再読み込みしてから保存してください。"
         },
         "save_done": {
           "title": "保存完了",

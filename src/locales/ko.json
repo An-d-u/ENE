@@ -1223,6 +1223,7 @@
         "load_done": "프롬프트 Markdown 로드 완료",
         "load_failed": "로드 실패: {error}",
         "life_world_default_failed": "생활 환경 기본값을 불러오지 못했습니다.",
+        "reload_required": "프롬프트를 다시 불러온 뒤 저장하세요.",
         "save_done": "프롬프트 Markdown 저장 완료",
         "save_failed": "저장 실패: {error}"
       },
@@ -1241,6 +1242,10 @@
         "load_failed": {
           "title": "불러오기 실패",
           "body": "프롬프트 설정을 불러오지 못했습니다.\n{error}"
+        },
+        "reload_required": {
+          "title": "다시 불러오기 필요",
+          "body": "일부 프롬프트를 불러오지 못해 저장을 중단했습니다. 프롬프트를 다시 불러온 뒤 저장하세요."
         },
         "save_done": {
           "title": "저장 완료",

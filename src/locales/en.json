@@ -1221,6 +1221,7 @@
         "load_done": "Prompt Markdown loaded",
         "load_failed": "Load failed: {error}",
         "life_world_default_failed": "Could not load the default Life World.",
+        "reload_required": "Reload the prompts before saving.",
         "save_done": "Prompt Markdown saved",
         "save_failed": "Save failed: {error}"
       },
@@ -1239,6 +1240,10 @@
         "load_failed": {
           "title": "Load failed",
           "body": "Could not load prompt settings.\n{error}"
+        },
+        "reload_required": {
+          "title": "Reload required",
+          "body": "Saving was stopped because some prompts could not be loaded. Reload the prompts before saving."
         },
         "save_done": {
           "title": "Save complete",
