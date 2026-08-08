@@ -48,6 +48,7 @@ PROMPT_MARKDOWN_FILENAMES = (
     "emotion_guides.md",
     LIFE_WORLD_PROMPT_FILENAME,
 )
+PROMPT_FILE_PRESENT_MARKER = "P:"
 
 GENERATED_SUB_PROMPT_SECTION_TITLES = {
     "감정 표현 규칙",
@@ -221,14 +222,17 @@ def _read_prompt_file_via_powershell(path: Path) -> bytes | None:
             [
                 f"$path = '{file_text}'",
                 "if (-not (Test-Path -LiteralPath $path)) { exit 0 }",
-                "[Console]::Write([Convert]::ToBase64String([IO.File]::ReadAllBytes($path)))",
+                f"[Console]::Write('{PROMPT_FILE_PRESENT_MARKER}' + "
+                "[Convert]::ToBase64String([IO.File]::ReadAllBytes($path)))",
             ]
         )
     )
     payload = str(result.stdout or "").strip()
     if not payload:
         return None
-    return base64.b64decode(payload)
+    if not payload.startswith(PROMPT_FILE_PRESENT_MARKER):
+        raise ValueError("unexpected prompt file bridge response")
+    return base64.b64decode(payload.removeprefix(PROMPT_FILE_PRESENT_MARKER))
 
 
 def _write_prompt_file_via_powershell(path: Path, payload: bytes) -> None:
@@ -296,6 +300,20 @@ def _sync_runtime_prompt_files_to_visible_roaming() -> None:
         pass
 
 
+def _sync_runtime_life_world_prompt_to_visible_roaming() -> None:
+    if not _should_sync_store_python_prompt_dirs() or not LIFE_WORLD_PROMPT_PATH.exists():
+        return
+    try:
+        visible_path = _get_visible_prompt_config_dir() / LIFE_WORLD_PROMPT_FILENAME
+        if _get_visible_prompt_config_dir() == Path(PROMPT_CONFIG_DIR):
+            _write_prompt_file_via_powershell(visible_path, LIFE_WORLD_PROMPT_PATH.read_bytes())
+            return
+        visible_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(LIFE_WORLD_PROMPT_PATH, visible_path)
+    except Exception:
+        pass
+
+
 def ensure_prompt_config_exists() -> Path:
     _sync_visible_roaming_prompt_files_to_runtime()
     _copy_default_if_missing(BASE_SYSTEM_PROMPT_PATH, DEFAULT_BASE_SYSTEM_PROMPT_PATH)
@@ -316,7 +334,7 @@ def save_life_world_prompt(text: str) -> str:
     """생활 환경 프롬프트를 UTF-8로 저장한다."""
     normalized = str(text or "").replace("\r\n", "\n").strip("\n")
     _write_text_file(LIFE_WORLD_PROMPT_PATH, normalized)
-    _sync_runtime_prompt_files_to_visible_roaming()
+    _sync_runtime_life_world_prompt_to_visible_roaming()
     return normalized
 
 
