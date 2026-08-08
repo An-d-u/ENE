@@ -6,6 +6,7 @@ import asyncio
 import json
 from pathlib import Path
 
+from PyQt6 import sip
 from PyQt6.QtWidgets import QApplication, QMessageBox
 from PyQt6.QtCore import QObject, QTimer
 
@@ -1022,26 +1023,46 @@ class ENEApplication(QObject):
         self._finish_quit_application()
 
     @staticmethod
+    def _shutdown_qt_object_is_deleted(value) -> bool:
+        try:
+            return sip.isdeleted(value) is True
+        except (TypeError, RuntimeError):
+            return False
+
+    @staticmethod
+    def _shutdown_safe_getattr(owner, name: str, default=None):
+        """삭제된 Qt wrapper를 포함한 종료 객체의 속성을 안전하게 읽는다."""
+        if owner is None:
+            return default
+        try:
+            return getattr(owner, name, default)
+        except Exception:
+            return default
+
+    @staticmethod
     def _shutdown_worker_is_running(worker) -> bool:
-        checker = getattr(worker, "isRunning", None)
+        try:
+            checker = getattr(worker, "isRunning", None)
+        except Exception:
+            return not ENEApplication._shutdown_qt_object_is_deleted(worker)
         if not callable(checker):
             return False
         try:
             return checker() is True
         except Exception:
-            return True
+            return not ENEApplication._shutdown_qt_object_is_deleted(worker)
 
     def _collect_shutdown_workers(self, bridge) -> list:
         """종료 barrier가 소유해야 할 실행 중 worker를 중복 없이 모은다."""
         candidates = [
-            getattr(bridge, "worker", None),
-            getattr(bridge, "tts_worker", None),
-            getattr(bridge, "_summary_review_worker", None),
-            getattr(bridge, "obs_tree_worker", None),
-            getattr(bridge, "obs_checked_files_worker", None),
+            self._shutdown_safe_getattr(bridge, "worker"),
+            self._shutdown_safe_getattr(bridge, "tts_worker"),
+            self._shutdown_safe_getattr(bridge, "_summary_review_worker"),
+            self._shutdown_safe_getattr(bridge, "obs_tree_worker"),
+            self._shutdown_safe_getattr(bridge, "obs_checked_files_worker"),
         ]
-        state = getattr(bridge, "life_record_state", None)
-        candidates.append(getattr(state, "worker", None))
+        state = self._shutdown_safe_getattr(bridge, "life_record_state")
+        candidates.append(self._shutdown_safe_getattr(state, "worker"))
         workers = []
         seen = set()
         for worker in candidates:
@@ -1051,6 +1072,56 @@ class ENEApplication(QObject):
             seen.add(identity)
             if self._shutdown_worker_is_running(worker):
                 workers.append(worker)
+        return workers
+
+    def _prepare_shutdown_worker(
+        self,
+        worker,
+        *,
+        interruption_already_requested: bool = False,
+    ) -> None:
+        """새로 발견한 worker를 취소하고 종료 신호를 drain 확인에 연결한다."""
+        if not interruption_already_requested:
+            interrupt = self._shutdown_safe_getattr(worker, "requestInterruption")
+            if callable(interrupt):
+                try:
+                    interrupt()
+                except Exception:
+                    pass
+        request_stop = self._shutdown_safe_getattr(worker, "request_stop")
+        if callable(request_stop):
+            try:
+                request_stop()
+            except Exception:
+                pass
+        finished = self._shutdown_safe_getattr(worker, "finished")
+        connect = self._shutdown_safe_getattr(finished, "connect")
+        if callable(connect):
+            try:
+                connect(self._schedule_shutdown_drain_check)
+            except Exception:
+                pass
+
+    def _refresh_shutdown_workers(
+        self,
+        bridge,
+        *,
+        state_interrupted_worker=None,
+    ) -> list:
+        """매 poll의 worker 스냅샷을 기존 강한 참조와 합친다."""
+        workers = list(getattr(self, "_shutdown_worker_refs", []))
+        seen = {id(worker) for worker in workers}
+        for worker in self._collect_shutdown_workers(bridge):
+            identity = id(worker)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            workers.append(worker)
+            self._prepare_shutdown_worker(
+                worker,
+                interruption_already_requested=worker is state_interrupted_worker,
+            )
+        self._shutdown_worker_refs = workers
         return workers
 
     def _schedule_shutdown_drain_check(self) -> None:
@@ -1081,7 +1152,9 @@ class ENEApplication(QObject):
         self._shutdown_drain_check_scheduled = False
         if getattr(self, "_shutdown_completed", False):
             return
-        workers = list(getattr(self, "_shutdown_worker_refs", []))
+        overlay = self._shutdown_safe_getattr(self, "overlay_window")
+        bridge = self._shutdown_safe_getattr(overlay, "bridge")
+        workers = self._refresh_shutdown_workers(bridge)
         if not any(self._shutdown_worker_is_running(worker) for worker in workers):
             self._complete_shutdown(workers_drained=True)
             return
@@ -1094,24 +1167,31 @@ class ENEApplication(QObject):
 
     @staticmethod
     def _stop_timer_safely(timer) -> None:
-        stop = getattr(timer, "stop", None)
+        stop = ENEApplication._shutdown_safe_getattr(timer, "stop")
         if callable(stop):
             try:
                 stop()
             except Exception:
                 pass
 
-    def _stop_shutdown_timers(self, bridge) -> None:
-        self._stop_timer_safely(getattr(self, "system_theme_timer", None))
-        self._stop_timer_safely(getattr(self, "life_heartbeat_timer", None))
-        stop_away = getattr(bridge, "stop_away_monitor", None)
+    def _stop_shutdown_worker_producers(self, bridge) -> None:
+        """첫 worker 스냅샷 전에 새 작업을 만들 수 있는 타이머를 멈춘다."""
+        if getattr(self, "_shutdown_worker_producers_stopped", False):
+            return
+        self._shutdown_worker_producers_stopped = True
+        stop_away = self._shutdown_safe_getattr(bridge, "stop_away_monitor")
         if callable(stop_away):
             try:
                 stop_away()
             except Exception:
                 pass
         for name in ("promise_timer", "proactive_timer", "obs_tree_retry_timer"):
-            self._stop_timer_safely(getattr(bridge, name, None))
+            self._stop_timer_safely(self._shutdown_safe_getattr(bridge, name))
+
+    def _stop_shutdown_timers(self, bridge) -> None:
+        self._stop_shutdown_worker_producers(bridge)
+        self._stop_timer_safely(self._shutdown_safe_getattr(self, "system_theme_timer"))
+        self._stop_timer_safely(self._shutdown_safe_getattr(self, "life_heartbeat_timer"))
 
     def _complete_shutdown(self, *, workers_drained: bool) -> None:
         """drain 결과에 맞춰 세션 commit과 UI teardown을 한 번만 수행한다."""
@@ -1193,7 +1273,9 @@ class ENEApplication(QObject):
             return
         if getattr(self, "_quit_in_progress", False):
             if _about_to_quit:
-                workers = list(getattr(self, "_shutdown_worker_refs", []))
+                overlay = self._shutdown_safe_getattr(self, "overlay_window")
+                bridge = self._shutdown_safe_getattr(overlay, "bridge")
+                workers = self._refresh_shutdown_workers(bridge)
                 drained = not any(
                     self._shutdown_worker_is_running(worker) for worker in workers
                 )
@@ -1223,29 +1305,12 @@ class ENEApplication(QObject):
                 except Exception:
                     pass
 
-        workers = self._collect_shutdown_workers(bridge)
-        self._shutdown_worker_refs = workers
-        for worker in workers:
-            if worker is not life_worker:
-                interrupt = getattr(worker, "requestInterruption", None)
-                if callable(interrupt):
-                    try:
-                        interrupt()
-                    except Exception:
-                        pass
-            request_stop = getattr(worker, "request_stop", None)
-            if callable(request_stop):
-                try:
-                    request_stop()
-                except Exception:
-                    pass
-            finished = getattr(worker, "finished", None)
-            connect = getattr(finished, "connect", None)
-            if callable(connect):
-                try:
-                    connect(self._schedule_shutdown_drain_check)
-                except Exception:
-                    pass
+        self._stop_shutdown_worker_producers(bridge)
+        self._shutdown_worker_refs = []
+        workers = self._refresh_shutdown_workers(
+            bridge,
+            state_interrupted_worker=life_worker,
+        )
 
         if not any(self._shutdown_worker_is_running(worker) for worker in workers):
             self._complete_shutdown(workers_drained=True)

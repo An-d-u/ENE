@@ -6,7 +6,8 @@ from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
-from PyQt6.QtCore import QObject
+from PyQt6 import sip
+from PyQt6.QtCore import QObject, QThread
 
 from src.core.app import ENEApplication
 from src.core.bridge_state import LifeRecordBridgeState
@@ -273,6 +274,9 @@ def _shutdown_app(monkeypatch, *, workers=(), stop_result=True, poll_limit=3):
     )[-1]
     bridge.promise_timer = SimpleNamespace(stop=lambda: order.append("promise_timer"))
     bridge.proactive_timer = SimpleNamespace(stop=lambda: order.append("proactive_timer"))
+    bridge.obs_tree_retry_timer = SimpleNamespace(
+        stop=lambda: order.append("obs_tree_retry_timer")
+    )
     app.overlay_window = SimpleNamespace(
         bridge=bridge,
         shutdown=lambda: order.append("overlay_shutdown"),
@@ -422,3 +426,118 @@ def test_shutdown_scheduler_failure_uses_forced_path_without_stop_commit(monkeyp
     assert app.life_session_tracker.stop_calls == 0
     assert app.life_session_tracker.release_calls == 1
     assert "qapplication_quit" in order
+
+
+def test_shutdown_treats_deleted_qthread_wrapper_as_already_drained(monkeypatch):
+    worker = QThread()
+    sip.delete(worker)
+    app, bridge, _scheduler, order = _shutdown_app(monkeypatch, workers=(worker,))
+    bridge.tts_worker = worker
+    bridge.life_record_state.worker = worker
+
+    app._finish_quit_application()
+
+    assert app.life_session_tracker.stop_calls == 1
+    assert app.life_session_tracker.release_calls == 1
+    assert "qapplication_quit" in order
+
+
+def test_shutdown_status_failure_for_live_worker_preserves_running_session(monkeypatch):
+    class StatusFailureWorker:
+        def isRunning(self):
+            raise RuntimeError("Synthetic status failure")
+
+        @property
+        def requestInterruption(self):
+            raise RuntimeError("Synthetic interruption lookup failure")
+
+        @property
+        def request_stop(self):
+            raise RuntimeError("Synthetic stop lookup failure")
+
+        @property
+        def finished(self):
+            raise RuntimeError("Synthetic signal lookup failure")
+
+    worker = StatusFailureWorker()
+    app, _bridge, scheduler, _order = _shutdown_app(
+        monkeypatch,
+        workers=(worker,),
+        poll_limit=1,
+    )
+
+    app._finish_quit_application()
+
+    assert app.life_session_tracker.stop_calls == 0
+    assert scheduler.pending
+    scheduler.run_next()
+    assert app.life_session_tracker.stop_calls == 0
+    assert app.life_session_tracker.release_calls == 1
+
+
+def test_shutdown_discovers_replacement_worker_and_keeps_it_until_drained(monkeypatch):
+    worker_order = []
+    original = _ShutdownWorker(worker_order, "original")
+    replacement = _ShutdownWorker(worker_order, "replacement")
+    app, bridge, scheduler, _order = _shutdown_app(
+        monkeypatch,
+        workers=(original,),
+    )
+
+    app._finish_quit_application()
+    original.finish()
+    bridge.worker = replacement
+    scheduler.run_next()
+
+    assert "interrupt:replacement" in worker_order
+    assert replacement in app._shutdown_worker_refs
+    assert app.life_session_tracker.stop_calls == 0
+    bridge.worker = None
+    scheduler.run_next()
+    assert app.life_session_tracker.stop_calls == 0
+
+    replacement.finish()
+    while scheduler.pending:
+        scheduler.run_next()
+
+    assert app.life_session_tracker.stop_calls == 1
+
+
+def test_shutdown_stops_worker_producers_before_first_snapshot(monkeypatch):
+    app, bridge, _scheduler, order = _shutdown_app(monkeypatch)
+    observed = []
+    original_collect = app._collect_shutdown_workers
+
+    def collect(current_bridge):
+        observed.extend(order)
+        return original_collect(current_bridge)
+
+    app._collect_shutdown_workers = collect
+
+    app._finish_quit_application()
+
+    assert observed.index("begin_shutdown") < observed.index("stop_away_monitor")
+    for event in ("promise_timer", "proactive_timer", "obs_tree_retry_timer"):
+        assert event in observed
+    assert "life_timer" not in observed
+    assert order.index("life_timer") < order.index("stop_session")
+
+
+def test_shutdown_deduplicates_worker_aliases_when_discovered_during_drain(monkeypatch):
+    worker_order = []
+    original = _ShutdownWorker(worker_order, "original")
+    discovered = _ShutdownWorker(worker_order, "discovered")
+    app, bridge, scheduler, _order = _shutdown_app(
+        monkeypatch,
+        workers=(original,),
+    )
+
+    app._finish_quit_application()
+    bridge.worker = discovered
+    bridge.tts_worker = discovered
+    bridge.obs_tree_worker = discovered
+    scheduler.run_next()
+
+    assert worker_order.count("interrupt:discovered") == 1
+    assert app._shutdown_worker_refs.count(discovered) == 1
+    assert len(discovered.finished.callbacks) == 1
