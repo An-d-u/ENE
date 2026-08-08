@@ -10,6 +10,7 @@ JS_CALLABLE_BRIDGE_METHODS = {
     "get_obs_tree_json",
     "increment_head_pat_count_from_js",
     "open_settings_dialog",
+    "open_settings_dialog_section",
     "preview_attachments",
     "refresh_obs_tree",
     "request_goal_items",

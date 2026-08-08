@@ -109,6 +109,18 @@ def test_open_settings_dialog_slot_calls_registered_callback():
     assert calls == ["opened"]
 
 
+def test_open_settings_dialog_section_slot_calls_registered_callback_with_safe_destination():
+    _ensure_qt_app()
+    bridge = WebBridge()
+    calls = []
+    bridge.set_settings_dialog_opener(lambda section=None: calls.append(section))
+
+    bridge.open_settings_dialog_section("life_world")
+    bridge.open_settings_dialog_section("private-unknown-section")
+
+    assert calls == ["life_world"]
+
+
 def test_save_chat_panel_height_slot_updates_settings_and_persists():
     _ensure_qt_app()
 

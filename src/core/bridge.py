@@ -210,6 +210,14 @@ class WebBridge(
             self._settings_dialog_opener()
 
     @pyqtSlot(str)
+    def open_settings_dialog_section(self, section_id: str):
+        """JS에서 허용된 설정 위치를 지정해 설정창을 연다."""
+        if section_id != "life_world":
+            return
+        if callable(self._settings_dialog_opener):
+            self._settings_dialog_opener(section_id)
+
+    @pyqtSlot(str)
     def save_chat_panel_height(self, height: str):
         """JS에서 호출: 채팅 패널 높이를 설정에 저장한다."""
         if not self.settings:
