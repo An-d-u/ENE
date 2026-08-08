@@ -135,6 +135,10 @@ class AttachmentBridgeMixin:
     @pyqtSlot(str)
     def preview_attachments(self, attachments_json: str):
         """프런트가 첨부 미리보기 옆에 표시할 메타데이터를 계산한다."""
+        accepts_input = getattr(self, "_life_operation_accepts_input", None)
+        if callable(accepts_input) and not accepts_input():
+            print("[Bridge] request_rejected category=busy request_type=attachment_preview")
+            return
         try:
             attachments_data = json.loads(attachments_json) if attachments_json else []
         except Exception as e:
@@ -266,10 +270,17 @@ class AttachmentBridgeMixin:
             from .chat_flow import _prompt_time_header
 
             message_with_time = f"{_prompt_time_header(timestamp, request.language)}\n{prompt}"
-        memory_search_inputs = self._build_memory_search_inputs(
-            effective_message,
-            timestamp,
-        )
+        if legacy_direct_mixin:
+            memory_search_inputs = self._build_memory_search_inputs(
+                effective_message,
+                timestamp,
+            )
+        else:
+            memory_search_inputs = self._build_memory_search_inputs(
+                effective_message,
+                timestamp,
+                language=request.language,
+            )
         memory_search_text = memory_search_inputs["memory_search_text"]
         if hasattr(self, "calendar_manager") and self.calendar_manager:
             increment = getattr(self.calendar_manager, "increment_conversation_count", None)
@@ -345,6 +356,10 @@ class AttachmentBridgeMixin:
     @pyqtSlot(str, str)
     def delete_message_attachment(self, message_id: str, attachment_id: str):
         """전송된 사용자 메시지 안의 이미지 첨부 하나를 삭제 상태로 바꾼다."""
+        accepts_input = getattr(self, "_life_operation_accepts_input", None)
+        if callable(accepts_input) and not accepts_input():
+            print("[Bridge] request_rejected category=busy request_type=attachment_delete")
+            return
         normalized_message_id = str(message_id or "").strip()
         normalized_attachment_id = str(attachment_id or "").strip()
         if not normalized_message_id or not normalized_attachment_id:

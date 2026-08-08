@@ -149,6 +149,27 @@ class ChatFlowBridgeMixin:
             state.finish_operation(operation_id)
         self._drain_queues_after_worker_finished()
 
+    def _restore_failed_worker_start(self, operation_id: int) -> None:
+        """worker 시작 실패가 phase와 프런트 pending 상태를 남기지 않게 한다."""
+        state = getattr(self, "life_record_state", None)
+        if state is not None:
+            state.finish_operation(operation_id)
+        self.worker = None
+        reset_pending = getattr(self, "_reset_pending_ui_state", None)
+        if callable(reset_pending):
+            reset_pending()
+            return
+        self._is_rerolling = False
+        stage_signal = getattr(self, "request_pending_stage_changed", None)
+        if stage_signal is not None and hasattr(stage_signal, "emit"):
+            stage_signal.emit("thinking")
+        pending_signal = getattr(self, "request_pending_changed", None)
+        if pending_signal is not None and hasattr(pending_signal, "emit"):
+            pending_signal.emit(False)
+        reroll_signal = getattr(self, "reroll_state_changed", None)
+        if reroll_signal is not None and hasattr(reroll_signal, "emit"):
+            reroll_signal.emit(False)
+
     def _start_ai_worker(
         self,
         message_with_time: str,
@@ -199,9 +220,11 @@ class ChatFlowBridgeMixin:
             self.worker.start()
             return True
         except Exception:
-            state = getattr(self, "life_record_state", None)
-            if state is not None:
-                state.finish_operation(operation_id)
+            restore = getattr(self, "_restore_failed_worker_start", None)
+            if callable(restore):
+                restore(operation_id)
+            else:
+                ChatFlowBridgeMixin._restore_failed_worker_start(self, operation_id)
             raise
 
     def _start_diary_worker(self, diary_request: str, message_with_time: str, use_obsidian_priority: bool = False):
@@ -237,9 +260,11 @@ class ChatFlowBridgeMixin:
             self.worker.start()
             return True
         except Exception:
-            state = getattr(self, "life_record_state", None)
-            if state is not None:
-                state.finish_operation(operation_id)
+            restore = getattr(self, "_restore_failed_worker_start", None)
+            if callable(restore):
+                restore(operation_id)
+            else:
+                ChatFlowBridgeMixin._restore_failed_worker_start(self, operation_id)
             raise
 
     def _start_note_worker(self, note_request: str, message_with_time: str, note_recent_context: str = ""):
@@ -276,9 +301,11 @@ class ChatFlowBridgeMixin:
             self.worker.start()
             return True
         except Exception:
-            state = getattr(self, "life_record_state", None)
-            if state is not None:
-                state.finish_operation(operation_id)
+            restore = getattr(self, "_restore_failed_worker_start", None)
+            if callable(restore):
+                restore(operation_id)
+            else:
+                ChatFlowBridgeMixin._restore_failed_worker_start(self, operation_id)
             raise
 
     def _resolve_note_context_settings(self) -> tuple[bool, int]:
@@ -418,7 +445,13 @@ class ChatFlowBridgeMixin:
         """최신 메시지와 최근 보이는 대화 N턴으로 검색용 문자열을 만든다."""
         return ChatFlowBridgeMixin._build_memory_search_inputs(self, current_message, current_timestamp)["memory_search_text"]
 
-    def _build_memory_search_inputs(self, current_message: str, current_timestamp: str | None = None) -> dict[str, str]:
+    def _build_memory_search_inputs(
+        self,
+        current_message: str,
+        current_timestamp: str | None = None,
+        *,
+        language: str | None = None,
+    ) -> dict[str, str]:
         """장기기억 검색용 최신 메시지/보조 문맥/전체 텍스트를 각각 구성한다."""
         current = str(current_message or "").strip()
         turns = self._resolve_memory_search_turns()
@@ -426,7 +459,11 @@ class ChatFlowBridgeMixin:
         if turns > 0:
             entries = entries[-(turns * 2):]
 
-        language = resolve_prompt_language(settings_source=getattr(self, "settings", None))
+        resolved_language = (
+            language
+            if language in {"ko", "en", "ja"}
+            else resolve_prompt_language(settings_source=getattr(self, "settings", None))
+        )
         recent_lines: list[str] = []
         for item in entries:
             if not item or len(item) < 2:
@@ -436,7 +473,11 @@ class ChatFlowBridgeMixin:
             if not text:
                 continue
             timestamp = str(item[2]).strip() if len(item) >= 3 and item[2] else ""
-            role_label = _prompt_role_label(role, language, settings_source=getattr(self, "settings", None))
+            role_label = _prompt_role_label(
+                role,
+                resolved_language,
+                settings_source=getattr(self, "settings", None),
+            )
             recent_lines.append(prepend_message_time(f"[{role_label}] {text}", timestamp))
 
         memory_search_lines = list(recent_lines)
@@ -445,7 +486,7 @@ class ChatFlowBridgeMixin:
                 "ko": "현재 사용자 메시지",
                 "en": "Current User Message",
                 "ja": "現在のユーザーメッセージ",
-            }.get(language, "현재 사용자 메시지")
+            }.get(resolved_language, "현재 사용자 메시지")
             memory_search_lines.append(prepend_message_time(f"[{current_label}] {current}", current_timestamp))
 
         return {
@@ -541,7 +582,17 @@ class ChatFlowBridgeMixin:
             message_with_time = with_prompt_time(timestamp, prompt)
         else:
             message_with_time = f"{_prompt_time_header(timestamp, request.language)}\n{prompt}"
-        memory_search_inputs = self._build_memory_search_inputs(request.message, timestamp)
+        if legacy_direct_mixin:
+            memory_search_inputs = self._build_memory_search_inputs(
+                request.message,
+                timestamp,
+            )
+        else:
+            memory_search_inputs = self._build_memory_search_inputs(
+                request.message,
+                timestamp,
+                language=request.language,
+            )
         memory_search_text = memory_search_inputs["memory_search_text"]
         committed_head_pat_count = request.head_pat_count_before_message
         if hasattr(self, "calendar_manager") and self.calendar_manager:
