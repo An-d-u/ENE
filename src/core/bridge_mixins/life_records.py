@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 import json
 from types import MappingProxyType
 from typing import Any, Literal, Mapping
+from zoneinfo import ZoneInfo
 
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import QTimer, pyqtSlot
+
+from ...ai.life_record_manager import LifeRecordManager, LifeRecordStoreError
 
 from ...ai.life_record_prompt import (
     LifeMoodSnapshot,
@@ -17,6 +20,7 @@ from ...ai.life_record_prompt import (
     snapshot_life_mood,
 )
 from ...ai.life_record_types import (
+    LifeRecord,
     create_life_record,
     life_record_to_dict,
     stable_life_record_id,
@@ -112,6 +116,37 @@ class PreparedChatRequest:
     def attachment_copies(self) -> list[dict[str, Any]]:
         """기존 첨부 파이프라인에 넘길 새 가변 사본을 만든다."""
         return [_thaw(item) for item in self.attachments]
+
+
+@dataclass(frozen=True, repr=False)
+class ManualLifeRecordRegeneration:
+    """수동 재생성 시작 시 고정한 대상과 실행 시점 정보."""
+
+    record: LifeRecord
+    language: Literal["ko", "en", "ja"]
+    updated_at: datetime
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.record, LifeRecord):
+            raise ValueError("invalid_regeneration_record")
+        if self.language not in _LANGUAGES:
+            raise ValueError("invalid_language")
+        value = self.updated_at
+        if (
+            not isinstance(value, datetime)
+            or value.tzinfo is None
+            or value.utcoffset() is None
+            or value.microsecond != 0
+        ):
+            raise ValueError("invalid_updated_at")
+
+    def __repr__(self) -> str:
+        return (
+            "ManualLifeRecordRegeneration("
+            f"record_id={self.record.id!r}, "
+            f"language={self.language!r}, "
+            f"updated_at={self.updated_at.isoformat()!r})"
+        )
 
 
 class LifeRecordBridgeMixin:
@@ -371,6 +406,212 @@ class LifeRecordBridgeMixin:
             )
         return manager
 
+    def _install_authoritative_life_record_manager(
+        self,
+        manager: LifeRecordManager,
+    ) -> None:
+        """권위 파일을 다시 읽은 manager를 모든 런타임 소비자에 연결한다."""
+        self.life_record_manager = manager
+        client = getattr(self, "llm_client", None)
+        if client is not None:
+            try:
+                client.life_record_manager = manager
+            except Exception:
+                pass
+
+    def _reload_authoritative_life_record_manager(self) -> LifeRecordManager:
+        manager = self._life_record_manager()
+        store_path = getattr(manager, "store_path", None)
+        if store_path is None:
+            raise LifeRecordStoreError("read_error")
+        authoritative = LifeRecordManager(store_path)
+        self._install_authoritative_life_record_manager(authoritative)
+        if authoritative.store_status == "read_error":
+            raise LifeRecordStoreError("read_error")
+        return authoritative
+
+    @pyqtSlot(str, str)
+    def request_life_records_for_date(
+        self,
+        iso_date: str,
+        request_id: str,
+    ) -> None:
+        """현재 표시 timezone의 날짜와 겹치는 공개 기록만 전달한다."""
+        try:
+            if (
+                type(iso_date) is not str
+                or len(iso_date) != 10
+                or date.fromisoformat(iso_date).isoformat() != iso_date
+            ):
+                raise ValueError("invalid_date")
+            requested_date = date.fromisoformat(iso_date)
+        except (TypeError, ValueError):
+            self._emit_life_record_notice("invalid_date")
+            return
+
+        state = self._get_life_record_state()
+        language = self._resolve_life_prompt_language()
+        try:
+            manager = self._reload_authoritative_life_record_manager()
+            records = manager.records_overlapping_date(
+                requested_date,
+                state.view_timezone,
+            )
+            public_records = [
+                manager.to_public_dict(record, state.view_timezone, language)
+                for record in records
+            ]
+        except LifeRecordStoreError as failure:
+            code = failure.code if failure.code in {"read_error", "invalid_view_timezone"} else "read_error"
+            self._emit_life_record_notice(code)
+            return
+        except Exception:
+            self._emit_life_record_notice("read_error")
+            return
+
+        payload = json.dumps(
+            {
+                "status": "ready",
+                "requested_date": iso_date,
+                "request_id": request_id if type(request_id) is str else "",
+                "view_timezone": state.view_timezone,
+                "language": language,
+                "records": public_records,
+                "latest_id": manager.latest().id if manager.latest() is not None else None,
+            },
+            ensure_ascii=False,
+        )
+        signal = getattr(self, "life_record_items_updated", None)
+        if signal is not None and hasattr(signal, "emit"):
+            try:
+                signal.emit(payload)
+            except Exception:
+                pass
+
+    @pyqtSlot(str)
+    def regenerate_latest_life_record(self, record_id: str) -> None:
+        """현재 전역 최신 기록만 별도 호출로 다시 만들기 시작한다."""
+        state = self._get_life_record_state()
+        if state.phase != "idle":
+            self._emit_life_record_notice("busy")
+            return
+        if not state.life_records_writable:
+            self._emit_life_record_notice(state.read_only_reason or "read_only")
+            return
+        if state.time_context is None:
+            self._emit_life_record_notice("timezone_unavailable")
+            return
+        try:
+            manager = self._reload_authoritative_life_record_manager()
+        except LifeRecordStoreError:
+            self._emit_life_record_notice("read_error")
+            return
+        latest = manager.latest()
+        if latest is None:
+            self._emit_life_record_notice("not_found")
+            return
+        if type(record_id) is not str or record_id != latest.id:
+            self._emit_life_record_notice("not_latest")
+            return
+        try:
+            world = self._load_life_world_for_gate()
+        except Exception:
+            self._emit_life_record_notice("world_unavailable")
+            return
+        if type(world) is not str or not world.strip():
+            self._emit_life_record_notice("world_empty")
+            return
+        language = self._resolve_life_prompt_language()
+        try:
+            now = state.time_context.canonicalize_endpoint(state.time_context.now())
+            record_zone = ZoneInfo(latest.timezone)
+            updated_at = now.astimezone(record_zone)
+            if updated_at.astimezone(timezone.utc) <= latest.updated_at.astimezone(timezone.utc):
+                updated_at = (
+                    latest.updated_at.astimezone(timezone.utc) + timedelta(seconds=1)
+                ).astimezone(record_zone)
+            pending = ManualLifeRecordRegeneration(
+                record=latest,
+                language=language,
+                updated_at=updated_at,
+            )
+        except Exception:
+            self._emit_life_record_notice("timezone_unavailable")
+            return
+        operation_id = state.try_begin_operation(
+            "manual_regenerating",
+            pending_request=pending,
+        )
+        if operation_id is None:
+            self._emit_life_record_notice("busy")
+            return
+        state.pending_world_markdown = world
+        self._emit_life_record_stage("life_record_regeneration")
+        self._emit_life_record_pending(True)
+        self._start_manual_life_record_regeneration(operation_id)
+
+    def _start_manual_life_record_regeneration(self, operation_id: int) -> None:
+        state = self._get_life_record_state()
+        if not state.matches_operation(operation_id, "manual_regenerating"):
+            return
+        pending = state.pending_request
+        if not isinstance(pending, ManualLifeRecordRegeneration):
+            self._fail_life_record_before_worker(operation_id)
+            return
+        target = pending.record
+        try:
+            manager = self._life_record_manager()
+            previous = manager.previous_before(target.id)
+            profile = self._life_profile_snapshot()
+            names = resolve_prompt_persona_names(
+                settings_source=getattr(self, "settings", None),
+                language=pending.language,
+            )
+            mood = target.mood_snapshot
+            context = LifeRecordGenerationContext(
+                inactive_started_at=target.inactive_started_at,
+                returned_at=target.returned_at,
+                timezone=target.timezone,
+                inactive_start_source=target.inactive_start_source,
+                world_markdown=state.pending_world_markdown,
+                ene_identity=profile["ene_identity"],
+                relationship_tone=profile["relationship_tone"],
+                profile_facts=profile["profile_facts"],
+                display_names={"assistant": names.assistant, "user": names.user},
+                previous_record=(
+                    life_record_to_dict(previous) if previous is not None else None
+                ),
+                mood_snapshot=LifeMoodSnapshot(
+                    label=mood["label"],
+                    valence=mood["valence"],
+                    energy=mood["energy"],
+                    bond=mood["bond"],
+                    stress=mood["stress"],
+                    short_term_mood=mood["short_term_mood"],
+                ),
+                language=pending.language,
+            )
+            request = LifeRecordGenerationRequest(
+                operation_id=operation_id,
+                prompt=build_life_record_prompt(context),
+                inactive_started_at=target.inactive_started_at,
+                returned_at=target.returned_at,
+                timezone=target.timezone,
+                language=pending.language,
+            )
+            worker = LifeRecordWorker(self.llm_client, request)
+            state.worker = worker
+            worker.result_ready.connect(self._stash_life_record_result)
+            worker.error_occurred.connect(self._stash_life_record_error)
+            worker.finished.connect(
+                lambda op=operation_id, owned_worker=worker: (
+                    self._on_life_record_worker_finished(op, owned_worker)
+                )
+            )
+            worker.start()
+        except Exception:
+            self._fail_life_record_before_worker(operation_id)
+
     def _life_profile_snapshot(self) -> dict[str, object]:
         profile = getattr(self, "ene_profile", None)
         exporter = getattr(profile, "export_life_record_profile", None)
@@ -396,15 +637,26 @@ class LifeRecordBridgeMixin:
 
     def _fail_life_record_before_worker(self, operation_id: int) -> None:
         state = self._get_life_record_state()
-        if not state.matches_operation(operation_id, "auto_generating"):
+        if not state.matches_operation(
+            operation_id,
+            "auto_generating",
+            "manual_regenerating",
+        ):
             return
         state.worker_error = "generation_failed"
         state.worker = None
-        self._finalize_life_record_operation(operation_id)
+        if state.phase == "manual_regenerating":
+            self._finalize_manual_life_record_regeneration(operation_id)
+        else:
+            self._finalize_life_record_operation(operation_id)
 
     def _stash_life_record_result(self, operation_id: int, result: object) -> None:
         state = self._get_life_record_state()
-        if not state.matches_operation(operation_id, "auto_generating"):
+        if not state.matches_operation(
+            operation_id,
+            "auto_generating",
+            "manual_regenerating",
+        ):
             return
         if state.worker_result is not None or state.worker_error is not None:
             return
@@ -418,7 +670,11 @@ class LifeRecordBridgeMixin:
 
     def _stash_life_record_error(self, operation_id: int, result: object) -> None:
         state = self._get_life_record_state()
-        if not state.matches_operation(operation_id, "auto_generating"):
+        if not state.matches_operation(
+            operation_id,
+            "auto_generating",
+            "manual_regenerating",
+        ):
             return
         if (
             isinstance(result, LifeRecordWorkerResult)
@@ -434,7 +690,11 @@ class LifeRecordBridgeMixin:
         state = self._get_life_record_state()
         if state.worker is not worker:
             return
-        if not state.matches_operation(operation_id, "auto_generating"):
+        if not state.matches_operation(
+            operation_id,
+            "auto_generating",
+            "manual_regenerating",
+        ):
             if state.phase == "shutting_down":
                 state.worker = None
             return
@@ -454,14 +714,80 @@ class LifeRecordBridgeMixin:
         state = self._get_life_record_state()
         if state.worker is not worker:
             return
-        if not state.matches_operation(operation_id, "auto_generating"):
+        if not state.matches_operation(
+            operation_id,
+            "auto_generating",
+            "manual_regenerating",
+        ):
             if state.phase == "shutting_down":
                 state.worker = None
             return
         if state.worker_result is None and state.worker_error is None:
-            state.worker_error = "generation_failed"
+            interrupted = getattr(worker, "isInterruptionRequested", None)
+            state.worker_error = (
+                "cancelled"
+                if callable(interrupted) and interrupted()
+                else "generation_failed"
+            )
         state.worker = None
-        self._finalize_life_record_operation(operation_id)
+        if state.phase == "manual_regenerating":
+            self._finalize_manual_life_record_regeneration(operation_id)
+        else:
+            self._finalize_life_record_operation(operation_id)
+
+    def _finalize_manual_life_record_regeneration(self, operation_id: int) -> None:
+        state = self._get_life_record_state()
+        if not state.matches_operation(operation_id, "manual_regenerating"):
+            return
+        pending = state.pending_request
+        result = state.worker_result
+        error = state.worker_error
+        state.worker_result = None
+        state.worker_error = None
+        notice = "generation_failed"
+        success = (
+            isinstance(pending, ManualLifeRecordRegeneration)
+            and isinstance(result, LifeRecordWorkerResult)
+            and result.output is not None
+            and error is None
+        )
+        if success:
+            try:
+                manager = self._reload_authoritative_life_record_manager()
+                current = manager.latest()
+                if current != pending.record:
+                    raise LifeRecordStoreError("stale_record")
+                manager.replace_latest(
+                    pending.record.id,
+                    result.output,
+                    pending.updated_at,
+                )
+                authoritative = LifeRecordManager(manager.store_path)
+                replacement = authoritative.latest()
+                if (
+                    authoritative.store_status != "ready"
+                    or replacement is None
+                    or replacement.id != pending.record.id
+                    or replacement.revision != pending.record.revision + 1
+                ):
+                    raise LifeRecordStoreError("read_error")
+                self._install_authoritative_life_record_manager(authoritative)
+                self._emit_saved_life_record(
+                    replacement,
+                    locale=pending.language,
+                    manager=authoritative,
+                )
+            except Exception:
+                success = False
+                notice = "save_failed"
+        elif error == "cancelled":
+            notice = "cancelled"
+        if not success:
+            try:
+                self._emit_life_record_notice(notice)
+            except Exception:
+                pass
+        self._finish_life_record_without_reply(operation_id)
 
     @staticmethod
     def _life_usage_dict(
@@ -584,10 +910,16 @@ class LifeRecordBridgeMixin:
             raise RuntimeError("save_not_authoritative")
         return authoritative
 
-    def _emit_saved_life_record(self, record: object) -> None:
-        manager = self._life_record_manager()
+    def _emit_saved_life_record(
+        self,
+        record: object,
+        *,
+        locale: str | None = None,
+        manager: LifeRecordManager | None = None,
+    ) -> None:
+        manager = manager or self._life_record_manager()
         state = self._get_life_record_state()
-        locale = self._resolve_life_prompt_language()
+        locale = locale or self._resolve_life_prompt_language()
         public = manager.to_public_dict(record, state.view_timezone, locale)
         view_resolution = resolve_local_time_context(state.view_timezone)
         zone = view_resolution.view_timezone
