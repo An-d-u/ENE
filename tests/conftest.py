@@ -5,7 +5,9 @@ _HTTP_LLM_TEST_MODULES = {
     "test_http_llm_clients_multimodal_history",
     "test_http_llm_clients_openai",
     "test_http_llm_clients_provider_parity",
+    "test_http_llm_privacy_logging",
     "test_http_llm_structured_outputs",
+    "test_life_record_http_native_providers",
     "test_response_capabilities",
 }
 

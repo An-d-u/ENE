@@ -3,15 +3,19 @@ from __future__ import annotations
 import requests
 from .http_llm_common import (
     HTTPFinalRequestDescriptor,
+    HTTPStructuredOneShotRequestDescriptor,
+    HTTPStructuredOneShotResponse,
     LLM_RESPONSE_TUPLE,
     _CommonMixin,
     _normalize_generation_params,
     _post_with_safe_errors,
     _raise_for_status_with_detail,
+    normalize_one_shot_usage,
 )
 from .openai_model_policy import normalize_reasoning_effort, resolve_openai_model_policy
 from .response_protocol import (
     LLMRequestKind,
+    OneShotGenerationResult,
     ProviderResponse,
     ResponseMode,
     ResponseStatus,
@@ -226,6 +230,80 @@ class OpenAICompatibleClient(_CommonMixin):
             status=status,
             mode=request_descriptor.attempt.mode,
             finish_reason=finish_reason,
+        )
+
+    def _request_openai_life_record(
+        self,
+        descriptor: HTTPStructuredOneShotRequestDescriptor,
+    ) -> HTTPStructuredOneShotResponse:
+        request = descriptor.request
+        payload = {
+            "model": self.model_name,
+            "messages": [
+                {"role": "system", "content": request.system_instruction},
+                {"role": "user", "content": request.prompt},
+            ],
+            "temperature": request.generation_params["temperature"],
+            "top_p": request.generation_params["top_p"],
+            "stream": False,
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": request.schema_id,
+                    "strict": True,
+                    "schema": request.schema,
+                },
+            },
+        }
+        if request.generation_params["max_tokens"] > 0:
+            payload["max_tokens"] = request.generation_params["max_tokens"]
+        response = _post_with_safe_errors(
+            self.provider_name,
+            self.endpoint,
+            requests.post,
+            headers=self._headers(),
+            json=payload,
+            timeout=descriptor.timeout_seconds,
+        )
+        _raise_for_status_with_detail(response, self.provider_name)
+        data = response.json()
+        choices = data.get("choices", []) or []
+        choice = choices[0] if choices and isinstance(choices[0], dict) else {}
+        message = choice.get("message")
+        if not isinstance(message, dict):
+            message = {}
+        finish_reason = str(choice.get("finish_reason", "") or "").strip().lower()
+        refusal = message.get("refusal")
+        if refusal is not None:
+            text = str(refusal or "").strip()
+            status = ResponseStatus.REFUSAL
+        else:
+            text = self._message_content_text(message)
+            if finish_reason not in {"", "stop", "tool_calls", "function_call"}:
+                status = ResponseStatus.INCOMPLETE
+            elif text:
+                status = ResponseStatus.COMPLETE
+            else:
+                status = ResponseStatus.EMPTY
+        return HTTPStructuredOneShotResponse(
+            text=text,
+            status=status,
+            finish_reason=finish_reason,
+            usage=normalize_one_shot_usage(
+                data.get("usage"),
+                input_key="prompt_tokens",
+                output_key="completion_tokens",
+            ),
+        )
+
+    async def generate_life_record_once(
+        self,
+        prompt: str,
+    ) -> OneShotGenerationResult:
+        """OpenAI Chat native JSON schema로 생활 기록을 한 번 생성한다."""
+        return await self._generate_life_record_once(
+            prompt,
+            self._request_openai_life_record,
         )
 
     def _request_openai(
@@ -542,6 +620,68 @@ class OpenAIResponseAPIClient(_CommonMixin):
             status=ResponseStatus.COMPLETE if carrier else ResponseStatus.EMPTY,
             mode=mode,
             finish_reason=finish_reason,
+        )
+
+    def _request_responses_life_record(
+        self,
+        descriptor: HTTPStructuredOneShotRequestDescriptor,
+    ) -> HTTPStructuredOneShotResponse:
+        request = descriptor.request
+        payload = {
+            "model": self.model_name,
+            "instructions": request.system_instruction,
+            "input": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": request.prompt}
+                    ],
+                }
+            ],
+            "store": False,
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": request.schema_id,
+                    "strict": True,
+                    "schema": request.schema,
+                }
+            },
+        }
+        self._apply_generation_payload(payload, request.generation_params)
+        response = _post_with_safe_errors(
+            self.provider_name,
+            self.endpoint,
+            requests.post,
+            headers=self._headers(),
+            json=payload,
+            timeout=descriptor.timeout_seconds,
+        )
+        _raise_for_status_with_detail(response, self.provider_name)
+        data = response.json()
+        provider_response = self._provider_response_from_data(
+            data,
+            mode=descriptor.response_mode,
+        )
+        return HTTPStructuredOneShotResponse(
+            text=provider_response.carrier,
+            status=provider_response.status,
+            finish_reason=provider_response.finish_reason,
+            usage=normalize_one_shot_usage(
+                data.get("usage"),
+                input_key="input_tokens",
+                output_key="output_tokens",
+            ),
+        )
+
+    async def generate_life_record_once(
+        self,
+        prompt: str,
+    ) -> OneShotGenerationResult:
+        """OpenAI Responses native JSON schema로 생활 기록을 한 번 생성한다."""
+        return await self._generate_life_record_once(
+            prompt,
+            self._request_responses_life_record,
         )
 
     def _response_output_token_cap(self) -> int:

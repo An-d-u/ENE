@@ -1,8 +1,10 @@
+import asyncio
 import traceback
 
 import pytest
 import requests
 
+from src.ai import http_llm_common
 from src.ai.http_llm_clients import (
     AnthropicClient,
     CohereClient,
@@ -16,7 +18,11 @@ from src.ai.http_llm_common import (
     _raise_for_status_with_detail,
     is_explicit_structured_output_unsupported,
 )
-from src.ai.response_protocol import LLMRequestKind
+from src.ai.response_protocol import (
+    LIFE_RECORD_SCHEMA_ID,
+    LIFE_RECORD_SCHEMA_VERSION,
+    LLMRequestKind,
+)
 
 
 RAW_BODY_SENTINEL = "unknown parameter: response_format SYNTHETIC-RAW-BODY-SENTINEL"
@@ -59,6 +65,17 @@ class _ExplodingStatus:
         raise RuntimeError(RAW_BODY_SENTINEL)
 
 
+class _LeakyJSONResponse:
+    status_code = 200
+    text = RAW_BODY_SENTINEL
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        raise ValueError(RAW_BODY_SENTINEL)
+
+
 def _openai_compatible():
     return OpenAICompatibleClient(
         api_key=API_KEY_SENTINEL,
@@ -92,6 +109,26 @@ def _anthropic():
         model_name="synthetic-model",
         endpoint=f"https://example.invalid/{ENDPOINT_SENTINEL}?key={API_KEY_SENTINEL}",
     )
+
+
+def _native_openai_chat():
+    client = _openai_compatible()
+    client.provider_name = "openai"
+    client.endpoint = "https://api.openai.com/v1/chat/completions"
+    return client
+
+
+def _native_openai_responses():
+    client = _openai_responses()
+    client.provider_name = "openai"
+    client.endpoint = "https://api.openai.com/v1/responses"
+    return client
+
+
+def _native_anthropic():
+    client = _anthropic()
+    client.endpoint = "https://api.anthropic.com/v1/messages"
+    return client
 
 
 def _ollama():
@@ -151,6 +188,73 @@ def _one_shot(client):
         PROMPT_SENTINEL,
         request_kind=LLMRequestKind.SUMMARY,
     )
+
+
+def _life_record(client):
+    return asyncio.run(client.generate_life_record_once(PROMPT_SENTINEL))
+
+
+def _assert_life_record_error_is_private(failure, capsys):
+    rendered_traceback = "".join(
+        traceback.format_exception(type(failure), failure, failure.__traceback__)
+    )
+    captured = capsys.readouterr()
+    visible = "\n".join(
+        (str(failure), repr(failure), rendered_traceback, captured.out, captured.err)
+    )
+    for sentinel in (
+        RAW_BODY_SENTINEL,
+        ENDPOINT_SENTINEL,
+        API_KEY_SENTINEL,
+        PROMPT_SENTINEL,
+        ORIGINAL_ERROR_SENTINEL,
+        NESTED_CAUSE_SENTINEL,
+    ):
+        assert sentinel not in visible
+    assert str(failure) == "life_record_generation_failed"
+    assert failure.__cause__ is None
+    assert failure.__context__ is None
+
+
+def test_structured_one_shot_request_repr_hides_all_sensitive_fields():
+    request = http_llm_common.StructuredOneShotRequest(
+        kind=LLMRequestKind.LIFE_RECORD,
+        prompt=PROMPT_SENTINEL,
+        system_instruction=f"{API_KEY_SENTINEL} {NESTED_CAUSE_SENTINEL}",
+        schema={"description": RAW_BODY_SENTINEL},
+        schema_id=LIFE_RECORD_SCHEMA_ID,
+        schema_version=LIFE_RECORD_SCHEMA_VERSION,
+    )
+
+    visible = repr(request)
+    for sentinel in (
+        PROMPT_SENTINEL,
+        API_KEY_SENTINEL,
+        NESTED_CAUSE_SENTINEL,
+        RAW_BODY_SENTINEL,
+    ):
+        assert sentinel not in visible
+    assert request.schema == {"description": RAW_BODY_SENTINEL}
+
+
+@pytest.mark.parametrize(
+    "client_factory",
+    [_native_openai_chat, _native_openai_responses, _native_anthropic],
+    ids=("openai-chat", "openai-responses", "anthropic"),
+)
+@pytest.mark.parametrize("response", [_LeakyResponse(), _LeakyJSONResponse()])
+def test_native_life_record_errors_drop_sensitive_cause_and_context(
+    monkeypatch,
+    capsys,
+    client_factory,
+    response,
+):
+    monkeypatch.setattr(requests, "post", lambda *args, **kwargs: response)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        _life_record(client_factory())
+
+    _assert_life_record_error_is_private(exc_info.value, capsys)
 
 
 @pytest.mark.parametrize(

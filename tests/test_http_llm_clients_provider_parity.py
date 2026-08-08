@@ -1,4 +1,6 @@
 import asyncio
+import inspect
+from typing import get_type_hints
 
 import pytest
 import requests
@@ -12,7 +14,11 @@ from src.ai.http_llm_clients import (
     OpenAICompatibleClient,
     OpenAIResponseAPIClient,
 )
-from src.ai.response_protocol import LLMRequestKind, ResponseMode
+from src.ai.response_protocol import (
+    LLMRequestKind,
+    OneShotGenerationResult,
+    ResponseMode,
+)
 
 
 class _DummyResponse:
@@ -122,6 +128,25 @@ def _build_ollama_client():
         api_key="k",
         model_name="m",
         endpoint="https://example.com/api/chat",
+    )
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [
+        _build_openai_compatible_client,
+        _build_openai_response_client,
+        _build_anthropic_client,
+    ],
+    ids=("openai-chat", "openai-responses", "anthropic"),
+)
+def test_native_http_clients_expose_async_life_record_generation(factory):
+    client = factory()
+
+    assert inspect.iscoroutinefunction(client.generate_life_record_once)
+    assert (
+        get_type_hints(client.generate_life_record_once).get("return")
+        is OneShotGenerationResult
     )
 
 
