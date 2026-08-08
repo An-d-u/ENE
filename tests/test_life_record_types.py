@@ -1,4 +1,5 @@
 import json
+import sys
 from datetime import datetime, timedelta, timezone
 from math import inf, nan
 from types import MappingProxyType
@@ -442,7 +443,7 @@ def test_model_and_store_normalize_extreme_datetime_overflow():
 
 
 def test_store_accepts_mathematically_finite_huge_integer_mood_axis():
-    huge_integer = 10**4000
+    huge_integer = 10**639
     record = _record_dict()
     record["mood_snapshot"]["valence"] = huge_integer
 
@@ -467,9 +468,45 @@ def test_factory_rejects_mood_integer_that_json_serializer_cannot_encode():
 
 def test_factory_result_with_supported_large_mood_integer_is_json_serializable():
     record_data = _record_dict()
-    record_data["mood_snapshot"]["valence"] = 10**4000
+    record_data["mood_snapshot"]["valence"] = 10**639
 
     record = create_life_record(**record_data)
     serialized = json.dumps(life_record_to_dict(record), ensure_ascii=False)
 
     assert serialized
+
+
+def test_factory_rejects_1001_digit_mood_under_1000_digit_runtime_limit():
+    original_limit = sys.get_int_max_str_digits()
+    record_data = _record_dict()
+    record_data["mood_snapshot"]["valence"] = 10**1000
+
+    try:
+        sys.set_int_max_str_digits(1000)
+        with pytest.raises(LifeRecordValidationError) as error:
+            record = create_life_record(**record_data)
+            json.dumps(life_record_to_dict(record), ensure_ascii=False)
+    finally:
+        sys.set_int_max_str_digits(original_limit)
+
+    assert error.value.code == "invalid_mood"
+    assert sys.get_int_max_str_digits() == original_limit
+
+
+def test_mood_integer_boundary_allows_640_digits_and_rejects_641_digits():
+    original_limit = sys.get_int_max_str_digits()
+    allowed_data = _record_dict()
+    allowed_data["mood_snapshot"]["valence"] = 10**640 - 1
+    rejected_data = _record_dict()
+    rejected_data["mood_snapshot"]["valence"] = 10**640
+
+    try:
+        sys.set_int_max_str_digits(640)
+        allowed = create_life_record(**allowed_data)
+        serialized = json.dumps(life_record_to_dict(allowed), ensure_ascii=False)
+        _assert_code("invalid_mood", create_life_record, **rejected_data)
+    finally:
+        sys.set_int_max_str_digits(original_limit)
+
+    assert serialized
+    assert sys.get_int_max_str_digits() == original_limit
