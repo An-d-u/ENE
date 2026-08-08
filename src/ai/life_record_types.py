@@ -49,7 +49,7 @@ class LifeRecordValidationError(ValueError):
         super().__init__(code)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class LifeRecordEntry:
     started_at: datetime
     ended_at: datetime
@@ -57,19 +57,19 @@ class LifeRecordEntry:
     activity: str
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class LifeRecordEndingState:
     place: str
     summary: str
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class LifeRecordOutput:
     entries: tuple[LifeRecordEntry, ...]
     ending_state: LifeRecordEndingState
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class LifeRecord:
     id: str
     inactive_started_at: datetime
@@ -141,9 +141,12 @@ def _validated_endpoint(
     parsed = _parse_datetime(value)
     if not allow_fractional and parsed.microsecond:
         _fail("invalid_datetime")
-    if not context.matches_zone_rules(parsed):
-        _fail("invalid_timezone_offset")
-    return context.canonicalize_endpoint(parsed)
+    try:
+        if not context.matches_zone_rules(parsed):
+            _fail("invalid_timezone_offset")
+        return context.canonicalize_endpoint(parsed)
+    except OverflowError:
+        _fail("invalid_datetime")
 
 
 def _utc(value: datetime) -> datetime:
@@ -236,7 +239,7 @@ def _decode_model_json(raw_json: object) -> dict[str, object]:
         candidate = match.group("body")
     try:
         value = json.loads(candidate)
-    except (json.JSONDecodeError, TypeError):
+    except (TypeError, ValueError):
         _fail("invalid_json")
     if not isinstance(value, dict):
         _fail("invalid_json")
@@ -272,7 +275,7 @@ def _mood_snapshot(value: object) -> Mapping[str, object]:
         number = data[field]
         if isinstance(number, bool) or not isinstance(number, (int, float)):
             _fail("invalid_mood")
-        if not math.isfinite(number):
+        if isinstance(number, float) and not math.isfinite(number):
             _fail("invalid_mood")
         copied[field] = number
     return MappingProxyType(copied)
@@ -339,7 +342,7 @@ def parse_life_record_store(raw: str) -> tuple[LifeRecord, ...]:
         _fail("invalid_store")
     try:
         decoded = json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
+    except (TypeError, ValueError):
         _fail("invalid_store")
     if not isinstance(decoded, dict):
         _fail("invalid_store")

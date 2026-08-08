@@ -371,3 +371,83 @@ def test_store_rejects_fractional_persisted_endpoint_and_new_york_offset_mismatc
         parse_life_record_store,
         json.dumps({"version": 1, "records": [wrong]}, ensure_ascii=False),
     )
+
+
+def test_public_dto_repr_does_not_expose_record_content_or_timestamps():
+    sentinel = "SYNTHETIC_REPR_SENTINEL_2099"
+    start = datetime(2099, 6, 1, 9, 0, tzinfo=SEOUL)
+    end = datetime(2099, 6, 1, 10, 0, tzinfo=SEOUL)
+    output_data = _output(start, end)
+    output_data["entries"][0]["place"] = sentinel
+    output_data["entries"][0]["activity"] = sentinel
+    output_data["ending_state"] = {"place": sentinel, "summary": sentinel}
+    output = _parse(output_data, start, end)
+
+    record_data = _record_dict(start, end)
+    record_data["entries"][0]["place"] = sentinel
+    record_data["entries"][0]["activity"] = sentinel
+    record_data["ending_state"] = {"place": sentinel, "summary": sentinel}
+    record_data["mood_snapshot"]["label"] = sentinel
+    record_data["mood_snapshot"]["short_term_mood"] = sentinel
+    record = create_life_record(**record_data)
+
+    rendered = " ".join(
+        repr(value)
+        for value in (output.entries[0], output.ending_state, output, record)
+    )
+
+    assert sentinel not in rendered
+    assert "2099-" not in rendered
+
+
+def test_model_and_store_normalize_huge_json_integer_parse_errors():
+    huge_integer = "9" * 4301
+    model_raw = f'{{"entries":{huge_integer},"ending_state":{{}}}}'
+    store_raw = f'{{"version":{huge_integer},"records":[]}}'
+    start = datetime(2099, 6, 1, 9, 0, tzinfo=SEOUL)
+    end = datetime(2099, 6, 1, 10, 0, tzinfo=SEOUL)
+
+    _assert_code(
+        "invalid_json",
+        parse_and_validate_life_record_output,
+        model_raw,
+        inactive_started_at=start,
+        returned_at=end,
+        timezone_name="Asia/Seoul",
+    )
+    _assert_code("invalid_store", parse_life_record_store, store_raw)
+
+
+def test_model_and_store_normalize_extreme_datetime_overflow():
+    start = datetime(2099, 6, 1, 9, 0, tzinfo=SEOUL)
+    end = datetime(2099, 6, 1, 10, 0, tzinfo=SEOUL)
+    extreme = datetime.max.replace(tzinfo=timezone(-timedelta(hours=23)))
+
+    _assert_code(
+        "invalid_datetime",
+        parse_and_validate_life_record_output,
+        json.dumps(_output(start, end), ensure_ascii=False),
+        inactive_started_at=extreme,
+        returned_at=end,
+        timezone_name="Asia/Seoul",
+    )
+
+    record = _record_dict()
+    record["returned_at"] = extreme.isoformat()
+    _assert_code(
+        "invalid_datetime",
+        parse_life_record_store,
+        json.dumps({"version": 1, "records": [record]}, ensure_ascii=False),
+    )
+
+
+def test_store_accepts_mathematically_finite_huge_integer_mood_axis():
+    huge_integer = 10**4000
+    record = _record_dict()
+    record["mood_snapshot"]["valence"] = huge_integer
+
+    parsed = parse_life_record_store(
+        json.dumps({"version": 1, "records": [record]}, ensure_ascii=False)
+    )[0]
+
+    assert parsed.mood_snapshot["valence"] == huge_integer
