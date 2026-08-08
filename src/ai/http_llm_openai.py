@@ -237,14 +237,16 @@ class OpenAICompatibleClient(_CommonMixin):
         descriptor: HTTPStructuredOneShotRequestDescriptor,
     ) -> HTTPStructuredOneShotResponse:
         request = descriptor.request
+        policy = resolve_openai_model_policy(
+            descriptor.profile.provider,
+            descriptor.profile.model,
+        )
         payload = {
             "model": self.model_name,
             "messages": [
                 {"role": "system", "content": request.system_instruction},
                 {"role": "user", "content": request.prompt},
             ],
-            "temperature": request.generation_params["temperature"],
-            "top_p": request.generation_params["top_p"],
             "stream": False,
             "response_format": {
                 "type": "json_schema",
@@ -255,8 +257,22 @@ class OpenAICompatibleClient(_CommonMixin):
                 },
             },
         }
+        if policy.supports_temperature:
+            payload["temperature"] = request.generation_params["temperature"]
+        if policy.supports_top_p:
+            payload["top_p"] = request.generation_params["top_p"]
+        if policy.supports_reasoning_effort:
+            payload["reasoning_effort"] = normalize_reasoning_effort(
+                request.generation_params.get("reasoning_effort"),
+                default=policy.default_reasoning_effort,
+            )
         if request.generation_params["max_tokens"] > 0:
-            payload["max_tokens"] = request.generation_params["max_tokens"]
+            token_field = (
+                "max_completion_tokens"
+                if policy.supports_reasoning_effort
+                else "max_tokens"
+            )
+            payload[token_field] = request.generation_params["max_tokens"]
         response = _post_with_safe_errors(
             self.provider_name,
             self.endpoint,

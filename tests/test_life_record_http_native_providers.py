@@ -1,4 +1,5 @@
 import asyncio
+from copy import deepcopy
 import json
 import threading
 
@@ -58,6 +59,66 @@ def _anthropic():
         api_key="synthetic-key",
         model_name="synthetic-model",
         endpoint="https://api.anthropic.com/v1/messages",
+    )
+
+
+def _openai_chat_with_policy(
+    *,
+    provider_name="openai",
+    endpoint="https://api.openai.com/v1/chat/completions",
+    model_name="gpt-5.6-sol",
+):
+    return OpenAICompatibleClient(
+        api_key="synthetic-key",
+        model_name=model_name,
+        endpoint=endpoint,
+        provider_name=provider_name,
+        generation_params={
+            "temperature": 2.0,
+            "top_p": 0.4,
+            "max_tokens": 1234,
+            "reasoning_effort": " XHIGH ",
+        },
+    )
+
+
+def _without_max_items(value):
+    copied = deepcopy(value)
+
+    def visit(item):
+        if isinstance(item, dict):
+            item.pop("maxItems", None)
+            for nested in item.values():
+                visit(nested)
+        elif isinstance(item, list):
+            for nested in item:
+                visit(nested)
+
+    visit(copied)
+    return copied
+
+
+def _anthropic_payload_matches(payload, schema):
+    return (
+        payload["system"] == SYSTEM_INSTRUCTION
+        and payload["messages"]
+        == [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "SYNTHETIC-LIFE-PROMPT"}
+                ],
+            }
+        ]
+        and payload["output_config"]
+        == {
+            "format": {
+                "type": "json_schema",
+                "schema": _without_max_items(schema),
+            }
+        }
+        and "tools" not in payload
+        and "tool_choice" not in payload
     )
 
 
@@ -189,27 +250,7 @@ def _anthropic_body(
         (
             _anthropic,
             _anthropic_body(usage={"input_tokens": 17, "output_tokens": 3}),
-            lambda payload, schema: (
-                payload["system"] == SYSTEM_INSTRUCTION
-                and payload["messages"]
-                == [
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": "SYNTHETIC-LIFE-PROMPT"}
-                        ],
-                    }
-                ]
-                and payload["output_config"]
-                == {
-                    "format": {
-                        "type": "json_schema",
-                        "schema": schema,
-                    }
-                }
-                and "tools" not in payload
-                and "tool_choice" not in payload
-            ),
+            _anthropic_payload_matches,
             (17, 3, None),
         ),
     ],
@@ -304,11 +345,118 @@ def test_native_life_record_uses_a_fresh_schema_for_every_call(
     client = factory()
 
     asyncio.run(client.generate_life_record_once("SYNTHETIC-PROMPT-ONE"))
-    schemas[0]["properties"]["entries"]["maxItems"] = 99
+    schemas[0]["properties"]["entries"]["minItems"] = 9
     asyncio.run(client.generate_life_record_once("SYNTHETIC-PROMPT-TWO"))
 
     assert schemas[0] is not schemas[1]
-    assert schemas[1] == get_life_record_output_schema()
+    expected = get_life_record_output_schema()
+    if factory is _anthropic:
+        expected = _without_max_items(expected)
+    assert schemas[1] == expected
+
+
+def test_anthropic_wire_schema_removes_only_max_items_from_a_fresh_copy(
+    monkeypatch,
+):
+    captured = {}
+    raw_schema = get_life_record_output_schema()
+    monkeypatch.setattr(
+        "src.ai.http_llm_common.build_life_record_system_instruction",
+        lambda _settings: SYSTEM_INSTRUCTION,
+    )
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured["schema"] = json["output_config"]["format"]["schema"]
+        return _Response(_anthropic_body())
+
+    monkeypatch.setattr(requests, "post", fake_post)
+
+    asyncio.run(_anthropic().generate_life_record_once("SYNTHETIC-PROMPT"))
+
+    assert raw_schema["properties"]["entries"]["maxItems"] == 24
+    assert captured["schema"]["properties"]["entries"]["minItems"] == 1
+    assert "maxItems" not in captured["schema"]["properties"]["entries"]
+    assert get_life_record_output_schema() == raw_schema
+
+
+@pytest.mark.parametrize(
+    ("temperature", "expected"),
+    [(2.0, 1.0), (0.35, 0.35)],
+)
+def test_anthropic_life_record_temperature_is_clamped_to_provider_range(
+    monkeypatch,
+    temperature,
+    expected,
+):
+    captured = {}
+    monkeypatch.setattr(
+        "src.ai.http_llm_common.build_life_record_system_instruction",
+        lambda _settings: SYSTEM_INSTRUCTION,
+    )
+    monkeypatch.setattr(
+        requests,
+        "post",
+        lambda *args, **kwargs: (
+            captured.update(payload=kwargs["json"])
+            or _Response(_anthropic_body())
+        ),
+    )
+    client = _anthropic()
+    client.generation_params["temperature"] = temperature
+
+    asyncio.run(client.generate_life_record_once("SYNTHETIC-PROMPT"))
+
+    assert captured["payload"]["temperature"] == expected
+
+
+@pytest.mark.parametrize(
+    ("client", "expected_sampling"),
+    [
+        (_openai_chat_with_policy(), False),
+        (
+            _openai_chat_with_policy(
+                provider_name="openrouter",
+                endpoint="https://openrouter.ai/api/v1/chat/completions",
+            ),
+            True,
+        ),
+    ],
+    ids=("official-openai-gpt-5.6", "compatible-openrouter-gpt-5.6"),
+)
+def test_openai_chat_life_record_applies_model_parameter_policy(
+    monkeypatch,
+    client,
+    expected_sampling,
+):
+    captured = {}
+    monkeypatch.setattr(
+        "src.ai.http_llm_common.build_life_record_system_instruction",
+        lambda _settings: SYSTEM_INSTRUCTION,
+    )
+    monkeypatch.setattr(
+        requests,
+        "post",
+        lambda *args, **kwargs: (
+            captured.update(payload=kwargs["json"])
+            or _Response(_chat_body())
+        ),
+    )
+
+    asyncio.run(client.generate_life_record_once("SYNTHETIC-PROMPT"))
+
+    payload = captured["payload"]
+    if expected_sampling:
+        assert payload["temperature"] == 2.0
+        assert payload["top_p"] == 0.4
+        assert payload["max_tokens"] == 1234
+        assert "reasoning_effort" not in payload
+        assert "max_completion_tokens" not in payload
+    else:
+        assert "temperature" not in payload
+        assert "top_p" not in payload
+        assert payload["reasoning_effort"] == "xhigh"
+        assert payload["max_completion_tokens"] == 1234
+        assert "max_tokens" not in payload
 
 
 @pytest.mark.parametrize(
