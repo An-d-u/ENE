@@ -329,6 +329,7 @@ def test_shutdown_drains_normal_life_tts_and_summary_workers_without_gui_wait(mo
 
     for worker in (*workers, life_worker):
         worker.finish()
+    assert len(scheduler.pending) == 1
     while scheduler.pending:
         scheduler.run_next()
 
@@ -405,3 +406,19 @@ def test_about_to_quit_with_running_worker_uses_forced_path_without_stop_commit(
     assert app.life_session_tracker.stop_calls == 0
     assert app.life_session_tracker.release_calls == 1
     assert "qapplication_quit" not in order
+
+
+def test_shutdown_scheduler_failure_uses_forced_path_without_stop_commit(monkeypatch):
+    class FailingScheduler:
+        def schedule(self, _delay_ms, _callback):
+            raise RuntimeError("Synthetic scheduler detail")
+
+    worker = _ShutdownWorker([], "reply")
+    app, _bridge, _scheduler, order = _shutdown_app(monkeypatch, workers=(worker,))
+    app._shutdown_drain_scheduler_factory = lambda _parent: FailingScheduler()
+
+    app._finish_quit_application()
+
+    assert app.life_session_tracker.stop_calls == 0
+    assert app.life_session_tracker.release_calls == 1
+    assert "qapplication_quit" in order
