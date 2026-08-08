@@ -281,8 +281,9 @@ def _write_file_bytes_via_powershell(path: Path, payload: bytes) -> None:
 
 
 def _is_process_running(process_id: int) -> bool:
-    if process_id <= 0:
-        return False
+    maximum_process_id = 0xFFFFFFFF if os.name == "nt" else 0x7FFFFFFF
+    if process_id <= 0 or process_id > maximum_process_id:
+        return True
     if process_id == os.getpid():
         return True
     if os.name != "nt":
@@ -292,20 +293,30 @@ def _is_process_running(process_id: int) -> bool:
             return False
         except PermissionError:
             return True
+        except (OSError, OverflowError):
+            return True
         return True
 
     import ctypes
+    from ctypes import wintypes
 
     process_query_limited_information = 0x1000
-    handle = ctypes.windll.kernel32.OpenProcess(
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    open_process = kernel32.OpenProcess
+    open_process.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    open_process.restype = wintypes.HANDLE
+    close_handle = kernel32.CloseHandle
+    close_handle.argtypes = [wintypes.HANDLE]
+    close_handle.restype = wintypes.BOOL
+    handle = open_process(
         process_query_limited_information,
         False,
         process_id,
     )
     if handle:
-        ctypes.windll.kernel32.CloseHandle(handle)
+        close_handle(handle)
         return True
-    return ctypes.get_last_error() == 5
+    return ctypes.get_last_error() != 87
 
 
 def _cleanup_orphaned_atomic_temp_files(path: Path) -> None:
@@ -338,6 +349,38 @@ def _cleanup_orphaned_atomic_temp_files(path: Path) -> None:
             pass
 
 
+def _is_windows_platform() -> bool:
+    return os.name == "nt"
+
+
+def _move_file_ex_windows(source: Path, destination: Path, flags: int) -> None:
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    move_file_ex = kernel32.MoveFileExW
+    move_file_ex.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.DWORD]
+    move_file_ex.restype = wintypes.BOOL
+    if not move_file_ex(str(source), str(destination), flags):
+        raise ctypes.WinError(ctypes.get_last_error())
+
+
+def _replace_file_atomic_durable(source: Path, destination: Path) -> None:
+    if _is_windows_platform():
+        _move_file_ex_windows(source, destination, 0x1 | 0x8)
+        return
+
+    os.replace(source, destination)
+    directory_descriptor = os.open(
+        destination.parent,
+        os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+    )
+    try:
+        os.fsync(directory_descriptor)
+    finally:
+        os.close(directory_descriptor)
+
+
 def _write_file_bytes_atomic_python(path: Path, payload: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     _cleanup_orphaned_atomic_temp_files(path)
@@ -364,7 +407,7 @@ def _write_file_bytes_atomic_python(path: Path, payload: bytes) -> None:
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temporary_path, path)
+        _replace_file_atomic_durable(temporary_path, path)
         temporary_path = None
     finally:
         if temporary_path is not None:
@@ -491,7 +534,7 @@ def save_json_data(
 ) -> Path:
     """Store Python 경로 가상화를 고려해 JSON 파일을 저장한다."""
     target = _normalize_path(path_like)
-    serialized = json.dumps(payload, indent=indent, ensure_ascii=ensure_ascii)
+    serialized = json.dumps(payload, indent=indent, ensure_ascii=ensure_ascii).replace("\n", os.linesep)
     if trailing_newline:
         serialized += os.linesep
     _write_file_bytes_atomic(target, serialized.encode(encoding), user_root=user_root)

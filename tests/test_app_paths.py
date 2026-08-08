@@ -22,6 +22,7 @@ def test_save_json_data_atomic_writes_utf8_without_bom(tmp_path):
 def test_save_json_data_atomic_keeps_previous_file_when_replace_fails(tmp_path, monkeypatch):
     target = tmp_path / "state.json"
     target.write_text('{"version": 1}', encoding="utf-8")
+    monkeypatch.setattr(app_paths, "_is_windows_platform", lambda: False, raising=False)
     monkeypatch.setattr(os, "replace", Mock(side_effect=OSError("replace failed")))
 
     with pytest.raises(OSError):
@@ -57,6 +58,13 @@ def test_save_json_data_atomic_uses_same_directory_fsync_and_replace(tmp_path, m
     monkeypatch.setattr(os, "replace", tracking_replace)
     monkeypatch.setattr(os, "fsync", tracking_fsync)
     monkeypatch.setattr(os, "open", tracking_os_open)
+    monkeypatch.setattr(app_paths, "_is_windows_platform", lambda: True, raising=False)
+    monkeypatch.setattr(
+        app_paths,
+        "_move_file_ex_windows",
+        lambda source, destination, flags: os.replace(source, destination),
+        raising=False,
+    )
 
     save_json_data_atomic(target, {"version": 2})
 
@@ -73,6 +81,49 @@ def test_save_json_data_atomic_uses_same_directory_fsync_and_replace(tmp_path, m
     assert re.fullmatch(rf"\.{re.escape(target.name)}\.\d+\.[0-9a-f]{{32}}\.tmp", source.name)
     assert destination == target
     assert json.loads(target.read_text(encoding="utf-8")) == {"version": 2}
+
+
+def test_durable_replace_posix_fsyncs_parent_after_replace(tmp_path, monkeypatch):
+    source = tmp_path / ".state.json.123.00000000000000000000000000000000.tmp"
+    target = tmp_path / "state.json"
+    events: list[object] = []
+
+    monkeypatch.setattr(app_paths, "_is_windows_platform", lambda: False, raising=False)
+    monkeypatch.setattr(os, "replace", lambda src, dst: events.append(("replace", Path(src), Path(dst))))
+    monkeypatch.setattr(
+        os,
+        "open",
+        lambda path, flags: events.append(("open_parent", Path(path), flags)) or 91,
+    )
+    monkeypatch.setattr(os, "fsync", lambda file_descriptor: events.append(("fsync_parent", file_descriptor)))
+    monkeypatch.setattr(os, "close", lambda file_descriptor: events.append(("close_parent", file_descriptor)))
+
+    app_paths._replace_file_atomic_durable(source, target)
+
+    assert events == [
+        ("replace", source, target),
+        ("open_parent", target.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)),
+        ("fsync_parent", 91),
+        ("close_parent", 91),
+    ]
+
+
+def test_durable_replace_windows_uses_write_through_rename(tmp_path, monkeypatch):
+    source = tmp_path / ".state.json.123.00000000000000000000000000000000.tmp"
+    target = tmp_path / "state.json"
+    calls: list[tuple[Path, Path, int]] = []
+
+    monkeypatch.setattr(app_paths, "_is_windows_platform", lambda: True, raising=False)
+    monkeypatch.setattr(
+        app_paths,
+        "_move_file_ex_windows",
+        lambda src, dst, flags: calls.append((Path(src), Path(dst), flags)),
+        raising=False,
+    )
+
+    app_paths._replace_file_atomic_durable(source, target)
+
+    assert calls == [(source, target, 0x1 | 0x8)]
 
 
 def test_save_json_data_atomic_cleans_recognized_orphan_temp_files(tmp_path, monkeypatch):
@@ -98,6 +149,18 @@ def test_save_json_data_atomic_preserves_unrecognized_temp_files(tmp_path):
     save_json_data_atomic(target, {"version": 4})
 
     assert unrecognized.read_bytes() == b"in-progress"
+
+
+def test_save_json_data_atomic_preserves_temp_with_out_of_range_pid(tmp_path):
+    target = tmp_path / "state.json"
+    out_of_range_pid = 1 << 80
+    orphan = tmp_path / f".state.json.{out_of_range_pid}.{'0' * 32}.tmp"
+    orphan.write_bytes(b"indeterminate-owner")
+
+    save_json_data_atomic(target, {"version": 5})
+
+    assert orphan.read_bytes() == b"indeterminate-owner"
+    assert json.loads(target.read_text(encoding="utf-8")) == {"version": 5}
 
 
 def test_save_json_data_public_api_keeps_runtime_when_store_visible_replace_fails(
@@ -137,6 +200,23 @@ def test_save_json_data_public_api_preserves_format_options_and_return_path(tmp_
     assert saved_path == target
     expected = json.dumps({"text": "가상 값"}, indent=None, ensure_ascii=True) + os.linesep
     assert target.read_bytes() == expected.encode("utf-8")
+
+
+def test_save_json_data_public_api_uses_consistent_platform_newlines(tmp_path):
+    target = tmp_path / "state.json"
+    payload = {"version": 3, "enabled": True}
+
+    app_paths.save_json_data(
+        target,
+        payload,
+        encoding="utf-8",
+        indent=2,
+        ensure_ascii=False,
+        trailing_newline=True,
+    )
+
+    expected = json.dumps(payload, indent=2, ensure_ascii=False).replace("\n", os.linesep)
+    assert target.read_bytes() == (expected + os.linesep).encode("utf-8")
 
 
 def _force_store_python_bridge(monkeypatch, runtime_root: Path, visible_root: Path) -> None:
@@ -327,6 +407,42 @@ def test_powershell_atomic_write_round_trips_empty_and_nonempty_bytes(tmp_path):
     app_paths._write_file_bytes_via_powershell(target, b"synthetic-state")
     assert app_paths._read_file_bytes_via_powershell(target) == b"synthetic-state"
     assert app_paths._read_file_bytes_via_powershell(tmp_path / "missing.bin") is None
+
+
+@pytest.mark.skipif(os.name != "nt", reason="PowerShell atomic bridge is Windows-only")
+def test_powershell_atomic_write_preserves_existing_file_when_replace_is_locked(tmp_path):
+    import ctypes
+    from ctypes import wintypes
+
+    target = tmp_path / "state.json"
+    previous = b'{"version": 1}'
+    target.write_bytes(previous)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    create_file = kernel32.CreateFileW
+    create_file.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    ]
+    create_file.restype = wintypes.HANDLE
+    close_handle = kernel32.CloseHandle
+    close_handle.argtypes = [wintypes.HANDLE]
+    close_handle.restype = wintypes.BOOL
+    handle = create_file(str(target), 0x80000000, 0, None, 3, 0x80, None)
+    assert handle != wintypes.HANDLE(-1).value
+
+    try:
+        with pytest.raises(app_paths.subprocess.CalledProcessError):
+            app_paths._write_file_bytes_via_powershell(target, b'{"version": 2}')
+    finally:
+        assert close_handle(handle)
+
+    assert target.read_bytes() == previous
+    assert list(tmp_path.glob(".state.json.*.tmp")) == []
 
 
 def test_gitignore_covers_life_and_existing_runtime_files():
