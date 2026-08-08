@@ -59,11 +59,19 @@ def test_resolver_fails_closed_when_tzlocal_returns_invalid_name(monkeypatch):
     assert resolution.is_read_only is True
 
 
-def test_resolver_fails_closed_on_operating_system_timezone_lookup_error(monkeypatch):
+@pytest.mark.parametrize(
+    "lookup_error",
+    [
+        LookupError("합성 시간대 이름 조회 실패"),
+        OSError("합성 운영체제 시간대 조회 실패"),
+    ],
+    ids=["lookup_error", "operating_system_error"],
+)
+def test_resolver_fails_closed_on_timezone_lookup_error(monkeypatch, lookup_error):
     from src.core import local_time
 
     def raise_lookup_error():
-        raise OSError("합성 운영체제 시간대 조회 실패")
+        raise lookup_error
 
     monkeypatch.setattr(local_time.tzlocal, "get_localzone_name", raise_lookup_error)
 
@@ -87,7 +95,27 @@ def test_resolver_propagates_unexpected_tzlocal_runtime_error(monkeypatch):
         local_time.resolve_local_time_context()
 
 
-@pytest.mark.parametrize("timezone_name", ["Invalid/Zone", ""])
+@pytest.mark.parametrize(
+    "unexpected_error",
+    [
+        TypeError("합성 tzlocal 타입 결함"),
+        ValueError("합성 tzlocal 값 결함"),
+    ],
+    ids=["type_error", "value_error"],
+)
+def test_resolver_propagates_unexpected_tzlocal_validation_error(monkeypatch, unexpected_error):
+    from src.core import local_time
+
+    def raise_unexpected_error():
+        raise unexpected_error
+
+    monkeypatch.setattr(local_time.tzlocal, "get_localzone_name", raise_unexpected_error)
+
+    with pytest.raises(type(unexpected_error), match=str(unexpected_error)):
+        local_time.resolve_local_time_context()
+
+
+@pytest.mark.parametrize("timezone_name", ["Invalid/Zone", "", 2099])
 def test_invalid_timezone_is_fail_closed_with_read_only_utc_view(timezone_name):
     from src.core.local_time import resolve_local_time_context
 

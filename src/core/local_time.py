@@ -96,8 +96,19 @@ def resolve_local_time_context(
 ) -> LocalTimeResolution:
     """현지 IANA 이름을 검증하고 실패 시 쓰기를 닫은 UTC view를 반환한다."""
 
+    if timezone_name is None:
+        try:
+            resolved_name = tzlocal.get_localzone_name()
+        except (LookupError, OSError):
+            return LocalTimeResolution(
+                context=None,
+                view_timezone=UTC_ZONE,
+                reason=TIMEZONE_UNAVAILABLE,
+            )
+    else:
+        resolved_name = timezone_name
+
     try:
-        resolved_name = tzlocal.get_localzone_name() if timezone_name is None else timezone_name
         if not isinstance(resolved_name, str) or not resolved_name.strip():
             raise ValueError("timezone 이름이 비어 있습니다.")
         zone = ZoneInfo(resolved_name)
