@@ -1241,6 +1241,7 @@ class GeminiClient:
         recent_memory_context: str | None = None,
         head_pat_count_before_message: int | None = None,
         progress_callback=None,
+        include_life_record_context: bool = False,
     ) -> LLM_RESPONSE_TUPLE:
         """
         메모리를 활용한 메시지 전송
@@ -1255,10 +1256,15 @@ class GeminiClient:
         search_query = str(memory_search_text or "").strip() or message
         primary_query = str(latest_user_message or "").strip() or search_query
         support_context = str(recent_memory_context or "").strip()
+        memory_context_kwargs = {
+            "recent_context": support_context,
+            "head_pat_count_before_message": head_pat_count_before_message,
+        }
+        if include_life_record_context is True:
+            memory_context_kwargs["include_life_record_context"] = True
         memory_context = await self._build_memory_context(
             primary_query,
-            recent_context=support_context,
-            head_pat_count_before_message=head_pat_count_before_message,
+            **memory_context_kwargs,
         )
         web_search_context = build_web_search_context_from_settings(
             getattr(self, "settings", None),
@@ -1295,6 +1301,7 @@ class GeminiClient:
         recent_memory_context: str | None = None,
         head_pat_count_before_message: int | None = None,
         progress_callback=None,
+        include_life_record_context: bool = False,
     ) -> LLM_RESPONSE_TUPLE:
         """이미지 final 응답의 전처리부터 usage transaction으로 처리한다."""
         self._last_response_delivery_metadata = ResponseDeliveryMetadata.empty()
@@ -1307,6 +1314,7 @@ class GeminiClient:
                 latest_user_message=latest_user_message,
                 recent_memory_context=recent_memory_context,
                 head_pat_count_before_message=head_pat_count_before_message,
+                include_life_record_context=include_life_record_context,
                 progress_callback=progress_callback,
             )
         finally:
@@ -1321,6 +1329,7 @@ class GeminiClient:
         recent_memory_context: str | None = None,
         head_pat_count_before_message: int | None = None,
         progress_callback=None,
+        include_life_record_context: bool = False,
     ) -> LLM_RESPONSE_TUPLE:
         """
         이미지와 함께 메시지 전송 (멀티모달)
@@ -1380,17 +1389,23 @@ class GeminiClient:
                     latest_user_message,
                     recent_memory_context,
                     head_pat_count_before_message,
-                    progress_callback,
+                    include_life_record_context=include_life_record_context,
+                    progress_callback=progress_callback,
                 )
             
             # 메모리 컨텍스트 추가
             search_query = str(memory_search_text or "").strip() or message
             primary_query = str(latest_user_message or "").strip() or search_query
             support_context = str(recent_memory_context or "").strip()
+            memory_context_kwargs = {
+                "recent_context": support_context,
+                "head_pat_count_before_message": head_pat_count_before_message,
+            }
+            if include_life_record_context is True:
+                memory_context_kwargs["include_life_record_context"] = True
             memory_context = await self._build_memory_context(
                 primary_query,
-                recent_context=support_context,
-                head_pat_count_before_message=head_pat_count_before_message,
+                **memory_context_kwargs,
             )
             web_search_context = build_web_search_context_from_settings(
                 getattr(self, "settings", None),
@@ -1463,6 +1478,7 @@ class GeminiClient:
         query: str,
         recent_context: str = "",
         head_pat_count_before_message: int | None = None,
+        include_life_record_context: bool = False,
     ) -> str:
         """메모리 기반 컨텍스트 구성."""
         return await build_common_memory_context(
@@ -1470,6 +1486,7 @@ class GeminiClient:
             query,
             recent_context=recent_context,
             head_pat_count_before_message=head_pat_count_before_message,
+            include_life_record_context=include_life_record_context,
         )
 
     def _normalize_int_setting(

@@ -176,7 +176,17 @@ def test_start_ai_worker_emits_request_pending_changed(monkeypatch):
     assert bridge.request_pending_changed.emitted == [(True,)]
     assert bridge.request_pending_stage_changed.emitted == [("thinking",)]
     assert bridge.worker.kwargs["progress_callback"] == bridge._emit_request_pending_stage_changed
+    assert bridge.worker.kwargs["include_life_record_context"] is False
     assert bridge.worker.started is True
+
+
+def test_start_ai_worker_preserves_explicit_life_record_scope(monkeypatch):
+    monkeypatch.setattr(chat_flow, "AIWorker", _DummyWorker)
+    bridge = _DummyBridge()
+
+    bridge._start_ai_worker("합성 요청", include_life_record_context=True)
+
+    assert bridge.worker.kwargs["include_life_record_context"] is True
 
 
 def test_ai_worker_progress_callback_emits_searching_stage(monkeypatch):
@@ -210,6 +220,8 @@ def test_send_to_ai_logs_only_prompt_lengths(monkeypatch, capsys):
     timestamped_prompt = "[TIME 2026-06-27 09:30]\nPROMPT::synthetic prompt alpha::VISIBLE_CONTEXT"
 
     bridge.send_to_ai(raw_message)
+
+    assert bridge.worker.kwargs["include_life_record_context"] is True
 
     captured = capsys.readouterr()
     combined = captured.out + captured.err

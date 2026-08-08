@@ -284,6 +284,7 @@ class OllamaClient(_CommonMixin):
         recent_memory_context: str | None = None,
         head_pat_count_before_message: int | None = None,
         progress_callback=None,
+        include_life_record_context: bool = False,
     ) -> LLM_RESPONSE_TUPLE:
         enhanced = await self._build_contextual_message(
             message,
@@ -291,6 +292,7 @@ class OllamaClient(_CommonMixin):
             latest_user_message=latest_user_message,
             recent_memory_context=recent_memory_context,
             head_pat_count_before_message=head_pat_count_before_message,
+            include_life_record_context=include_life_record_context,
             progress_callback=progress_callback,
         )
         return self.send_message(enhanced, history_user_content=message)
@@ -304,6 +306,7 @@ class OllamaClient(_CommonMixin):
         recent_memory_context: str | None = None,
         head_pat_count_before_message: int | None = None,
         progress_callback=None,
+        include_life_record_context: bool = False,
     ) -> LLM_RESPONSE_TUPLE:
         enhanced = await self._build_contextual_message(
             message,
@@ -311,6 +314,7 @@ class OllamaClient(_CommonMixin):
             latest_user_message=latest_user_message,
             recent_memory_context=recent_memory_context,
             head_pat_count_before_message=head_pat_count_before_message,
+            include_life_record_context=include_life_record_context,
             progress_callback=progress_callback,
         )
         user_content = {"content": message}
