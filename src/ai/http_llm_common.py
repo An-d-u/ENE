@@ -327,7 +327,7 @@ def _compile_explicit_unsupported_pattern(
     response_type_modifier = rf"(?:\s+of\s+type\s+{bounded_response_type_value})?"
     return re.compile(
         rf"(?:"
-        rf"\b(?:unknown|unsupported)\s+(?:parameter|field)\b"
+        rf"\b(?:unknown|unsupported)\s+(?:parameter|field|name)\b"
         rf"{_PARAMETER_SEPARATOR}{quoted_parameter}"
         rf"|{_NATURAL_ASSERTION_START}(?:the\s+)?(?:"
         rf"{asserted_parameter}{assertion_separator}"

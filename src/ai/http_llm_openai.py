@@ -8,6 +8,7 @@ from .http_llm_common import (
     LLM_RESPONSE_TUPLE,
     _CommonMixin,
     _normalize_generation_params,
+    _official_profile_for_endpoint,
     _post_with_safe_errors,
     _raise_for_status_with_detail,
     _thaw_transport_value,
@@ -27,6 +28,21 @@ _OPENROUTER_CHAT_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
 _JSON_OBJECT_SYSTEM_INSTRUCTION = (
     "Return the final response as a valid JSON object."
 )
+
+
+def _life_record_model_policy_provider(
+    descriptor: HTTPStructuredOneShotRequestDescriptor,
+) -> str:
+    provider = str(descriptor.profile.provider or "").strip().lower()
+    if provider != "custom_api":
+        return provider
+    official = _official_profile_for_endpoint(
+        descriptor.profile.wire_format,
+        descriptor.profile.endpoint,
+    )
+    if official is not None and official[0] == "openai":
+        return "openai"
+    return provider
 
 
 class OpenAICompatibleClient(_CommonMixin):
@@ -242,7 +258,7 @@ class OpenAICompatibleClient(_CommonMixin):
         schema = _thaw_transport_value(request.schema)
         headers = _thaw_transport_value(descriptor.headers)
         policy = resolve_openai_model_policy(
-            descriptor.profile.provider,
+            _life_record_model_policy_provider(descriptor),
             descriptor.profile.model,
         )
         payload = {
@@ -682,7 +698,7 @@ class OpenAIResponseAPIClient(_CommonMixin):
                 }
             }
         policy = resolve_openai_model_policy(
-            descriptor.profile.provider,
+            _life_record_model_policy_provider(descriptor),
             descriptor.profile.model,
         )
         if policy.supports_temperature:
