@@ -36,8 +36,25 @@ def test_official_openai_o_series_uses_reasoning_policy():
         assert policy.supports_temperature is False
         assert policy.supports_top_p is False
         assert policy.supports_reasoning_effort is True
-        assert policy.default_reasoning_effort == "low"
-        assert policy.allowed_reasoning_efforts == OPENAI_REASONING_EFFORTS
+        assert policy.default_reasoning_effort == "medium"
+        assert policy.allowed_reasoning_efforts == ("low", "medium", "high")
+
+
+def test_o_series_effort_normalization_rejects_unsupported_global_values():
+    for model_name in ("o1-mini", "o3-2025-01-31", "o4"):
+        policy = resolve_openai_model_policy("openai", model_name)
+        for value in ("none", "xhigh", "max", "unsupported", None):
+            assert normalize_reasoning_effort(
+                value,
+                default=policy.default_reasoning_effort,
+                allowed_efforts=policy.allowed_reasoning_efforts,
+            ) == "medium"
+        for value in ("low", "medium", "high"):
+            assert normalize_reasoning_effort(
+                value,
+                default=policy.default_reasoning_effort,
+                allowed_efforts=policy.allowed_reasoning_efforts,
+            ) == value
 
 
 def test_o_series_policy_requires_official_provider_and_exact_family_boundary():
