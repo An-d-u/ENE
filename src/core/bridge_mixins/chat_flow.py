@@ -43,6 +43,7 @@ def _prompt_role_label(role: str, language: str, settings_source=None) -> str:
 
 
 _ALLOWED_RESPONSE_LOG_MODES = frozenset(mode.value for mode in ResponseMode)
+_UNSET_OPERATION = object()
 
 
 def _safe_text_length(value: object) -> int:
@@ -109,6 +110,13 @@ class ChatFlowBridgeMixin:
         if callable(drain_proactive_queue):
             drain_proactive_queue()
 
+    def _invoke_worker_finished_queue_drain(self) -> None:
+        drain = getattr(self, "_drain_queues_after_worker_finished", None)
+        if callable(drain):
+            drain()
+            return
+        ChatFlowBridgeMixin._drain_queues_after_worker_finished(self)
+
     def _connect_worker_finished_drain(self, operation_id: int | None = None):
         """worker 종료를 관찰하되 응답 표시 전에는 normal_reply를 해제하지 않는다."""
         response_worker = getattr(self, "worker", None)
@@ -146,12 +154,15 @@ class ChatFlowBridgeMixin:
     def _on_normal_reply_worker_finished(self, operation_id: int, response_worker) -> None:
         """표시 finalizer가 끝난 worker 참조만 정리한다."""
         state = getattr(self, "life_record_state", None)
-        if (
-            state is not None
-            and getattr(self, "worker", None) is response_worker
-            and not state.matches_operation(operation_id, "normal_reply")
-        ):
+        if state is not None and state.matches_operation(operation_id, "normal_reply"):
+            return
+        if getattr(self, "worker", None) is response_worker:
             self.worker = None
+        pending_drain = getattr(self, "_normal_operation_drain_pending", None)
+        if pending_drain != (operation_id, response_worker):
+            return
+        self._normal_operation_drain_pending = None
+        ChatFlowBridgeMixin._invoke_worker_finished_queue_drain(self)
 
     def _finish_normal_operation(self, operation_id: int) -> bool:
         """실제 응답 표시 뒤 pending·phase·큐를 정확히 한 번 마무리한다."""
@@ -160,10 +171,21 @@ class ChatFlowBridgeMixin:
             return False
         worker = getattr(self, "worker", None)
         is_running = getattr(worker, "isRunning", None)
-        if not callable(is_running) or not is_running():
+        worker_running = bool(callable(is_running) and is_running())
+        if worker_running:
+            self._normal_operation_drain_pending = (operation_id, worker)
+        else:
+            if getattr(self, "_normal_operation_drain_pending", None) == (
+                operation_id,
+                worker,
+            ):
+                self._normal_operation_drain_pending = None
             self.worker = None
-        ChatFlowBridgeMixin._emit_request_pending_changed(self, False)
-        self._drain_queues_after_worker_finished()
+        try:
+            ChatFlowBridgeMixin._emit_request_pending_changed(self, False)
+        finally:
+            if not worker_running:
+                ChatFlowBridgeMixin._invoke_worker_finished_queue_drain(self)
         return True
 
     def _restore_failed_worker_start(self, operation_id: int) -> None:
@@ -197,6 +219,8 @@ class ChatFlowBridgeMixin:
         head_pat_count_before_message: int = 0,
         include_life_record_context: bool = False,
         prior_token_usage: Mapping[str, object] | None = None,
+        *,
+        emit_pending_state: bool = True,
     ):
         """현재 요청 페이로드로 AI 워커를 시작한다."""
         if self.worker and self.worker.isRunning():
@@ -232,16 +256,25 @@ class ChatFlowBridgeMixin:
                 progress_callback=self._emit_request_pending_stage_changed,
             )
             self.worker.response_ready.connect(
-                partial(self._on_response_ready, response_worker=self.worker)
+                partial(
+                    self._on_response_ready,
+                    response_worker=self.worker,
+                    operation_id=operation_id,
+                )
             )
             self.worker.error_occurred.connect(
-                partial(self._on_error, response_worker=self.worker)
+                partial(
+                    self._on_error,
+                    response_worker=self.worker,
+                    operation_id=operation_id,
+                )
             )
             connect_finished = getattr(self, "_connect_worker_finished_drain", None)
             if callable(connect_finished):
                 connect_finished(operation_id) if operation_id else connect_finished()
-            self._emit_request_pending_stage_changed("thinking")
-            self._emit_request_pending_changed(True)
+            if emit_pending_state:
+                self._emit_request_pending_stage_changed("thinking")
+                self._emit_request_pending_changed(True)
             self.worker.start()
             return True
         except Exception:
@@ -274,9 +307,19 @@ class ChatFlowBridgeMixin:
                 use_obsidian_priority=use_obsidian_priority,
             )
             self.worker.response_ready.connect(
-                partial(self._on_response_ready, response_worker=self.worker)
+                partial(
+                    self._on_response_ready,
+                    response_worker=self.worker,
+                    operation_id=operation_id,
+                )
             )
-            self.worker.error_occurred.connect(self._on_error)
+            self.worker.error_occurred.connect(
+                partial(
+                    self._on_error,
+                    response_worker=self.worker,
+                    operation_id=operation_id,
+                )
+            )
             connect_finished = getattr(self, "_connect_worker_finished_drain", None)
             if callable(connect_finished):
                 connect_finished(operation_id) if operation_id else connect_finished()
@@ -315,9 +358,19 @@ class ChatFlowBridgeMixin:
                 obsidian_manager=self.obsidian_manager,
             )
             self.worker.response_ready.connect(
-                partial(self._on_response_ready, response_worker=self.worker)
+                partial(
+                    self._on_response_ready,
+                    response_worker=self.worker,
+                    operation_id=operation_id,
+                )
             )
-            self.worker.error_occurred.connect(self._on_error)
+            self.worker.error_occurred.connect(
+                partial(
+                    self._on_error,
+                    response_worker=self.worker,
+                    operation_id=operation_id,
+                )
+            )
             connect_finished = getattr(self, "_connect_worker_finished_drain", None)
             if callable(connect_finished):
                 connect_finished(operation_id) if operation_id else connect_finished()
@@ -580,7 +633,12 @@ class ChatFlowBridgeMixin:
             self._mark_user_activity()
             ChatFlowBridgeMixin._commit_prepared_chat_request(self, prepared)
 
-    def _commit_prepared_chat_request(self, request: PreparedChatRequest) -> None:
+    def _commit_prepared_chat_request(
+        self,
+        request: PreparedChatRequest,
+        *,
+        emit_pending_state: bool = True,
+    ) -> None:
         """보류 가능 요청의 일반 대화 부수효과를 정확히 한 번 적용한다."""
         if request.request_type == "attachments":
             commit_attachments = getattr(self, "_commit_prepared_attachment_request", None)
@@ -649,18 +707,20 @@ class ChatFlowBridgeMixin:
         }
         self._is_rerolling = False
 
-        self._start_ai_worker(
-            message_with_time,
-            memory_search_text=memory_search_text,
-            latest_user_message=memory_search_inputs["latest_user_message"],
-            recent_memory_context=memory_search_inputs["recent_context_text"],
-            head_pat_count_before_message=committed_head_pat_count,
-            include_life_record_context=True,
-            prior_token_usage=(
+        worker_kwargs = {
+            "memory_search_text": memory_search_text,
+            "latest_user_message": memory_search_inputs["latest_user_message"],
+            "recent_memory_context": memory_search_inputs["recent_context_text"],
+            "head_pat_count_before_message": committed_head_pat_count,
+            "include_life_record_context": True,
+            "prior_token_usage": (
                 getattr(getattr(self, "life_record_state", None), "prior_token_usage", None)
                 or request.prior_token_usage
             ),
-        )
+        }
+        if not emit_pending_state:
+            worker_kwargs["emit_pending_state"] = False
+        self._start_ai_worker(message_with_time, **worker_kwargs)
         print("[Bridge] Worker thread started")
 
     @pyqtSlot()
@@ -894,40 +954,114 @@ class ChatFlowBridgeMixin:
         )
         print("[Bridge] Edit last user message started")
 
-    def _on_response_ready(self, *args, response_worker=None, **kwargs):
+    def _on_response_ready(
+        self,
+        *args,
+        response_worker=None,
+        operation_id=_UNSET_OPERATION,
+        **kwargs,
+    ):
         worker = (
             response_worker if response_worker is not None else getattr(self, "worker", None)
         )
+        matched_operation_id = ChatFlowBridgeMixin._normal_operation_id(
+            self,
+            worker,
+            operation_id,
+        )
+        if operation_id is not _UNSET_OPERATION and matched_operation_id is None:
+            if worker is not None:
+                worker.response_metadata = ResponseDeliveryMetadata.empty()
+            return None
+        consumed = getattr(self, "_consumed_normal_response", None)
+        if matched_operation_id is not None and consumed == (
+            matched_operation_id,
+            worker,
+        ):
+            return None
+        if matched_operation_id is not None:
+            self._consumed_normal_response = (matched_operation_id, worker)
         response_metadata = getattr(worker, "response_metadata", None)
         if type(response_metadata) is not ResponseDeliveryMetadata:
             response_metadata = ResponseDeliveryMetadata.empty()
-        operation_id = ChatFlowBridgeMixin._normal_operation_id(self, worker)
         try:
             return ChatFlowBridgeMixin._handle_response_ready(
                 self,
                 *args,
                 response_metadata=response_metadata,
-                normal_operation_id=operation_id,
+                normal_operation_id=matched_operation_id,
                 **kwargs,
             )
         except Exception:
-            if operation_id is None or not ChatFlowBridgeMixin._finish_normal_operation(
-                self, operation_id
-            ):
-                ChatFlowBridgeMixin._emit_request_pending_changed(self, False)
+            ChatFlowBridgeMixin._cleanup_failed_response_delivery(
+                self,
+                matched_operation_id,
+            )
             raise
         finally:
             if worker is not None:
                 worker.response_metadata = ResponseDeliveryMetadata.empty()
 
-    def _normal_operation_id(self, response_worker) -> int | None:
+    def _cleanup_failed_response_delivery(self, operation_id: int | None) -> None:
+        """응답 전달 중 로컬 예외가 나도 소유 상태와 대기열을 해제한다."""
+        self.pending_response = None
+        self.pending_token_usage_payload = ""
+        self._pending_response_completion = None
+        promise_id = str(getattr(self, "_active_promise_id", "") or "").strip()
+        proactive_id = str(getattr(self, "_active_proactive_id", "") or "").strip()
+        try:
+            ChatFlowBridgeMixin._finalize_completed_runtime_items(
+                self,
+                promise_id,
+                proactive_id,
+                drain_queues=operation_id is None,
+            )
+        except Exception as exc:
+            print(
+                "[Bridge] response_cleanup_failed category=local_error "
+                f"exception_class={type(exc).__name__}"
+            )
+        try:
+            if self._is_rerolling:
+                self._is_rerolling = False
+                self.reroll_state_changed.emit(False)
+        except Exception as exc:
+            print(
+                "[Bridge] reroll_cleanup_failed category=local_error "
+                f"exception_class={type(exc).__name__}"
+            )
+        if operation_id is not None:
+            try:
+                ChatFlowBridgeMixin._finish_normal_operation(self, operation_id)
+            except Exception as exc:
+                print(
+                    "[Bridge] operation_cleanup_failed category=local_error "
+                    f"exception_class={type(exc).__name__}"
+                )
+            return
+        try:
+            ChatFlowBridgeMixin._emit_request_pending_changed(self, False)
+        finally:
+            ChatFlowBridgeMixin._invoke_worker_finished_queue_drain(self)
+
+    def _normal_operation_id(
+        self,
+        response_worker,
+        operation_id=_UNSET_OPERATION,
+    ) -> int | None:
         state = getattr(self, "life_record_state", None)
+        if state is None:
+            return None
+        expected_operation_id = (
+            state.operation_id
+            if operation_id is _UNSET_OPERATION
+            else operation_id
+        )
         if (
-            state is not None
-            and getattr(self, "worker", None) is response_worker
-            and state.matches_operation(state.operation_id, "normal_reply")
+            getattr(self, "worker", None) is response_worker
+            and state.matches_operation(expected_operation_id, "normal_reply")
         ):
-            return state.operation_id
+            return expected_operation_id
         return None
 
     def _remember_loaded_topic_memory_context_for_summary(self) -> None:
@@ -999,18 +1133,39 @@ class ChatFlowBridgeMixin:
         proactive_enabled = getattr(self, "_is_proactive_conversation_enabled", None)
         if completed_proactive_id and callable(proactive_enabled) and not proactive_enabled():
             print("[Bridge] 선제 대화 설정이 꺼져 활성 선제 응답을 폐기합니다.")
-            ChatFlowBridgeMixin._emit_request_pending_changed(self, False)
-            proactive_manager = getattr(self, "proactive_manager", None)
-            if proactive_manager:
-                proactive_manager.delete_item(completed_proactive_id)
-            self._active_proactive_id = None
-            self._active_proactive_signature = None
-            refresh_history = getattr(self, "_refresh_llm_history_from_visible_conversation", None)
-            if callable(refresh_history):
-                refresh_history()
-            drain_proactive_queue = getattr(self, "_drain_proactive_queue_if_idle", None)
-            if callable(drain_proactive_queue):
-                drain_proactive_queue()
+            try:
+                proactive_manager = getattr(self, "proactive_manager", None)
+                if proactive_manager:
+                    try:
+                        proactive_manager.delete_item(completed_proactive_id)
+                    except Exception as exc:
+                        print(
+                            "[Bridge] proactive_discard_failed category=local_error "
+                            f"exception_class={type(exc).__name__}"
+                        )
+                refresh_history = getattr(
+                    self,
+                    "_refresh_llm_history_from_visible_conversation",
+                    None,
+                )
+                if callable(refresh_history):
+                    try:
+                        refresh_history()
+                    except Exception as exc:
+                        print(
+                            "[Bridge] history_refresh_failed category=local_error "
+                            f"exception_class={type(exc).__name__}"
+                        )
+            finally:
+                self._active_proactive_id = None
+                self._active_proactive_signature = None
+                if type(normal_operation_id) is int:
+                    self._finish_normal_operation(normal_operation_id)
+                else:
+                    try:
+                        ChatFlowBridgeMixin._emit_request_pending_changed(self, False)
+                    finally:
+                        ChatFlowBridgeMixin._invoke_worker_finished_queue_drain(self)
             return
         text = self._sanitize_visible_response_text(text)
         gesture = ChatFlowBridgeMixin._normalize_response_gesture(self, gesture)
@@ -1160,14 +1315,16 @@ class ChatFlowBridgeMixin:
                 return
             ChatFlowBridgeMixin._finalize_pending_response_completion_if_any(self)
             return
-        ChatFlowBridgeMixin._finalize_completed_runtime_items(
-            self,
-            completed_promise_id,
-            completed_proactive_id,
-            drain_queues=normal_operation_id is None,
-        )
-        if normal_operation_id is not None:
-            self._finish_normal_operation(normal_operation_id)
+        try:
+            ChatFlowBridgeMixin._finalize_completed_runtime_items(
+                self,
+                completed_promise_id,
+                completed_proactive_id,
+                drain_queues=normal_operation_id is None,
+            )
+        finally:
+            if normal_operation_id is not None:
+                self._finish_normal_operation(normal_operation_id)
 
     def _normalize_response_gesture(self, gesture: str) -> str:
         """LLM 응답에서 온 제스처 키를 런타임 허용 목록으로 제한한다."""
@@ -1207,28 +1364,43 @@ class ChatFlowBridgeMixin:
         drain_queues: bool = True,
     ):
         """사용자에게 응답을 보낸 뒤 예약/큐 상태를 마무리한다."""
+        errors: list[BaseException] = []
+
+        def attempt(action) -> None:
+            try:
+                action()
+            except Exception as exc:
+                errors.append(exc)
+
         promise_manager = getattr(self, "promise_manager", None)
-        if promise_manager and completed_promise_id:
-            promise_manager.delete_promise(completed_promise_id)
-            emit_items = getattr(self, "_emit_promise_items_updated", None)
-            if callable(emit_items):
-                emit_items()
         self._active_promise_id = None
         self._active_promise_signature = None
+        if promise_manager and completed_promise_id:
+            attempt(lambda: promise_manager.delete_promise(completed_promise_id))
+            emit_items = getattr(self, "_emit_promise_items_updated", None)
+            if callable(emit_items):
+                attempt(emit_items)
         drain_queue = getattr(self, "_drain_promise_queue_if_idle", None)
         if drain_queues and callable(drain_queue):
-            drain_queue()
+            attempt(drain_queue)
         proactive_manager = getattr(self, "proactive_manager", None)
-        if proactive_manager and completed_proactive_id:
-            proactive_manager.set_status(completed_proactive_id, "completed")
-            emit_proactive_items = getattr(self, "_emit_proactive_items_updated", None)
-            if callable(emit_proactive_items):
-                emit_proactive_items()
         self._active_proactive_id = None
         self._active_proactive_signature = None
+        if proactive_manager and completed_proactive_id:
+            attempt(
+                lambda: proactive_manager.set_status(
+                    completed_proactive_id,
+                    "completed",
+                )
+            )
+            emit_proactive_items = getattr(self, "_emit_proactive_items_updated", None)
+            if callable(emit_proactive_items):
+                attempt(emit_proactive_items)
         drain_proactive_queue = getattr(self, "_drain_proactive_queue_if_idle", None)
         if drain_queues and callable(drain_proactive_queue):
-            drain_proactive_queue()
+            attempt(drain_proactive_queue)
+        if errors:
+            raise errors[0]
 
     def _finalize_pending_response_completion_if_any(self):
         """TTS 보류 응답이 실제로 표시된 뒤 예약 완료 처리를 수행한다."""
@@ -1237,49 +1409,84 @@ class ChatFlowBridgeMixin:
         if not isinstance(payload, dict):
             return
         operation_id = payload.get("normal_operation_id")
-        ChatFlowBridgeMixin._finalize_completed_runtime_items(
-            self,
-            str(payload.get("promise_id", "") or "").strip(),
-            str(payload.get("proactive_id", "") or "").strip(),
-            drain_queues=type(operation_id) is not int,
-        )
-        if type(operation_id) is int:
-            self._finish_normal_operation(operation_id)
+        try:
+            ChatFlowBridgeMixin._finalize_completed_runtime_items(
+                self,
+                str(payload.get("promise_id", "") or "").strip(),
+                str(payload.get("proactive_id", "") or "").strip(),
+                drain_queues=type(operation_id) is not int,
+            )
+        finally:
+            if type(operation_id) is int:
+                self._finish_normal_operation(operation_id)
 
-    def _on_error(self, error_msg: str, *, response_worker=None):
+    def _on_error(
+        self,
+        error_msg: str,
+        *,
+        response_worker=None,
+        operation_id=_UNSET_OPERATION,
+    ):
         """오류 발생"""
-        print("[Bridge] request_failed category=provider_error")
-        operation_id = ChatFlowBridgeMixin._normal_operation_id(
-            self,
+        worker = (
             response_worker if response_worker is not None else getattr(self, "worker", None)
         )
-        if operation_id is None:
-            ChatFlowBridgeMixin._emit_request_pending_changed(self, False)
+        matched_operation_id = ChatFlowBridgeMixin._normal_operation_id(
+            self,
+            worker,
+            operation_id,
+        )
+        if operation_id is not _UNSET_OPERATION and matched_operation_id is None:
+            return
+        if matched_operation_id is not None and getattr(
+            self,
+            "_consumed_normal_response",
+            None,
+        ) == (matched_operation_id, worker):
+            return
+        print("[Bridge] request_failed category=provider_error")
+        errors: list[BaseException] = []
+
+        def attempt(action) -> None:
+            try:
+                action()
+            except Exception as exc:
+                errors.append(exc)
+
         reminder_id = str(getattr(self, "_active_promise_id", "") or "").strip()
         promise_manager = getattr(self, "promise_manager", None)
+        self._active_promise_id = None
+        self._active_promise_signature = None
         if promise_manager and reminder_id:
-            promise_manager.set_status(reminder_id, "missed")
+            attempt(lambda: promise_manager.set_status(reminder_id, "missed"))
             emit_items = getattr(self, "_emit_promise_items_updated", None)
             if callable(emit_items):
-                emit_items()
-            self._active_promise_id = None
-            self._active_promise_signature = None
+                attempt(emit_items)
         proactive_id = str(getattr(self, "_active_proactive_id", "") or "").strip()
         proactive_manager = getattr(self, "proactive_manager", None)
+        self._active_proactive_id = None
+        self._active_proactive_signature = None
         if proactive_manager and proactive_id:
-            proactive_manager.set_status(proactive_id, "expired")
-            self._active_proactive_id = None
-            self._active_proactive_signature = None
-        self.message_received.emit("음... 무슨 일이 있었나봐요.", "confused", "")
+            attempt(lambda: proactive_manager.set_status(proactive_id, "expired"))
+        attempt(
+            lambda: self.message_received.emit(
+                "음... 무슨 일이 있었나봐요.",
+                "confused",
+                "",
+            )
+        )
         if self._is_rerolling:
             self._is_rerolling = False
-            self.reroll_state_changed.emit(False)
-        if operation_id is not None:
-            self._finish_normal_operation(operation_id)
-            return
-        drain_queue = getattr(self, "_drain_promise_queue_if_idle", None)
-        if callable(drain_queue):
-            drain_queue()
-        drain_proactive_queue = getattr(self, "_drain_proactive_queue_if_idle", None)
-        if callable(drain_proactive_queue):
-            drain_proactive_queue()
+            attempt(lambda: self.reroll_state_changed.emit(False))
+        if matched_operation_id is not None:
+            attempt(lambda: self._finish_normal_operation(matched_operation_id))
+        else:
+            attempt(lambda: ChatFlowBridgeMixin._emit_request_pending_changed(self, False))
+            drain_queue = getattr(self, "_drain_promise_queue_if_idle", None)
+            if callable(drain_queue):
+                attempt(drain_queue)
+            drain_proactive_queue = getattr(self, "_drain_proactive_queue_if_idle", None)
+            if callable(drain_proactive_queue):
+                attempt(drain_proactive_queue)
+        if errors:
+            raise errors[0]

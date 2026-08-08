@@ -244,6 +244,22 @@ class TTSBridgeMixin:
         if reset_mouth:
             self._emit_mouth_signals(0.0)
     
+    def _recover_tts_start_failure(self, operation_id, exc: BaseException) -> None:
+        print(
+            "[Bridge] tts_start_failed category=local_error "
+            f"exception_class={type(exc).__name__}"
+        )
+        self.tts_worker = None
+        self._active_tts_operation = (operation_id, None)
+        self._on_tts_error("tts_start_failed", operation_id=operation_id)
+
+    def _create_tts_worker(self, worker_type, text: str, operation_id):
+        try:
+            return worker_type(self.tts_client, text)
+        except Exception as exc:
+            self._recover_tts_start_failure(operation_id, exc)
+            return None
+
     def _play_tts(self, text: str):
         """립싱크를 포함한 TTS 재생 (비동기 스레드)"""
         self._tts_interrupted_for_ptt = False
@@ -275,10 +291,29 @@ class TTSBridgeMixin:
         )
 
         if self._should_use_streaming_tts():
-            self.tts_worker = StreamingTTSWorker(self.tts_client, text)
+            self.tts_worker = self._create_tts_worker(
+                StreamingTTSWorker,
+                text,
+                operation_id,
+            )
+            if self.tts_worker is None:
+                return
             owned_worker = self.tts_worker
-            self.tts_worker.stream_format_ready.connect(self._on_tts_stream_format)
-            self.tts_worker.stream_chunk_ready.connect(self._on_tts_stream_chunk)
+            self._active_tts_operation = (operation_id, owned_worker)
+            self.tts_worker.stream_format_ready.connect(
+                partial(
+                    self._on_tts_stream_format,
+                    operation_id=operation_id,
+                    tts_worker=owned_worker,
+                )
+            )
+            self.tts_worker.stream_chunk_ready.connect(
+                partial(
+                    self._on_tts_stream_chunk,
+                    operation_id=operation_id,
+                    tts_worker=owned_worker,
+                )
+            )
             self.tts_worker.stream_finished.connect(
                 partial(
                     self._on_tts_stream_finished,
@@ -293,13 +328,20 @@ class TTSBridgeMixin:
                     tts_worker=owned_worker,
                 )
             )
-            self.tts_worker.start()
+            try:
+                self.tts_worker.start()
+            except Exception as exc:
+                self._recover_tts_start_failure(operation_id, exc)
+                return
             print("[Bridge] 스트리밍 TTS 워커 시작 (백그라운드)")
             return
 
         # 새 TTS 워커 생성
-        self.tts_worker = TTSWorker(self.tts_client, text)
+        self.tts_worker = self._create_tts_worker(TTSWorker, text, operation_id)
+        if self.tts_worker is None:
+            return
         owned_worker = self.tts_worker
+        self._active_tts_operation = (operation_id, owned_worker)
         self.tts_worker.tts_ready.connect(
             partial(
                 self._on_tts_ready,
@@ -314,7 +356,11 @@ class TTSBridgeMixin:
                 tts_worker=owned_worker,
             )
         )
-        self.tts_worker.start()
+        try:
+            self.tts_worker.start()
+        except Exception as exc:
+            self._recover_tts_start_failure(operation_id, exc)
+            return
         
         print(f"[Bridge] TTS 워커 시작 (백그라운드)")
 
@@ -352,14 +398,15 @@ class TTSBridgeMixin:
 
     def _flush_pending_response_if_any(self):
         """TTS 대기 중 응답이 있으면 즉시 채팅으로 복구 전송한다."""
-        if not self.pending_response:
+        pending_response = self.pending_response
+        if not pending_response:
             return
-        if len(self.pending_response) >= 3:
-            text, emotion, thought = self.pending_response[:3]
+        if len(pending_response) >= 3:
+            text, emotion, thought = pending_response[:3]
         else:
-            text, emotion = self.pending_response
+            text, emotion = pending_response
             thought = ""
-        gesture = self.pending_response[3] if len(self.pending_response) >= 4 else ""
+        gesture = pending_response[3] if len(pending_response) >= 4 else ""
         print(
             "[Bridge] pending_response_flushed "
             f"reply_chars={_safe_text_length(text)} thought_chars={_safe_text_length(thought)}"
@@ -370,21 +417,26 @@ class TTSBridgeMixin:
             and type(completion.get("normal_operation_id")) is int
         )
         emit_pending = getattr(self, "_emit_request_pending_changed", None)
-        if callable(emit_pending) and not has_normal_operation:
-            emit_pending(False)
-        self.message_received.emit(text, emotion, thought)
-        emit_gesture = getattr(self, "_emit_gesture_requested", None)
-        if callable(emit_gesture):
-            emit_gesture(gesture)
-        self.token_usage_ready.emit(self._resolve_token_usage_payload(self.pending_token_usage_payload))
-        if self._is_rerolling:
-            self._is_rerolling = False
-            self.reroll_state_changed.emit(False)
+        token_usage_payload = self.pending_token_usage_payload
         self.pending_response = None
         self.pending_token_usage_payload = ""
         finalize_pending = getattr(self, "_finalize_pending_response_completion_if_any", None)
-        if callable(finalize_pending):
-            finalize_pending()
+        try:
+            if callable(emit_pending) and not has_normal_operation:
+                emit_pending(False)
+            self.message_received.emit(text, emotion, thought)
+            emit_gesture = getattr(self, "_emit_gesture_requested", None)
+            if callable(emit_gesture):
+                emit_gesture(gesture)
+            self.token_usage_ready.emit(self._resolve_token_usage_payload(token_usage_payload))
+        finally:
+            try:
+                if self._is_rerolling:
+                    self._is_rerolling = False
+                    self.reroll_state_changed.emit(False)
+            finally:
+                if callable(finalize_pending):
+                    finalize_pending()
 
     def _resolve_token_usage_payload(self, token_usage_payload: str = "") -> str:
         """브리지에서 사용할 토큰 사용량 JSON을 정규화한다."""
@@ -524,8 +576,18 @@ class TTSBridgeMixin:
         )
         self.mouth_pose_update.emit(json.dumps(pose, ensure_ascii=False))
 
-    def _on_tts_stream_format(self, sample_rate: int, channels: int, sample_width: int):
+    def _on_tts_stream_format(
+        self,
+        sample_rate: int,
+        channels: int,
+        sample_width: int,
+        *,
+        operation_id=None,
+        tts_worker=None,
+    ):
         """스트리밍 TTS의 PCM 포맷이 준비되면 재생기를 시작한다."""
+        if not self._matches_tts_operation(operation_id, tts_worker):
+            return
         self._stream_audio_format = (int(sample_rate), int(channels), int(sample_width))
         self._stream_viseme_analyzer = VisemeStreamAnalyzer(
             sample_rate=sample_rate,
@@ -540,8 +602,17 @@ class TTSBridgeMixin:
             self.audio_player.start_stream(sample_rate, channels, sample_width)
             self._stream_audio_output_started = True
 
-    def _on_tts_stream_chunk(self, pcm_bytes: bytes, mouth_values: list):
+    def _on_tts_stream_chunk(
+        self,
+        pcm_bytes: bytes,
+        mouth_values: list,
+        *,
+        operation_id=None,
+        tts_worker=None,
+    ):
         """스트리밍 PCM 청크를 재생 버퍼와 실시간 립싱크 큐에 전달한다."""
+        if not self._matches_tts_operation(operation_id, tts_worker):
+            return
         if self._tts_interrupted_for_ptt:
             print("[Bridge] PTT 중단 플래그로 스트리밍 청크 무시")
             return
@@ -575,6 +646,9 @@ class TTSBridgeMixin:
     def _matches_tts_operation(self, operation_id=None, tts_worker=None) -> bool:
         if operation_id is None:
             return True
+        active_operation = getattr(self, "_active_tts_operation", None)
+        if isinstance(active_operation, tuple) and len(active_operation) == 2:
+            return active_operation == (operation_id, tts_worker)
         completion = getattr(self, "_pending_response_completion", None)
         if (
             not isinstance(completion, dict)
@@ -583,10 +657,24 @@ class TTSBridgeMixin:
             return False
         return tts_worker is None or getattr(self, "tts_worker", None) is tts_worker
 
+    def _clear_tts_operation(self, operation_id=None, tts_worker=None) -> None:
+        active_operation = getattr(self, "_active_tts_operation", None)
+        if active_operation == (operation_id, tts_worker):
+            self._active_tts_operation = None
+
     def _on_tts_stream_finished(self, *, operation_id=None, tts_worker=None):
         """스트리밍 TTS 종료 신호를 받아 잔여 버퍼를 마무리한다."""
         if not self._matches_tts_operation(operation_id, tts_worker):
             return
+        try:
+            self._complete_tts_stream()
+        finally:
+            try:
+                self._flush_pending_response_if_any()
+            finally:
+                self._clear_tts_operation(operation_id, tts_worker)
+
+    def _complete_tts_stream(self) -> None:
         print("[Bridge] 스트리밍 TTS 종료")
         self._stream_lip_sync_finished = True
         if self._stream_viseme_analyzer is not None:
@@ -670,19 +758,30 @@ class TTSBridgeMixin:
         operation_id=None,
         tts_worker=None,
     ):
-        """비동기 TTS 완료 후 오디오 재생"""
         if not self._matches_tts_operation(operation_id, tts_worker):
             return
+        try:
+            self._complete_tts_ready(audio_data, lip_sync_data)
+        finally:
+            self._clear_tts_operation(operation_id, tts_worker)
+
+    def _complete_tts_ready(
+        self,
+        audio_data: bytes,
+        lip_sync_data: list,
+    ):
+        """비동기 TTS 완료 후 오디오 재생"""
         audio_bytes = len(audio_data) if type(audio_data) is bytes else 0
         frame_count = len(lip_sync_data) if type(lip_sync_data) is list else 0
         print(f"[Bridge] TTS 준비 완료: {audio_bytes} bytes, {frame_count} 프레임")
-        self._stop_streaming_lip_sync(reset_mouth=False)
-        
-        # 립싱크 데이터 저장
-        self.lip_sync_data = lip_sync_data if lip_sync_data else None
-        
-        # 보류된 텍스트가 있으면 이제 전송 (텍스트 + 음성 동시 제공)
-        self._flush_pending_response_if_any()
+        try:
+            self._stop_streaming_lip_sync(reset_mouth=False)
+
+            # 립싱크 데이터 저장
+            self.lip_sync_data = lip_sync_data if lip_sync_data else None
+        finally:
+            # 보류된 텍스트가 있으면 이제 전송 (텍스트 + 음성 동시 제공)
+            self._flush_pending_response_if_any()
         
         # PTT로 끊긴 경우, 이번 오디오는 재생하지 않는다.
         if self._tts_interrupted_for_ptt:
@@ -709,13 +808,23 @@ class TTSBridgeMixin:
         """TTS 오류 처리"""
         if not self._matches_tts_operation(operation_id, tts_worker):
             return
+        try:
+            self._complete_tts_error()
+        finally:
+            self._clear_tts_operation(operation_id, tts_worker)
+
+    def _complete_tts_error(self) -> None:
         print("[Bridge] tts_failed category=tts_error")
-        self._stop_streaming_lip_sync(reset_mouth=True)
-        # TTS 실패 시 보류 중이던 텍스트를 즉시 복구 전송한다.
-        self._flush_pending_response_if_any()
-        if self._is_rerolling:
-            self._is_rerolling = False
-            self.reroll_state_changed.emit(False)
+        try:
+            self._stop_streaming_lip_sync(reset_mouth=True)
+        finally:
+            try:
+                # TTS 실패 시 보류 중이던 텍스트를 즉시 복구 전송한다.
+                self._flush_pending_response_if_any()
+            finally:
+                if self._is_rerolling:
+                    self._is_rerolling = False
+                    self.reroll_state_changed.emit(False)
     
     def _start_lip_sync(self):
         """립싱크 타이머 시작"""
