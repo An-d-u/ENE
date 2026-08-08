@@ -497,27 +497,40 @@ def _sync_prompt_bundle_to_visible_roaming(payloads: dict[Path, bytes]) -> None:
         visible_dir / path.name: payload
         for path, payload in payloads.items()
     }
-    snapshots = {
-        path: _read_prompt_file_via_powershell(path)
-        for path in visible_payloads
-    }
+    snapshot_failed = False
+    try:
+        snapshots = {
+            path: _read_prompt_file_via_powershell(path)
+            for path in visible_payloads
+        }
+    except Exception:
+        snapshot_failed = True
+        snapshots = {}
+    if snapshot_failed:
+        raise RuntimeError("prompt_bundle_visible_snapshot_failed") from None
+
+    write_failed = False
     try:
         for path, payload in visible_payloads.items():
             _write_prompt_file_via_powershell(path, payload)
     except Exception:
-        rollback_failed = False
-        for path, payload in snapshots.items():
-            try:
-                if payload is None:
-                    _delete_prompt_file_via_powershell(path)
-                else:
-                    _write_prompt_file_via_powershell(path, payload)
-            except Exception:
-                rollback_failed = True
-        code = "prompt_bundle_visible_save_failed"
-        if rollback_failed:
-            code = "prompt_bundle_visible_rollback_failed"
-        raise RuntimeError(code) from None
+        write_failed = True
+    if not write_failed:
+        return
+
+    rollback_failed = False
+    for path, payload in snapshots.items():
+        try:
+            if payload is None:
+                _delete_prompt_file_via_powershell(path)
+            else:
+                _write_prompt_file_via_powershell(path, payload)
+        except Exception:
+            rollback_failed = True
+    code = "prompt_bundle_visible_save_failed"
+    if rollback_failed:
+        code = "prompt_bundle_visible_rollback_failed"
+    raise RuntimeError(code) from None
 
 
 def save_prompt_bundle(config: dict, life_world: str) -> dict:
@@ -550,11 +563,24 @@ def save_prompt_bundle(config: dict, life_world: str) -> dict:
         for staged, _target in staged_files:
             staged.unlink(missing_ok=True)
 
+    visible_failure_code: str | None = None
     try:
         _sync_prompt_bundle_to_visible_roaming(payloads)
     except Exception as error:
+        allowed_codes = {
+            "prompt_bundle_visible_snapshot_failed",
+            "prompt_bundle_visible_save_failed",
+            "prompt_bundle_visible_rollback_failed",
+        }
+        error_code = str(error)
+        visible_failure_code = (
+            error_code
+            if error_code in allowed_codes
+            else "prompt_bundle_visible_save_failed"
+        )
+    if visible_failure_code is not None:
         restored = _restore_prompt_bundle_snapshots(snapshots)
-        code = str(error) if restored else "prompt_bundle_rollback_failed"
+        code = visible_failure_code if restored else "prompt_bundle_rollback_failed"
         raise RuntimeError(code) from None
     return {**normalized, "life_world": normalized_life_world}
 

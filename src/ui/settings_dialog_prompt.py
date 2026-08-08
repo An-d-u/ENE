@@ -303,20 +303,22 @@ class SettingsDialogPromptMixin:
             if not emotion_names:
                 raise ValueError("감정은 하나 이상 있어야 합니다.")
 
-            prompt_config.save_prompt_bundle(
-                {
-                    "base_system_prompt": self.base_prompt_editor.toPlainText(),
-                    "sub_prompt_body": self.sub_prompt_editor.toPlainText(),
-                    "emotions": emotion_names,
-                    "emotion_guides": {
-                        item["name"]: item["guide"]
-                        for item in self._emotion_items
-                        if item["name"].strip()
-                    },
+            config = {
+                "base_system_prompt": self.base_prompt_editor.toPlainText(),
+                "sub_prompt_body": self.sub_prompt_editor.toPlainText(),
+                "emotions": emotion_names,
+                "emotion_guides": {
+                    item["name"]: item["guide"]
+                    for item in self._emotion_items
+                    if item["name"].strip()
                 },
-                self.life_world_editor.toPlainText(),
-            )
-            self._on_life_world_text_changed()
+            }
+            life_world_editor = getattr(self, "life_world_editor", None)
+            if life_world_editor is None:
+                prompt_config.save_prompt_config(config)
+            else:
+                prompt_config.save_prompt_bundle(config, life_world_editor.toPlainText())
+                self._on_life_world_text_changed()
             self._sync_emotion_combo_options()
 
             SettingsDialogPromptMixin._set_prompt_status_text(
