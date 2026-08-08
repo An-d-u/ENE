@@ -235,6 +235,7 @@ class ProactiveBridgeMixin:
             "message_with_time": message_with_time,
             "images": [],
             "proactive_id": proactive_id,
+            "include_life_record_context": False,
         }
         self._start_ai_worker(message_with_time)
 

@@ -907,6 +907,7 @@ def test_reroll_last_response_deletes_only_tracked_promises():
         "images": [],
         "memory_search_text": "",
         "promise_ids": ["tracked-1"],
+        "include_life_record_context": True,
     }
     dummy._is_rerolling = False
     dummy._reset_pending_ui_state = lambda notice="": None
