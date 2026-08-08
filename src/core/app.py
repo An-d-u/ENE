@@ -1305,7 +1305,6 @@ class ENEApplication(QObject):
                 except Exception:
                     pass
 
-        self._stop_shutdown_worker_producers(bridge)
         self._shutdown_worker_refs = []
         workers = self._refresh_shutdown_workers(
             bridge,
