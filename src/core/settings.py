@@ -233,6 +233,8 @@ class Settings:
         "away_idle_minutes": 60,
         "away_input_grace_minutes": 5,
         "away_additional_retry_limit": 0,
+        "enable_life_records": False,
+        "life_record_min_inactive_minutes": 60,
         "enable_mood_system": True,
         "mood_update_speed": "normal",
         "mood_personality_profile": "affectionate",
@@ -319,6 +321,9 @@ class Settings:
             merged = {**self.DEFAULT_CONFIG, **loaded_config}
             if merged.get("structured_response_mode") not in {"auto", "legacy"}:
                 merged["structured_response_mode"] = "auto"
+            inactive_minutes = merged.get("life_record_min_inactive_minutes")
+            if type(inactive_minutes) is not int or inactive_minutes < 1:
+                merged["life_record_min_inactive_minutes"] = 60
 
             base_models = dict(self.DEFAULT_CONFIG["llm_models"])
             loaded_models = loaded_config.get("llm_models", {})
