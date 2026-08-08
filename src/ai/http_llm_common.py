@@ -57,6 +57,7 @@ from .response_protocol import (
     ResponseMode,
     ResponseStatus,
     StructuredOutputUnsupported,
+    TurnTokenUsageAccumulator,
     get_life_record_output_schema,
     is_valid_token_count,
 )
@@ -829,6 +830,161 @@ def normalize_one_shot_usage(
     }
 
 
+def _normalize_capability_failure_usage(
+    failure: BaseException,
+    descriptor: HTTPStructuredOneShotRequestDescriptor,
+) -> dict[str, int | None]:
+    """미지원 응답이 실제 제공한 usage만 원문 없이 정규화한다."""
+    response = getattr(failure, "response", None)
+    if response is None:
+        return normalize_one_shot_usage(
+            None,
+            input_key="input_tokens",
+            output_key="output_tokens",
+        )
+    try:
+        data = response.json()
+    except Exception:
+        data = None
+    if not isinstance(data, dict):
+        data = {}
+
+    wire_format = _normalize_profile_value(descriptor.profile.wire_format)
+    if wire_format == "ollama":
+        total_key = (
+            "total_tokens"
+            if "total_tokens" in data
+            else "total"
+        )
+        return normalize_one_shot_usage(
+            data,
+            input_key="prompt_eval_count",
+            output_key="eval_count",
+            total_key=total_key,
+        )
+    if wire_format in {"openai_chat", "openai_responses"}:
+        return normalize_one_shot_usage(
+            data.get("usage"),
+            input_key=(
+                "input_tokens"
+                if wire_format == "openai_responses"
+                else "prompt_tokens"
+            ),
+            output_key=(
+                "output_tokens"
+                if wire_format == "openai_responses"
+                else "completion_tokens"
+            ),
+        )
+    if wire_format == "anthropic":
+        return normalize_one_shot_usage(
+            data.get("usage"),
+            input_key="input_tokens",
+            output_key="output_tokens",
+        )
+    return normalize_one_shot_usage(
+        None,
+        input_key="input_tokens",
+        output_key="output_tokens",
+    )
+
+
+def _safe_life_record_transport_failure(
+    failure: Exception,
+    descriptor: HTTPStructuredOneShotRequestDescriptor,
+) -> Exception:
+    """raw transport 예외를 worker thread 안에서 안전한 신호로 바꾼다."""
+    if (
+        descriptor.response_mode is not ResponseMode.LEGACY_TAGS
+        and is_explicit_structured_output_unsupported(
+            failure,
+            profile=descriptor.profile,
+            response_mode=descriptor.response_mode,
+        )
+    ):
+        safe_failure = StructuredOutputUnsupported(
+            descriptor.response_mode,
+            provider=_safe_error_provider(descriptor.profile.provider),
+        )
+        safe_failure.usage = MappingProxyType(
+            _normalize_capability_failure_usage(failure, descriptor)
+        )
+        return safe_failure
+    return RuntimeError("life_record_transport_failed")
+
+
+def _request_life_record_in_transport(
+    requester: Callable[
+        [HTTPStructuredOneShotRequestDescriptor],
+        HTTPStructuredOneShotResponse,
+    ],
+    descriptor: HTTPStructuredOneShotRequestDescriptor,
+) -> HTTPStructuredOneShotResponse:
+    """요청과 raw HTTP 분류를 같은 transport thread 안에서 끝낸다."""
+    safe_failure = None
+    try:
+        return requester(descriptor)
+    except Exception as failure:
+        safe_failure = _safe_life_record_transport_failure(
+            failure,
+            descriptor,
+        )
+    raise safe_failure
+
+
+async def _await_life_record_transport(
+    requester: Callable[
+        [HTTPStructuredOneShotRequestDescriptor],
+        HTTPStructuredOneShotResponse,
+    ],
+    descriptor: HTTPStructuredOneShotRequestDescriptor,
+) -> HTTPStructuredOneShotResponse:
+    """취소 시에도 실행 중인 transport thread를 고아로 남기지 않는다."""
+    worker = asyncio.create_task(
+        asyncio.to_thread(
+            _request_life_record_in_transport,
+            requester,
+            descriptor,
+        )
+    )
+    try:
+        return await asyncio.shield(worker)
+    except asyncio.CancelledError:
+        while not worker.done():
+            try:
+                await asyncio.shield(worker)
+            except asyncio.CancelledError:
+                continue
+            except BaseException:
+                break
+        if worker.done() and not worker.cancelled():
+            try:
+                worker.result()
+            except BaseException:
+                pass
+        raise
+
+
+def _one_shot_result_from_response(
+    response: HTTPStructuredOneShotResponse,
+    *usages: Mapping[str, int | None],
+) -> OneShotGenerationResult:
+    accumulator = TurnTokenUsageAccumulator()
+    for usage in usages:
+        accumulator.record(dict(usage))
+    normalized_usage = accumulator.snapshot()
+    return OneShotGenerationResult(
+        text=response.text,
+        status=response.status,
+        finish_reason=response.finish_reason,
+        token_usage=OneShotTokenUsage(
+            input_tokens=normalized_usage["input_tokens"],
+            output_tokens=normalized_usage["output_tokens"],
+            total_tokens=normalized_usage["total_tokens"],
+        ),
+    )
+
+
 def _build_summary_prompt(conversation_text: str) -> str:
     """HTTP 공급자 공통 요약 프롬프트를 생성한다."""
     return build_summary_prompt_from_text(conversation_text).prompt
@@ -1384,15 +1540,13 @@ class _CommonMixin:
         self,
         prompt: str,
     ) -> HTTPStructuredOneShotRequestDescriptor:
-        """현재 설정과 fresh schema로 native 생활 기록 요청을 고정한다."""
+        """현재 설정과 fresh schema로 capability별 생활 기록 요청을 고정한다."""
         profile = ProviderProfile(
             provider=str(getattr(self, "provider_name", "") or ""),
             wire_format=str(getattr(self, "wire_format", "") or ""),
             endpoint=str(getattr(self, "endpoint", "") or ""),
             model=str(getattr(self, "model_name", "") or ""),
         )
-        if resolve_response_mode(profile, "auto") is not ResponseMode.JSON_SCHEMA:
-            raise ValueError("life_record_native_profile_required")
         request = StructuredOneShotRequest(
             kind=LLMRequestKind.LIFE_RECORD,
             prompt=prompt,
@@ -1404,17 +1558,25 @@ class _CommonMixin:
             schema_version=LIFE_RECORD_SCHEMA_VERSION,
             generation_params=dict(getattr(self, "generation_params", {}) or {}),
         )
+        capability_key = build_capability_key(
+            profile,
+            request_kind=request.kind,
+            schema_id=request.schema_id,
+            schema_version=request.schema_version,
+        )
+        response_mode = _HTTP_RESPONSE_CAPABILITY_REGISTRY.resolve(
+            profile,
+            "auto",
+            schema_version=request.schema_version,
+            capability_key=capability_key,
+        )
         headers = self._headers()
         return HTTPStructuredOneShotRequestDescriptor(
             request=request,
             profile=profile,
-            capability_key=build_capability_key(
-                profile,
-                request_kind=request.kind,
-                schema_id=request.schema_id,
-                schema_version=request.schema_version,
-            ),
+            capability_key=capability_key,
             headers=headers,
+            response_mode=response_mode,
         )
 
     async def _generate_life_record_once(
@@ -1425,7 +1587,7 @@ class _CommonMixin:
             HTTPStructuredOneShotResponse,
         ],
     ) -> OneShotGenerationResult:
-        """동기 HTTP transport를 이벤트 루프 밖에서 정확히 한 번 실행한다."""
+        """동기 HTTP transport를 capability에 맞춰 최대 두 번 실행한다."""
         setup_failed = False
         descriptor = None
         try:
@@ -1435,44 +1597,58 @@ class _CommonMixin:
         if setup_failed or descriptor is None:
             raise RuntimeError("life_record_generation_failed")
 
-        transport_failed = False
+        capability_failure = None
         response = None
-        worker = asyncio.create_task(asyncio.to_thread(requester, descriptor))
+        transport_failed = False
         try:
-            response = await asyncio.shield(worker)
-        except asyncio.CancelledError:
-            while not worker.done():
-                try:
-                    await asyncio.shield(worker)
-                except asyncio.CancelledError:
-                    continue
-                except BaseException:
-                    break
-            if worker.done() and not worker.cancelled():
-                try:
-                    worker.result()
-                except BaseException:
-                    pass
-            raise
+            response = await _await_life_record_transport(
+                requester,
+                descriptor,
+            )
+        except StructuredOutputUnsupported as failure:
+            capability_failure = failure
         except Exception:
             transport_failed = True
-        if transport_failed or response is None:
+        if transport_failed:
             raise RuntimeError("life_record_generation_failed")
 
+        attempt_usages: list[Mapping[str, int | None]] = []
+        if capability_failure is not None:
+            if descriptor.response_mode is ResponseMode.LEGACY_TAGS:
+                raise RuntimeError("life_record_generation_failed")
+            failure_usage = getattr(capability_failure, "usage", {})
+            attempt_usages.append(
+                failure_usage if isinstance(failure_usage, Mapping) else {}
+            )
+            _HTTP_RESPONSE_CAPABILITY_REGISTRY.mark_legacy(
+                descriptor.capability_key
+            )
+            fallback_descriptor = HTTPStructuredOneShotRequestDescriptor(
+                request=descriptor.request,
+                profile=descriptor.profile,
+                capability_key=descriptor.capability_key,
+                headers=descriptor.headers,
+                response_mode=ResponseMode.LEGACY_TAGS,
+                timeout_seconds=descriptor.timeout_seconds,
+            )
+            fallback_failed = False
+            try:
+                response = await _await_life_record_transport(
+                    requester,
+                    fallback_descriptor,
+                )
+            except Exception:
+                fallback_failed = True
+            if fallback_failed:
+                raise RuntimeError("life_record_generation_failed")
+
+        if response is None:
+            raise RuntimeError("life_record_generation_failed")
+        attempt_usages.append(response.usage)
         normalization_failed = False
         result = None
         try:
-            usage = response.usage
-            result = OneShotGenerationResult(
-                text=response.text,
-                status=response.status,
-                finish_reason=response.finish_reason,
-                token_usage=OneShotTokenUsage(
-                    input_tokens=usage.get("input_tokens"),
-                    output_tokens=usage.get("output_tokens"),
-                    total_tokens=usage.get("total_tokens"),
-                ),
-            )
+            result = _one_shot_result_from_response(response, *attempt_usages)
         except Exception:
             normalization_failed = True
         if normalization_failed or result is None:

@@ -3,14 +3,19 @@ from __future__ import annotations
 import requests
 from .http_llm_common import (
     HTTPFinalRequestDescriptor,
+    HTTPStructuredOneShotRequestDescriptor,
+    HTTPStructuredOneShotResponse,
     LLM_RESPONSE_TUPLE,
     _CommonMixin,
     _normalize_generation_params,
     _post_with_safe_errors,
     _raise_for_status_with_detail,
+    _thaw_transport_value,
+    normalize_one_shot_usage,
 )
 from .response_protocol import (
     LLMRequestKind,
+    OneShotGenerationResult,
     ProviderResponse,
     ResponseMode,
     ResponseStatus,
@@ -48,6 +53,12 @@ class OllamaClient(_CommonMixin):
         self.generation_params = _normalize_generation_params(generation_params)
         self._history = []
 
+    def _headers(self) -> dict[str, str]:
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        return headers
+
     def _response_output_token_cap(self) -> int:
         return 8192
 
@@ -83,6 +94,77 @@ class OllamaClient(_CommonMixin):
             status=status,
             mode=request_descriptor.attempt.mode,
             finish_reason=done_reason,
+        )
+
+    def _request_ollama_life_record(
+        self,
+        descriptor: HTTPStructuredOneShotRequestDescriptor,
+    ) -> HTTPStructuredOneShotResponse:
+        request = descriptor.request
+        generation_params = _thaw_transport_value(request.generation_params)
+        headers = _thaw_transport_value(descriptor.headers)
+        payload = {
+            "model": descriptor.profile.model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": request.system_instruction,
+                },
+                {"role": "user", "content": request.prompt},
+            ],
+            "stream": False,
+            "options": {
+                "temperature": generation_params["temperature"],
+                "top_p": generation_params["top_p"],
+            },
+        }
+        if generation_params["max_tokens"] > 0:
+            payload["options"]["num_predict"] = generation_params["max_tokens"]
+        if descriptor.response_mode is ResponseMode.JSON_SCHEMA:
+            payload["format"] = _thaw_transport_value(request.schema)
+
+        response = _post_with_safe_errors(
+            descriptor.profile.provider,
+            descriptor.profile.endpoint,
+            requests.post,
+            headers=headers,
+            json=payload,
+            timeout=descriptor.timeout_seconds,
+        )
+        _raise_for_status_with_detail(response, descriptor.profile.provider)
+        data = response.json()
+        message = data.get("message")
+        if not isinstance(message, dict):
+            message = {}
+        text = str(message.get("content", "") or "").strip()
+        done_reason = str(data.get("done_reason", "") or "").strip().lower()
+        if data.get("done") is False or done_reason not in {"", "stop"}:
+            status = ResponseStatus.INCOMPLETE
+        elif text:
+            status = ResponseStatus.COMPLETE
+        else:
+            status = ResponseStatus.EMPTY
+        total_key = "total_tokens" if "total_tokens" in data else "total"
+        return HTTPStructuredOneShotResponse(
+            text=text,
+            status=status,
+            finish_reason=done_reason,
+            usage=normalize_one_shot_usage(
+                data,
+                input_key="prompt_eval_count",
+                output_key="eval_count",
+                total_key=total_key,
+            ),
+        )
+
+    async def generate_life_record_once(
+        self,
+        prompt: str,
+    ) -> OneShotGenerationResult:
+        """Ollama capability에 맞춰 생활 기록을 history 없이 생성한다."""
+        return await self._generate_life_record_once(
+            prompt,
+            self._request_ollama_life_record,
         )
 
     def _request_ollama(
