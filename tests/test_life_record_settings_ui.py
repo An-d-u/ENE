@@ -194,6 +194,37 @@ def test_prompt_tab_has_no_horizontal_overflow_at_supported_sizes(
     dialog.close()
 
 
+@pytest.mark.parametrize("available", [QRect(0, 0, 1024, 768), QRect(0, 0, 1280, 720)])
+@pytest.mark.parametrize("language", ["ko", "en", "ja"])
+def test_prompt_token_hints_are_fully_laid_out_in_every_language(
+    prompt_paths, monkeypatch, available, language
+):
+    from src.ui.settings_dialog import SettingsDialog
+
+    monkeypatch.setattr(SettingsDialog, "_available_screen_geometry", lambda self: available)
+    dialog = _dialog(prompt_paths, monkeypatch, {"ui_language": language})
+    dialog.show()
+    dialog.focus_section("prompt")
+    dialog.base_prompt_editor.setPlainText("중립적인 시스템 설명 " * 80)
+    dialog.sub_prompt_editor.setPlainText("중립적인 보조 설명 " * 80)
+    dialog.life_world_editor.setPlainText("작은 공원과 우체국이 있는 가상 마을 " * 80)
+    dialog._refresh_prompt_token_counts()
+    _get_qapp().processEvents()
+
+    for label in (
+        dialog._base_prompt_token_label,
+        dialog._sub_prompt_token_label,
+        dialog._life_world_token_label,
+    ):
+        assert label.wordWrap() is True
+        assert label.width() > 0
+        assert label.height() >= label.heightForWidth(label.width())
+        assert label.text().strip()
+    assert dialog._prompt_scroll.horizontalScrollBar().maximum() == 0
+    assert dialog.life_world_editor.viewport().width() > 0
+    dialog.close()
+
+
 @pytest.mark.parametrize("failed_position", [1, 2, 3, 4])
 def test_prompt_bundle_save_rolls_back_every_file_on_each_write_failure(
     prompt_paths, monkeypatch, failed_position
@@ -321,6 +352,49 @@ def test_store_visible_life_write_failure_rolls_back_visible_and_runtime_bundle(
     assert {path: path.read_bytes() for path in visible_dir.iterdir()} == visible_before
     assert "synthetic_visible_life_failure" not in dialog._prompt_status_label.text()
     dialog.close()
+
+
+def test_store_visible_snapshot_failure_uses_fixed_error_without_raw_chain(
+    prompt_paths, monkeypatch, tmp_path, capsys
+):
+    runtime_dir, _default_dir = prompt_paths
+    visible_dir = tmp_path / "visible" / "prompts"
+    before = {
+        path: path.read_bytes()
+        for path in runtime_dir.iterdir()
+        if path.is_file()
+    }
+    monkeypatch.setattr(prompt_config, "_should_sync_store_python_prompt_dirs", lambda: True)
+    monkeypatch.setattr(prompt_config, "_get_visible_prompt_config_dir", lambda: visible_dir)
+
+    def fail_snapshot(_path):
+        raise OSError("RAW_SNAPSHOT_SENTINEL")
+
+    monkeypatch.setattr(prompt_config, "_read_prompt_file_via_powershell", fail_snapshot)
+
+    with pytest.raises(RuntimeError) as raised:
+        prompt_config.save_prompt_bundle(
+            {
+                "base_system_prompt": "새 시스템 지침",
+                "sub_prompt_body": "새 보조 지침",
+                "emotions": ["normal"],
+                "emotion_guides": {"normal": "기본 상태"},
+            },
+            "새 생활 환경",
+        )
+
+    assert str(raised.value) == "prompt_bundle_visible_snapshot_failed"
+    assert raised.value.__cause__ is None
+    assert raised.value.__context__ is None
+    assert "RAW_SNAPSHOT_SENTINEL" not in repr(raised.value)
+    captured = capsys.readouterr()
+    assert "RAW_SNAPSHOT_SENTINEL" not in captured.out
+    assert "RAW_SNAPSHOT_SENTINEL" not in captured.err
+    assert {
+        path: path.read_bytes()
+        for path in runtime_dir.iterdir()
+        if path.is_file()
+    } == before
 
 
 def test_life_record_locale_keys_are_nonempty_in_all_languages():

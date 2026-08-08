@@ -880,9 +880,11 @@ def test_settings_dialog_saves_prompt_configuration_to_markdown_files(tmp_path, 
     monkeypatch.setattr(prompt_config, "BASE_SYSTEM_PROMPT_PATH", local_dir / "base_system_prompt.md")
     monkeypatch.setattr(prompt_config, "SUB_PROMPT_BODY_PATH", local_dir / "sub_prompt_body.md")
     monkeypatch.setattr(prompt_config, "EMOTION_GUIDES_PATH", local_dir / "emotion_guides.md")
+    monkeypatch.setattr(prompt_config, "LIFE_WORLD_PROMPT_PATH", local_dir / "life_world.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_BASE_SYSTEM_PROMPT_PATH", default_dir / "base_system_prompt.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_SUB_PROMPT_BODY_PATH", default_dir / "sub_prompt_body.md")
     monkeypatch.setattr(prompt_config, "DEFAULT_EMOTION_GUIDES_PATH", default_dir / "emotion_guides.md")
+    monkeypatch.setattr(prompt_config, "DEFAULT_LIFE_WORLD_PROMPT_PATH", default_dir / "life_world.md")
     monkeypatch.setattr(QMessageBox, "information", lambda *args, **kwargs: QMessageBox.StandardButton.Ok)
     monkeypatch.setattr(QMessageBox, "warning", lambda *args, **kwargs: QMessageBox.StandardButton.Ok)
 
@@ -914,6 +916,7 @@ def test_settings_dialog_saves_prompt_configuration_to_markdown_files(tmp_path, 
         {"name": "calm", "guide": "차분할 때"},
         {"name": "spark", "guide": "아이디어가 번뜩일 때"},
     ]
+    _write_text(local_dir / "life_world.md", "기존 생활 환경")
 
     SettingsDialog._save_prompt_configuration(dialog)
 
@@ -921,6 +924,7 @@ def test_settings_dialog_saves_prompt_configuration_to_markdown_files(tmp_path, 
     assert (local_dir / "sub_prompt_body.md").read_text(encoding="utf-8-sig") == "### [응답 형식]\n- 저장 테스트"
     emotion_guides_text = (local_dir / "emotion_guides.md").read_text(encoding="utf-8-sig")
     assert "- spark: 아이디어가 번뜩일 때" in emotion_guides_text
+    assert (local_dir / "life_world.md").read_text(encoding="utf-8-sig") == "기존 생활 환경"
 
 
 def test_settings_dialog_tabs_use_external_builders(monkeypatch):
