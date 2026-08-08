@@ -221,7 +221,7 @@ class GoogleCloudClient(_CommonMixin):
                     "parts": [{"text": request.prompt}],
                 }
             ],
-            "generation_config": generation_config,
+            "generationConfig": generation_config,
             "systemInstruction": {
                 "parts": [{"text": request.system_instruction}]
             },
@@ -262,17 +262,31 @@ class GoogleCloudClient(_CommonMixin):
             if isinstance(prompt_feedback, dict)
             else ""
         )
-        if block_reason or finish_reason in {
+        refusal_reasons = {
             "safety",
             "recitation",
+            "blocklist",
             "prohibited_content",
-        }:
+            "spii",
+            "content_filter",
+            "image_safety",
+            "image_prohibited_content",
+            "image_recitation",
+        }
+        normal_reasons = {"", "stop", "finish_reason_unspecified"}
+        if finish_reason in refusal_reasons:
             status = ResponseStatus.REFUSAL
-            finish_reason = finish_reason or block_reason
-        elif finish_reason not in {"", "stop"}:
+            finish_reason = "content_filter"
+        elif finish_reason not in normal_reasons:
             status = ResponseStatus.INCOMPLETE
         elif text:
             status = ResponseStatus.COMPLETE
+        elif block_reason not in {
+            "",
+            "block_reason_unspecified",
+            "blocked_reason_unspecified",
+        }:
+            status = ResponseStatus.REFUSAL
         else:
             status = ResponseStatus.EMPTY
         return HTTPStructuredOneShotResponse(

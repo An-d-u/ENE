@@ -579,7 +579,7 @@ def test_google_official_life_record_uses_native_schema_without_history(
     assert payload["contents"] == [
         {"role": "user", "parts": [{"text": PROMPT}]}
     ]
-    assert payload["generation_config"]["responseFormat"] == {
+    assert payload["generationConfig"]["responseFormat"] == {
         "text": {
             "mimeType": "application/json",
             "schema": get_life_record_output_schema(),
@@ -597,6 +597,100 @@ def test_google_official_life_record_uses_native_schema_without_history(
         result.token_usage.output_tokens,
         result.token_usage.total_tokens,
     ) == (7, 4, 11)
+
+
+@pytest.mark.parametrize(
+    "finish_reason",
+    (
+        "SAFETY",
+        "RECITATION",
+        "BLOCKLIST",
+        "PROHIBITED_CONTENT",
+        "SPII",
+        "IMAGE_SAFETY",
+        "IMAGE_PROHIBITED_CONTENT",
+        "IMAGE_RECITATION",
+    ),
+)
+def test_google_life_record_maps_filtered_finish_reasons_like_gemini_sdk(
+    monkeypatch,
+    finish_reason,
+):
+    _patch_system_instruction(monkeypatch)
+    _capture_single_post(
+        monkeypatch,
+        "src.ai.http_llm_custom_providers.requests.post",
+        {
+            "candidates": [
+                {
+                    "content": {"parts": [{"text": RAW_LIFE_RECORD}]},
+                    "finishReason": finish_reason,
+                }
+            ]
+        },
+    )
+
+    result = asyncio.run(_google_client().generate_life_record_once(PROMPT))
+
+    assert result.status is ResponseStatus.REFUSAL
+    assert result.finish_reason == "content_filter"
+
+
+def test_google_life_record_treats_unspecified_finish_reason_as_normal(
+    monkeypatch,
+):
+    _patch_system_instruction(monkeypatch)
+    _capture_single_post(
+        monkeypatch,
+        "src.ai.http_llm_custom_providers.requests.post",
+        {
+            "candidates": [
+                {
+                    "content": {"parts": [{"text": RAW_LIFE_RECORD}]},
+                    "finishReason": "FINISH_REASON_UNSPECIFIED",
+                }
+            ]
+        },
+    )
+
+    result = asyncio.run(_google_client().generate_life_record_once(PROMPT))
+
+    assert result.status is ResponseStatus.COMPLETE
+    assert result.finish_reason == "finish_reason_unspecified"
+
+
+def test_google_unknown_non_structured_field_never_falls_back(monkeypatch):
+    _patch_system_instruction(monkeypatch)
+    calls = []
+
+    def fake_post(url, *, headers=None, json=None, timeout=None):
+        calls.append(deepcopy(json))
+        return DummyHTTPResponse(
+            {
+                "error": {
+                    "message": (
+                        'Unknown name "candidateCount" at '
+                        "'generationConfig': Cannot find field."
+                    )
+                }
+            },
+            status_code=400,
+        )
+
+    monkeypatch.setattr(
+        "src.ai.http_llm_custom_providers.requests.post",
+        fake_post,
+    )
+    client = _google_client()
+
+    with pytest.raises(RuntimeError, match="life_record_generation_failed"):
+        asyncio.run(client.generate_life_record_once(PROMPT))
+
+    assert len(calls) == 1
+    assert "responseFormat" in calls[0]["generationConfig"]
+    assert client._build_life_record_request_descriptor(PROMPT).response_mode is (
+        ResponseMode.JSON_SCHEMA
+    )
 
 
 def test_cohere_official_life_record_uses_native_schema_without_history(
@@ -670,7 +764,7 @@ def test_cohere_official_life_record_uses_native_schema_without_history(
                 ]
             },
             lambda payload: "responseFormat"
-            in payload.get("generation_config", {}),
+            in payload.get("generationConfig", {}),
         ),
         (
             lambda: _cohere_client("https://gateway.example.invalid/v1/chat"),
@@ -738,7 +832,8 @@ def test_unverified_remaining_provider_uses_one_strict_historyless_request(
             {
                 "error": {
                     "message": (
-                        "Unknown parameter: generationConfig.responseFormat"
+                        'Unknown name "responseFormat" at '
+                        "'generationConfig': Cannot find field."
                     )
                 },
                 "usageMetadata": {
@@ -761,7 +856,7 @@ def test_unverified_remaining_provider_uses_one_strict_historyless_request(
                 },
             },
             lambda payload: "responseFormat"
-            in payload.get("generation_config", {}),
+            in payload.get("generationConfig", {}),
             (9, 3, 12),
         ),
         (
@@ -792,6 +887,7 @@ def test_unverified_remaining_provider_uses_one_strict_historyless_request(
     ],
     ids=("mistral", "google-cloud", "cohere"),
 )
+@pytest.mark.parametrize("unsupported_status", (400, 422))
 def test_remaining_native_rejection_falls_back_once_with_same_private_context(
     monkeypatch,
     factory,
@@ -800,11 +896,12 @@ def test_remaining_native_rejection_falls_back_once_with_same_private_context(
     success_body,
     native_present,
     expected_usage,
+    unsupported_status,
 ):
     _patch_system_instruction(monkeypatch)
     captured = []
     responses = [
-        DummyHTTPResponse(unsupported_body, status_code=400),
+        DummyHTTPResponse(unsupported_body, status_code=unsupported_status),
         DummyHTTPResponse(success_body),
     ]
 

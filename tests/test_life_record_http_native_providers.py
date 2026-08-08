@@ -57,12 +57,17 @@ def _openai_responses():
     )
 
 
-def _openai_responses_with_policy(model_name):
+def _openai_responses_with_policy(
+    model_name,
+    *,
+    provider_name="openai",
+    endpoint="https://api.openai.com/v1/responses",
+):
     return OpenAIResponseAPIClient(
         api_key="synthetic-key",
         model_name=model_name,
-        endpoint="https://api.openai.com/v1/responses",
-        provider_name="openai",
+        endpoint=endpoint,
+        provider_name=provider_name,
         generation_params={
             "temperature": 2.0,
             "top_p": 0.4,
@@ -795,6 +800,140 @@ def test_openai_responses_life_record_applies_o_series_reasoning_policy(
     assert "top_p" not in payload
     assert payload["reasoning"] == {"effort": "medium"}
     assert payload["max_output_tokens"] == 1234
+
+
+def test_custom_official_openai_chat_uses_named_openai_model_policy(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        "src.ai.http_llm_common.build_life_record_system_instruction",
+        lambda _settings: SYSTEM_INSTRUCTION,
+    )
+    monkeypatch.setattr(
+        requests,
+        "post",
+        lambda *args, **kwargs: (
+            captured.update(payload=kwargs["json"])
+            or _Response(_chat_body())
+        ),
+    )
+    client = _openai_chat_with_policy(provider_name="custom_api")
+    descriptor = client._build_life_record_request_descriptor(
+        "SYNTHETIC-PROMPT"
+    )
+
+    asyncio.run(client.generate_life_record_once("SYNTHETIC-PROMPT"))
+
+    payload = captured["payload"]
+    assert descriptor.profile.provider == "custom_api"
+    assert payload["messages"][0] == {
+        "role": "developer",
+        "content": SYSTEM_INSTRUCTION,
+    }
+    assert "temperature" not in payload
+    assert "top_p" not in payload
+    assert payload["reasoning_effort"] == "xhigh"
+    assert payload["max_completion_tokens"] == 1234
+    assert "max_tokens" not in payload
+
+
+def test_custom_official_openai_responses_uses_named_openai_model_policy(
+    monkeypatch,
+):
+    captured = {}
+    monkeypatch.setattr(
+        "src.ai.http_llm_common.build_life_record_system_instruction",
+        lambda _settings: SYSTEM_INSTRUCTION,
+    )
+    monkeypatch.setattr(
+        requests,
+        "post",
+        lambda *args, **kwargs: (
+            captured.update(payload=kwargs["json"])
+            or _Response(_responses_body())
+        ),
+    )
+    client = _openai_responses_with_policy(
+        "o3-2025-01-31",
+        provider_name="custom_api",
+    )
+    descriptor = client._build_life_record_request_descriptor(
+        "SYNTHETIC-PROMPT"
+    )
+
+    asyncio.run(client.generate_life_record_once("SYNTHETIC-PROMPT"))
+
+    payload = captured["payload"]
+    assert descriptor.profile.provider == "custom_api"
+    assert "temperature" not in payload
+    assert "top_p" not in payload
+    assert payload["reasoning"] == {"effort": "medium"}
+    assert payload["max_output_tokens"] == 1234
+
+
+def test_arbitrary_custom_openai_chat_keeps_default_model_policy(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        "src.ai.http_llm_common.build_life_record_system_instruction",
+        lambda _settings: SYSTEM_INSTRUCTION,
+    )
+    monkeypatch.setattr(
+        requests,
+        "post",
+        lambda *args, **kwargs: (
+            captured.update(payload=kwargs["json"])
+            or _Response(_chat_body())
+        ),
+    )
+    client = _openai_chat_with_policy(
+        provider_name="custom_api",
+        endpoint="https://gateway.example.invalid/v1/chat/completions",
+    )
+
+    asyncio.run(client.generate_life_record_once("SYNTHETIC-PROMPT"))
+
+    payload = captured["payload"]
+    assert payload["messages"][0] == {
+        "role": "system",
+        "content": SYSTEM_INSTRUCTION,
+    }
+    assert payload["temperature"] == 2.0
+    assert payload["top_p"] == 0.4
+    assert payload["max_tokens"] == 1234
+    assert "max_completion_tokens" not in payload
+    assert "reasoning_effort" not in payload
+    assert "response_format" not in payload
+
+
+def test_arbitrary_custom_openai_responses_keeps_default_model_policy(
+    monkeypatch,
+):
+    captured = {}
+    monkeypatch.setattr(
+        "src.ai.http_llm_common.build_life_record_system_instruction",
+        lambda _settings: SYSTEM_INSTRUCTION,
+    )
+    monkeypatch.setattr(
+        requests,
+        "post",
+        lambda *args, **kwargs: (
+            captured.update(payload=kwargs["json"])
+            or _Response(_responses_body())
+        ),
+    )
+    client = _openai_responses_with_policy(
+        "o3-2025-01-31",
+        provider_name="custom_api",
+        endpoint="https://gateway.example.invalid/v1/responses",
+    )
+
+    asyncio.run(client.generate_life_record_once("SYNTHETIC-PROMPT"))
+
+    payload = captured["payload"]
+    assert payload["temperature"] == 2.0
+    assert payload["top_p"] == 0.4
+    assert payload["max_output_tokens"] == 1234
+    assert "reasoning" not in payload
+    assert "text" not in payload
 
 
 @pytest.mark.parametrize(
