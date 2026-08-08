@@ -30,14 +30,62 @@ from ..ai.persona_names import resolve_prompt_persona_names
 from ..ai.prompt_language import resolve_prompt_language
 from .local_time import resolve_local_time_context
 
-_LOCAL_VALIDATION_ERROR_MESSAGES = {
-    "현재 LLM 공급자는 이미지 입력을 지원하지 않습니다. 이미지 지원 공급자나 모델로 변경해 주세요.",
-    "현재 LLM 클라이언트는 /diary를 지원하지 않습니다.",
-    "현재 LLM 클라이언트는 /note를 지원하지 않습니다.",
-    "현재 LLM 클라이언트는 /note 계획 생성을 지원하지 않습니다.",
-    "현재 LLM 클라이언트는 /note 결과 보고 생성을 지원하지 않습니다.",
-    "지원하지 않는 응답 형식입니다.",
-}
+class _UnsupportedResponseFormatError(Exception):
+    pass
+
+
+class _UnsupportedImageInputError(Exception):
+    pass
+
+
+class _UnsupportedDiaryError(Exception):
+    pass
+
+
+class _UnsupportedNotePlanError(Exception):
+    pass
+
+
+class _UnsupportedNoteReportError(Exception):
+    pass
+
+
+def _local_validation_message(failure: BaseException) -> str | None:
+    """예외 속성을 읽지 않고 신뢰 가능한 내부 타입만 공개 문구로 바꾼다."""
+    failure_type = type(failure)
+    if failure_type is _UnsupportedResponseFormatError:
+        return "지원하지 않는 응답 형식입니다."
+    if failure_type is _UnsupportedImageInputError:
+        return "현재 LLM 공급자는 이미지 입력을 지원하지 않습니다. 이미지 지원 공급자나 모델로 변경해 주세요."
+    if failure_type is _UnsupportedDiaryError:
+        return "현재 LLM 클라이언트는 /diary를 지원하지 않습니다."
+    if failure_type is _UnsupportedNotePlanError:
+        return "현재 LLM 클라이언트는 /note 계획 생성을 지원하지 않습니다."
+    if failure_type is _UnsupportedNoteReportError:
+        return "현재 LLM 클라이언트는 /note 결과 보고 생성을 지원하지 않습니다."
+    return None
+
+
+def _safe_exception_class_name(failure: BaseException) -> str:
+    """사용자 정의 예외 속성이나 메타클래스 훅 없이 안전한 분류명만 만든다."""
+    failure_type = type(failure)
+    if failure_type is RuntimeError:
+        return "RuntimeError"
+    if failure_type is ValueError:
+        return "ValueError"
+    if failure_type is TypeError:
+        return "TypeError"
+    if failure_type is AssertionError:
+        return "AssertionError"
+    if failure_type is OSError:
+        return "OSError"
+    if failure_type is asyncio.CancelledError:
+        return "CancelledError"
+    if _local_validation_message(failure) is not None:
+        return "LocalValidationError"
+    if isinstance(failure, Exception):
+        return "Exception"
+    return "BaseException"
 
 _ALLOWED_RESPONSE_LOG_MODES = frozenset(mode.value for mode in ResponseMode)
 _LIFE_RECORD_LANGUAGES = frozenset({"ko", "en", "ja"})
@@ -430,12 +478,12 @@ class AIWorker(QThread):
             if len(payload) == 4:
                 text, emotion, tts_text, events = payload
                 return text, emotion, tts_text, events, {}, [], "", {}, [], ""
-        raise ValueError("지원하지 않는 응답 형식입니다.")
+        raise _UnsupportedResponseFormatError()
 
     def _ensure_image_input_supported(self):
         """이미지 입력 미지원 공급자에서 첨부 이미지를 조용히 버리지 않도록 막는다."""
         if getattr(self.llm_client, "supports_image_input", None) is False:
-            raise RuntimeError("현재 LLM 공급자는 이미지 입력을 지원하지 않습니다. 이미지 지원 공급자나 모델로 변경해 주세요.")
+            raise _UnsupportedImageInputError()
 
     def run(self):
         self.response_metadata = ResponseDeliveryMetadata.empty()
@@ -569,22 +617,14 @@ class AIWorker(QThread):
                 proactive_conversations,
                 gesture,
             )
-        except BaseException as e:
+        except BaseException as failure:
             if self._is_cancelled():
                 return
             self.response_metadata = ResponseDeliveryMetadata.empty()
-            exception_class = type(e).__name__
-            error_args = e.args
-            error_message = (
-                error_args[0]
-                if type(error_args) is tuple
-                and len(error_args) == 1
-                and type(error_args[0]) is str
-                else ""
-            )
-            is_local_validation = error_message in _LOCAL_VALIDATION_ERROR_MESSAGES
-            category = "validation_error" if is_local_validation else "provider_error"
-            public_error = error_message if is_local_validation else category
+            exception_class = _safe_exception_class_name(failure)
+            local_message = _local_validation_message(failure)
+            category = "validation_error" if local_message is not None else "provider_error"
+            public_error = local_message if local_message is not None else category
             print(f"[AI Worker] request_failed category={category} exception_class={exception_class}")
             if self._is_cancelled():
                 return
@@ -634,7 +674,7 @@ class AIWorker(QThread):
     async def _run_diary_flow(self):
         """일기/문서 생성 전용 플로우."""
         if not hasattr(self.llm_client, "generate_markdown_document"):
-            raise RuntimeError("현재 LLM 클라이언트는 /diary를 지원하지 않습니다.")
+            raise _UnsupportedDiaryError()
 
         markdown_text = await self.llm_client.generate_markdown_document(self.message)
         if self._is_cancelled():
@@ -723,9 +763,9 @@ class AIWorker(QThread):
     async def _run_note_flow(self):
         """Obsidian 계획 실행 전용 플로우."""
         if not hasattr(self.llm_client, "generate_note_command_plan"):
-            raise RuntimeError("현재 LLM 클라이언트는 /note 계획 생성을 지원하지 않습니다.")
+            raise _UnsupportedNotePlanError()
         if not hasattr(self.llm_client, "generate_note_execution_report"):
-            raise RuntimeError("현재 LLM 클라이언트는 /note 결과 보고 생성을 지원하지 않습니다.")
+            raise _UnsupportedNoteReportError()
 
         obs_tree_lines = self.obsidian_manager.get_tree_lines(max_lines=120, allow_retry=False)
         checked_files = self.obsidian_manager.get_checked_file_contents(
@@ -828,11 +868,22 @@ class TTSWorker(QThread):
         super().__init__()
         self.tts_client = tts_client
         self.text = text
+        self._cancellation_requested = False
+
+    def requestInterruption(self) -> None:
+        """스레드 시작 전 취소 요청도 잃지 않도록 함께 기록한다."""
+        self._cancellation_requested = True
+        super().requestInterruption()
+
+    def _is_cancelled(self) -> bool:
+        return self._cancellation_requested or self.isInterruptionRequested()
 
     def run(self):
         loop = None
         """스레드 실행"""
         try:
+            if self._is_cancelled():
+                return
             import asyncio
             import os
             import tempfile
@@ -849,39 +900,69 @@ class TTSWorker(QThread):
             audio_data = loop.run_until_complete(
                 self.tts_client.generate_speech(self.text)
             )
+            if self._is_cancelled():
+                return
 
             print(f"[TTS Worker] Audio generated: {len(audio_data) if type(audio_data) is bytes else 0} bytes")
+            if self._is_cancelled():
+                return
 
-            # 임시 WAV 파일로 저장 (분석용)
-            temp_fd, temp_path = tempfile.mkstemp(suffix=".wav")
-            with os.fdopen(temp_fd, 'wb') as f:
-                f.write(audio_data)
-
-            # 오디오 분석하여 립싱크 데이터 생성
+            temp_fd = None
+            temp_path = None
             try:
-                analyzer = AudioAnalyzer(frame_duration_ms=50)
-                lip_sync_data = analyzer.analyze(temp_path)
-                print(f"[TTS Worker] Lip sync data: {_safe_list_count(lip_sync_data)} frames")
-            except Exception as e:
-                print(
-                    "[TTS Worker] lip_sync_failed "
-                    f"category=analysis_error exception_class={type(e).__name__}"
-                )
-                lip_sync_data = []
+                if self._is_cancelled():
+                    return
+                temp_fd, temp_path = tempfile.mkstemp(suffix=".wav")
+                if self._is_cancelled():
+                    return
+                file_object = os.fdopen(temp_fd, "wb")
+                temp_fd = None
+                with file_object as file_handle:
+                    file_handle.write(audio_data)
 
-            # 임시 파일 정리
-            try:
-                Path(temp_path).unlink(missing_ok=True)
-            except Exception:
-                pass
+                if self._is_cancelled():
+                    return
+                try:
+                    analyzer = AudioAnalyzer(frame_duration_ms=50)
+                    lip_sync_data = analyzer.analyze(temp_path)
+                    if self._is_cancelled():
+                        return
+                    print(f"[TTS Worker] Lip sync data: {_safe_list_count(lip_sync_data)} frames")
+                except Exception as failure:
+                    if self._is_cancelled():
+                        return
+                    print(
+                        "[TTS Worker] lip_sync_failed "
+                        "category=analysis_error "
+                        f"exception_class={_safe_exception_class_name(failure)}"
+                    )
+                    lip_sync_data = []
+            finally:
+                if temp_fd is not None:
+                    try:
+                        os.close(temp_fd)
+                    except Exception:
+                        pass
+                if temp_path is not None:
+                    try:
+                        Path(temp_path).unlink(missing_ok=True)
+                    except Exception:
+                        pass
 
             # 결과 전송
+            if self._is_cancelled():
+                return
             self.tts_ready.emit(audio_data, lip_sync_data)
 
-        except Exception as e:
+        except BaseException as failure:
+            if self._is_cancelled():
+                return
             print(
-                f"[TTS Worker] generation_failed category=tts_error exception_class={type(e).__name__}"
+                "[TTS Worker] generation_failed category=tts_error "
+                f"exception_class={_safe_exception_class_name(failure)}"
             )
+            if self._is_cancelled():
+                return
             self.error_occurred.emit("tts_error")
         finally:
             if loop is not None:
