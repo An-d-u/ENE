@@ -2,6 +2,7 @@
 WebBridge의 첨부파일 프리뷰, 전송, 삭제 로직.
 """
 import json
+from datetime import datetime
 
 from PyQt6.QtCore import pyqtSlot
 
@@ -16,6 +17,7 @@ from ..attachment_session import (
     normalize_attachment_runtime_state,
 )
 from ..chat_attachments import build_attachment_context_block, build_attachment_note, prepare_attachments
+from .life_records import LifeRecordBridgeMixin, PreparedChatRequest
 
 
 class AttachmentBridgeMixin:
@@ -98,6 +100,16 @@ class AttachmentBridgeMixin:
     @pyqtSlot(str, str)
     def send_to_ai_with_images(self, message: str, images_json: str):
         """기존 이미지 전송 진입점을 일반 첨부 전송 경로로 연결한다."""
+        capture_received_at = getattr(self, "_capture_life_received_at", None)
+        received_at = (
+            capture_received_at()
+            if callable(capture_received_at)
+            else datetime.now().astimezone().replace(microsecond=0)
+        )
+        accepts_input = getattr(self, "_life_operation_accepts_input", None)
+        if callable(accepts_input) and not accepts_input():
+            print("[Bridge] request_rejected category=busy request_type=images")
+            return
         try:
             images_data = json.loads(images_json)
         except Exception:
@@ -113,7 +125,12 @@ class AttachmentBridgeMixin:
                     "dataUrl": str((image or {}).get("dataUrl", "")).strip(),
                 }
             )
-        self.send_to_ai_with_attachments(message, json.dumps(attachments, ensure_ascii=False))
+        self.send_to_ai_with_attachments(
+            message,
+            json.dumps(attachments, ensure_ascii=False),
+            _received_at=received_at,
+            _busy_checked=True,
+        )
 
     @pyqtSlot(str)
     def preview_attachments(self, attachments_json: str):
@@ -130,8 +147,29 @@ class AttachmentBridgeMixin:
         self.attachment_preview_ready.emit(self._build_attachment_preview_payload(prepared))
 
     @pyqtSlot(str, str)
-    def send_to_ai_with_attachments(self, message: str, attachments_json: str):
+    def send_to_ai_with_attachments(
+        self,
+        message: str,
+        attachments_json: str,
+        *,
+        _received_at: datetime | None = None,
+        _busy_checked: bool = False,
+    ):
         """JavaScript에서 호출: 이미지/문서 첨부를 포함한 메시지를 AI로 전송."""
+        capture_received_at = getattr(self, "_capture_life_received_at", None)
+        received_at = (
+            _received_at
+            if _received_at is not None
+            else (
+                capture_received_at()
+                if callable(capture_received_at)
+                else datetime.now().astimezone().replace(microsecond=0)
+            )
+        )
+        accepts_input = getattr(self, "_life_operation_accepts_input", None)
+        if not _busy_checked and callable(accepts_input) and not accepts_input():
+            print("[Bridge] request_rejected category=busy request_type=attachments")
+            return
         print("[Bridge] Received message with attachments from JS")
 
         if not self.llm_client:
@@ -146,6 +184,53 @@ class AttachmentBridgeMixin:
             print(f"[Bridge] Failed to parse attachments: {e}")
             attachments_data = []
 
+        effective_message = (message or "").strip() or "첨부한 자료를 확인해 줘."
+        head_pat_count_before_message = 0
+        if hasattr(self, "calendar_manager") and self.calendar_manager:
+            getter = getattr(self.calendar_manager, "get_pending_head_pat_count", None)
+            if callable(getter):
+                head_pat_count_before_message = int(getter())
+        prepare_request = getattr(self, "_prepare_chat_request", None)
+        if callable(prepare_request):
+            prepared = prepare_request(
+                received_at=received_at,
+                request_type="attachments",
+                message=effective_message,
+                attachments=attachments_data,
+                head_pat_count_before_message=head_pat_count_before_message,
+            )
+        else:
+            prepared = PreparedChatRequest(
+                received_at=received_at,
+                language=resolve_prompt_language(
+                    settings_source=getattr(self, "settings", None)
+                ),
+                mood_snapshot=LifeRecordBridgeMixin._snapshot_life_mood(self),
+                request_type="attachments",
+                message=effective_message,
+                attachments=tuple(attachments_data),
+                head_pat_count_before_message=head_pat_count_before_message,
+            )
+        dispatch = getattr(self, "_dispatch_general_request", None)
+        if callable(dispatch):
+            dispatch(prepared)
+            return
+        cancel_proactive = getattr(
+            self,
+            "_cancel_pending_proactive_conversations_for_user_message",
+            None,
+        )
+        if callable(cancel_proactive):
+            cancel_proactive()
+        mark_activity = getattr(self, "_mark_user_activity", None)
+        if callable(mark_activity):
+            mark_activity()
+        AttachmentBridgeMixin._commit_prepared_attachment_request(self, prepared)
+
+    def _commit_prepared_attachment_request(self, request) -> None:
+        """gate를 통과한 첨부 요청의 세션·대화·worker 변경을 한 번 적용한다."""
+        legacy_direct_mixin = not hasattr(self, "life_record_state")
+        attachments_data = request.attachment_copies()
         prepared_attachments = self._resolve_prepared_attachments(attachments_data)
         runtime_attachments = self._normalize_attachment_runtime_state(prepared_attachments)
         ready_attachments = [
@@ -153,28 +238,60 @@ class AttachmentBridgeMixin:
             if str(item.get("status", "ready")) == "ready"
         ]
         image_attachments = self._build_active_image_payload(runtime_attachments)
-        timestamp = self._now_timestamp()
+        timestamp = (
+            self._now_timestamp()
+            if legacy_direct_mixin
+            else request.received_at.strftime("%Y-%m-%d %H:%M")
+        )
         message_id = self._extract_attachment_message_id(attachments_data)
         if not message_id:
             message_id = f"attachment-message-{timestamp}"
-        effective_message = (message or "").strip() or "첨부한 자료를 확인해 줘."
-        attachment_context = build_attachment_context_block(runtime_attachments, language=self._prompt_language())
-        prompt = self._build_general_chat_prompt(effective_message, attachment_context=attachment_context)
-        message_with_time = self._with_prompt_time(timestamp, prompt)
-        memory_search_inputs = self._build_memory_search_inputs(effective_message, timestamp)
-        memory_search_text = memory_search_inputs["memory_search_text"]
-        head_pat_count_before_message = 0
-        if hasattr(self, "calendar_manager") and self.calendar_manager:
-            head_pat_count_before_message = int(self.calendar_manager.drain_pending_head_pat_count())
+        effective_message = request.message
+        attachment_context = build_attachment_context_block(
+            runtime_attachments,
+            language=request.language,
+        )
+        if legacy_direct_mixin:
+            prompt = self._build_general_chat_prompt(
+                effective_message,
+                attachment_context=attachment_context,
+            )
+            message_with_time = self._with_prompt_time(timestamp, prompt)
+        else:
+            prompt = self._build_general_chat_prompt(
+                effective_message,
+                attachment_context=attachment_context,
+                language=request.language,
+            )
+            from .chat_flow import _prompt_time_header
 
-        cancel_proactive = getattr(self, "_cancel_pending_proactive_conversations_for_user_message", None)
-        if callable(cancel_proactive):
-            cancel_proactive()
-        self._mark_user_activity()
-        attachment_note = build_attachment_note(runtime_attachments, language=self._prompt_language())
-        history_message = self._compose_attachment_history_message(effective_message, runtime_attachments)
+            message_with_time = f"{_prompt_time_header(timestamp, request.language)}\n{prompt}"
+        memory_search_inputs = self._build_memory_search_inputs(
+            effective_message,
+            timestamp,
+        )
+        memory_search_text = memory_search_inputs["memory_search_text"]
+        if hasattr(self, "calendar_manager") and self.calendar_manager:
+            increment = getattr(self.calendar_manager, "increment_conversation_count", None)
+            if callable(increment):
+                increment()
+            drain = getattr(self.calendar_manager, "drain_pending_head_pat_count", None)
+            if callable(drain):
+                drain()
+        attachment_note = build_attachment_note(runtime_attachments, language=request.language)
+        if legacy_direct_mixin:
+            history_message = self._compose_attachment_history_message(
+                effective_message,
+                runtime_attachments,
+            )
+        else:
+            history_message = compose_attachment_history_message(
+                effective_message,
+                runtime_attachments,
+                language=request.language,
+            )
         self._append_conversation("user", history_message, timestamp)
-        self._message_attachment_records[message_id] = {
+        record = {
             "message": effective_message,
             "timestamp": timestamp,
             "conversation_index": len(self.conversation_buffer) - 1,
@@ -182,6 +299,14 @@ class AttachmentBridgeMixin:
             "attachment_note": attachment_note,
             "attachment_context": attachment_context,
         }
+        get_session = getattr(self, "_get_attachment_session", None)
+        if callable(get_session):
+            session = get_session()
+            session.message_attachment_records[message_id] = record
+            session.upsert_session_documents(runtime_attachments)
+            self._sync_attachment_session_aliases()
+        else:
+            self._message_attachment_records[message_id] = record
         if self.mood_manager:
             snapshot = self.mood_manager.on_user_message(effective_message, image_count=len(image_attachments))
             self._emit_mood_changed(snapshot)
@@ -197,7 +322,7 @@ class AttachmentBridgeMixin:
             "memory_search_text": memory_search_text,
             "latest_user_message": memory_search_inputs["latest_user_message"],
             "recent_memory_context": memory_search_inputs["recent_context_text"],
-            "head_pat_count_before_message": head_pat_count_before_message,
+            "head_pat_count_before_message": request.head_pat_count_before_message,
             "include_life_record_context": True,
         }
         self._is_rerolling = False
@@ -208,7 +333,7 @@ class AttachmentBridgeMixin:
             memory_search_text=memory_search_text,
             latest_user_message=memory_search_inputs["latest_user_message"],
             recent_memory_context=memory_search_inputs["recent_context_text"],
-            head_pat_count_before_message=head_pat_count_before_message,
+            head_pat_count_before_message=request.head_pat_count_before_message,
             include_life_record_context=True,
         )
         print(

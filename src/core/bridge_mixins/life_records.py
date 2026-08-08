@@ -198,50 +198,67 @@ class LifeRecordBridgeMixin:
         state = self._get_life_record_state()
         if state.phase != "idle":
             return False
-        cancel_proactive = getattr(
-            self,
-            "_cancel_pending_proactive_conversations_for_user_message",
-            None,
-        )
-        if callable(cancel_proactive):
-            cancel_proactive()
-        mark_activity = getattr(self, "_mark_user_activity", None)
-        if callable(mark_activity):
-            mark_activity()
-        if state.auto_decision_completed:
-            self._commit_prepared_chat_request(prepared_request)
+
+        def accept_user_request() -> None:
+            cancel_proactive = getattr(
+                self,
+                "_cancel_pending_proactive_conversations_for_user_message",
+                None,
+            )
+            if callable(cancel_proactive):
+                cancel_proactive()
+            mark_activity = getattr(self, "_mark_user_activity", None)
+            if callable(mark_activity):
+                mark_activity()
+
+        def commit_normal_reply() -> bool:
+            operation_id = state.try_begin_operation(
+                "normal_reply",
+                pending_request=prepared_request,
+            )
+            if operation_id is None:
+                return False
+            accept_user_request()
+            state.take_pending(operation_id)
+            try:
+                self._commit_prepared_chat_request(prepared_request)
+            except Exception:
+                state.finish_operation(operation_id)
+                raise
+            worker = getattr(self, "worker", None)
+            is_running = getattr(worker, "isRunning", None)
+            if state.matches_operation(operation_id, "normal_reply") and not (
+                callable(is_running) and is_running()
+            ):
+                state.finish_operation(operation_id)
             return True
+
+        if state.auto_decision_completed:
+            return commit_normal_reply()
 
         state.auto_decision_completed = True
         if not state.life_records_writable:
-            self._commit_prepared_chat_request(prepared_request)
-            return True
+            return commit_normal_reply()
         if self._life_setting("enable_life_records", False) is not True:
-            self._commit_prepared_chat_request(prepared_request)
-            return True
+            return commit_normal_reply()
         threshold = self._normalized_life_inactive_minutes()
         candidate = state.candidate
         if not isinstance(candidate, InactiveStartCandidate):
-            self._commit_prepared_chat_request(prepared_request)
-            return True
+            return commit_normal_reply()
         try:
             world = self._load_life_world_for_gate()
         except Exception:
-            self._commit_prepared_chat_request(prepared_request)
-            return True
+            return commit_normal_reply()
         if not isinstance(world, str) or not world.strip():
             self._emit_life_record_notice("world_empty")
-            self._commit_prepared_chat_request(prepared_request)
-            return True
+            return commit_normal_reply()
         context = state.time_context
         try:
             elapsed = context.elapsed_between(candidate.started_at, prepared_request.received_at)
         except Exception:
-            self._commit_prepared_chat_request(prepared_request)
-            return True
+            return commit_normal_reply()
         if elapsed <= timedelta(0) or elapsed < timedelta(minutes=threshold):
-            self._commit_prepared_chat_request(prepared_request)
-            return True
+            return commit_normal_reply()
 
         operation_id = state.try_begin_operation(
             "auto_generating",
@@ -249,6 +266,7 @@ class LifeRecordBridgeMixin:
         )
         if operation_id is None:
             return False
+        accept_user_request()
         state.pending_world_markdown = world
         state.prior_token_usage = prepared_request.prior_token_usage
         self._emit_life_record_stage("life_record")
