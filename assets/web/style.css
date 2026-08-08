@@ -2106,7 +2106,10 @@ body.thought-feature-disabled .message-thought {
 #life-records-next-btn,
 #life-records-today-btn,
 .life-record-retry,
-.life-record-state-action {
+.life-record-state-action,
+.life-record-regenerate,
+.life-record-regeneration-cancel,
+.life-record-regeneration-confirm {
     min-width: 44px;
     min-height: 44px;
     border: 1px solid var(--ene-life-card-border);
@@ -2132,7 +2135,10 @@ body.thought-feature-disabled .message-thought {
 
 #life-records-today-btn,
 .life-record-retry,
-.life-record-state-action {
+.life-record-state-action,
+.life-record-regenerate,
+.life-record-regeneration-cancel,
+.life-record-regeneration-confirm {
     padding: 8px 14px;
 }
 
@@ -2141,7 +2147,10 @@ body.thought-feature-disabled .message-thought {
 #life-records-next-btn:hover,
 #life-records-today-btn:hover,
 .life-record-retry:hover,
-.life-record-state-action:hover {
+.life-record-state-action:hover,
+.life-record-regenerate:hover,
+.life-record-regeneration-cancel:hover,
+.life-record-regeneration-confirm:hover {
     background: var(--ene-floating-panel-button-hover);
     border-color: rgba(255, 255, 255, 0.32);
 }
@@ -2306,6 +2315,80 @@ body.thought-feature-disabled .message-thought {
     line-height: 1.55;
 }
 
+.life-record-regenerate {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    margin-top: 10px;
+    font-weight: 700;
+}
+
+.life-record-regenerate:disabled,
+.life-record-regeneration-cancel:disabled,
+.life-record-regeneration-confirm:disabled {
+    cursor: not-allowed;
+    opacity: 0.56;
+}
+
+.life-record-regeneration-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 12px;
+    overflow: hidden auto;
+    background: rgba(7, 10, 15, 0.72);
+}
+
+.life-record-regeneration-overlay.hidden {
+    display: none;
+}
+
+.life-record-regeneration-dialog {
+    width: min(420px, calc(100vw - 24px));
+    max-width: 100%;
+    max-height: calc(100vh - 48px);
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 18px;
+    border: 1px solid var(--ene-life-card-border);
+    border-radius: 14px;
+    background: var(--ene-life-panel-bg);
+    color: var(--ene-life-text);
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.48);
+    overflow-wrap: anywhere;
+}
+
+.life-record-regeneration-title {
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1.45;
+}
+
+.life-record-regeneration-description {
+    margin-top: 8px;
+    color: var(--ene-life-muted-text);
+    font-size: 14px;
+    line-height: 1.6;
+    white-space: normal;
+}
+
+.life-record-regeneration-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 18px;
+}
+
+.life-record-regeneration-dialog :focus-visible {
+    outline: 3px solid var(--ene-life-focus);
+    outline-offset: 2px;
+}
+
 .life-record-empty,
 .life-record-error,
 .life-record-world_empty,
@@ -2363,6 +2446,10 @@ body.thought-feature-disabled .message-thought {
     .life-record-entry-activity {
         grid-column: 1;
         text-align: left;
+    }
+
+    .life-record-regeneration-actions > button {
+        flex: 1 1 120px;
     }
 }
 

@@ -81,7 +81,6 @@ if (typeof QWebChannel !== 'undefined') {
         }
         window.pyBridge.message_received.connect(function (text, emotion, thought) {
             console.log(`Received from Python: chars=${String(text || '').length} emotion=${emotion} thought=${Boolean(thought)}`);
-            setRequestPending(false);
             const receivedAt = new Date();
             if (shouldReplaceNextAssistant) {
                 const replaced = replaceLastAssistantMessage(text, receivedAt, thought || '');

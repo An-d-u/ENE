@@ -39,6 +39,13 @@ from ..local_time import resolve_local_time_context
 
 
 _LANGUAGES = frozenset({"ko", "en", "ja"})
+_PUBLIC_READ_ONLY_REASONS = frozenset(
+    {
+        "session_lease_unavailable",
+        "timezone_unavailable",
+        "session_tracker_degraded",
+    }
+)
 _NEUTRAL_MOOD = {
     "current_mood": "calm",
     "temporary_state": "steady",
@@ -478,6 +485,12 @@ class LifeRecordBridgeMixin:
                 "language": language,
                 "records": public_records,
                 "latest_id": manager.latest().id if manager.latest() is not None else None,
+                "life_records_writable": state.life_records_writable is True,
+                "read_only_reason": (
+                    state.read_only_reason
+                    if state.read_only_reason in _PUBLIC_READ_ONLY_REASONS
+                    else None
+                ),
             },
             ensure_ascii=False,
         )

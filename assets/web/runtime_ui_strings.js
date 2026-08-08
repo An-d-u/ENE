@@ -41,6 +41,7 @@ function mergeUiStrings(config) {
     const thoughts = source.thoughts || {};
 
     return {
+        resolvedLanguage: ['ko', 'en', 'ja'].includes(source.resolvedLanguage) ? source.resolvedLanguage : 'en',
         loading: source.loading || DEFAULT_UI_STRINGS.loading,
         loadingSearching: source.loadingSearching || DEFAULT_UI_STRINGS.loadingSearching,
         input: {
@@ -299,6 +300,12 @@ function applyUiStringsToStaticNodes() {
 window.applyENEUiStrings = function applyENEUiStrings(config) {
     currentUiStrings = mergeUiStrings(config);
     window.eneUiStrings = currentUiStrings;
+    if (document.documentElement) {
+        document.documentElement.lang = currentUiStrings.resolvedLanguage;
+    }
+    if (window.eneLifeRecordPanel && typeof window.eneLifeRecordPanel.setLanguage === 'function') {
+        window.eneLifeRecordPanel.setLanguage(currentUiStrings.resolvedLanguage);
+    }
     applyUiStringsToStaticNodes();
     renderPromiseReminderPanel();
     renderProactiveConversationPanel();
