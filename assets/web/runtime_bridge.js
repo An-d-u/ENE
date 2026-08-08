@@ -46,6 +46,20 @@ if (typeof QWebChannel !== 'undefined') {
         if (window.pyBridge.request_goal_items) {
             window.pyBridge.request_goal_items();
         }
+        if (window.pyBridge.life_record_items_updated) {
+            window.pyBridge.life_record_items_updated.connect(function (value) {
+                if (window.eneLifeRecordPanel) {
+                    window.eneLifeRecordPanel.receive(value);
+                }
+            });
+        }
+        if (window.pyBridge.life_record_notice) {
+            window.pyBridge.life_record_notice.connect(function (code) {
+                if (window.eneLifeRecordPanel) {
+                    window.eneLifeRecordPanel.showNotice(code);
+                }
+            });
+        }
         if (window.pyBridge.request_pending_changed) {
             window.pyBridge.request_pending_changed.connect(function (active) {
                 setRequestPending(Boolean(active));

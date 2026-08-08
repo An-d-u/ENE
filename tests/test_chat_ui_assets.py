@@ -22,6 +22,7 @@ EXPECTED_RUNTIME_SCRIPTS = [
     "runtime_chat_panel_controls.js",
     "runtime_promise_panel.js",
     "runtime_goal_panel.js",
+    "runtime_life_record_panel.js",
     "runtime_message_helpers.js",
     "runtime_mood_obsidian.js",
     "runtime_message_rendering.js",
