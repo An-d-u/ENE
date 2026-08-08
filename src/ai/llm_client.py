@@ -22,7 +22,11 @@ from .memory_context_builder import (
     normalize_int_setting,
 )
 from .persona_names import resolve_prompt_persona_names
-from .prompt import build_runtime_system_prompt, get_parseable_emotions
+from .prompt import (
+    build_life_record_system_instruction,
+    build_runtime_system_prompt,
+    get_parseable_emotions,
+)
 from .prompt_config import get_runtime_emotions
 from .prompt_language import resolve_prompt_language
 from .response_contract import build_response_repair_prompt
@@ -34,7 +38,11 @@ from .response_envelope import (
 from .response_pipeline import ResponseAttempt, execute_final_response
 from .response_protocol import (
     InvalidFinalResponseError,
+    LIFE_RECORD_SCHEMA_ID,
+    LIFE_RECORD_SCHEMA_VERSION,
     LLMRequestKind,
+    OneShotGenerationResult,
+    OneShotTokenUsage,
     ProviderProfile,
     ProviderResponse,
     RESPONSE_ENVELOPE_SCHEMA_VERSION,
@@ -43,6 +51,7 @@ from .response_protocol import (
     ResponseStatus,
     StructuredOutputUnsupported,
     TurnTokenUsageAccumulator,
+    get_life_record_output_schema,
     is_valid_token_count,
 )
 from .http_llm_common import (
@@ -425,6 +434,26 @@ class GeminiClient:
             )
         return config
 
+    def _build_life_record_config(
+        self,
+        *,
+        system_instruction: str,
+        use_native_schema: bool,
+        generation_params: dict,
+    ) -> dict:
+        """생활 기록 one-shot의 native 또는 엄격 JSON 텍스트 config를 만든다."""
+        config = {
+            "system_instruction": system_instruction,
+            "temperature": generation_params["temperature"],
+            "top_p": generation_params["top_p"],
+        }
+        if generation_params["max_tokens"] > 0:
+            config["max_output_tokens"] = generation_params["max_tokens"]
+        if use_native_schema:
+            config["response_mime_type"] = "application/json"
+            config["response_json_schema"] = get_life_record_output_schema()
+        return config
+
     def _summary_output_token_budget(self) -> int:
         """요약은 메타 섹션까지 생성해야 하므로 일반 답변보다 큰 최소 출력 예산을 쓴다."""
         current = 0
@@ -492,6 +521,90 @@ class GeminiClient:
             ),
         )
         return self._extract_response_text_or_empty(response, label="one-shot")
+
+    async def generate_life_record_once(
+        self,
+        prompt: str,
+    ) -> OneShotGenerationResult:
+        """현재 설정으로 생활 기록을 히스토리 없이 한 번 생성한다."""
+        try:
+            settings_source = self._runtime_prompt_settings_source()
+            system_instruction = build_life_record_system_instruction(settings_source)
+            generation_params = dict(self.generation_params)
+            profile = self._response_profile()
+            capability_key = build_capability_key(
+                profile,
+                request_kind=LLMRequestKind.LIFE_RECORD,
+                schema_id=LIFE_RECORD_SCHEMA_ID,
+                schema_version=LIFE_RECORD_SCHEMA_VERSION,
+            )
+            response_mode = _GEMINI_RESPONSE_CAPABILITY_REGISTRY.resolve(
+                profile,
+                "auto",
+                capability_key=capability_key,
+            )
+        except Exception:
+            raise RuntimeError("life_record_generation_failed") from None
+        use_native_schema = response_mode is ResponseMode.JSON_SCHEMA
+        result_mode = (
+            ResponseMode.JSON_SCHEMA
+            if use_native_schema
+            else ResponseMode.LEGACY_TAGS
+        )
+        usage_accumulator = TurnTokenUsageAccumulator()
+
+        try:
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=prompt,
+                config=self._build_life_record_config(
+                    system_instruction=system_instruction,
+                    use_native_schema=use_native_schema,
+                    generation_params=generation_params,
+                ),
+            )
+        except Exception as failure:
+            usage_accumulator.record(self._response_usage(failure))
+            if not (
+                use_native_schema
+                and self._is_explicit_structured_output_unsupported(failure)
+            ):
+                raise RuntimeError("life_record_generation_failed") from None
+            _GEMINI_RESPONSE_CAPABILITY_REGISTRY.mark_legacy(capability_key)
+            result_mode = ResponseMode.LEGACY_TAGS
+            try:
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=prompt,
+                    config=self._build_life_record_config(
+                        system_instruction=system_instruction,
+                        use_native_schema=False,
+                        generation_params=generation_params,
+                    ),
+                )
+            except Exception as fallback_failure:
+                usage_accumulator.record(self._response_usage(fallback_failure))
+                raise RuntimeError("life_record_generation_failed") from None
+
+        usage_accumulator.record(self._response_usage(response))
+        try:
+            provider_response = self._provider_response(
+                response,
+                result_mode,
+            )
+        except Exception:
+            raise RuntimeError("life_record_generation_failed") from None
+        usage = usage_accumulator.snapshot()
+        return OneShotGenerationResult(
+            text=provider_response.carrier,
+            status=provider_response.status,
+            finish_reason=provider_response.finish_reason,
+            token_usage=OneShotTokenUsage(
+                input_tokens=usage["input_tokens"],
+                output_tokens=usage["output_tokens"],
+                total_tokens=usage["total_tokens"],
+            ),
+        )
 
     def _create_web_search_decision_provider(self):
         return create_web_search_decision_provider(
