@@ -2,6 +2,7 @@ import asyncio
 from copy import deepcopy
 import json
 import threading
+from types import MappingProxyType
 
 import pytest
 import requests
@@ -11,6 +12,8 @@ from src.ai.http_llm_clients import (
     OpenAICompatibleClient,
     OpenAIResponseAPIClient,
 )
+from src.ai import http_llm_common
+from src.ai.http_llm_common import HTTPStructuredOneShotResponse
 from src.ai.response_protocol import (
     LIFE_RECORD_SCHEMA_ID,
     ResponseStatus,
@@ -353,6 +356,240 @@ def test_native_life_record_uses_a_fresh_schema_for_every_call(
     if factory is _anthropic:
         expected = _without_max_items(expected)
     assert schemas[1] == expected
+
+
+def test_life_record_descriptor_defensively_freezes_nested_transport_data(
+    monkeypatch,
+):
+    schema = get_life_record_output_schema()
+    usage = {
+        "input_tokens": 3,
+        "output_tokens": 2,
+        "total_tokens": 5,
+    }
+    client = _openai_chat()
+    client.extra_headers["X-Synthetic-Metadata"] = {"values": ["original"]}
+    monkeypatch.setattr(
+        http_llm_common,
+        "get_life_record_output_schema",
+        lambda: schema,
+    )
+
+    descriptor = client._build_life_record_request_descriptor("SYNTHETIC-PROMPT")
+    response = HTTPStructuredOneShotResponse(
+        text=RAW_LIFE_RECORD,
+        status=ResponseStatus.COMPLETE,
+        usage=usage,
+    )
+
+    schema["properties"]["entries"]["minItems"] = 9
+    client.generation_params["max_tokens"] = 999
+    client.extra_headers["X-Synthetic-Metadata"]["values"].append("mutated")
+    usage["input_tokens"] = 99
+
+    assert isinstance(descriptor.request.schema, MappingProxyType)
+    assert isinstance(descriptor.request.generation_params, MappingProxyType)
+    assert isinstance(descriptor.headers, MappingProxyType)
+    assert isinstance(response.usage, MappingProxyType)
+    assert descriptor.request.schema["properties"]["entries"]["minItems"] == 1
+    assert descriptor.request.generation_params["max_tokens"] != 999
+    assert descriptor.headers["X-Synthetic-Metadata"]["values"] == ("original",)
+    assert response.usage["input_tokens"] == 3
+    with pytest.raises(TypeError):
+        descriptor.request.schema["properties"]["entries"]["minItems"] = 7
+    with pytest.raises(TypeError):
+        descriptor.headers["Authorization"] = "Bearer mutated"
+    with pytest.raises(AttributeError):
+        descriptor.headers["X-Synthetic-Metadata"]["values"].append("blocked")
+    assert "synthetic-key" not in repr(descriptor)
+
+
+@pytest.mark.parametrize(
+    ("factory", "requester_name", "module", "body", "schema_path", "auth_header"),
+    [
+        (
+            _openai_chat,
+            "_request_openai_life_record",
+            "src.ai.http_llm_openai",
+            _chat_body(),
+            ("response_format", "json_schema", "schema"),
+            "Authorization",
+        ),
+        (
+            _openai_responses,
+            "_request_responses_life_record",
+            "src.ai.http_llm_openai",
+            _responses_body(),
+            ("text", "format", "schema"),
+            "Authorization",
+        ),
+        (
+            _anthropic,
+            "_request_anthropic_life_record",
+            "src.ai.http_llm_anthropic",
+            _anthropic_body(),
+            ("output_config", "format", "schema"),
+            "x-api-key",
+        ),
+    ],
+    ids=("openai-chat", "openai-responses", "anthropic"),
+)
+def test_native_life_record_worker_uses_authoritative_descriptor_snapshot(
+    monkeypatch,
+    factory,
+    requester_name,
+    module,
+    body,
+    schema_path,
+    auth_header,
+):
+    source_schema = get_life_record_output_schema()
+    original_schema = deepcopy(source_schema)
+    captured = {}
+    worker_started = threading.Event()
+    worker_release = threading.Event()
+    client = factory()
+    original_endpoint = client.endpoint
+    original_model = client.model_name
+    original_provider = client.provider_name
+    original_requester = getattr(client, requester_name)
+
+    monkeypatch.setattr(
+        http_llm_common,
+        "get_life_record_output_schema",
+        lambda: source_schema,
+    )
+
+    def delayed_requester(descriptor):
+        captured["descriptor"] = descriptor
+        worker_started.set()
+        assert worker_release.wait(2)
+        return original_requester(descriptor)
+
+    def fake_post(provider, endpoint, _post, **kwargs):
+        captured.update(provider=provider, endpoint=endpoint, **kwargs)
+        return _Response(body)
+
+    def fake_raise_for_status(_response, provider):
+        captured["status_provider"] = provider
+
+    monkeypatch.setattr(client, requester_name, delayed_requester)
+    monkeypatch.setattr(f"{module}._post_with_safe_errors", fake_post)
+    monkeypatch.setattr(f"{module}._raise_for_status_with_detail", fake_raise_for_status)
+
+    async def run_competing_mutation():
+        task = asyncio.create_task(
+            client.generate_life_record_once("SYNTHETIC-PROMPT")
+        )
+        assert await asyncio.to_thread(worker_started.wait, 2)
+        client.endpoint = "https://mutated.invalid/v1/transport"
+        client.model_name = "mutated-model"
+        client.provider_name = "mutated-provider"
+        client.wire_format = "mutated-wire"
+        client.api_key = "mutated-key"
+        client.generation_params["max_tokens"] = 999
+        source_schema["properties"]["entries"]["minItems"] = 9
+        worker_release.set()
+        await task
+
+    asyncio.run(run_competing_mutation())
+
+    descriptor = captured["descriptor"]
+    wire_schema = captured["json"]
+    for key in schema_path:
+        wire_schema = wire_schema[key]
+    expected_schema = (
+        _without_max_items(original_schema)
+        if factory is _anthropic
+        else original_schema
+    )
+    assert captured["endpoint"] == original_endpoint
+    assert captured["provider"] == original_provider
+    assert captured["status_provider"] == original_provider
+    assert captured["json"]["model"] == original_model
+    assert captured["headers"][auth_header].endswith("synthetic-key")
+    assert wire_schema == expected_schema
+    assert captured["timeout"] == descriptor.timeout_seconds == 60.0
+    assert descriptor.capability_key == http_llm_common.build_capability_key(
+        descriptor.profile,
+        request_kind=descriptor.request.kind,
+        schema_id=descriptor.request.schema_id,
+        schema_version=descriptor.request.schema_version,
+    )
+    wire_schema["properties"]["entries"]["minItems"] = 11
+    assert descriptor.request.schema["properties"]["entries"]["minItems"] == 1
+
+
+@pytest.mark.parametrize("worker_fails", [False, True], ids=("success", "error"))
+def test_life_record_cancellation_drains_worker_and_preserves_first_cancel(
+    worker_fails,
+    capsys,
+):
+    client = _openai_chat()
+    original_history = [{"role": "user", "content": "SYNTHETIC-HISTORY"}]
+    client._history = deepcopy(original_history)
+    worker_started = threading.Event()
+    worker_release = threading.Event()
+    active_workers = 0
+    calls = 0
+    state_lock = threading.Lock()
+    loop_failures = []
+    cancellations = []
+
+    def requester(_descriptor):
+        nonlocal active_workers, calls
+        with state_lock:
+            active_workers += 1
+            calls += 1
+        worker_started.set()
+        try:
+            assert worker_release.wait(2)
+            if worker_fails:
+                raise RuntimeError("SYNTHETIC-WORKER-ERROR-SENTINEL")
+            return HTTPStructuredOneShotResponse(
+                text=RAW_LIFE_RECORD,
+                status=ResponseStatus.COMPLETE,
+            )
+        finally:
+            with state_lock:
+                active_workers -= 1
+
+    async def run_cancellation():
+        loop = asyncio.get_running_loop()
+        loop.set_exception_handler(
+            lambda _loop, context: loop_failures.append(context)
+        )
+        task = asyncio.create_task(
+            client._generate_life_record_once("SYNTHETIC-PROMPT", requester)
+        )
+        assert await asyncio.to_thread(worker_started.wait, 2)
+        task.cancel("first-cancel")
+        await asyncio.sleep(0)
+        assert not task.done()
+        assert active_workers == 1
+        heartbeat = asyncio.create_task(asyncio.sleep(0))
+        await heartbeat
+        assert task.cancel("second-cancel")
+        await asyncio.sleep(0)
+        assert not task.done()
+        worker_release.set()
+        with pytest.raises(asyncio.CancelledError) as exc_info:
+            await task
+        cancellations.append(exc_info.value)
+        assert exc_info.value.args == ("first-cancel",)
+        await asyncio.sleep(0)
+
+    asyncio.run(run_cancellation())
+
+    assert calls == 1
+    assert active_workers == 0
+    assert loop_failures == []
+    assert client.get_conversation_history() == original_history
+    assert cancellations[0].__cause__ is None
+    assert cancellations[0].__context__ is None
+    captured = capsys.readouterr()
+    assert "SYNTHETIC-WORKER-ERROR-SENTINEL" not in captured.out
+    assert "SYNTHETIC-WORKER-ERROR-SENTINEL" not in captured.err
 
 
 def test_anthropic_wire_schema_removes_only_max_items_from_a_fresh_copy(

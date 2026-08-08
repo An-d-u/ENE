@@ -16,7 +16,8 @@ import ipaddress
 import json
 import re
 import secrets
-from typing import Callable, Dict, List, Tuple
+from types import MappingProxyType
+from typing import Callable, Dict, List, Mapping, Tuple
 from urllib.parse import urlsplit
 
 import requests
@@ -738,10 +739,18 @@ class StructuredOneShotRequest:
     kind: LLMRequestKind
     prompt: str = field(repr=False)
     system_instruction: str = field(repr=False)
-    schema: dict = field(repr=False)
+    schema: Mapping[str, object] = field(repr=False)
     schema_id: str = LIFE_RECORD_SCHEMA_ID
     schema_version: str = LIFE_RECORD_SCHEMA_VERSION
-    generation_params: dict = field(default_factory=dict, repr=False)
+    generation_params: Mapping[str, object] = field(default_factory=dict, repr=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "schema", _freeze_transport_value(self.schema))
+        object.__setattr__(
+            self,
+            "generation_params",
+            _freeze_transport_value(self.generation_params),
+        )
 
 
 @dataclass(frozen=True)
@@ -751,8 +760,12 @@ class HTTPStructuredOneShotRequestDescriptor:
     request: StructuredOneShotRequest = field(repr=False)
     profile: ProviderProfile
     capability_key: ResponseCapabilityKey
+    headers: Mapping[str, object] = field(default_factory=dict, repr=False)
     response_mode: ResponseMode = ResponseMode.JSON_SCHEMA
     timeout_seconds: float = 60.0
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "headers", _freeze_transport_value(self.headers))
 
 
 @dataclass(frozen=True)
@@ -762,7 +775,36 @@ class HTTPStructuredOneShotResponse:
     text: str = field(repr=False)
     status: ResponseStatus
     finish_reason: str = field(default="", repr=False)
-    usage: dict[str, int | None] = field(default_factory=dict, repr=False)
+    usage: Mapping[str, int | None] = field(default_factory=dict, repr=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "usage", _freeze_transport_value(self.usage))
+
+
+def _freeze_transport_value(value: object) -> object:
+    """HTTP 경계 데이터를 깊게 복사한 재귀 불변 값으로 고정한다."""
+    if isinstance(value, Mapping):
+        return MappingProxyType(
+            {
+                copy.deepcopy(key): _freeze_transport_value(nested)
+                for key, nested in value.items()
+            }
+        )
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_transport_value(nested) for nested in value)
+    return copy.deepcopy(value)
+
+
+def _thaw_transport_value(value: object) -> object:
+    """불변 HTTP 스냅샷에서 공급자 wire 전용 새 가변 복사본을 만든다."""
+    if isinstance(value, Mapping):
+        return {
+            copy.deepcopy(key): _thaw_transport_value(nested)
+            for key, nested in value.items()
+        }
+    if isinstance(value, tuple):
+        return [_thaw_transport_value(nested) for nested in value]
+    return copy.deepcopy(value)
 
 
 def normalize_one_shot_usage(
@@ -1362,6 +1404,7 @@ class _CommonMixin:
             schema_version=LIFE_RECORD_SCHEMA_VERSION,
             generation_params=dict(getattr(self, "generation_params", {}) or {}),
         )
+        headers = self._headers()
         return HTTPStructuredOneShotRequestDescriptor(
             request=request,
             profile=profile,
@@ -1371,6 +1414,7 @@ class _CommonMixin:
                 schema_id=request.schema_id,
                 schema_version=request.schema_version,
             ),
+            headers=headers,
         )
 
     async def _generate_life_record_once(
@@ -1393,8 +1437,23 @@ class _CommonMixin:
 
         transport_failed = False
         response = None
+        worker = asyncio.create_task(asyncio.to_thread(requester, descriptor))
         try:
-            response = await asyncio.to_thread(requester, descriptor)
+            response = await asyncio.shield(worker)
+        except asyncio.CancelledError:
+            while not worker.done():
+                try:
+                    await asyncio.shield(worker)
+                except asyncio.CancelledError:
+                    continue
+                except BaseException:
+                    break
+            if worker.done() and not worker.cancelled():
+                try:
+                    worker.result()
+                except BaseException:
+                    pass
+            raise
         except Exception:
             transport_failed = True
         if transport_failed or response is None:
