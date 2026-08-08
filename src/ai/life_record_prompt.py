@@ -21,6 +21,19 @@ _SHORT_TERM_MOODS = frozenset(
     {"steady", "guarded", "pout", "drained", "playful", "focused"}
 )
 _LANGUAGES = frozenset({"ko", "en", "ja"})
+_WEEKDAYS = {
+    "ko": ("월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"),
+    "en": (
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+        "Sunday",
+    ),
+    "ja": ("月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日", "日曜日"),
+}
 _INACTIVE_START_SOURCES = frozenset({"graceful_exit", "heartbeat_recovery"})
 _PROFILE_FACT_CATEGORIES = frozenset(
     {"basic", "preference", "goal", "habit", "relationship_tone"}
@@ -355,6 +368,11 @@ def _granularity(start: datetime, end: datetime) -> str:
     return "7일 초과는 반복 생활을 여러 날 단위로 요약한다."
 
 
+def _localized_weekday(value: datetime, language: str) -> str:
+    weekdays = _WEEKDAYS.get(language, _WEEKDAYS["en"])
+    return weekdays[value.weekday()]
+
+
 def _thaw(value: object) -> object:
     if isinstance(value, Mapping):
         return {key: _thaw(item) for key, item in value.items()}
@@ -396,10 +414,22 @@ def build_life_record_prompt(context: LifeRecordGenerationContext) -> str:
             "returned_at": context.returned_at.isoformat(),
             "timezone": context.timezone,
             "inactive_start_source": context.inactive_start_source,
-            "local_start": f"{local_start.isoformat()} ({local_start.strftime('%A')})",
-            "local_end": f"{local_end.isoformat()} ({local_end.strftime('%A')})",
-            "local_start_date": f"{local_start.date().isoformat()} ({local_start.strftime('%A')})",
-            "local_end_date": f"{local_end.date().isoformat()} ({local_end.strftime('%A')})",
+            "local_start": (
+                f"{local_start.isoformat()} "
+                f"({_localized_weekday(local_start, context.language)})"
+            ),
+            "local_end": (
+                f"{local_end.isoformat()} "
+                f"({_localized_weekday(local_end, context.language)})"
+            ),
+            "local_start_date": (
+                f"{local_start.date().isoformat()} "
+                f"({_localized_weekday(local_start, context.language)})"
+            ),
+            "local_end_date": (
+                f"{local_end.date().isoformat()} "
+                f"({_localized_weekday(local_end, context.language)})"
+            ),
         },
         "relationship_tone": _thaw(context.relationship_tone),
         "profile_facts": _thaw(context.profile_facts),
