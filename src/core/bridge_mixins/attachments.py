@@ -231,7 +231,12 @@ class AttachmentBridgeMixin:
             mark_activity()
         AttachmentBridgeMixin._commit_prepared_attachment_request(self, prepared)
 
-    def _commit_prepared_attachment_request(self, request) -> None:
+    def _commit_prepared_attachment_request(
+        self,
+        request,
+        *,
+        emit_pending_state: bool = True,
+    ) -> None:
         """gate를 통과한 첨부 요청의 세션·대화·worker 변경을 한 번 적용한다."""
         legacy_direct_mixin = not hasattr(self, "life_record_state")
         attachments_data = request.attachment_copies()
@@ -338,18 +343,23 @@ class AttachmentBridgeMixin:
         }
         self._is_rerolling = False
 
-        self._start_ai_worker(
-            message_with_time,
-            image_attachments,
-            memory_search_text=memory_search_text,
-            latest_user_message=memory_search_inputs["latest_user_message"],
-            recent_memory_context=memory_search_inputs["recent_context_text"],
-            head_pat_count_before_message=request.head_pat_count_before_message,
-            include_life_record_context=True,
-            prior_token_usage=(
+        worker_kwargs = {
+            "memory_search_text": memory_search_text,
+            "latest_user_message": memory_search_inputs["latest_user_message"],
+            "recent_memory_context": memory_search_inputs["recent_context_text"],
+            "head_pat_count_before_message": request.head_pat_count_before_message,
+            "include_life_record_context": True,
+            "prior_token_usage": (
                 getattr(getattr(self, "life_record_state", None), "prior_token_usage", None)
                 or request.prior_token_usage
             ),
+        }
+        if not emit_pending_state:
+            worker_kwargs["emit_pending_state"] = False
+        self._start_ai_worker(
+            message_with_time,
+            image_attachments,
+            **worker_kwargs,
         )
         print(
             f"[Bridge] Worker thread started with "

@@ -73,6 +73,13 @@ def _response_log_metadata(metadata: object) -> tuple[str, str, str]:
     return response_mode, schema_version, repair_performed
 
 
+def _log_callback_exception(event: str, exc: BaseException) -> None:
+    print(
+        f"[Bridge] {event} category=local_error "
+        f"exception_class={type(exc).__name__}"
+    )
+
+
 class ChatFlowBridgeMixin:
     def _emit_request_pending_stage_changed(self, stage: str):
         normalized = str(stage or "").strip().lower()
@@ -644,7 +651,10 @@ class ChatFlowBridgeMixin:
             commit_attachments = getattr(self, "_commit_prepared_attachment_request", None)
             if not callable(commit_attachments):
                 raise RuntimeError("attachment_commit_unavailable")
-            commit_attachments(request)
+            if emit_pending_state:
+                commit_attachments(request)
+            else:
+                commit_attachments(request, emit_pending_state=False)
             return
 
         legacy_direct_mixin = not hasattr(self, "life_record_state")
@@ -992,15 +1002,22 @@ class ChatFlowBridgeMixin:
                 normal_operation_id=matched_operation_id,
                 **kwargs,
             )
-        except Exception:
-            ChatFlowBridgeMixin._cleanup_failed_response_delivery(
-                self,
-                matched_operation_id,
-            )
-            raise
+        except Exception as exc:
+            try:
+                ChatFlowBridgeMixin._cleanup_failed_response_delivery(
+                    self,
+                    matched_operation_id,
+                )
+            except Exception as cleanup_exc:
+                _log_callback_exception("response_cleanup_failed", cleanup_exc)
+            _log_callback_exception("response_callback_failed", exc)
+            return None
         finally:
             if worker is not None:
-                worker.response_metadata = ResponseDeliveryMetadata.empty()
+                try:
+                    worker.response_metadata = ResponseDeliveryMetadata.empty()
+                except Exception as exc:
+                    _log_callback_exception("response_metadata_cleanup_failed", exc)
 
     def _cleanup_failed_response_delivery(self, operation_id: int | None) -> None:
         """응답 전달 중 로컬 예외가 나도 소유 상태와 대기열을 해제한다."""
@@ -1041,8 +1058,12 @@ class ChatFlowBridgeMixin:
             return
         try:
             ChatFlowBridgeMixin._emit_request_pending_changed(self, False)
-        finally:
+        except Exception as exc:
+            _log_callback_exception("pending_cleanup_failed", exc)
+        try:
             ChatFlowBridgeMixin._invoke_worker_finished_queue_drain(self)
+        except Exception as exc:
+            _log_callback_exception("queue_cleanup_failed", exc)
 
     def _normal_operation_id(
         self,
@@ -1488,5 +1509,5 @@ class ChatFlowBridgeMixin:
             drain_proactive_queue = getattr(self, "_drain_proactive_queue_if_idle", None)
             if callable(drain_proactive_queue):
                 attempt(drain_proactive_queue)
-        if errors:
-            raise errors[0]
+        for exc in errors:
+            _log_callback_exception("error_callback_cleanup_failed", exc)
