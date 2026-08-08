@@ -49,3 +49,26 @@ def test_collect_data_mappings_returns_only_release_safe_bundle_targets(tmp_path
     assert (project_root / "assets", "assets") not in mappings
     assert (project_root / "assets" / "live2d_models" / "jksalt", "assets/live2d_models/jksalt") not in mappings
     assert (project_root / "assets" / "ref_audio", "assets/ref_audio") not in mappings
+
+
+def test_build_pyinstaller_command_collects_tzdata_for_windows_zone_database(tmp_path):
+    from scripts.build_windows_release import build_pyinstaller_command
+
+    project_root = tmp_path / "ENE"
+    command = build_pyinstaller_command(project_root)
+    collected_packages = [
+        command[index + 1]
+        for index, argument in enumerate(command[:-1])
+        if argument == "--collect-all"
+    ]
+
+    assert "tzdata" in collected_packages
+    assert collected_packages == [
+        "faster_whisper",
+        "ctranslate2",
+        "av",
+        "tokenizers",
+        "tiktoken",
+        "tiktoken_ext",
+        "tzdata",
+    ]
