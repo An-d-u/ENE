@@ -346,6 +346,10 @@ class AttachmentBridgeMixin:
             recent_memory_context=memory_search_inputs["recent_context_text"],
             head_pat_count_before_message=request.head_pat_count_before_message,
             include_life_record_context=True,
+            prior_token_usage=(
+                getattr(getattr(self, "life_record_state", None), "prior_token_usage", None)
+                or request.prior_token_usage
+            ),
         )
         print(
             f"[Bridge] Worker thread started with "

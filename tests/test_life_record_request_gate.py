@@ -516,7 +516,7 @@ class _Worker:
         raise AssertionError("GUI thread must not wait")
 
 
-def test_general_worker_owns_normal_reply_operation_until_finished(monkeypatch) -> None:
+def test_general_worker_keeps_normal_reply_until_visible_response_finalizer(monkeypatch) -> None:
     monkeypatch.setattr(chat_flow_module, "AIWorker", _Worker)
     state = LifeRecordBridgeState()
     dummy = SimpleNamespace(
@@ -534,8 +534,11 @@ def test_general_worker_owns_normal_reply_operation_until_finished(monkeypatch) 
     dummy._begin_normal_reply_operation = lambda: (
         ChatFlowBridgeMixin._begin_normal_reply_operation(dummy)
     )
-    dummy._finish_normal_reply_operation = lambda operation_id, worker: (
-        ChatFlowBridgeMixin._finish_normal_reply_operation(dummy, operation_id, worker)
+    dummy._on_normal_reply_worker_finished = lambda operation_id, worker: (
+        ChatFlowBridgeMixin._on_normal_reply_worker_finished(dummy, operation_id, worker)
+    )
+    dummy._finish_normal_operation = lambda operation_id: (
+        ChatFlowBridgeMixin._finish_normal_operation(dummy, operation_id)
     )
     dummy._connect_worker_finished_drain = lambda operation_id=None: (
         ChatFlowBridgeMixin._connect_worker_finished_drain(dummy, operation_id)
@@ -547,6 +550,8 @@ def test_general_worker_owns_normal_reply_operation_until_finished(monkeypatch) 
 
     dummy.worker.finished.emit()
 
+    assert state.matches_operation(operation_id, "normal_reply") is True
+    dummy._finish_normal_operation(operation_id)
     assert state.phase == "idle"
 
 

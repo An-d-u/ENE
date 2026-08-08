@@ -4,6 +4,7 @@ WebBridge의 일반 채팅 요청, 재시도, 응답 완료 흐름.
 import json
 from datetime import datetime
 from functools import partial
+from typing import Mapping
 
 from PyQt6.QtCore import pyqtSlot
 
@@ -109,7 +110,7 @@ class ChatFlowBridgeMixin:
             drain_proactive_queue()
 
     def _connect_worker_finished_drain(self, operation_id: int | None = None):
-        """worker 종료 시 현재 normal_reply 소유권을 해제한 뒤 큐를 확인한다."""
+        """worker 종료를 관찰하되 응답 표시 전에는 normal_reply를 해제하지 않는다."""
         response_worker = getattr(self, "worker", None)
         finished = getattr(response_worker, "finished", None)
         connector = getattr(finished, "connect", None)
@@ -119,7 +120,7 @@ class ChatFlowBridgeMixin:
             else:
                 connector(
                     partial(
-                        self._finish_normal_reply_operation,
+                        self._on_normal_reply_worker_finished,
                         operation_id,
                         response_worker,
                     )
@@ -142,12 +143,28 @@ class ChatFlowBridgeMixin:
             return state.operation_id
         return None
 
-    def _finish_normal_reply_operation(self, operation_id: int, response_worker) -> None:
-        """stale worker 종료는 무시하고 현재 답변 작업만 idle로 되돌린다."""
+    def _on_normal_reply_worker_finished(self, operation_id: int, response_worker) -> None:
+        """표시 finalizer가 끝난 worker 참조만 정리한다."""
         state = getattr(self, "life_record_state", None)
-        if state is not None and getattr(self, "worker", None) is response_worker:
-            state.finish_operation(operation_id)
+        if (
+            state is not None
+            and getattr(self, "worker", None) is response_worker
+            and not state.matches_operation(operation_id, "normal_reply")
+        ):
+            self.worker = None
+
+    def _finish_normal_operation(self, operation_id: int) -> bool:
+        """실제 응답 표시 뒤 pending·phase·큐를 정확히 한 번 마무리한다."""
+        state = getattr(self, "life_record_state", None)
+        if state is None or not state.finish_operation(operation_id):
+            return False
+        worker = getattr(self, "worker", None)
+        is_running = getattr(worker, "isRunning", None)
+        if not callable(is_running) or not is_running():
+            self.worker = None
+        ChatFlowBridgeMixin._emit_request_pending_changed(self, False)
         self._drain_queues_after_worker_finished()
+        return True
 
     def _restore_failed_worker_start(self, operation_id: int) -> None:
         """worker 시작 실패가 phase와 프런트 pending 상태를 남기지 않게 한다."""
@@ -179,6 +196,7 @@ class ChatFlowBridgeMixin:
         recent_memory_context: str = "",
         head_pat_count_before_message: int = 0,
         include_life_record_context: bool = False,
+        prior_token_usage: Mapping[str, object] | None = None,
     ):
         """현재 요청 페이로드로 AI 워커를 시작한다."""
         if self.worker and self.worker.isRunning():
@@ -206,12 +224,19 @@ class ChatFlowBridgeMixin:
                 recent_memory_context=recent_memory_context,
                 head_pat_count_before_message=head_pat_count_before_message,
                 include_life_record_context=include_life_record_context,
+                prior_token_usage=(
+                    prior_token_usage
+                    if prior_token_usage is not None
+                    else getattr(getattr(self, "life_record_state", None), "prior_token_usage", None)
+                ),
                 progress_callback=self._emit_request_pending_stage_changed,
             )
             self.worker.response_ready.connect(
                 partial(self._on_response_ready, response_worker=self.worker)
             )
-            self.worker.error_occurred.connect(self._on_error)
+            self.worker.error_occurred.connect(
+                partial(self._on_error, response_worker=self.worker)
+            )
             connect_finished = getattr(self, "_connect_worker_finished_drain", None)
             if callable(connect_finished):
                 connect_finished(operation_id) if operation_id else connect_finished()
@@ -631,6 +656,10 @@ class ChatFlowBridgeMixin:
             recent_memory_context=memory_search_inputs["recent_context_text"],
             head_pat_count_before_message=committed_head_pat_count,
             include_life_record_context=True,
+            prior_token_usage=(
+                getattr(getattr(self, "life_record_state", None), "prior_token_usage", None)
+                or request.prior_token_usage
+            ),
         )
         print("[Bridge] Worker thread started")
 
@@ -872,19 +901,34 @@ class ChatFlowBridgeMixin:
         response_metadata = getattr(worker, "response_metadata", None)
         if type(response_metadata) is not ResponseDeliveryMetadata:
             response_metadata = ResponseDeliveryMetadata.empty()
+        operation_id = ChatFlowBridgeMixin._normal_operation_id(self, worker)
         try:
             return ChatFlowBridgeMixin._handle_response_ready(
                 self,
                 *args,
                 response_metadata=response_metadata,
+                normal_operation_id=operation_id,
                 **kwargs,
             )
         except Exception:
-            ChatFlowBridgeMixin._emit_request_pending_changed(self, False)
+            if operation_id is None or not ChatFlowBridgeMixin._finish_normal_operation(
+                self, operation_id
+            ):
+                ChatFlowBridgeMixin._emit_request_pending_changed(self, False)
             raise
         finally:
             if worker is not None:
                 worker.response_metadata = ResponseDeliveryMetadata.empty()
+
+    def _normal_operation_id(self, response_worker) -> int | None:
+        state = getattr(self, "life_record_state", None)
+        if (
+            state is not None
+            and getattr(self, "worker", None) is response_worker
+            and state.matches_operation(state.operation_id, "normal_reply")
+        ):
+            return state.operation_id
+        return None
 
     def _remember_loaded_topic_memory_context_for_summary(self) -> None:
         """이번 응답 생성에 실제 주입된 주제 기억을 요약 비교용 side-buffer에 남긴다."""
@@ -947,6 +991,7 @@ class ChatFlowBridgeMixin:
         gesture: str = "",
         *,
         response_metadata: ResponseDeliveryMetadata | None = None,
+        normal_operation_id: int | None = None,
     ):
         """AI 응답 준비 완료"""
         completed_promise_id = str(getattr(self, "_active_promise_id", "") or "").strip()
@@ -1090,16 +1135,18 @@ class ChatFlowBridgeMixin:
             self._pending_response_completion = {
                 "promise_id": completed_promise_id,
                 "proactive_id": completed_proactive_id,
+                "normal_operation_id": normal_operation_id,
             }
             deferred_completion = True
             self._play_tts(tts_text)
         else:
             # TTS 비활성화 또는 읽어줄 텍스트 없음 - 즉시 텍스트 전송
             print(f"[Bridge] TTS 비활성화 - 텍스트 즉시 전송")
-            ChatFlowBridgeMixin._emit_request_pending_changed(self, False)
             self.message_received.emit(text, emotion, thought)
             ChatFlowBridgeMixin._emit_gesture_requested(self, gesture)
             self.token_usage_ready.emit(resolved_token_usage_payload)
+            if normal_operation_id is None:
+                ChatFlowBridgeMixin._emit_request_pending_changed(self, False)
             if self._is_rerolling:
                 self._is_rerolling = False
                 self.reroll_state_changed.emit(False)
@@ -1113,7 +1160,14 @@ class ChatFlowBridgeMixin:
                 return
             ChatFlowBridgeMixin._finalize_pending_response_completion_if_any(self)
             return
-        ChatFlowBridgeMixin._finalize_completed_runtime_items(self, completed_promise_id, completed_proactive_id)
+        ChatFlowBridgeMixin._finalize_completed_runtime_items(
+            self,
+            completed_promise_id,
+            completed_proactive_id,
+            drain_queues=normal_operation_id is None,
+        )
+        if normal_operation_id is not None:
+            self._finish_normal_operation(normal_operation_id)
 
     def _normalize_response_gesture(self, gesture: str) -> str:
         """LLM 응답에서 온 제스처 키를 런타임 허용 목록으로 제한한다."""
@@ -1145,7 +1199,13 @@ class ChatFlowBridgeMixin:
             return bool(config.get("enable_synthetic_gestures", True))
         return True
 
-    def _finalize_completed_runtime_items(self, completed_promise_id: str = "", completed_proactive_id: str = ""):
+    def _finalize_completed_runtime_items(
+        self,
+        completed_promise_id: str = "",
+        completed_proactive_id: str = "",
+        *,
+        drain_queues: bool = True,
+    ):
         """사용자에게 응답을 보낸 뒤 예약/큐 상태를 마무리한다."""
         promise_manager = getattr(self, "promise_manager", None)
         if promise_manager and completed_promise_id:
@@ -1156,7 +1216,7 @@ class ChatFlowBridgeMixin:
         self._active_promise_id = None
         self._active_promise_signature = None
         drain_queue = getattr(self, "_drain_promise_queue_if_idle", None)
-        if callable(drain_queue):
+        if drain_queues and callable(drain_queue):
             drain_queue()
         proactive_manager = getattr(self, "proactive_manager", None)
         if proactive_manager and completed_proactive_id:
@@ -1167,7 +1227,7 @@ class ChatFlowBridgeMixin:
         self._active_proactive_id = None
         self._active_proactive_signature = None
         drain_proactive_queue = getattr(self, "_drain_proactive_queue_if_idle", None)
-        if callable(drain_proactive_queue):
+        if drain_queues and callable(drain_proactive_queue):
             drain_proactive_queue()
 
     def _finalize_pending_response_completion_if_any(self):
@@ -1176,16 +1236,25 @@ class ChatFlowBridgeMixin:
         self._pending_response_completion = None
         if not isinstance(payload, dict):
             return
+        operation_id = payload.get("normal_operation_id")
         ChatFlowBridgeMixin._finalize_completed_runtime_items(
             self,
             str(payload.get("promise_id", "") or "").strip(),
             str(payload.get("proactive_id", "") or "").strip(),
+            drain_queues=type(operation_id) is not int,
         )
+        if type(operation_id) is int:
+            self._finish_normal_operation(operation_id)
 
-    def _on_error(self, error_msg: str):
+    def _on_error(self, error_msg: str, *, response_worker=None):
         """오류 발생"""
         print("[Bridge] request_failed category=provider_error")
-        ChatFlowBridgeMixin._emit_request_pending_changed(self, False)
+        operation_id = ChatFlowBridgeMixin._normal_operation_id(
+            self,
+            response_worker if response_worker is not None else getattr(self, "worker", None)
+        )
+        if operation_id is None:
+            ChatFlowBridgeMixin._emit_request_pending_changed(self, False)
         reminder_id = str(getattr(self, "_active_promise_id", "") or "").strip()
         promise_manager = getattr(self, "promise_manager", None)
         if promise_manager and reminder_id:
@@ -1205,6 +1274,9 @@ class ChatFlowBridgeMixin:
         if self._is_rerolling:
             self._is_rerolling = False
             self.reroll_state_changed.emit(False)
+        if operation_id is not None:
+            self._finish_normal_operation(operation_id)
+            return
         drain_queue = getattr(self, "_drain_promise_queue_if_idle", None)
         if callable(drain_queue):
             drain_queue()

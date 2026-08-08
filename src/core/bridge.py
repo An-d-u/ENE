@@ -65,6 +65,7 @@ class WebBridge(
     request_pending_changed = pyqtSignal(bool)  # LLM 응답 생성 진행 상태
     request_pending_stage_changed = pyqtSignal(str)  # thinking/searching
     life_record_notice = pyqtSignal(str)  # 안전한 생활 기록 상태 코드
+    life_record_items_updated = pyqtSignal(str)  # 공개 기록·영향 날짜·최신 ID JSON
     expression_changed = pyqtSignal(str)     # 표정 변경
     lip_sync_update = pyqtSignal(float)      # 립싱크 업데이트 (mouth_value)
     mouth_pose_update = pyqtSignal(str)      # 모델 적응형 입모양 JSON

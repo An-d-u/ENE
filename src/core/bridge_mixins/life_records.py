@@ -4,14 +4,32 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+import json
 from types import MappingProxyType
 from typing import Any, Literal, Mapping
 
-from ...ai.life_record_prompt import LifeMoodSnapshot, snapshot_life_mood
+from ...ai.life_record_prompt import (
+    LifeMoodSnapshot,
+    LifeRecordGenerationContext,
+    build_life_record_prompt,
+    snapshot_life_mood,
+)
+from ...ai.life_record_types import (
+    create_life_record,
+    life_record_to_dict,
+    stable_life_record_id,
+)
+from ...ai.persona_names import resolve_prompt_persona_names
 from ...ai.prompt_config import load_life_world_prompt
 from ...ai.prompt_language import resolve_prompt_language
+from ..bridge_workers import (
+    LifeRecordGenerationRequest,
+    LifeRecordWorker,
+    LifeRecordWorkerResult,
+)
 from ..bridge_state import LifeRecordBridgeState
 from ..life_session_tracker import InactiveStartCandidate
+from ..local_time import resolve_local_time_context
 
 
 _LANGUAGES = frozenset({"ko", "en", "ja"})
@@ -277,4 +295,285 @@ class LifeRecordBridgeMixin:
         return True
 
     def _start_auto_life_record_generation(self, _operation_id: int) -> None:
-        """Task 10B의 실제 worker 구현을 위한 진입 seam."""
+        """확정된 snapshot만으로 자동 생활 기록 worker를 시작한다."""
+        operation_id = _operation_id
+        state = self._get_life_record_state()
+        if not state.matches_operation(operation_id, "auto_generating"):
+            return
+        prepared = state.pending_request
+        candidate = state.candidate
+        if not isinstance(prepared, PreparedChatRequest) or not isinstance(
+            candidate, InactiveStartCandidate
+        ):
+            self._fail_life_record_before_worker(operation_id)
+            return
+
+        try:
+            manager = self._life_record_manager()
+            previous = manager.latest() if manager is not None else None
+            profile = self._life_profile_snapshot()
+            names = resolve_prompt_persona_names(
+                settings_source=getattr(self, "settings", None),
+                language=prepared.language,
+            )
+            context = LifeRecordGenerationContext(
+                inactive_started_at=candidate.started_at,
+                returned_at=prepared.received_at,
+                timezone=state.time_context.timezone_name,
+                inactive_start_source=candidate.source,
+                world_markdown=state.pending_world_markdown,
+                ene_identity=profile["ene_identity"],
+                relationship_tone=profile["relationship_tone"],
+                profile_facts=profile["profile_facts"],
+                display_names={"assistant": names.assistant, "user": names.user},
+                previous_record=(
+                    life_record_to_dict(previous) if previous is not None else None
+                ),
+                mood_snapshot=prepared.mood_snapshot,
+                language=prepared.language,
+            )
+            request = LifeRecordGenerationRequest(
+                operation_id=operation_id,
+                prompt=build_life_record_prompt(context),
+                inactive_started_at=candidate.started_at,
+                returned_at=prepared.received_at,
+                timezone=state.time_context.timezone_name,
+                language=prepared.language,
+            )
+            worker = LifeRecordWorker(self.llm_client, request)
+            state.worker = worker
+            worker.result_ready.connect(self._stash_life_record_result)
+            worker.error_occurred.connect(self._stash_life_record_error)
+            worker.finished.connect(
+                lambda op=operation_id, owned_worker=worker: self._on_life_record_worker_finished(
+                    op, owned_worker
+                )
+            )
+            worker.start()
+        except Exception:
+            self._fail_life_record_before_worker(operation_id)
+
+    def _life_record_manager(self):
+        manager = getattr(self, "life_record_manager", None)
+        if manager is None:
+            manager = getattr(getattr(self, "llm_client", None), "life_record_manager", None)
+        return manager
+
+    def _life_profile_snapshot(self) -> dict[str, object]:
+        profile = getattr(self, "ene_profile", None)
+        exporter = getattr(profile, "export_life_record_profile", None)
+        if not callable(exporter):
+            return {
+                "ene_identity": {"identity": ()},
+                "relationship_tone": (),
+                "profile_facts": (),
+            }
+        raw_limit = self._life_setting("max_profile_facts_in_context", 10)
+        try:
+            limit = max(0, int(raw_limit))
+        except (TypeError, ValueError, OverflowError):
+            limit = 10
+        exported = exporter(max_facts=limit)
+        if not isinstance(exported, Mapping):
+            raise ValueError("invalid_life_profile")
+        return {
+            "ene_identity": exported.get("ene_identity", {"identity": ()}),
+            "relationship_tone": exported.get("relationship_tone", ()),
+            "profile_facts": tuple(exported.get("profile_facts", ())),
+        }
+
+    def _fail_life_record_before_worker(self, operation_id: int) -> None:
+        state = self._get_life_record_state()
+        if not state.matches_operation(operation_id, "auto_generating"):
+            return
+        state.worker_error = "generation_failed"
+        state.worker = None
+        self._finalize_life_record_operation(operation_id)
+
+    def _stash_life_record_result(self, operation_id: int, result: object) -> None:
+        state = self._get_life_record_state()
+        if not state.matches_operation(operation_id, "auto_generating"):
+            return
+        if (
+            not isinstance(result, LifeRecordWorkerResult)
+            or result.operation_id != operation_id
+        ):
+            state.worker_error = "generation_failed"
+            return
+        if state.worker_result is None and state.worker_error is None:
+            state.worker_result = result
+
+    def _stash_life_record_error(self, operation_id: int, result: object) -> None:
+        state = self._get_life_record_state()
+        if not state.matches_operation(operation_id, "auto_generating"):
+            return
+        if (
+            isinstance(result, LifeRecordWorkerResult)
+            and result.operation_id != operation_id
+        ):
+            result = "generation_failed"
+        if state.worker_result is None and state.worker_error is None:
+            state.worker_error = result
+
+    def _on_life_record_worker_finished(self, operation_id: int, worker: object) -> None:
+        state = self._get_life_record_state()
+        if state.worker is not worker:
+            return
+        if not state.matches_operation(operation_id, "auto_generating"):
+            state.worker = None
+            return
+        state.worker = None
+        self._finalize_life_record_operation(operation_id)
+
+    @staticmethod
+    def _life_usage_dict(result: LifeRecordWorkerResult | None) -> dict[str, int | None]:
+        usage = result.token_usage if result is not None else None
+        return {
+            "input_tokens": getattr(usage, "input_tokens", None),
+            "output_tokens": getattr(usage, "output_tokens", None),
+            "total_tokens": getattr(usage, "total_tokens", None),
+        }
+
+    def _finalize_life_record_operation(self, operation_id: int) -> None:
+        state = self._get_life_record_state()
+        if not state.matches_operation(operation_id, "auto_generating"):
+            return
+        result = state.worker_result
+        error = state.worker_error
+        state.worker_result = None
+        state.worker_error = None
+        success = isinstance(result, LifeRecordWorkerResult) and result.output is not None and error is None
+        notice = "generation_failed"
+        if success:
+            try:
+                saved = self._save_generated_life_record(result)
+                self._emit_saved_life_record(saved)
+            except Exception:
+                success = False
+                notice = "save_failed"
+        if not success:
+            try:
+                self._emit_life_record_notice(notice)
+            except Exception:
+                pass
+
+        if isinstance(result, LifeRecordWorkerResult):
+            state.prior_token_usage = self._merge_life_token_usage(
+                state.prior_token_usage,
+                self._life_usage_dict(result),
+            )
+        pending = state.take_pending(operation_id)
+        if not isinstance(pending, PreparedChatRequest):
+            self._finish_life_record_without_reply(operation_id)
+            return
+        if not state.transition_operation(operation_id, "resuming_reply"):
+            return
+        try:
+            self._emit_life_record_stage("thinking")
+        except Exception:
+            pass
+        try:
+            self._commit_prepared_chat_request(pending)
+        except Exception:
+            self._finish_life_record_without_reply(operation_id)
+
+    @staticmethod
+    def _merge_life_token_usage(*usages: object) -> dict[str, int | None] | None:
+        from ...ai.response_protocol import TurnTokenUsageAccumulator
+
+        accumulator = TurnTokenUsageAccumulator()
+        recorded = False
+        for usage in usages:
+            if isinstance(usage, Mapping):
+                accumulator.record(dict(usage))
+                recorded = True
+        return accumulator.snapshot() if recorded else None
+
+    def _save_generated_life_record(self, result: LifeRecordWorkerResult):
+        state = self._get_life_record_state()
+        prepared = state.pending_request
+        candidate = state.candidate
+        manager = self._life_record_manager()
+        if manager is None or not isinstance(prepared, PreparedChatRequest) or not isinstance(
+            candidate, InactiveStartCandidate
+        ):
+            raise RuntimeError("save_unavailable")
+        created_at = prepared.received_at
+        output = result.output
+        record = create_life_record(
+            id=stable_life_record_id(candidate.started_at, prepared.received_at),
+            inactive_started_at=candidate.started_at,
+            returned_at=prepared.received_at,
+            created_at=created_at,
+            updated_at=created_at,
+            revision=1,
+            timezone=state.time_context.timezone_name,
+            inactive_start_source=candidate.source,
+            mood_snapshot={
+                "label": prepared.mood_snapshot.label,
+                "valence": prepared.mood_snapshot.valence,
+                "energy": prepared.mood_snapshot.energy,
+                "bond": prepared.mood_snapshot.bond,
+                "stress": prepared.mood_snapshot.stress,
+                "short_term_mood": prepared.mood_snapshot.short_term_mood,
+            },
+            entries=[
+                {
+                    "started_at": entry.started_at,
+                    "ended_at": entry.ended_at,
+                    "place": entry.place,
+                    "activity": entry.activity,
+                }
+                for entry in output.entries
+            ],
+            ending_state={
+                "place": output.ending_state.place,
+                "summary": output.ending_state.summary,
+            },
+        )
+        if manager.add(record) is not True:
+            raise RuntimeError("save_rejected")
+        authoritative = manager.latest()
+        if authoritative is None or authoritative.id != record.id:
+            raise RuntimeError("save_not_authoritative")
+        return authoritative
+
+    def _emit_saved_life_record(self, record: object) -> None:
+        manager = self._life_record_manager()
+        state = self._get_life_record_state()
+        locale = self._resolve_life_prompt_language()
+        public = manager.to_public_dict(record, state.view_timezone, locale)
+        view_resolution = resolve_local_time_context(state.view_timezone)
+        zone = view_resolution.view_timezone
+        local_start = record.inactive_started_at.astimezone(zone).date()
+        local_last = (record.returned_at.astimezone(zone) - timedelta(microseconds=1)).date()
+        affected = []
+        current = local_start
+        while current <= local_last:
+            affected.append(current.isoformat())
+            current += timedelta(days=1)
+        payload = json.dumps(
+            {
+                "record": public,
+                "affected_dates": affected,
+                "latest_id": manager.latest().id if manager.latest() is not None else None,
+            },
+            ensure_ascii=False,
+        )
+        signal = getattr(self, "life_record_items_updated", None)
+        if signal is not None and hasattr(signal, "emit"):
+            try:
+                signal.emit(payload)
+            except Exception:
+                pass
+
+    def _finish_life_record_without_reply(self, operation_id: int) -> None:
+        state = self._get_life_record_state()
+        if state.finish_operation(operation_id):
+            try:
+                self._emit_life_record_pending(False)
+            except Exception:
+                pass
+            drain = getattr(self, "_drain_queues_after_worker_finished", None)
+            if callable(drain):
+                drain()

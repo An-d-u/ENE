@@ -3,6 +3,7 @@ import json
 from PyQt6.QtCore import QCoreApplication
 
 from src.core.bridge import WebBridge
+from src.core.bridge_workers import AIWorker
 
 
 def _ensure_qt_app():
@@ -67,6 +68,32 @@ def test_bridge_response_ready_preserves_partial_null_token_usage():
             "total_tokens": None,
         }
     ]
+
+
+def test_answer_worker_accumulates_prior_life_record_usage():
+    class DummyLLMClient:
+        def get_last_token_usage(self):
+            return {
+                "input_tokens": 11,
+                "output_tokens": 7,
+                "total_tokens": 18,
+            }
+
+    worker = AIWorker(
+        DummyLLMClient(),
+        "합성 요청",
+        prior_token_usage={
+            "input_tokens": 8,
+            "output_tokens": 5,
+            "total_tokens": 13,
+        },
+    )
+
+    assert json.loads(worker._build_token_usage_payload()) == {
+        "input_tokens": 19,
+        "output_tokens": 12,
+        "total_tokens": 31,
+    }
 
 
 def test_open_settings_dialog_slot_calls_registered_callback():
