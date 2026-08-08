@@ -149,13 +149,14 @@ class AnthropicClient(_CommonMixin):
                     "content": [{"type": "text", "text": request.prompt}],
                 }
             ],
-            "output_config": {
+        }
+        if descriptor.response_mode is ResponseMode.JSON_SCHEMA:
+            payload["output_config"] = {
                 "format": {
                     "type": "json_schema",
                     "schema": _anthropic_output_schema(schema),
                 }
-            },
-        }
+            }
         response = _post_with_safe_errors(
             descriptor.profile.provider,
             descriptor.profile.endpoint,

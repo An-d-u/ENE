@@ -2,14 +2,19 @@ from __future__ import annotations
 
 import asyncio
 from copy import deepcopy
-import json
+import json as json_module
 import threading
 
 import pytest
 import requests
 
 from src.ai import http_llm_common
+from src.ai.http_llm_anthropic import AnthropicClient
 from src.ai.http_llm_ollama import OllamaClient
+from src.ai.http_llm_openai import (
+    OpenAICompatibleClient,
+    OpenAIResponseAPIClient,
+)
 from src.ai.response_protocol import (
     LIFE_RECORD_SCHEMA_ID,
     LIFE_RECORD_SCHEMA_VERSION,
@@ -103,15 +108,154 @@ def _patch_system_instruction(monkeypatch):
     )
 
 
+def _openai_chat_client() -> OpenAICompatibleClient:
+    return OpenAICompatibleClient(
+        api_key="synthetic-key",
+        model_name="synthetic-model",
+        endpoint="https://api.openai.com/v1/chat/completions",
+        provider_name="openai",
+    )
+
+
+def _openai_responses_client() -> OpenAIResponseAPIClient:
+    return OpenAIResponseAPIClient(
+        api_key="synthetic-key",
+        model_name="synthetic-model",
+        endpoint="https://api.openai.com/v1/responses",
+        provider_name="openai",
+    )
+
+
+def _anthropic_client() -> AnthropicClient:
+    return AnthropicClient(
+        api_key="synthetic-key",
+        model_name="synthetic-model",
+        endpoint="https://api.anthropic.com/v1/messages",
+    )
+
+
+def _openai_chat_body() -> dict:
+    return {
+        "choices": [
+            {
+                "message": {"content": RAW_LIFE_RECORD},
+                "finish_reason": "stop",
+            }
+        ]
+    }
+
+
+def _openai_responses_body() -> dict:
+    return {
+        "status": "completed",
+        "output": [
+            {
+                "type": "message",
+                "status": "completed",
+                "content": [
+                    {"type": "output_text", "text": RAW_LIFE_RECORD}
+                ],
+            }
+        ],
+    }
+
+
+def _anthropic_body() -> dict:
+    return {
+        "content": [{"type": "text", "text": RAW_LIFE_RECORD}],
+        "stop_reason": "end_turn",
+    }
+
+
+@pytest.mark.parametrize(
+    (
+        "factory",
+        "post_target",
+        "unsupported_parameter",
+        "success_body",
+        "native_carrier",
+        "content_snapshot",
+    ),
+    [
+        (
+            _openai_chat_client,
+            "src.ai.http_llm_openai.requests.post",
+            "response_format",
+            _openai_chat_body(),
+            "response_format",
+            lambda payload: (payload["messages"][0], payload["messages"][-1]),
+        ),
+        (
+            _openai_responses_client,
+            "src.ai.http_llm_openai.requests.post",
+            "text.format",
+            _openai_responses_body(),
+            "text",
+            lambda payload: (payload["instructions"], payload["input"]),
+        ),
+        (
+            _anthropic_client,
+            "src.ai.http_llm_anthropic.requests.post",
+            "output_config.format",
+            _anthropic_body(),
+            "output_config",
+            lambda payload: (payload["system"], payload["messages"]),
+        ),
+    ],
+    ids=("openai-chat", "openai-responses", "anthropic"),
+)
+def test_native_http_serializers_remove_schema_carrier_for_strict_fallback(
+    monkeypatch,
+    factory,
+    post_target,
+    unsupported_parameter,
+    success_body,
+    native_carrier,
+    content_snapshot,
+):
+    _patch_system_instruction(monkeypatch)
+    captured = []
+    responses = [
+        DummyHTTPResponse(
+            status_code=400,
+            text=f"Unknown parameter: {unsupported_parameter}",
+        ),
+        DummyHTTPResponse(success_body),
+    ]
+
+    def fake_post(url, *, headers=None, json=None, timeout=None):
+        captured.append(deepcopy(json))
+        return responses.pop(0)
+
+    monkeypatch.setattr(post_target, fake_post)
+
+    result = asyncio.run(factory().generate_life_record_once(PROMPT))
+
+    assert result.text == RAW_LIFE_RECORD
+    assert len(captured) == 2
+    assert native_carrier in captured[0]
+    assert native_carrier not in captured[1]
+    assert content_snapshot(captured[0]) == content_snapshot(captured[1])
+
+
 def test_life_record_descriptor_resolves_verified_and_unknown_profiles_by_life_key(
     monkeypatch,
 ):
     _patch_system_instruction(monkeypatch)
     native = _client()
     strict = _client(endpoint="https://ollama.example.invalid/api/chat")
+    non_schema_native = OpenAICompatibleClient(
+        api_key="synthetic-key",
+        model_name="synthetic-model",
+        endpoint="https://api.deepseek.com/v1/chat/completions",
+        provider_name="deepseek",
+    )
 
     native_descriptor = native._build_life_record_request_descriptor(PROMPT)
     strict_descriptor = strict._build_life_record_request_descriptor(PROMPT)
+    non_schema_descriptor = (
+        non_schema_native._build_life_record_request_descriptor(PROMPT)
+    )
     final_key = http_llm_common.build_capability_key(native_descriptor.profile)
     http_llm_common._HTTP_RESPONSE_CAPABILITY_REGISTRY.mark_legacy(final_key)
     native_after_final_downgrade = native._build_life_record_request_descriptor(
@@ -121,6 +265,7 @@ def test_life_record_descriptor_resolves_verified_and_unknown_profiles_by_life_k
     assert native_descriptor.response_mode is ResponseMode.JSON_SCHEMA
     assert native_after_final_downgrade.response_mode is ResponseMode.JSON_SCHEMA
     assert strict_descriptor.response_mode is ResponseMode.LEGACY_TAGS
+    assert non_schema_descriptor.response_mode is ResponseMode.LEGACY_TAGS
     assert native_descriptor.capability_key.request_kind is LLMRequestKind.LIFE_RECORD
     assert native_descriptor.capability_key.schema_id == LIFE_RECORD_SCHEMA_ID
     assert native_descriptor.capability_key.schema_version == LIFE_RECORD_SCHEMA_VERSION
@@ -171,7 +316,7 @@ def test_ollama_verified_life_record_uses_fresh_schema_and_preserves_response(
         },
         "format": get_life_record_output_schema(),
     }
-    serialized = json.dumps(request["json"], ensure_ascii=False)
+    serialized = json_module.dumps(request["json"], ensure_ascii=False)
     assert all(sentinel not in serialized for sentinel in EXCLUDED_SENTINELS)
     assert client._history == original_history
     assert result.text == RAW_LIFE_RECORD
@@ -295,6 +440,170 @@ def test_ollama_non_capability_failures_never_retry_or_cache(
     assert client._build_life_record_request_descriptor(PROMPT).response_mode is (
         ResponseMode.JSON_SCHEMA
     )
+
+
+def test_concurrent_first_life_calls_share_native_capability_probe(monkeypatch):
+    _patch_system_instruction(monkeypatch)
+    client = _client()
+    native_started = threading.Event()
+    native_release = threading.Event()
+    captured = []
+    state_lock = threading.Lock()
+    native_calls = 0
+
+    def fake_post(url, *, headers=None, json=None, timeout=None):
+        nonlocal native_calls
+        payload = deepcopy(json)
+        with state_lock:
+            captured.append(payload)
+        if "format" in payload:
+            with state_lock:
+                native_calls += 1
+                current_native_call = native_calls
+            if current_native_call == 1:
+                native_started.set()
+                assert native_release.wait(2)
+            return DummyHTTPResponse(
+                status_code=400,
+                text="The model does not support format",
+            )
+        prompt = payload["messages"][-1]["content"]
+        return DummyHTTPResponse(
+            _ollama_body(json_module.dumps({"prompt": prompt}))
+        )
+
+    monkeypatch.setattr("src.ai.http_llm_ollama.requests.post", fake_post)
+
+    async def run_concurrently():
+        first = asyncio.create_task(client.generate_life_record_once("SYNTHETIC-A"))
+        assert await asyncio.to_thread(native_started.wait, 2)
+        second = asyncio.create_task(client.generate_life_record_once("SYNTHETIC-B"))
+        await asyncio.sleep(0.05)
+        native_release.set()
+        return await asyncio.gather(first, second)
+
+    first_result, second_result = asyncio.run(run_concurrently())
+
+    assert len(captured) == 3
+    assert sum("format" in payload for payload in captured) == 1
+    assert json_module.loads(first_result.text) == {"prompt": "SYNTHETIC-A"}
+    assert json_module.loads(second_result.text) == {"prompt": "SYNTHETIC-B"}
+    assert client._build_life_record_request_descriptor(PROMPT).response_mode is (
+        ResponseMode.LEGACY_TAGS
+    )
+
+
+def test_cancelled_probe_owner_releases_waiter_without_cache_mutation(
+    monkeypatch,
+    capsys,
+):
+    _patch_system_instruction(monkeypatch)
+    client = _client()
+    native_started = threading.Event()
+    native_release = threading.Event()
+    captured = []
+
+    def fake_post(url, *, headers=None, json=None, timeout=None):
+        payload = deepcopy(json)
+        captured.append(payload)
+        native_index = sum("format" in item for item in captured)
+        if native_index == 1:
+            native_started.set()
+            assert native_release.wait(2)
+            return DummyHTTPResponse(
+                status_code=400,
+                text="SYNTHETIC-RAW-CANCEL-SENTINEL: format is not supported",
+            )
+        prompt = payload["messages"][-1]["content"]
+        return DummyHTTPResponse(
+            _ollama_body(json_module.dumps({"prompt": prompt}))
+        )
+
+    monkeypatch.setattr("src.ai.http_llm_ollama.requests.post", fake_post)
+
+    async def cancel_owner_and_wait():
+        owner = asyncio.create_task(client.generate_life_record_once("SYNTHETIC-OWNER"))
+        assert await asyncio.to_thread(native_started.wait, 2)
+        waiter = asyncio.create_task(client.generate_life_record_once("SYNTHETIC-WAITER"))
+        await asyncio.sleep(0.05)
+        assert len(captured) == 1
+        owner.cancel("synthetic-owner-cancel")
+        await asyncio.sleep(0)
+        native_release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await owner
+        return await waiter
+
+    waiter_result = asyncio.run(cancel_owner_and_wait())
+
+    assert len(captured) == 2
+    assert all("format" in payload for payload in captured)
+    assert json_module.loads(waiter_result.text) == {"prompt": "SYNTHETIC-WAITER"}
+    assert client._build_life_record_request_descriptor(PROMPT).response_mode is (
+        ResponseMode.JSON_SCHEMA
+    )
+    output = capsys.readouterr()
+    assert "SYNTHETIC-RAW-CANCEL-SENTINEL" not in output.out
+    assert "SYNTHETIC-RAW-CANCEL-SENTINEL" not in output.err
+
+
+def test_probe_owner_exception_releases_waiter_with_safe_error_and_native_cache(
+    monkeypatch,
+    capsys,
+):
+    _patch_system_instruction(monkeypatch)
+    client = _client()
+    native_started = threading.Event()
+    native_release = threading.Event()
+    captured = []
+
+    class InvalidJSONResponse(DummyHTTPResponse):
+        def json(self):
+            raise ValueError("SYNTHETIC-RAW-JSON-SENTINEL")
+
+    def fake_post(url, *, headers=None, json=None, timeout=None):
+        payload = deepcopy(json)
+        captured.append(payload)
+        if len(captured) == 1:
+            native_started.set()
+            assert native_release.wait(2)
+            return InvalidJSONResponse(text="SYNTHETIC-RAW-BODY-SENTINEL")
+        prompt = payload["messages"][-1]["content"]
+        return DummyHTTPResponse(
+            _ollama_body(json_module.dumps({"prompt": prompt}))
+        )
+
+    monkeypatch.setattr("src.ai.http_llm_ollama.requests.post", fake_post)
+
+    async def fail_owner_and_wait():
+        owner = asyncio.create_task(client.generate_life_record_once("SYNTHETIC-OWNER"))
+        assert await asyncio.to_thread(native_started.wait, 2)
+        waiter = asyncio.create_task(client.generate_life_record_once("SYNTHETIC-WAITER"))
+        await asyncio.sleep(0.05)
+        assert len(captured) == 1
+        native_release.set()
+        owner_result, waiter_result = await asyncio.gather(
+            owner,
+            waiter,
+            return_exceptions=True,
+        )
+        return owner_result, waiter_result
+
+    owner_error, waiter_result = asyncio.run(fail_owner_and_wait())
+
+    assert isinstance(owner_error, RuntimeError)
+    assert str(owner_error) == "life_record_generation_failed"
+    assert owner_error.__cause__ is None
+    assert owner_error.__context__ is None
+    assert len(captured) == 2
+    assert all("format" in payload for payload in captured)
+    assert json_module.loads(waiter_result.text) == {"prompt": "SYNTHETIC-WAITER"}
+    assert client._build_life_record_request_descriptor(PROMPT).response_mode is (
+        ResponseMode.JSON_SCHEMA
+    )
+    output = capsys.readouterr()
+    assert "SYNTHETIC-RAW-JSON-SENTINEL" not in output.out + output.err
+    assert "SYNTHETIC-RAW-BODY-SENTINEL" not in output.out + output.err
 
 
 def test_life_record_cancellation_during_native_drain_does_not_fallback_or_cache(
