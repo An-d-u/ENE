@@ -21,9 +21,9 @@ Windows의 사용자가 확인할 수 있는 데이터 루트는 `%AppData%/ENE`
 | --- | --- |
 | `%AppData%/ENE/life_records.json` | 검증을 통과해 저장된 생활 기록 |
 | `%AppData%/ENE/life_session_state.json` | 정상 종료 시각 또는 비정상 종료 복구 기준이 되는 세션 상태 |
-| `%AppData%/ENE/prompts/life_world.md` | 자유형 생활 환경의 visible 동기화 대상. Store Python에서는 백업 전 현재값 확인 필요 |
+| `%AppData%/ENE/prompts/life_world.md` | 설정 화면에서 저장한 자유형 생활 환경의 visible 사본 |
 
-앱을 완전히 종료한 뒤 세 visible 파일을 함께 복사하는 방식을 기본으로 권장한다. Store Python에서는 아래 동기화 주의사항에 따라 현재 생활 환경을 추가로 확인한다. 복원할 때도 같은 데이터 루트와 상대 경로를 유지한다. `life_session_state.lock`과 `life_records.json.write.lock`은 실행 중 동시 접근을 막는 잠금 파일이며 백업 원본으로 사용하지 않는다.
+설정 화면에서 생활 환경 저장이 성공한 것을 확인한 뒤 앱을 완전히 종료하고 세 visible 파일을 함께 복사하는 방식을 권장한다. 복원할 때도 같은 데이터 루트와 상대 경로를 유지한다. `life_session_state.lock`과 `life_records.json.write.lock`은 실행 중 동시 접근을 막는 잠금 파일이며 백업 원본으로 사용하지 않는다.
 
 ## JSON 권위 저장소와 Microsoft Store Python 캐시
 
@@ -36,7 +36,9 @@ Microsoft Store Python에서는 탐색기에서 보이는 `%AppData%/ENE`의 두
 - 권위 파일 저장에 성공한 뒤 캐시 갱신만 실패해도 저장 성공은 유지한다.
 - 권위 파일이 없거나 손상됐을 때 오래된 캐시로 폴백하지 않는다.
 
-`prompts/life_world.md`는 이 JSON 권위 저장소 계층을 사용하지 않는다. 저장할 때 먼저 앱 런타임 프롬프트 경로에 UTF-8로 기록한 뒤 Store의 visible Roaming 프롬프트 경로로 best-effort 동기화를 시도한다. visible 동기화가 실패해도 런타임 사본은 남을 수 있으므로, Microsoft Store Python에서 백업하기 전에는 설정 화면의 현재 생활 환경과 탐색기에서 보이는 `%AppData%/ENE/prompts/life_world.md`가 일치하는지 확인한다. 일치하지 않으면 앱을 종료한 뒤 현재 내용을 별도 Markdown 파일로 함께 보관한다.
+`prompts/life_world.md`는 이 JSON 권위 저장소 계층을 사용하지 않는다. 설정 화면에서 저장하면 앱은 `base_system_prompt.md`, `sub_prompt_body.md`, `emotion_guides.md`, `life_world.md` 네 런타임 파일을 staging한 뒤 하나의 복구 가능한 저장 단위로 교체한다. Microsoft Store Python에서는 네 visible Roaming 파일의 기존 스냅샷을 확보하고 같은 내용으로 동기화한다. 저장 과정이 실패하면 런타임과 visible 양쪽을 기존 스냅샷으로 rollback하고 설정 화면에 저장 실패를 표시한다. 저장 성공이 표시되면 런타임과 visible의 네 프롬프트 파일이 일치하는 것이 정상이다.
+
+저장 실패가 표시되거나 편집기 내용과 `%AppData%/ENE/prompts/life_world.md`가 일치하지 않으면 앱을 종료하기 **전에** 생활 환경 편집기 내용을 외부 Markdown 파일에 복사한다. 문제를 해결하고 설정 화면에서 다시 저장한 뒤 성공 표시와 visible 파일의 일치를 확인하고 백업한다.
 
 따라서 Microsoft Store Python 환경의 두 JSON 파일 백업과 수동 점검은 반드시 탐색기에서 보이는 `%AppData%/ENE` 파일을 기준으로 한다.
 
