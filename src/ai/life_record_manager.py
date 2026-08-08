@@ -179,14 +179,16 @@ class LifeRecordManager:
         return self._records[0] if self._records else None
 
     def add(self, record: LifeRecord) -> bool:
-        self._require_healthy_store()
-        if any(existing.id == record.id for existing in self._records):
-            return False
-        validated = parse_life_record_store(
-            json.dumps(life_record_store_to_dict([record]), ensure_ascii=False)
-        )[0]
-        self._commit((*self._records, validated))
-        return True
+        with _exclusive_store_write(self.store_path):
+            authoritative = LifeRecordManager(self.store_path)
+            authoritative._require_healthy_store()
+            if any(existing.id == record.id for existing in authoritative.records):
+                return False
+            validated = parse_life_record_store(
+                json.dumps(life_record_store_to_dict([record]), ensure_ascii=False)
+            )[0]
+            self._commit((*authoritative.records, validated))
+            return True
 
     def records_overlapping_date(
         self,

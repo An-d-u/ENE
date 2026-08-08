@@ -495,6 +495,205 @@ def test_replace_latest_compare_and_swap_serializes_interleaving_writers(
     assert authoritative.entries[0].activity == "직렬화된 첫 합성 교체"
 
 
+def test_add_waits_for_inflight_cas_and_preserves_committed_replacement(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "life_records.json"
+    seed = LifeRecordManager(path)
+    latest = _record(
+        datetime(2099, 6, 1, 9, tzinfo=SEOUL),
+        datetime(2099, 6, 1, 10, tzinfo=SEOUL),
+    )
+    added = _record(
+        datetime(2099, 6, 1, 10, tzinfo=SEOUL),
+        datetime(2099, 6, 1, 11, tzinfo=SEOUL),
+    )
+    assert seed.add(latest)
+    cas_manager = LifeRecordManager(path)
+    add_manager = LifeRecordManager(path)
+    cas_entered_commit = Event()
+    allow_cas_commit = Event()
+    add_started = Event()
+    outcomes = []
+    original_commit = cas_manager._commit
+
+    def delayed_cas_commit(records):
+        cas_entered_commit.set()
+        assert allow_cas_commit.wait(timeout=5)
+        return original_commit(records)
+
+    monkeypatch.setattr(cas_manager, "_commit", delayed_cas_commit)
+
+    def run_cas():
+        try:
+            outcomes.append(
+                (
+                    "cas",
+                    cas_manager.replace_latest_if_unchanged(
+                        latest,
+                        _generated(latest, activity="CAS 합성 교체"),
+                        datetime(2099, 6, 1, 10, 1, tzinfo=SEOUL),
+                    ),
+                )
+            )
+        except Exception as failure:
+            outcomes.append(("cas_error", type(failure).__name__))
+
+    def run_add():
+        add_started.set()
+        try:
+            outcomes.append(("add", add_manager.add(added)))
+        except Exception as failure:
+            outcomes.append(("add_error", type(failure).__name__))
+
+    cas_thread = Thread(target=run_cas)
+    add_thread = Thread(target=run_add)
+    cas_thread.start()
+    assert cas_entered_commit.wait(timeout=5)
+    add_thread.start()
+    assert add_started.wait(timeout=5)
+    allow_cas_commit.set()
+    cas_thread.join(timeout=5)
+    add_thread.join(timeout=5)
+
+    assert cas_thread.is_alive() is False
+    assert add_thread.is_alive() is False
+    assert sorted(kind for kind, _value in outcomes) == ["add", "cas"]
+    assert ("add", True) in outcomes
+    authoritative = LifeRecordManager(path)
+    assert {record.id for record in authoritative.records} == {latest.id, added.id}
+    replaced = next(record for record in authoritative.records if record.id == latest.id)
+    assert replaced.entries[0].activity == "CAS 합성 교체"
+
+
+def test_cas_waits_for_inflight_add_and_rejects_stale_expected_latest(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "life_records.json"
+    seed = LifeRecordManager(path)
+    latest = _record(
+        datetime(2099, 6, 1, 9, tzinfo=SEOUL),
+        datetime(2099, 6, 1, 10, tzinfo=SEOUL),
+    )
+    added = _record(
+        datetime(2099, 6, 1, 10, tzinfo=SEOUL),
+        datetime(2099, 6, 1, 11, tzinfo=SEOUL),
+    )
+    assert seed.add(latest)
+    add_manager = LifeRecordManager(path)
+    cas_manager = LifeRecordManager(path)
+    add_entered_commit = Event()
+    allow_add_commit = Event()
+    cas_started = Event()
+    outcomes = []
+    original_commit = add_manager._commit
+
+    def delayed_add_commit(records):
+        add_entered_commit.set()
+        assert allow_add_commit.wait(timeout=5)
+        return original_commit(records)
+
+    monkeypatch.setattr(add_manager, "_commit", delayed_add_commit)
+
+    def run_add():
+        try:
+            outcomes.append(("add", add_manager.add(added)))
+        except Exception as failure:
+            outcomes.append(("add_error", type(failure).__name__))
+
+    def run_cas():
+        cas_started.set()
+        try:
+            outcomes.append(
+                (
+                    "cas",
+                    cas_manager.replace_latest_if_unchanged(
+                        latest,
+                        _generated(latest, activity="거부될 CAS 합성 교체"),
+                        datetime(2099, 6, 1, 10, 1, tzinfo=SEOUL),
+                    ),
+                )
+            )
+        except LifeRecordStoreError as failure:
+            outcomes.append(("cas_error", failure.code))
+
+    add_thread = Thread(target=run_add)
+    cas_thread = Thread(target=run_cas)
+    add_thread.start()
+    assert add_entered_commit.wait(timeout=5)
+    cas_thread.start()
+    assert cas_started.wait(timeout=5)
+    allow_add_commit.set()
+    add_thread.join(timeout=5)
+    cas_thread.join(timeout=5)
+
+    assert add_thread.is_alive() is False
+    assert cas_thread.is_alive() is False
+    assert ("add", True) in outcomes
+    assert ("cas_error", "stale_record") in outcomes
+    authoritative = LifeRecordManager(path)
+    assert {record.id for record in authoritative.records} == {latest.id, added.id}
+    original = next(record for record in authoritative.records if record.id == latest.id)
+    assert original.entries[0].activity == "합성 자료 정리"
+
+
+def test_concurrent_duplicate_add_accepts_once_and_preserves_existing_data(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "life_records.json"
+    seed = LifeRecordManager(path)
+    existing = _record(
+        datetime(2099, 6, 1, 8, tzinfo=SEOUL),
+        datetime(2099, 6, 1, 9, tzinfo=SEOUL),
+    )
+    duplicate = _record(
+        datetime(2099, 6, 1, 9, tzinfo=SEOUL),
+        datetime(2099, 6, 1, 10, tzinfo=SEOUL),
+    )
+    assert seed.add(existing)
+    first = LifeRecordManager(path)
+    second = LifeRecordManager(path)
+    first_entered_commit = Event()
+    allow_first_commit = Event()
+    second_started = Event()
+    outcomes = []
+    original_commit = first._commit
+
+    def delayed_commit(records):
+        first_entered_commit.set()
+        assert allow_first_commit.wait(timeout=5)
+        return original_commit(records)
+
+    monkeypatch.setattr(first, "_commit", delayed_commit)
+
+    def run_first():
+        outcomes.append(("first", first.add(duplicate)))
+
+    def run_second():
+        second_started.set()
+        outcomes.append(("second", second.add(duplicate)))
+
+    first_thread = Thread(target=run_first)
+    second_thread = Thread(target=run_second)
+    first_thread.start()
+    assert first_entered_commit.wait(timeout=5)
+    second_thread.start()
+    assert second_started.wait(timeout=5)
+    allow_first_commit.set()
+    first_thread.join(timeout=5)
+    second_thread.join(timeout=5)
+
+    assert first_thread.is_alive() is False
+    assert second_thread.is_alive() is False
+    assert sorted(value for _kind, value in outcomes) == [False, True]
+    authoritative = LifeRecordManager(path)
+    assert {record.id for record in authoritative.records} == {
+        existing.id,
+        duplicate.id,
+    }
+    assert len(authoritative.records) == 2
+
+
 def test_public_dict_is_detached_and_uses_requested_view_timezone(tmp_path):
     record = _record(
         datetime(2099, 6, 1, 23, tzinfo=SEOUL),
