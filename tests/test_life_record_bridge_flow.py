@@ -10,7 +10,10 @@ import pytest
 from src.ai.life_record_manager import LifeRecordManager
 from src.ai.life_record_types import parse_and_validate_life_record_output
 from src.ai.response_protocol import OneShotTokenUsage, ResponseStatus
-from src.core.bridge_mixins.life_records import LifeRecordBridgeMixin, PreparedChatRequest
+from src.core.bridge_mixins.life_records import (
+    LifeRecordBridgeMixin,
+    PreparedChatRequest,
+)
 from src.core.bridge import WebBridge
 from src.core.bridge_state import LifeRecordBridgeState
 from src.core.bridge_workers import LifeRecordWorkerResult
@@ -93,12 +96,33 @@ class _Bridge(LifeRecordBridgeMixin):
         self.commits = []
         self.events = events
 
-    def _commit_prepared_chat_request(self, request):
+    def _commit_prepared_chat_request(self, request, *, emit_pending_state=True):
         self.events.append(("commit", request.message, self.life_record_state.phase))
         self.commits.append(request)
+        if emit_pending_state:
+            self._emit_life_record_stage("thinking")
+            self._emit_life_record_pending(True)
         self.life_record_state.transition_operation(
             self.life_record_state.operation_id, "normal_reply"
         )
+
+    def _defer_life_record_worker_finalization(self, callback):
+        callback()
+
+
+class _DeferredBridge(_Bridge):
+    def __init__(self, manager, events):
+        super().__init__(manager, events)
+        self.deferred_finalizers = []
+
+    def _defer_life_record_worker_finalization(self, callback):
+        self.deferred_finalizers.append(callback)
+
+    def flush_life_finalizers(self):
+        callbacks = tuple(self.deferred_finalizers)
+        self.deferred_finalizers.clear()
+        for callback in callbacks:
+            callback()
 
 
 def _prepared(message="합성 복귀 인사"):
@@ -145,7 +169,9 @@ def _begin(bridge):
     return operation_id
 
 
-def test_auto_start_uses_exact_snapshots_and_never_includes_pending_message(monkeypatch, tmp_path):
+def test_auto_start_uses_exact_snapshots_and_never_includes_pending_message(
+    monkeypatch, tmp_path
+):
     events = []
     bridge = _Bridge(LifeRecordManager(tmp_path / "life_records.json"), events)
     operation_id = _begin(bridge)
@@ -198,7 +224,12 @@ def test_success_saves_before_update_then_resumes_once_and_accumulates_usage(
     worker.finished.emit()
 
     names = [event[0] for event in events]
-    assert names.index("save") < names.index("items") < names.index("stage") < names.index("commit")
+    assert (
+        names.index("save")
+        < names.index("items")
+        < names.index("stage")
+        < names.index("commit")
+    )
     payload = json.loads(next(event[1] for event in events if event[0] == "items"))
     assert payload["record"]["id"] == manager.latest().id
     assert payload["latest_id"] == manager.latest().id
@@ -215,6 +246,107 @@ def test_success_saves_before_update_then_resumes_once_and_accumulates_usage(
     worker.result_ready.emit(operation_id, result)
     assert len(bridge.commits) == 1
     assert [event[0] for event in events].count("save") == 1
+
+
+@pytest.mark.parametrize("terminal_kind", ["result", "error"])
+def test_finished_first_defers_until_queued_terminal_signal(
+    monkeypatch, tmp_path, terminal_kind
+):
+    events = []
+    manager = LifeRecordManager(tmp_path / "life_records.json")
+    bridge = _DeferredBridge(manager, events)
+    operation_id = _begin(bridge)
+    _Worker.instances.clear()
+    monkeypatch.setattr("src.core.bridge_mixins.life_records.LifeRecordWorker", _Worker)
+    bridge._start_auto_life_record_generation(operation_id)
+    worker = _Worker.instances[-1]
+    result = LifeRecordWorkerResult(
+        operation_id=operation_id,
+        output=_output() if terminal_kind == "result" else None,
+        status=ResponseStatus.COMPLETE if terminal_kind == "result" else None,
+        token_usage=OneShotTokenUsage(2, 3, 5),
+        attempt_count=1,
+        error_code=None if terminal_kind == "result" else "generation_failed",
+    )
+
+    worker.finished.emit()
+
+    assert bridge.life_record_state.worker is worker
+    assert bridge.commits == []
+    assert len(bridge.deferred_finalizers) == 1
+
+    signal = worker.result_ready if terminal_kind == "result" else worker.error_occurred
+    signal.emit(operation_id, result)
+    bridge.flush_life_finalizers()
+
+    assert bridge.life_record_state.worker is None
+    assert bridge.commits == [_prepared()]
+    if terminal_kind == "result":
+        assert manager.latest() is not None
+        assert not any(event[:2] == ("notice", "generation_failed") for event in events)
+    else:
+        assert manager.latest() is None
+        assert ("notice", "generation_failed") in events
+
+
+def test_first_valid_result_cannot_be_overwritten_by_later_malformed_or_error_signal(
+    monkeypatch, tmp_path
+):
+    events = []
+    manager = LifeRecordManager(tmp_path / "life_records.json")
+    bridge = _DeferredBridge(manager, events)
+    operation_id = _begin(bridge)
+    _Worker.instances.clear()
+    monkeypatch.setattr("src.core.bridge_mixins.life_records.LifeRecordWorker", _Worker)
+    bridge._start_auto_life_record_generation(operation_id)
+    worker = _Worker.instances[-1]
+    valid = LifeRecordWorkerResult(
+        operation_id=operation_id,
+        output=_output(),
+        status=ResponseStatus.COMPLETE,
+        token_usage=OneShotTokenUsage(2, 3, 5),
+        attempt_count=1,
+    )
+
+    worker.finished.emit()
+    worker.result_ready.emit(operation_id, valid)
+    worker.result_ready.emit(operation_id, object())
+    worker.error_occurred.emit(operation_id, "generation_failed")
+    bridge.flush_life_finalizers()
+
+    assert manager.latest() is not None
+    assert not any(event[:2] == ("notice", "generation_failed") for event in events)
+    assert bridge.commits == [_prepared()]
+
+
+def test_life_record_resume_emits_exact_stage_and_pending_sequence(
+    monkeypatch, tmp_path
+):
+    events = []
+    bridge = _Bridge(LifeRecordManager(tmp_path / "life_records.json"), events)
+    operation_id = _begin(bridge)
+    _Worker.instances.clear()
+    monkeypatch.setattr("src.core.bridge_mixins.life_records.LifeRecordWorker", _Worker)
+    bridge._emit_life_record_stage("life_record")
+    bridge._emit_life_record_pending(True)
+    bridge._start_auto_life_record_generation(operation_id)
+    worker = _Worker.instances[-1]
+    result = LifeRecordWorkerResult(
+        operation_id=operation_id,
+        output=_output(),
+        status=ResponseStatus.COMPLETE,
+        token_usage=OneShotTokenUsage(2, 3, 5),
+        attempt_count=1,
+    )
+
+    worker.result_ready.emit(operation_id, result)
+    worker.finished.emit()
+
+    assert [event for event in events if event[0] in {"stage", "pending"}] == [
+        ("stage", "life_record"),
+        ("pending", True),
+        ("stage", "thinking"),
+    ]
 
 
 def test_saved_update_uses_current_view_timezone_dates(monkeypatch, tmp_path):
@@ -266,14 +398,21 @@ def test_failure_emits_safe_notice_and_resumes_without_replacing_latest(
         error_code=None if failure_kind == "save" else "private-provider-detail",
     )
     if failure_kind == "save":
-        monkeypatch.setattr(manager, "add", lambda _record: (_ for _ in ()).throw(RuntimeError("비밀 원문")))
+        monkeypatch.setattr(
+            manager,
+            "add",
+            lambda _record: (_ for _ in ()).throw(RuntimeError("비밀 원문")),
+        )
         worker.result_ready.emit(operation_id, result)
     else:
         worker.error_occurred.emit(operation_id, result)
     worker.finished.emit()
 
     assert manager.latest() is None
-    assert ("notice", "save_failed" if failure_kind == "save" else "generation_failed") in events
+    assert (
+        "notice",
+        "save_failed" if failure_kind == "save" else "generation_failed",
+    ) in events
     assert bridge.commits == [_prepared()]
     assert "비밀 원문" not in repr(events)
 
@@ -348,15 +487,21 @@ def test_non_tts_finalizer_releases_pending_and_drains_once_after_message(monkey
     bridge, worker, operation_id = _normal_reply_bridge()
     events = []
     bridge.message_received.connect(lambda *_args: events.append("message"))
-    bridge.request_pending_changed.connect(lambda active: events.append(f"pending:{active}"))
-    monkeypatch.setattr(bridge, "_drain_queues_after_worker_finished", lambda: events.append("drain"))
+    bridge.request_pending_changed.connect(
+        lambda active: events.append(f"pending:{active}")
+    )
+    monkeypatch.setattr(
+        bridge, "_drain_queues_after_worker_finished", lambda: events.append("drain")
+    )
 
     bridge._on_response_ready("합성 답변", "normal", "", [], response_worker=worker)
 
     assert bridge.life_record_state.phase == "idle"
     assert bridge.life_record_state.operation_id == operation_id
     assert events.count("drain") == 1
-    assert events.index("message") < events.index("pending:False") < events.index("drain")
+    assert (
+        events.index("message") < events.index("pending:False") < events.index("drain")
+    )
 
 
 def test_tts_finalizer_keeps_lock_until_text_is_recovered(monkeypatch):
@@ -366,9 +511,13 @@ def test_tts_finalizer_keeps_lock_until_text_is_recovered(monkeypatch):
     bridge.tts_client = object()
     bridge.audio_player = object()
     bridge.message_received.connect(lambda *_args: events.append("message"))
-    bridge.request_pending_changed.connect(lambda active: events.append(f"pending:{active}"))
+    bridge.request_pending_changed.connect(
+        lambda active: events.append(f"pending:{active}")
+    )
     monkeypatch.setattr(bridge, "_play_tts", lambda _text: events.append("tts-start"))
-    monkeypatch.setattr(bridge, "_drain_queues_after_worker_finished", lambda: events.append("drain"))
+    monkeypatch.setattr(
+        bridge, "_drain_queues_after_worker_finished", lambda: events.append("drain")
+    )
 
     bridge._on_response_ready(
         "합성 음성 답변", "normal", "읽을 합성 문장", [], response_worker=worker
@@ -381,7 +530,9 @@ def test_tts_finalizer_keeps_lock_until_text_is_recovered(monkeypatch):
     assert bridge.life_record_state.phase == "idle"
     assert bridge.life_record_state.operation_id == operation_id
     assert events.count("drain") == 1
-    assert events.index("message") < events.index("pending:False") < events.index("drain")
+    assert (
+        events.index("message") < events.index("pending:False") < events.index("drain")
+    )
 
 
 def test_stale_tts_error_cannot_finalize_newer_normal_operation(monkeypatch):

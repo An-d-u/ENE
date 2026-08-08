@@ -8,6 +8,8 @@ import json
 from types import MappingProxyType
 from typing import Any, Literal, Mapping
 
+from PyQt6.QtCore import QTimer
+
 from ...ai.life_record_prompt import (
     LifeMoodSnapshot,
     LifeRecordGenerationContext,
@@ -45,7 +47,9 @@ _NEUTRAL_MOOD = {
 
 def _freeze(value: Any) -> Any:
     if isinstance(value, Mapping):
-        return MappingProxyType({str(key): _freeze(item) for key, item in value.items()})
+        return MappingProxyType(
+            {str(key): _freeze(item) for key, item in value.items()}
+        )
     if isinstance(value, (list, tuple)):
         return tuple(_freeze(item) for item in value)
     if isinstance(value, set):
@@ -88,7 +92,9 @@ class PreparedChatRequest:
             raise ValueError("invalid_message")
         object.__setattr__(self, "attachments", _freeze(tuple(self.attachments)))
         if self.prior_token_usage is not None:
-            object.__setattr__(self, "prior_token_usage", _freeze(self.prior_token_usage))
+            object.__setattr__(
+                self, "prior_token_usage", _freeze(self.prior_token_usage)
+            )
         count = self.head_pat_count_before_message
         if type(count) is not int or count < 0:
             raise ValueError("invalid_head_pat_count")
@@ -130,7 +136,9 @@ class LifeRecordBridgeMixin:
         return datetime.now().astimezone().replace(microsecond=0)
 
     def _resolve_life_prompt_language(self) -> str:
-        language = resolve_prompt_language(settings_source=getattr(self, "settings", None))
+        language = resolve_prompt_language(
+            settings_source=getattr(self, "settings", None)
+        )
         return language if language in _LANGUAGES else "ko"
 
     def _snapshot_life_mood(self) -> LifeMoodSnapshot:
@@ -272,7 +280,9 @@ class LifeRecordBridgeMixin:
             return commit_normal_reply()
         context = state.time_context
         try:
-            elapsed = context.elapsed_between(candidate.started_at, prepared_request.received_at)
+            elapsed = context.elapsed_between(
+                candidate.started_at, prepared_request.received_at
+            )
         except Exception:
             return commit_normal_reply()
         if elapsed <= timedelta(0) or elapsed < timedelta(minutes=threshold):
@@ -345,8 +355,8 @@ class LifeRecordBridgeMixin:
             worker.result_ready.connect(self._stash_life_record_result)
             worker.error_occurred.connect(self._stash_life_record_error)
             worker.finished.connect(
-                lambda op=operation_id, owned_worker=worker: self._on_life_record_worker_finished(
-                    op, owned_worker
+                lambda op=operation_id, owned_worker=worker: (
+                    self._on_life_record_worker_finished(op, owned_worker)
                 )
             )
             worker.start()
@@ -356,7 +366,9 @@ class LifeRecordBridgeMixin:
     def _life_record_manager(self):
         manager = getattr(self, "life_record_manager", None)
         if manager is None:
-            manager = getattr(getattr(self, "llm_client", None), "life_record_manager", None)
+            manager = getattr(
+                getattr(self, "llm_client", None), "life_record_manager", None
+            )
         return manager
 
     def _life_profile_snapshot(self) -> dict[str, object]:
@@ -394,14 +406,15 @@ class LifeRecordBridgeMixin:
         state = self._get_life_record_state()
         if not state.matches_operation(operation_id, "auto_generating"):
             return
+        if state.worker_result is not None or state.worker_error is not None:
+            return
         if (
             not isinstance(result, LifeRecordWorkerResult)
             or result.operation_id != operation_id
         ):
             state.worker_error = "generation_failed"
             return
-        if state.worker_result is None and state.worker_error is None:
-            state.worker_result = result
+        state.worker_result = result
 
     def _stash_life_record_error(self, operation_id: int, result: object) -> None:
         state = self._get_life_record_state()
@@ -415,18 +428,45 @@ class LifeRecordBridgeMixin:
         if state.worker_result is None and state.worker_error is None:
             state.worker_error = result
 
-    def _on_life_record_worker_finished(self, operation_id: int, worker: object) -> None:
+    def _on_life_record_worker_finished(
+        self, operation_id: int, worker: object
+    ) -> None:
         state = self._get_life_record_state()
         if state.worker is not worker:
             return
         if not state.matches_operation(operation_id, "auto_generating"):
-            state.worker = None
+            if state.phase == "shutting_down":
+                state.worker = None
             return
+        self._defer_life_record_worker_finalization(
+            lambda: self._finalize_deferred_life_record_worker(operation_id, worker)
+        )
+
+    def _defer_life_record_worker_finalization(self, callback) -> None:
+        """같은 이벤트 큐에 대기 중인 결과 신호가 먼저 처리될 기회를 준다."""
+        QTimer.singleShot(0, callback)
+
+    def _finalize_deferred_life_record_worker(
+        self,
+        operation_id: int,
+        worker: object,
+    ) -> None:
+        state = self._get_life_record_state()
+        if state.worker is not worker:
+            return
+        if not state.matches_operation(operation_id, "auto_generating"):
+            if state.phase == "shutting_down":
+                state.worker = None
+            return
+        if state.worker_result is None and state.worker_error is None:
+            state.worker_error = "generation_failed"
         state.worker = None
         self._finalize_life_record_operation(operation_id)
 
     @staticmethod
-    def _life_usage_dict(result: LifeRecordWorkerResult | None) -> dict[str, int | None]:
+    def _life_usage_dict(
+        result: LifeRecordWorkerResult | None,
+    ) -> dict[str, int | None]:
         usage = result.token_usage if result is not None else None
         return {
             "input_tokens": getattr(usage, "input_tokens", None),
@@ -442,7 +482,11 @@ class LifeRecordBridgeMixin:
         error = state.worker_error
         state.worker_result = None
         state.worker_error = None
-        success = isinstance(result, LifeRecordWorkerResult) and result.output is not None and error is None
+        success = (
+            isinstance(result, LifeRecordWorkerResult)
+            and result.output is not None
+            and error is None
+        )
         notice = "generation_failed"
         if success:
             try:
@@ -473,7 +517,7 @@ class LifeRecordBridgeMixin:
         except Exception:
             pass
         try:
-            self._commit_prepared_chat_request(pending)
+            self._commit_prepared_chat_request(pending, emit_pending_state=False)
         except Exception:
             self._finish_life_record_without_reply(operation_id)
 
@@ -494,8 +538,10 @@ class LifeRecordBridgeMixin:
         prepared = state.pending_request
         candidate = state.candidate
         manager = self._life_record_manager()
-        if manager is None or not isinstance(prepared, PreparedChatRequest) or not isinstance(
-            candidate, InactiveStartCandidate
+        if (
+            manager is None
+            or not isinstance(prepared, PreparedChatRequest)
+            or not isinstance(candidate, InactiveStartCandidate)
         ):
             raise RuntimeError("save_unavailable")
         created_at = prepared.received_at
@@ -546,7 +592,9 @@ class LifeRecordBridgeMixin:
         view_resolution = resolve_local_time_context(state.view_timezone)
         zone = view_resolution.view_timezone
         local_start = record.inactive_started_at.astimezone(zone).date()
-        local_last = (record.returned_at.astimezone(zone) - timedelta(microseconds=1)).date()
+        local_last = (
+            record.returned_at.astimezone(zone) - timedelta(microseconds=1)
+        ).date()
         affected = []
         current = local_start
         while current <= local_last:
@@ -556,7 +604,9 @@ class LifeRecordBridgeMixin:
             {
                 "record": public,
                 "affected_dates": affected,
-                "latest_id": manager.latest().id if manager.latest() is not None else None,
+                "latest_id": manager.latest().id
+                if manager.latest() is not None
+                else None,
             },
             ensure_ascii=False,
         )
