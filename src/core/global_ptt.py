@@ -426,6 +426,44 @@ class _STTWorker(QThread):
             self.finished_text.emit(text)
         except Exception as e:
             self.failed.emit(str(e))
+        finally:
+            # 종료 중에도 워커가 끝날 때까지 필요한 입력만 보관하고 즉시 비운다.
+            self.pcm_bytes = b""
+
+
+_DRAINING_STT_WORKERS: set[_STTWorker] = set()
+_DRAINING_STT_WORKER_CALLBACKS: dict[_STTWorker, object] = {}
+
+
+def _retain_stt_worker_until_finished(worker: _STTWorker) -> None:
+    """실행 중인 워커가 완료 신호를 낼 때까지 수명을 보장한다."""
+    if worker in _DRAINING_STT_WORKERS:
+        return
+
+    finalize_lock = threading.Lock()
+    finalized = False
+
+    def finalize() -> None:
+        nonlocal finalized
+        with finalize_lock:
+            if finalized:
+                return
+            finalized = True
+        try:
+            worker.finished.disconnect(finalize)
+        except (RuntimeError, TypeError):
+            pass
+        worker.deleteLater()
+        _DRAINING_STT_WORKERS.discard(worker)
+        _DRAINING_STT_WORKER_CALLBACKS.pop(worker, None)
+
+    _DRAINING_STT_WORKERS.add(worker)
+    _DRAINING_STT_WORKER_CALLBACKS[worker] = finalize
+    worker.finished.connect(finalize)
+
+    # 연결 직전에 완료된 경합도 누락하지 않는다.
+    if not worker.isRunning():
+        finalize()
 
 
 class GlobalPTTController(QObject):
@@ -460,6 +498,7 @@ class GlobalPTTController(QObject):
         self._enabled = False
         self._deps_error_notified = False
         self._effective_config = None
+        self._is_shutdown = False
         self._record_timeout_timer = QTimer(self)
         self._record_timeout_timer.setSingleShot(True)
         self._record_timeout_timer.timeout.connect(self._on_record_timeout)
@@ -471,22 +510,38 @@ class GlobalPTTController(QObject):
         """
         현재 설정 기준으로 리스너를 시작한다.
         """
-        self.apply_settings(self._settings)
+        if not self._is_shutdown:
+            self.apply_settings(self._settings)
 
     def shutdown(self):
         """
         리소스를 정리한다.
         """
+        if self._is_shutdown:
+            return
+        self._is_shutdown = True
         self._record_timeout_timer.stop()
         self._stop_listener()
         self._safe_stop_recording()
         self._is_transcribing = False
-        self._cleanup_stt_worker(wait_ms=5000)
+        worker = self._stt_worker
+        self._stt_worker = None
+        if worker is None:
+            return
+        if not worker.isRunning():
+            worker.deleteLater()
+            return
+
+        _retain_stt_worker_until_finished(worker)
+        worker.requestInterruption()
+        worker.quit()
 
     def apply_settings(self, settings_dict: dict):
         """
         설정 변경을 즉시 반영한다.
         """
+        if self._is_shutdown:
+            return
         self._settings = dict(settings_dict or {})
         enabled = bool(self._settings.get("enable_global_ptt", True))
         hotkey_text = normalize_hotkey_text(
@@ -544,8 +599,8 @@ class GlobalPTTController(QObject):
     def _ensure_dependencies(self) -> bool:
         try:
             import pynput.keyboard as keyboard  # type: ignore
-            import sounddevice as _sounddevice  # type: ignore
-            import faster_whisper as _faster_whisper  # type: ignore
+            import sounddevice as _sounddevice  # type: ignore  # noqa: F401
+            import faster_whisper as _faster_whisper  # type: ignore  # noqa: F401
         except Exception as e:
             if not self._deps_error_notified:
                 self._deps_error_notified = True
@@ -605,12 +660,10 @@ class GlobalPTTController(QObject):
         except Exception as e:
             print(f"[PTT] 녹음 정리 실패: {e}")
 
-    def _cleanup_stt_worker(self, wait_ms: int = 0):
+    def _cleanup_stt_worker(self):
         worker = self._stt_worker
         if worker is None:
             return
-        if wait_ms > 0 and worker.isRunning():
-            worker.wait(wait_ms)
         if not worker.isRunning():
             worker.deleteLater()
             if self._stt_worker is worker:
@@ -652,7 +705,7 @@ class GlobalPTTController(QObject):
         self._request_stop_record.emit()
 
     def _start_recording(self):
-        if not self._enabled:
+        if self._is_shutdown or not self._enabled:
             return
         if self._is_recording or self._is_transcribing:
             return
@@ -694,7 +747,17 @@ class GlobalPTTController(QObject):
         self._stt_worker = worker
         worker.finished_text.connect(self._on_transcription_ready)
         worker.failed.connect(self._on_transcription_failed)
+        worker.finished.connect(self._on_stt_worker_finished)
         worker.start()
+
+    def _on_stt_worker_finished(self):
+        worker = self.sender()
+        if not isinstance(worker, _STTWorker):
+            return
+        if self._stt_worker is worker:
+            self._stt_worker = None
+        if worker not in _DRAINING_STT_WORKERS:
+            worker.deleteLater()
 
     def _on_record_timeout(self):
         if not self._is_recording:
@@ -705,6 +768,8 @@ class GlobalPTTController(QObject):
     def _on_transcription_ready(self, text: str):
         self._is_transcribing = False
         self._cleanup_stt_worker()
+        if self._is_shutdown:
+            return
         cleaned = str(text or "").strip()
         if not cleaned:
             self.notice.emit("음성 인식 결과가 없습니다.", "info")
@@ -715,5 +780,7 @@ class GlobalPTTController(QObject):
     def _on_transcription_failed(self, error: str):
         self._is_transcribing = False
         self._cleanup_stt_worker()
+        if self._is_shutdown:
+            return
         self.notice.emit(f"음성 인식 실패: {error}", "error")
         print(f"[PTT] transcription failed: {error}")
