@@ -1056,21 +1056,29 @@ class ENEApplication(QObject):
     def _schedule_shutdown_drain_check(self) -> None:
         if getattr(self, "_shutdown_completed", False):
             return
+        if getattr(self, "_shutdown_drain_check_scheduled", False):
+            return
         scheduler = getattr(self, "_shutdown_drain_scheduler", None)
-        if scheduler is None:
-            factory = getattr(
-                self,
-                "_shutdown_drain_scheduler_factory",
-                lambda _parent: _QtShutdownDrainScheduler(),
+        try:
+            if scheduler is None:
+                factory = getattr(
+                    self,
+                    "_shutdown_drain_scheduler_factory",
+                    lambda _parent: _QtShutdownDrainScheduler(),
+                )
+                scheduler = factory(self)
+                self._shutdown_drain_scheduler = scheduler
+            self._shutdown_drain_check_scheduled = True
+            scheduler.schedule(
+                int(getattr(self, "_shutdown_drain_poll_interval_ms", 25)),
+                self._check_shutdown_workers,
             )
-            scheduler = factory(self)
-            self._shutdown_drain_scheduler = scheduler
-        scheduler.schedule(
-            int(getattr(self, "_shutdown_drain_poll_interval_ms", 25)),
-            self._check_shutdown_workers,
-        )
+        except Exception:
+            self._shutdown_drain_check_scheduled = False
+            self._complete_shutdown(workers_drained=False)
 
     def _check_shutdown_workers(self) -> None:
+        self._shutdown_drain_check_scheduled = False
         if getattr(self, "_shutdown_completed", False):
             return
         workers = list(getattr(self, "_shutdown_worker_refs", []))
