@@ -18,6 +18,7 @@ from src.ai.life_record_types import (
     stable_life_record_id,
 )
 from src.core import app_paths
+from src.core.local_time import resolve_local_time_context
 
 
 SEOUL = ZoneInfo("Asia/Seoul")
@@ -107,6 +108,17 @@ def test_new_manager_starts_with_version_one_empty_store(tmp_path):
     )
     assert manager.add(record) is True
     assert json.loads(path.read_text(encoding="utf-8"))["version"] == 1
+
+
+def test_manager_reuses_injected_time_context_for_matching_date_view(tmp_path):
+    context = resolve_local_time_context("Asia/Seoul").context
+    manager = LifeRecordManager(
+        tmp_path / "life_records.json",
+        time_context=context,
+    )
+
+    assert manager.time_context is context
+    assert manager._view_time_context("Asia/Seoul") is context
 
 
 def test_duplicate_add_is_prevented_and_latest_uses_stable_order(tmp_path):

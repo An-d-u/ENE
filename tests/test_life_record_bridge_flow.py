@@ -169,6 +169,20 @@ def _begin(bridge):
     return operation_id
 
 
+def test_authoritative_reload_retains_the_injected_time_context(tmp_path):
+    context = resolve_local_time_context("Asia/Seoul").context
+    manager = LifeRecordManager(
+        tmp_path / "life_records.json",
+        time_context=context,
+    )
+    bridge = _Bridge(manager, [])
+    bridge.life_record_state.time_context = context
+
+    authoritative = bridge._reload_authoritative_life_record_manager()
+
+    assert authoritative.time_context is context
+
+
 def test_auto_start_uses_exact_snapshots_and_never_includes_pending_message(
     monkeypatch, tmp_path
 ):
