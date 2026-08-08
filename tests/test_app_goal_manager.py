@@ -96,7 +96,7 @@ class _DummyTrayIcon:
         self.kwargs = kwargs
 
 
-def test_app_initializes_goal_manager_without_llm_api_key(monkeypatch):
+def test_app_initializes_goal_manager_without_llm_api_key(monkeypatch, tmp_path):
     settings = _DummySettings()
 
     monkeypatch.setattr(app_module, "Settings", lambda: settings)
@@ -132,7 +132,7 @@ def test_app_initializes_goal_manager_without_llm_api_key(monkeypatch):
     monkeypatch.setattr(app_module.ENEApplication, "_init_global_ptt", lambda self: None)
     monkeypatch.setattr(app_module.ENEApplication, "_init_system_theme_sync", lambda self: None)
 
-    app = app_module.ENEApplication()
+    app = app_module.ENEApplication(life_data_root=tmp_path)
 
     assert app.llm_client is None
     assert app.memory_manager == "memory-manager"
@@ -145,9 +145,17 @@ def test_app_initializes_goal_manager_without_llm_api_key(monkeypatch):
     assert app.overlay_window.bridge.goal_manager is app.goal_manager
     assert isinstance(app.proactive_manager, _DummyProactiveManager)
     assert app.overlay_window.bridge.proactive_manager is app.proactive_manager
+    assert app._life_data_root == tmp_path
+    assert app.overlay_window.life_time_context is app.life_time_context
+    assert app.overlay_window.life_view_timezone == app.life_view_timezone
+    assert app.overlay_window.bridge.life_record_state.time_context is app.life_time_context
+    assert (
+        app.overlay_window.bridge.life_record_state.view_timezone
+        == app.life_view_timezone
+    )
 
 
-def test_app_start_does_not_restore_obsidian_panel_visibility(monkeypatch):
+def test_app_start_does_not_restore_obsidian_panel_visibility(monkeypatch, tmp_path):
     settings = _DummySettings()
 
     class _VisibleObsPanelOverlayWindow(_DummyOverlayWindow):
@@ -174,9 +182,17 @@ def test_app_start_does_not_restore_obsidian_panel_visibility(monkeypatch):
     monkeypatch.setattr(app_module.ENEApplication, "_init_global_ptt", lambda self: None)
     monkeypatch.setattr(app_module.ENEApplication, "_init_system_theme_sync", lambda self: None)
 
-    app = app_module.ENEApplication()
+    app = app_module.ENEApplication(life_data_root=tmp_path)
 
     assert app.obsidian_panel_window.show_calls == 0
+    assert app._life_data_root == tmp_path
+    assert app.overlay_window.life_time_context is app.life_time_context
+    assert app.overlay_window.life_view_timezone == app.life_view_timezone
+    assert app.overlay_window.bridge.life_record_state.time_context is app.life_time_context
+    assert (
+        app.overlay_window.bridge.life_record_state.view_timezone
+        == app.life_view_timezone
+    )
 
 
 def test_refresh_memory_runtime_bindings_connects_knowledge_map_to_llm_and_bridge(monkeypatch):
