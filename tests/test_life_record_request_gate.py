@@ -245,11 +245,17 @@ def test_state_rejects_unknown_read_only_reason_and_releases_finished_worker() -
 
 def test_state_repr_hides_pending_life_world_prompt() -> None:
     private_world = "PRIVATE-LIFE-WORLD-SENTINEL"
+    private_error = "PRIVATE-WORKER-ERROR-SENTINEL"
 
-    state = LifeRecordBridgeState(pending_world_markdown=private_world)
+    state = LifeRecordBridgeState(
+        pending_world_markdown=private_world,
+        worker_error=private_error,
+    )
 
     assert private_world not in repr(state)
+    assert private_error not in repr(state)
     assert "pending_world_markdown" not in repr(state)
+    assert "worker_error" not in repr(state)
 
 
 def test_busy_text_slot_rejects_before_any_side_effect() -> None:
