@@ -42,6 +42,9 @@ class EneProfile:
         "relationship_tone",
     }
     SIMILARITY_THRESHOLD = 0.80
+    LIFE_RECORD_FACT_CATEGORIES = frozenset(
+        {"basic", "preference", "goal", "habit", "relationship_tone"}
+    )
 
     def __init__(self, profile_file: str | Path | None = None, user_profile=None):
         target_file = profile_file if profile_file is not None else "ene_profile.json"
@@ -176,6 +179,58 @@ class EneProfile:
             deleted = self.facts.pop(index)
             self.save()
             print(f"[ENE Profile] Deleted fact: {deleted.content}")
+
+    def export_life_record_profile(self, max_facts: int = 10) -> dict[str, object]:
+        """생활 기록 생성에 허용된 에네 정보만 최소 형태로 내보낸다."""
+
+        try:
+            limit = max(0, int(max_facts))
+        except (TypeError, ValueError):
+            limit = 10
+
+        allowed_facts = [
+            fact
+            for fact in self.facts
+            if fact.category in self.LIFE_RECORD_FACT_CATEGORIES
+            and str(fact.content or "").strip()
+        ]
+
+        def priority(fact: EneProfileFact) -> int:
+            origin = str(fact.origin or "auto").strip().lower()
+            if origin == "manual" and not fact.auto_update:
+                return 0
+            if origin == "manual":
+                return 1
+            return 2
+
+        ordered: list[EneProfileFact] = []
+        for group in range(3):
+            members = [fact for fact in allowed_facts if priority(fact) == group]
+            members.sort(key=lambda fact: str(fact.timestamp or ""), reverse=True)
+            ordered.extend(members)
+
+        facts = tuple(
+            {
+                "category": str(fact.category).strip(),
+                "content": str(fact.content).strip(),
+            }
+            for fact in ordered[:limit]
+        )
+        identity = tuple(
+            str(item).strip()
+            for item in self.core_profile.get("identity", [])
+            if str(item).strip()
+        )
+        relationship_tone = tuple(
+            str(item).strip()
+            for item in self.core_profile.get("relationship_tone", [])
+            if str(item).strip()
+        )
+        return {
+            "ene_identity": {"identity": identity},
+            "relationship_tone": relationship_tone,
+            "profile_facts": facts,
+        }
 
     def _normalize_fact(self, content: str) -> str:
         text = str(content or "").strip()
