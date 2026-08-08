@@ -61,6 +61,7 @@
     const LOCALE_TAG = { ko: 'ko-KR', en: 'en-US', ja: 'ja-JP' };
     let nowProvider = () => new Date();
     let requestSequence = 0;
+    const regenerationDisabledSnapshots = new Map();
 
     function normalizeLanguage(value) {
         const language = String(value || '').trim().toLowerCase().split('-')[0];
@@ -232,7 +233,9 @@
             regenerate.type = 'button';
             regenerate.dataset.recordId = record.id;
             regenerate.setAttribute('aria-label', strings().regenerateTitle);
-            regenerate.disabled = !state.lifeRecordsWritable || state.interactionLocked || state.manualSubmission;
+            const baseDisabled = !state.lifeRecordsWritable;
+            if (state.interactionLocked) regenerationDisabledSnapshots.set(regenerate, baseDisabled);
+            regenerate.disabled = baseDisabled || state.interactionLocked || state.manualSubmission;
             regenerate.addEventListener('click', () => openRegenerationDialog(record.id, regenerate));
             card.appendChild(regenerate);
         }
@@ -363,13 +366,27 @@
     function updateRegenerationButtons() {
         if (!list) return;
         list.querySelectorAll('.life-record-regenerate').forEach((button) => {
+            if (state.interactionLocked && !regenerationDisabledSnapshots.has(button)) {
+                regenerationDisabledSnapshots.set(button, Boolean(button.disabled));
+            }
             button.disabled = !state.lifeRecordsWritable || state.interactionLocked || state.manualSubmission;
         });
     }
 
     function setInteractionLocked(active, reason = '') {
-        state.interactionLocked = Boolean(active);
-        updateRegenerationButtons();
+        const shouldLock = Boolean(active);
+        if (shouldLock === state.interactionLocked) return;
+        state.interactionLocked = shouldLock;
+        if (shouldLock) {
+            updateRegenerationButtons();
+        } else {
+            regenerationDisabledSnapshots.forEach((wasDisabled, button) => {
+                if (button && button.isConnected !== false) {
+                    button.disabled = wasDisabled || !state.lifeRecordsWritable;
+                }
+            });
+            regenerationDisabledSnapshots.clear();
+        }
         if (state.interactionLocked && String(reason) === 'life_record_regeneration') {
             setStatus('regenerating', strings().regenerating);
         }
@@ -382,12 +399,11 @@
         const confirm = overlay && overlay.querySelector('.life-record-regeneration-confirm');
         if (confirm) confirm.disabled = true;
         state.manualSubmission = true;
-        state.interactionLocked = true;
         state.backendPendingObserved = false;
         operationFocusOrigin = dialogOrigin;
         closeRegenerationDialog(true);
         setStatus('regenerating', strings().regenerating);
-        updateRegenerationButtons();
+        setInteractionLocked(true, 'life_record_regeneration');
         if (typeof window.setGenerationInteractionLock === 'function') {
             window.setGenerationInteractionLock(true, 'life_record_regeneration');
         }
@@ -403,12 +419,13 @@
         if (!state.manualSubmission && !state.interactionLocked) return false;
         state.manualSubmission = false;
         state.backendPendingObserved = false;
-        state.interactionLocked = false;
-        updateRegenerationButtons();
         if (typeof window.setGenerationInteractionLock === 'function'
             && typeof window.isGenerationInteractionLocked === 'function'
             && window.isGenerationInteractionLocked()) {
             window.setGenerationInteractionLock(false, 'life_record_regeneration');
+        }
+        if (state.interactionLocked) {
+            setInteractionLocked(false, 'life_record_regeneration');
         }
         if (restoreFocus) restoreOperationFocus();
         return true;

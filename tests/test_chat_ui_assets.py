@@ -3167,7 +3167,9 @@ def test_chat_script_uses_bridge_pending_signal_for_loading_state():
 def test_chat_script_blocks_send_while_request_is_pending():
     script = _script_text()
 
-    assert "sendButton.disabled = isRequestPending;" in script
+    assert "setGenerationInteractionLock(true, requestPendingStage);" in script
+    assert "const controls = [" in script
+    assert "sendButton," in script
     assert "if (isRequestPending) return;" in script
 
 
@@ -3364,8 +3366,8 @@ def test_summary_review_modal_uses_bounded_scroll_layout():
 def test_inline_edit_save_button_reflects_request_pending_state():
     script = _script_text()
 
-    assert "const saveBtn = activeInlineEditMessageEl.querySelector('.inline-edit-save');" in script
-    assert "saveBtn.disabled = isRequestPending;" in script
+    assert "activeInlineEditMessageEl.querySelector('.inline-edit-save')" in script
+    assert "applyGenerationInteractionLockToCurrentTargets();" in script
 
 
 def test_token_usage_bubble_is_offset_slightly_lower_from_top_left():

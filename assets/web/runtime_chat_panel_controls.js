@@ -37,7 +37,14 @@ const generationInteractionLockState = {
 };
 
 function generationMutableControls() {
-    const controls = [chatInput, sendButton, attachButton, imageInput];
+    const controls = [
+        chatInput,
+        sendButton,
+        attachButton,
+        imageInput,
+        manualSummarizeButton,
+        summaryConfirmYesButton,
+    ];
     if (activeInlineEditMessageEl) {
         controls.push(activeInlineEditMessageEl.querySelector('.inline-edit-save'));
         controls.push(activeInlineEditMessageEl.querySelector('.inline-edit-input'));
@@ -117,15 +124,8 @@ function showLoadingIndicator(show) {
 }
 
 function updateRequestInputControls() {
-    if (sendButton && !generationInteractionLockState.active) {
-        sendButton.disabled = isRequestPending;
-    }
-    if (activeInlineEditMessageEl) {
-        const saveBtn = activeInlineEditMessageEl.querySelector('.inline-edit-save');
-        if (saveBtn && !generationInteractionLockState.active) {
-            saveBtn.disabled = isRequestPending;
-        }
-    }
+    // pending 비활성 상태는 generation lock만 소유한다. 여기서 false를 쓰면
+    // 첨부 검증·bridge 부재 등 독립 사유로 비활성화된 상태를 덮게 된다.
     applyGenerationInteractionLockToCurrentTargets();
 }
 
@@ -142,7 +142,6 @@ function setRequestPending(active) {
     }
     showLoadingIndicator(isRequestPending);
     updateRequestInputControls();
-    updateRerollButtonState();
 }
 
 function setRequestPendingStage(stage) {
@@ -276,10 +275,10 @@ function updateRerollButtonState() {
     if (manualSummarizeButton) {
         const enabledByBridge = isManualSummaryBridgeAvailable();
         manualSummarizeButton.style.display = manualSummaryButtonVisibleBySetting ? 'inline-flex' : 'none';
-        manualSummarizeButton.disabled = isRequestPending || !enabledByBridge;
+        manualSummarizeButton.disabled = !enabledByBridge;
     }
     if (summaryConfirmYesButton) {
-        summaryConfirmYesButton.disabled = isRequestPending || !isManualSummaryBridgeAvailable();
+        summaryConfirmYesButton.disabled = !isManualSummaryBridgeAvailable();
     }
 
     syncLastAssistantMessageRef();
@@ -297,7 +296,7 @@ function updateRerollButtonState() {
         btn.innerHTML = createLucideIcon('rotate-ccw');
         btn.title = '최근 ENE 답변 다시 생성';
         btn.setAttribute('aria-label', '최근 ENE 답변 다시 생성');
-        btn.disabled = isRequestPending || !window.pyBridge || !window.pyBridge.reroll_last_response;
+        btn.disabled = !window.pyBridge || !window.pyBridge.reroll_last_response;
         btn.addEventListener('click', () => {
             if (!window.pyBridge || !window.pyBridge.reroll_last_response) return;
             if (isRequestPending) return;
@@ -337,7 +336,7 @@ function updateRerollButtonState() {
     editBtn.innerHTML = createLucideIcon('pencil');
     editBtn.title = '최근 메시지 수정';
     editBtn.setAttribute('aria-label', '최근 메시지 수정');
-    editBtn.disabled = isRequestPending || !window.pyBridge || !window.pyBridge.edit_last_user_message;
+    editBtn.disabled = !window.pyBridge || !window.pyBridge.edit_last_user_message;
     editBtn.addEventListener('click', () => {
         if (!window.pyBridge || !window.pyBridge.edit_last_user_message) return;
         if (isRequestPending) return;

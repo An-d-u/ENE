@@ -16,6 +16,7 @@ class Element {{
   constructor(name, disabled = false) {{ this.name = name; this.disabled = disabled; this.isConnected = true; this.value = ''; this.files = null; this.map = {{}}; }}
   querySelector(selector) {{ return this.map[selector] || null; }}
   querySelectorAll(selector) {{ return this.map[selector] || []; }}
+  remove() {{ this.isConnected = false; }}
 }}
 const chatInput = new Element('chatInput');
 const sendButton = new Element('sendButton', true);
@@ -43,10 +44,17 @@ const currentUiStrings = {{ loading: 'Thinking', loadingSearching: 'Searching' }
 const DEFAULT_UI_STRINGS = currentUiStrings;
 const loadingText = null, loadingIndicator = null, loadingIndicatorAnchor = null, imagePreviewContainer = null;
 let isRequestPending = false;
+const manualSummarizeButton = null, summaryConfirmYesButton = null;
+let rerollButtonVisibleBySetting = false, recentEditButtonVisibleBySetting = false;
+let hasAssistantMessage = false, hasUserMessage = false, lastAssistantMessageEl = null, lastUserMessageEl = null;
+function updateMessageThoughtButtons() {{}}
 const runtimeSource = fs.readFileSync({json.dumps(str(runtime_path))}, 'utf8');
 const context = {{ window, chatInput, sendButton, attachButton, imageInput, editButton, rerollButton, saveButton, inlineInput, inlineCancel,
   activeInlineEditMessageEl, chatMessages, panelLockCalls, requestPendingStage, currentUiStrings, DEFAULT_UI_STRINGS,
-  loadingText, loadingIndicator, loadingIndicatorAnchor, imagePreviewContainer, Map, result: null }};
+  loadingText, loadingIndicator, loadingIndicatorAnchor, imagePreviewContainer, isRequestPending,
+  manualSummarizeButton, summaryConfirmYesButton, rerollButtonVisibleBySetting, recentEditButtonVisibleBySetting,
+  hasAssistantMessage, hasUserMessage, lastAssistantMessageEl, lastUserMessageEl, updateMessageThoughtButtons,
+  Map, result: null }};
 vm.createContext(context);
 vm.runInContext(runtimeSource + '\\n' + {json.dumps(case_script)}, context, {{ filename: 'runtime_chat_panel_controls.js' }});
 process.stdout.write(JSON.stringify(context.result));
@@ -318,11 +326,12 @@ def test_generation_lock_is_idempotent_preserves_draft_files_and_restores_exact_
 chatInput.value = 'Synthetic draft';
 const selectedFiles = { length: 1, marker: 'synthetic-file-selection' };
 imageInput.files = selectedFiles;
-setGenerationInteractionLock(true, 'life_record');
-setGenerationInteractionLock(true, 'life_record');
+setRequestPendingStage('life_record');
+setRequestPending(true);
+setRequestPending(true);
 const during = [chatInput, sendButton, attachButton, imageInput, editButton, rerollButton, saveButton, inlineInput, inlineCancel].map((node) => node.disabled);
-setGenerationInteractionLock(false, 'life_record');
-setGenerationInteractionLock(false, 'life_record');
+setRequestPending(false);
+setRequestPending(false);
 const after = [chatInput, sendButton, attachButton, imageInput, editButton, rerollButton, saveButton, inlineInput, inlineCancel].map((node) => node.disabled);
 result = { during, after, draft: chatInput.value, sameFiles: imageInput.files === selectedFiles, panelLockCalls };
 """
@@ -335,6 +344,24 @@ result = { during, after, draft: chatInput.value, sameFiles: imageInput.files ==
         "sameFiles": True,
         "panelLockCalls": [[True, "life_record"], [False, "life_record"]],
     }
+
+
+def test_regeneration_lock_restores_preexisting_disabled_state_exactly():
+    result = _run_panel_case(
+        _ready_records_script(writable=True)
+        + """
+const regenerate = elements['life-records-list'].querySelector('.life-record-regenerate');
+regenerate.disabled = true;
+window.eneLifeRecordPanel.setInteractionLocked(true, 'life_record');
+window.eneLifeRecordPanel.setInteractionLocked(true, 'life_record');
+const during = regenerate.disabled;
+window.eneLifeRecordPanel.setInteractionLocked(false, 'life_record');
+window.eneLifeRecordPanel.setInteractionLocked(false, 'life_record');
+result = { during, after: regenerate.disabled };
+"""
+    )
+
+    assert result == {"during": True, "after": True}
 
 
 def test_stage_mapping_and_bridge_do_not_unlock_before_backend_pending_finalization():
