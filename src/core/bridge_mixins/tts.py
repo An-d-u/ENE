@@ -32,6 +32,13 @@ def _normalize_token_usage(source: object) -> dict[str, int | None]:
     }
 
 
+def _log_tts_callback_exception(event: str, exc: BaseException) -> None:
+    print(
+        f"[Bridge] {event} category=local_error "
+        f"exception_class={type(exc).__name__}"
+    )
+
+
 class TTSBridgeMixin:
     def _tts_output_language_names(self, language: str) -> dict[str, str]:
         """프롬프트 언어별 TTS/응답 언어 이름을 반환한다."""
@@ -662,17 +669,59 @@ class TTSBridgeMixin:
         if active_operation == (operation_id, tts_worker):
             self._active_tts_operation = None
 
+    def _discard_tts_callback_during_shutdown(
+        self,
+        operation_id=None,
+        tts_worker=None,
+    ) -> bool:
+        state = getattr(self, "life_record_state", None)
+        if getattr(state, "phase", None) != "shutting_down":
+            return False
+        self.pending_response = None
+        self.pending_token_usage_payload = ""
+        self._pending_response_completion = None
+        self._active_promise_id = None
+        self._active_promise_signature = None
+        self._active_proactive_id = None
+        self._active_proactive_signature = None
+        self._is_rerolling = False
+        active_operation = getattr(self, "_active_tts_operation", None)
+        if tts_worker is None or active_operation == (operation_id, tts_worker):
+            self._active_tts_operation = None
+        if tts_worker is None or getattr(self, "tts_worker", None) is tts_worker:
+            self.tts_worker = None
+        return True
+
+    def _recover_tts_callback_exception(
+        self,
+        event: str,
+        exc: BaseException,
+    ) -> None:
+        _log_tts_callback_exception(event, exc)
+        try:
+            if getattr(self, "pending_response", None):
+                self._flush_pending_response_if_any()
+            elif isinstance(
+                getattr(self, "_pending_response_completion", None),
+                dict,
+            ):
+                self._finalize_pending_response_completion_if_any()
+        except Exception as cleanup_exc:
+            _log_tts_callback_exception("tts_callback_cleanup_failed", cleanup_exc)
+
     def _on_tts_stream_finished(self, *, operation_id=None, tts_worker=None):
         """스트리밍 TTS 종료 신호를 받아 잔여 버퍼를 마무리한다."""
+        if self._discard_tts_callback_during_shutdown(operation_id, tts_worker):
+            return
         if not self._matches_tts_operation(operation_id, tts_worker):
             return
         try:
             self._complete_tts_stream()
+            self._flush_pending_response_if_any()
+        except Exception as exc:
+            self._recover_tts_callback_exception("tts_stream_callback_failed", exc)
         finally:
-            try:
-                self._flush_pending_response_if_any()
-            finally:
-                self._clear_tts_operation(operation_id, tts_worker)
+            self._clear_tts_operation(operation_id, tts_worker)
 
     def _complete_tts_stream(self) -> None:
         print("[Bridge] 스트리밍 TTS 종료")
@@ -758,10 +807,14 @@ class TTSBridgeMixin:
         operation_id=None,
         tts_worker=None,
     ):
+        if self._discard_tts_callback_during_shutdown(operation_id, tts_worker):
+            return
         if not self._matches_tts_operation(operation_id, tts_worker):
             return
         try:
             self._complete_tts_ready(audio_data, lip_sync_data)
+        except Exception as exc:
+            self._recover_tts_callback_exception("tts_ready_callback_failed", exc)
         finally:
             self._clear_tts_operation(operation_id, tts_worker)
 
@@ -806,10 +859,14 @@ class TTSBridgeMixin:
         tts_worker=None,
     ):
         """TTS 오류 처리"""
+        if self._discard_tts_callback_during_shutdown(operation_id, tts_worker):
+            return
         if not self._matches_tts_operation(operation_id, tts_worker):
             return
         try:
             self._complete_tts_error()
+        except Exception as exc:
+            self._recover_tts_callback_exception("tts_error_callback_failed", exc)
         finally:
             self._clear_tts_operation(operation_id, tts_worker)
 

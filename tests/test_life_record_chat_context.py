@@ -2,6 +2,7 @@ import asyncio
 import inspect
 import json
 from datetime import datetime
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -336,6 +337,25 @@ def test_attachment_entrypoint_explicitly_opts_in_life_record_context():
 
     assert bridge.started[0][1]["include_life_record_context"] is True
     assert bridge._last_request_payload["include_life_record_context"] is True
+
+
+def test_resumed_attachment_request_suppresses_duplicate_pending_signals():
+    bridge = _AttachmentBridge()
+    request = SimpleNamespace(
+        received_at=datetime(2099, 8, 7, 10, 0),
+        language="ko",
+        message="합성 첨부 재개 요청",
+        head_pat_count_before_message=0,
+        prior_token_usage=None,
+        attachment_copies=lambda: [],
+    )
+
+    bridge._commit_prepared_attachment_request(
+        request,
+        emit_pending_state=False,
+    )
+
+    assert bridge.started[0][1]["emit_pending_state"] is False
 
 
 def test_http_final_reply_places_life_record_first_but_keeps_history_original():
