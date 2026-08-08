@@ -1136,6 +1136,7 @@
         "idle": "読み込み待機",
         "load_done": "プロンプト Markdown 読み込み完了",
         "load_failed": "読み込み失敗: {error}",
+        "life_world_default_failed": "生活環境の既定値を読み込めませんでした。",
         "save_done": "プロンプト Markdown 保存完了",
         "save_failed": "保存失敗: {error}"
       },

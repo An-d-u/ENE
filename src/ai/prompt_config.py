@@ -10,6 +10,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from ..core.model_emotions import get_available_avatar_emotions
@@ -251,6 +252,18 @@ def _write_prompt_file_via_powershell(path: Path, payload: bytes) -> None:
     )
 
 
+def _delete_prompt_file_via_powershell(path: Path) -> None:
+    file_text = str(path).replace("'", "''")
+    _run_powershell_command(
+        "\n".join(
+            [
+                f"$path = '{file_text}'",
+                "if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force }",
+            ]
+        )
+    )
+
+
 def _copy_prompt_files_from_visible_to_runtime_via_powershell(source_dir: Path, target_dir: Path) -> None:
     source = Path(source_dir)
     target = Path(target_dir)
@@ -388,6 +401,19 @@ def load_runtime_prompt_config(
 
 
 def save_prompt_config(config: dict) -> dict:
+    normalized = _normalize_prompt_config_payload(config)
+
+    _write_text_file(BASE_SYSTEM_PROMPT_PATH, normalized["base_system_prompt"])
+    _write_text_file(SUB_PROMPT_BODY_PATH, normalized["sub_prompt_body"])
+    _write_text_file(
+        EMOTION_GUIDES_PATH,
+        _serialize_emotion_guides(normalized["emotions"], normalized["emotion_guides"]),
+    )
+    _sync_runtime_prompt_files_to_visible_roaming()
+    return normalized
+
+
+def _normalize_prompt_config_payload(config: dict) -> dict:
     existing = load_prompt_config()
     merged = dict(existing)
     if isinstance(config, dict):
@@ -420,14 +446,117 @@ def save_prompt_config(config: dict) -> dict:
         "emotion_guides": emotion_guides,
     }
 
-    _write_text_file(BASE_SYSTEM_PROMPT_PATH, normalized["base_system_prompt"])
-    _write_text_file(SUB_PROMPT_BODY_PATH, normalized["sub_prompt_body"])
-    _write_text_file(
-        EMOTION_GUIDES_PATH,
-        _serialize_emotion_guides(normalized["emotions"], normalized["emotion_guides"]),
-    )
-    _sync_runtime_prompt_files_to_visible_roaming()
     return normalized
+
+
+def _stage_prompt_bundle_file(path: Path, payload: bytes) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=path.parent,
+    )
+    temporary_path = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except Exception:
+        temporary_path.unlink(missing_ok=True)
+        raise
+    return temporary_path
+
+
+def _replace_prompt_bundle_file(source: Path, target: Path) -> None:
+    os.replace(source, target)
+
+
+def _restore_prompt_bundle_snapshots(snapshots: dict[Path, bytes | None]) -> bool:
+    rollback_failed = False
+    for path, payload in snapshots.items():
+        try:
+            if payload is None:
+                path.unlink(missing_ok=True)
+                continue
+            staged = _stage_prompt_bundle_file(path, payload)
+            try:
+                os.replace(staged, path)
+            finally:
+                staged.unlink(missing_ok=True)
+        except Exception:
+            rollback_failed = True
+    return not rollback_failed
+
+
+def _sync_prompt_bundle_to_visible_roaming(payloads: dict[Path, bytes]) -> None:
+    if not _should_sync_store_python_prompt_dirs():
+        return
+    visible_dir = _get_visible_prompt_config_dir()
+    visible_payloads = {
+        visible_dir / path.name: payload
+        for path, payload in payloads.items()
+    }
+    snapshots = {
+        path: _read_prompt_file_via_powershell(path)
+        for path in visible_payloads
+    }
+    try:
+        for path, payload in visible_payloads.items():
+            _write_prompt_file_via_powershell(path, payload)
+    except Exception:
+        rollback_failed = False
+        for path, payload in snapshots.items():
+            try:
+                if payload is None:
+                    _delete_prompt_file_via_powershell(path)
+                else:
+                    _write_prompt_file_via_powershell(path, payload)
+            except Exception:
+                rollback_failed = True
+        code = "prompt_bundle_visible_save_failed"
+        if rollback_failed:
+            code = "prompt_bundle_visible_rollback_failed"
+        raise RuntimeError(code) from None
+
+
+def save_prompt_bundle(config: dict, life_world: str) -> dict:
+    """프롬프트 네 파일을 하나의 복구 가능한 저장 단위로 교체한다."""
+    normalized = _normalize_prompt_config_payload(config)
+    normalized_life_world = str(life_world or "").replace("\r\n", "\n").strip("\n")
+    payloads = {
+        BASE_SYSTEM_PROMPT_PATH: normalized["base_system_prompt"].encode("utf-8"),
+        SUB_PROMPT_BODY_PATH: normalized["sub_prompt_body"].encode("utf-8"),
+        EMOTION_GUIDES_PATH: _serialize_emotion_guides(
+            normalized["emotions"], normalized["emotion_guides"]
+        ).encode("utf-8"),
+        LIFE_WORLD_PROMPT_PATH: normalized_life_world.encode("utf-8"),
+    }
+    snapshots = {
+        path: path.read_bytes() if path.exists() else None
+        for path in payloads
+    }
+    staged_files: list[tuple[Path, Path]] = []
+    try:
+        for path, payload in payloads.items():
+            staged_files.append((_stage_prompt_bundle_file(path, payload), path))
+        for staged, target in staged_files:
+            _replace_prompt_bundle_file(staged, target)
+    except Exception:
+        restored = _restore_prompt_bundle_snapshots(snapshots)
+        code = "prompt_bundle_save_failed" if restored else "prompt_bundle_rollback_failed"
+        raise RuntimeError(code) from None
+    finally:
+        for staged, _target in staged_files:
+            staged.unlink(missing_ok=True)
+
+    try:
+        _sync_prompt_bundle_to_visible_roaming(payloads)
+    except Exception as error:
+        restored = _restore_prompt_bundle_snapshots(snapshots)
+        code = str(error) if restored else "prompt_bundle_rollback_failed"
+        raise RuntimeError(code) from None
+    return {**normalized, "life_world": normalized_life_world}
 
 
 def build_sub_prompt_text(
