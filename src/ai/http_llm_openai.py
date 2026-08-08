@@ -10,6 +10,7 @@ from .http_llm_common import (
     _normalize_generation_params,
     _post_with_safe_errors,
     _raise_for_status_with_detail,
+    _thaw_transport_value,
     normalize_one_shot_usage,
 )
 from .openai_model_policy import normalize_reasoning_effort, resolve_openai_model_policy
@@ -237,12 +238,15 @@ class OpenAICompatibleClient(_CommonMixin):
         descriptor: HTTPStructuredOneShotRequestDescriptor,
     ) -> HTTPStructuredOneShotResponse:
         request = descriptor.request
+        generation_params = _thaw_transport_value(request.generation_params)
+        schema = _thaw_transport_value(request.schema)
+        headers = _thaw_transport_value(descriptor.headers)
         policy = resolve_openai_model_policy(
             descriptor.profile.provider,
             descriptor.profile.model,
         )
         payload = {
-            "model": self.model_name,
+            "model": descriptor.profile.model,
             "messages": [
                 {"role": "system", "content": request.system_instruction},
                 {"role": "user", "content": request.prompt},
@@ -253,35 +257,35 @@ class OpenAICompatibleClient(_CommonMixin):
                 "json_schema": {
                     "name": request.schema_id,
                     "strict": True,
-                    "schema": request.schema,
+                    "schema": schema,
                 },
             },
         }
         if policy.supports_temperature:
-            payload["temperature"] = request.generation_params["temperature"]
+            payload["temperature"] = generation_params["temperature"]
         if policy.supports_top_p:
-            payload["top_p"] = request.generation_params["top_p"]
+            payload["top_p"] = generation_params["top_p"]
         if policy.supports_reasoning_effort:
             payload["reasoning_effort"] = normalize_reasoning_effort(
-                request.generation_params.get("reasoning_effort"),
+                generation_params.get("reasoning_effort"),
                 default=policy.default_reasoning_effort,
             )
-        if request.generation_params["max_tokens"] > 0:
+        if generation_params["max_tokens"] > 0:
             token_field = (
                 "max_completion_tokens"
                 if policy.supports_reasoning_effort
                 else "max_tokens"
             )
-            payload[token_field] = request.generation_params["max_tokens"]
+            payload[token_field] = generation_params["max_tokens"]
         response = _post_with_safe_errors(
-            self.provider_name,
-            self.endpoint,
+            descriptor.profile.provider,
+            descriptor.profile.endpoint,
             requests.post,
-            headers=self._headers(),
+            headers=headers,
             json=payload,
             timeout=descriptor.timeout_seconds,
         )
-        _raise_for_status_with_detail(response, self.provider_name)
+        _raise_for_status_with_detail(response, descriptor.profile.provider)
         data = response.json()
         choices = data.get("choices", []) or []
         choice = choices[0] if choices and isinstance(choices[0], dict) else {}
@@ -643,8 +647,11 @@ class OpenAIResponseAPIClient(_CommonMixin):
         descriptor: HTTPStructuredOneShotRequestDescriptor,
     ) -> HTTPStructuredOneShotResponse:
         request = descriptor.request
+        generation_params = _thaw_transport_value(request.generation_params)
+        schema = _thaw_transport_value(request.schema)
+        headers = _thaw_transport_value(descriptor.headers)
         payload = {
-            "model": self.model_name,
+            "model": descriptor.profile.model,
             "instructions": request.system_instruction,
             "input": [
                 {
@@ -660,20 +667,36 @@ class OpenAIResponseAPIClient(_CommonMixin):
                     "type": "json_schema",
                     "name": request.schema_id,
                     "strict": True,
-                    "schema": request.schema,
+                    "schema": schema,
                 }
             },
         }
-        self._apply_generation_payload(payload, request.generation_params)
+        policy = resolve_openai_model_policy(
+            descriptor.profile.provider,
+            descriptor.profile.model,
+        )
+        if policy.supports_temperature:
+            payload["temperature"] = generation_params["temperature"]
+        if policy.supports_top_p:
+            payload["top_p"] = generation_params["top_p"]
+        if policy.supports_reasoning_effort:
+            payload["reasoning"] = {
+                "effort": normalize_reasoning_effort(
+                    generation_params.get("reasoning_effort"),
+                    default=policy.default_reasoning_effort,
+                )
+            }
+        if generation_params["max_tokens"] > 0:
+            payload["max_output_tokens"] = generation_params["max_tokens"]
         response = _post_with_safe_errors(
-            self.provider_name,
-            self.endpoint,
+            descriptor.profile.provider,
+            descriptor.profile.endpoint,
             requests.post,
-            headers=self._headers(),
+            headers=headers,
             json=payload,
             timeout=descriptor.timeout_seconds,
         )
-        _raise_for_status_with_detail(response, self.provider_name)
+        _raise_for_status_with_detail(response, descriptor.profile.provider)
         data = response.json()
         provider_response = self._provider_response_from_data(
             data,

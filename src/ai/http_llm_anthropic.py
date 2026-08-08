@@ -12,6 +12,7 @@ from .http_llm_common import (
     _normalize_generation_params,
     _post_with_safe_errors,
     _raise_for_status_with_detail,
+    _thaw_transport_value,
     normalize_one_shot_usage,
 )
 from .response_protocol import (
@@ -131,9 +132,11 @@ class AnthropicClient(_CommonMixin):
         descriptor: HTTPStructuredOneShotRequestDescriptor,
     ) -> HTTPStructuredOneShotResponse:
         request = descriptor.request
-        generation_params = request.generation_params
+        generation_params = _thaw_transport_value(request.generation_params)
+        schema = _thaw_transport_value(request.schema)
+        headers = _thaw_transport_value(descriptor.headers)
         payload = {
-            "model": self.model_name,
+            "model": descriptor.profile.model,
             "max_tokens": max(
                 1,
                 generation_params["max_tokens"]
@@ -154,19 +157,19 @@ class AnthropicClient(_CommonMixin):
             "output_config": {
                 "format": {
                     "type": "json_schema",
-                    "schema": _anthropic_output_schema(request.schema),
+                    "schema": _anthropic_output_schema(schema),
                 }
             },
         }
         response = _post_with_safe_errors(
-            self.provider_name,
-            self.endpoint,
+            descriptor.profile.provider,
+            descriptor.profile.endpoint,
             requests.post,
-            headers=self._headers(),
+            headers=headers,
             json=payload,
             timeout=descriptor.timeout_seconds,
         )
-        _raise_for_status_with_detail(response, self.provider_name)
+        _raise_for_status_with_detail(response, descriptor.profile.provider)
         data = response.json()
         text = self._response_text(data)
         stop_reason = str(data.get("stop_reason", "") or "").strip().lower()
