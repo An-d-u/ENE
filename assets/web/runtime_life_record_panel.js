@@ -2,6 +2,7 @@
     'use strict';
 
     const byId = (id) => document.getElementById(id);
+    const floatingActionsToggle = byId('floating-actions-toggle');
     const trigger = byId('life-records-floating-btn');
     const panel = byId('life-records-panel');
     const title = byId('life-records-panel-title');
@@ -201,10 +202,11 @@
 
     function renderActionState(kind, message, actionLabel = '', action = null) {
         if (!list) return;
-        list.replaceChildren(textElement('div', `life-record-${kind}`, message));
+        list.replaceChildren();
         if (!actionLabel || typeof action !== 'function') return;
         const button = textElement('button', kind === 'error' ? 'life-record-retry' : 'life-record-state-action', actionLabel);
         button.type = 'button';
+        button.setAttribute('aria-label', `${message} ${actionLabel}`.trim());
         button.addEventListener('click', action);
         list.appendChild(button);
     }
@@ -265,26 +267,44 @@
     function closePanel() {
         state.open = false;
         if (panel) panel.classList.add('hidden');
-        if (trigger) { trigger.setAttribute('aria-expanded', 'false'); trigger.focus(); }
+        if (trigger) trigger.setAttribute('aria-expanded', 'false');
+        if (floatingActionsToggle) floatingActionsToggle.focus();
+        else if (trigger) trigger.focus();
+    }
+
+    function validPublicEntry(entry) {
+        return Boolean(entry && typeof entry === 'object' && !Array.isArray(entry)
+            && typeof entry.started_at === 'string'
+            && typeof entry.ended_at === 'string'
+            && typeof entry.place === 'string'
+            && typeof entry.activity === 'string');
+    }
+
+    function validPublicRecord(record) {
+        return Boolean(record && typeof record === 'object' && !Array.isArray(record)
+            && typeof record.id === 'string'
+            && typeof record.inactive_started_at === 'string'
+            && typeof record.returned_at === 'string'
+            && Array.isArray(record.entries)
+            && record.entries.every(validPublicEntry)
+            && record.ending_state && typeof record.ending_state === 'object'
+            && !Array.isArray(record.ending_state)
+            && typeof record.ending_state.place === 'string'
+            && typeof record.ending_state.summary === 'string');
     }
 
     function receive(value) {
         let payload = value;
         if (typeof value === 'string') {
-            try { payload = JSON.parse(value); } catch (error) { return false; }
+            try { payload = JSON.parse(value); } catch (error) { showNotice('read_error'); return false; }
         }
-        if (!payload || typeof payload !== 'object') return false;
+        if (!payload || typeof payload !== 'object' || Array.isArray(payload)) { showNotice('read_error'); return false; }
         if (Array.isArray(payload.affected_dates)) {
             if (state.open && payload.affected_dates.includes(state.selectedDate)) requestSelectedDate();
             return true;
         }
         if (payload.requested_date !== state.selectedDate || String(payload.request_id || '') !== state.requestId) return false;
-        const validRecords = Array.isArray(payload.records) && payload.records.every((record) => (
-            record && typeof record === 'object'
-            && typeof record.id === 'string'
-            && Array.isArray(record.entries)
-            && record.ending_state && typeof record.ending_state === 'object'
-        ));
+        const validRecords = Array.isArray(payload.records) && payload.records.every(validPublicRecord);
         if (payload.status !== 'ready' || !validRecords) {
             showNotice('read_error');
             return false;
@@ -300,7 +320,11 @@
     }
 
     function openSettings() {
-        if (window.pyBridge && typeof window.pyBridge.open_settings_dialog === 'function') window.pyBridge.open_settings_dialog();
+        if (window.pyBridge && typeof window.pyBridge.open_settings_dialog_section === 'function') {
+            window.pyBridge.open_settings_dialog_section('life_world');
+        } else if (window.pyBridge && typeof window.pyBridge.open_settings_dialog === 'function') {
+            window.pyBridge.open_settings_dialog();
+        }
     }
 
     if (trigger) trigger.addEventListener('click', () => state.open ? closePanel() : openPanel());

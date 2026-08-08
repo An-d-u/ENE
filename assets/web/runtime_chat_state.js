@@ -282,5 +282,7 @@ function setFloatingActionsOpen(open) {
     }
     if (floatingActionsMenu) {
         floatingActionsMenu.setAttribute('aria-hidden', String(!floatingActionsOpen));
+        floatingActionsMenu.hidden = !floatingActionsOpen;
+        floatingActionsMenu.inert = !floatingActionsOpen;
     }
 }

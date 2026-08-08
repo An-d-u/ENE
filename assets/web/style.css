@@ -551,6 +551,7 @@ body.thought-feature-disabled .message-thought {
 #promise-reminders-floating-btn,
 #proactive-conversations-floating-btn,
 #goal-toggle-floating-btn,
+#life-records-floating-btn,
 #live2d-parameters-floating-btn {
     z-index: 1200;
     padding: 8px 12px;
@@ -565,6 +566,22 @@ body.thought-feature-disabled .message-thought {
     justify-content: center;
     text-align: center;
     line-height: 1.2;
+    min-width: 44px;
+    min-height: 44px;
+}
+
+#life-records-floating-btn {
+    transition: background 0.2s ease, transform 0.2s ease;
+}
+
+#life-records-floating-btn:hover {
+    background: var(--ene-floating-panel-button-hover);
+    transform: translateY(-1px);
+}
+
+#life-records-floating-btn:focus-visible {
+    outline: 3px solid var(--ene-life-focus);
+    outline-offset: 2px;
 }
 
 #settings-floating-btn {
@@ -2350,6 +2367,7 @@ body.thought-feature-disabled .message-thought {
 }
 
 @media (prefers-reduced-motion: reduce) {
+    #life-records-floating-btn,
     #life-records-panel,
     #life-records-panel *,
     #life-records-panel *::before,

@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -430,6 +430,7 @@ class SettingsDialogUiMixin:
             self.content_header_meta.setText(description)
 
     def focus_section(self, tab_id: str) -> None:
+        requested_section = tab_id
         memory_tab_id = {
             "topic_memory": "topic_memory",
             "profile": "profile_memory",
@@ -439,12 +440,26 @@ class SettingsDialogUiMixin:
             "topic_memory": "memory",
             "profile": "memory",
             "ene_profile": "memory",
+            "life_world": "prompt",
         }.get(tab_id, tab_id)
         index = next((idx for idx, current_tab_id in self._lazy_tab_index_to_id.items() if current_tab_id == tab_id), -1)
         if index >= 0:
             self._set_section_index(index)
             if memory_tab_id:
                 self._focus_memory_management_tab(memory_tab_id)
+            elif requested_section == "life_world":
+                self._ensure_lazy_tab_loaded("prompt")
+                QTimer.singleShot(0, self._focus_life_world_editor)
+
+    def _focus_life_world_editor(self) -> None:
+        editor = getattr(self, "life_world_editor", None)
+        if editor is None:
+            return
+        scroll = getattr(self, "_prompt_scroll", None)
+        group = getattr(self, "_life_world_group", None)
+        if scroll is not None and group is not None:
+            scroll.ensureWidgetVisible(group, 12, 12)
+        editor.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def _focus_memory_management_tab(self, tab_id: str) -> None:
         self._ensure_lazy_tab_loaded("memory")

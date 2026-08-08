@@ -47,6 +47,7 @@ class Element {{
     appendChild(child) {{ child.parentElement = this; this.children.push(child); return child; }}
     replaceChildren(...children) {{ this.children = []; this.textContent = ''; children.forEach((child) => this.appendChild(child)); }}
     setAttribute(name, value) {{ this.attributes[name] = String(value); }}
+    removeAttribute(name) {{ delete this.attributes[name]; }}
     getAttribute(name) {{ return this.attributes[name] ?? null; }}
     addEventListener(type, handler) {{ (this.eventListeners[type] ||= []).push(handler); }}
     dispatch(type, extra = {{}}) {{
@@ -71,13 +72,18 @@ const ids = [
   'life-records-floating-btn', 'life-records-panel', 'life-records-panel-title',
   'life-records-close-btn', 'life-records-previous-btn', 'life-records-next-btn',
   'life-records-today-btn', 'life-records-date-input', 'life-records-status',
-  'life-records-list', 'floating-action-buttons'
+  'life-records-list', 'floating-action-buttons', 'floating-actions-toggle',
+  'floating-actions-menu'
 ];
 const elements = Object.fromEntries(ids.map((id) => [id, new Element(id.includes('input') ? 'input' : 'div', id)]));
 elements['life-records-panel'].className = 'hidden';
 elements['life-records-floating-btn'].setAttribute('aria-expanded', 'false');
+elements['floating-actions-menu'].appendChild(elements['life-records-floating-btn']);
+elements['floating-action-buttons'].appendChild(elements['floating-actions-toggle']);
+elements['floating-action-buttons'].appendChild(elements['floating-actions-menu']);
 
 const requests = [];
+const settingsSections = [];
 const document = {{
     activeElement: null,
     documentElement: {{ lang: 'ko' }},
@@ -89,10 +95,15 @@ const document = {{
 const window = {{
     pyBridge: {{
         request_life_records_for_date: (date, requestId) => requests.push([date, requestId]),
+        open_settings_dialog_section: (section) => settingsSections.push(section),
     }},
-    setFloatingActionsOpen: () => {{}},
+    setFloatingActionsOpen: (open) => {{
+        elements['floating-actions-menu'].hidden = !open;
+        elements['floating-actions-menu'].inert = !open;
+        elements['floating-actions-menu'].setAttribute('aria-hidden', String(!open));
+    }},
 }};
-const context = {{ window, document, elements, requests, console: {{ warn: () => {{}}, error: () => {{}} }}, Intl, Date, setTimeout, clearTimeout, result: null }};
+const context = {{ window, document, elements, requests, settingsSections, console: {{ warn: () => {{}}, error: () => {{}} }}, Intl, Date, setTimeout, clearTimeout, result: null }};
 const runtimeSource = fs.readFileSync({json.dumps(str(PANEL_PATH))}, 'utf8');
 const caseSource = {json.dumps(case_script)};
 vm.createContext(context);
@@ -121,6 +132,7 @@ def test_life_record_panel_markup_and_runtime_are_loaded_in_safe_order():
 
     assert 'id="life-records-floating-btn"' in html
     assert 'aria-controls="life-records-panel"' in html
+    assert 'id="floating-actions-menu" aria-hidden="true" hidden inert' in html
     assert 'id="life-records-panel"' in html
     assert 'role="region"' in html
     assert 'aria-labelledby="life-records-panel-title"' in html
@@ -224,6 +236,36 @@ result = {
     }
 
 
+def test_malformed_current_payloads_are_atomic_retryable_and_stale_deep_payload_is_ignored():
+    result = _run_panel_case(
+        """
+window.eneLifeRecordPanel.setNowProvider(() => new Date(2099, 7, 7, 10, 0, 0));
+window.eneLifeRecordPanel.open();
+const stale = requests[0];
+elements['life-records-previous-btn'].click();
+const current = requests[1];
+const malformed = [
+  '{broken json', null,
+  { status: 'ready', requested_date: current[0], request_id: current[1], records: [null] },
+  { status: 'ready', requested_date: current[0], request_id: current[1], records: [{ id: 'bad', entries: [null], ending_state: { place: 'x', summary: 'y' } }] },
+  { status: 'ready', requested_date: current[0], request_id: current[1], records: [{ id: 'bad', entries: [{ started_at: 7, ended_at: '', place: null, activity: [] }], ending_state: [] }] },
+];
+window.eneLifeRecordPanel.receive({ status: 'ready', requested_date: stale[0], request_id: stale[1], records: [{ id: 'stale', entries: [null], ending_state: null }] });
+const afterStale = window.eneLifeRecordPanel.getState().status;
+const states = malformed.map((payload) => {
+  window.eneLifeRecordPanel.receive(payload);
+  const snapshot = window.eneLifeRecordPanel.getState();
+  const retryCount = elements['life-records-list'].querySelectorAll('.life-record-retry').length;
+  return [snapshot.status, snapshot.records.length, retryCount];
+});
+result = { afterStale, states };
+"""
+    )
+
+    assert result["afterStale"] == "loading"
+    assert result["states"] == [["error", 0, 1]] * 5
+
+
 def test_midnight_entries_show_dates_and_record_text_never_uses_inner_html():
     result = _run_panel_case(
         """
@@ -264,13 +306,18 @@ window.eneLifeRecordPanel.open();
 const first = requests[0];
 window.eneLifeRecordPanel.receive({ status: 'ready', requested_date: first[0], request_id: first[1], view_timezone: 'Asia/Seoul', language: 'ja', records: [], latest_id: null });
 const emptyStatus = window.eneLifeRecordPanel.getState().status;
+const emptyStatusText = elements['life-records-status'].textContent;
+const emptyListChildren = elements['life-records-list'].children.length;
 window.eneLifeRecordPanel.showNotice('read_error');
 const errorStatus = window.eneLifeRecordPanel.getState().status;
+const errorStatusText = elements['life-records-status'].textContent;
 const retry = elements['life-records-list'].querySelector('.life-record-retry');
 retry.click();
 elements['life-records-panel'].dispatch('keydown', { key: 'Escape' });
 result = {
   emptyStatus, errorStatus, requestCount: requests.length,
+  emptyStatusText, emptyListChildren, errorStatusText,
+  errorListChildren: elements['life-records-list'].children.length,
   hidden: elements['life-records-panel'].classList.contains('hidden'),
   focused: document.activeElement && document.activeElement.id,
   expanded: elements['life-records-floating-btn'].getAttribute('aria-expanded'),
@@ -282,10 +329,28 @@ result = {
         "emptyStatus": "empty",
         "errorStatus": "error",
         "requestCount": 2,
+        "emptyStatusText": "この日の生活記録はありません。",
+        "emptyListChildren": 0,
+        "errorStatusText": "生活記録を読み込めませんでした。",
+        "errorListChildren": 0,
         "hidden": True,
-        "focused": "life-records-floating-btn",
+        "focused": "floating-actions-toggle",
         "expanded": "false",
     }
+
+
+def test_world_empty_action_opens_exact_life_world_settings_destination():
+    result = _run_panel_case(
+        """
+window.eneLifeRecordPanel.showNotice('world_empty');
+const action = elements['life-records-list'].querySelector('.life-record-state-action');
+action.click();
+result = { settingsSections, label: action.textContent };
+"""
+    )
+
+    assert result["settingsSections"] == ["life_world"]
+    assert result["label"]
 
 
 def test_bridge_connects_life_record_payloads_and_safe_notices():
@@ -314,3 +379,28 @@ def test_panel_css_is_responsive_scrollable_wrapping_and_keyboard_visible():
     assert "#life-records-panel :focus-visible" in css
     assert "@media (max-width: 420px)" in css
     assert "max-width: 100%;" in css
+
+
+def test_life_menu_button_uses_common_44px_hover_focus_and_reduced_motion_contract():
+    css = (WEB_DIR / "style.css").read_text(encoding="utf-8-sig")
+    common = re.search(
+        r"#manual-summarize-floating-btn,.*?#life-records-floating-btn,.*?#live2d-parameters-floating-btn\s*\{(?P<body>.*?)\n\}",
+        css,
+        re.DOTALL,
+    )
+
+    assert common
+    assert "min-width: 44px;" in common.group("body")
+    assert "min-height: 44px;" in common.group("body")
+    assert "#life-records-floating-btn:hover" in css
+    assert "#life-records-floating-btn:focus-visible" in css
+    reduced = re.search(r"@media \(prefers-reduced-motion: reduce\)\s*\{(?P<body>.*)\}\s*$", css, re.DOTALL)
+    assert reduced and "#life-records-floating-btn" in reduced.group("body")
+
+
+def test_quick_menu_hides_and_inerts_descendants_when_closed():
+    state_script = (WEB_DIR / "runtime_chat_state.js").read_text(encoding="utf-8-sig")
+
+    assert "floatingActionsMenu.hidden = !floatingActionsOpen;" in state_script
+    assert "floatingActionsMenu.inert = !floatingActionsOpen;" in state_script
+    assert "aria-hidden" in state_script

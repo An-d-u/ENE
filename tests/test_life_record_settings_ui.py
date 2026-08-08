@@ -115,6 +115,28 @@ def test_life_world_editor_is_full_width_accessible_and_persists_empty(prompt_pa
     dialog.close()
 
 
+def test_life_world_settings_destination_selects_prompt_scrolls_and_focuses_editor(
+    prompt_paths, monkeypatch
+):
+    app = _get_qapp()
+    dialog = _dialog(prompt_paths, monkeypatch)
+
+    dialog.show()
+    dialog.focus_section("life_world")
+    app.processEvents()
+
+    prompt_index = next(
+        index
+        for index, tab_id in dialog._lazy_tab_index_to_id.items()
+        if tab_id == "prompt"
+    )
+    assert dialog.content_stack.currentIndex() == prompt_index
+    assert "prompt" in dialog._lazy_tab_loaded
+    assert dialog.life_world_editor.hasFocus()
+    assert dialog._prompt_scroll.widgetResizable() is True
+    dialog.close()
+
+
 def test_life_world_default_button_only_reloads_editor(prompt_paths, monkeypatch):
     runtime_dir, default_dir = prompt_paths
     runtime_path = runtime_dir / "life_world.md"
