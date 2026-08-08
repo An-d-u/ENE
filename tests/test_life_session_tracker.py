@@ -5,11 +5,13 @@ import logging
 import os
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
 
 import pytest
+from PyQt6.QtCore import QLockFile
 
 from src.core import life_session_tracker
 from src.core.life_session_tracker import AppSessionTracker, InactiveStartCandidate
@@ -440,6 +442,129 @@ def test_lease_failure_does_not_read_or_write_state(
     assert tracker.reason == "session_lease_unavailable"
 
 
+@pytest.mark.parametrize(
+    ("lock_error", "lock_info", "windows", "local_host", "expected_code"),
+    [
+        (
+            QLockFile.LockError.LockFailedError,
+            (True, 20_991_234, "SYNTHETIC_OWNER_HOST_2099", "SYNTHETIC_APP_2099"),
+            False,
+            "SYNTHETIC_LOCAL_HOST_2099",
+            "session_lease_locked",
+        ),
+        (
+            QLockFile.LockError.PermissionError,
+            (False, 0, "", ""),
+            False,
+            "SYNTHETIC_LOCAL_HOST_2099",
+            "session_lease_permission_denied",
+        ),
+        (
+            QLockFile.LockError.LockFailedError,
+            (False, 0, "", ""),
+            False,
+            "SYNTHETIC_LOCAL_HOST_2099",
+            "session_lease_owner_info_unavailable",
+        ),
+        (
+            QLockFile.LockError.UnknownError,
+            (False, 0, "", ""),
+            False,
+            "SYNTHETIC_LOCAL_HOST_2099",
+            "session_lease_unknown_error",
+        ),
+        (
+            QLockFile.LockError.LockFailedError,
+            (False, 0, "", ""),
+            True,
+            "합성호스트-2099",
+            "session_lease_manual_recovery_required",
+        ),
+        (
+            QLockFile.LockError.LockFailedError,
+            (True, 20_991_234, "합성호스트-2099", "SYNTHETIC_APP_2099"),
+            True,
+            "합성호스트-2099",
+            "session_lease_locked",
+        ),
+    ],
+    ids=[
+        "known-live-owner",
+        "permission-error",
+        "owner-info-unavailable",
+        "unknown-error",
+        "windows-nonascii-manual-recovery",
+        "windows-nonascii-known-live-owner",
+    ],
+)
+def test_lease_failure_uses_safe_diagnostic_without_removing_uncertain_lock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    lock_error: QLockFile.LockError,
+    lock_info: tuple[bool, int, str, str],
+    windows: bool,
+    local_host: str,
+    expected_code: str,
+) -> None:
+    instances: list[UnavailableDiagnosticLock] = []
+
+    class UnavailableDiagnosticLock:
+        def __init__(self, _path: str) -> None:
+            self.remove_calls = 0
+            instances.append(self)
+
+        def setStaleLockTime(self, _milliseconds: int) -> None:
+            pass
+
+        def tryLock(self, _timeout: int) -> bool:
+            return False
+
+        def error(self) -> QLockFile.LockError:
+            return lock_error
+
+        def getLockInfo(self) -> tuple[bool, int, str, str]:
+            return lock_info
+
+        def removeStaleLockFile(self) -> bool:
+            self.remove_calls += 1
+            return True
+
+        def unlock(self) -> None:
+            raise AssertionError("획득하지 않은 lease를 해제하면 안 됩니다.")
+
+    monkeypatch.setattr(life_session_tracker, "QLockFile", UnavailableDiagnosticLock)
+    monkeypatch.setattr(
+        life_session_tracker,
+        "_is_windows_platform",
+        lambda: windows,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        life_session_tracker,
+        "_local_hostname",
+        lambda: local_host,
+        raising=False,
+    )
+    caplog.set_level(logging.WARNING, logger=life_session_tracker.__name__)
+    tracker = AppSessionTracker(
+        tmp_path / "life_session_state.json",
+        now=lambda: _at(10),
+    )
+
+    assert tracker.start_session() is None
+    assert tracker.reason == "session_lease_unavailable"
+    assert tracker.life_records_writable is False
+    assert tracker.candidate is None
+    assert expected_code in tracker.diagnostics
+    assert instances[0].remove_calls == 0
+    rendered = caplog.text
+    assert "SYNTHETIC_OWNER_HOST_2099" not in rendered
+    assert "SYNTHETIC_APP_2099" not in rendered
+    assert "20991234" not in rendered
+    assert os.fspath(tmp_path.resolve()) not in rendered
+
+
 def test_lease_is_acquired_before_authoritative_read_and_running_write(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -506,6 +631,53 @@ def test_dead_process_stale_qlockfile_is_recovered(tmp_path: Path) -> None:
     assert tracker.degraded is False
     assert tracker.life_records_writable is True
     tracker.release_lease()
+
+
+def test_live_child_process_lock_blocks_tracker_without_changing_state(
+    tmp_path: Path,
+) -> None:
+    state_path = tmp_path / "life_session_state.json"
+    lock_path = tmp_path / "life_session_state.lock"
+    ready_path = tmp_path / "synthetic_child_ready_2099"
+    previous = _state(status="stopped", stopped_at=_at(3))
+    _write_state(state_path, previous)
+    code = (
+        "import os, sys, time; "
+        "from PyQt6.QtCore import QLockFile; "
+        "lock = QLockFile(sys.argv[1]); "
+        "lock.setStaleLockTime(0); "
+        "ok = lock.tryLock(0); "
+        "open(sys.argv[2], 'w', encoding='utf-8').write('ready' if ok else 'failed'); "
+        "time.sleep(60)"
+    )
+    child = subprocess.Popen(
+        [sys.executable, "-c", code, os.fspath(lock_path), os.fspath(ready_path)],
+    )
+    try:
+        deadline = time.monotonic() + 10
+        while not ready_path.exists() and time.monotonic() < deadline:
+            if child.poll() is not None:
+                pytest.fail(f"합성 child가 조기 종료했습니다: {child.returncode}")
+            time.sleep(0.01)
+        assert ready_path.read_text(encoding="utf-8") == "ready"
+        original_bytes = state_path.read_bytes()
+        tracker = AppSessionTracker(state_path, now=lambda: _at(10))
+
+        assert tracker.start_session() is None
+        assert tracker.reason == "session_lease_unavailable"
+        assert tracker.life_records_writable is False
+        assert tracker.candidate is None
+        assert "session_lease_locked" in tracker.diagnostics
+        assert state_path.read_bytes() == original_bytes
+        assert lock_path.exists()
+    finally:
+        if child.poll() is None:
+            child.terminate()
+        try:
+            child.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            child.kill()
+            child.wait(timeout=5)
 
 
 def test_utc_overflow_timestamp_is_discarded_as_invalid_state(
@@ -640,6 +812,37 @@ def test_stop_keeps_lease_until_idempotent_release(tmp_path: Path) -> None:
     )
     successor.release_lease()
     blocked.release_lease()
+
+
+def test_release_lease_closes_writable_capability_and_is_idempotent(
+    tmp_path: Path,
+) -> None:
+    state_path = tmp_path / "life_session_state.json"
+    tracker = AppSessionTracker(state_path, now=lambda: _at(10))
+    tracker.start_session()
+    running = state_path.read_bytes()
+
+    assert tracker.release_lease() is True
+    assert tracker.life_records_writable is False
+    assert tracker.degraded is False
+    assert tracker.reason is None
+    assert tracker.heartbeat() is False
+    assert tracker.stop_session() is False
+    assert state_path.read_bytes() == running
+
+    snapshot = (
+        tracker.life_records_writable,
+        tracker.degraded,
+        tracker.reason,
+        tracker.diagnostics,
+    )
+    assert tracker.release_lease() is False
+    assert (
+        tracker.life_records_writable,
+        tracker.degraded,
+        tracker.reason,
+        tracker.diagnostics,
+    ) == snapshot
 
 
 def test_rollback_stop_uses_persisted_last_seen_as_shutdown_time(tmp_path: Path) -> None:

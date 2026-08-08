@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import socket
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -34,6 +36,9 @@ _SESSION_KEYS = frozenset(
     }
 )
 _LOGGER = logging.getLogger(__name__)
+_LOCK_FAILED_ERROR = QLockFile.LockError.LockFailedError
+_LOCK_PERMISSION_ERROR = QLockFile.LockError.PermissionError
+_LOCK_UNKNOWN_ERROR = QLockFile.LockError.UnknownError
 
 
 @dataclass(frozen=True)
@@ -85,6 +90,63 @@ def _parse_uuid4(value: object) -> str:
 
 def _as_utc(value: datetime) -> datetime:
     return value.astimezone(timezone.utc)
+
+
+def _is_windows_platform() -> bool:
+    return sys.platform == "win32"
+
+
+def _local_hostname() -> str:
+    return socket.gethostname()
+
+
+def _known_lock_owner(lock_file: QLockFile) -> tuple[bool, str]:
+    try:
+        info = lock_file.getLockInfo()
+    except Exception:
+        return False, ""
+    if not isinstance(info, tuple) or len(info) != 4:
+        return False, ""
+    available, process_id, host_name, app_name = info
+    known = (
+        available is True
+        and type(process_id) is int
+        and process_id > 0
+        and isinstance(host_name, str)
+        and bool(host_name)
+        and isinstance(app_name, str)
+    )
+    return known, host_name if isinstance(host_name, str) else ""
+
+
+def _lease_failure_diagnostic(lock_file: QLockFile) -> str:
+    try:
+        lock_error = lock_file.error()
+    except Exception:
+        lock_error = _LOCK_UNKNOWN_ERROR
+    known_owner, owner_host = _known_lock_owner(lock_file)
+
+    if lock_error == _LOCK_PERMISSION_ERROR:
+        return "session_lease_permission_denied"
+    if lock_error == _LOCK_FAILED_ERROR:
+        try:
+            local_host = _local_hostname()
+        except Exception:
+            local_host = ""
+        nonascii_windows_host = (
+            _is_windows_platform()
+            and isinstance(local_host, str)
+            and bool(local_host)
+            and not local_host.isascii()
+        )
+        if nonascii_windows_host and (
+            not known_owner or owner_host != local_host
+        ):
+            return "session_lease_manual_recovery_required"
+        if known_owner:
+            return "session_lease_locked"
+        return "session_lease_owner_info_unavailable"
+    return "session_lease_unknown_error"
 
 
 def _parse_session_state(payload: object) -> _SessionState:
@@ -221,7 +283,7 @@ class AppSessionTracker:
         if not acquired:
             self._set_degraded(
                 SESSION_LEASE_UNAVAILABLE,
-                SESSION_LEASE_UNAVAILABLE,
+                _lease_failure_diagnostic(lock_file),
             )
             return False
         self._lease_acquired = True
@@ -441,4 +503,5 @@ class AppSessionTracker:
             return False
         self._lock_file.unlock()
         self._lease_acquired = False
+        self.life_records_writable = False
         return True
