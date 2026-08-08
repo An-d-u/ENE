@@ -14,6 +14,12 @@ from src.ai.http_llm_clients import (
     OpenAICompatibleClient,
     OpenAIResponseAPIClient,
 )
+from src.ai.llm_provider import (
+    LLMClientProtocol,
+    LLMProviderConfig,
+    create_llm_client,
+    get_supported_llm_providers,
+)
 from src.ai.response_protocol import (
     LLMRequestKind,
     OneShotGenerationResult,
@@ -128,6 +134,53 @@ def _build_ollama_client():
         api_key="k",
         model_name="m",
         endpoint="https://example.com/api/chat",
+    )
+
+
+_RUNTIME_CUSTOM_FORMATS = (
+    "openai_compatible",
+    "openai_response_api",
+    "anthropic",
+    "mistral",
+    "google_cloud",
+    "cohere",
+)
+
+
+@pytest.mark.parametrize(
+    ("provider", "custom_format"),
+    [
+        *((provider, None) for provider in get_supported_llm_providers()),
+        *(("custom_api", format_value) for format_value in _RUNTIME_CUSTOM_FORMATS),
+    ],
+    ids=[
+        *get_supported_llm_providers(),
+        *(f"custom-{format_value}" for format_value in _RUNTIME_CUSTOM_FORMATS),
+    ],
+)
+def test_every_runtime_selectable_client_satisfies_life_record_protocol(
+    provider,
+    custom_format,
+):
+    settings = {
+        "custom_api_format": custom_format or "openai_compatible",
+        "custom_api_url": "https://synthetic.invalid/v1/generate",
+        "custom_api_request_model": "synthetic-model",
+    }
+    client = create_llm_client(
+        LLMProviderConfig(
+            provider=provider,
+            api_key="synthetic-key",
+            model_name="synthetic-model",
+        ),
+        settings=settings,
+    )
+
+    assert isinstance(client, LLMClientProtocol)
+    assert inspect.iscoroutinefunction(client.generate_life_record_once)
+    assert (
+        get_type_hints(client.generate_life_record_once).get("return")
+        is OneShotGenerationResult
     )
 
 
