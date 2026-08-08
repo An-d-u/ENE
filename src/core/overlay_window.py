@@ -1,4 +1,4 @@
-﻿"""
+"""
 Transparent overlay window for Live2D.
 """
 import json
@@ -378,6 +378,7 @@ class OverlayWindow(QWidget):
     def _resolve_ui_strings_payload(self, settings_override: dict | None = None) -> dict:
         i18n = self._build_ui_i18n(settings_override)
         return {
+            "resolvedLanguage": i18n.language,
             "loading": i18n.t("chat.loading"),
             "loadingSearching": i18n.t("chat.loading.searching"),
             "input": {

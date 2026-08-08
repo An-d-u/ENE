@@ -21,7 +21,13 @@
             invalidDate: '올바른 날짜를 선택해 주세요.', retry: '다시 시도', latest: '최신 기록', ending: '마지막 상태',
             worldEmpty: '생활 환경이 비어 있어 기록을 만들지 않았습니다.', openSettings: '생활 환경 설정 열기',
             generationFailed: '생활 기록을 만들지 못했습니다.', saveFailed: '생활 기록을 저장하지 못했습니다.',
-            regenerationFailed: '다시 만들지 못해 기존 기록을 유지했습니다.', unknownError: '생활 기록을 표시하지 못했습니다.'
+            regenerationFailed: '다시 만들지 못해 기존 기록을 유지했습니다.', unknownError: '생활 기록을 표시하지 못했습니다.',
+            regenerate: '재생성', regenerateTitle: '최신 생활 기록 재생성',
+            regenerateDescription: 'API를 호출해 이 기록을 다시 만들고 기존 기록을 교체합니다.', cancel: '취소', confirm: '재생성',
+            regenerating: '생활 기록 다시 만드는 중…', preparing: '복귀 기록 정리 중…', thinking: '생각 중…',
+            busy: '다른 작업이 진행 중입니다. 잠시 후 다시 시도해 주세요.',
+            readOnly: '현재 생활 기록은 읽기 전용입니다.', notLatest: '최신 기록만 재생성할 수 있습니다.',
+            cancelled: '생활 기록 재생성이 취소되었습니다.', refreshFailed: '기록은 저장됐지만 화면을 새로 고치지 못했습니다.'
         },
         en: {
             title: 'Life records', close: 'Close life records', previous: 'Previous date', next: 'Next date', today: 'Today', date: 'Life record date',
@@ -29,7 +35,13 @@
             invalidDate: 'Choose a valid date.', retry: 'Retry', latest: 'Latest record', ending: 'Ending state',
             worldEmpty: 'No record was created because the life world is empty.', openSettings: 'Open life world settings',
             generationFailed: 'The life record could not be created.', saveFailed: 'The life record could not be saved.',
-            regenerationFailed: 'The original record was kept because regeneration failed.', unknownError: 'The life record could not be displayed.'
+            regenerationFailed: 'The original record was kept because regeneration failed.', unknownError: 'The life record could not be displayed.',
+            regenerate: 'Regenerate', regenerateTitle: 'Regenerate the latest life record',
+            regenerateDescription: 'This calls the API to recreate and replace this record.', cancel: 'Cancel', confirm: 'Regenerate',
+            regenerating: 'Regenerating the life record…', preparing: 'Preparing your return record…', thinking: 'Thinking…',
+            busy: 'Another task is in progress. Try again shortly.', readOnly: 'Life records are currently read-only.',
+            notLatest: 'Only the latest record can be regenerated.', cancelled: 'Life record regeneration was cancelled.',
+            refreshFailed: 'The record was saved, but the view could not be refreshed.'
         },
         ja: {
             title: '生活記録', close: '生活記録を閉じる', previous: '前の日', next: '次の日', today: '今日', date: '生活記録の日付',
@@ -37,7 +49,13 @@
             invalidDate: '正しい日付を選んでください。', retry: '再試行', latest: '最新の記録', ending: '最後の状態',
             worldEmpty: '生活環境が空のため、記録を作成しませんでした。', openSettings: '生活環境の設定を開く',
             generationFailed: '生活記録を作成できませんでした。', saveFailed: '生活記録を保存できませんでした。',
-            regenerationFailed: '再作成に失敗したため、元の記録を維持しました。', unknownError: '生活記録を表示できませんでした。'
+            regenerationFailed: '再作成に失敗したため、元の記録を維持しました。', unknownError: '生活記録を表示できませんでした。',
+            regenerate: '再作成', regenerateTitle: '最新の生活記録を再作成',
+            regenerateDescription: 'APIを呼び出してこの記録を作り直し、元の記録と置き換えます。', cancel: 'キャンセル', confirm: '再作成',
+            regenerating: '生活記録を作り直しています…', preparing: '帰宅記録を整理しています…', thinking: '考え中…',
+            busy: '別の処理を実行中です。しばらくしてからお試しください。', readOnly: '現在、生活記録は読み取り専用です。',
+            notLatest: '最新の記録だけ再作成できます。', cancelled: '生活記録の再作成をキャンセルしました。',
+            refreshFailed: '記録は保存されましたが、表示を更新できませんでした。'
         }
     };
     const LOCALE_TAG = { ko: 'ko-KR', en: 'en-US', ja: 'ja-JP' };
@@ -56,6 +74,11 @@
         status: 'idle',
         records: [],
         latestId: null,
+        lifeRecordsWritable: false,
+        readOnlyReason: '',
+        interactionLocked: false,
+        manualSubmission: false,
+        backendPendingObserved: false,
         viewTimezone: 'UTC',
         language: normalizeLanguage(document.documentElement && document.documentElement.lang),
     };
@@ -100,12 +123,25 @@
         if (nextButton) nextButton.setAttribute('aria-label', text.next);
         if (todayButton) todayButton.textContent = text.today;
         if (dateInput) dateInput.setAttribute('aria-label', text.date);
+        const dialog = panel && panel.querySelector('.life-record-regeneration-overlay');
+        if (dialog) {
+            const dialogTitle = dialog.querySelector('.life-record-regeneration-title');
+            const dialogDescription = dialog.querySelector('.life-record-regeneration-description');
+            const cancel = dialog.querySelector('.life-record-regeneration-cancel');
+            const confirm = dialog.querySelector('.life-record-regeneration-confirm');
+            if (dialogTitle) dialogTitle.textContent = text.regenerateTitle;
+            if (dialogDescription) dialogDescription.textContent = text.regenerateDescription;
+            if (cancel) cancel.textContent = text.cancel;
+            if (confirm) confirm.textContent = text.confirm;
+        }
     }
 
     function setStatus(kind, message) {
         state.status = kind;
         if (!statusNode) return;
-        statusNode.textContent = String(message || '');
+        const nextMessage = String(message || '');
+        if (statusNode.dataset.state === kind && statusNode.textContent === nextMessage) return;
+        statusNode.textContent = nextMessage;
         statusNode.dataset.state = kind;
     }
 
@@ -191,6 +227,15 @@
         appendSafeMarkdown(summary, ending.summary);
         endingNode.appendChild(summary);
         card.appendChild(endingNode);
+        if (record.id && record.id === state.latestId) {
+            const regenerate = textElement('button', 'life-record-regenerate', strings().regenerate);
+            regenerate.type = 'button';
+            regenerate.dataset.recordId = record.id;
+            regenerate.setAttribute('aria-label', strings().regenerateTitle);
+            regenerate.disabled = !state.lifeRecordsWritable || state.interactionLocked || state.manualSubmission;
+            regenerate.addEventListener('click', () => openRegenerationDialog(record.id, regenerate));
+            card.appendChild(regenerate);
+        }
         return card;
     }
 
@@ -211,12 +256,202 @@
         list.appendChild(button);
     }
 
+    function safeFocusTarget(preferred) {
+        let current = preferred;
+        let visible = Boolean(preferred && preferred.isConnected !== false);
+        while (visible && current) {
+            if (current.hidden || (current.classList && current.classList.contains('hidden'))) visible = false;
+            current = current.parentElement;
+        }
+        if (visible) return preferred;
+        if (state.open && dateInput) return dateInput;
+        if (floatingActionsToggle) return floatingActionsToggle;
+        return trigger;
+    }
+
+    let dialogOrigin = null;
+    let dialogRecordId = '';
+    let operationFocusOrigin = null;
+
+    function restoreDialogFocus() {
+        const target = safeFocusTarget(dialogOrigin);
+        dialogOrigin = null;
+        if (target && typeof target.focus === 'function') target.focus();
+    }
+
+    function restoreOperationFocus() {
+        const target = safeFocusTarget(operationFocusOrigin);
+        operationFocusOrigin = null;
+        if (target && typeof target.focus === 'function') target.focus();
+    }
+
+    function closeRegenerationDialog(restoreFocus = true) {
+        const overlay = panel && panel.querySelector('.life-record-regeneration-overlay');
+        if (overlay) overlay.classList.add('hidden');
+        if (restoreFocus) restoreDialogFocus();
+        dialogRecordId = '';
+    }
+
+    function ensureRegenerationDialog() {
+        if (!panel) return null;
+        let overlay = panel.querySelector('.life-record-regeneration-overlay');
+        if (overlay) return overlay;
+        overlay = document.createElement('div');
+        overlay.className = 'life-record-regeneration-overlay hidden';
+        overlay.setAttribute('role', 'alertdialog');
+        overlay.setAttribute('aria-modal', 'true');
+        overlay.setAttribute('aria-labelledby', 'life-record-regeneration-title');
+        overlay.setAttribute('aria-describedby', 'life-record-regeneration-description');
+        const dialog = document.createElement('div');
+        dialog.className = 'life-record-regeneration-dialog';
+        const dialogTitle = textElement('div', 'life-record-regeneration-title', strings().regenerateTitle);
+        dialogTitle.id = 'life-record-regeneration-title';
+        const description = textElement('div', 'life-record-regeneration-description', strings().regenerateDescription);
+        description.id = 'life-record-regeneration-description';
+        const actions = document.createElement('div');
+        actions.className = 'life-record-regeneration-actions';
+        const cancel = textElement('button', 'life-record-regeneration-cancel', strings().cancel);
+        cancel.type = 'button';
+        const confirm = textElement('button', 'life-record-regeneration-confirm', strings().confirm);
+        confirm.type = 'button';
+        cancel.addEventListener('click', () => closeRegenerationDialog(true));
+        confirm.addEventListener('click', confirmRegeneration);
+        actions.appendChild(cancel);
+        actions.appendChild(confirm);
+        dialog.appendChild(dialogTitle);
+        dialog.appendChild(description);
+        dialog.appendChild(actions);
+        overlay.appendChild(dialog);
+        overlay.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                event.stopPropagation();
+                closeRegenerationDialog(true);
+                return;
+            }
+            if (event.key !== 'Tab') return;
+            const focusable = [cancel, confirm].filter((node) => !node.disabled);
+            if (!focusable.length) return;
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault();
+                last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault();
+                first.focus();
+            }
+        });
+        panel.appendChild(overlay);
+        return overlay;
+    }
+
+    function openRegenerationDialog(recordId, origin) {
+        if (recordId !== state.latestId || !state.lifeRecordsWritable || state.interactionLocked || state.manualSubmission) return false;
+        const overlay = ensureRegenerationDialog();
+        if (!overlay) return false;
+        dialogRecordId = recordId;
+        dialogOrigin = origin;
+        overlay.classList.remove('hidden');
+        const cancel = overlay.querySelector('.life-record-regeneration-cancel');
+        const confirm = overlay.querySelector('.life-record-regeneration-confirm');
+        if (confirm) confirm.disabled = false;
+        if (cancel) cancel.focus();
+        return true;
+    }
+
+    function updateRegenerationButtons() {
+        if (!list) return;
+        list.querySelectorAll('.life-record-regenerate').forEach((button) => {
+            button.disabled = !state.lifeRecordsWritable || state.interactionLocked || state.manualSubmission;
+        });
+    }
+
+    function setInteractionLocked(active, reason = '') {
+        state.interactionLocked = Boolean(active);
+        updateRegenerationButtons();
+        if (state.interactionLocked && String(reason) === 'life_record_regeneration') {
+            setStatus('regenerating', strings().regenerating);
+        }
+    }
+
+    function confirmRegeneration() {
+        const recordId = dialogRecordId;
+        if (!recordId || recordId !== state.latestId || state.manualSubmission || state.interactionLocked || !state.lifeRecordsWritable) return;
+        const overlay = ensureRegenerationDialog();
+        const confirm = overlay && overlay.querySelector('.life-record-regeneration-confirm');
+        if (confirm) confirm.disabled = true;
+        state.manualSubmission = true;
+        state.interactionLocked = true;
+        state.backendPendingObserved = false;
+        operationFocusOrigin = dialogOrigin;
+        closeRegenerationDialog(true);
+        setStatus('regenerating', strings().regenerating);
+        updateRegenerationButtons();
+        if (typeof window.setGenerationInteractionLock === 'function') {
+            window.setGenerationInteractionLock(true, 'life_record_regeneration');
+        }
+        try {
+            if (!window.pyBridge || typeof window.pyBridge.regenerate_latest_life_record !== 'function') throw new Error('bridge_unavailable');
+            window.pyBridge.regenerate_latest_life_record(recordId);
+        } catch (error) {
+            showNotice('generation_failed');
+        }
+    }
+
+    function finishPendingOperation(restoreFocus = true) {
+        if (!state.manualSubmission && !state.interactionLocked) return false;
+        state.manualSubmission = false;
+        state.backendPendingObserved = false;
+        state.interactionLocked = false;
+        updateRegenerationButtons();
+        if (typeof window.setGenerationInteractionLock === 'function'
+            && typeof window.isGenerationInteractionLocked === 'function'
+            && window.isGenerationInteractionLocked()) {
+            window.setGenerationInteractionLock(false, 'life_record_regeneration');
+        }
+        if (restoreFocus) restoreOperationFocus();
+        return true;
+    }
+
+    function setBackendPending(active) {
+        if (active && state.manualSubmission) state.backendPendingObserved = true;
+        if (!active && state.manualSubmission) finishPendingOperation();
+    }
+
     function showNotice(code) {
         const text = strings();
         const safeCode = String(code || '');
-        if (safeCode === 'regeneration_failed' && state.records.length) {
-            setStatus('regeneration_failed', text.regenerationFailed);
+        const rejectedManual = state.manualSubmission && !state.backendPendingObserved;
+        if (rejectedManual) finishPendingOperation(false);
+        const preserveRecordNotices = {
+            regeneration_failed: text.regenerationFailed,
+            generation_failed: text.regenerationFailed,
+            save_failed: text.regenerationFailed,
+            busy: text.busy,
+            read_only: text.readOnly,
+            session_lease_unavailable: text.readOnly,
+            session_tracker_degraded: text.readOnly,
+            timezone_unavailable: text.readOnly,
+            not_latest: text.notLatest,
+            not_found: text.notLatest,
+            cancelled: text.cancelled,
+            refresh_failed: text.refreshFailed,
+            read_error: text.readError,
+            world_empty: text.worldEmpty,
+            world_unavailable: text.generationFailed,
+        };
+        if (state.records.length && preserveRecordNotices[safeCode]) {
+            setStatus(safeCode, preserveRecordNotices[safeCode]);
             renderRecords();
+            if (safeCode === 'world_empty' && list) {
+                const settingsButton = textElement('button', 'life-record-state-action', text.openSettings);
+                settingsButton.type = 'button';
+                settingsButton.setAttribute('aria-label', `${text.worldEmpty} ${text.openSettings}`);
+                settingsButton.addEventListener('click', openSettings);
+                list.appendChild(settingsButton);
+            }
+            if (rejectedManual) restoreOperationFocus();
             return;
         }
         const cases = {
@@ -226,10 +461,20 @@
             generation_failed: ['generation_failed', text.generationFailed, '', null],
             save_failed: ['save_failed', text.saveFailed, '', null],
             regeneration_failed: ['regeneration_failed', text.regenerationFailed, '', null],
+            busy: ['busy', text.busy, '', null],
+            read_only: ['read_only', text.readOnly, '', null],
+            session_lease_unavailable: ['read_only', text.readOnly, '', null],
+            session_tracker_degraded: ['read_only', text.readOnly, '', null],
+            timezone_unavailable: ['read_only', text.readOnly, '', null],
+            not_latest: ['not_latest', text.notLatest, '', null],
+            not_found: ['not_latest', text.notLatest, '', null],
+            cancelled: ['cancelled', text.cancelled, '', null],
+            refresh_failed: ['refresh_failed', text.refreshFailed, text.retry, requestSelectedDate],
         };
         const [kind, message, label, action] = cases[safeCode] || ['error', text.unknownError, text.retry, requestSelectedDate];
         setStatus(kind, message);
         renderActionState(kind, message, label, action);
+        if (rejectedManual) restoreOperationFocus();
     }
 
     function requestSelectedDate() {
@@ -310,11 +555,18 @@
             return false;
         }
         state.language = normalizeLanguage(payload.language);
+        if (document.documentElement) document.documentElement.lang = state.language;
         state.viewTimezone = typeof payload.view_timezone === 'string' && payload.view_timezone ? payload.view_timezone : 'UTC';
         state.latestId = typeof payload.latest_id === 'string' ? payload.latest_id : null;
+        state.lifeRecordsWritable = payload.life_records_writable === true;
+        const publicReadOnlyReasons = ['session_lease_unavailable', 'timezone_unavailable', 'session_tracker_degraded'];
+        state.readOnlyReason = publicReadOnlyReasons.includes(payload.read_only_reason) ? payload.read_only_reason : '';
         state.records = payload.records.slice();
         updateLabels();
-        if (state.records.length) { setStatus('ready', ''); renderRecords(); }
+        if (state.records.length) {
+            setStatus(state.lifeRecordsWritable ? 'ready' : 'read_only', state.lifeRecordsWritable ? '' : strings().readOnly);
+            renderRecords();
+        }
         else { setStatus('empty', strings().empty); renderActionState('empty', strings().empty); }
         return true;
     }
@@ -343,7 +595,20 @@
         close: closePanel,
         receive,
         showNotice,
-        setLanguage(value) { state.language = normalizeLanguage(value); updateLabels(); },
+        setLanguage(value) {
+            state.language = normalizeLanguage(value);
+            if (document.documentElement) document.documentElement.lang = state.language;
+            updateLabels();
+            renderRecords();
+        },
+        setInteractionLocked,
+        setBackendPending,
+        finishPendingOperation,
+        getStageText(stage) {
+            if (stage === 'life_record') return strings().preparing;
+            if (stage === 'life_record_regeneration') return strings().regenerating;
+            return strings().thinking;
+        },
         setNowProvider(provider) { if (typeof provider === 'function') nowProvider = provider; },
         getState() { return { ...state, records: state.records.slice() }; },
     };

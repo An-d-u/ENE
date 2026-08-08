@@ -43,9 +43,17 @@ class Element {{
         this.value = '';
         this.type = '';
         this.hidden = false;
+        this.disabled = false;
+        this.isConnected = true;
     }}
     appendChild(child) {{ child.parentElement = this; this.children.push(child); return child; }}
-    replaceChildren(...children) {{ this.children = []; this.textContent = ''; children.forEach((child) => this.appendChild(child)); }}
+    replaceChildren(...children) {{
+        const disconnect = (node) => {{ node.isConnected = false; node.children.forEach(disconnect); }};
+        this.children.forEach(disconnect);
+        this.children = [];
+        this.textContent = '';
+        children.forEach((child) => {{ child.isConnected = true; this.appendChild(child); }});
+    }}
     setAttribute(name, value) {{ this.attributes[name] = String(value); }}
     removeAttribute(name) {{ delete this.attributes[name]; }}
     getAttribute(name) {{ return this.attributes[name] ?? null; }}
@@ -54,7 +62,7 @@ class Element {{
         const event = {{ target: this, key: '', preventDefault() {{}}, stopPropagation() {{}}, ...extra }};
         (this.eventListeners[type] || []).forEach((handler) => handler(event));
     }}
-    click() {{ this.dispatch('click'); }}
+    click() {{ if (!this.disabled) this.dispatch('click'); }}
     focus() {{ document.activeElement = this; }}
     querySelectorAll(selector) {{
         const found = [];
@@ -78,12 +86,22 @@ const ids = [
 const elements = Object.fromEntries(ids.map((id) => [id, new Element(id.includes('input') ? 'input' : 'div', id)]));
 elements['life-records-panel'].className = 'hidden';
 elements['life-records-floating-btn'].setAttribute('aria-expanded', 'false');
+elements['life-records-panel'].appendChild(elements['life-records-panel-title']);
+elements['life-records-panel'].appendChild(elements['life-records-close-btn']);
+elements['life-records-panel'].appendChild(elements['life-records-previous-btn']);
+elements['life-records-panel'].appendChild(elements['life-records-next-btn']);
+elements['life-records-panel'].appendChild(elements['life-records-today-btn']);
+elements['life-records-panel'].appendChild(elements['life-records-date-input']);
+elements['life-records-panel'].appendChild(elements['life-records-status']);
+elements['life-records-panel'].appendChild(elements['life-records-list']);
 elements['floating-actions-menu'].appendChild(elements['life-records-floating-btn']);
 elements['floating-action-buttons'].appendChild(elements['floating-actions-toggle']);
 elements['floating-action-buttons'].appendChild(elements['floating-actions-menu']);
 
 const requests = [];
 const settingsSections = [];
+const regenerationCalls = [];
+const interactionLockCalls = [];
 const document = {{
     activeElement: null,
     documentElement: {{ lang: 'ko' }},
@@ -96,14 +114,17 @@ const window = {{
     pyBridge: {{
         request_life_records_for_date: (date, requestId) => requests.push([date, requestId]),
         open_settings_dialog_section: (section) => settingsSections.push(section),
+        regenerate_latest_life_record: (recordId) => regenerationCalls.push(recordId),
     }},
     setFloatingActionsOpen: (open) => {{
         elements['floating-actions-menu'].hidden = !open;
         elements['floating-actions-menu'].inert = !open;
         elements['floating-actions-menu'].setAttribute('aria-hidden', String(!open));
     }},
+    setGenerationInteractionLock: (active, reason) => interactionLockCalls.push([Boolean(active), String(reason || '')]),
+    isGenerationInteractionLocked: () => Boolean(interactionLockCalls.length && interactionLockCalls.at(-1)[0]),
 }};
-const context = {{ window, document, elements, requests, settingsSections, console: {{ warn: () => {{}}, error: () => {{}} }}, Intl, Date, setTimeout, clearTimeout, result: null }};
+const context = {{ window, document, elements, requests, settingsSections, regenerationCalls, interactionLockCalls, console: {{ warn: () => {{}}, error: () => {{}} }}, Intl, Date, setTimeout, clearTimeout, result: null }};
 const runtimeSource = fs.readFileSync({json.dumps(str(PANEL_PATH))}, 'utf8');
 const caseSource = {json.dumps(case_script)};
 vm.createContext(context);
@@ -195,6 +216,7 @@ const staleCount = elements['life-records-list'].children.length;
 window.eneLifeRecordPanel.receive({
   status: 'ready', requested_date: current[0], request_id: current[1],
   view_timezone: 'Asia/Seoul', language: 'ko', latest_id: 'latest',
+  life_records_writable: true, read_only_reason: null,
   records: [
     { id: 'newer', inactive_started_at: '2099-08-06T08:00:00+09:00', returned_at: '2099-08-06T09:00:00+09:00', entries: [{ started_at: '2099-08-06T08:00:00+09:00', ended_at: '2099-08-06T09:00:00+09:00', place: 'Garden', activity: 'First' }], ending_state: { place: 'Garden', summary: 'One' } },
     { id: 'older', inactive_started_at: '2099-08-06T06:00:00+09:00', returned_at: '2099-08-06T07:00:00+09:00', entries: [{ started_at: '2099-08-06T06:00:00+09:00', ended_at: '2099-08-06T07:00:00+09:00', place: 'Room', activity: 'Second' }], ending_state: { place: 'Room', summary: 'Two' } },

@@ -200,6 +200,28 @@ def test_date_query_uses_view_timezone_language_request_id_and_global_latest(tmp
     assert payload["language"] == "ja"
     assert [item["id"] for item in payload["records"]] == [latest.id]
     assert payload["latest_id"] == latest.id
+    assert payload["life_records_writable"] is True
+    assert payload["read_only_reason"] is None
+
+
+def test_date_query_exposes_only_allowlisted_read_only_capability(tmp_path):
+    manager = LifeRecordManager(tmp_path / "life_records.json")
+    _seed(manager)
+    bridge = _Bridge(manager)
+    bridge.life_record_state.life_records_writable = False
+    bridge.life_record_state.read_only_reason = "session_lease_unavailable"
+
+    bridge.request_life_records_for_date("2099-08-06", "synthetic-read-only")
+    payload = json.loads([event[1] for event in bridge.events if event[0] == "items"][-1])
+
+    assert payload["life_records_writable"] is False
+    assert payload["read_only_reason"] == "session_lease_unavailable"
+
+    bridge.life_record_state.read_only_reason = "private-runtime-detail"
+    bridge.request_life_records_for_date("2099-08-06", "synthetic-invalid-reason")
+    payload = json.loads([event[1] for event in bridge.events if event[0] == "items"][-1])
+    assert payload["life_records_writable"] is False
+    assert payload["read_only_reason"] is None
 
 
 def test_date_query_reports_safe_error_and_never_uses_stale_runtime_records(tmp_path):

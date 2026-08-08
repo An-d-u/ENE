@@ -4,6 +4,10 @@
  */
 // 요청 진행 중 로딩 인디케이터를 표시/숨김 처리한다.
 function getRequestPendingLoadingText() {
+    if ((requestPendingStage === 'life_record' || requestPendingStage === 'life_record_regeneration')
+        && window.eneLifeRecordPanel && typeof window.eneLifeRecordPanel.getStageText === 'function') {
+        return window.eneLifeRecordPanel.getStageText(requestPendingStage);
+    }
     if (requestPendingStage === 'searching') {
         return (currentUiStrings && currentUiStrings.loadingSearching)
             || DEFAULT_UI_STRINGS.loadingSearching
@@ -21,8 +25,78 @@ function updateLoadingIndicatorText() {
 
 function normalizeRequestPendingStage(stage) {
     const normalized = String(stage || '').trim().toLowerCase();
-    return normalized === 'searching' ? 'searching' : 'thinking';
+    return ['searching', 'life_record', 'life_record_regeneration', 'thinking'].includes(normalized)
+        ? normalized
+        : 'thinking';
 }
+
+const generationInteractionLockState = {
+    active: false,
+    reason: '',
+    snapshots: new Map(),
+};
+
+function generationMutableControls() {
+    const controls = [chatInput, sendButton, attachButton, imageInput];
+    if (activeInlineEditMessageEl) {
+        controls.push(activeInlineEditMessageEl.querySelector('.inline-edit-save'));
+        controls.push(activeInlineEditMessageEl.querySelector('.inline-edit-input'));
+        controls.push(activeInlineEditMessageEl.querySelector('.inline-edit-cancel'));
+    }
+    if (chatMessages) {
+        [
+            '.message-edit-btn',
+            '.message-reroll-btn',
+            '.inline-edit-save',
+            '.inline-edit-input',
+            '.inline-edit-cancel',
+        ].forEach((selector) => {
+            chatMessages.querySelectorAll(selector).forEach((node) => controls.push(node));
+        });
+    }
+    return controls.filter(Boolean);
+}
+
+function applyGenerationInteractionLockToCurrentTargets() {
+    if (!generationInteractionLockState.active) return;
+    generationMutableControls().forEach((control) => {
+        if (!generationInteractionLockState.snapshots.has(control)) {
+            generationInteractionLockState.snapshots.set(control, Boolean(control.disabled));
+        }
+        control.disabled = true;
+    });
+}
+
+function setGenerationInteractionLock(active, reason = '') {
+    const shouldLock = Boolean(active);
+    const normalizedReason = normalizeRequestPendingStage(reason);
+    let shouldNotifyPanel = false;
+    if (shouldLock) {
+        shouldNotifyPanel = !generationInteractionLockState.active
+            || generationInteractionLockState.reason !== normalizedReason;
+        generationInteractionLockState.reason = normalizedReason;
+        if (!generationInteractionLockState.active) {
+            generationInteractionLockState.active = true;
+        }
+        applyGenerationInteractionLockToCurrentTargets();
+    } else if (generationInteractionLockState.active) {
+        shouldNotifyPanel = true;
+        generationInteractionLockState.snapshots.forEach((wasDisabled, control) => {
+            if (control && control.isConnected !== false) control.disabled = wasDisabled;
+        });
+        generationInteractionLockState.snapshots.clear();
+        generationInteractionLockState.active = false;
+        generationInteractionLockState.reason = '';
+    }
+    if (shouldNotifyPanel && window.eneLifeRecordPanel && typeof window.eneLifeRecordPanel.setInteractionLocked === 'function') {
+        window.eneLifeRecordPanel.setInteractionLocked(shouldLock, normalizedReason);
+    }
+}
+
+window.setGenerationInteractionLock = setGenerationInteractionLock;
+window.isGenerationInteractionLocked = function isGenerationInteractionLocked() {
+    return generationInteractionLockState.active;
+};
 
 function showLoadingIndicator(show) {
     if (loadingIndicator) {
@@ -43,21 +117,28 @@ function showLoadingIndicator(show) {
 }
 
 function updateRequestInputControls() {
-    if (sendButton) {
+    if (sendButton && !generationInteractionLockState.active) {
         sendButton.disabled = isRequestPending;
     }
     if (activeInlineEditMessageEl) {
         const saveBtn = activeInlineEditMessageEl.querySelector('.inline-edit-save');
-        if (saveBtn) {
+        if (saveBtn && !generationInteractionLockState.active) {
             saveBtn.disabled = isRequestPending;
         }
     }
+    applyGenerationInteractionLockToCurrentTargets();
 }
 
 function setRequestPending(active) {
     isRequestPending = Boolean(active);
-    if (!isRequestPending) {
+    if (isRequestPending) {
+        setGenerationInteractionLock(true, requestPendingStage);
+    } else {
+        setGenerationInteractionLock(false, requestPendingStage);
         requestPendingStage = 'thinking';
+    }
+    if (window.eneLifeRecordPanel && typeof window.eneLifeRecordPanel.setBackendPending === 'function') {
+        window.eneLifeRecordPanel.setBackendPending(isRequestPending);
     }
     showLoadingIndicator(isRequestPending);
     updateRequestInputControls();
@@ -67,6 +148,7 @@ function setRequestPending(active) {
 function setRequestPendingStage(stage) {
     requestPendingStage = normalizeRequestPendingStage(stage);
     if (isRequestPending) {
+        setGenerationInteractionLock(true, requestPendingStage);
         updateLoadingIndicatorText();
     }
 }
@@ -241,10 +323,12 @@ function updateRerollButtonState() {
     updateMessageThoughtButtons();
 
     if (!recentEditButtonVisibleBySetting || !hasUserMessage || !lastUserMessageEl) {
+        applyGenerationInteractionLockToCurrentTargets();
         return;
     }
     const userBubbleStack = lastUserMessageEl.querySelector('.message-bubble-stack');
     if (!userBubbleStack) {
+        applyGenerationInteractionLockToCurrentTargets();
         return;
     }
     const editBtn = document.createElement('button');
@@ -265,9 +349,11 @@ function updateRerollButtonState() {
         lastUserMessageEl.dataset.messageTimestamp,
     );
     if (!userRail) {
+        applyGenerationInteractionLockToCurrentTargets();
         return;
     }
     userRail.appendChild(editBtn);
+    applyGenerationInteractionLockToCurrentTargets();
 }
 
 // 설정창 값에 따라 리롤 버튼 표시 여부를 반영한다.
