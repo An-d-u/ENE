@@ -456,6 +456,7 @@ def test_gitignore_covers_life_and_existing_runtime_files():
     assert {
         "prompts/life_world.md",
         "life_records.json",
+        "life_records.json.write.lock",
         "life_session_state.json",
         "life_session_state.lock",
         ".*.json.*.tmp",

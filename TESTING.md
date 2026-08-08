@@ -82,9 +82,10 @@ python -m pytest tests/test_local_time.py tests/test_life_session_tracker.py tes
 
 이 묶음은 다음 계약을 함께 잠근다.
 
-- `life_records.json`과 `life_session_state.json`의 스키마, 원자 저장, 잠금, 손상 파일 fail-closed 처리
-- 일반 환경의 전달된 데이터 파일과 Microsoft Store Python의 visible Roaming 파일을 권위 저장소로 사용하는 규칙
-- Microsoft Store Python 런타임 캐시가 권위 파일을 덮지 않고, 권위 파일로부터만 복구되는 규칙
+- `life_records.json`의 스키마, 원자 저장, 잠금, 손상 원본 보존과 쓰기 거부
+- 손상된 `life_session_state.json`의 이전 후보 폐기와 새 `running` 상태 복구
+- 두 JSON 파일에서 일반 환경의 전달된 데이터 파일과 Microsoft Store Python의 visible Roaming 파일을 권위 저장소로 사용하는 규칙
+- 두 JSON 파일의 Microsoft Store Python 런타임 캐시가 권위 파일을 덮지 않고, 권위 파일로부터만 복구되는 규칙
 - IANA 시간대, UTC instant 비교, DST 23시간·25시간 날짜 경계, 자정 양쪽 날짜 조회
 - 기본 비활성화, 60분 임계값, 빈 생활 환경과 생성·저장 실패에서도 일반 채팅을 계속하는 동작
 - 첫 일반 채팅 gate, 명령 선행, 첨부 대화, 리롤 비재생성, 최신 기록만 재생성하는 동작
@@ -96,8 +97,8 @@ python -m pytest tests/test_local_time.py tests/test_life_session_tracker.py tes
 ### 저장소와 손상 테스트 원칙
 
 - 테스트마다 임시 사용자 데이터 루트를 사용하고 실제 `%AppData%/ENE`를 읽거나 쓰지 않는다.
-- 권위 파일을 손상시키는 테스트는 원본 bytes가 보존되고 추가·교체 쓰기가 거부되는지 확인한다.
-- Store cache 테스트는 stale cache가 유효해도 missing 또는 손상된 visible 권위 파일 대신 반환되지 않는지 확인한다.
+- `life_records.json` 권위 파일을 손상시키는 테스트는 원본 bytes가 보존되고 추가·교체 쓰기가 거부되는지 확인한다.
+- 두 JSON 파일의 Store cache 테스트는 stale cache가 유효해도 missing 또는 손상된 visible 권위 파일 대신 반환되지 않는지 확인한다.
 - 예시는 2099년의 가상 장소·활동만 사용하고 실제 사용자 원문을 fixture나 assertion에 복사하지 않는다.
 
 ### 로그와 개인정보 검사
@@ -108,6 +109,7 @@ commit 전에는 변경된 파일의 UTF-8(BOM 없음), diff whitespace, 비밀�
 
 ```text
 life_records.json
+life_records.json.write.lock
 life_session_state.json
 life_session_state.lock
 prompts/life_world.md
