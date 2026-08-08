@@ -398,6 +398,26 @@ def test_store_powershell_atomic_write_uses_unique_temp_flush_replace_and_cleanu
 
 
 @pytest.mark.skipif(os.name != "nt", reason="PowerShell atomic bridge is Windows-only")
+def test_powershell_orphan_cleanup_preserves_temp_when_owner_status_is_unknown(tmp_path):
+    target = tmp_path / "state.json"
+    temp = tmp_path / f".state.json.43210.{'0' * 32}.tmp"
+    temp.write_bytes(b"in-progress")
+    path_text = str(target).replace("'", "''")
+    command = "\n".join(
+        [
+            f"$path = '{path_text}'",
+            "$parent = Split-Path -Parent $path",
+            "function Get-Process { throw [InvalidOperationException]::new('synthetic status unknown') }",
+            *app_paths._powershell_orphan_temp_cleanup_lines(),
+        ]
+    )
+
+    app_paths._run_powershell_command(command)
+
+    assert temp.read_bytes() == b"in-progress"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="PowerShell atomic bridge is Windows-only")
 def test_powershell_atomic_write_round_trips_empty_and_nonempty_bytes(tmp_path):
     target = tmp_path / "state.bin"
 
