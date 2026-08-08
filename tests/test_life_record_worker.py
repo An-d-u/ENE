@@ -1,3 +1,4 @@
+import asyncio
 import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -208,6 +209,30 @@ def test_life_record_worker_does_not_retry_provider_error_and_hides_exception():
     assert "SYNTHETIC-NESTED-PRIVATE" not in repr(result)
 
 
+@pytest.mark.parametrize(
+    "provider_failure",
+    [
+        asyncio.CancelledError("SYNTHETIC-CANCELLED-PRIVATE"),
+        BaseException("SYNTHETIC-BASE-PRIVATE"),
+    ],
+)
+def test_life_record_worker_contains_provider_base_exception_without_raw_details(
+    provider_failure, capsys
+):
+    client = _Client(provider_failure)
+
+    successes, failures = _run(LifeRecordWorker(client, _request()))
+    captured = capsys.readouterr()
+
+    assert successes == []
+    assert len(failures) == 1
+    result = failures[0][1]
+    assert result.error_code == "generation_failed"
+    assert result.attempt_count == 1
+    assert "SYNTHETIC" not in captured.out
+    assert "SYNTHETIC" not in captured.err
+
+
 def test_life_record_worker_usage_keeps_missing_field_none_across_attempts():
     client = _Client(
         _one_shot(_invalid_output(), usage=(2, None, 5)),
@@ -252,6 +277,62 @@ def test_life_record_worker_interruption_after_await_prevents_retry_and_signals(
     assert successes == []
     assert failures == []
     assert len(client.prompts) == 1
+
+
+def test_life_record_worker_provider_cancellation_is_silent_when_interrupted():
+    interrupted = False
+
+    class CancellingClient(_Client):
+        async def generate_life_record_once(self, prompt: str):
+            nonlocal interrupted
+            self.prompts.append(prompt)
+            interrupted = True
+            raise asyncio.CancelledError("SYNTHETIC-CANCELLED-PRIVATE")
+
+    class InterruptibleWorker(LifeRecordWorker):
+        def isInterruptionRequested(self):
+            return interrupted
+
+    client = CancellingClient()
+
+    successes, failures = _run(InterruptibleWorker(client, _request()))
+
+    assert successes == []
+    assert failures == []
+    assert len(client.prompts) == 1
+
+
+@pytest.mark.parametrize("provider_succeeds", [True, False])
+def test_life_record_worker_interruption_during_completion_log_prevents_signal(
+    provider_succeeds, monkeypatch
+):
+    interrupted = False
+
+    class InterruptibleWorker(LifeRecordWorker):
+        def isInterruptionRequested(self):
+            return interrupted
+
+    response = (
+        _one_shot(_valid_output())
+        if provider_succeeds
+        else RuntimeError("SYNTHETIC-PROVIDER-PRIVATE")
+    )
+    client = _Client(response)
+    worker = InterruptibleWorker(client, _request())
+    original_print = print
+
+    def interrupting_print(*args, **kwargs):
+        nonlocal interrupted
+        original_print(*args, **kwargs)
+        if args and str(args[0]).startswith("[Life Record Worker]"):
+            interrupted = True
+
+    monkeypatch.setattr("builtins.print", interrupting_print)
+
+    successes, failures = _run(worker)
+
+    assert successes == []
+    assert failures == []
 
 
 def test_life_record_worker_does_not_mutate_provider_history():
