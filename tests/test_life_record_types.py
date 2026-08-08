@@ -451,3 +451,25 @@ def test_store_accepts_mathematically_finite_huge_integer_mood_axis():
     )[0]
 
     assert parsed.mood_snapshot["valence"] == huge_integer
+
+
+def test_factory_rejects_mood_integer_that_json_serializer_cannot_encode():
+    record_data = _record_dict()
+    record_data["mood_snapshot"]["valence"] = 10**5000
+
+    with pytest.raises(LifeRecordValidationError) as error:
+        record = create_life_record(**record_data)
+        json.dumps(life_record_to_dict(record), ensure_ascii=False)
+
+    assert error.value.code == "invalid_mood"
+    assert str(error.value) == "invalid_mood"
+
+
+def test_factory_result_with_supported_large_mood_integer_is_json_serializable():
+    record_data = _record_dict()
+    record_data["mood_snapshot"]["valence"] = 10**4000
+
+    record = create_life_record(**record_data)
+    serialized = json.dumps(life_record_to_dict(record), ensure_ascii=False)
+
+    assert serialized
