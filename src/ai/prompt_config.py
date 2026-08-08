@@ -34,15 +34,19 @@ DEFAULT_PROMPT_CONFIG_DIR = get_bundle_prompts_defaults_dir()
 BASE_SYSTEM_PROMPT_PATH = PROMPT_CONFIG_DIR / "base_system_prompt.md"
 SUB_PROMPT_BODY_PATH = PROMPT_CONFIG_DIR / "sub_prompt_body.md"
 EMOTION_GUIDES_PATH = PROMPT_CONFIG_DIR / "emotion_guides.md"
+LIFE_WORLD_PROMPT_FILENAME = "life_world.md"
+LIFE_WORLD_PROMPT_PATH = PROMPT_CONFIG_DIR / LIFE_WORLD_PROMPT_FILENAME
 
 DEFAULT_BASE_SYSTEM_PROMPT_PATH = DEFAULT_PROMPT_CONFIG_DIR / "base_system_prompt.md"
 DEFAULT_SUB_PROMPT_BODY_PATH = DEFAULT_PROMPT_CONFIG_DIR / "sub_prompt_body.md"
 DEFAULT_EMOTION_GUIDES_PATH = DEFAULT_PROMPT_CONFIG_DIR / "emotion_guides.md"
+DEFAULT_LIFE_WORLD_PROMPT_PATH = DEFAULT_PROMPT_CONFIG_DIR / LIFE_WORLD_PROMPT_FILENAME
 
 PROMPT_MARKDOWN_FILENAMES = (
     "base_system_prompt.md",
     "sub_prompt_body.md",
     "emotion_guides.md",
+    LIFE_WORLD_PROMPT_FILENAME,
 )
 
 GENERATED_SUB_PROMPT_SECTION_TITLES = {
@@ -297,7 +301,23 @@ def ensure_prompt_config_exists() -> Path:
     _copy_default_if_missing(BASE_SYSTEM_PROMPT_PATH, DEFAULT_BASE_SYSTEM_PROMPT_PATH)
     _copy_default_if_missing(SUB_PROMPT_BODY_PATH, DEFAULT_SUB_PROMPT_BODY_PATH)
     _copy_default_if_missing(EMOTION_GUIDES_PATH, DEFAULT_EMOTION_GUIDES_PATH)
+    _copy_default_if_missing(LIFE_WORLD_PROMPT_PATH, DEFAULT_LIFE_WORLD_PROMPT_PATH)
     return PROMPT_CONFIG_DIR
+
+
+def load_life_world_prompt() -> str:
+    """현재 생활 환경 프롬프트를 읽는다."""
+    _sync_visible_roaming_prompt_files_to_runtime()
+    _copy_default_if_missing(LIFE_WORLD_PROMPT_PATH, DEFAULT_LIFE_WORLD_PROMPT_PATH)
+    return _read_text_file(LIFE_WORLD_PROMPT_PATH)
+
+
+def save_life_world_prompt(text: str) -> str:
+    """생활 환경 프롬프트를 UTF-8로 저장한다."""
+    normalized = str(text or "").replace("\r\n", "\n").strip("\n")
+    _write_text_file(LIFE_WORLD_PROMPT_PATH, normalized)
+    _sync_runtime_prompt_files_to_visible_roaming()
+    return normalized
 
 
 def load_prompt_config() -> dict:

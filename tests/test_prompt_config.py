@@ -59,6 +59,44 @@ def test_load_prompt_config_creates_local_markdown_files_from_default(tmp_path, 
     assert not (local_dir / "analysis_system_appendix.md").exists()
 
 
+def test_life_world_prompt_is_created_from_default_and_saved_as_utf8(tmp_path, monkeypatch):
+    from src.ai import prompt_config
+
+    default_dir = tmp_path / "prompts" / "defaults"
+    local_dir = tmp_path / "prompts"
+    default_path = default_dir / "life_world.md"
+    local_path = local_dir / "life_world.md"
+    _write_text(default_path, "# 작은 마을\n\n작은 광장과 빵집이 있다.")
+
+    monkeypatch.setattr(prompt_config, "LIFE_WORLD_PROMPT_PATH", local_path)
+    monkeypatch.setattr(prompt_config, "DEFAULT_LIFE_WORLD_PROMPT_PATH", default_path)
+
+    assert "life_world.md" in prompt_config.PROMPT_MARKDOWN_FILENAMES
+    assert prompt_config.load_life_world_prompt() == "# 작은 마을\n\n작은 광장과 빵집이 있다."
+    assert local_path.exists()
+
+    prompt_config.save_life_world_prompt("도서관과 주택")
+
+    assert prompt_config.load_life_world_prompt() == "도서관과 주택"
+    assert not local_path.read_bytes().startswith(b"\xef\xbb\xbf")
+
+
+def test_life_world_prompt_preserves_intentionally_empty_content(tmp_path, monkeypatch):
+    from src.ai import prompt_config
+
+    default_path = tmp_path / "defaults" / "life_world.md"
+    local_path = tmp_path / "prompts" / "life_world.md"
+    _write_text(default_path, "기본 생활 환경")
+
+    monkeypatch.setattr(prompt_config, "LIFE_WORLD_PROMPT_PATH", local_path)
+    monkeypatch.setattr(prompt_config, "DEFAULT_LIFE_WORLD_PROMPT_PATH", default_path)
+
+    prompt_config.save_life_world_prompt("")
+
+    assert local_path.exists()
+    assert prompt_config.load_life_world_prompt() == ""
+
+
 def test_load_prompt_config_strips_generated_emotion_sections_in_both_languages(tmp_path, monkeypatch):
     from src.ai import prompt_config
 
@@ -1120,6 +1158,7 @@ def test_load_prompt_config_prefers_visible_roaming_prompts_under_store_python(t
 
     _write_prompt_markdown_files(default_dir, default_payload)
     _write_prompt_markdown_files(visible_dir, visible_payload)
+    _write_text(visible_dir / "life_world.md", "실제 Roaming 생활 환경")
 
     monkeypatch.setattr(prompt_config, "PROMPT_CONFIG_DIR", runtime_dir)
     monkeypatch.setattr(prompt_config, "DEFAULT_PROMPT_CONFIG_DIR", default_dir)
@@ -1139,6 +1178,7 @@ def test_load_prompt_config_prefers_visible_roaming_prompts_under_store_python(t
     assert loaded["sub_prompt_body"] == "### [응답 형식]\n- 실제 Roaming 규칙"
     assert "analysis_system_appendix" not in loaded
     assert loaded["emotion_guides"] == visible_payload["emotion_guides"]
+    assert (runtime_dir / "life_world.md").read_text(encoding="utf-8-sig") == "실제 Roaming 생활 환경"
 
 
 def test_save_prompt_config_mirrors_visible_roaming_prompts_under_store_python(tmp_path, monkeypatch):
@@ -1149,6 +1189,7 @@ def test_save_prompt_config_mirrors_visible_roaming_prompts_under_store_python(t
     visible_dir = tmp_path / "visible" / "prompts"
 
     _write_prompt_markdown_files(default_dir, _sample_prompt_payload())
+    _write_text(runtime_dir / "life_world.md", "런타임 생활 환경")
 
     monkeypatch.setattr(prompt_config, "PROMPT_CONFIG_DIR", runtime_dir)
     monkeypatch.setattr(prompt_config, "DEFAULT_PROMPT_CONFIG_DIR", default_dir)
@@ -1175,6 +1216,7 @@ def test_save_prompt_config_mirrors_visible_roaming_prompts_under_store_python(t
     assert (visible_dir / "sub_prompt_body.md").read_text(encoding="utf-8-sig") == "### [응답 형식]\n- 저장 후 동기화"
     assert not (visible_dir / "analysis_system_appendix.md").exists()
     assert "실제 Roaming 동기화" in (visible_dir / "emotion_guides.md").read_text(encoding="utf-8-sig")
+    assert (visible_dir / "life_world.md").read_text(encoding="utf-8-sig") == "런타임 생활 환경"
 
 
 def test_store_python_sync_uses_visible_to_runtime_bridge_when_strings_match(monkeypatch):

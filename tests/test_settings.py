@@ -115,6 +115,49 @@ def test_load_missing_file_uses_builtin_idle_motion_default(tmp_path):
     assert settings.get("enable_builtin_idle_motion") is True
 
 
+def test_load_missing_file_uses_life_record_defaults(tmp_path):
+    settings = Settings(
+        config_path=str(tmp_path / "config.json"),
+        secret_path=str(tmp_path / "api_keys.json"),
+    )
+
+    assert settings.get("enable_life_records") is False
+    assert settings.get("life_record_min_inactive_minutes") == 60
+
+
+@pytest.mark.parametrize("saved_value", [0, -1, 1.5, "30", True, False, None])
+def test_life_record_min_inactive_minutes_normalizes_invalid_values_to_default(
+    tmp_path, saved_value
+):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"life_record_min_inactive_minutes": saved_value}),
+        encoding="utf-8",
+    )
+
+    settings = Settings(
+        config_path=str(config_path),
+        secret_path=str(tmp_path / "api_keys.json"),
+    )
+
+    assert settings.get("life_record_min_inactive_minutes") == 60
+
+
+def test_life_record_settings_save_and_load_roundtrip(tmp_path):
+    config_path = tmp_path / "config.json"
+    secret_path = tmp_path / "api_keys.json"
+    settings = Settings(config_path=str(config_path), secret_path=str(secret_path))
+    settings.set("enable_life_records", True)
+    settings.set("life_record_min_inactive_minutes", 90)
+    settings.save()
+
+    reloaded = Settings(config_path=str(config_path), secret_path=str(secret_path))
+
+    assert reloaded.get("enable_life_records") is True
+    assert reloaded.get("life_record_min_inactive_minutes") == 90
+    assert not config_path.read_bytes().startswith(b"\xef\xbb\xbf")
+
+
 def test_load_missing_file_uses_viseme_lipsync_default(tmp_path):
     config_path = tmp_path / "config.json"
     secret_path = tmp_path / "api_keys.json"
