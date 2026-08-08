@@ -20,12 +20,23 @@ class SummaryReviewWorker(QThread):
         super().__init__()
         self.bridge = bridge
         self.messages = list(messages or [])
+        self._cancellation_requested = False
+
+    def requestInterruption(self) -> None:
+        """스레드 시작 전 취소 요청도 잃지 않도록 함께 기록한다."""
+        self._cancellation_requested = True
+        super().requestInterruption()
+
+    def _is_cancelled(self) -> bool:
+        return self._cancellation_requested or self.isInterruptionRequested()
 
     def run(self):
         import asyncio
 
         loop = None
         try:
+            if self._is_cancelled():
+                return
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             builder = getattr(self.bridge, "_build_summary_review_state", None)
@@ -34,9 +45,14 @@ class SummaryReviewWorker(QThread):
                     self.bridge,
                     messages,
                 )
-            self.prepared.emit(loop.run_until_complete(builder(self.messages)))
-        except Exception as exc:
-            self.failed.emit(str(exc))
+            pending = loop.run_until_complete(builder(self.messages))
+            if self._is_cancelled():
+                return
+            self.prepared.emit(pending)
+        except BaseException:
+            if self._is_cancelled():
+                return
+            self.failed.emit("summary_review_error")
         finally:
             asyncio.set_event_loop(None)
             if loop is not None:
@@ -44,6 +60,11 @@ class SummaryReviewWorker(QThread):
 
 
 class MemorySummaryBridgeMixin:
+    @staticmethod
+    def _summary_bridge_is_shutting_down(bridge) -> bool:
+        state = getattr(bridge, "life_record_state", None)
+        return getattr(state, "phase", None) == "shutting_down"
+
     def _loaded_topic_memory_context_for_messages(self, messages) -> str:
         """이번 요약 범위에서 응답 생성 때 실제로 로드된 주제 기억만 모은다."""
         reviewed_count = len(list(messages or []))
@@ -137,6 +158,8 @@ class MemorySummaryBridgeMixin:
 
     def _start_summary_review_worker(self, messages, *, success_notice: str):
         """요약 후보 생성을 별도 스레드에서 시작한다."""
+        if MemorySummaryBridgeMixin._summary_bridge_is_shutting_down(self):
+            return None
         current_worker = getattr(self, "_summary_review_worker", None)
         if current_worker is not None and current_worker.isRunning():
             print("[Bridge] Summary review ignored: worker is still running")
@@ -163,6 +186,8 @@ class MemorySummaryBridgeMixin:
         return worker
 
     def _on_summary_review_prepared(self, pending):
+        if MemorySummaryBridgeMixin._summary_bridge_is_shutting_down(self):
+            return
         if not isinstance(pending, dict):
             self.summary_notice.emit("요약할 대화가 없어요.", "info")
             return
@@ -173,10 +198,14 @@ class MemorySummaryBridgeMixin:
         self.summary_notice.emit(notice, "info")
 
     def _on_summary_review_failed(self, error: str):
-        print(f"[Bridge] Manual summarize failed: {error}")
+        if MemorySummaryBridgeMixin._summary_bridge_is_shutting_down(self):
+            return
+        print("[Bridge] Manual summarize failed: summary_review_error")
         self.summary_notice.emit("요약 중 오류가 발생했어요.", "error")
 
     def _on_summary_review_worker_finished(self, worker):
+        if MemorySummaryBridgeMixin._summary_bridge_is_shutting_down(self):
+            return
         if getattr(self, "_summary_review_worker", None) is worker:
             self._summary_review_worker = None
         self._summary_review_success_notice = ""

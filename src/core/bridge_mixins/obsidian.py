@@ -33,6 +33,11 @@ def _safe_obsidian_result_path(value) -> str:
 
 
 class ObsidianBridgeMixin:
+    @staticmethod
+    def _obsidian_bridge_is_shutting_down(bridge) -> bool:
+        state = getattr(bridge, "life_record_state", None)
+        return getattr(state, "phase", None) == "shutting_down"
+
     def set_obs_panel_window(self, panel_window):
         """Obsidian 플로팅 패널 참조를 등록한다."""
         self.obs_panel_window = panel_window
@@ -105,6 +110,8 @@ class ObsidianBridgeMixin:
 
     def _schedule_checked_files_context_refresh(self, force: bool = False):
         """일반 채팅용 체크 파일 컨텍스트를 백그라운드에서 갱신한다."""
+        if ObsidianBridgeMixin._obsidian_bridge_is_shutting_down(self):
+            return
         if not self._obsidian_integration_activated:
             return
 
@@ -189,6 +196,8 @@ class ObsidianBridgeMixin:
 
     def _on_checked_files_context_ready(self, context: str, signature_payload: str):
         """백그라운드에서 준비된 체크 파일 컨텍스트를 캐시에 반영한다."""
+        if ObsidianBridgeMixin._obsidian_bridge_is_shutting_down(self):
+            return
         signature = self._decode_checked_files_signature(signature_payload)
         current_signature = self._get_checked_files_signature()
         if signature != current_signature:
@@ -199,6 +208,8 @@ class ObsidianBridgeMixin:
 
     def _on_checked_files_context_error(self, error_msg: str, signature_payload: str):
         """체크 파일 캐시 갱신 실패를 기록하고, 필요하면 다시 시도한다."""
+        if ObsidianBridgeMixin._obsidian_bridge_is_shutting_down(self):
+            return
         print("[Bridge] checked_files_context_failed category=obsidian_checked_files_error")
         if not signature_payload:
             return
@@ -409,6 +420,8 @@ class ObsidianBridgeMixin:
 
     def _start_obs_tree_refresh(self, allow_retry: bool = False, retry_sequence: bool = False):
         """Obsidian 트리 갱신을 백그라운드 워커로 실행한다."""
+        if ObsidianBridgeMixin._obsidian_bridge_is_shutting_down(self):
+            return
         if self.obs_tree_worker and self.obs_tree_worker.isRunning():
             return
         if retry_sequence:
@@ -428,6 +441,8 @@ class ObsidianBridgeMixin:
         self._obsidian_integration_activated = True
 
     def _retry_obs_tree_refresh(self):
+        if ObsidianBridgeMixin._obsidian_bridge_is_shutting_down(self):
+            return
         if self._obs_tree_retry_remaining <= 0:
             return
         panel = self.obs_panel_window
@@ -437,12 +452,16 @@ class ObsidianBridgeMixin:
         self._start_obs_tree_refresh(allow_retry=False, retry_sequence=False)
 
     def _schedule_obs_tree_retry_if_needed(self):
+        if ObsidianBridgeMixin._obsidian_bridge_is_shutting_down(self):
+            return
         panel = self.obs_panel_window
         if self._obs_tree_retry_remaining > 0 and panel is not None and panel.isVisible():
             self._obs_tree_retry_remaining -= 1
             self.obs_tree_retry_timer.start(30_000)
 
     def _on_obs_tree_ready(self, tree_json: str):
+        if ObsidianBridgeMixin._obsidian_bridge_is_shutting_down(self):
+            return
         try:
             parsed = json.loads(tree_json or "{}")
         except Exception:
@@ -464,6 +483,8 @@ class ObsidianBridgeMixin:
             self._schedule_obs_tree_retry_if_needed()
 
     def _on_obs_tree_error(self, error_msg: str):
+        if ObsidianBridgeMixin._obsidian_bridge_is_shutting_down(self):
+            return
         payload = json.dumps(
             {"ok": False, "error": _OBSIDIAN_TREE_ERROR_MESSAGE, "nodes": []},
             ensure_ascii=False,

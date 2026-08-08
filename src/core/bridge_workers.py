@@ -569,7 +569,7 @@ class AIWorker(QThread):
                 proactive_conversations,
                 gesture,
             )
-        except Exception as e:
+        except BaseException as e:
             if self._is_cancelled():
                 return
             self.response_metadata = ResponseDeliveryMetadata.empty()
@@ -972,12 +972,27 @@ class ObsidianTreeWorker(QThread):
         super().__init__()
         self.obsidian_manager = obsidian_manager
         self.allow_retry = bool(allow_retry)
+        self._cancellation_requested = False
+
+    def requestInterruption(self) -> None:
+        """스레드 시작 전 취소 요청도 잃지 않도록 함께 기록한다."""
+        self._cancellation_requested = True
+        super().requestInterruption()
+
+    def _is_cancelled(self) -> bool:
+        return self._cancellation_requested or self.isInterruptionRequested()
 
     def run(self):
+        if self._is_cancelled():
+            return
         try:
             payload = self.obsidian_manager.get_tree_json(allow_retry=self.allow_retry)
+            if self._is_cancelled():
+                return
             self.tree_ready.emit(payload)
-        except Exception:
+        except BaseException:
+            if self._is_cancelled():
+                return
             self.error_occurred.emit("obsidian_tree_error")
 
 
@@ -992,14 +1007,27 @@ class ObsidianCheckedFilesWorker(QThread):
         self.obsidian_manager = obsidian_manager
         self.checked_files = [str(path) for path in (checked_files or []) if str(path).strip()]
         self.language = resolve_prompt_language(language)
+        self._cancellation_requested = False
+
+    def requestInterruption(self) -> None:
+        """스레드 시작 전 취소 요청도 잃지 않도록 함께 기록한다."""
+        self._cancellation_requested = True
+        super().requestInterruption()
+
+    def _is_cancelled(self) -> bool:
+        return self._cancellation_requested or self.isInterruptionRequested()
 
     def _build_signature_payload(self) -> str:
         """현재 워커가 읽는 체크 파일 목록을 직렬화한다."""
         return json.dumps(self.checked_files, ensure_ascii=False)
 
     def run(self):
+        if self._is_cancelled():
+            return
         signature_payload = self._build_signature_payload()
         if not self.checked_files:
+            if self._is_cancelled():
+                return
             self.context_ready.emit("", signature_payload)
             return
 
@@ -1009,7 +1037,13 @@ class ObsidianCheckedFilesWorker(QThread):
                 checked_files=self.checked_files,
                 allow_retry=False,
             )
+            if self._is_cancelled():
+                return
             context = build_obsidian_checked_context(checked_contents, self.language)
+            if self._is_cancelled():
+                return
             self.context_ready.emit(context, signature_payload)
-        except Exception:
+        except BaseException:
+            if self._is_cancelled():
+                return
             self.error_occurred.emit("obsidian_checked_files_error", "")
