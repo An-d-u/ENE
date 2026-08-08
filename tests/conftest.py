@@ -1,3 +1,6 @@
+# 일부 경량 단위 테스트가 SDK 부재 환경용 모듈 대역을 등록하므로,
+# 실제 의존성을 먼저 고정해 전체 수집 순서가 SDK 계약 테스트를 오염시키지 않게 한다.
+from google import genai as _google_genai  # noqa: F401
 import pytest
 
 
