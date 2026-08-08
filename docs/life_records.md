@@ -21,28 +21,30 @@ Windows의 사용자가 확인할 수 있는 데이터 루트는 `%AppData%/ENE`
 | --- | --- |
 | `%AppData%/ENE/life_records.json` | 검증을 통과해 저장된 생활 기록 |
 | `%AppData%/ENE/life_session_state.json` | 정상 종료 시각 또는 비정상 종료 복구 기준이 되는 세션 상태 |
-| `%AppData%/ENE/prompts/life_world.md` | 사용자가 편집한 자유형 생활 환경 |
+| `%AppData%/ENE/prompts/life_world.md` | 자유형 생활 환경의 visible 동기화 대상. Store Python에서는 백업 전 현재값 확인 필요 |
 
-앱을 완전히 종료한 뒤 세 파일을 함께 복사하는 방식을 권장한다. 복원할 때도 같은 데이터 루트와 상대 경로를 유지한다. `life_session_state.lock`과 `life_records.json.write.lock`은 실행 중 동시 접근을 막는 잠금 파일이며 백업 원본으로 사용하지 않는다.
+앱을 완전히 종료한 뒤 세 visible 파일을 함께 복사하는 방식을 기본으로 권장한다. Store Python에서는 아래 동기화 주의사항에 따라 현재 생활 환경을 추가로 확인한다. 복원할 때도 같은 데이터 루트와 상대 경로를 유지한다. `life_session_state.lock`과 `life_records.json.write.lock`은 실행 중 동시 접근을 막는 잠금 파일이며 백업 원본으로 사용하지 않는다.
 
-## 권위 저장소와 Microsoft Store Python 캐시
+## JSON 권위 저장소와 Microsoft Store Python 캐시
 
-일반 Python 또는 패키징 실행 환경에서는 앱에 전달된 사용자 데이터 경로의 파일이 권위 저장소다. 저장은 같은 디렉터리의 고유 임시 파일에 UTF-8(BOM 없음) 완성본을 쓴 뒤 flush와 디스크 동기화를 수행하고 원자적으로 교체한다.
+다음 권위 저장소와 캐시 규칙은 두 JSON 파일인 `life_records.json`과 `life_session_state.json`에 적용된다. 일반 Python 또는 패키징 실행 환경에서는 앱에 전달된 사용자 데이터 경로의 JSON 파일이 권위 저장소다. 저장은 같은 디렉터리의 고유 임시 파일에 UTF-8(BOM 없음) 완성본을 쓴 뒤 flush와 디스크 동기화를 수행하고 원자적으로 교체한다.
 
-Microsoft Store Python에서는 탐색기에서 보이는 `%AppData%/ENE`의 Roaming 파일이 유일한 권위 저장소다. WindowsApps 가상화 영역의 런타임 파일은 재생성 가능한 캐시일 뿐이다.
+Microsoft Store Python에서는 탐색기에서 보이는 `%AppData%/ENE`의 두 Roaming JSON 파일이 유일한 권위 저장소다. WindowsApps 가상화 영역의 해당 JSON 파일은 재생성 가능한 캐시일 뿐이다.
 
 - 읽을 때는 Roaming 권위 파일을 우선하고, 유효한 최신값으로 런타임 캐시를 복구한다.
 - 오래된 런타임 캐시가 Roaming 파일을 덮어쓰지 않는다.
 - 권위 파일 저장에 성공한 뒤 캐시 갱신만 실패해도 저장 성공은 유지한다.
 - 권위 파일이 없거나 손상됐을 때 오래된 캐시로 폴백하지 않는다.
 
-따라서 Microsoft Store Python 환경의 백업과 수동 점검은 반드시 탐색기에서 보이는 `%AppData%/ENE` 파일을 기준으로 한다.
+`prompts/life_world.md`는 이 JSON 권위 저장소 계층을 사용하지 않는다. 저장할 때 먼저 앱 런타임 프롬프트 경로에 UTF-8로 기록한 뒤 Store의 visible Roaming 프롬프트 경로로 best-effort 동기화를 시도한다. visible 동기화가 실패해도 런타임 사본은 남을 수 있으므로, Microsoft Store Python에서 백업하기 전에는 설정 화면의 현재 생활 환경과 탐색기에서 보이는 `%AppData%/ENE/prompts/life_world.md`가 일치하는지 확인한다. 일치하지 않으면 앱을 종료한 뒤 현재 내용을 별도 Markdown 파일로 함께 보관한다.
+
+따라서 Microsoft Store Python 환경의 두 JSON 파일 백업과 수동 점검은 반드시 탐색기에서 보이는 `%AppData%/ENE` 파일을 기준으로 한다.
 
 ## 스키마와 손상 복구
 
 `life_records.json`은 버전이 있는 JSON 저장소다. 각 기록은 안정적인 구간 ID, 비활성 시작과 복귀 시각, 시간대, 생성·수정 시각, revision, 당시 상태, 연속된 활동 항목과 마지막 상태를 포함한다. 활동은 최대 24개이며 첫 시작부터 마지막 종료까지 공백이나 겹침 없이 전체 비활성 구간을 덮어야 한다.
 
-파싱, 필수 필드, 시간 연속성, 중복 ID 등 검증에 실패하면 저장소는 읽기 오류 상태가 된다. 이때 ENE는 원본 바이트를 보존하고 새 기록 추가나 최신 기록 교체를 거부한다. 일반 채팅은 생활 기록 없이 계속된다.
+`life_records.json`의 파싱, 필수 필드, 시간 연속성, 중복 ID 등 검증에 실패하면 생활 기록 저장소는 읽기 오류 상태가 된다. 이때 ENE는 손상된 원본 바이트를 보존하고 새 기록 추가나 최신 기록 교체를 거부한다. 일반 채팅은 생활 기록 없이 계속된다.
 
 복구 절차:
 
@@ -52,7 +54,7 @@ Microsoft Store Python에서는 탐색기에서 보이는 `%AppData%/ENE`의 Roa
 4. 유효 백업이 없다면 손상 파일을 보존한 채 별도 이름으로 옮긴 뒤 ENE를 시작해 새 저장소를 만들 수 있다. 이 경우 기존 기록은 앱에서 복구되지 않는다.
 5. 앱을 다시 시작하고 날짜 조회와 일반 채팅이 동작하는지 확인한다.
 
-JSON을 임의로 부분 수정하는 방법은 권장하지 않는다. 세션 상태가 손상된 경우 이전 비활성 후보는 신뢰하지 않고 현재 세션을 새 유효 상태로 시작하므로, 손상된 시각을 바탕으로 기록을 추정 생성하지 않는다.
+JSON을 임의로 부분 수정하는 방법은 권장하지 않는다. `life_session_state.json`이 손상된 경우에는 생활 기록 저장소와 다르게 동작한다. 손상된 세션 상태에서 이전 비활성 후보를 폐기한 뒤 현재 세션의 새 유효한 `running` 상태를 저장한다. 따라서 손상된 시각을 바탕으로 생활 기록을 추정 생성하지 않으면서 이후 세션 추적은 복구한다.
 
 ## 시간대와 DST
 
