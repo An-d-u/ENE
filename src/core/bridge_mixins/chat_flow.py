@@ -217,24 +217,30 @@ class ChatFlowBridgeMixin:
         if operation_id is None:
             return False
 
-        self.worker = AIWorker(
-            self.llm_client,
-            message_with_time,
-            diary_request=diary_request,
-            diary_service=self.diary_service,
-            use_obsidian_priority=use_obsidian_priority,
-        )
-        self.worker.response_ready.connect(
-            partial(self._on_response_ready, response_worker=self.worker)
-        )
-        self.worker.error_occurred.connect(self._on_error)
-        connect_finished = getattr(self, "_connect_worker_finished_drain", None)
-        if callable(connect_finished):
-            connect_finished(operation_id) if operation_id else connect_finished()
-        self._emit_request_pending_stage_changed("thinking")
-        self._emit_request_pending_changed(True)
-        self.worker.start()
-        return True
+        try:
+            self.worker = AIWorker(
+                self.llm_client,
+                message_with_time,
+                diary_request=diary_request,
+                diary_service=self.diary_service,
+                use_obsidian_priority=use_obsidian_priority,
+            )
+            self.worker.response_ready.connect(
+                partial(self._on_response_ready, response_worker=self.worker)
+            )
+            self.worker.error_occurred.connect(self._on_error)
+            connect_finished = getattr(self, "_connect_worker_finished_drain", None)
+            if callable(connect_finished):
+                connect_finished(operation_id) if operation_id else connect_finished()
+            self._emit_request_pending_stage_changed("thinking")
+            self._emit_request_pending_changed(True)
+            self.worker.start()
+            return True
+        except Exception:
+            state = getattr(self, "life_record_state", None)
+            if state is not None:
+                state.finish_operation(operation_id)
+            raise
 
     def _start_note_worker(self, note_request: str, message_with_time: str, note_recent_context: str = ""):
         """/note 계획-실행 워커를 시작한다."""
@@ -249,25 +255,31 @@ class ChatFlowBridgeMixin:
         if operation_id is None:
             return False
 
-        self.worker = AIWorker(
-            self.llm_client,
-            message_with_time,
-            note_request=note_request,
-            note_recent_context=note_recent_context,
-            note_service=self.note_service,
-            obsidian_manager=self.obsidian_manager,
-        )
-        self.worker.response_ready.connect(
-            partial(self._on_response_ready, response_worker=self.worker)
-        )
-        self.worker.error_occurred.connect(self._on_error)
-        connect_finished = getattr(self, "_connect_worker_finished_drain", None)
-        if callable(connect_finished):
-            connect_finished(operation_id) if operation_id else connect_finished()
-        self._emit_request_pending_stage_changed("thinking")
-        self._emit_request_pending_changed(True)
-        self.worker.start()
-        return True
+        try:
+            self.worker = AIWorker(
+                self.llm_client,
+                message_with_time,
+                note_request=note_request,
+                note_recent_context=note_recent_context,
+                note_service=self.note_service,
+                obsidian_manager=self.obsidian_manager,
+            )
+            self.worker.response_ready.connect(
+                partial(self._on_response_ready, response_worker=self.worker)
+            )
+            self.worker.error_occurred.connect(self._on_error)
+            connect_finished = getattr(self, "_connect_worker_finished_drain", None)
+            if callable(connect_finished):
+                connect_finished(operation_id) if operation_id else connect_finished()
+            self._emit_request_pending_stage_changed("thinking")
+            self._emit_request_pending_changed(True)
+            self.worker.start()
+            return True
+        except Exception:
+            state = getattr(self, "life_record_state", None)
+            if state is not None:
+                state.finish_operation(operation_id)
+            raise
 
     def _resolve_note_context_settings(self) -> tuple[bool, int]:
         """노트 최근 대화 주입 설정을 읽어 정규화한다."""

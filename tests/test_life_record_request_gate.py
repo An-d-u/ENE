@@ -437,6 +437,36 @@ def test_general_worker_owns_normal_reply_operation_until_finished(monkeypatch) 
     assert state.phase == "idle"
 
 
+@pytest.mark.parametrize("method_name,args", [
+    ("_start_diary_worker", ("합성 일기", "synthetic")),
+    ("_start_note_worker", ("합성 노트", "synthetic")),
+])
+def test_tool_worker_construction_failure_releases_normal_reply(
+    monkeypatch,
+    method_name,
+    args,
+) -> None:
+    class FailingWorker:
+        def __init__(self, *_args, **_kwargs) -> None:
+            raise RuntimeError("synthetic worker construction failure")
+
+    monkeypatch.setattr(chat_flow_module, "AIWorker", FailingWorker)
+    state = LifeRecordBridgeState()
+    dummy = SimpleNamespace(
+        life_record_state=state,
+        worker=None,
+        llm_client=object(),
+        diary_service=object(),
+        note_service=object(),
+        obsidian_manager=object(),
+    )
+
+    with pytest.raises(RuntimeError, match="synthetic worker construction failure"):
+        getattr(ChatFlowBridgeMixin, method_name)(dummy, *args)
+
+    assert state.phase == "idle"
+
+
 class _StatusManager:
     def __init__(self) -> None:
         self.calls = []
