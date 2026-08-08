@@ -208,11 +208,16 @@ def test_date_query_reports_safe_error_and_never_uses_stale_runtime_records(tmp_
     _seed(manager)
     bridge = _Bridge(manager)
     original_events = list(bridge.events)
+    original_bridge_manager = bridge.life_record_manager
+    original_client_manager = bridge.llm_client.life_record_manager
     path.write_text("{broken", encoding="utf-8")
 
     bridge.request_life_records_for_date("2099-08-07", "synthetic-request-8")
 
     assert bridge.events == [*original_events, ("notice", "read_error")]
+    assert bridge.life_record_manager is original_bridge_manager
+    assert bridge.llm_client.life_record_manager is original_client_manager
+    assert bridge.life_record_manager.latest() is not None
 
 
 @pytest.mark.parametrize("iso_date", ["", "2099-02-30", "not-a-date"])
@@ -247,7 +252,7 @@ def test_regeneration_uses_stored_interval_metadata_and_current_whitelist_contex
     assert "Current greenhouse" in worker.request.prompt
     assert "현재 합성 기록 안내자" in worker.request.prompt
     assert "현재 합성 온실을 둘러본다." in worker.request.prompt
-    assert previous.entries[0].activity in worker.request.prompt
+    assert previous.entries[0].activity not in worker.request.prompt
     assert latest.entries[0].activity not in worker.request.prompt
     assert latest.inactive_started_at.isoformat() in worker.request.prompt
     assert "Asia/Seoul" in worker.request.prompt
@@ -256,6 +261,53 @@ def test_regeneration_uses_stored_interval_metadata_and_current_whitelist_contex
         ("stage", "life_record_regeneration"),
         ("pending", True),
     ]
+
+
+def test_regeneration_preflight_read_error_keeps_runtime_context_object(tmp_path):
+    path = tmp_path / "life_records.json"
+    manager = LifeRecordManager(path)
+    _previous, latest = _seed(manager)
+    bridge = _Bridge(manager)
+    path.write_text("{broken", encoding="utf-8")
+
+    bridge.regenerate_latest_life_record(latest.id)
+
+    assert bridge.life_record_manager is manager
+    assert bridge.llm_client.life_record_manager is manager
+    assert manager.latest() == latest
+    assert bridge.events == [("notice", "read_error")]
+
+
+@pytest.mark.parametrize("failing_signal", ["stage", "pending"])
+def test_manual_start_signal_exception_rolls_back_and_drains_once(
+    monkeypatch, tmp_path, failing_signal
+):
+    manager = LifeRecordManager(tmp_path / "life_records.json")
+    _previous, latest = _seed(manager)
+    bridge = _Bridge(manager)
+    original_emit = (
+        bridge.request_pending_stage_changed.emit
+        if failing_signal == "stage"
+        else bridge.request_pending_changed.emit
+    )
+
+    def fail_after_emit(*args):
+        original_emit(*args)
+        raise RuntimeError("private-signal-detail")
+
+    if failing_signal == "stage":
+        monkeypatch.setattr(bridge.request_pending_stage_changed, "emit", fail_after_emit)
+    else:
+        monkeypatch.setattr(bridge.request_pending_changed, "emit", fail_after_emit)
+
+    bridge.regenerate_latest_life_record(latest.id)
+
+    assert bridge.life_record_state.phase == "idle"
+    assert bridge.life_record_state.pending_request is None
+    assert bridge.life_record_state.worker is None
+    assert bridge.drains == 1
+    assert ("pending", False) in bridge.events
+    assert "private-signal-detail" not in repr(bridge.events)
 
 
 def test_regeneration_uses_stored_dst_timezone_instead_of_current_view_timezone(
@@ -433,8 +485,9 @@ def test_record_changed_while_worker_runs_rejects_stale_result(
     worker.result_ready.emit(operation_id, result)
     worker.finished.emit()
 
-    assert bridge.life_record_manager.latest() == external.latest()
-    assert bridge.life_record_manager.latest().revision == latest.revision + 1
+    assert bridge.life_record_manager.latest() == latest
+    assert LifeRecordManager(path).latest() == external.latest()
+    assert LifeRecordManager(path).latest().revision == latest.revision + 1
     assert ("notice", "save_failed") in bridge.events
 
 

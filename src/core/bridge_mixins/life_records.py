@@ -425,7 +425,6 @@ class LifeRecordBridgeMixin:
         if store_path is None:
             raise LifeRecordStoreError("read_error")
         authoritative = LifeRecordManager(store_path)
-        self._install_authoritative_life_record_manager(authoritative)
         if authoritative.store_status == "read_error":
             raise LifeRecordStoreError("read_error")
         return authoritative
@@ -469,6 +468,7 @@ class LifeRecordBridgeMixin:
             self._emit_life_record_notice("read_error")
             return
 
+        self._install_authoritative_life_record_manager(manager)
         payload = json.dumps(
             {
                 "status": "ready",
@@ -513,6 +513,7 @@ class LifeRecordBridgeMixin:
         if type(record_id) is not str or record_id != latest.id:
             self._emit_life_record_notice("not_latest")
             return
+        self._install_authoritative_life_record_manager(manager)
         try:
             world = self._load_life_world_for_gate()
         except Exception:
@@ -546,9 +547,16 @@ class LifeRecordBridgeMixin:
             self._emit_life_record_notice("busy")
             return
         state.pending_world_markdown = world
-        self._emit_life_record_stage("life_record_regeneration")
-        self._emit_life_record_pending(True)
-        self._start_manual_life_record_regeneration(operation_id)
+        try:
+            self._emit_life_record_stage("life_record_regeneration")
+            self._emit_life_record_pending(True)
+            self._start_manual_life_record_regeneration(operation_id)
+        except Exception:
+            self._finish_life_record_without_reply(operation_id)
+            try:
+                self._emit_life_record_notice("generation_failed")
+            except Exception:
+                pass
 
     def _start_manual_life_record_regeneration(self, operation_id: int) -> None:
         state = self._get_life_record_state()
@@ -560,8 +568,6 @@ class LifeRecordBridgeMixin:
             return
         target = pending.record
         try:
-            manager = self._life_record_manager()
-            previous = manager.previous_before(target.id)
             profile = self._life_profile_snapshot()
             names = resolve_prompt_persona_names(
                 settings_source=getattr(self, "settings", None),
@@ -578,9 +584,7 @@ class LifeRecordBridgeMixin:
                 relationship_tone=profile["relationship_tone"],
                 profile_facts=profile["profile_facts"],
                 display_names={"assistant": names.assistant, "user": names.user},
-                previous_record=(
-                    life_record_to_dict(previous) if previous is not None else None
-                ),
+                previous_record=None,
                 mood_snapshot=LifeMoodSnapshot(
                     label=mood["label"],
                     valence=mood["valence"],
