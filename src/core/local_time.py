@@ -101,7 +101,7 @@ def resolve_local_time_context(
         if not isinstance(resolved_name, str) or not resolved_name.strip():
             raise ValueError("timezone 이름이 비어 있습니다.")
         zone = ZoneInfo(resolved_name)
-    except Exception:
+    except (LookupError, OSError, TypeError, ValueError):
         return LocalTimeResolution(
             context=None,
             view_timezone=UTC_ZONE,
