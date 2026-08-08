@@ -1,6 +1,7 @@
 import shutil
 from pathlib import Path
 
+import pytest
 from PyQt6.QtWidgets import QMessageBox
 
 
@@ -1238,6 +1239,74 @@ def test_store_python_sync_uses_visible_to_runtime_bridge_when_strings_match(mon
     prompt_config._sync_visible_roaming_prompt_files_to_runtime()
 
     assert calls == [(same_dir, same_dir)]
+
+
+@pytest.mark.parametrize("runtime_content", [None, "오래된 런타임 생활 환경"])
+def test_store_python_empty_visible_life_world_overrides_missing_or_stale_runtime(
+    tmp_path, monkeypatch, runtime_content
+):
+    from src.ai import prompt_config
+
+    shared_dir = tmp_path / "shared" / "prompts"
+    runtime_path = shared_dir / "life_world.md"
+    default_path = tmp_path / "defaults" / "life_world.md"
+    _write_text(default_path, "기본 생활 환경")
+    if runtime_content is not None:
+        _write_text(runtime_path, runtime_content)
+
+    class DummyCompleted:
+        stdout = "P:"
+        stderr = ""
+        returncode = 0
+
+    monkeypatch.setattr(prompt_config, "PROMPT_CONFIG_DIR", shared_dir)
+    monkeypatch.setattr(prompt_config, "LIFE_WORLD_PROMPT_PATH", runtime_path)
+    monkeypatch.setattr(prompt_config, "DEFAULT_LIFE_WORLD_PROMPT_PATH", default_path)
+    monkeypatch.setattr(prompt_config, "_should_sync_store_python_prompt_dirs", lambda: True)
+    monkeypatch.setattr(prompt_config, "_get_visible_prompt_config_dir", lambda: shared_dir)
+    monkeypatch.setattr(prompt_config, "_run_powershell_command", lambda command: DummyCompleted())
+
+    assert prompt_config.load_life_world_prompt() == ""
+    assert runtime_path.read_bytes() == b""
+
+
+def test_save_life_world_prompt_only_mirrors_life_world_under_store_python(
+    tmp_path, monkeypatch
+):
+    from src.ai import prompt_config
+
+    runtime_dir = tmp_path / "runtime" / "prompts"
+    visible_dir = tmp_path / "visible" / "prompts"
+    runtime_path = runtime_dir / "life_world.md"
+    preserved_visible = {
+        "base_system_prompt.md": b"visible-base",
+        "sub_prompt_body.md": b"visible-sub",
+        "emotion_guides.md": b"visible-emotions",
+    }
+    stale_runtime = {
+        "base_system_prompt.md": b"stale-runtime-base",
+        "sub_prompt_body.md": b"stale-runtime-sub",
+        "emotion_guides.md": b"stale-runtime-emotions",
+    }
+    for filename, payload in preserved_visible.items():
+        path = visible_dir / filename
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(payload)
+    for filename, payload in stale_runtime.items():
+        path = runtime_dir / filename
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(payload)
+
+    monkeypatch.setattr(prompt_config, "PROMPT_CONFIG_DIR", runtime_dir)
+    monkeypatch.setattr(prompt_config, "LIFE_WORLD_PROMPT_PATH", runtime_path)
+    monkeypatch.setattr(prompt_config, "_should_sync_store_python_prompt_dirs", lambda: True)
+    monkeypatch.setattr(prompt_config, "_get_visible_prompt_config_dir", lambda: visible_dir)
+
+    prompt_config.save_life_world_prompt("새 생활 환경")
+
+    for filename, payload in preserved_visible.items():
+        assert (visible_dir / filename).read_bytes() == payload
+    assert (visible_dir / "life_world.md").read_text(encoding="utf-8") == "새 생활 환경"
 
 
 def test_prompt_powershell_helper_reads_output_as_utf8(monkeypatch):
