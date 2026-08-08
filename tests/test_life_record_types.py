@@ -32,7 +32,7 @@ def _entry(start: datetime, end: datetime, place: str = "가상 도서관") -> d
 def _output(start: datetime, end: datetime) -> dict:
     return {
         "entries": [_entry(start, end)],
-        "ending_state": {"place": "가상 도서관", "status": "정리를 마침"},
+        "ending_state": {"place": "가상 도서관", "summary": "정리를 마침"},
     }
 
 
@@ -76,7 +76,7 @@ def _record_dict(
         "inactive_start_source": "graceful_exit",
         "mood_snapshot": _mood(),
         "entries": [_entry(start, end)],
-        "ending_state": {"place": "가상 도서관", "status": "정리를 마침"},
+        "ending_state": {"place": "가상 도서관", "summary": "정리를 마침"},
     }
 
 
@@ -97,6 +97,16 @@ def test_model_output_parses_exact_contract_and_canonicalizes_seconds():
     assert payload.entries[0].started_at.microsecond == 0
     assert payload.entries[-1].ended_at.microsecond == 0
     assert payload.ending_state.place == payload.entries[-1].place
+    assert payload.ending_state.summary == "정리를 마침"
+
+
+def test_model_output_rejects_legacy_ending_status_field():
+    start = datetime(2099, 6, 1, 9, 0, tzinfo=SEOUL)
+    end = datetime(2099, 6, 1, 10, 0, tzinfo=SEOUL)
+    value = _output(start, end)
+    value["ending_state"] = {"place": "가상 도서관", "status": "정리를 마침"}
+
+    _assert_code("extra_field", _parse, value, start, end)
 
 
 @pytest.mark.parametrize(
@@ -114,7 +124,7 @@ def test_model_output_parses_exact_contract_and_canonicalizes_seconds():
         (lambda value: value["entries"][0].update(extra=True), "extra_field"),
         (lambda value: value["entries"][0].update(place=" "), "invalid_text"),
         (lambda value: value["ending_state"].update(extra=True), "extra_field"),
-        (lambda value: value["ending_state"].update(status=""), "invalid_text"),
+        (lambda value: value["ending_state"].update(summary=""), "invalid_text"),
         (lambda value: value["ending_state"].update(place="다른 장소"), "invalid_ending_state"),
     ],
 )
@@ -189,6 +199,23 @@ def test_model_output_rejects_naive_and_wrong_zone_offset():
     _assert_code("invalid_timezone_offset", _parse, wrong, start, end)
 
 
+def test_model_output_canonicalizes_surrounding_text_whitespace():
+    start = datetime(2099, 6, 1, 9, 0, tzinfo=SEOUL)
+    end = datetime(2099, 6, 1, 10, 0, tzinfo=SEOUL)
+    value = _output(start, end)
+    value["entries"][0]["place"] = "  가상 도서관  "
+    value["entries"][0]["activity"] = "  합성 자료 정리  "
+    value["ending_state"]["place"] = " 가상 도서관 "
+    value["ending_state"]["summary"] = "  정리를 마침  "
+
+    payload = _parse(value, start, end)
+
+    assert payload.entries[0].place == "가상 도서관"
+    assert payload.entries[0].activity == "합성 자료 정리"
+    assert payload.ending_state.place == "가상 도서관"
+    assert payload.ending_state.summary == "정리를 마침"
+
+
 def test_new_york_accepts_folds_and_rejects_spring_gap_and_wrong_offset():
     fold0 = datetime(2099, 11, 1, 1, 0, tzinfo=NEW_YORK, fold=0)
     fold1 = datetime(2099, 11, 1, 1, 30, tzinfo=NEW_YORK, fold=1)
@@ -232,8 +259,9 @@ def test_factory_and_serialization_produce_immutable_valid_record():
     assert record.mood_snapshot["label"] == original_label
     assert isinstance(record.mood_snapshot, MappingProxyType)
     with pytest.raises(TypeError):
-        record.ending_state["status"] = "변경"  # type: ignore[index]
+        record.ending_state["summary"] = "변경"  # type: ignore[index]
     assert life_record_to_dict(record)["id"] == record.id
+    assert life_record_to_dict(record)["ending_state"]["summary"] == "정리를 마침"
 
 
 def test_store_round_trips_exact_envelope_and_records():
@@ -259,8 +287,16 @@ def test_store_round_trips_exact_envelope_and_records():
         (lambda envelope: envelope["records"][0].update(id="0" * 64), "invalid_id"),
         (lambda envelope: envelope["records"][0].update(timezone="Invalid/Zone"), "invalid_timezone"),
         (lambda envelope: envelope["records"][0].update(inactive_start_source="manual"), "invalid_source"),
+        (lambda envelope: envelope["records"][0].update(inactive_start_source=[]), "invalid_source"),
+        (lambda envelope: envelope["records"][0].update(inactive_start_source={}), "invalid_source"),
         (lambda envelope: envelope["records"][0].update(revision=True), "invalid_revision"),
         (lambda envelope: envelope["records"][0].update(revision=0), "invalid_revision"),
+        (
+            lambda envelope: envelope["records"][0].update(
+                ending_state={"place": "가상 도서관", "status": "정리를 마침"}
+            ),
+            "extra_field",
+        ),
         (lambda envelope: envelope["records"][0]["mood_snapshot"].update(extra=1), "extra_field"),
         (lambda envelope: envelope["records"][0]["mood_snapshot"].update(label=""), "invalid_text"),
         (lambda envelope: envelope["records"][0]["mood_snapshot"].update(valence=True), "invalid_mood"),
@@ -294,6 +330,27 @@ def test_store_rejects_duplicate_ids_and_invalid_chronology():
 
 def test_store_rejects_non_object_envelope_with_store_error():
     _assert_code("invalid_store", parse_life_record_store, "[]")
+
+
+def test_store_canonicalizes_surrounding_text_whitespace():
+    record = _record_dict()
+    record["entries"][0]["place"] = "  가상 도서관  "
+    record["entries"][0]["activity"] = " 합성 자료 정리 "
+    record["ending_state"]["place"] = " 가상 도서관 "
+    record["ending_state"]["summary"] = " 정리를 마침 "
+    record["mood_snapshot"]["label"] = " 차분함 "
+    record["mood_snapshot"]["short_term_mood"] = " 안정적 "
+
+    parsed = parse_life_record_store(
+        json.dumps({"version": 1, "records": [record]}, ensure_ascii=False)
+    )[0]
+
+    assert parsed.entries[0].place == "가상 도서관"
+    assert parsed.entries[0].activity == "합성 자료 정리"
+    assert parsed.ending_state["place"] == "가상 도서관"
+    assert parsed.ending_state["summary"] == "정리를 마침"
+    assert parsed.mood_snapshot["label"] == "차분함"
+    assert parsed.mood_snapshot["short_term_mood"] == "안정적"
 
 
 def test_store_rejects_fractional_persisted_endpoint_and_new_york_offset_mismatch():
