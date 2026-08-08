@@ -12,7 +12,7 @@ from typing import Iterable
 from PyQt6.QtCore import QLockFile
 
 from src.core import app_paths
-from src.core.local_time import resolve_local_time_context
+from src.core.local_time import LocalTimeContext, resolve_local_time_context
 
 from .life_record_types import (
     LifeRecord,
@@ -79,13 +79,18 @@ def to_public_dict(
     record: LifeRecord,
     view_timezone: str,
     locale: str,
+    *,
+    time_context: LocalTimeContext | None = None,
 ) -> dict[str, object]:
     """브리지에서 자유롭게 복사·수정할 수 있는 현재 timezone 기준 표현을 만든다."""
 
-    resolution = resolve_local_time_context(view_timezone)
-    if resolution.context is None:
-        raise LifeRecordStoreError("invalid_view_timezone")
-    zone = resolution.view_timezone
+    if time_context is not None and time_context.timezone_name == view_timezone:
+        zone = time_context.zone
+    else:
+        resolution = resolve_local_time_context(view_timezone)
+        if resolution.context is None:
+            raise LifeRecordStoreError("invalid_view_timezone")
+        zone = resolution.view_timezone
     resolved_locale = locale if locale in {"ko", "en", "ja"} else "en"
     return {
         "id": record.id,
@@ -115,9 +120,15 @@ def to_public_dict(
 class LifeRecordManager:
     """단일 권위 파일에 저장된 완전 검증 생활 기록만 메모리에 유지한다."""
 
-    def __init__(self, store_file: str | Path | None = None) -> None:
+    def __init__(
+        self,
+        store_file: str | Path | None = None,
+        *,
+        time_context: LocalTimeContext | None = None,
+    ) -> None:
         target = store_file if store_file is not None else "life_records.json"
         self.store_path = app_paths.resolve_user_storage_path(target)
+        self.time_context = time_context
         self._records: tuple[LifeRecord, ...] = ()
         self.store_status = "missing"
         self._load()
@@ -180,7 +191,10 @@ class LifeRecordManager:
 
     def add(self, record: LifeRecord) -> bool:
         with _exclusive_store_write(self.store_path):
-            authoritative = LifeRecordManager(self.store_path)
+            authoritative = LifeRecordManager(
+                self.store_path,
+                time_context=self.time_context,
+            )
             authoritative._require_healthy_store()
             if any(existing.id == record.id for existing in authoritative.records):
                 return False
@@ -196,10 +210,8 @@ class LifeRecordManager:
         view_timezone: str,
     ) -> list[LifeRecord]:
         self._require_healthy_store()
-        resolution = resolve_local_time_context(view_timezone)
-        if resolution.context is None:
-            raise LifeRecordStoreError("invalid_view_timezone")
-        start, end = resolution.context.local_day_bounds(local_date)
+        context = self._view_time_context(view_timezone)
+        start, end = context.local_day_bounds(local_date)
         start_utc = _utc(start)
         end_utc = _utc(end)
         return [
@@ -208,6 +220,17 @@ class LifeRecordManager:
             if _utc(record.inactive_started_at) < end_utc
             and _utc(record.returned_at) > start_utc
         ]
+
+    def _view_time_context(self, view_timezone: str) -> LocalTimeContext:
+        if (
+            self.time_context is not None
+            and self.time_context.timezone_name == view_timezone
+        ):
+            return self.time_context
+        resolution = resolve_local_time_context(view_timezone)
+        if resolution.context is None:
+            raise LifeRecordStoreError("invalid_view_timezone")
+        return resolution.context
 
     def previous_before(self, record_id: str) -> LifeRecord | None:
         for index, record in enumerate(self._records):
@@ -288,4 +311,9 @@ class LifeRecordManager:
         view_timezone: str,
         locale: str,
     ) -> dict[str, object]:
-        return to_public_dict(record, view_timezone, locale)
+        return to_public_dict(
+            record,
+            view_timezone,
+            locale,
+            time_context=self._view_time_context(view_timezone),
+        )

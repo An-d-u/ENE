@@ -94,7 +94,10 @@ def _bare_app(tmp_path, tracker_factory):
     QObject.__init__(app)
     app._life_time_resolver = _valid_resolution
     app._life_session_tracker_factory = tracker_factory
-    app._life_record_manager_factory = lambda path: SimpleNamespace(store_path=Path(path))
+    app._life_record_manager_factory = lambda path, *, time_context=None: SimpleNamespace(
+        store_path=Path(path),
+        time_context=time_context,
+    )
     app._life_timer_factory = _Timer
     app._life_data_root = tmp_path
     app.llm_client = SimpleNamespace()
@@ -120,6 +123,7 @@ def test_startup_binds_one_time_context_manager_candidate_and_heartbeat(tmp_path
     state = bridge.life_record_state
     assert captured["tracker"].path == tmp_path / "life_session_state.json"
     assert captured["tracker"].time_context is app.life_time_context
+    assert app.life_record_manager.time_context is app.life_time_context
     assert state.time_context is app.life_time_context
     assert state.view_timezone == "Asia/Seoul"
     assert state.candidate is captured["tracker"].candidate
@@ -187,8 +191,10 @@ def test_timezone_failure_uses_utc_read_view_without_starting_tracker_or_timer(t
     app._start_life_session_heartbeat()
 
     assert tracker_calls == []
+    assert app.life_record_manager is not None
+    assert app.life_record_manager.time_context is None
+    assert bridge.life_record_manager is app.life_record_manager
     assert bridge.life_record_state.view_timezone == "UTC"
     assert bridge.life_record_state.read_only_reason == "timezone_unavailable"
     assert bridge.life_record_state.life_records_writable is False
     assert app.life_heartbeat_timer is None
-

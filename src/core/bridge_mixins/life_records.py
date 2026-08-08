@@ -436,7 +436,10 @@ class LifeRecordBridgeMixin:
         store_path = getattr(manager, "store_path", None)
         if store_path is None:
             raise LifeRecordStoreError("read_error")
-        authoritative = LifeRecordManager(store_path)
+        authoritative = LifeRecordManager(
+            store_path,
+            time_context=getattr(manager, "time_context", None),
+        )
         if authoritative.store_status == "read_error":
             raise LifeRecordStoreError("read_error")
         return authoritative

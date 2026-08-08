@@ -175,14 +175,17 @@ class ENEApplication(QObject):
             view_zone = getattr(resolution, "view_timezone", None)
             self.life_view_timezone = str(getattr(view_zone, "key", "UTC") or "UTC")
             self.life_time_context = getattr(resolution, "context", None)
+            records_path = self._life_data_root / "life_records.json"
+            self.life_record_manager = self._life_record_manager_factory(
+                records_path,
+                time_context=self.life_time_context,
+            )
             if self.life_time_context is None:
                 self.life_view_timezone = "UTC"
                 self.life_record_read_only_reason = TIMEZONE_UNAVAILABLE
                 return
 
-            records_path = self._life_data_root / "life_records.json"
             session_path = self._life_data_root / "life_session_state.json"
-            self.life_record_manager = self._life_record_manager_factory(records_path)
             tracker = self._life_session_tracker_factory(
                 session_path,
                 time_context=self.life_time_context,
