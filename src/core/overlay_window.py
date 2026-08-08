@@ -24,6 +24,42 @@ from .model_emotions import DEFAULT_MODEL_JSON_PATH, get_available_model_emotion
 from .model_tracking_params import load_model_tracking_parameter_map_for_model_json
 
 
+_LIFE_RECORD_UI_KEYS = {
+    "title": "title",
+    "close": "close",
+    "previous": "previous",
+    "next": "next",
+    "today": "today",
+    "date": "date",
+    "loading": "loading",
+    "empty": "empty",
+    "readError": "read_error",
+    "invalidDate": "invalid_date",
+    "retry": "retry",
+    "latest": "latest",
+    "ending": "ending",
+    "worldEmpty": "world_empty",
+    "openSettings": "open_settings",
+    "generationFailed": "generation_failed",
+    "saveFailed": "save_failed",
+    "regenerationFailed": "regeneration_failed",
+    "unknownError": "unknown_error",
+    "regenerate": "regenerate",
+    "regenerateTitle": "regenerate_title",
+    "regenerateDescription": "regenerate_description",
+    "cancel": "cancel",
+    "confirm": "confirm",
+    "regenerating": "regenerating",
+    "preparing": "preparing",
+    "thinking": "thinking",
+    "busy": "busy",
+    "readOnly": "read_only",
+    "notLatest": "not_latest",
+    "cancelled": "cancelled",
+    "refreshFailed": "refresh_failed",
+}
+
+
 class OverlayWindow(QWidget):
     """Transparent always-on-top overlay hosting the Live2D web view."""
 
@@ -401,6 +437,10 @@ class OverlayWindow(QWidget):
             "resolvedLanguage": i18n.language,
             "viewTimezone": str(self.__dict__.get("life_view_timezone", "UTC") or "UTC"),
             "todayIso": today_iso,
+            "lifeRecords": {
+                public_key: i18n.t(f"chat.life_records.{locale_key}")
+                for public_key, locale_key in _LIFE_RECORD_UI_KEYS.items()
+            },
             "loading": i18n.t("chat.loading"),
             "loadingSearching": i18n.t("chat.loading.searching"),
             "input": {
