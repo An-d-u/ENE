@@ -133,6 +133,7 @@ class AwayNudgeBridgeMixin:
             "message": prompt,
             "message_with_time": message_with_time,
             "images": images_data,
+            "include_life_record_context": False,
         }
         self._is_rerolling = False
         self.away_trigger_count_since_last_user_msg += 1

@@ -51,6 +51,7 @@ def test_away_nudge_uses_no_recent_input_for_away_tone(monkeypatch):
     assert bridge.started_worker is not None
     assert "현재 자리 비움 상태야" in bridge.started_worker["message_with_time"]
     assert "최근 3분 동안 마우스/키보드 입력도 없었어" in bridge.started_worker["message_with_time"]
+    assert bridge._last_request_payload["include_life_record_context"] is False
 
 
 def test_away_nudge_uses_recent_input_for_active_tone(monkeypatch):

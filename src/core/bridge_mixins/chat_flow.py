@@ -412,6 +412,7 @@ class ChatFlowBridgeMixin:
             "latest_user_message": memory_search_inputs["latest_user_message"],
             "recent_memory_context": memory_search_inputs["recent_context_text"],
             "head_pat_count_before_message": head_pat_count_before_message,
+            "include_life_record_context": True,
         }
         self._is_rerolling = False
 
@@ -483,7 +484,9 @@ class ChatFlowBridgeMixin:
             latest_user_message=str(payload.get("latest_user_message", "") or ""),
             recent_memory_context=str(payload.get("recent_memory_context", "") or ""),
             head_pat_count_before_message=int(payload.get("head_pat_count_before_message", 0) or 0),
-            include_life_record_context=True,
+            include_life_record_context=(
+                payload.get("include_life_record_context") is True
+            ),
         )
         print("[Bridge] Reroll started")
 
@@ -615,6 +618,9 @@ class ChatFlowBridgeMixin:
         message_with_time = self._with_prompt_time(timestamp, prompt)
         memory_search_inputs = self._build_memory_search_inputs(edited_message, timestamp)
         memory_search_text = memory_search_inputs["memory_search_text"]
+        include_life_record_context = (
+            self._last_request_payload.get("include_life_record_context") is True
+        )
         self._last_request_payload = {
             "type": payload_type,
             "message": edited_message,
@@ -627,6 +633,7 @@ class ChatFlowBridgeMixin:
             "latest_user_message": memory_search_inputs["latest_user_message"],
             "recent_memory_context": memory_search_inputs["recent_context_text"],
             "head_pat_count_before_message": int(self._last_request_payload.get("head_pat_count_before_message", 0) or 0),
+            "include_life_record_context": include_life_record_context,
         }
 
         self._is_rerolling = True
@@ -638,7 +645,7 @@ class ChatFlowBridgeMixin:
             latest_user_message=memory_search_inputs["latest_user_message"],
             recent_memory_context=memory_search_inputs["recent_context_text"],
             head_pat_count_before_message=int(self._last_request_payload.get("head_pat_count_before_message", 0) or 0),
-            include_life_record_context=True,
+            include_life_record_context=include_life_record_context,
         )
         print("[Bridge] Edit last user message started")
 

@@ -377,6 +377,7 @@ def test_start_proactive_ai_worker_uses_generation_prompt():
     assert dummy._last_request_payload["type"] == "proactive"
     assert dummy._last_request_payload["proactive_id"] == "p1"
     assert dummy._last_request_payload["message_with_time"] == started[0]
+    assert dummy._last_request_payload["include_life_record_context"] is False
 
 
 def test_reroll_ignores_proactive_reply_payload():

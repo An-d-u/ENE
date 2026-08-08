@@ -222,6 +222,7 @@ def test_send_to_ai_logs_only_prompt_lengths(monkeypatch, capsys):
     bridge.send_to_ai(raw_message)
 
     assert bridge.worker.kwargs["include_life_record_context"] is True
+    assert bridge._last_request_payload["include_life_record_context"] is True
 
     captured = capsys.readouterr()
     combined = captured.out + captured.err
