@@ -1,8 +1,12 @@
+import asyncio
 import inspect
 from dataclasses import fields, replace
+from types import SimpleNamespace
 
 import pytest
+from google.genai.errors import ClientError
 
+import src.ai.llm_client as llm_client_module
 import src.ai.prompt as prompt_module
 from src.ai.llm_provider import LLMClientProtocol
 from src.ai.response_protocol import (
@@ -222,3 +226,241 @@ def test_one_shot_token_usage_rejects_invalid_counts(field_name, invalid_value):
 
     with pytest.raises(ValueError, match="^invalid_token_usage$"):
         OneShotTokenUsage(**values)
+
+
+def test_gemini_life_record_native_call_is_historyless_and_uses_current_contract(
+    gemini_harness,
+    monkeypatch,
+):
+    first_response = gemini_harness.response(
+        '{"entries":[],"ending_state":{}}',
+        input_tokens=5,
+        output_tokens=7,
+    )
+    second_response = gemini_harness.response(
+        '{"entries":[{}],"ending_state":{}}',
+        input_tokens=2,
+        output_tokens=3,
+    )
+    client = gemini_harness.client(
+        [],
+        repair_responses=[first_response, second_response],
+        settings={"life_contract_marker": "first"},
+    )
+    chat = client.chat
+    system_calls = []
+    schema_calls = []
+
+    def fake_system_instruction(settings_source):
+        marker = settings_source["life_contract_marker"]
+        system_calls.append(marker)
+        return f"SYNTHETIC-LIFE-SYSTEM-{marker}"
+
+    real_schema_getter = get_life_record_output_schema
+
+    def tracked_schema_getter():
+        schema_calls.append(object())
+        return real_schema_getter()
+
+    monkeypatch.setattr(
+        llm_client_module,
+        "build_life_record_system_instruction",
+        fake_system_instruction,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        llm_client_module,
+        "get_life_record_output_schema",
+        tracked_schema_getter,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        llm_client_module,
+        "execute_final_response",
+        lambda *_args, **_kwargs: pytest.fail("일반 final pipeline을 호출하면 안 됩니다."),
+    )
+    monkeypatch.setattr(
+        llm_client_module,
+        "parse_llm_response",
+        lambda *_args, **_kwargs: pytest.fail("일반 parser를 호출하면 안 됩니다."),
+    )
+
+    first = asyncio.run(client.generate_life_record_once("SYNTHETIC-LIFE-PROMPT-ONE"))
+    client.settings["life_contract_marker"] = "second"
+    second = asyncio.run(client.generate_life_record_once("SYNTHETIC-LIFE-PROMPT-TWO"))
+
+    assert first == OneShotGenerationResult(
+        text='{"entries":[],"ending_state":{}}',
+        status=ResponseStatus.COMPLETE,
+        finish_reason="stop",
+        token_usage=OneShotTokenUsage(5, 7, 12),
+    )
+    assert second.token_usage == OneShotTokenUsage(2, 3, 5)
+    assert system_calls == ["first", "second"]
+    assert len(schema_calls) == 2
+    assert client.chat is chat
+    assert chat.get_history_calls == []
+    assert len(gemini_harness.repair_calls) == 2
+    first_call, second_call = gemini_harness.repair_calls
+    assert first_call["contents"] == "SYNTHETIC-LIFE-PROMPT-ONE"
+    assert second_call["contents"] == "SYNTHETIC-LIFE-PROMPT-TWO"
+    assert first_call["config"]["system_instruction"] == "SYNTHETIC-LIFE-SYSTEM-first"
+    assert second_call["config"]["system_instruction"] == "SYNTHETIC-LIFE-SYSTEM-second"
+    for call in (first_call, second_call):
+        config = call["config"]
+        assert config["response_mime_type"] == "application/json"
+        assert config["response_json_schema"] == get_life_record_output_schema()
+
+
+@pytest.mark.parametrize(
+    ("text", "finish_reason", "expected_status", "expected_reason"),
+    [
+        ("SYNTHETIC-PARTIAL", "MAX_TOKENS", ResponseStatus.INCOMPLETE, "max_tokens"),
+        ("SYNTHETIC-REFUSAL", "SAFETY", ResponseStatus.REFUSAL, "content_filter"),
+        (None, "", ResponseStatus.EMPTY, ""),
+        ("SYNTHETIC-UNKNOWN", "OTHER_REASON", ResponseStatus.INCOMPLETE, "other"),
+    ],
+)
+def test_gemini_life_record_preserves_non_complete_status_without_retry(
+    gemini_harness,
+    text,
+    finish_reason,
+    expected_status,
+    expected_reason,
+):
+    response = gemini_harness.response(text, finish_reason=finish_reason)
+    client = gemini_harness.client([], repair_responses=[response])
+
+    result = asyncio.run(client.generate_life_record_once("SYNTHETIC-STATUS-PROMPT"))
+
+    assert result.status is expected_status
+    assert result.finish_reason == expected_reason
+    assert len(gemini_harness.repair_calls) == 1
+
+
+class _SyntheticGeminiCapabilityError(RuntimeError):
+    def __init__(self, code, message, usage_metadata=None):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.usage_metadata = usage_metadata
+
+
+def test_gemini_life_record_explicit_capability_fallback_accumulates_and_caches(
+    gemini_harness,
+):
+    unsupported = _SyntheticGeminiCapabilityError(
+        400,
+        "Unknown parameter: response_json_schema is unsupported",
+        SimpleNamespace(
+            prompt_token_count=2,
+            candidates_token_count=1,
+            total_token_count=3,
+        ),
+    )
+    fallback = gemini_harness.response(
+        "SYNTHETIC-STRICT-JSON-TEXT",
+        input_tokens=5,
+        output_tokens=4,
+    )
+    client = gemini_harness.client([], repair_responses=[unsupported, fallback])
+
+    result = asyncio.run(client.generate_life_record_once("SYNTHETIC-FALLBACK-PROMPT"))
+
+    assert result.text == "SYNTHETIC-STRICT-JSON-TEXT"
+    assert result.token_usage == OneShotTokenUsage(7, 5, 12)
+    assert len(gemini_harness.repair_calls) == 2
+    native_call, fallback_call = gemini_harness.repair_calls
+    assert native_call["contents"] == fallback_call["contents"]
+    assert (
+        native_call["config"]["system_instruction"]
+        == fallback_call["config"]["system_instruction"]
+    )
+    assert "response_json_schema" in native_call["config"]
+    assert "response_json_schema" not in fallback_call["config"]
+    assert "response_mime_type" not in fallback_call["config"]
+
+    cached = gemini_harness.client(
+        [],
+        repair_responses=[gemini_harness.response("SYNTHETIC-CACHED-STRICT-JSON")],
+    )
+    assert "response_json_schema" in gemini_harness.created_configs[0]
+    cached_result = asyncio.run(
+        cached.generate_life_record_once("SYNTHETIC-CACHED-PROMPT")
+    )
+    assert cached_result.text == "SYNTHETIC-CACHED-STRICT-JSON"
+    assert len(gemini_harness.repair_calls) == 1
+    assert "response_json_schema" not in gemini_harness.repair_calls[0]["config"]
+
+
+def test_gemini_life_record_sdk_client_error_falls_back_and_keeps_unknown_usage(
+    gemini_harness,
+):
+    unsupported = ClientError(
+        400,
+        {
+            "error": {
+                "code": 400,
+                "status": "INVALID_ARGUMENT",
+                "message": "Unknown parameter: response_json_schema is unsupported",
+            }
+        },
+    )
+    fallback = gemini_harness.response(
+        "SYNTHETIC-SDK-FALLBACK",
+        input_tokens=3,
+        output_tokens=4,
+    )
+    client = gemini_harness.client([], repair_responses=[unsupported, fallback])
+
+    result = asyncio.run(client.generate_life_record_once("SYNTHETIC-SDK-PROMPT"))
+
+    assert result.text == "SYNTHETIC-SDK-FALLBACK"
+    assert result.token_usage == OneShotTokenUsage(None, None, None)
+    assert len(gemini_harness.repair_calls) == 2
+
+
+def test_gemini_final_reply_fallback_cache_does_not_disable_life_record_native(
+    gemini_harness,
+):
+    unsupported = _SyntheticGeminiCapabilityError(
+        400,
+        "Unknown parameter: response_json_schema is unsupported",
+    )
+    final_client = gemini_harness.client([unsupported, "SYNTHETIC FINAL [normal]"])
+    assert final_client.send_message("SYNTHETIC-FINAL-PROMPT")[0] == "SYNTHETIC FINAL"
+
+    life_client = gemini_harness.client(
+        [],
+        repair_responses=[gemini_harness.response("SYNTHETIC-LIFE-NATIVE")],
+    )
+    result = asyncio.run(
+        life_client.generate_life_record_once("SYNTHETIC-LIFE-NATIVE-PROMPT")
+    )
+
+    assert result.text == "SYNTHETIC-LIFE-NATIVE"
+    assert "response_json_schema" in gemini_harness.repair_calls[0]["config"]
+
+
+@pytest.mark.parametrize(
+    ("code", "message"),
+    [
+        (400, "Invalid schema validation for response_json_schema"),
+        (429, "response_json_schema request rate exceeded"),
+        (500, "response_json_schema upstream failure"),
+    ],
+)
+def test_gemini_life_record_non_capability_errors_are_not_retried(
+    gemini_harness,
+    code,
+    message,
+):
+    client = gemini_harness.client(
+        [],
+        repair_responses=[_SyntheticGeminiCapabilityError(code, message)],
+    )
+
+    with pytest.raises(RuntimeError, match="^life_record_generation_failed$"):
+        asyncio.run(client.generate_life_record_once("SYNTHETIC-ERROR-PROMPT"))
+
+    assert len(gemini_harness.repair_calls) == 1

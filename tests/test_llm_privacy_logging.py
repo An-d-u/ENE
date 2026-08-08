@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 from PyQt6.QtCore import QCoreApplication
 
+import src.ai.llm_client as llm_client_module
 from src.ai.calendar_manager import CalendarManager
 from src.ai.memory_context_builder import build_memory_context
 from src.ai.response_protocol import (
@@ -54,6 +55,78 @@ def test_life_record_one_shot_result_repr_omits_raw_text():
     assert "text=" not in repr(result)
     assert "finish_reason=" not in repr(result)
     assert result.text == raw_text
+
+
+def test_gemini_life_record_success_fallback_and_error_hide_sensitive_transport_data(
+    gemini_harness,
+    monkeypatch,
+    capsys,
+):
+    prompt_sentinel = "SYNTHETIC-LIFE-PRIVATE-PROMPT-SENTINEL"
+    system_sentinel = "SYNTHETIC-LIFE-PRIVATE-SYSTEM-SENTINEL"
+    raw_sentinel = "SYNTHETIC-LIFE-PRIVATE-RAW-SENTINEL"
+
+    class SyntheticError(RuntimeError):
+        def __init__(self, code, message):
+            super().__init__(message)
+            self.code = code
+            self.message = message
+
+    monkeypatch.setattr(
+        llm_client_module,
+        "build_life_record_system_instruction",
+        lambda _settings: system_sentinel,
+        raising=False,
+    )
+
+    success_client = gemini_harness.client(
+        [],
+        repair_responses=[gemini_harness.response(raw_sentinel)],
+    )
+    success_result = asyncio.run(
+        success_client.generate_life_record_once(prompt_sentinel)
+    )
+    assert raw_sentinel not in repr(success_result)
+
+    fallback_client = gemini_harness.client(
+        [],
+        repair_responses=[
+            SyntheticError(
+                400,
+                "Unknown parameter: response_json_schema is unsupported " + raw_sentinel,
+            ),
+            gemini_harness.response(raw_sentinel),
+        ],
+    )
+    fallback_result = asyncio.run(
+        fallback_client.generate_life_record_once(prompt_sentinel)
+    )
+    assert raw_sentinel not in repr(fallback_result)
+
+    error_client = gemini_harness.client(
+        [],
+        repair_responses=[SyntheticError(500, raw_sentinel + prompt_sentinel)],
+    )
+    with pytest.raises(RuntimeError) as captured_error:
+        asyncio.run(error_client.generate_life_record_once(prompt_sentinel))
+    assert str(captured_error.value) == "life_record_generation_failed"
+
+    combined = repr(success_result) + repr(fallback_result) + repr(captured_error.value)
+    combined += _combined_output(capsys)
+    assert prompt_sentinel not in combined
+    assert system_sentinel not in combined
+    assert raw_sentinel not in combined
+
+    monkeypatch.setattr(
+        llm_client_module,
+        "build_life_record_system_instruction",
+        lambda _settings: (_ for _ in ()).throw(RuntimeError(system_sentinel)),
+    )
+    setup_client = gemini_harness.client([], repair_responses=[])
+    with pytest.raises(RuntimeError) as setup_error:
+        asyncio.run(setup_client.generate_life_record_once(prompt_sentinel))
+    assert str(setup_error.value) == "life_record_generation_failed"
+    assert system_sentinel not in repr(setup_error.value)
 
 
 def _ensure_qt_app():
