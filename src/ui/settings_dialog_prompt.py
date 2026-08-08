@@ -250,8 +250,10 @@ class SettingsDialogPromptMixin:
         self._new_emotion_item()
 
     def _load_prompt_configuration(self):
+        self._prompt_bundle_snapshot_valid = False
         try:
             config = prompt_config.load_prompt_config()
+            life_world_prompt = prompt_config.load_life_world_prompt()
             emotions = list(config.get("emotions", []))
             guides = dict(config.get("emotion_guides", {}))
 
@@ -263,12 +265,13 @@ class SettingsDialogPromptMixin:
 
             self.base_prompt_editor.setPlainText(str(config.get("base_system_prompt", "")).strip("\n"))
             self.sub_prompt_editor.setPlainText(str(config.get("sub_prompt_body", "")).strip("\n"))
-            self.life_world_editor.setPlainText(prompt_config.load_life_world_prompt())
+            self.life_world_editor.setPlainText(life_world_prompt)
             self._on_life_world_text_changed()
             self._emotion_items = merged_items
             self._refresh_emotion_list()
             self._sync_emotion_combo_options()
             self._new_emotion_item()
+            self._prompt_bundle_snapshot_valid = True
 
             SettingsDialogPromptMixin._set_prompt_status_text(
                 self,
@@ -299,6 +302,13 @@ class SettingsDialogPromptMixin:
 
     def _save_prompt_configuration(self):
         try:
+            life_world_editor = getattr(self, "life_world_editor", None)
+            if (
+                life_world_editor is not None
+                and getattr(self, "_prompt_bundle_snapshot_valid", True) is False
+            ):
+                raise RuntimeError("prompt_bundle_load_required")
+
             emotion_names = [item["name"] for item in self._emotion_items if item["name"].strip()]
             if not emotion_names:
                 raise ValueError("감정은 하나 이상 있어야 합니다.")
@@ -313,7 +323,6 @@ class SettingsDialogPromptMixin:
                     if item["name"].strip()
                 },
             }
-            life_world_editor = getattr(self, "life_world_editor", None)
             if life_world_editor is None:
                 prompt_config.save_prompt_config(config)
             else:

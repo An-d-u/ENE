@@ -170,6 +170,38 @@ def test_life_world_default_read_failure_preserves_editor_and_shows_safe_status(
     dialog.close()
 
 
+def test_prompt_bundle_load_failure_preserves_editors_and_blocks_stale_save(
+    prompt_paths, monkeypatch
+):
+    runtime_dir, _default_dir = prompt_paths
+    life_world_path = runtime_dir / "life_world.md"
+    stored_life_world = life_world_path.read_bytes()
+    dialog = _dialog(prompt_paths, monkeypatch)
+    dialog.focus_section("prompt")
+    dialog.base_prompt_editor.setPlainText("draft base prompt")
+    dialog.sub_prompt_editor.setPlainText("draft sub prompt")
+    dialog.life_world_editor.setPlainText("stale life world")
+    before_emotions = [dict(item) for item in dialog._emotion_items]
+
+    def fail_life_world_load():
+        raise OSError("synthetic_life_world_read_failure")
+
+    monkeypatch.setattr(prompt_config, "load_life_world_prompt", fail_life_world_load)
+
+    dialog._load_prompt_configuration()
+
+    assert dialog.base_prompt_editor.toPlainText() == "draft base prompt"
+    assert dialog.sub_prompt_editor.toPlainText() == "draft sub prompt"
+    assert dialog.life_world_editor.toPlainText() == "stale life world"
+    assert dialog._emotion_items == before_emotions
+
+    dialog._save_prompt_configuration()
+
+    assert life_world_path.read_bytes() == stored_life_world
+    assert dialog._prompt_status_label.text()
+    dialog.close()
+
+
 def test_life_record_controls_have_accessible_names_and_buddy(prompt_paths, monkeypatch):
     dialog = _dialog(prompt_paths, monkeypatch)
     assert dialog.enable_life_records_check.accessibleName()
