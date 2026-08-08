@@ -194,15 +194,20 @@ def test_snapshot_life_mood_rejects_non_finite_or_non_numeric_axes(field, value)
 
 
 @pytest.mark.parametrize(
-    ("language", "language_rule"),
+    ("language", "language_rule", "start_weekday", "end_weekday"),
     [
-        ("ko", "activity와 ending_state의 자연어 값은 한국어"),
-        ("en", "natural-language values in activity and ending_state in English"),
-        ("ja", "activityとending_stateの自然言語値は日本語"),
+        ("ko", "activity와 ending_state의 자연어 값은 한국어", "금요일", "토요일"),
+        (
+            "en",
+            "natural-language values in activity and ending_state in English",
+            "Friday",
+            "Saturday",
+        ),
+        ("ja", "activityとending_stateの自然言語値は日本語", "金曜日", "土曜日"),
     ],
 )
 def test_prompt_contains_only_life_record_context_and_full_generation_contract(
-    language, language_rule
+    language, language_rule, start_weekday, end_weekday
 ):
     from src.ai.life_record_prompt import build_life_record_prompt
 
@@ -218,8 +223,8 @@ def test_prompt_contains_only_life_record_context_and_full_generation_contract(
         "2026-08-07T22:30:00+09:00",
         "2026-08-08T08:00:00+09:00",
         "Asia/Seoul",
-        "2026-08-07 (Friday)",
-        "2026-08-08 (Saturday)",
+        f"2026-08-07 ({start_weekday})",
+        f"2026-08-08 ({end_weekday})",
         "synthetic-previous-record",
         '"label": "calm"',
         '"short_term_mood": "steady"',
@@ -234,6 +239,14 @@ def test_prompt_contains_only_life_record_context_and_full_generation_contract(
     assert "사용자는 inactive_started_at부터 returned_at 직전까지 돌아오지 않았다" in prompt
     assert "복귀를 확인하는 행동은 returned_at 전에 배치하지 않는다" in prompt
     assert "base_system_prompt" not in prompt
+
+
+def test_weekday_name_uses_deterministic_english_fallback_for_unknown_language():
+    from src.ai.life_record_prompt import _localized_weekday
+
+    friday = datetime.fromisoformat("2026-08-07T22:30:00+09:00")
+
+    assert _localized_weekday(friday, "unsupported") == "Friday"
 
 
 @pytest.mark.parametrize(
