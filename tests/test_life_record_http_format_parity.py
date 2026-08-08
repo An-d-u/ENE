@@ -2,16 +2,20 @@ from __future__ import annotations
 
 import asyncio
 from copy import deepcopy
+import inspect
 import json as json_module
 import threading
+from typing import get_type_hints
 
 import pytest
 import requests
 
 from src.ai import http_llm_common
 from src.ai.http_llm_anthropic import AnthropicClient
+from src.ai.http_llm_custom_providers import CohereClient, GoogleCloudClient
 from src.ai.http_llm_ollama import OllamaClient
 from src.ai.http_llm_openai import (
+    MistralClient,
     OpenAICompatibleClient,
     OpenAIResponseAPIClient,
 )
@@ -19,6 +23,7 @@ from src.ai.response_protocol import (
     LIFE_RECORD_SCHEMA_ID,
     LIFE_RECORD_SCHEMA_VERSION,
     LLMRequestKind,
+    OneShotGenerationResult,
     ResponseMode,
     ResponseStatus,
     get_life_record_output_schema,
@@ -100,6 +105,40 @@ def _install_sequence(monkeypatch, responses):
     return captured
 
 
+def _capture_single_post(monkeypatch, target: str, body: dict):
+    captured = []
+
+    def fake_post(url, *, headers=None, json=None, timeout=None):
+        captured.append(
+            {
+                "url": url,
+                "headers": deepcopy(headers),
+                "json": deepcopy(json),
+                "timeout": timeout,
+            }
+        )
+        return DummyHTTPResponse(body)
+
+    monkeypatch.setattr(target, fake_post)
+    return captured
+
+
+def _payload_contains_value(value, expected: str) -> bool:
+    if value == expected:
+        return True
+    if isinstance(value, dict):
+        return any(
+            _payload_contains_value(nested, expected)
+            for nested in value.values()
+        )
+    if isinstance(value, list):
+        return any(
+            _payload_contains_value(nested, expected)
+            for nested in value
+        )
+    return False
+
+
 def _patch_system_instruction(monkeypatch):
     monkeypatch.setattr(
         http_llm_common,
@@ -131,6 +170,55 @@ def _anthropic_client() -> AnthropicClient:
         api_key="synthetic-key",
         model_name="synthetic-model",
         endpoint="https://api.anthropic.com/v1/messages",
+    )
+
+
+def _mistral_client(
+    endpoint: str = "https://api.mistral.ai/v1/chat/completions",
+) -> MistralClient:
+    return MistralClient(
+        api_key="synthetic-key",
+        model_name="synthetic-model",
+        endpoint=endpoint,
+        provider_name="custom_api",
+        generation_params={
+            "temperature": 0.4,
+            "top_p": 0.8,
+            "max_tokens": 321,
+        },
+    )
+
+
+def _google_client(
+    endpoint: str = (
+        "https://generativelanguage.googleapis.com/"
+        "v1beta/models/{model}:generateContent"
+    ),
+) -> GoogleCloudClient:
+    return GoogleCloudClient(
+        api_key="synthetic-key",
+        model_name="synthetic-model",
+        endpoint=endpoint,
+        generation_params={
+            "temperature": 0.4,
+            "top_p": 0.8,
+            "max_tokens": 321,
+        },
+    )
+
+
+def _cohere_client(
+    endpoint: str = "https://api.cohere.com/v1/chat",
+) -> CohereClient:
+    return CohereClient(
+        api_key="synthetic-key",
+        model_name="synthetic-model",
+        endpoint=endpoint,
+        generation_params={
+            "temperature": 0.4,
+            "top_p": 0.8,
+            "max_tokens": 321,
+        },
     )
 
 
@@ -270,6 +358,477 @@ def test_life_record_descriptor_resolves_verified_and_unknown_profiles_by_life_k
     assert native_descriptor.capability_key.schema_id == LIFE_RECORD_SCHEMA_ID
     assert native_descriptor.capability_key.schema_version == LIFE_RECORD_SCHEMA_VERSION
     assert native_descriptor.request.system_instruction == SYSTEM_INSTRUCTION
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [_mistral_client, _google_client, _cohere_client],
+    ids=("mistral", "google-cloud", "cohere"),
+)
+def test_remaining_http_clients_expose_async_life_record_generation(factory):
+    client = factory()
+
+    assert inspect.iscoroutinefunction(client.generate_life_record_once)
+    assert (
+        get_type_hints(client.generate_life_record_once).get("return")
+        is OneShotGenerationResult
+    )
+
+
+@pytest.mark.parametrize(
+    ("factory", "expected_mode"),
+    [
+        (_mistral_client, ResponseMode.JSON_SCHEMA),
+        (_google_client, ResponseMode.JSON_SCHEMA),
+        (_cohere_client, ResponseMode.JSON_SCHEMA),
+        (
+            lambda: _cohere_client("https://api.cohere.ai/v1/chat"),
+            ResponseMode.JSON_SCHEMA,
+        ),
+        (
+            lambda: _mistral_client(
+                "https://gateway.example.invalid/v1/chat/completions"
+            ),
+            ResponseMode.LEGACY_TAGS,
+        ),
+        (
+            lambda: _google_client(
+                "https://gateway.example.invalid/v1beta/models/"
+                "{model}:generateContent"
+            ),
+            ResponseMode.LEGACY_TAGS,
+        ),
+        (
+            lambda: _cohere_client("https://gateway.example.invalid/v1/chat"),
+            ResponseMode.LEGACY_TAGS,
+        ),
+    ],
+    ids=(
+        "mistral-official",
+        "google-official",
+        "cohere-official",
+        "cohere-official-ai-host",
+        "mistral-unverified",
+        "google-unverified",
+        "cohere-unverified",
+    ),
+)
+def test_remaining_life_record_profiles_require_verified_official_endpoint(
+    monkeypatch,
+    factory,
+    expected_mode,
+):
+    _patch_system_instruction(monkeypatch)
+
+    descriptor = factory()._build_life_record_request_descriptor(PROMPT)
+
+    assert descriptor.response_mode is expected_mode
+    assert descriptor.capability_key.request_kind is LLMRequestKind.LIFE_RECORD
+    assert descriptor.capability_key.schema_id == LIFE_RECORD_SCHEMA_ID
+    assert descriptor.capability_key.schema_version == LIFE_RECORD_SCHEMA_VERSION
+
+
+def test_custom_anthropic_requires_exact_official_endpoint_for_native(monkeypatch):
+    _patch_system_instruction(monkeypatch)
+    official = _anthropic_client()
+    official.provider_name = "custom_api"
+    arbitrary = _anthropic_client()
+    arbitrary.provider_name = "custom_api"
+    arbitrary.endpoint = "https://gateway.example.invalid/v1/messages"
+
+    assert (
+        official._build_life_record_request_descriptor(PROMPT).response_mode
+        is ResponseMode.JSON_SCHEMA
+    )
+    assert (
+        arbitrary._build_life_record_request_descriptor(PROMPT).response_mode
+        is ResponseMode.LEGACY_TAGS
+    )
+
+
+@pytest.mark.parametrize(
+    ("factory", "official_endpoint", "arbitrary_endpoint"),
+    [
+        (
+            lambda endpoint: OpenAICompatibleClient(
+                api_key="synthetic-key",
+                model_name="synthetic-model",
+                endpoint=endpoint,
+                provider_name="custom_api",
+            ),
+            "https://api.openai.com/v1/chat/completions",
+            "https://gateway.example.invalid/v1/chat/completions",
+        ),
+        (
+            lambda endpoint: OpenAIResponseAPIClient(
+                api_key="synthetic-key",
+                model_name="synthetic-model",
+                endpoint=endpoint,
+                provider_name="custom_api",
+            ),
+            "https://api.openai.com/v1/responses",
+            "https://gateway.example.invalid/v1/responses",
+        ),
+    ],
+    ids=("openai-chat", "openai-responses"),
+)
+def test_custom_openai_wire_name_does_not_elevate_arbitrary_endpoint(
+    monkeypatch,
+    factory,
+    official_endpoint,
+    arbitrary_endpoint,
+):
+    _patch_system_instruction(monkeypatch)
+
+    official_mode = factory(
+        official_endpoint
+    )._build_life_record_request_descriptor(PROMPT).response_mode
+    arbitrary_mode = factory(
+        arbitrary_endpoint
+    )._build_life_record_request_descriptor(PROMPT).response_mode
+
+    assert official_mode is ResponseMode.JSON_SCHEMA
+    assert arbitrary_mode is ResponseMode.LEGACY_TAGS
+
+
+def test_mistral_official_life_record_uses_native_schema_without_history(
+    monkeypatch,
+):
+    _patch_system_instruction(monkeypatch)
+    captured = _capture_single_post(
+        monkeypatch,
+        "src.ai.http_llm_openai.requests.post",
+        {
+            "choices": [
+                {
+                    "message": {"content": RAW_LIFE_RECORD},
+                    "finish_reason": "length",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 5,
+                "completion_tokens": 3,
+                "total_tokens": 8,
+            },
+        },
+    )
+    client = _mistral_client()
+    client._history = [{"role": "user", "content": EXCLUDED_SENTINELS[-1]}]
+
+    result = asyncio.run(client.generate_life_record_once(PROMPT))
+
+    payload = captured[0]["json"]
+    assert payload["messages"] == [
+        {"role": "system", "content": SYSTEM_INSTRUCTION},
+        {"role": "user", "content": PROMPT},
+    ]
+    assert payload["response_format"] == {
+        "type": "json_schema",
+        "json_schema": {
+            "name": LIFE_RECORD_SCHEMA_ID,
+            "strict": True,
+            "schema": get_life_record_output_schema(),
+        },
+    }
+    assert "tools" not in payload
+    assert all(
+        sentinel not in json_module.dumps(payload, ensure_ascii=False)
+        for sentinel in EXCLUDED_SENTINELS
+    )
+    assert result.status is ResponseStatus.INCOMPLETE
+    assert result.finish_reason == "length"
+    assert (
+        result.token_usage.input_tokens,
+        result.token_usage.output_tokens,
+        result.token_usage.total_tokens,
+    ) == (5, 3, 8)
+
+
+def test_google_official_life_record_uses_native_schema_without_history(
+    monkeypatch,
+):
+    _patch_system_instruction(monkeypatch)
+    captured = _capture_single_post(
+        monkeypatch,
+        "src.ai.http_llm_custom_providers.requests.post",
+        {
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [{"text": RAW_LIFE_RECORD}],
+                    },
+                    "finishReason": "MAX_TOKENS",
+                }
+            ],
+            "usageMetadata": {
+                "promptTokenCount": 7,
+                "candidatesTokenCount": 4,
+                "totalTokenCount": 11,
+            },
+        },
+    )
+    client = _google_client()
+    client._history = [{"role": "user", "content": EXCLUDED_SENTINELS[-1]}]
+
+    result = asyncio.run(client.generate_life_record_once(PROMPT))
+
+    payload = captured[0]["json"]
+    assert payload["systemInstruction"] == {
+        "parts": [{"text": SYSTEM_INSTRUCTION}]
+    }
+    assert payload["contents"] == [
+        {"role": "user", "parts": [{"text": PROMPT}]}
+    ]
+    assert payload["generation_config"]["responseFormat"] == {
+        "text": {
+            "mimeType": "application/json",
+            "schema": get_life_record_output_schema(),
+        }
+    }
+    assert "tools" not in payload
+    assert all(
+        sentinel not in json_module.dumps(payload, ensure_ascii=False)
+        for sentinel in EXCLUDED_SENTINELS
+    )
+    assert result.status is ResponseStatus.INCOMPLETE
+    assert result.finish_reason == "max_tokens"
+    assert (
+        result.token_usage.input_tokens,
+        result.token_usage.output_tokens,
+        result.token_usage.total_tokens,
+    ) == (7, 4, 11)
+
+
+def test_cohere_official_life_record_uses_native_schema_without_history(
+    monkeypatch,
+):
+    _patch_system_instruction(monkeypatch)
+    captured = _capture_single_post(
+        monkeypatch,
+        "src.ai.http_llm_custom_providers.requests.post",
+        {
+            "text": RAW_LIFE_RECORD,
+            "finish_reason": "COMPLETE",
+            "meta": {
+                "billed_units": {
+                    "input_tokens": 6,
+                    "output_tokens": 2,
+                }
+            },
+        },
+    )
+    client = _cohere_client()
+    client._history = [{"role": "user", "content": EXCLUDED_SENTINELS[-1]}]
+
+    result = asyncio.run(client.generate_life_record_once(PROMPT))
+
+    payload = captured[0]["json"]
+    assert payload["preamble"] == SYSTEM_INSTRUCTION
+    assert payload["message"] == PROMPT
+    assert payload["chat_history"] == []
+    assert payload["response_format"] == {
+        "type": "json_object",
+        "schema": get_life_record_output_schema(),
+    }
+    assert "tools" not in payload
+    assert all(
+        sentinel not in json_module.dumps(payload, ensure_ascii=False)
+        for sentinel in EXCLUDED_SENTINELS
+    )
+    assert result.status is ResponseStatus.COMPLETE
+    assert result.finish_reason == "complete"
+    assert (
+        result.token_usage.input_tokens,
+        result.token_usage.output_tokens,
+        result.token_usage.total_tokens,
+    ) == (6, 2, None)
+
+
+@pytest.mark.parametrize(
+    ("factory", "post_target", "success_body", "schema_path"),
+    [
+        (
+            lambda: _mistral_client(
+                "https://gateway.example.invalid/v1/chat/completions"
+            ),
+            "src.ai.http_llm_openai.requests.post",
+            _openai_chat_body(),
+            lambda payload: "response_format" in payload,
+        ),
+        (
+            lambda: _google_client(
+                "https://gateway.example.invalid/v1beta/models/"
+                "{model}:generateContent"
+            ),
+            "src.ai.http_llm_custom_providers.requests.post",
+            {
+                "candidates": [
+                    {
+                        "content": {"parts": [{"text": RAW_LIFE_RECORD}]},
+                        "finishReason": "STOP",
+                    }
+                ]
+            },
+            lambda payload: "responseFormat"
+            in payload.get("generation_config", {}),
+        ),
+        (
+            lambda: _cohere_client("https://gateway.example.invalid/v1/chat"),
+            "src.ai.http_llm_custom_providers.requests.post",
+            {"text": RAW_LIFE_RECORD, "finish_reason": "COMPLETE"},
+            lambda payload: "response_format" in payload,
+        ),
+    ],
+    ids=("mistral", "google-cloud", "cohere"),
+)
+def test_unverified_remaining_provider_uses_one_strict_historyless_request(
+    monkeypatch,
+    factory,
+    post_target,
+    success_body,
+    schema_path,
+):
+    _patch_system_instruction(monkeypatch)
+    captured = _capture_single_post(monkeypatch, post_target, success_body)
+
+    result = asyncio.run(factory().generate_life_record_once(PROMPT))
+
+    assert len(captured) == 1
+    assert schema_path(captured[0]["json"]) is False
+    assert _payload_contains_value(captured[0]["json"], SYSTEM_INSTRUCTION)
+    assert _payload_contains_value(captured[0]["json"], PROMPT)
+    assert result.text == RAW_LIFE_RECORD
+
+
+@pytest.mark.parametrize(
+    (
+        "factory",
+        "post_target",
+        "unsupported_body",
+        "success_body",
+        "native_present",
+        "expected_usage",
+    ),
+    [
+        (
+            _mistral_client,
+            "src.ai.http_llm_openai.requests.post",
+            {
+                "error": {"message": "Unknown parameter: response_format"},
+                "usage": {
+                    "prompt_tokens": 2,
+                    "completion_tokens": 1,
+                    "total_tokens": 3,
+                },
+            },
+            {
+                **_openai_chat_body(),
+                "usage": {
+                    "prompt_tokens": 5,
+                    "completion_tokens": 4,
+                    "total_tokens": 9,
+                },
+            },
+            lambda payload: "response_format" in payload,
+            (7, 5, 12),
+        ),
+        (
+            _google_client,
+            "src.ai.http_llm_custom_providers.requests.post",
+            {
+                "error": {
+                    "message": (
+                        "Unknown parameter: generationConfig.responseFormat"
+                    )
+                },
+                "usageMetadata": {
+                    "promptTokenCount": 3,
+                    "candidatesTokenCount": 1,
+                    "totalTokenCount": 4,
+                },
+            },
+            {
+                "candidates": [
+                    {
+                        "content": {"parts": [{"text": RAW_LIFE_RECORD}]},
+                        "finishReason": "STOP",
+                    }
+                ],
+                "usageMetadata": {
+                    "promptTokenCount": 6,
+                    "candidatesTokenCount": 2,
+                    "totalTokenCount": 8,
+                },
+            },
+            lambda payload: "responseFormat"
+            in payload.get("generation_config", {}),
+            (9, 3, 12),
+        ),
+        (
+            _cohere_client,
+            "src.ai.http_llm_custom_providers.requests.post",
+            {
+                "error": {"message": "Unknown parameter: response_format"},
+                "meta": {
+                    "billed_units": {
+                        "input_tokens": 4,
+                        "output_tokens": 1,
+                    }
+                },
+            },
+            {
+                "text": RAW_LIFE_RECORD,
+                "finish_reason": "COMPLETE",
+                "meta": {
+                    "billed_units": {
+                        "input_tokens": 7,
+                        "output_tokens": 3,
+                    }
+                },
+            },
+            lambda payload: "response_format" in payload,
+            (11, 4, None),
+        ),
+    ],
+    ids=("mistral", "google-cloud", "cohere"),
+)
+def test_remaining_native_rejection_falls_back_once_with_same_private_context(
+    monkeypatch,
+    factory,
+    post_target,
+    unsupported_body,
+    success_body,
+    native_present,
+    expected_usage,
+):
+    _patch_system_instruction(monkeypatch)
+    captured = []
+    responses = [
+        DummyHTTPResponse(unsupported_body, status_code=400),
+        DummyHTTPResponse(success_body),
+    ]
+
+    def fake_post(url, *, headers=None, json=None, timeout=None):
+        captured.append(deepcopy(json))
+        return responses.pop(0)
+
+    monkeypatch.setattr(post_target, fake_post)
+
+    result = asyncio.run(factory().generate_life_record_once(PROMPT))
+
+    assert len(captured) == 2
+    assert native_present(captured[0]) is True
+    assert native_present(captured[1]) is False
+    for payload in captured:
+        assert _payload_contains_value(payload, SYSTEM_INSTRUCTION)
+        assert _payload_contains_value(payload, PROMPT)
+        serialized = json_module.dumps(payload, ensure_ascii=False)
+        assert all(sentinel not in serialized for sentinel in EXCLUDED_SENTINELS)
+    assert (
+        result.token_usage.input_tokens,
+        result.token_usage.output_tokens,
+        result.token_usage.total_tokens,
+    ) == expected_usage
 
 
 def test_ollama_verified_life_record_uses_fresh_schema_and_preserves_response(

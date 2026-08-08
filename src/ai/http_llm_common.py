@@ -179,6 +179,34 @@ _OFFICIAL_RESPONSE_ENDPOINTS = {
         None,
         "/v1/messages",
     ): ("anthropic", ResponseMode.JSON_SCHEMA),
+    (
+        "mistral",
+        "https",
+        "api.mistral.ai",
+        None,
+        "/v1/chat/completions",
+    ): ("mistral", ResponseMode.JSON_SCHEMA),
+    (
+        "google_cloud",
+        "https",
+        "generativelanguage.googleapis.com",
+        None,
+        "/v1beta/models/{model}:generateContent",
+    ): ("google_cloud", ResponseMode.JSON_SCHEMA),
+    (
+        "cohere",
+        "https",
+        "api.cohere.com",
+        None,
+        "/v1/chat",
+    ): ("cohere", ResponseMode.JSON_SCHEMA),
+    (
+        "cohere",
+        "https",
+        "api.cohere.ai",
+        None,
+        "/v1/chat",
+    ): ("cohere", ResponseMode.JSON_SCHEMA),
 }
 
 _UNAMBIGUOUS_STRUCTURED_OUTPUT_PARAMETER_NAME = (
@@ -187,7 +215,8 @@ _UNAMBIGUOUS_STRUCTURED_OUTPUT_PARAMETER_NAME = (
     r"text\.format(?:\.(?:type|strict|schema|name))?|"
     r"output_config(?:\.format(?:\.(?:schema|type))?)?|"
     r"json_schema|response_mime_type|response_schema|"
-    r"response_json_schema)"
+    r"response_json_schema|responseFormat|responseMimeType|"
+    r"responseSchema|responseJsonSchema|generationConfig\.responseFormat)"
 )
 _OLLAMA_FORMAT_PARAMETER_NAME = r"(?:format)"
 _STRICT_TOOL_PARAMETER_NAME = r"(?:tool_choice|tools|strict)"
@@ -507,6 +536,17 @@ def _official_profile_for_endpoint(
     )
     if known is not None:
         return known
+    if (
+        canonical_wire_format == "google_cloud"
+        and scheme == "https"
+        and host == "generativelanguage.googleapis.com"
+        and port is None
+        and re.fullmatch(
+            r"/v1beta/models/[A-Za-z0-9._-]+:generateContent",
+            path,
+        )
+    ):
+        return "google_cloud", ResponseMode.JSON_SCHEMA
     if (
         canonical_wire_format == "ollama"
         and scheme == "http"
@@ -935,7 +975,7 @@ def _normalize_capability_failure_usage(
             output_key="eval_count",
             total_key=total_key,
         )
-    if wire_format in {"openai_chat", "openai_responses"}:
+    if wire_format in {"openai_chat", "openai_responses", "mistral"}:
         return normalize_one_shot_usage(
             data.get("usage"),
             input_key=(
@@ -952,6 +992,21 @@ def _normalize_capability_failure_usage(
     if wire_format == "anthropic":
         return normalize_one_shot_usage(
             data.get("usage"),
+            input_key="input_tokens",
+            output_key="output_tokens",
+        )
+    if wire_format == "google_cloud":
+        return normalize_one_shot_usage(
+            data.get("usageMetadata"),
+            input_key="promptTokenCount",
+            output_key="candidatesTokenCount",
+            total_key="totalTokenCount",
+        )
+    if wire_format == "cohere":
+        meta = data.get("meta")
+        billed_units = meta.get("billed_units") if isinstance(meta, dict) else None
+        return normalize_one_shot_usage(
+            billed_units,
             input_key="input_tokens",
             output_key="output_tokens",
         )
@@ -1667,7 +1722,12 @@ class _CommonMixin:
             if resolved_mode is ResponseMode.JSON_SCHEMA
             else ResponseMode.LEGACY_TAGS
         )
-        headers = self._headers()
+        life_record_headers = getattr(self, "_life_record_headers", None)
+        headers = (
+            life_record_headers()
+            if callable(life_record_headers)
+            else self._headers()
+        )
         return HTTPStructuredOneShotRequestDescriptor(
             request=request,
             profile=profile,
