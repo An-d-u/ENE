@@ -171,6 +171,10 @@ class LifeRecordBridgeMixin:
             self.life_record_state = state
         return state
 
+    def begin_shutdown(self) -> int:
+        """모든 bridge 요청을 차단하고 현재 생활 기록 작업을 무효화한다."""
+        return self._get_life_record_state().begin_shutdown()
+
     def _life_operation_accepts_input(self) -> bool:
         return self._get_life_record_state().phase == "idle"
 

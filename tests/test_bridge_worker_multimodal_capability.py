@@ -138,3 +138,71 @@ def test_ai_worker_logs_chat_metadata_without_content(capsys):
     assert "response_mode=json_schema" in combined
     assert "reply_chars=" in combined
     assert "tts_chars=" in combined
+
+
+def test_ai_worker_cancelled_before_start_does_not_call_provider_or_emit():
+    _ensure_qt_app()
+
+    class DummyLLM:
+        async def send_message_with_memory(self, *_args, **_kwargs):
+            raise AssertionError("취소된 worker는 공급자를 호출하면 안 됩니다.")
+
+    responses = []
+    errors = []
+    worker = AIWorker(llm_client=DummyLLM(), message="Synthetic request.")
+    worker.response_ready.connect(lambda *_args: responses.append("response"))
+    worker.error_occurred.connect(errors.append)
+    worker.requestInterruption()
+
+    worker.run()
+
+    assert responses == []
+    assert errors == []
+
+
+def test_ai_worker_cancelled_after_network_await_does_not_emit_result():
+    _ensure_qt_app()
+    responses = []
+    errors = []
+    worker = None
+
+    class DummyLLM:
+        def __init__(self):
+            self.metadata_calls = 0
+
+        async def send_message_with_memory(self, *_args, **_kwargs):
+            worker.requestInterruption()
+            return "Synthetic response.", "normal", "", [], {}, [], "", {}, [], ""
+
+        def get_last_response_delivery_metadata(self):
+            self.metadata_calls += 1
+            return STRUCTURED_METADATA
+
+    client = DummyLLM()
+    worker = AIWorker(llm_client=client, message="Synthetic request.")
+    worker.response_ready.connect(lambda *_args: responses.append("response"))
+    worker.error_occurred.connect(errors.append)
+
+    worker.run()
+
+    assert responses == []
+    assert errors == []
+    assert client.metadata_calls == 0
+
+
+def test_ai_worker_cancelled_provider_error_does_not_emit_error():
+    _ensure_qt_app()
+    errors = []
+    worker = None
+
+    class DummyLLM:
+        async def send_message_with_memory(self, *_args, **_kwargs):
+            worker.requestInterruption()
+            raise RuntimeError("Synthetic private provider detail")
+
+    worker = AIWorker(llm_client=DummyLLM(), message="Synthetic request.")
+    worker.error_occurred.connect(errors.append)
+
+    worker.run()
+
+    assert errors == []
