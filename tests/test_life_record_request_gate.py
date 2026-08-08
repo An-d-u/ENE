@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
+import pytest
+
+from src.core.bridge_mixins import chat_flow as chat_flow_module
+from src.core.bridge_mixins.away import AwayNudgeBridgeMixin
+from src.core.bridge_mixins.chat_flow import ChatFlowBridgeMixin
 from src.core.bridge_mixins.life_records import (
     LifeRecordBridgeMixin,
     PreparedChatRequest,
 )
+from src.core.bridge_mixins.promise import PromiseBridgeMixin
+from src.core.bridge_mixins.proactive import ProactiveBridgeMixin
 from src.core.bridge import WebBridge
 from src.core.bridge_state import LifeRecordBridgeState
 from src.core.life_session_tracker import InactiveStartCandidate
@@ -275,3 +283,214 @@ def test_first_general_chat_snapshots_mood_before_mood_update() -> None:
     bridge.send_to_ai("합성 인사")
 
     assert bridge.mood_manager.events[:2] == ["snapshot", "message"]
+
+
+def test_busy_attachment_slot_rejects_before_json_or_session_side_effects(monkeypatch) -> None:
+    bridge = WebBridge()
+    bridge.llm_client = object()
+    bridge.life_record_state.phase = "auto_generating"
+    original_session = bridge._attachment_session
+    monkeypatch.setattr(
+        "src.core.bridge_mixins.attachments.json.loads",
+        lambda _value: (_ for _ in ()).throw(AssertionError("JSON must not be parsed")),
+    )
+
+    bridge.send_to_ai_with_attachments("합성 요청", "[]")
+
+    assert bridge._attachment_session is original_session
+    assert bridge._pending_attachment_cache == {}
+    assert bridge._message_attachment_records == {}
+    assert bridge.conversation_buffer == []
+    assert bridge.life_record_state.auto_decision_completed is False
+
+
+def test_busy_legacy_image_slot_rejects_before_json_side_effects(monkeypatch) -> None:
+    bridge = WebBridge()
+    bridge.llm_client = object()
+    bridge.life_record_state.phase = "auto_generating"
+    parsed = []
+    monkeypatch.setattr(
+        "src.core.bridge_mixins.attachments.json.loads",
+        lambda value: parsed.append(value) or [],
+    )
+
+    bridge.send_to_ai_with_images("합성 요청", "[]")
+
+    assert bridge.conversation_buffer == []
+    assert bridge.life_record_state.auto_decision_completed is False
+    assert parsed == []
+
+
+def test_attachment_slot_captures_clock_once_and_commits_deep_snapshot(monkeypatch) -> None:
+    bridge = WebBridge()
+    bridge.llm_client = object()
+    bridge.life_record_state.life_records_writable = False
+    bridge._capture_life_received_at = lambda: NOW
+    bridge._start_ai_worker = lambda *_args, **_kwargs: None
+    captured: list[list[dict]] = []
+
+    def resolve(items):
+        captured.append(items)
+        items[0]["nested"]["value"] = 99
+        return [{
+            "id": "synthetic-file",
+            "name": "sample.txt",
+            "type": "text/plain",
+            "category": "document",
+            "status": "ready",
+            "extractedText": "Synthetic document.",
+            "tokenEstimate": 3,
+        }]
+
+    bridge._resolve_prepared_attachments = resolve
+    bridge.send_to_ai_with_attachments(
+        "합성 요청",
+        '[{"id":"synthetic-file","nested":{"value":1}}]',
+    )
+
+    assert captured[0][0]["nested"]["value"] == 99
+    assert "2026-08-07 10:00" in bridge._last_request_payload["message_with_time"]
+    assert bridge.conversation_buffer[0][2] == "2026-08-07 10:00"
+
+
+@pytest.mark.parametrize("method_name,args", [
+    ("reroll_last_response", ()),
+    ("edit_last_user_message", ("수정된 합성 요청",)),
+])
+def test_busy_retry_entrypoints_reject_before_rollback(method_name, args) -> None:
+    bridge = WebBridge()
+    bridge.llm_client = object()
+    bridge._last_request_payload = {"type": "text", "message_with_time": "synthetic"}
+    bridge.life_record_state.phase = "auto_generating"
+    bridge._rollback_last_turn_pair_for_retry = lambda: (_ for _ in ()).throw(
+        AssertionError("rollback must not run")
+    )
+
+    getattr(bridge, method_name)(*args)
+
+    assert bridge._last_request_payload == {
+        "type": "text",
+        "message_with_time": "synthetic",
+    }
+
+
+class _WorkerSignal:
+    def __init__(self) -> None:
+        self.callbacks = []
+
+    def connect(self, callback) -> None:
+        self.callbacks.append(callback)
+
+    def emit(self, *args) -> None:
+        for callback in list(self.callbacks):
+            callback(*args)
+
+
+class _Worker:
+    def __init__(self, *_args, **_kwargs) -> None:
+        self.response_ready = _WorkerSignal()
+        self.error_occurred = _WorkerSignal()
+        self.finished = _WorkerSignal()
+        self.started = False
+
+    def start(self) -> None:
+        self.started = True
+
+    def isRunning(self) -> bool:
+        return self.started
+
+    def wait(self) -> None:
+        raise AssertionError("GUI thread must not wait")
+
+
+def test_general_worker_owns_normal_reply_operation_until_finished(monkeypatch) -> None:
+    monkeypatch.setattr(chat_flow_module, "AIWorker", _Worker)
+    state = LifeRecordBridgeState()
+    dummy = SimpleNamespace(
+        life_record_state=state,
+        worker=None,
+        llm_client=object(),
+        _with_ene_thought_context=lambda value: value,
+        _with_tts_output_reminder=lambda value: value,
+        _emit_request_pending_stage_changed=lambda _value: None,
+        _emit_request_pending_changed=lambda _value: None,
+        _on_response_ready=lambda *_args, **_kwargs: None,
+        _on_error=lambda *_args, **_kwargs: None,
+        _drain_queues_after_worker_finished=lambda: None,
+    )
+    dummy._begin_normal_reply_operation = lambda: (
+        ChatFlowBridgeMixin._begin_normal_reply_operation(dummy)
+    )
+    dummy._finish_normal_reply_operation = lambda operation_id, worker: (
+        ChatFlowBridgeMixin._finish_normal_reply_operation(dummy, operation_id, worker)
+    )
+    dummy._connect_worker_finished_drain = lambda operation_id=None: (
+        ChatFlowBridgeMixin._connect_worker_finished_drain(dummy, operation_id)
+    )
+
+    assert ChatFlowBridgeMixin._start_ai_worker(dummy, "synthetic") is True
+    operation_id = state.operation_id
+    assert state.matches_operation(operation_id, "normal_reply") is True
+
+    dummy.worker.finished.emit()
+
+    assert state.phase == "idle"
+
+
+class _StatusManager:
+    def __init__(self) -> None:
+        self.calls = []
+
+    def set_status(self, *args) -> None:
+        self.calls.append(args)
+
+
+def test_busy_auto_entrypoints_have_zero_queue_status_and_capture_side_effects() -> None:
+    promise_manager = _StatusManager()
+    promise_started = []
+    promise = SimpleNamespace(
+        life_record_state=LifeRecordBridgeState(phase="auto_generating"),
+        worker=None,
+        promise_manager=promise_manager,
+        promise_run_queue=[],
+        _should_suppress_duplicate_promise_fire=lambda _payload: False,
+        _start_promise_ai_worker=lambda payload: promise_started.append(payload),
+        _life_operation_accepts_input=lambda: False,
+    )
+    PromiseBridgeMixin._enqueue_due_promise(promise, {"id": "synthetic-promise"})
+
+    proactive_manager = _StatusManager()
+    proactive_started = []
+    proactive = SimpleNamespace(
+        life_record_state=LifeRecordBridgeState(phase="auto_generating"),
+        worker=None,
+        proactive_manager=proactive_manager,
+        proactive_run_queue=[],
+        _should_suppress_duplicate_proactive_fire=lambda _payload: False,
+        _start_proactive_ai_worker=lambda payload: proactive_started.append(payload),
+        _life_operation_accepts_input=lambda: False,
+    )
+    ProactiveBridgeMixin._enqueue_due_proactive_conversation(
+        proactive,
+        {"id": "synthetic-proactive"},
+    )
+
+    away_started = []
+    away = SimpleNamespace(
+        enable_away_nudge=True,
+        away_check_in_progress=False,
+        user_message_count=1,
+        last_user_message_at=NOW - timedelta(hours=2),
+        worker=None,
+        _life_operation_accepts_input=lambda: False,
+        _start_away_capture_pipeline=lambda: away_started.append("capture"),
+    )
+    AwayNudgeBridgeMixin._check_away_nudge_condition(away)
+
+    assert promise.promise_run_queue == []
+    assert promise_manager.calls == []
+    assert promise_started == []
+    assert proactive.proactive_run_queue == []
+    assert proactive_manager.calls == []
+    assert proactive_started == []
+    assert away_started == []

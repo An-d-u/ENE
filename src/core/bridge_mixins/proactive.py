@@ -172,6 +172,9 @@ class ProactiveBridgeMixin:
 
     def _enqueue_due_proactive_conversation(self, payload: dict) -> None:
         """현재 생성 중이면 선제 대화를 큐에 넣고, 아니면 즉시 시작한다."""
+        accepts_input = getattr(self, "_life_operation_accepts_input", None)
+        if callable(accepts_input) and not accepts_input():
+            return
         proactive_id = str((payload or {}).get("id", "") or "").strip()
         if proactive_id:
             for queued in list(getattr(self, "proactive_run_queue", []) or []):
@@ -193,6 +196,9 @@ class ProactiveBridgeMixin:
 
     def _drain_proactive_queue_if_idle(self) -> None:
         """유휴 상태가 되면 대기 중인 선제 대화를 하나 실행한다."""
+        accepts_input = getattr(self, "_life_operation_accepts_input", None)
+        if callable(accepts_input) and not accepts_input():
+            return
         if not self._is_proactive_conversation_enabled():
             self.refresh_proactive_settings()
             return
@@ -205,6 +211,9 @@ class ProactiveBridgeMixin:
 
     def _start_proactive_ai_worker(self, payload: dict) -> None:
         """선제 대화 생성 프롬프트로 응답 생성을 시작한다."""
+        accepts_input = getattr(self, "_life_operation_accepts_input", None)
+        if callable(accepts_input) and not accepts_input():
+            return
         proactive_id = str((payload or {}).get("id", "") or "").strip()
         if not self._is_proactive_conversation_enabled():
             if self.proactive_manager and proactive_id:

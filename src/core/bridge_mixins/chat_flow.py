@@ -108,12 +108,46 @@ class ChatFlowBridgeMixin:
         if callable(drain_proactive_queue):
             drain_proactive_queue()
 
-    def _connect_worker_finished_drain(self):
-        """QThread finished signal이 있는 워커에서만 종료 후 큐 재확인을 연결한다."""
-        finished = getattr(getattr(self, "worker", None), "finished", None)
+    def _connect_worker_finished_drain(self, operation_id: int | None = None):
+        """worker 종료 시 현재 normal_reply 소유권을 해제한 뒤 큐를 확인한다."""
+        response_worker = getattr(self, "worker", None)
+        finished = getattr(response_worker, "finished", None)
         connector = getattr(finished, "connect", None)
         if callable(connector):
-            connector(self._drain_queues_after_worker_finished)
+            if operation_id is None:
+                connector(self._drain_queues_after_worker_finished)
+            else:
+                connector(
+                    partial(
+                        self._finish_normal_reply_operation,
+                        operation_id,
+                        response_worker,
+                    )
+                )
+
+    def _begin_normal_reply_operation(self) -> int | None:
+        """일반·도구·자동 답변 worker가 사용할 공통 phase를 확보한다."""
+        state = getattr(self, "life_record_state", None)
+        if state is None:
+            return 0
+        phase = getattr(state, "phase", "idle")
+        if phase == "idle":
+            return state.try_begin_operation("normal_reply")
+        if phase == "resuming_reply":
+            operation_id = state.operation_id
+            return operation_id if state.transition_operation(operation_id, "normal_reply") else None
+        if phase == "normal_reply" and not (
+            getattr(self, "worker", None) and self.worker.isRunning()
+        ):
+            return state.operation_id
+        return None
+
+    def _finish_normal_reply_operation(self, operation_id: int, response_worker) -> None:
+        """stale worker 종료는 무시하고 현재 답변 작업만 idle로 되돌린다."""
+        state = getattr(self, "life_record_state", None)
+        if state is not None and getattr(self, "worker", None) is response_worker:
+            state.finish_operation(operation_id)
+        self._drain_queues_after_worker_finished()
 
     def _start_ai_worker(
         self,
@@ -127,36 +161,61 @@ class ChatFlowBridgeMixin:
     ):
         """현재 요청 페이로드로 AI 워커를 시작한다."""
         if self.worker and self.worker.isRunning():
-            print("[Bridge] Worker still running, waiting...")
-            self.worker.wait()
+            print("[Bridge] request_rejected category=busy request_type=worker")
+            return False
+        begin_operation = getattr(self, "_begin_normal_reply_operation", None)
+        operation_id = (
+            begin_operation()
+            if callable(begin_operation)
+            else ChatFlowBridgeMixin._begin_normal_reply_operation(self)
+        )
+        if operation_id is None:
+            print("[Bridge] request_rejected category=busy request_type=worker")
+            return False
 
-        message_with_context = self._with_ene_thought_context(message_with_time)
-        message_with_context = self._with_tts_output_reminder(message_with_context)
-        self.worker = AIWorker(
-            self.llm_client,
-            message_with_context,
-            images=images_data or [],
-            memory_search_text=memory_search_text,
-            latest_user_message=latest_user_message,
-            recent_memory_context=recent_memory_context,
-            head_pat_count_before_message=head_pat_count_before_message,
-            include_life_record_context=include_life_record_context,
-            progress_callback=self._emit_request_pending_stage_changed,
-        )
-        self.worker.response_ready.connect(
-            partial(self._on_response_ready, response_worker=self.worker)
-        )
-        self.worker.error_occurred.connect(self._on_error)
-        self._connect_worker_finished_drain()
-        self._emit_request_pending_stage_changed("thinking")
-        self._emit_request_pending_changed(True)
-        self.worker.start()
+        try:
+            message_with_context = self._with_ene_thought_context(message_with_time)
+            message_with_context = self._with_tts_output_reminder(message_with_context)
+            self.worker = AIWorker(
+                self.llm_client,
+                message_with_context,
+                images=images_data or [],
+                memory_search_text=memory_search_text,
+                latest_user_message=latest_user_message,
+                recent_memory_context=recent_memory_context,
+                head_pat_count_before_message=head_pat_count_before_message,
+                include_life_record_context=include_life_record_context,
+                progress_callback=self._emit_request_pending_stage_changed,
+            )
+            self.worker.response_ready.connect(
+                partial(self._on_response_ready, response_worker=self.worker)
+            )
+            self.worker.error_occurred.connect(self._on_error)
+            connect_finished = getattr(self, "_connect_worker_finished_drain", None)
+            if callable(connect_finished):
+                connect_finished(operation_id) if operation_id else connect_finished()
+            self._emit_request_pending_stage_changed("thinking")
+            self._emit_request_pending_changed(True)
+            self.worker.start()
+            return True
+        except Exception:
+            state = getattr(self, "life_record_state", None)
+            if state is not None:
+                state.finish_operation(operation_id)
+            raise
 
     def _start_diary_worker(self, diary_request: str, message_with_time: str, use_obsidian_priority: bool = False):
         """/diary 전용 독립 컨텍스트 워커를 시작한다."""
         if self.worker and self.worker.isRunning():
-            print("[Bridge] Worker still running, waiting...")
-            self.worker.wait()
+            return False
+        begin_operation = getattr(self, "_begin_normal_reply_operation", None)
+        operation_id = (
+            begin_operation()
+            if callable(begin_operation)
+            else ChatFlowBridgeMixin._begin_normal_reply_operation(self)
+        )
+        if operation_id is None:
+            return False
 
         self.worker = AIWorker(
             self.llm_client,
@@ -169,16 +228,26 @@ class ChatFlowBridgeMixin:
             partial(self._on_response_ready, response_worker=self.worker)
         )
         self.worker.error_occurred.connect(self._on_error)
-        self._connect_worker_finished_drain()
+        connect_finished = getattr(self, "_connect_worker_finished_drain", None)
+        if callable(connect_finished):
+            connect_finished(operation_id) if operation_id else connect_finished()
         self._emit_request_pending_stage_changed("thinking")
         self._emit_request_pending_changed(True)
         self.worker.start()
+        return True
 
     def _start_note_worker(self, note_request: str, message_with_time: str, note_recent_context: str = ""):
         """/note 계획-실행 워커를 시작한다."""
         if self.worker and self.worker.isRunning():
-            print("[Bridge] Worker still running, waiting...")
-            self.worker.wait()
+            return False
+        begin_operation = getattr(self, "_begin_normal_reply_operation", None)
+        operation_id = (
+            begin_operation()
+            if callable(begin_operation)
+            else ChatFlowBridgeMixin._begin_normal_reply_operation(self)
+        )
+        if operation_id is None:
+            return False
 
         self.worker = AIWorker(
             self.llm_client,
@@ -192,10 +261,13 @@ class ChatFlowBridgeMixin:
             partial(self._on_response_ready, response_worker=self.worker)
         )
         self.worker.error_occurred.connect(self._on_error)
-        self._connect_worker_finished_drain()
+        connect_finished = getattr(self, "_connect_worker_finished_drain", None)
+        if callable(connect_finished):
+            connect_finished(operation_id) if operation_id else connect_finished()
         self._emit_request_pending_stage_changed("thinking")
         self._emit_request_pending_changed(True)
         self.worker.start()
+        return True
 
     def _resolve_note_context_settings(self) -> tuple[bool, int]:
         """노트 최근 대화 주입 설정을 읽어 정규화한다."""
@@ -428,7 +500,7 @@ class ChatFlowBridgeMixin:
             dispatch(prepared)
         else:
             self._mark_user_activity()
-            self._commit_prepared_chat_request(prepared)
+            ChatFlowBridgeMixin._commit_prepared_chat_request(self, prepared)
 
     def _commit_prepared_chat_request(self, request: PreparedChatRequest) -> None:
         """보류 가능 요청의 일반 대화 부수효과를 정확히 한 번 적용한다."""
@@ -452,18 +524,21 @@ class ChatFlowBridgeMixin:
                 request.message,
                 language=request.language,
             )
-        message_with_time = (
-            self._with_prompt_time(timestamp, prompt)
-            if legacy_direct_mixin
-            else f"{_prompt_time_header(timestamp, request.language)}\n{prompt}"
-        )
+        with_prompt_time = getattr(self, "_with_prompt_time", None)
+        if legacy_direct_mixin and callable(with_prompt_time):
+            message_with_time = with_prompt_time(timestamp, prompt)
+        else:
+            message_with_time = f"{_prompt_time_header(timestamp, request.language)}\n{prompt}"
         memory_search_inputs = self._build_memory_search_inputs(request.message, timestamp)
         memory_search_text = memory_search_inputs["memory_search_text"]
+        committed_head_pat_count = request.head_pat_count_before_message
         if hasattr(self, "calendar_manager") and self.calendar_manager:
             self.calendar_manager.increment_conversation_count()
             drain = getattr(self.calendar_manager, "drain_pending_head_pat_count", None)
             if callable(drain):
-                drain()
+                drained = drain()
+                if legacy_direct_mixin:
+                    committed_head_pat_count = int(drained or 0)
             print("[Bridge] 대화 횟수 증가")
         print(f"[Bridge] prompt_built prompt_chars={_safe_text_length(message_with_time)}")
 
@@ -481,7 +556,7 @@ class ChatFlowBridgeMixin:
             "memory_search_text": memory_search_text,
             "latest_user_message": memory_search_inputs["latest_user_message"],
             "recent_memory_context": memory_search_inputs["recent_context_text"],
-            "head_pat_count_before_message": request.head_pat_count_before_message,
+            "head_pat_count_before_message": committed_head_pat_count,
             "include_life_record_context": True,
         }
         self._is_rerolling = False
@@ -491,7 +566,7 @@ class ChatFlowBridgeMixin:
             memory_search_text=memory_search_text,
             latest_user_message=memory_search_inputs["latest_user_message"],
             recent_memory_context=memory_search_inputs["recent_context_text"],
-            head_pat_count_before_message=request.head_pat_count_before_message,
+            head_pat_count_before_message=committed_head_pat_count,
             include_life_record_context=True,
         )
         print("[Bridge] Worker thread started")
@@ -499,6 +574,10 @@ class ChatFlowBridgeMixin:
     @pyqtSlot()
     def reroll_last_response(self):
         """마지막 사용자 요청을 다시 실행해 최근 assistant 응답만 교체."""
+        accepts_input = getattr(self, "_life_operation_accepts_input", None)
+        if callable(accepts_input) and not accepts_input():
+            print("[Bridge] request_rejected category=busy request_type=reroll")
+            return
         if not self.llm_client:
             print("[Bridge] Reroll ignored: LLM client not initialized")
             self._reset_pending_ui_state("리롤할 수 있는 최근 요청이 없어요.")
@@ -590,6 +669,10 @@ class ChatFlowBridgeMixin:
     @pyqtSlot(str)
     def edit_last_user_message(self, edited_message: str):
         """최근 user 메시지를 수정하고 같은 턴을 다시 생성한다."""
+        accepts_input = getattr(self, "_life_operation_accepts_input", None)
+        if callable(accepts_input) and not accepts_input():
+            print("[Bridge] request_rejected category=busy request_type=edit")
+            return
         edited_message = (edited_message or "").strip()
         if not edited_message:
             print("[Bridge] Edit ignored: empty message")

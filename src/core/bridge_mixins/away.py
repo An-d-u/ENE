@@ -57,6 +57,9 @@ class AwayNudgeBridgeMixin:
 
     def _check_away_nudge_condition(self):
         """주기적으로 유휴 조건과 실행 가능 상태를 확인한다."""
+        accepts_input = getattr(self, "_life_operation_accepts_input", None)
+        if callable(accepts_input) and not accepts_input():
+            return
         if not self.enable_away_nudge:
             return
         if self.away_check_in_progress:
@@ -85,6 +88,9 @@ class AwayNudgeBridgeMixin:
 
     def _start_away_capture_pipeline(self):
         """입력 유무를 확인하고 최신 화면 1장을 첨부해 자동 말걸기를 실행한다."""
+        accepts_input = getattr(self, "_life_operation_accepts_input", None)
+        if callable(accepts_input) and not accepts_input():
+            return
         if self.away_check_in_progress:
             return
 
@@ -93,6 +99,9 @@ class AwayNudgeBridgeMixin:
 
     def _complete_away_capture_pipeline(self):
         """시스템 입력 유휴 시간을 기준으로 프롬프트 톤을 고른다."""
+        accepts_input = getattr(self, "_life_operation_accepts_input", None)
+        if callable(accepts_input) and not accepts_input():
+            return
         if self.worker and self.worker.isRunning():
             self._cancel_away_pipeline()
             return
@@ -208,4 +217,3 @@ class AwayNudgeBridgeMixin:
         buffer.close()
         encoded = bytes(byte_array.toBase64()).decode("ascii")
         return f"data:image/png;base64,{encoded}"
-

@@ -378,6 +378,9 @@ class PromiseBridgeMixin:
 
     def _enqueue_due_promise(self, payload: dict) -> None:
         """현재 생성 중이면 약속 발화를 큐에 넣고, 아니면 즉시 시작한다."""
+        accepts_input = getattr(self, "_life_operation_accepts_input", None)
+        if callable(accepts_input) and not accepts_input():
+            return
         if self._should_suppress_duplicate_promise_fire(payload):
             self._dismiss_duplicate_promise_payload(payload)
             return
@@ -395,6 +398,9 @@ class PromiseBridgeMixin:
 
     def _drain_promise_queue_if_idle(self) -> None:
         """유휴 상태가 되면 대기 중인 약속 발화를 하나 실행한다."""
+        accepts_input = getattr(self, "_life_operation_accepts_input", None)
+        if callable(accepts_input) and not accepts_input():
+            return
         if self.worker and self.worker.isRunning():
             return
         if not self.promise_run_queue:
@@ -404,6 +410,9 @@ class PromiseBridgeMixin:
 
     def _start_promise_ai_worker(self, payload: dict) -> None:
         """대화 약속 기반 프롬프트로 응답 생성을 시작한다."""
+        accepts_input = getattr(self, "_life_operation_accepts_input", None)
+        if callable(accepts_input) and not accepts_input():
+            return
         reminder_id = str((payload or {}).get("id", "") or "").strip()
         if self.promise_manager and reminder_id:
             self.promise_manager.set_status(reminder_id, "triggered")
