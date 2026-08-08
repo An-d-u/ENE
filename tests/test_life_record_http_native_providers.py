@@ -67,7 +67,7 @@ def _openai_responses_with_policy(model_name):
             "temperature": 2.0,
             "top_p": 0.4,
             "max_tokens": 1234,
-            "reasoning_effort": " HIGH ",
+            "reasoning_effort": " MAX ",
         },
     )
 
@@ -707,12 +707,20 @@ def test_openai_chat_life_record_applies_model_parameter_policy(
 
     payload = captured["payload"]
     if expected_sampling:
+        assert payload["messages"] == [
+            {"role": "system", "content": SYSTEM_INSTRUCTION},
+            {"role": "user", "content": "SYNTHETIC-PROMPT"},
+        ]
         assert payload["temperature"] == 2.0
         assert payload["top_p"] == 0.4
         assert payload["max_tokens"] == 1234
         assert "reasoning_effort" not in payload
         assert "max_completion_tokens" not in payload
     else:
+        assert payload["messages"] == [
+            {"role": "developer", "content": SYSTEM_INSTRUCTION},
+            {"role": "user", "content": "SYNTHETIC-PROMPT"},
+        ]
         assert "temperature" not in payload
         assert "top_p" not in payload
         assert payload["reasoning_effort"] == "xhigh"
@@ -746,10 +754,14 @@ def test_openai_chat_life_record_applies_o_series_reasoning_policy(
     )
 
     payload = captured["payload"]
+    assert payload["messages"] == [
+        {"role": "developer", "content": SYSTEM_INSTRUCTION},
+        {"role": "user", "content": "SYNTHETIC-PROMPT"},
+    ]
     assert "temperature" not in payload
     assert "top_p" not in payload
     assert "max_tokens" not in payload
-    assert payload["reasoning_effort"] == "xhigh"
+    assert payload["reasoning_effort"] == "medium"
     assert payload["max_completion_tokens"] == 1234
 
 
@@ -781,7 +793,7 @@ def test_openai_responses_life_record_applies_o_series_reasoning_policy(
     payload = captured["payload"]
     assert "temperature" not in payload
     assert "top_p" not in payload
-    assert payload["reasoning"] == {"effort": "high"}
+    assert payload["reasoning"] == {"effort": "medium"}
     assert payload["max_output_tokens"] == 1234
 
 

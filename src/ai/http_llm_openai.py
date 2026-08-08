@@ -248,7 +248,14 @@ class OpenAICompatibleClient(_CommonMixin):
         payload = {
             "model": descriptor.profile.model,
             "messages": [
-                {"role": "system", "content": request.system_instruction},
+                {
+                    "role": (
+                        "developer"
+                        if policy.supports_reasoning_effort
+                        else "system"
+                    ),
+                    "content": request.system_instruction,
+                },
                 {"role": "user", "content": request.prompt},
             ],
             "stream": False,
@@ -269,6 +276,7 @@ class OpenAICompatibleClient(_CommonMixin):
             payload["reasoning_effort"] = normalize_reasoning_effort(
                 generation_params.get("reasoning_effort"),
                 default=policy.default_reasoning_effort,
+                allowed_efforts=policy.allowed_reasoning_efforts,
             )
         if generation_params["max_tokens"] > 0:
             token_field = (
@@ -684,6 +692,7 @@ class OpenAIResponseAPIClient(_CommonMixin):
                 "effort": normalize_reasoning_effort(
                     generation_params.get("reasoning_effort"),
                     default=policy.default_reasoning_effort,
+                    allowed_efforts=policy.allowed_reasoning_efforts,
                 )
             }
         if generation_params["max_tokens"] > 0:
