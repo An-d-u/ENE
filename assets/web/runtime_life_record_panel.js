@@ -80,6 +80,7 @@
         interactionLocked: false,
         manualSubmission: false,
         backendPendingObserved: false,
+        todayIso: '',
         viewTimezone: 'UTC',
         language: normalizeLanguage(document.documentElement && document.documentElement.lang),
     };
@@ -516,7 +517,7 @@
     }
 
     function openPanel() {
-        if (!state.selectedDate) state.selectedDate = localIsoDate(nowProvider());
+        if (!state.selectedDate) state.selectedDate = state.todayIso || localIsoDate(nowProvider());
         state.open = true;
         if (panel) panel.classList.remove('hidden');
         if (trigger) trigger.setAttribute('aria-expanded', 'true');
@@ -572,7 +573,6 @@
             return false;
         }
         state.language = normalizeLanguage(payload.language);
-        if (document.documentElement) document.documentElement.lang = state.language;
         state.viewTimezone = typeof payload.view_timezone === 'string' && payload.view_timezone ? payload.view_timezone : 'UTC';
         state.latestId = typeof payload.latest_id === 'string' ? payload.latest_id : null;
         state.lifeRecordsWritable = payload.life_records_writable === true;
@@ -600,7 +600,7 @@
     if (closeButton) closeButton.addEventListener('click', closePanel);
     if (previousButton) previousButton.addEventListener('click', () => selectDate(shiftedIsoDate(state.selectedDate, -1)));
     if (nextButton) nextButton.addEventListener('click', () => selectDate(shiftedIsoDate(state.selectedDate, 1)));
-    if (todayButton) todayButton.addEventListener('click', () => selectDate(localIsoDate(nowProvider())));
+    if (todayButton) todayButton.addEventListener('click', () => selectDate(state.todayIso || localIsoDate(nowProvider())));
     if (dateInput) dateInput.addEventListener('change', () => selectDate(dateInput.value));
     if (panel) panel.addEventListener('keydown', (event) => {
         if (event.key === 'Escape') { event.preventDefault(); closePanel(); }
@@ -614,9 +614,15 @@
         showNotice,
         setLanguage(value) {
             state.language = normalizeLanguage(value);
-            if (document.documentElement) document.documentElement.lang = state.language;
             updateLabels();
             renderRecords();
+        },
+        setUiContext(value) {
+            const source = value && typeof value === 'object' ? value : {};
+            if (isIsoDate(source.todayIso)) state.todayIso = source.todayIso;
+            if (typeof source.viewTimezone === 'string' && source.viewTimezone) {
+                state.viewTimezone = source.viewTimezone;
+            }
         },
         setInteractionLocked,
         setBackendPending,

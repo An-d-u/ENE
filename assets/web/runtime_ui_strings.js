@@ -41,7 +41,10 @@ function mergeUiStrings(config) {
     const thoughts = source.thoughts || {};
 
     return {
+        locale: typeof source.locale === 'string' ? source.locale : 'auto',
         resolvedLanguage: ['ko', 'en', 'ja'].includes(source.resolvedLanguage) ? source.resolvedLanguage : 'en',
+        viewTimezone: typeof source.viewTimezone === 'string' && source.viewTimezone ? source.viewTimezone : 'UTC',
+        todayIso: /^\d{4}-\d{2}-\d{2}$/.test(String(source.todayIso || '')) ? source.todayIso : '',
         loading: source.loading || DEFAULT_UI_STRINGS.loading,
         loadingSearching: source.loadingSearching || DEFAULT_UI_STRINGS.loadingSearching,
         input: {
@@ -305,6 +308,12 @@ window.applyENEUiStrings = function applyENEUiStrings(config) {
     }
     if (window.eneLifeRecordPanel && typeof window.eneLifeRecordPanel.setLanguage === 'function') {
         window.eneLifeRecordPanel.setLanguage(currentUiStrings.resolvedLanguage);
+    }
+    if (window.eneLifeRecordPanel && typeof window.eneLifeRecordPanel.setUiContext === 'function') {
+        window.eneLifeRecordPanel.setUiContext({
+            todayIso: currentUiStrings.todayIso,
+            viewTimezone: currentUiStrings.viewTimezone
+        });
     }
     applyUiStringsToStaticNodes();
     renderPromiseReminderPanel();

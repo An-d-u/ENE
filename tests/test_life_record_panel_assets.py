@@ -199,6 +199,36 @@ result = {
     assert result["expanded"] == "true"
 
 
+def test_backend_today_and_view_timezone_override_browser_clock_for_initial_and_today_actions():
+    result = _run_panel_case(
+        """
+window.eneLifeRecordPanel.setNowProvider(() => new Date(2001, 0, 2, 10, 0, 0));
+window.eneLifeRecordPanel.setUiContext({ todayIso: '2099-08-07', viewTimezone: 'Asia/Seoul' });
+window.eneLifeRecordPanel.open();
+elements['life-records-previous-btn'].click();
+elements['life-records-today-btn'].click();
+result = { state: window.eneLifeRecordPanel.getState(), requests };
+"""
+    )
+
+    assert result["state"]["selectedDate"] == "2099-08-07"
+    assert result["state"]["todayIso"] == "2099-08-07"
+    assert result["state"]["viewTimezone"] == "Asia/Seoul"
+    assert [item[0] for item in result["requests"]] == [
+        "2099-08-07",
+        "2099-08-06",
+        "2099-08-07",
+    ]
+
+
+def test_only_central_ui_runtime_writes_document_language():
+    panel = PANEL_PATH.read_text(encoding="utf-8-sig")
+    ui_strings = (WEB_DIR / "runtime_ui_strings.js").read_text(encoding="utf-8-sig")
+
+    assert "document.documentElement.lang =" not in panel
+    assert "document.documentElement.lang = currentUiStrings.resolvedLanguage" in ui_strings
+
+
 def test_stale_response_is_ignored_and_ready_records_keep_backend_order():
     result = _run_panel_case(
         """

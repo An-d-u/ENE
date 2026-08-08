@@ -2,6 +2,7 @@
 Transparent overlay window for Live2D.
 """
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 import re
 import sys
@@ -385,8 +386,21 @@ class OverlayWindow(QWidget):
 
     def _resolve_ui_strings_payload(self, settings_override: dict | None = None) -> dict:
         i18n = self._build_ui_i18n(settings_override)
+        source = settings_override if isinstance(settings_override, dict) else self.settings.config
+        time_context = self.__dict__.get("life_time_context")
+        try:
+            today_iso = (
+                time_context.now().date().isoformat()
+                if time_context is not None
+                else datetime.now(timezone.utc).date().isoformat()
+            )
+        except Exception:
+            today_iso = datetime.now(timezone.utc).date().isoformat()
         return {
+            "locale": str(source.get("ui_language", "auto") or "auto"),
             "resolvedLanguage": i18n.language,
+            "viewTimezone": str(self.__dict__.get("life_view_timezone", "UTC") or "UTC"),
+            "todayIso": today_iso,
             "loading": i18n.t("chat.loading"),
             "loadingSearching": i18n.t("chat.loading.searching"),
             "input": {

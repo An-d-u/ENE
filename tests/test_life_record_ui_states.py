@@ -273,7 +273,7 @@ result = {
     assert result == {"focused": "floating-actions-toggle", "panelHidden": True}
 
 
-def test_panel_language_updates_visible_and_aria_regeneration_strings():
+def test_panel_language_updates_visible_and_aria_strings_without_owning_document_lang():
     result = _run_panel_case(
         _ready_records_script(writable=True, language="ja")
         + """
@@ -292,7 +292,7 @@ result = {
 """
     )
 
-    assert result["lang"] == "ja"
+    assert result["lang"] == "ko"
     assert all(result[key] for key in ("button", "buttonAria", "title", "description", "cancel", "confirm"))
     assert result["button"] != "재생성"
 
