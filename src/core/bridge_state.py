@@ -161,7 +161,7 @@ _LIFE_RECORD_READ_ONLY_REASONS = frozenset(
 )
 
 
-@dataclass
+@dataclass(repr=False)
 class LifeRecordBridgeState:
     """생활 기록 생성과 일반 답변 사이의 단일 작업 상태."""
 
