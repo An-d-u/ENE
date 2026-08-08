@@ -921,6 +921,7 @@ def test_reroll_last_response_deletes_only_tracked_promises():
         latest_user_message="",
         recent_memory_context="",
         head_pat_count_before_message=0,
+        include_life_record_context=False,
     ):
         started.append(
             {
@@ -930,6 +931,7 @@ def test_reroll_last_response_deletes_only_tracked_promises():
                 "latest_user_message": latest_user_message,
                 "recent_memory_context": recent_memory_context,
                 "head_pat_count_before_message": head_pat_count_before_message,
+                "include_life_record_context": include_life_record_context,
             }
         )
 
@@ -966,6 +968,7 @@ def test_reroll_last_response_deletes_only_tracked_promises():
             "latest_user_message": "",
             "recent_memory_context": "",
             "head_pat_count_before_message": 0,
+            "include_life_record_context": True,
         }
     ]
 

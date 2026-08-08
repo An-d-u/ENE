@@ -32,6 +32,7 @@ class LLMClientProtocol(Protocol):
         recent_memory_context: str | None = None,
         head_pat_count_before_message: int | None = None,
         progress_callback=None,
+        include_life_record_context: bool = False,
     ) -> LLM_RESPONSE_TUPLE:
         ...
 
@@ -44,6 +45,7 @@ class LLMClientProtocol(Protocol):
         recent_memory_context: str | None = None,
         head_pat_count_before_message: int | None = None,
         progress_callback=None,
+        include_life_record_context: bool = False,
     ) -> LLM_RESPONSE_TUPLE:
         ...
 

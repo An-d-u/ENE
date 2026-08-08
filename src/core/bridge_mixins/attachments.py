@@ -208,6 +208,7 @@ class AttachmentBridgeMixin:
             latest_user_message=memory_search_inputs["latest_user_message"],
             recent_memory_context=memory_search_inputs["recent_context_text"],
             head_pat_count_before_message=head_pat_count_before_message,
+            include_life_record_context=True,
         )
         print(
             f"[Bridge] Worker thread started with "

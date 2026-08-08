@@ -116,6 +116,7 @@ class ChatFlowBridgeMixin:
         latest_user_message: str = "",
         recent_memory_context: str = "",
         head_pat_count_before_message: int = 0,
+        include_life_record_context: bool = False,
     ):
         """현재 요청 페이로드로 AI 워커를 시작한다."""
         if self.worker and self.worker.isRunning():
@@ -132,6 +133,7 @@ class ChatFlowBridgeMixin:
             latest_user_message=latest_user_message,
             recent_memory_context=recent_memory_context,
             head_pat_count_before_message=head_pat_count_before_message,
+            include_life_record_context=include_life_record_context,
             progress_callback=self._emit_request_pending_stage_changed,
         )
         self.worker.response_ready.connect(
@@ -419,6 +421,7 @@ class ChatFlowBridgeMixin:
             latest_user_message=memory_search_inputs["latest_user_message"],
             recent_memory_context=memory_search_inputs["recent_context_text"],
             head_pat_count_before_message=head_pat_count_before_message,
+            include_life_record_context=True,
         )
         print("[Bridge] Worker thread started")
 
@@ -480,6 +483,7 @@ class ChatFlowBridgeMixin:
             latest_user_message=str(payload.get("latest_user_message", "") or ""),
             recent_memory_context=str(payload.get("recent_memory_context", "") or ""),
             head_pat_count_before_message=int(payload.get("head_pat_count_before_message", 0) or 0),
+            include_life_record_context=True,
         )
         print("[Bridge] Reroll started")
 
@@ -634,6 +638,7 @@ class ChatFlowBridgeMixin:
             latest_user_message=memory_search_inputs["latest_user_message"],
             recent_memory_context=memory_search_inputs["recent_context_text"],
             head_pat_count_before_message=int(self._last_request_payload.get("head_pat_count_before_message", 0) or 0),
+            include_life_record_context=True,
         )
         print("[Bridge] Edit last user message started")
 

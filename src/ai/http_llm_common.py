@@ -2091,12 +2091,14 @@ class _CommonMixin:
         query: str,
         recent_context: str = "",
         head_pat_count_before_message: int | None = None,
+        include_life_record_context: bool = False,
     ) -> str:
         return await build_common_memory_context(
             self,
             query,
             recent_context=recent_context,
             head_pat_count_before_message=head_pat_count_before_message,
+            include_life_record_context=include_life_record_context,
         )
 
     async def _build_contextual_message(
@@ -2107,15 +2109,21 @@ class _CommonMixin:
         latest_user_message: str | None = None,
         recent_memory_context: str | None = None,
         head_pat_count_before_message: int | None = None,
+        include_life_record_context: bool = False,
         progress_callback=None,
     ) -> str:
         search_query = str(memory_search_text or "").strip() or message
         primary_query = str(latest_user_message or "").strip() or search_query
         support_context = str(recent_memory_context or "").strip()
+        memory_context_kwargs = {
+            "recent_context": support_context,
+            "head_pat_count_before_message": head_pat_count_before_message,
+        }
+        if include_life_record_context is True:
+            memory_context_kwargs["include_life_record_context"] = True
         memory_context = await self._build_memory_context(
             primary_query,
-            recent_context=support_context,
-            head_pat_count_before_message=head_pat_count_before_message,
+            **memory_context_kwargs,
         )
         web_search_context = build_web_search_context_from_settings(
             getattr(self, "settings", None),

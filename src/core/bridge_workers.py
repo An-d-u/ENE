@@ -93,6 +93,7 @@ class AIWorker(QThread):
         obsidian_manager=None,
         use_obsidian_priority: bool = False,
         progress_callback=None,
+        include_life_record_context: bool = False,
     ):
         super().__init__()
         self.llm_client = llm_client
@@ -103,6 +104,7 @@ class AIWorker(QThread):
         self.latest_user_message = (latest_user_message or "").strip()
         self.recent_memory_context = (recent_memory_context or "").strip()
         self.head_pat_count_before_message = max(0, int(head_pat_count_before_message or 0))
+        self.include_life_record_context = include_life_record_context is True
         self.diary_request = (diary_request or "").strip()
         self.note_request = (note_request or "").strip()
         self.note_recent_context = (note_recent_context or "").strip()
@@ -191,6 +193,11 @@ class AIWorker(QThread):
                             self.recent_memory_context,
                             self.head_pat_count_before_message,
                             progress_callback=self.progress_callback,
+                            **(
+                                {"include_life_record_context": True}
+                                if self.include_life_record_context
+                                else {}
+                            ),
                         )
                     )
                 )
@@ -206,6 +213,11 @@ class AIWorker(QThread):
                             self.recent_memory_context,
                             self.head_pat_count_before_message,
                             progress_callback=self.progress_callback,
+                            **(
+                                {"include_life_record_context": True}
+                                if self.include_life_record_context
+                                else {}
+                            ),
                         )
                     )
                 )
