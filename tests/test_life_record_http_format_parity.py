@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from copy import deepcopy
+from dataclasses import replace
 import inspect
 import json as json_module
 import threading
@@ -358,6 +359,56 @@ def test_life_record_descriptor_resolves_verified_and_unknown_profiles_by_life_k
     assert native_descriptor.capability_key.schema_id == LIFE_RECORD_SCHEMA_ID
     assert native_descriptor.capability_key.schema_version == LIFE_RECORD_SCHEMA_VERSION
     assert native_descriptor.request.system_instruction == SYSTEM_INSTRUCTION
+
+
+@pytest.mark.parametrize(
+    ("key_field", "other_value"),
+    [
+        ("request_kind", LLMRequestKind.DECISION),
+        ("schema_id", "synthetic_other_schema"),
+        ("schema_version", "synthetic-v2"),
+    ],
+    ids=("request-kind", "schema-id", "schema-version"),
+)
+def test_life_record_capability_cache_isolated_by_complete_key(
+    monkeypatch,
+    key_field,
+    other_value,
+):
+    _patch_system_instruction(monkeypatch)
+    client = _client()
+    descriptor = client._build_life_record_request_descriptor(PROMPT)
+    other_key = replace(
+        descriptor.capability_key,
+        **{key_field: other_value},
+    )
+
+    http_llm_common._HTTP_RESPONSE_CAPABILITY_REGISTRY.mark_legacy(other_key)
+
+    current = client._build_life_record_request_descriptor(PROMPT)
+    assert current.response_mode is ResponseMode.JSON_SCHEMA
+    assert (
+        http_llm_common._HTTP_RESPONSE_CAPABILITY_REGISTRY.resolve(
+            descriptor.profile,
+            capability_key=other_key,
+        )
+        is ResponseMode.LEGACY_TAGS
+    )
+
+    http_llm_common.clear_http_response_capability_cache()
+    http_llm_common._HTTP_RESPONSE_CAPABILITY_REGISTRY.mark_legacy(
+        descriptor.capability_key
+    )
+
+    current = client._build_life_record_request_descriptor(PROMPT)
+    assert current.response_mode is ResponseMode.LEGACY_TAGS
+    assert (
+        http_llm_common._HTTP_RESPONSE_CAPABILITY_REGISTRY.resolve(
+            descriptor.profile,
+            capability_key=other_key,
+        )
+        is ResponseMode.JSON_SCHEMA
+    )
 
 
 @pytest.mark.parametrize(
