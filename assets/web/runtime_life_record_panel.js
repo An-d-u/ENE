@@ -83,9 +83,14 @@
         todayIso: '',
         viewTimezone: 'UTC',
         language: normalizeLanguage(document.documentElement && document.documentElement.lang),
+        localizedText: {},
+        localizedTextLanguage: '',
     };
 
-    const strings = () => TEXT[state.language] || TEXT.en;
+    const strings = () => ({
+        ...(TEXT[state.language] || TEXT.en),
+        ...(state.localizedTextLanguage === state.language ? state.localizedText : {}),
+    });
 
     function localIsoDate(value) {
         const date = value instanceof Date ? value : new Date(value);
@@ -107,6 +112,32 @@
         const [year, month, day] = String(isoDate || '').split('-').map(Number);
         if (![year, month, day].every(Number.isInteger)) return '';
         return localIsoDate(new Date(year, month - 1, day + offset, 12));
+    }
+
+    function isoDateInTimeZone(value, timeZone) {
+        const date = value instanceof Date ? value : new Date(value);
+        if (Number.isNaN(date.getTime())) return '';
+        try {
+            const parts = new Intl.DateTimeFormat('en-CA', {
+                timeZone,
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+            }).formatToParts(date);
+            const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+            const iso = `${values.year}-${values.month}-${values.day}`;
+            return isIsoDate(iso) ? iso : '';
+        } catch (error) {
+            return '';
+        }
+    }
+
+    function currentTodayIso() {
+        const current = nowProvider();
+        const resolved = isoDateInTimeZone(current, state.viewTimezone)
+            || isoDateInTimeZone(current, 'UTC');
+        if (resolved) state.todayIso = resolved;
+        return resolved;
     }
 
     function updateLabels() {
@@ -517,7 +548,7 @@
     }
 
     function openPanel() {
-        if (!state.selectedDate) state.selectedDate = state.todayIso || localIsoDate(nowProvider());
+        if (!state.selectedDate) state.selectedDate = currentTodayIso();
         state.open = true;
         if (panel) panel.classList.remove('hidden');
         if (trigger) trigger.setAttribute('aria-expanded', 'true');
@@ -600,7 +631,7 @@
     if (closeButton) closeButton.addEventListener('click', closePanel);
     if (previousButton) previousButton.addEventListener('click', () => selectDate(shiftedIsoDate(state.selectedDate, -1)));
     if (nextButton) nextButton.addEventListener('click', () => selectDate(shiftedIsoDate(state.selectedDate, 1)));
-    if (todayButton) todayButton.addEventListener('click', () => selectDate(state.todayIso || localIsoDate(nowProvider())));
+    if (todayButton) todayButton.addEventListener('click', () => selectDate(currentTodayIso()));
     if (dateInput) dateInput.addEventListener('change', () => selectDate(dateInput.value));
     if (panel) panel.addEventListener('keydown', (event) => {
         if (event.key === 'Escape') { event.preventDefault(); closePanel(); }
@@ -622,6 +653,14 @@
             if (isIsoDate(source.todayIso)) state.todayIso = source.todayIso;
             if (typeof source.viewTimezone === 'string' && source.viewTimezone) {
                 state.viewTimezone = source.viewTimezone;
+            }
+            if (source.lifeRecords && typeof source.lifeRecords === 'object' && !Array.isArray(source.lifeRecords)) {
+                state.localizedText = Object.fromEntries(
+                    Object.entries(source.lifeRecords).filter(([, item]) => typeof item === 'string' && item)
+                );
+                state.localizedTextLanguage = state.language;
+                updateLabels();
+                renderRecords();
             }
         },
         setInteractionLocked,

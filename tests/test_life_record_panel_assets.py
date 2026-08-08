@@ -202,8 +202,8 @@ result = {
 def test_backend_today_and_view_timezone_override_browser_clock_for_initial_and_today_actions():
     result = _run_panel_case(
         """
-window.eneLifeRecordPanel.setNowProvider(() => new Date(2001, 0, 2, 10, 0, 0));
-window.eneLifeRecordPanel.setUiContext({ todayIso: '2099-08-07', viewTimezone: 'Asia/Seoul' });
+window.eneLifeRecordPanel.setNowProvider(() => new Date('2099-08-06T15:30:00Z'));
+window.eneLifeRecordPanel.setUiContext({ todayIso: '2001-01-02', viewTimezone: 'Asia/Seoul' });
 window.eneLifeRecordPanel.open();
 elements['life-records-previous-btn'].click();
 elements['life-records-today-btn'].click();
@@ -219,6 +219,51 @@ result = { state: window.eneLifeRecordPanel.getState(), requests };
         "2099-08-06",
         "2099-08-07",
     ]
+
+
+def test_today_recomputes_across_view_timezone_midnight_and_invalid_zone_uses_utc():
+    result = _run_panel_case(
+        """
+let current = new Date('2099-08-06T14:30:00Z');
+window.eneLifeRecordPanel.setNowProvider(() => current);
+window.eneLifeRecordPanel.setUiContext({ todayIso: '2099-08-06', viewTimezone: 'Asia/Seoul' });
+window.eneLifeRecordPanel.open();
+current = new Date('2099-08-06T15:30:00Z');
+elements['life-records-today-btn'].click();
+window.eneLifeRecordPanel.setUiContext({ viewTimezone: 'Invalid/Zone' });
+elements['life-records-today-btn'].click();
+result = { requests, state: window.eneLifeRecordPanel.getState() };
+"""
+    )
+
+    assert [item[0] for item in result["requests"]] == [
+        "2099-08-06",
+        "2099-08-07",
+        "2099-08-06",
+    ]
+
+
+def test_panel_prefers_backend_life_record_strings_over_safe_fallback():
+    result = _run_panel_case(
+        """
+window.eneLifeRecordPanel.setUiContext({
+  viewTimezone: 'UTC',
+  lifeRecords: { title: 'Injected title', today: 'Injected today', date: 'Injected date' }
+});
+window.eneLifeRecordPanel.open();
+result = {
+  title: elements['life-records-panel-title'].textContent,
+  today: elements['life-records-today-btn'].textContent,
+  dateAria: elements['life-records-date-input'].getAttribute('aria-label')
+};
+"""
+    )
+
+    assert result == {
+        "title": "Injected title",
+        "today": "Injected today",
+        "dateAria": "Injected date",
+    }
 
 
 def test_only_central_ui_runtime_writes_document_language():

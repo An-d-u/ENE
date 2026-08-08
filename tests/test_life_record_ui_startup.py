@@ -28,3 +28,12 @@ def test_overlay_ui_payload_has_locale_language_view_timezone_and_local_today(la
     assert payload["resolvedLanguage"] == language
     assert payload["viewTimezone"] == "Asia/Seoul"
     assert payload["todayIso"] == "2099-04-12"
+    assert set(payload["lifeRecords"]) == {
+        "title", "close", "previous", "next", "today", "date", "loading",
+        "empty", "readError", "invalidDate", "retry", "latest", "ending",
+        "worldEmpty", "openSettings", "generationFailed", "saveFailed",
+        "regenerationFailed", "unknownError", "regenerate", "regenerateTitle",
+        "regenerateDescription", "cancel", "confirm", "regenerating", "preparing",
+        "thinking", "busy", "readOnly", "notLatest", "cancelled", "refreshFailed",
+    }
+    assert all(isinstance(value, str) and value for value in payload["lifeRecords"].values())
