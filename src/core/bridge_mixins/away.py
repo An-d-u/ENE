@@ -112,6 +112,14 @@ class AwayNudgeBridgeMixin:
             self._cancel_away_pipeline()
             return
 
+        accepts_input = getattr(self, "_life_operation_accepts_input", None)
+        if (
+            (callable(accepts_input) and not accepts_input())
+            or not self.away_check_in_progress
+        ):
+            self.away_check_in_progress = False
+            return
+
         _, latest_data_url = latest_result
         system_idle_seconds = get_system_idle_seconds()
         user_input_detected = None

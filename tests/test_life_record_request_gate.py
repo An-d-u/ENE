@@ -353,6 +353,119 @@ def test_attachment_slot_captures_clock_once_and_commits_deep_snapshot(monkeypat
     assert bridge.conversation_buffer[0][2] == "2026-08-07 10:00"
 
 
+def test_prepared_text_language_survives_setting_change_in_all_prompt_labels(monkeypatch) -> None:
+    bridge = WebBridge()
+    bridge.llm_client = object()
+    bridge.settings = {"ui_language": "en"}
+    bridge.life_record_state.life_records_writable = False
+    bridge.conversation_buffer = [("assistant", "Synthetic earlier reply.", "2026-08-07 09:50")]
+    bridge._start_ai_worker = lambda *_args, **_kwargs: None
+    request = bridge._prepare_chat_request(
+        received_at=NOW,
+        request_type="text",
+        message="Synthetic current request.",
+    )
+    bridge.settings["ui_language"] = "ja"
+    monkeypatch.setattr(
+        chat_flow_module,
+        "resolve_prompt_language",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("prepared commit must not resolve language again")
+        ),
+    )
+
+    bridge._dispatch_general_request(request)
+
+    payload = bridge._last_request_payload
+    assert payload["message_with_time"].startswith("[Current Time: 2026-08-07 10:00]")
+    assert "[Message Time: 2026-08-07 09:50]" in payload["recent_memory_context"]
+    assert "[ENE] Synthetic earlier reply." in payload["recent_memory_context"]
+    assert "[Current User Message] Synthetic current request." in payload["memory_search_text"]
+    assert "現在" not in payload["memory_search_text"]
+
+
+def test_prepared_attachment_language_is_forwarded_to_memory_inputs() -> None:
+    bridge = WebBridge()
+    bridge.llm_client = object()
+    bridge.settings = {"ui_language": "en"}
+    bridge.life_record_state.life_records_writable = False
+    bridge._start_ai_worker = lambda *_args, **_kwargs: None
+    bridge._resolve_prepared_attachments = lambda _items: []
+    languages = []
+
+    def build_inputs(message, timestamp, *, language=None):
+        languages.append(language)
+        return {
+            "memory_search_text": message,
+            "latest_user_message": message,
+            "recent_context_text": timestamp,
+        }
+
+    bridge._build_memory_search_inputs = build_inputs
+    request = bridge._prepare_chat_request(
+        received_at=NOW,
+        request_type="attachments",
+        message="Synthetic attachment request.",
+        attachments=[],
+    )
+    bridge.settings["ui_language"] = "ja"
+
+    bridge._dispatch_general_request(request)
+
+    assert languages == ["en"]
+
+
+@pytest.mark.parametrize(
+    "phase",
+    [
+        "auto_generating",
+        "resuming_reply",
+        "normal_reply",
+        "manual_regenerating",
+        "shutting_down",
+    ],
+)
+@pytest.mark.parametrize("entrypoint", ["preview", "delete"])
+def test_busy_attachment_management_slots_have_zero_side_effects(
+    monkeypatch,
+    phase,
+    entrypoint,
+) -> None:
+    bridge = WebBridge()
+    bridge.life_record_state.phase = phase
+    bridge._message_attachment_records = {
+        "synthetic-message": {
+            "attachments": [{
+                "id": "synthetic-image",
+                "category": "image",
+                "deleted": False,
+                "dataUrl": "data:image/png;base64,synthetic",
+            }]
+        }
+    }
+    original_records = bridge._message_attachment_records
+    parsed = []
+    previews = []
+    bridge.attachment_preview_ready.connect(previews.append)
+    monkeypatch.setattr(
+        "src.core.bridge_mixins.attachments.json.loads",
+        lambda value: parsed.append(value) or [],
+    )
+
+    if entrypoint == "preview":
+        bridge.preview_attachments("[]")
+    else:
+        bridge.delete_message_attachment("synthetic-message", "synthetic-image")
+
+    item = original_records["synthetic-message"]["attachments"][0]
+    assert parsed == []
+    assert item["deleted"] is False
+    assert item["dataUrl"] == "data:image/png;base64,synthetic"
+    assert bridge._pending_attachment_cache == {}
+    assert bridge.conversation_buffer == []
+    assert previews == []
+
+
 @pytest.mark.parametrize("method_name,args", [
     ("reroll_last_response", ()),
     ("edit_last_user_message", ("수정된 합성 요청",)),
@@ -465,6 +578,56 @@ def test_tool_worker_construction_failure_releases_normal_reply(
         getattr(ChatFlowBridgeMixin, method_name)(dummy, *args)
 
     assert state.phase == "idle"
+
+
+@pytest.mark.parametrize("flow", ["chat", "diary", "note"])
+@pytest.mark.parametrize("failure_stage", ["constructor", "start"])
+def test_worker_start_failure_restores_phase_pending_stage_and_reroll(
+    monkeypatch,
+    flow,
+    failure_stage,
+) -> None:
+    class FailingWorker:
+        def __init__(self, *_args, **_kwargs) -> None:
+            if failure_stage == "constructor":
+                raise RuntimeError("synthetic constructor failure")
+            self.response_ready = _WorkerSignal()
+            self.error_occurred = _WorkerSignal()
+            self.finished = _WorkerSignal()
+
+        def start(self) -> None:
+            raise RuntimeError("synthetic start failure")
+
+        def isRunning(self) -> bool:
+            return False
+
+    monkeypatch.setattr(chat_flow_module, "AIWorker", FailingWorker)
+    bridge = WebBridge()
+    bridge.llm_client = object()
+    bridge._with_ene_thought_context = lambda value: value
+    bridge._with_tts_output_reminder = lambda value: value
+    bridge._is_rerolling = True
+    stages = []
+    pending = []
+    reroll = []
+    bridge.request_pending_stage_changed.connect(stages.append)
+    bridge.request_pending_changed.connect(pending.append)
+    bridge.reroll_state_changed.connect(reroll.append)
+
+    with pytest.raises(RuntimeError, match="synthetic"):
+        if flow == "chat":
+            bridge._start_ai_worker("synthetic")
+        elif flow == "diary":
+            bridge._start_diary_worker("synthetic diary", "synthetic")
+        else:
+            bridge._start_note_worker("synthetic note", "synthetic")
+
+    assert bridge.life_record_state.phase == "idle"
+    assert bridge.life_record_state.pending_request is None
+    assert bridge._is_rerolling is False
+    assert stages[-1] == "thinking"
+    assert pending[-1] is False
+    assert reroll[-1] is False
 
 
 class _StatusManager:

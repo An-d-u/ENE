@@ -1,4 +1,5 @@
 from src.core.bridge_mixins.away import AwayNudgeBridgeMixin
+from src.core.bridge_state import LifeRecordBridgeState
 
 
 class _DummyAwayBridge(AwayNudgeBridgeMixin):
@@ -74,6 +75,35 @@ def test_away_nudge_uses_input_grace_instead_of_idle_minutes(monkeypatch):
 
     assert bridge.started_worker is not None
     assert "현재 자리 비움 상태야" in bridge.started_worker["message_with_time"]
+
+
+def test_away_capture_rechecks_arbiter_after_reentrant_overlay_events(monkeypatch):
+    bridge = _DummyAwayBridge()
+    bridge.life_record_state = LifeRecordBridgeState()
+    bridge._life_operation_accepts_input = (
+        lambda: bridge.life_record_state.phase == "idle"
+    )
+
+    def capture_with_reentrant_chat():
+        operation_id = bridge.life_record_state.try_begin_operation("normal_reply")
+        assert operation_id is not None
+        bridge.away_check_in_progress = False
+        return object(), "data:image/png;base64,should-not-escape"
+
+    bridge._capture_full_desktop_hidden_overlay = capture_with_reentrant_chat
+    monkeypatch.setattr(
+        "src.core.bridge_mixins.away.get_system_idle_seconds",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("post-capture side effects must not run")
+        ),
+    )
+
+    bridge._start_away_capture_pipeline()
+
+    assert bridge.started_worker is None
+    assert not hasattr(bridge, "_last_request_payload")
+    assert bridge.away_trigger_count_since_last_user_msg == 0
+    assert bridge.last_away_trigger_at is None
 
 
 def test_refresh_away_settings_clamps_input_grace_to_idle_minutes():
