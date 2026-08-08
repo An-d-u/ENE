@@ -175,6 +175,76 @@ def test_life_world_default_read_failure_preserves_editor_and_shows_safe_status(
     [
         (
             "ko",
+            "프롬프트를 불러오지 못했습니다. 파일을 확인한 뒤 다시 시도하세요.",
+            "프롬프트 불러오기 실패",
+            "프롬프트를 불러오지 못했습니다. 파일을 확인한 뒤 다시 시도하세요.",
+        ),
+        (
+            "en",
+            "Could not load the prompts. Review the prompt files and try again.",
+            "Prompt loading failed",
+            "Could not load the prompts. Review the prompt files and try again.",
+        ),
+        (
+            "ja",
+            "プロンプトを読み込めませんでした。ファイルを確認してから、もう一度お試しください。",
+            "プロンプトの読み込みに失敗しました",
+            "プロンプトを読み込めませんでした。ファイルを確認してから、もう一度お試しください。",
+        ),
+    ],
+)
+def test_prompt_bundle_load_failure_hides_private_exception_details(
+    prompt_paths,
+    monkeypatch,
+    capsys,
+    language,
+    expected_status,
+    expected_title,
+    expected_body,
+):
+    dialog = _dialog(prompt_paths, monkeypatch, {"ui_language": language})
+    dialog.focus_section("prompt")
+    dialog.base_prompt_editor.setPlainText("draft base prompt")
+    dialog.sub_prompt_editor.setPlainText("draft sub prompt")
+    dialog.life_world_editor.setPlainText("draft life world")
+    before_emotions = [dict(item) for item in dialog._emotion_items]
+    private_detail = (
+        r"C:\Users\ExamplePerson\PrivateNotes\life_world.md::PRIVATE_LOAD_DETAIL"
+    )
+
+    def fail_life_world_load():
+        raise OSError(private_detail)
+
+    warnings = []
+    monkeypatch.setattr(prompt_config, "load_life_world_prompt", fail_life_world_load)
+    monkeypatch.setattr(
+        QMessageBox,
+        "warning",
+        lambda _parent, title, body: warnings.append((title, body)),
+    )
+    capsys.readouterr()
+
+    dialog._load_prompt_configuration()
+
+    assert dialog.base_prompt_editor.toPlainText() == "draft base prompt"
+    assert dialog.sub_prompt_editor.toPlainText() == "draft sub prompt"
+    assert dialog.life_world_editor.toPlainText() == "draft life world"
+    assert dialog._emotion_items == before_emotions
+    assert dialog._prompt_bundle_snapshot_valid is False
+    assert dialog._prompt_status_label.text() == expected_status
+    assert warnings == [(expected_title, expected_body)]
+    captured = capsys.readouterr()
+    exposed = repr((dialog._prompt_status_label.text(), warnings, captured.out, captured.err))
+    assert private_detail not in exposed
+    assert "PRIVATE_LOAD_DETAIL" not in exposed
+    dialog.close()
+
+
+@pytest.mark.parametrize(
+    ("language", "expected_status", "expected_title", "expected_body"),
+    [
+        (
+            "ko",
             "프롬프트를 다시 불러온 뒤 저장하세요.",
             "다시 불러오기 필요",
             "일부 프롬프트를 불러오지 못해 저장을 중단했습니다. "

@@ -278,25 +278,23 @@ class SettingsDialogPromptMixin:
                 "settings.prompt.status.load_done",
                 "프롬프트 Markdown 로드 완료",
             )
-        except Exception as e:
+        except Exception:
             SettingsDialogPromptMixin._set_prompt_status_text(
                 self,
                 "settings.prompt.status.load_failed",
-                "로드 실패: {error}",
-                error=e,
+                "프롬프트를 불러오지 못했습니다. 파일을 확인한 뒤 다시 시도하세요.",
             )
             QMessageBox.warning(
                 self,
                 SettingsDialogPromptMixin._prompt_text(
                     self,
                     "settings.prompt.message.load_failed.title",
-                    "불러오기 실패",
+                    "프롬프트 불러오기 실패",
                 ),
-                SettingsDialogPromptMixin._prompt_text_format(
+                SettingsDialogPromptMixin._prompt_text(
                     self,
                     "settings.prompt.message.load_failed.body",
-                    "프롬프트 설정을 불러오지 못했습니다.\n{error}",
-                    error=e,
+                    "프롬프트를 불러오지 못했습니다. 파일을 확인한 뒤 다시 시도하세요.",
                 ),
             )
 
