@@ -2,13 +2,18 @@ import asyncio
 import os
 from types import SimpleNamespace
 
+import pytest
 from PyQt6.QtCore import QCoreApplication
 
+from src.core.bridge_mixins.life_records import LifeRecordBridgeMixin
 from src.core.bridge_mixins.memory_summary import (
     MemorySummaryBridgeMixin,
     SummaryReviewWorker,
 )
 from src.core.bridge_mixins.obsidian import ObsidianBridgeMixin
+from src.core.bridge_mixins.proactive import ProactiveBridgeMixin
+from src.core.bridge_mixins.promise import PromiseBridgeMixin
+from src.core.bridge_state import LifeRecordBridgeState
 from src.core.bridge_workers import (
     AIWorker,
     ObsidianCheckedFilesWorker,
@@ -587,3 +592,76 @@ def test_tts_worker_interruption_before_error_signal_is_silent(monkeypatch):
     worker.run()
 
     assert errors == []
+
+
+class _TimerPollBridge(
+    PromiseBridgeMixin,
+    ProactiveBridgeMixin,
+    LifeRecordBridgeMixin,
+):
+    pass
+
+
+class _PollManager:
+    def __init__(self):
+        self.promise_refresh_calls = 0
+        self.proactive_refresh_calls = 0
+
+    def refresh_overdue_statuses(self):
+        self.promise_refresh_calls += 1
+        return [], [], []
+
+    def refresh_due_statuses(self):
+        self.proactive_refresh_calls += 1
+        return [], []
+
+    def list_promise_dicts(self, **_kwargs):
+        return []
+
+
+@pytest.mark.parametrize("phase", ["auto_generating", "shutting_down"])
+def test_timer_polls_have_zero_side_effects_while_life_operation_blocks_input(phase):
+    manager = _PollManager()
+    bridge = _TimerPollBridge()
+    bridge.life_record_state = LifeRecordBridgeState(phase=phase)
+    bridge.promise_manager = manager
+    bridge.proactive_manager = manager
+    bridge.promise_run_queue = [{"id": "synthetic-existing-promise"}]
+    bridge.proactive_run_queue = [{"id": "synthetic-existing-proactive"}]
+    bridge.promise_items_updated = _Signal()
+    bridge.proactive_items_updated = _Signal()
+    feature_checks = []
+    bridge._is_proactive_conversation_enabled = (
+        lambda: feature_checks.append("checked") or True
+    )
+
+    bridge._poll_promise_reminders()
+    bridge._poll_proactive_conversations()
+
+    assert manager.promise_refresh_calls == 0
+    assert manager.proactive_refresh_calls == 0
+    assert feature_checks == []
+    assert bridge.promise_items_updated.emitted == []
+    assert bridge.proactive_items_updated.emitted == []
+    assert bridge.promise_run_queue == [{"id": "synthetic-existing-promise"}]
+    assert bridge.proactive_run_queue == [{"id": "synthetic-existing-proactive"}]
+
+
+def test_timer_polls_keep_refreshing_managers_while_life_operation_is_idle():
+    manager = _PollManager()
+    bridge = _TimerPollBridge()
+    bridge.life_record_state = LifeRecordBridgeState(phase="idle")
+    bridge.promise_manager = manager
+    bridge.proactive_manager = manager
+    bridge.promise_run_queue = []
+    bridge.proactive_run_queue = []
+    bridge.promise_items_updated = _Signal()
+    bridge.proactive_items_updated = _Signal()
+    bridge._is_proactive_conversation_enabled = lambda: True
+
+    bridge._poll_promise_reminders()
+    bridge._poll_proactive_conversations()
+
+    assert manager.promise_refresh_calls == 1
+    assert manager.proactive_refresh_calls == 1
+    assert bridge.promise_items_updated.emitted == [("[]",)]
