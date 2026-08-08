@@ -499,6 +499,19 @@ def test_regeneration_rejects_read_only_and_busy_without_mutation(
     assert bridge.events == [("notice", expected_code)]
 
 
+def test_regeneration_sanitizes_unknown_read_only_reason_before_notice(tmp_path):
+    manager = LifeRecordManager(tmp_path / "life_records.json")
+    _previous, latest = _seed(manager)
+    bridge = _Bridge(manager)
+    bridge.life_record_state.life_records_writable = False
+    bridge.life_record_state.read_only_reason = "private-runtime-detail"
+
+    bridge.regenerate_latest_life_record(latest.id)
+
+    assert bridge.events == [("notice", "read_only")]
+    assert "private-runtime-detail" not in repr(bridge.events)
+
+
 def test_regeneration_rejects_past_and_missing_ids_without_mutation(tmp_path):
     manager = LifeRecordManager(tmp_path / "life_records.json")
     previous, latest = _seed(manager)

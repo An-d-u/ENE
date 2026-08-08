@@ -56,6 +56,11 @@ _NEUTRAL_MOOD = {
 }
 
 
+def _public_read_only_reason(value: object) -> str | None:
+    """외부 signal/payload에 노출 가능한 안정 사유 코드만 반환한다."""
+    return value if type(value) is str and value in _PUBLIC_READ_ONLY_REASONS else None
+
+
 def _freeze(value: Any) -> Any:
     if isinstance(value, Mapping):
         return MappingProxyType(
@@ -486,11 +491,7 @@ class LifeRecordBridgeMixin:
                 "records": public_records,
                 "latest_id": manager.latest().id if manager.latest() is not None else None,
                 "life_records_writable": state.life_records_writable is True,
-                "read_only_reason": (
-                    state.read_only_reason
-                    if state.read_only_reason in _PUBLIC_READ_ONLY_REASONS
-                    else None
-                ),
+                "read_only_reason": _public_read_only_reason(state.read_only_reason),
             },
             ensure_ascii=False,
         )
@@ -509,7 +510,9 @@ class LifeRecordBridgeMixin:
             self._emit_life_record_notice("busy")
             return
         if not state.life_records_writable:
-            self._emit_life_record_notice(state.read_only_reason or "read_only")
+            self._emit_life_record_notice(
+                _public_read_only_reason(state.read_only_reason) or "read_only"
+            )
             return
         if state.time_context is None:
             self._emit_life_record_notice("timezone_unavailable")
