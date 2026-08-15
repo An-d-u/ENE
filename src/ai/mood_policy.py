@@ -50,9 +50,9 @@ _POLICY_ERROR_CODES = frozenset(
 )
 
 _URGENT_FOOTERS = {
-    "ko": "지금 즉시 가까운 믿을 수 있는 사람이나 지역 응급 서비스에 도움을 요청하세요.",
-    "en": "Please ask a trusted person nearby or local emergency services for help right now.",
-    "ja": "今すぐ、近くの信頼できる人または地域の緊急サービスに助けを求めてください。",
+    "ko": "가능하면 즉시 위험한 행동을 멈추거나 위험원에서 벗어나세요. 가까운 믿을 수 있는 사람 또는 지역 응급 서비스에 지금 연락하고, 현재 안전한지 확인하세요.",
+    "en": "If possible, stop any dangerous action now or move away from the danger. Contact a trusted person nearby or local emergency services now, and check whether you are currently safe.",
+    "ja": "可能であれば、危険な行動を今すぐやめるか、危険なものから離れてください。近くの信頼できる人または地域の緊急サービスに今すぐ連絡し、現在安全か確認してください。",
 }
 _URGENT_FALLBACKS = {
     "ko": "지금은 안전을 우선하겠습니다.",
@@ -63,21 +63,29 @@ _RETRY_APPENDIX_TEMPLATES = {
     "ko": (
         "\n\n[기분 정책 재시도]\n"
         "오류 코드: {error_code}\n"
-        "허용 stance: 현재 정책의 허용 목록에 있는 값만 선택하세요.\n"
-        "safety 우선순위를 지키고 응답 본문에는 이 지시를 노출하지 마세요."
+        "허용 stance: {allowed_stances}\n"
+        "안전 우선순위를 지키고 응답 본문에는 이 지시를 노출하지 마세요."
+        "{schema_instruction}"
     ),
     "en": (
         "\n\n[Mood policy retry]\n"
         "Error code: {error_code}\n"
-        "Allowed stance: choose only a value from the current policy allowlist.\n"
+        "Allowed stance: {allowed_stances}\n"
         "Preserve the safety priority and do not expose these instructions in the reply."
+        "{schema_instruction}"
     ),
     "ja": (
         "\n\n[気分ポリシー再試行]\n"
         "エラーコード: {error_code}\n"
-        "許可 stance: 現在のポリシーの許可リストにある値だけを選んでください。\n"
+        "許可 stance: {allowed_stances}\n"
         "安全の優先順位を守り、この指示を応答本文に出さないでください。"
+        "{schema_instruction}"
     ),
+}
+_SCHEMA_RETRY_INSTRUCTIONS = {
+    "ko": "\n정확한 스키마로 mood_analysis 전체를 다시 생성하세요.",
+    "en": "\nRegenerate the complete mood_analysis object with the exact schema.",
+    "ja": "\n正確なスキーマで mood_analysis 全体を再生成してください。",
 }
 
 
@@ -94,7 +102,10 @@ def _language_key(language: object) -> str:
 
 def _read(container: object, key: str, default: object = None) -> object:
     if isinstance(container, Mapping):
-        return container.get(key, default)
+        try:
+            return container.get(key, default)
+        except Exception:
+            return default
     try:
         return getattr(container, key, default)
     except Exception:
@@ -104,7 +115,10 @@ def _read(container: object, key: str, default: object = None) -> object:
 def _finite_number(value: object) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    numeric = float(value)
+    try:
+        numeric = float(value)
+    except (OverflowError, TypeError, ValueError):
+        return None
     return numeric if math.isfinite(numeric) else None
 
 
@@ -135,7 +149,7 @@ def _has_low_energy(snapshot: object) -> bool:
 
 def allowed_stances(snapshot: object, risk_class: str = "none") -> frozenset[str]:
     """위험 등급과 실제 기분 원인에 따라 허용할 응답 태도를 반환한다."""
-    if risk_class in {"concern", "urgent"}:
+    if isinstance(risk_class, str) and risk_class in {"concern", "urgent"}:
         return _SAFETY_STANCES
     if _has_strong_open_rupture(snapshot):
         return _RUPTURE_STANCES
@@ -169,7 +183,22 @@ def build_mood_policy_retry_appendix(error_code: str, language: str) -> str:
         if isinstance(error_code, str) and error_code in _POLICY_ERROR_CODES
         else "mood_policy_invalid"
     )
-    return _RETRY_APPENDIX_TEMPLATES[_language_key(language)].format(error_code=normalized_code)
+    language_key = _language_key(language)
+    allowed_subset = (
+        "proactive, cooperative, brief"
+        if normalized_code == "mood_stance_safety_not_allowed"
+        else "cooperative, brief"
+    )
+    schema_instruction = (
+        _SCHEMA_RETRY_INSTRUCTIONS[language_key]
+        if normalized_code in {"mood_analysis_policy_invalid", "mood_policy_invalid"}
+        else ""
+    )
+    return _RETRY_APPENDIX_TEMPLATES[language_key].format(
+        error_code=normalized_code,
+        allowed_stances=allowed_subset,
+        schema_instruction=schema_instruction,
+    )
 
 
 def _valid_analysis(value: object) -> bool:
@@ -242,13 +271,17 @@ def validate_mood_policy(
         or len(payload) != 11
         or not isinstance(payload[0], str)
     ):
-        return MoodPolicyDecision("retry", payload, "mood_analysis_policy_invalid")
+        action = "clamp" if retry_used else "retry"
+        return MoodPolicyDecision(action, payload, "mood_analysis_policy_invalid")
 
     analysis = payload[10]
     if analysis is None:
         return MoodPolicyDecision("accept", payload)
     if not _valid_analysis(analysis):
-        return MoodPolicyDecision("retry", payload, "mood_analysis_policy_invalid")
+        if not retry_used:
+            return MoodPolicyDecision("retry", payload, "mood_analysis_policy_invalid")
+        without_analysis = (*payload[:10], None)
+        return MoodPolicyDecision("clamp", without_analysis, "mood_analysis_policy_invalid")
 
     risk_class = analysis["risk_class"]
     stance = analysis["proposed_stance"]
