@@ -276,6 +276,12 @@ def test_ai_worker_forwards_immutable_life_record_request_scope(included, images
     assert client.scopes == [included]
 
 
+_ATTACHMENT_MOOD_CONTEXT = {
+    "event_id": "33333333-3333-4333-8333-333333333333",
+    "occurred_at_utc": "2099-08-07T01:00:00+00:00",
+}
+
+
 class _AttachmentBridge(AttachmentBridgeMixin):
     def __init__(self):
         self.llm_client = object()
@@ -326,6 +332,9 @@ class _AttachmentBridge(AttachmentBridgeMixin):
     def _compose_attachment_history_message(self, message, _attachments):
         return message
 
+    def _new_mood_event_context(self):
+        return dict(_ATTACHMENT_MOOD_CONTEXT)
+
     def _start_ai_worker(self, *args, **kwargs):
         self.started.append((args, kwargs))
 
@@ -337,6 +346,23 @@ def test_attachment_entrypoint_explicitly_opts_in_life_record_context():
 
     assert bridge.started[0][1]["include_life_record_context"] is True
     assert bridge._last_request_payload["include_life_record_context"] is True
+    assert (
+        bridge._last_request_payload["mood_event_id"]
+        == _ATTACHMENT_MOOD_CONTEXT["event_id"]
+    )
+    assert (
+        bridge._last_request_payload["mood_occurred_at"]
+        == _ATTACHMENT_MOOD_CONTEXT["occurred_at_utc"]
+    )
+    assert bridge._last_request_payload["mood_finalized"] is False
+    assert (
+        bridge.started[0][1]["mood_event_id"]
+        == _ATTACHMENT_MOOD_CONTEXT["event_id"]
+    )
+    assert (
+        bridge.started[0][1]["mood_occurred_at"]
+        == _ATTACHMENT_MOOD_CONTEXT["occurred_at_utc"]
+    )
 
 
 def test_resumed_attachment_request_suppresses_duplicate_pending_signals():
@@ -356,6 +382,23 @@ def test_resumed_attachment_request_suppresses_duplicate_pending_signals():
     )
 
     assert bridge.started[0][1]["emit_pending_state"] is False
+    assert (
+        bridge._last_request_payload["mood_event_id"]
+        == _ATTACHMENT_MOOD_CONTEXT["event_id"]
+    )
+    assert (
+        bridge._last_request_payload["mood_occurred_at"]
+        == _ATTACHMENT_MOOD_CONTEXT["occurred_at_utc"]
+    )
+    assert bridge._last_request_payload["mood_finalized"] is False
+    assert (
+        bridge.started[0][1]["mood_event_id"]
+        == _ATTACHMENT_MOOD_CONTEXT["event_id"]
+    )
+    assert (
+        bridge.started[0][1]["mood_occurred_at"]
+        == _ATTACHMENT_MOOD_CONTEXT["occurred_at_utc"]
+    )
 
 
 def test_http_final_reply_places_life_record_first_but_keeps_history_original():
