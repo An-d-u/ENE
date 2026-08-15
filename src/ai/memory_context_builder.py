@@ -625,7 +625,11 @@ async def build_memory_context(
     )
     setattr(client, "_last_loaded_topic_memory_context", topic_memory_block)
     goal_block = build_goal_context_block(client, prompt_language)
-    mood_manager = getattr(client, "mood_manager", None)
+    mood_enabled = normalize_bool_setting(
+        settings_config.get("enable_mood_system", True),
+        default=True,
+    )
+    mood_manager = getattr(client, "mood_manager", None) if mood_enabled else None
     mood_block = (
         _build_minimal_mood_context_block(mood_manager, prompt_language)
         if mood_manager
