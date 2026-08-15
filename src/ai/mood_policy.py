@@ -8,6 +8,15 @@ from dataclasses import dataclass
 import math
 from typing import Literal
 
+from .mood_engine import (
+    CERTAINTIES,
+    CLARITIES,
+    CONTROLLABILITIES,
+    EVENT_KINDS,
+    RELATION_CATEGORIES,
+    REPAIR_SIGNALS,
+    TARGET_SCOPES,
+)
 from .response_envelope import (
     LLM_RESPONSE_TUPLE,
     MOOD_EVENT_FIELDS,
@@ -25,6 +34,13 @@ _SAFETY_STANCES = frozenset({"proactive", "cooperative", "brief"})
 _RISK_CLASSES = frozenset(RISK_CLASSES)
 _PROPOSED_STANCES = frozenset(PROPOSED_STANCES)
 _MOOD_EVENT_FIELDS = frozenset(MOOD_EVENT_FIELDS)
+_EVENT_KINDS = frozenset(EVENT_KINDS)
+_TARGET_SCOPES = frozenset(TARGET_SCOPES)
+_RELATION_CATEGORIES = frozenset(RELATION_CATEGORIES)
+_CLARITIES = frozenset(CLARITIES)
+_CERTAINTIES = frozenset(CERTAINTIES)
+_CONTROLLABILITIES = frozenset(CONTROLLABILITIES)
+_REPAIR_SIGNALS = frozenset(REPAIR_SIGNALS)
 _POLICY_ERROR_CODES = frozenset(
     {
         "mood_stance_not_allowed",
@@ -149,19 +165,44 @@ def apply_urgent_footer(reply: str, language: str) -> str:
 
 def build_mood_policy_retry_appendix(error_code: str, language: str) -> str:
     """사용자·스냅샷 내용을 반영하지 않는 고정 재시도 지시를 만든다."""
-    normalized_code = error_code if error_code in _POLICY_ERROR_CODES else "mood_policy_invalid"
+    normalized_code = (
+        error_code
+        if isinstance(error_code, str) and error_code in _POLICY_ERROR_CODES
+        else "mood_policy_invalid"
+    )
     return _RETRY_APPENDIX_TEMPLATES[_language_key(language)].format(error_code=normalized_code)
 
 
 def _valid_analysis(value: object) -> bool:
-    if not isinstance(value, Mapping) or set(value) != {"event", "risk_class", "proposed_stance"}:
+    if not isinstance(value, dict) or set(value) != {"event", "risk_class", "proposed_stance"}:
         return False
     event = value.get("event")
+    if not isinstance(event, dict) or set(event) != _MOOD_EVENT_FIELDS:
+        return False
+    risk_class = value.get("risk_class")
+    proposed_stance = value.get("proposed_stance")
+    intensity = event.get("intensity")
     return (
-        isinstance(event, Mapping)
-        and set(event) == _MOOD_EVENT_FIELDS
-        and value.get("risk_class") in _RISK_CLASSES
-        and value.get("proposed_stance") in _PROPOSED_STANCES
+        isinstance(event.get("kind"), str)
+        and event["kind"] in _EVENT_KINDS
+        and isinstance(event.get("target_scope"), str)
+        and event["target_scope"] in _TARGET_SCOPES
+        and isinstance(event.get("relation_category"), str)
+        and event["relation_category"] in _RELATION_CATEGORIES
+        and type(intensity) is int
+        and intensity in (0, 1, 2, 3)
+        and isinstance(event.get("clarity"), str)
+        and event["clarity"] in _CLARITIES
+        and isinstance(event.get("certainty"), str)
+        and event["certainty"] in _CERTAINTIES
+        and isinstance(event.get("controllability"), str)
+        and event["controllability"] in _CONTROLLABILITIES
+        and isinstance(event.get("repair_signal"), str)
+        and event["repair_signal"] in _REPAIR_SIGNALS
+        and isinstance(risk_class, str)
+        and risk_class in _RISK_CLASSES
+        and isinstance(proposed_stance, str)
+        and proposed_stance in _PROPOSED_STANCES
     )
 
 
