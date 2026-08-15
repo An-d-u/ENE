@@ -323,7 +323,9 @@ class AttachmentBridgeMixin:
             self._sync_attachment_session_aliases()
         else:
             self._message_attachment_records[message_id] = record
-        mood_context = self._new_mood_event_context()
+        from .chat_flow import ChatFlowBridgeMixin
+
+        mood_context = ChatFlowBridgeMixin._new_mood_event_context()
         mood_event_id = str(mood_context.get("event_id", ""))
         mood_occurred_at = str(mood_context.get("occurred_at_utc", ""))
 

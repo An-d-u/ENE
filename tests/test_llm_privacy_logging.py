@@ -287,7 +287,7 @@ class _LoggingClient:
     def __init__(self, payload):
         self.payload = payload
 
-    def send_message(self, _message):
+    def send_message(self, _message, *, mood_event_context=None):
         return self.payload
 
     def get_last_response_delivery_metadata(self):
@@ -343,7 +343,7 @@ def test_provider_error_log_and_signal_omit_raw_exception_content(capsys):
     raw_error = "SYNTHETIC-PROVIDER-ERROR-BODY-SENTINEL"
 
     class FailingClient:
-        def send_message(self, _message):
+        def send_message(self, _message, *, mood_event_context=None):
             raise RuntimeError(raw_error)
 
     errors = []
@@ -584,7 +584,7 @@ def test_provider_exception_string_hook_is_never_invoked(capsys):
             return secret
 
     class FailingClient:
-        def send_message(self, _message):
+        def send_message(self, _message, *, mood_event_context=None):
             raise LeakyError(secret)
 
     errors = []
