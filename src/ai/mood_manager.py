@@ -357,6 +357,9 @@ class MoodManager:
             self.state = candidate
         return self.get_snapshot()
 
+    def peek_snapshot(self) -> dict[str, Any]:
+        return self._snapshot_for(self.state, update_hysteresis=False)
+
     def get_snapshot(self) -> dict[str, Any]:
         return self._snapshot_for(self.state, update_hysteresis=True)
 
