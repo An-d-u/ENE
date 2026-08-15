@@ -130,6 +130,22 @@ def test_emit_mood_changed_keeps_six_arguments_and_prefers_v3_nested_aliases():
     assert len(dummy.mood_changed.emitted[0]) == 6
 
 
+def test_mood_snapshot_failure_log_omits_raw_exception_text(capsys):
+    class _FailingMoodManager:
+        def get_snapshot(self):
+            raise RuntimeError("synthetic private snapshot detail")
+
+    dummy = type("BridgeDummy", (), {"mood_manager": _FailingMoodManager()})()
+
+    result = WebBridge.get_mood_snapshot_json(dummy)
+    captured = capsys.readouterr().out + capsys.readouterr().err
+
+    assert result == ""
+    assert "synthetic private snapshot detail" not in captured
+    assert "category=local_error" in captured
+    assert "exception_class=RuntimeError" in captured
+
+
 def test_emit_mood_changed_keeps_legacy_aliases_and_handles_malformed_snapshot():
     dummy = type("BridgeDummy", (), {})()
     dummy.mood_changed = _DummySignal()

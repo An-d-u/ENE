@@ -9,6 +9,7 @@ import uuid
 
 import pytest
 
+from src.ai import mood_engine
 from src.ai.mood_engine import (
     AFFECT_HALF_LIFE_CLASS,
     HALF_LIFE_SECONDS,
@@ -1451,15 +1452,101 @@ def test_advance_time_decays_only_rupture_heat_and_preserves_relationship() -> N
         assert actual[field] == expected[field]
 
 
-@pytest.mark.parametrize("now", [NOW, NOW - timedelta(seconds=1)])
-def test_advance_time_same_or_past_is_complete_no_op(now: datetime) -> None:
+def test_advance_time_same_instant_is_complete_no_op() -> None:
     state = new_mood_state(NOW, "balanced")
     snapshot = deepcopy(state)
 
-    result = advance_time(state, now, "expressive")
+    result = advance_time(state, NOW, "expressive")
 
     assert result == MoodTransition(state=snapshot, applied=False, rule_ids=())
     assert state == snapshot
+
+
+def test_clock_rollback_resets_anchor_without_decay_and_allows_next_event() -> None:
+    state = new_mood_state(NOW, "balanced")
+    state["background"]["valence"] = 0.8
+    state["active_affects"] = [
+        valid_active_affect(affect="sadness", intensity=0.8, source_kind="loss")
+    ]
+    rolled_back_at = NOW - timedelta(hours=1)
+
+    rollback = advance_time(state, rolled_back_at, "balanced")
+
+    assert rollback.applied is True
+    assert rollback.rule_ids == ("time.clock_rollback",)
+    assert rollback.state["updated_at_utc"] == rolled_back_at.isoformat(timespec="seconds")
+    assert rollback.state["background"] == state["background"]
+    assert rollback.state["active_affects"] == state["active_affects"]
+
+    next_at = rolled_back_at + timedelta(minutes=1)
+    event = reduce_mood(
+        rollback.state,
+        valid_event(
+            event_id=synthetic_event_id("after-clock-rollback"),
+            kind="success",
+            target_scope="external",
+        ),
+        next_at,
+        "balanced",
+    )
+    expected_before_event = 0.8 * 2 ** (-60 / (12 * 3600))
+    assert event.state["background"]["valence"] == pytest.approx(
+        expected_before_event + 0.04 * 0.75
+    )
+
+
+def test_reduce_mood_accepts_current_event_during_clock_rollback_without_decay() -> None:
+    state = new_mood_state(NOW, "balanced")
+    state["background"]["valence"] = 0.8
+    rolled_back_at = NOW - timedelta(hours=1)
+    event_id = synthetic_event_id("event-during-clock-rollback")
+
+    transition = reduce_mood(
+        state,
+        valid_event(
+            event_id=event_id,
+            kind="success",
+            target_scope="external",
+            intensity=3,
+        ),
+        rolled_back_at,
+        "balanced",
+    )
+
+    assert transition.applied is True
+    assert transition.state["updated_at_utc"] == rolled_back_at.isoformat(timespec="seconds")
+    assert transition.state["background"]["valence"] > 0.8
+    assert transition.state["recent_event_ids"] == [event_id]
+    assert "time.clock_rollback" in transition.rule_ids
+
+
+def test_pathological_future_jump_caps_decay_at_seven_days_and_resets_anchor(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(mood_engine, "SPONTANEOUS_THRESHOLD", 1.0)
+    state = new_mood_state(NOW, "balanced")
+    state["background"]["valence"] = 0.8
+    future_at = NOW + timedelta(days=365)
+
+    jumped = advance_time(state, future_at, "balanced")
+
+    expected = 0.8 * 2 ** (-timedelta(days=7).total_seconds() / (12 * 3600))
+    assert jumped.state["background"]["valence"] == pytest.approx(expected)
+    assert jumped.state["updated_at_utc"] == future_at.isoformat(timespec="seconds")
+    assert "time.future_jump_capped" in jumped.rule_ids
+
+    next_at = future_at + timedelta(minutes=1)
+    event = reduce_mood(
+        jumped.state,
+        valid_event(
+            event_id=synthetic_event_id("after-future-jump"),
+            kind="success",
+            target_scope="external",
+        ),
+        next_at,
+        "balanced",
+    )
+    assert event.applied is True
 
 
 def test_advance_time_preserves_microseconds_and_same_now_is_no_op() -> None:

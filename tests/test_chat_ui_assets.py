@@ -268,6 +268,13 @@ result = {
     assert "0.37" not in result["trustTitle"]
 
 
+def test_mood_v3_primary_and_trust_rows_start_hidden_until_snapshot_arrives():
+    html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
+
+    assert 'id="mood-detail-primary-row" class="mood-meter-row hidden" hidden' in html
+    assert 'id="mood-detail-trust-row" class="mood-meter-row hidden" hidden' in html
+
+
 def test_mood_v3_malformed_trust_hides_row_and_clears_meter_aria():
     result = _run_mood_runtime_case(
         """

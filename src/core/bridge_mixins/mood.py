@@ -55,8 +55,11 @@ class MoodBridgeMixin:
                 if isinstance(temporary_state, str) and temporary_state
                 else "steady",
             )
-        except Exception as e:
-            print(f"[Bridge] mood_changed emit 실패: {e}")
+        except Exception as exc:
+            print(
+                "[Bridge] mood_changed_emit_failed category=local_error "
+                f"exception_class={type(exc).__name__}"
+            )
 
     @pyqtSlot()
     def increment_head_pat_count_from_js(self):
@@ -76,8 +79,11 @@ class MoodBridgeMixin:
         try:
             snapshot = self.mood_manager.get_snapshot()
             return json.dumps(snapshot, ensure_ascii=False)
-        except Exception as e:
-            print(f"[Bridge] 기분 스냅샷 반환 실패: {e}")
+        except Exception as exc:
+            print(
+                "[Bridge] mood_snapshot_failed category=local_error "
+                f"exception_class={type(exc).__name__}"
+            )
             return ""
 
     @pyqtSlot(bool, result=str)

@@ -80,6 +80,7 @@ BACKGROUND_HALF_LIFE_SECONDS = {
 }
 SPONTANEOUS_COOLDOWN_SECONDS = 6 * 3600
 SPONTANEOUS_THRESHOLD = 0.92
+MAX_ADVANCE_SECONDS = 7 * 24 * 3600
 
 RELATION_CONNECTION_BASE = {
     "connection": {"affection": 0.018, "trust": 0.010},
@@ -312,8 +313,17 @@ def advance_time(state: object, now_utc: datetime, preset: str) -> MoodTransitio
     validated = validate_state(state)
     _require_utc_datetime(now_utc, "시간 전진 시각")
     previous_at = _parse_utc_string(validated["updated_at_utc"], "updated_at_utc")
-    if now_utc <= previous_at:
+    if now_utc == previous_at:
         return MoodTransition(state=validated, applied=False, rule_ids=())
+    if now_utc < previous_at:
+        # rollback 구간은 감쇠하지 않고 요청 시각을 새 기준점으로 삼는다.
+        validated["updated_at_utc"] = format_utc(now_utc)
+        validated["revision"] += 1
+        return MoodTransition(
+            state=validate_state(validated),
+            applied=True,
+            rule_ids=("time.clock_rollback",),
+        )
 
     rule_ids = _advance_time_in_place(validated, now_utc, preset)
     validated["revision"] += 1
@@ -425,12 +435,13 @@ def reduce_mood(
         return MoodTransition(state=state, applied=False, rule_ids=("event.duplicate",))
 
     _require_utc_datetime(now_utc, "사건 적용 시각")
-    if now_utc < _parse_utc_string(state["updated_at_utc"], "updated_at_utc"):
-        raise ValueError("사건 적용 시각은 상태 갱신 시각보다 빠를 수 없습니다.")
-
     normalized_preset = normalize_preset(preset)
     rule_ids: list[str] = []
-    if now_utc > _parse_utc_string(state["updated_at_utc"], "updated_at_utc"):
+    previous_at = _parse_utc_string(state["updated_at_utc"], "updated_at_utc")
+    if now_utc < previous_at:
+        state["updated_at_utc"] = format_utc(now_utc)
+        rule_ids.append("time.clock_rollback")
+    elif now_utc > previous_at:
         rule_ids.extend(_advance_time_in_place(state, now_utc, normalized_preset))
     impact = (
         INTENSITY_WEIGHT[normalized_event.intensity]
@@ -475,9 +486,12 @@ def reduce_mood(
 
 def _advance_time_in_place(state: dict[str, Any], now_utc: datetime, preset: str) -> list[str]:
     previous_at = _parse_utc_string(state["updated_at_utc"], "updated_at_utc")
-    elapsed_seconds = (now_utc - previous_at).total_seconds()
+    actual_elapsed_seconds = (now_utc - previous_at).total_seconds()
+    elapsed_seconds = min(actual_elapsed_seconds, MAX_ADVANCE_SECONDS)
     normalized_preset = normalize_preset(preset)
     rule_ids: list[str] = []
+    if actual_elapsed_seconds > MAX_ADVANCE_SECONDS:
+        rule_ids.append("time.future_jump_capped")
 
     background_changed = False
     for field, half_life in BACKGROUND_HALF_LIFE_SECONDS.items():

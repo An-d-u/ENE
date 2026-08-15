@@ -18,6 +18,52 @@ from src.ai.response_contract import (
 )
 
 
+@pytest.mark.parametrize(
+    ("language", "markers"),
+    [
+        ("ko", ("관계 손상", "응급", "교정", "안전 우선순위")),
+        ("en", ("relationship damage", "urgent", "correction", "safety priority")),
+        ("ja", ("関係悪化", "緊急", "訂正", "安全優先順位")),
+    ],
+)
+def test_structured_mood_semantics_are_complete_and_localized_without_drift(
+    language, markers
+):
+    from src.ai.analysis_prompt import build_analysis_system_appendix
+
+    settings = {
+        "ui_language": language,
+        "enable_mood_system": True,
+        "enable_response_analysis": True,
+        "enable_schedule_recognition": False,
+        "enable_conversation_promises": False,
+    }
+    analysis_appendix = build_analysis_system_appendix(
+        settings, response_style="structured_fields"
+    )
+    response_appendix = build_structured_response_contract_appendix(settings)
+
+    for marker in markers:
+        assert marker in analysis_appendix
+        assert marker in response_appendix
+    for value in (
+        "clarity=ambiguous",
+        "target_scope=external",
+        "repair_signal",
+        "kind=repair",
+        "risk_class=urgent",
+        "proactive",
+        "cooperative",
+        "brief",
+        "limited",
+        "distance",
+        "decline",
+        "boundary",
+    ):
+        assert value in analysis_appendix
+        assert value in response_appendix
+
+
 @pytest.mark.parametrize("language", ["ko", "en", "ja"])
 @pytest.mark.parametrize("structured", [False, True])
 def test_active_mood_contract_lists_exact_fields_and_all_domain_enums(language, structured):

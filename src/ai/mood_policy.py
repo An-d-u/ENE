@@ -29,6 +29,7 @@ _LOW_ENERGY_STANCES = frozenset({"cooperative", "brief", "limited", "decline"})
 _RUPTURE_STANCES = frozenset(
     {"cooperative", "brief", "limited", "distance", "decline", "boundary"}
 )
+_STRONG_OPEN_RUPTURE_THRESHOLD = 0.16
 _SAFETY_STANCES = frozenset({"proactive", "cooperative", "brief"})
 _RISK_CLASSES = frozenset(RISK_CLASSES)
 _PROPOSED_STANCES = frozenset(PROPOSED_STANCES)
@@ -137,7 +138,7 @@ def _has_strong_open_rupture(snapshot: object) -> bool:
             )
             if level is not None
         ]
-        if levels and max(levels) >= 0.5:
+        if levels and max(levels) >= _STRONG_OPEN_RUPTURE_THRESHOLD:
             return True
     return False
 
