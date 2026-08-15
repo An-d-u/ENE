@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Callable
 
+from .mood_policy import validate_mood_policy
 from .response_envelope import (
     LLM_RESPONSE_TUPLE,
     ResponseRequirements,
@@ -36,6 +38,7 @@ class ResponseAttempt:
     repair_fields: tuple[str, ...] = ()
     preserved_reply: str = field(default="", repr=False)
     expand_output_budget: bool = False
+    policy_error_code: str = ""
 
 
 @dataclass(frozen=True)
@@ -167,6 +170,8 @@ def execute_final_response(
     initial_mode: ResponseMode = ResponseMode.JSON_SCHEMA,
     mark_unsupported: Callable[[ResponseMode], None] | None = None,
     schema_version: str = RESPONSE_ENVELOPE_SCHEMA_VERSION,
+    mood_snapshot_provider: Callable[[], dict[str, object]] | None = None,
+    mood_preview: Callable[[dict[str, object]], dict[str, object]] | None = None,
 ) -> FinalResponseResult:
     """최종 응답을 검증하고 명시적 미지원 또는 무효 응답만 제한 재시도한다."""
     attempts: list[ResponseAttempt] = []
@@ -174,6 +179,8 @@ def execute_final_response(
     phase = "primary"
     expand_output_budget = False
     regeneration_used = False
+    policy_regeneration_used = False
+    policy_error_code = ""
     downgrade_used = False
 
     while True:
@@ -181,6 +188,7 @@ def execute_final_response(
             phase=phase,
             mode=current_mode,
             expand_output_budget=expand_output_budget,
+            policy_error_code=policy_error_code,
         )
         attempts.append(attempt)
 
@@ -209,6 +217,41 @@ def execute_final_response(
         payload = _decode_provider_response(response, requirements=requirements)
         if has_valid_response_payload(payload):
             assert payload is not None
+            analysis = payload[10]
+            if analysis is not None:
+                snapshot: Mapping[object, object] = {}
+                preview_available = False
+                if mood_preview is not None:
+                    try:
+                        preview = mood_preview(analysis)
+                    except Exception:
+                        preview = None
+                    if isinstance(preview, Mapping):
+                        snapshot = preview
+                        preview_available = True
+                if not preview_available and mood_snapshot_provider is not None:
+                    try:
+                        current_snapshot = mood_snapshot_provider()
+                    except Exception:
+                        current_snapshot = None
+                    if isinstance(current_snapshot, Mapping):
+                        snapshot = current_snapshot
+
+                decision = validate_mood_policy(
+                    payload,
+                    snapshot,
+                    requirements.response_language,
+                    retry_used=policy_regeneration_used,
+                )
+                if decision.action == "retry":
+                    if policy_regeneration_used:
+                        raise InvalidFinalResponseError()
+                    policy_regeneration_used = True
+                    phase = "policy_regenerate"
+                    policy_error_code = decision.error_code
+                    expand_output_budget = False
+                    continue
+                payload = decision.payload
             return _repair_missing_response_fields(
                 requester,
                 payload=payload,
@@ -222,4 +265,5 @@ def execute_final_response(
             raise InvalidFinalResponseError()
         regeneration_used = True
         phase = "regenerate"
+        policy_error_code = ""
         expand_output_budget = _needs_expanded_output_budget(response)

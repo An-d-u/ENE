@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from types import SimpleNamespace
+from uuid import UUID
 
 import pytest
 import subprocess
@@ -16,6 +17,50 @@ from src.ai.response_protocol import (
     ResponseStatus,
 )
 from tests.gemini_structured_fixtures import valid_envelope_json
+
+
+def _policy_mood_analysis(*, risk="none", stance="cooperative"):
+    return {
+        "event": {
+            "kind": "neutral",
+            "target_scope": "unknown",
+            "relation_category": "none",
+            "intensity": 0,
+            "clarity": "ambiguous",
+            "certainty": "low",
+            "controllability": "low",
+            "repair_signal": "none",
+        },
+        "risk_class": risk,
+        "proposed_stance": stance,
+    }
+
+
+class _PreviewingMoodManager:
+    def __init__(self):
+        self.preview_calls = []
+        self.snapshot_calls = 0
+
+    def preview_event(self, event_id, analysis):
+        self.preview_calls.append((event_id, deepcopy(analysis)))
+        return {
+            "background": {"energy": 0.731},
+            "ruptures": [],
+        }
+
+    def get_snapshot(self):
+        self.snapshot_calls += 1
+        return {"background": {"energy": 0.731}, "ruptures": []}
+
+
+class _UntouchedMoodManager:
+    @property
+    def preview_event(self):
+        raise AssertionError("비활성 기분 preview에 접근하면 안 됩니다.")
+
+    @property
+    def get_snapshot(self):
+        raise AssertionError("비활성 기분 snapshot에 접근하면 안 됩니다.")
 
 
 def test_gemini_final_reply_config_uses_json_schema_and_json_mime_type(
@@ -98,6 +143,61 @@ def test_gemini_invalid_primary_restores_pre_turn_history_before_regeneration(
         "parts": [{"text": "재생성된 합성 답변"}],
     }
     assert "not-json" not in str(history)
+
+
+def test_gemini_policy_retry_uses_safe_appendix_and_reuses_preview_id(gemini_harness):
+    user_content = "Synthetic policy request marker."
+    client = gemini_harness.client(
+        [
+            valid_envelope_json(
+                reply="First policy reply.",
+                mood_analysis=_policy_mood_analysis(stance="distance"),
+            ),
+            valid_envelope_json(
+                reply="Second policy reply.",
+                mood_analysis=_policy_mood_analysis(stance="distance"),
+            ),
+        ],
+        settings={
+            "enable_response_analysis": True,
+            "enable_mood_system": True,
+        },
+    )
+    manager = _PreviewingMoodManager()
+    client.mood_manager = manager
+    first_system_prompt = gemini_harness.created_configs[0]["system_instruction"]
+
+    result = client.send_message(user_content)
+
+    retry_config = gemini_harness.sdk.send_message_configs[1]
+    retry_system_prompt = retry_config["system_instruction"]
+    appendix = retry_system_prompt[len(first_system_prompt):]
+    assert retry_system_prompt != first_system_prompt
+    assert retry_system_prompt.startswith(first_system_prompt)
+    assert "mood_stance_not_allowed" in appendix
+    assert "cooperative, brief" in appendix
+    assert user_content not in appendix
+    assert "0.731" not in appendix
+    assert "boundary_violation" not in appendix
+    assert result[0] == "Second policy reply."
+    assert result[10]["proposed_stance"] == "cooperative"
+    assert manager.snapshot_calls == 0
+    assert len(manager.preview_calls) == 2
+    assert manager.preview_calls[0][0] == manager.preview_calls[1][0]
+    assert isinstance(manager.preview_calls[0][0], str)
+    assert UUID(manager.preview_calls[0][0]).version == 4
+    history = client.get_conversation_history()
+    assert "First policy reply." not in str(history)
+    assert "mood_stance_not_allowed" not in str(history)
+
+
+def test_gemini_disabled_mood_analysis_does_not_touch_manager(gemini_harness):
+    client = gemini_harness.client([valid_envelope_json()])
+    client.mood_manager = _UntouchedMoodManager()
+
+    result = client.send_message("Synthetic disabled mood request.")
+
+    assert result[10] is None
 
 
 def test_gemini_success_history_stores_visible_reply_not_raw_envelope(

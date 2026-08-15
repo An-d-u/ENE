@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from uuid import UUID
+
 import pytest
 import requests
 
@@ -31,6 +33,47 @@ from tests.structured_response_fixtures import valid_envelope_json
 _JSON_OBJECT_SYSTEM_INSTRUCTION = (
     "Return the final response as a valid JSON object."
 )
+
+
+def _policy_mood_analysis(*, risk="none", stance="cooperative"):
+    return {
+        "event": {
+            "kind": "neutral",
+            "target_scope": "unknown",
+            "relation_category": "none",
+            "intensity": 0,
+            "clarity": "ambiguous",
+            "certainty": "low",
+            "controllability": "low",
+            "repair_signal": "none",
+        },
+        "risk_class": risk,
+        "proposed_stance": stance,
+    }
+
+
+class _PreviewingMoodManager:
+    def __init__(self):
+        self.preview_calls = []
+        self.snapshot_calls = 0
+
+    def preview_event(self, event_id, analysis):
+        self.preview_calls.append((event_id, analysis))
+        return {"background": {"energy": 0.842}, "ruptures": []}
+
+    def get_snapshot(self):
+        self.snapshot_calls += 1
+        return {"background": {"energy": 0.842}, "ruptures": []}
+
+
+class _UntouchedMoodManager:
+    @property
+    def preview_event(self):
+        raise AssertionError("비활성 기분 preview에 접근하면 안 됩니다.")
+
+    @property
+    def get_snapshot(self):
+        raise AssertionError("비활성 기분 snapshot에 접근하면 안 됩니다.")
 
 
 def _openai_output_text_body(carrier: str, *, status: str = "completed") -> dict:
@@ -112,6 +155,77 @@ def test_openai_responses_final_reply_uses_strict_json_schema(monkeypatch):
         "strict": True,
         "schema": RESPONSE_ENVELOPE_V1_SCHEMA,
     }
+
+
+def test_http_policy_retry_changes_only_system_prompt_and_uses_preview(monkeypatch):
+    captured = _install_http_sequence(
+        monkeypatch,
+        [
+            DummyHTTPResponse(
+                _openai_output_text_body(
+                    valid_envelope_json(
+                        reply="First HTTP policy reply.",
+                        mood_analysis=_policy_mood_analysis(stance="distance"),
+                    )
+                )
+            ),
+            DummyHTTPResponse(
+                _openai_output_text_body(
+                    valid_envelope_json(
+                        reply="Second HTTP policy reply.",
+                        mood_analysis=_policy_mood_analysis(stance="cooperative"),
+                    )
+                )
+            ),
+        ],
+    )
+    manager = _PreviewingMoodManager()
+    user_content = "Synthetic HTTP policy marker."
+    client = _client(
+        settings=structured_settings(
+            enable_response_analysis=True,
+            enable_mood_system=True,
+        ),
+        mood_manager=manager,
+    )
+
+    payload = client.send_message(user_content)
+
+    first_prompt = captured[0]["json"]["instructions"]
+    retry_prompt = captured[1]["json"]["instructions"]
+    appendix = retry_prompt[len(first_prompt):]
+    assert retry_prompt.startswith(first_prompt)
+    assert retry_prompt != first_prompt
+    assert "mood_stance_not_allowed" in appendix
+    assert "cooperative, brief" in appendix
+    assert user_content not in appendix
+    assert "0.842" not in appendix
+    assert "boundary_violation" not in appendix
+    assert captured[0]["json"]["input"] == captured[1]["json"]["input"]
+    assert payload[0] == "Second HTTP policy reply."
+    assert manager.snapshot_calls == 0
+    assert len(manager.preview_calls) == 2
+    assert manager.preview_calls[0][0] == manager.preview_calls[1][0]
+    assert isinstance(manager.preview_calls[0][0], str)
+    assert UUID(manager.preview_calls[0][0]).version == 4
+    assert "First HTTP policy reply." not in str(client._history)
+    assert "mood_stance_not_allowed" not in str(client._history)
+
+
+def test_http_disabled_mood_analysis_does_not_touch_manager(monkeypatch):
+    _install_http_sequence(
+        monkeypatch,
+        [
+            DummyHTTPResponse(
+                _openai_output_text_body(valid_envelope_json())
+            )
+        ],
+    )
+    client = _client(mood_manager=_UntouchedMoodManager())
+
+    payload = client.send_message("Synthetic disabled mood request.")
+
+    assert payload[10] is None
 
 
 

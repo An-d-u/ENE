@@ -10,7 +10,7 @@ import binascii
 import copy
 from concurrent.futures import Future
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import hashlib
 import hmac
 import ipaddress
@@ -21,6 +21,7 @@ import threading
 from types import MappingProxyType
 from typing import Callable, Dict, List, Mapping, Tuple
 from urllib.parse import urlsplit
+from uuid import uuid4
 
 import requests
 
@@ -42,6 +43,7 @@ from .response_envelope import (
     get_response_envelope_v1_schema,
     get_response_repair_schema,
 )
+from .mood_policy import build_mood_policy_retry_appendix
 from .response_pipeline import ResponseAttempt, execute_final_response
 from .response_protocol import (
     InvalidFinalResponseError,
@@ -1556,6 +1558,19 @@ class _CommonMixin:
             str(settings_snapshot.get("structured_response_mode", "auto") or "auto"),
             capability_key=capability_key,
         )
+        mood_snapshot_provider = None
+        mood_preview = None
+        if requirements.enable_mood_analysis:
+            mood_manager = getattr(self, "mood_manager", None)
+            get_mood_snapshot = getattr(mood_manager, "get_snapshot", None)
+            preview_mood_event = getattr(mood_manager, "preview_event", None)
+            if callable(get_mood_snapshot) and callable(preview_mood_event):
+                preview_event_id = str(uuid4())
+                mood_snapshot_provider = get_mood_snapshot
+                mood_preview = lambda analysis: preview_mood_event(
+                    preview_event_id,
+                    analysis,
+                )
 
         def request_attempt(attempt: ResponseAttempt) -> ProviderResponse:
             is_repair = attempt.phase == "repair"
@@ -1590,6 +1605,16 @@ class _CommonMixin:
                     history_snapshot=history_snapshot,
                     generation_params_snapshot=generation_params_snapshot,
                 )
+                if attempt.phase == "policy_regenerate":
+                    appendix = build_mood_policy_retry_appendix(
+                        attempt.policy_error_code,
+                        requirements.response_language,
+                    )
+                    context = replace(
+                        context,
+                        system_prompt=f"{context.system_prompt}{appendix}",
+                    )
+                    self._last_request_context_fingerprint = context.fingerprint()
 
             schema_name = ""
             schema = None
@@ -1654,6 +1679,8 @@ class _CommonMixin:
                         capability_key
                     )
                 ),
+                mood_snapshot_provider=mood_snapshot_provider,
+                mood_preview=mood_preview,
             )
         except InvalidFinalResponseError:
             fallback = self._empty_text_fallback_response()
