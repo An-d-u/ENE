@@ -14,6 +14,7 @@ from src.ai.mood_policy import (
     default_stance,
     validate_mood_policy,
 )
+from src.ai.response_envelope import MOOD_EVENT_FIELDS
 
 
 def _snapshot(
@@ -368,6 +369,47 @@ def test_exact_mapping_with_invalid_value_retries_without_mutation(container: st
     assert decision.error_code == "mood_analysis_policy_invalid"
     assert decision.payload is payload
     assert invalid_value == []
+
+
+@pytest.mark.parametrize(
+    ("container", "mapping_type", "risk", "expected_action"),
+    [
+        ("top", MappingProxyType, "none", "clamp"),
+        ("top", UserDict, "concern", "clamp"),
+        ("event", MappingProxyType, "urgent", "urgent_fallback"),
+        ("event", UserDict, "none", "clamp"),
+    ],
+)
+def test_exact_mapping_is_rebuilt_safely_after_retry(
+    container: str,
+    mapping_type: type,
+    risk: str,
+    expected_action: str,
+) -> None:
+    source = _analysis(risk=risk, stance="distance")
+    source_event = dict(source["event"])
+    if container == "top":
+        analysis = mapping_type(source)
+        original_event = analysis["event"]
+    else:
+        original_event = mapping_type(source_event)
+        source["event"] = original_event
+        analysis = source
+    payload = _payload(analysis=analysis)
+
+    decision = validate_mood_policy(payload, _snapshot(), "en", retry_used=True)
+
+    assert decision.action == expected_action
+    assert decision.payload[1:10] == payload[1:10]
+    if risk != "urgent":
+        assert decision.payload[0] == payload[0]
+    assert isinstance(decision.payload[10], dict)
+    assert isinstance(decision.payload[10]["event"], dict)
+    assert tuple(decision.payload[10]["event"]) == MOOD_EVENT_FIELDS
+    assert decision.payload[10]["event"] == source_event
+    assert decision.payload[10]["proposed_stance"] == "cooperative"
+    assert dict(original_event) == source_event
+    assert analysis["proposed_stance"] == "distance"
 
 
 @pytest.mark.parametrize("analysis", [{}, "broken", ["broken"], {"risk_class": "none"}])
