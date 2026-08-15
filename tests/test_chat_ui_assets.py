@@ -247,6 +247,7 @@ result = {
     trustWidth: document.getElementById('mood-detail-trust').style.width,
     trustTitle: document.getElementById('mood-detail-trust').title,
     trustRole: document.getElementById('mood-detail-trust').getAttribute('role'),
+    trustLabelledBy: document.getElementById('mood-detail-trust').getAttribute('aria-labelledby'),
     trustValueNow: document.getElementById('mood-detail-trust').getAttribute('aria-valuenow'),
     trustValueText: document.getElementById('mood-detail-trust').getAttribute('aria-valuetext'),
 };
@@ -260,6 +261,7 @@ result = {
         "trustWidth": "69%",
         "trustTitle": "Trust",
         "trustRole": "meter",
+        "trustLabelledBy": "mood-detail-trust-label",
         "trustValueNow": "2",
         "trustValueText": "High",
     }
@@ -281,6 +283,44 @@ result = {
     )
 
     assert result == {"hidden": True, "valueNow": None, "valueText": None}
+
+
+def test_mood_v3_details_rerender_immediately_when_ui_language_changes():
+    result = _run_mood_runtime_case(
+        """
+window.applyENEUiStrings = function (config) {
+    currentUiStrings = config;
+    if (typeof rerenderMoodDetailsForLocale === 'function') rerenderMoodDetailsForLocale();
+};
+applyMoodSnapshot({
+    primary_emotion: 'sadness',
+    secondary_emotion: 'anxiety',
+    relationship: { trust: 0.37 }
+});
+const snapshots = [];
+for (const mood of [
+    { emotions: { sadness: '슬픔', anxiety: '불안' }, trust: '신뢰', trustLevels: { high: '높음' } },
+    { emotions: { sadness: 'Sadness', anxiety: 'Anxiety' }, trust: 'Trust', trustLevels: { high: 'High' } },
+    { emotions: { sadness: '悲しみ', anxiety: '不安' }, trust: '信頼', trustLevels: { high: '高い' } },
+]) {
+    window.applyENEUiStrings({ mood: mood });
+    snapshots.push({
+        primary: document.getElementById('mood-detail-primary').textContent,
+        secondary: document.getElementById('mood-detail-secondary').textContent,
+        trustText: document.getElementById('mood-detail-trust').getAttribute('aria-valuetext'),
+        trustTitle: document.getElementById('mood-detail-trust').title,
+    });
+}
+result = snapshots;
+"""
+    )
+
+    assert result == [
+        {"primary": "슬픔", "secondary": "불안", "trustText": "높음", "trustTitle": "신뢰"},
+        {"primary": "Sadness", "secondary": "Anxiety", "trustText": "High", "trustTitle": "Trust"},
+        {"primary": "悲しみ", "secondary": "不安", "trustText": "高い", "trustTitle": "信頼"},
+    ]
+    assert "0.37" not in json.dumps(result, ensure_ascii=False)
 
 
 def test_mood_reset_cancel_does_not_call_bridge_or_change_button_state():

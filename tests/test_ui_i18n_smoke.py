@@ -5094,6 +5094,7 @@ def test_chat_web_script_has_runtime_i18n_hooks():
     assert "moodPrimaryLabel.textContent = currentUiStrings.mood.primaryEmotion;" in content
     assert "moodSecondaryLabel.textContent = currentUiStrings.mood.secondaryEmotion;" in content
     assert "moodTrustLabel.textContent = currentUiStrings.mood.trust;" in content
+    assert "if (typeof rerenderMoodDetailsForLocale === 'function')" in content
     assert "trustLevels: { low: '낮음', medium: '보통', high: '높음' }" in content
     assert "trustLevels: { low: 'Low', medium: 'Medium', high: 'High' }" in content
     assert "trustLevels: { low: '低い', medium: '普通', high: '高い' }" in content
