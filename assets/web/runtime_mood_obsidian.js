@@ -135,7 +135,9 @@ function updateMoodDetails(snapshot) {
     if (trustMeter && Number.isFinite(trust)) {
         setMoodMeterWidth(trustMeter, normalizeMoodAxis(trust));
         const strings = currentUiStrings && currentUiStrings.mood;
-        trustMeter.title = `${strings ? strings.trust : 'Trust'} ${trust.toFixed(2)}`;
+        trustMeter.title = strings && typeof strings.trust === 'string' && strings.trust
+            ? strings.trust
+            : 'Trust';
     }
 }
 
