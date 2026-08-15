@@ -10,6 +10,7 @@ import pytest
 
 from src.ai import mood_engine
 from src.ai.mood_manager import MoodManager
+from src.ai.mood_policy import allowed_stances
 from src.ai.response_pipeline import execute_final_response
 from src.ai.response_protocol import ProviderResponse, ResponseMode, ResponseStatus
 from src.core import app_paths
@@ -26,7 +27,7 @@ def _clock() -> datetime:
 def _event(**overrides):
     event = {
         "kind": "connection", "target_scope": "relationship",
-        "relation_category": "none", "intensity": 2, "clarity": "clear",
+        "relation_category": "none", "intensity": 2, "clarity": "explicit",
         "certainty": "high", "controllability": "high", "repair_signal": "none",
     }
     event.update(overrides)
@@ -131,6 +132,55 @@ def test_preview_matches_reducer_without_mutating_state_file_or_hysteresis(tmp_p
     assert manager.state == before_state
     assert state_file.read_bytes() == before_bytes
     assert manager._last_primary_emotion == before_primary
+
+
+def test_first_explicit_disrespect_preview_allows_boundary_stance(tmp_path):
+    manager = _manager(tmp_path / "mood_state.json")
+    analysis = {
+        "event": _event(
+            kind="conflict",
+            target_scope="relationship",
+            relation_category="disrespect",
+            intensity=3,
+        ),
+        "risk_class": "none",
+        "proposed_stance": "boundary",
+    }
+
+    preview = manager.preview_event(str(uuid.uuid4()), analysis)
+
+    assert preview["ruptures"][0]["severity"] == pytest.approx(0.16)
+    assert "boundary" in allowed_stances(preview, "none")
+
+
+def test_urgent_relationship_conflict_cannot_damage_persisted_relationship(tmp_path):
+    state_file = tmp_path / "mood_state.json"
+    manager = _manager(state_file)
+    manager.advance_time_and_save()
+    before_relationship = deepcopy(manager.state["relationship"])
+    analysis = {
+        "event": _event(
+            kind="conflict",
+            target_scope="relationship",
+            relation_category="boundary_violation",
+            intensity=3,
+        ),
+        "risk_class": "urgent",
+        "proposed_stance": "cooperative",
+    }
+
+    preview = manager.preview_event(str(uuid.uuid4()), analysis)
+    manager.apply_event(str(uuid.uuid4()), analysis)
+    persisted = json.loads(state_file.read_text(encoding="utf-8"))
+
+    assert preview["relationship"] == before_relationship
+    assert preview["ruptures"] == []
+    assert preview["active_affects"]
+    assert manager.state["relationship"] == before_relationship
+    assert manager.state["ruptures"] == []
+    assert manager.state["active_affects"]
+    assert persisted["relationship"] == before_relationship
+    assert persisted["ruptures"] == []
 
 
 def test_peek_snapshot_is_deep_and_does_not_mutate_state_file_or_hysteresis(tmp_path):

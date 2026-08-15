@@ -224,6 +224,19 @@ class MoodManager:
             source = analysis.get("event")
         data = source if isinstance(source, Mapping) else {}
         event = {field: deepcopy(data[field]) for field in _EVENT_FIELDS if field in data}
+        if (
+            isinstance(analysis, Mapping)
+            and analysis.get("risk_class") == "urgent"
+            and event.get("kind") == "conflict"
+            and (
+                event.get("target_scope") in {"ene", "relationship"}
+                or event.get("relation_category") != "none"
+            )
+        ):
+            # 응급 등급은 행동 정책 신호다. 오분류된 관계 대상만 중립화하고
+            # conflict의 단기 배경·정서 반영은 그대로 유지한다.
+            event["target_scope"] = "external"
+            event["relation_category"] = "none"
         event["event_id"] = event_id
         return event
 

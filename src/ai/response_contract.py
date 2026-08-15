@@ -8,6 +8,7 @@ from typing import Iterable
 
 from .analysis_prompt import (
     build_analysis_system_appendix,
+    build_mood_analysis_semantic_rules,
     is_conversation_promise_enabled,
     is_mood_analysis_enabled,
     is_response_analysis_enabled,
@@ -231,7 +232,7 @@ def _build_format_block(
     return "\n".join(lines)
 
 
-def _mood_contract_rules(language: str) -> list[str]:
+def _mood_contract_rules(language: str, *, include_semantics: bool = True) -> list[str]:
     introductions = {
         "ko": "- `mood_analysis` 객체는 정확히 `event`, `risk_class`, `proposed_stance`만 포함하고, `event`는 아래 8개 필드만 포함하세요.",
         "en": "- The `mood_analysis` object must contain exactly `event`, `risk_class`, and `proposed_stance`; `event` must contain only the eight fields below.",
@@ -242,7 +243,7 @@ def _mood_contract_rules(language: str) -> list[str]:
         "en": "- event fields: kind, target_scope, relation_category, intensity, clarity, certainty, controllability, repair_signal",
         "ja": "- event の項目: kind, target_scope, relation_category, intensity, clarity, certainty, controllability, repair_signal",
     }
-    return [
+    rules = [
         introductions.get(language, introductions["en"]),
         event_fields.get(language, event_fields["en"]),
         f"- kind: {', '.join(EVENT_KINDS)}",
@@ -256,6 +257,9 @@ def _mood_contract_rules(language: str) -> list[str]:
         "- risk_class: none, concern, urgent",
         "- proposed_stance: proactive, cooperative, brief, limited, distance, decline, boundary",
     ]
+    if include_semantics:
+        rules.extend(build_mood_analysis_semantic_rules(language))
+    return rules
 
 
 def _legacy_mood_instructions(language: str) -> list[str]:
@@ -585,7 +589,8 @@ def build_structured_response_contract_appendix(
 
     if mood_analysis_enabled:
         lines.append(messages["mood_on"])
-        lines.extend(_mood_contract_rules(language))
+        # 아래 analysis appendix가 동일한 의미 규칙을 한 번만 추가한다.
+        lines.extend(_mood_contract_rules(language, include_semantics=False))
     else:
         lines.append(messages["mood_off"])
 

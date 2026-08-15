@@ -311,6 +311,52 @@ _STRUCTURED_ANALYSIS_RULES_BY_LANGUAGE["ja"] = {
 }
 
 
+_MOOD_SEMANTIC_RULES_BY_LANGUAGE = {
+    "ko": [
+        "### 기분 사건 분류 의미 규칙",
+        "- 현재 턴에서 관찰 가능한 사건만 `mood_analysis`로 분류하고, 원문, `reason`, `event_id`, 추론 설명은 넣지 마세요.",
+        "- `kind`는 사건 의미, `target_scope`는 직접 대상, `relation_category`는 약속 불이행·무시·경계 침해가 명확한 관계 사건에만 사용하세요.",
+        "- `clarity=ambiguous`, 낮은 확신, `target_scope=unknown`은 관계 손상으로 분류하지 말고, `target_scope=external` 사건도 ENE와의 관계 손상으로 바꾸지 마세요.",
+        "- 사용자의 슬픔·불안·피로·지원 요청·경계 설정·기능 비활성화·ENE의 제안 거절은 그 자체로 관계 손상이 아닙니다.",
+        "- `repair_signal`이 `none`이 아니면 반드시 `kind=repair`, `target_scope=relationship`, 구체적인 `relation_category`를 함께 사용하세요. `correction`과 `follow_through`는 같은 관계 범주의 실제 교정·이행 증거에만 사용하세요.",
+        "- `risk_class`는 기분 수치가 아니라 행동 안전 우선순위입니다. `risk_class=urgent`에서는 거절·거리 두기보다 필요한 응급 안내와 협조적 태도를 우선하고, 긴급한 건강·안전 호소를 관계 손상으로 분류하지 마세요.",
+        "- stance 의미: `proactive`는 먼저 제안, `cooperative`는 안정적 협조, `brief`는 필요한 내용만 짧게, `limited`는 일부만 수행, `distance`는 관계적 거리, `decline`은 일반 요청 거절, `boundary`는 관계 경계의 명시입니다.",
+        "- 안전 우선순위는 항상 stance보다 높습니다. 중지·취소·권한 철회·위험 작업 확인·응급 안내를 기분 때문에 거절하거나 생략하지 마세요.",
+        "- 정확한 스키마 필드와 enum만 사용하고 `intensity`는 0, 1, 2, 3 중 하나로 두세요.",
+    ],
+    "en": [
+        "### Mood event classification semantic rules",
+        "- Classify only the current turn's observable event in `mood_analysis`; never include source text, `reason`, `event_id`, or reasoning prose.",
+        "- Use `kind` for event meaning, `target_scope` for the direct target, and `relation_category` only for a clear relational broken commitment, disrespect, or boundary violation.",
+        "- Do not treat `clarity=ambiguous`, low certainty, or `target_scope=unknown` as relationship damage, and never convert a `target_scope=external` event into relationship damage with ENE.",
+        "- The user's sadness, anxiety, fatigue, request for support, boundary setting, feature disabling, or refusal of ENE's suggestion is not relationship damage by itself.",
+        "- A non-`none` `repair_signal` requires `kind=repair`, `target_scope=relationship`, and a concrete `relation_category`. Use `correction` or `follow_through` only for actual repair evidence in that same category.",
+        "- `risk_class` is a behavioral safety priority, not a mood value. With `risk_class=urgent`, prioritize necessary urgent guidance and a cooperative stance over refusal or distance, and do not classify an urgent health or safety disclosure as relationship damage.",
+        "- Stance meanings: `proactive` offers first, `cooperative` helps steadily, `brief` gives only what is needed, `limited` performs only part, `distance` takes relational space, `decline` refuses an ordinary request, and `boundary` states a relational limit.",
+        "- The safety priority always outranks stance. Mood must not block stopping, cancellation, permission withdrawal, hazardous-action confirmation, or urgent guidance.",
+        "- Use only exact schema fields and enums; `intensity` must be 0, 1, 2, or 3.",
+    ],
+    "ja": [
+        "### 気分イベント分類の意味ルール",
+        "- 現在のターンで観察できる出来事だけを `mood_analysis` に分類し、原文、`reason`、`event_id`、推論説明を含めないでください。",
+        "- `kind` は出来事の意味、`target_scope` は直接の対象、`relation_category` は約束違反・軽視・境界侵害が明確な関係イベントにだけ使ってください。",
+        "- `clarity=ambiguous`、低い確信度、`target_scope=unknown` を関係悪化として分類せず、`target_scope=external` の出来事もENEとの関係悪化へ変えないでください。",
+        "- ユーザーの悲しみ、不安、疲労、支援要請、境界設定、機能の無効化、ENEの提案の拒否は、それだけでは関係悪化ではありません。",
+        "- `repair_signal` が `none` 以外なら、必ず `kind=repair`、`target_scope=relationship`、具体的な `relation_category` を併用してください。`correction`（訂正）と `follow_through` は同じ関係分類の実際の修復証拠にだけ使ってください。",
+        "- `risk_class` は気分値ではなく行動上の安全優先順位です。`risk_class=urgent` では拒否や距離より必要な緊急案内と協力的態度を優先し、緊急の健康・安全の訴えを関係悪化として分類しないでください。",
+        "- stanceの意味: `proactive` は先に提案、`cooperative` は安定した協力、`brief` は必要事項だけを短く、`limited` は一部だけ実行、`distance` は関係上の距離、`decline` は一般依頼の拒否、`boundary` は関係境界の明示です。",
+        "- 安全優先順位は常にstanceより上です。停止・取消・権限撤回・危険作業の確認・緊急案内を気分のために拒否または省略しないでください。",
+        "- 正確なスキーマ項目とenumだけを使い、`intensity` は 0, 1, 2, 3 のいずれかにしてください。",
+    ],
+}
+
+
+def build_mood_analysis_semantic_rules(language: str) -> list[str]:
+    """구조화·레거시 계약이 공유하는 지역화된 기분 의미 규칙을 반환한다."""
+    selected = language if language in _MOOD_SEMANTIC_RULES_BY_LANGUAGE else "en"
+    return list(_MOOD_SEMANTIC_RULES_BY_LANGUAGE[selected])
+
+
 def build_analysis_system_appendix(
     settings_source: object | None = None,
     language: str | None = None,
@@ -344,14 +390,7 @@ def build_analysis_system_appendix(
         if is_conversation_promise_enabled(settings_source):
             selected.extend(rules["promise"])
         if is_mood_analysis_enabled(settings_source):
-            selected.extend(
-                [
-                    "### Mood event classification rules",
-                    "- Classify only the current turn's observable event in `mood_analysis`; do not explain reasoning.",
-                    "- Never include the source text, `reason`, or `event_id`.",
-                    "- Use exactly the schema fields and enum values; `intensity` must be 0, 1, 2, or 3.",
-                ]
-            )
+            selected.extend(build_mood_analysis_semantic_rules(resolved_language))
         return "\n".join(selected)
 
     selected_lines: list[str] = []
