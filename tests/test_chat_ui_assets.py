@@ -166,6 +166,109 @@ process.stdout.write(JSON.stringify(context.result));
     return json.loads(completed.stdout)
 
 
+def _run_mood_runtime_case(case_script: str) -> dict:
+    runtime_path = str(WEB_DIR / "runtime_mood_obsidian.js")
+    node_script = f"""
+const fs = require('fs');
+const vm = require('vm');
+class Element {{
+    constructor() {{
+        this.textContent = '';
+        this.title = '';
+        this.style = {{}};
+        this.hidden = false;
+        this.disabled = false;
+        this.classList = {{
+            values: new Set(),
+            toggle: function (name, force) {{
+                if (force) this.values.add(name); else this.values.delete(name);
+            }},
+            contains: function (name) {{ return this.values.has(name); }}
+        }};
+    }}
+}}
+const elements = {{
+    'mood-detail-primary': new Element(),
+    'mood-detail-secondary-row': new Element(),
+    'mood-detail-secondary': new Element(),
+    'mood-detail-trust': new Element(),
+}};
+const context = {{
+    window: {{}},
+    document: {{ getElementById: (id) => elements[id] || null }},
+    console: {{ warn: () => {{}} }},
+    currentUiStrings: {{ mood: {{ axis: {{ valence: 'Positive', bond: 'Bond', energy: 'Energy', stress: 'Stress' }}, states: {{ unknown: 'Unknown' }} }} }},
+    DEFAULT_UI_STRINGS: {{ mood: {{ axis: {{ valence: 'Positive', bond: 'Bond', energy: 'Energy', stress: 'Stress' }}, states: {{ unknown: 'Unknown' }} }} }},
+    currentMoodSnapshot: {{}},
+    moodStatusLabel: null,
+    moodMeterValence: null,
+    moodMeterBond: null,
+    moodMeterEnergy: null,
+    moodMeterStress: null,
+    moodResetButton: new Element(),
+    formatMoodStatusText: () => '',
+    result: null,
+}};
+const runtimeSource = fs.readFileSync({json.dumps(runtime_path)}, 'utf8').split('window.applyENEUiStrings')[0];
+vm.createContext(context);
+vm.runInContext(runtimeSource + '\\n' + {json.dumps(case_script)}, context);
+process.stdout.write(JSON.stringify(context.result));
+"""
+    completed = subprocess.run(
+        ["node", "-e", node_script],
+        cwd=WEB_DIR,
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    return json.loads(completed.stdout)
+
+
+def test_mood_v3_details_hide_missing_secondary_and_normalize_trust():
+    result = _run_mood_runtime_case(
+        """
+applyMoodSnapshot({
+    current_mood: 'calm',
+    temporary_state: 'steady',
+    primary_emotion: 'sadness',
+    secondary_emotion: null,
+    relationship: { trust: 0.25 }
+});
+result = {
+    primary: document.getElementById('mood-detail-primary').textContent,
+    secondaryHidden: document.getElementById('mood-detail-secondary-row').classList.contains('hidden'),
+    secondaryHiddenProperty: document.getElementById('mood-detail-secondary-row').hidden,
+    trustWidth: document.getElementById('mood-detail-trust').style.width,
+};
+"""
+    )
+
+    assert result == {
+        "primary": "sadness",
+        "secondaryHidden": True,
+        "secondaryHiddenProperty": True,
+        "trustWidth": "63%",
+    }
+
+
+def test_mood_reset_cancel_does_not_call_bridge_or_change_button_state():
+    result = _run_mood_runtime_case(
+        """
+let resetCalls = 0;
+currentUiStrings.mood.resetConfirm = 'Confirm reset';
+window.confirm = () => false;
+window.pyBridge = {
+    reset_mood_state: () => { resetCalls += 1; }
+};
+resetMoodStateFromPanel();
+result = { resetCalls: resetCalls, disabled: moodResetButton.disabled };
+"""
+    )
+
+    assert result == {"resetCalls": 0, "disabled": False}
+
+
 def _runtime_motion_state_text() -> str:
     return (WEB_DIR / "runtime_motion_state.js").read_text(encoding="utf-8-sig")
 

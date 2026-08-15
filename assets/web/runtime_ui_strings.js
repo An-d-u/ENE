@@ -24,6 +24,28 @@ DEFAULT_UI_STRINGS.live2dParameters = DEFAULT_UI_STRINGS.live2dParameters || {
     toastSaveError: 'Failed to save Live2D parameters.'
 };
 
+const MOOD_V3_UI_STRINGS = {
+    ko: {
+        primaryEmotion: '주 감정', secondaryEmotion: '보조 감정', trust: '신뢰',
+        reset: '상태 초기화', resetConfirm: '기분 상태를 초기화하시겠습니까?',
+        emotions: { joy: '기쁨', tenderness: '다정함', amusement: '즐거움', interest: '관심', sadness: '슬픔', hurt: '상처', anger: '분노', anxiety: '불안' }
+    },
+    en: {
+        primaryEmotion: 'Primary emotion', secondaryEmotion: 'Secondary emotion', trust: 'Trust',
+        reset: 'Reset state', resetConfirm: 'Reset the mood state?',
+        emotions: { joy: 'Joy', tenderness: 'Tenderness', amusement: 'Amusement', interest: 'Interest', sadness: 'Sadness', hurt: 'Hurt', anger: 'Anger', anxiety: 'Anxiety' }
+    },
+    ja: {
+        primaryEmotion: '主な感情', secondaryEmotion: '補助感情', trust: '信頼',
+        reset: '状態をリセット', resetConfirm: '気分の状態をリセットしますか？',
+        emotions: { joy: '喜び', tenderness: '優しさ', amusement: '楽しさ', interest: '関心', sadness: '悲しみ', hurt: '傷つき', anger: '怒り', anxiety: '不安' }
+    }
+};
+const moodResetButton = document.getElementById('mood-state-reset-btn');
+const moodPrimaryLabel = document.getElementById('mood-detail-primary-label');
+const moodSecondaryLabel = document.getElementById('mood-detail-secondary-label');
+const moodTrustLabel = document.getElementById('mood-detail-trust-label');
+
 function mergeUiStrings(config) {
     const source = config || {};
     const input = source.input || {};
@@ -32,6 +54,10 @@ function mergeUiStrings(config) {
     const moodAxis = mood.axis || {};
     const moodStates = mood.states || {};
     const moodTemporaryStates = mood.temporaryStates || {};
+    const moodEmotionNames = mood.emotions || {};
+    const moodV3Fallback = MOOD_V3_UI_STRINGS[
+        ['ko', 'en', 'ja'].includes(source.resolvedLanguage) ? source.resolvedLanguage : 'en'
+    ];
     const summaryConfirm = source.summaryConfirm || {};
     const promiseNotice = source.promiseNotice || {};
     const promisePanel = source.promisePanel || {};
@@ -137,6 +163,12 @@ function mergeUiStrings(config) {
             label: mood.label || DEFAULT_UI_STRINGS.mood.label,
             loading: mood.loading || DEFAULT_UI_STRINGS.mood.loading,
             collapse: mood.collapse || DEFAULT_UI_STRINGS.mood.collapse,
+            primaryEmotion: mood.primaryEmotion || moodV3Fallback.primaryEmotion,
+            secondaryEmotion: mood.secondaryEmotion || moodV3Fallback.secondaryEmotion,
+            trust: mood.trust || moodV3Fallback.trust,
+            reset: mood.reset || moodV3Fallback.reset,
+            resetConfirm: mood.resetConfirm || moodV3Fallback.resetConfirm,
+            emotions: { ...moodV3Fallback.emotions, ...moodEmotionNames },
             axis: {
                 valence: moodAxis.valence || DEFAULT_UI_STRINGS.mood.axis.valence,
                 bond: moodAxis.bond || DEFAULT_UI_STRINGS.mood.axis.bond,
@@ -294,6 +326,13 @@ function applyUiStringsToStaticNodes() {
     if (moodMeterNameBond) moodMeterNameBond.textContent = currentUiStrings.mood.axis.bond;
     if (moodMeterNameEnergy) moodMeterNameEnergy.textContent = currentUiStrings.mood.axis.energy;
     if (moodMeterNameStress) moodMeterNameStress.textContent = currentUiStrings.mood.axis.stress;
+    if (moodResetButton) {
+        moodResetButton.textContent = currentUiStrings.mood.reset;
+        moodResetButton.setAttribute('aria-label', currentUiStrings.mood.reset);
+    }
+    if (moodPrimaryLabel) moodPrimaryLabel.textContent = currentUiStrings.mood.primaryEmotion;
+    if (moodSecondaryLabel) moodSecondaryLabel.textContent = currentUiStrings.mood.secondaryEmotion;
+    if (moodTrustLabel) moodTrustLabel.textContent = currentUiStrings.mood.trust;
     if (moodCollapseButton) moodCollapseButton.title = currentUiStrings.mood.collapse;
     if (summaryConfirmTitle) summaryConfirmTitle.textContent = currentUiStrings.summaryConfirm.title;
     if (summaryConfirmBody) summaryConfirmBody.textContent = currentUiStrings.summaryConfirm.body;
