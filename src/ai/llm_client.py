@@ -7,6 +7,8 @@ from datetime import datetime
 import hashlib
 import re
 from typing import Tuple, List, Dict
+from uuid import uuid4
+
 from google import genai
 
 from ..conversation_format import prepend_message_time
@@ -35,6 +37,7 @@ from .response_envelope import (
     get_response_envelope_v1_schema,
     get_response_repair_schema,
 )
+from .mood_policy import build_mood_policy_retry_appendix
 from .response_pipeline import ResponseAttempt, execute_final_response
 from .response_protocol import (
     InvalidFinalResponseError,
@@ -1053,6 +1056,19 @@ class GeminiClient:
         )
         history_snapshot = self._get_sdk_history(deep_copy=True)
         non_repair_attempts = 0
+        mood_snapshot_provider = None
+        mood_preview = None
+        if requirements.enable_mood_analysis:
+            mood_manager = getattr(self, "mood_manager", None)
+            get_mood_snapshot = getattr(mood_manager, "get_snapshot", None)
+            preview_mood_event = getattr(mood_manager, "preview_event", None)
+            if callable(get_mood_snapshot) and callable(preview_mood_event):
+                preview_event_id = str(uuid4())
+                mood_snapshot_provider = get_mood_snapshot
+                mood_preview = lambda analysis: preview_mood_event(
+                    preview_event_id,
+                    analysis,
+                )
 
         def requester(attempt: ResponseAttempt) -> ProviderResponse:
             nonlocal non_repair_attempts
@@ -1105,6 +1121,14 @@ class GeminiClient:
                     generation_params=attempt_params,
                     settings_source=settings_snapshot,
                 )
+                if attempt.phase == "policy_regenerate":
+                    appendix = build_mood_policy_retry_appendix(
+                        attempt.policy_error_code,
+                        requirements.response_language,
+                    )
+                    request_config["system_instruction"] = (
+                        f'{request_config["system_instruction"]}{appendix}'
+                    )
             non_repair_attempts += 1
             try:
                 if request_config is None:
@@ -1136,6 +1160,8 @@ class GeminiClient:
                 mark_unsupported=lambda _mode: (
                     _GEMINI_RESPONSE_CAPABILITY_REGISTRY.mark_legacy(capability_key)
                 ),
+                mood_snapshot_provider=mood_snapshot_provider,
+                mood_preview=mood_preview,
             )
         except InvalidFinalResponseError:
             self._restore_history_snapshot(

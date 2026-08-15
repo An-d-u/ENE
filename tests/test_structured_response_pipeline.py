@@ -1061,6 +1061,7 @@ def test_repair_ignores_reply_and_all_state_changing_fields():
         {},
         [],
         "",
+        None,
     )
 
 
@@ -1156,7 +1157,256 @@ def test_response_attempt_has_no_conversation_context_payload_fields():
         "repair_fields",
         "preserved_reply",
         "expand_output_budget",
+        "policy_error_code",
     }
+
+
+def _mood_analysis(*, risk="none", stance="cooperative", relation_category="none"):
+    return {
+        "event": {
+            "kind": "neutral",
+            "target_scope": "unknown",
+            "relation_category": relation_category,
+            "intensity": 0,
+            "clarity": "ambiguous",
+            "certainty": "low",
+            "controllability": "low",
+            "repair_signal": "none",
+        },
+        "risk_class": risk,
+        "proposed_stance": stance,
+    }
+
+
+def _mood_requirements(**overrides):
+    return make_requirements(
+        enable_analysis=True,
+        enable_mood=True,
+        enable_mood_analysis=True,
+        **overrides,
+    )
+
+
+def test_null_mood_analysis_skips_snapshot_and_preview_callbacks():
+    requester = RecordingRequester(
+        [provider_response(valid_envelope_json(reply="Synthetic neutral reply."))]
+    )
+    calls = []
+
+    result = execute_final_response(
+        requester,
+        requirements=no_repair_requirements(),
+        mood_snapshot_provider=lambda: calls.append("snapshot") or {},
+        mood_preview=lambda analysis: calls.append(("preview", analysis)) or {},
+    )
+
+    assert result.payload[0] == "Synthetic neutral reply."
+    assert calls == []
+    assert [attempt.phase for attempt in result.attempts] == ["primary"]
+
+
+def test_disallowed_stance_retries_once_then_clamps_second_reply():
+    requester = RecordingRequester(
+        [
+            provider_response(
+                valid_envelope_json(
+                    reply="First synthetic reply.",
+                    mood_analysis=_mood_analysis(stance="distance"),
+                )
+            ),
+            provider_response(
+                valid_envelope_json(
+                    reply="Second synthetic reply.",
+                    mood_analysis=_mood_analysis(stance="distance"),
+                )
+            ),
+        ]
+    )
+
+    result = execute_final_response(
+        requester,
+        requirements=_mood_requirements(),
+        mood_snapshot_provider=lambda: {
+            "background": {"energy": 0.0},
+            "ruptures": [],
+        },
+    )
+
+    assert [attempt.phase for attempt in requester.attempts] == [
+        "primary",
+        "policy_regenerate",
+    ]
+    assert requester.attempts[1].policy_error_code == "mood_stance_not_allowed"
+    assert result.payload[0] == "Second synthetic reply."
+    assert result.payload[10]["proposed_stance"] == "cooperative"
+    assert result.metadata.repair_performed is False
+
+
+def test_preview_takes_precedence_and_allows_boundary_for_new_rupture():
+    analysis = _mood_analysis(stance="boundary", relation_category="boundary_violation")
+    requester = RecordingRequester(
+        [provider_response(valid_envelope_json(mood_analysis=analysis))]
+    )
+    calls = []
+
+    result = execute_final_response(
+        requester,
+        requirements=_mood_requirements(),
+        mood_snapshot_provider=lambda: calls.append("snapshot") or {},
+        mood_preview=lambda value: calls.append(value) or {
+            "background": {"energy": 0.0},
+            "ruptures": [
+                {"repair_stage": "open", "severity": 0.6, "heat": 0.2}
+            ],
+        },
+    )
+
+    assert result.payload[10]["proposed_stance"] == "boundary"
+    assert calls == [analysis]
+    assert [attempt.phase for attempt in result.attempts] == ["primary"]
+
+
+def test_empty_mapping_preview_is_valid_and_does_not_read_current_snapshot():
+    requester = RecordingRequester(
+        [
+            provider_response(
+                valid_envelope_json(mood_analysis=_mood_analysis(stance="cooperative"))
+            )
+        ]
+    )
+    calls = []
+
+    execute_final_response(
+        requester,
+        requirements=_mood_requirements(),
+        mood_snapshot_provider=lambda: calls.append("snapshot") or {},
+        mood_preview=lambda _analysis: calls.append("preview") or {},
+    )
+
+    assert calls == ["preview"]
+
+
+@pytest.mark.parametrize("bad_preview", [RuntimeError("synthetic"), []])
+def test_invalid_preview_falls_back_to_current_snapshot(bad_preview):
+    requester = RecordingRequester(
+        [provider_response(valid_envelope_json(mood_analysis=_mood_analysis(stance="boundary")))]
+    )
+    snapshot = {
+        "background": {"energy": 0.0},
+        "ruptures": [{"repair_stage": "open", "severity": 0.7, "heat": 0.1}],
+    }
+    calls = []
+
+    def preview(_analysis):
+        calls.append("preview")
+        if isinstance(bad_preview, BaseException):
+            raise bad_preview
+        return bad_preview
+
+    result = execute_final_response(
+        requester,
+        requirements=_mood_requirements(),
+        mood_snapshot_provider=lambda: calls.append("snapshot") or snapshot,
+        mood_preview=preview,
+    )
+
+    assert result.payload[10]["proposed_stance"] == "boundary"
+    assert calls == ["preview", "snapshot"]
+
+
+def test_schema_and_policy_regeneration_budgets_are_independent():
+    requester = RecordingRequester(
+        [
+            provider_response("not-json"),
+            provider_response(
+                valid_envelope_json(mood_analysis=_mood_analysis(stance="distance"))
+            ),
+            provider_response(
+                valid_envelope_json(
+                    reply="Synthetic policy retry reply.",
+                    mood_analysis=_mood_analysis(stance="cooperative"),
+                )
+            ),
+        ]
+    )
+
+    result = execute_final_response(
+        requester,
+        requirements=_mood_requirements(),
+        mood_snapshot_provider=lambda: {},
+    )
+
+    assert [attempt.phase for attempt in result.attempts] == [
+        "primary",
+        "regenerate",
+        "policy_regenerate",
+    ]
+    assert result.payload[0] == "Synthetic policy retry reply."
+
+
+def test_policy_retry_schema_failure_can_use_remaining_schema_budget_once():
+    requester = RecordingRequester(
+        [
+            provider_response(
+                valid_envelope_json(mood_analysis=_mood_analysis(stance="distance"))
+            ),
+            provider_response("not-json"),
+            provider_response(
+                valid_envelope_json(
+                    reply="Synthetic schema recovery reply.",
+                    mood_analysis=_mood_analysis(stance="distance"),
+                )
+            ),
+        ]
+    )
+
+    result = execute_final_response(
+        requester,
+        requirements=_mood_requirements(),
+        mood_snapshot_provider=lambda: {},
+    )
+
+    assert [attempt.phase for attempt in result.attempts] == [
+        "primary",
+        "policy_regenerate",
+        "regenerate",
+    ]
+    assert [attempt.policy_error_code for attempt in result.attempts] == [
+        "",
+        "mood_stance_not_allowed",
+        "",
+    ]
+    assert result.payload[0] == "Synthetic schema recovery reply."
+    assert result.payload[10]["proposed_stance"] == "cooperative"
+
+
+def test_urgent_footer_survives_missing_field_repair():
+    requester = RecordingRequester(
+        [
+            provider_response(
+                valid_envelope_json(
+                    reply="Synthetic urgent reply.",
+                    thought="",
+                    mood_analysis=_mood_analysis(risk="urgent", stance="cooperative"),
+                )
+            ),
+            provider_response(json.dumps({"thought": "Synthetic public reaction."})),
+        ]
+    )
+
+    result = execute_final_response(
+        requester,
+        requirements=_mood_requirements(
+            require_thought=True,
+            response_language="en",
+        ),
+        mood_snapshot_provider=lambda: {},
+    )
+
+    assert [attempt.phase for attempt in result.attempts] == ["primary", "repair"]
+    assert "Synthetic urgent reply." in result.payload[0]
+    assert "currently safe" in result.payload[0]
+    assert result.payload[6] == "Synthetic public reaction."
 
 
 def test_control_only_native_reply_uses_the_single_regeneration_budget():
