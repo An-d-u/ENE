@@ -57,12 +57,39 @@ _MOOD_LEGACY_KEYS = (
     "kind", "target_scope", "relation_category", "intensity", "clarity",
     "certainty", "controllability", "repair_signal", "risk_class", "proposed_stance",
 )
-_MOOD_ORPHAN_CLOSE_BLOCK = re.compile(
-    r"(?:^[ \t]*[A-Za-z_][A-Za-z0-9_-]*[ \t]*=[^\r\n]*\r?\n"
-    r"(?:^[ \t]*\r?\n)*)+"
-    r"[ \t]*\[\s*/\s*mood_analysis\s*\]",
-    re.IGNORECASE | re.MULTILINE,
+_MOOD_METADATA_LINE = re.compile(
+    r"[ \t]*[A-Za-z_][A-Za-z0-9_-]*[ \t]*=[^\r\n]*"
 )
+
+
+def _strip_orphan_mood_close_regions(source: str) -> str:
+    cleaned = source
+    while True:
+        marker = _MOOD_ANALYSIS_CLOSE.search(cleaned)
+        if marker is None:
+            return cleaned.strip()
+
+        prefix = cleaned[: marker.start()]
+        lines = prefix.splitlines(keepends=True)
+        earliest = len(lines)
+        found_metadata = False
+        index = len(lines) - 1
+        while index >= 0:
+            content = lines[index].rstrip("\r\n")
+            if not content.strip():
+                earliest = index
+                index -= 1
+                continue
+            if _MOOD_METADATA_LINE.fullmatch(content) is not None:
+                found_metadata = True
+                earliest = index
+                index -= 1
+                continue
+            break
+
+        if found_metadata:
+            prefix = "".join(lines[:earliest]).rstrip()
+        cleaned = prefix + cleaned[marker.end():]
 
 
 def extract_mood_analysis_block(
@@ -71,11 +98,10 @@ def extract_mood_analysis_block(
 ) -> tuple[str, dict[str, object] | None]:
     matches = list(_MOOD_ANALYSIS_BLOCK.finditer(response_text))
     cleaned = _MOOD_ANALYSIS_BLOCK.sub("", response_text).strip()
-    cleaned = _MOOD_ORPHAN_CLOSE_BLOCK.sub("", cleaned).strip()
+    cleaned = _strip_orphan_mood_close_regions(cleaned)
     unclosed = _MOOD_ANALYSIS_OPEN_FRAGMENT.search(cleaned)
     if unclosed is not None:
         cleaned = cleaned[: unclosed.start()].strip()
-    cleaned = _MOOD_ANALYSIS_CLOSE.sub("", cleaned).strip()
     if not requirements.enable_mood_analysis:
         return cleaned, None
     if len(matches) != 1:
