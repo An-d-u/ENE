@@ -422,6 +422,34 @@ def test_build_memory_context_includes_mood_direction_without_memory_manager():
     assert "주 감정: joy" in context
 
 
+def test_build_memory_context_skips_mood_snapshot_when_mood_system_is_disabled():
+    mood_manager = _SnapshotMoodManager(
+        {
+            "background": {"valence": 0.3, "activity": 0.4, "tension": 0.0},
+            "relationship": {"affection": 0.0, "trust": 0.0},
+            "ruptures": [],
+            "primary_emotion": "joy",
+            "secondary_emotion": None,
+        }
+    )
+    dummy = type("ClientDummy", (), {})()
+    dummy.memory_manager = None
+    dummy.mood_manager = mood_manager
+    dummy.goal_manager = None
+    dummy.knowledge_map_manager = None
+    dummy.settings = type(
+        "SettingsDummy",
+        (),
+        {"config": {"ui_language": "ko", "enable_mood_system": "false"}},
+    )()
+
+    context = asyncio.run(GeminiClient._build_memory_context(dummy, "합성 질문"))
+
+    assert "[ENE 기분 방향]" not in context
+    assert mood_manager.peek_snapshot_calls == 0
+    assert mood_manager.get_snapshot_calls == 0
+
+
 class _DummyGoalManager:
     def build_context_block(self, language=None):
         return "[ENE 현재 목표]\n- id: goal_20260522_001\n- title: 출시 준비"
