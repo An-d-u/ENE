@@ -37,20 +37,33 @@ def _policy_mood_analysis(*, risk="none", stance="cooperative"):
 
 
 class _PreviewingMoodManager:
-    def __init__(self):
+    def __init__(self, *, fail_preview=False, peek_rupture=False):
         self.preview_calls = []
-        self.snapshot_calls = 0
+        self.peek_calls = 0
+        self.fail_preview = fail_preview
+        self.peek_rupture = peek_rupture
 
     def preview_event(self, event_id, analysis):
         self.preview_calls.append((event_id, deepcopy(analysis)))
+        if self.fail_preview:
+            raise RuntimeError("synthetic preview failure")
         return {
             "background": {"energy": 0.731},
             "ruptures": [],
         }
 
+    def peek_snapshot(self):
+        self.peek_calls += 1
+        ruptures = (
+            [{"repair_stage": "open", "severity": 0.7, "heat": 0.2}]
+            if self.peek_rupture
+            else []
+        )
+        return {"background": {"energy": 0.731}, "ruptures": ruptures}
+
+    @property
     def get_snapshot(self):
-        self.snapshot_calls += 1
-        return {"background": {"energy": 0.731}, "ruptures": []}
+        raise AssertionError("정책 흐름에서 get_snapshot에 접근하면 안 됩니다.")
 
 
 class _UntouchedMoodManager:
@@ -59,8 +72,8 @@ class _UntouchedMoodManager:
         raise AssertionError("비활성 기분 preview에 접근하면 안 됩니다.")
 
     @property
-    def get_snapshot(self):
-        raise AssertionError("비활성 기분 snapshot에 접근하면 안 됩니다.")
+    def peek_snapshot(self):
+        raise AssertionError("비활성 기분 peek에 접근하면 안 됩니다.")
 
 
 def test_gemini_final_reply_config_uses_json_schema_and_json_mime_type(
@@ -181,7 +194,7 @@ def test_gemini_policy_retry_uses_safe_appendix_and_reuses_preview_id(gemini_har
     assert "boundary_violation" not in appendix
     assert result[0] == "Second policy reply."
     assert result[10]["proposed_stance"] == "cooperative"
-    assert manager.snapshot_calls == 0
+    assert manager.peek_calls == 0
     assert len(manager.preview_calls) == 2
     assert manager.preview_calls[0][0] == manager.preview_calls[1][0]
     assert isinstance(manager.preview_calls[0][0], str)
@@ -198,6 +211,28 @@ def test_gemini_disabled_mood_analysis_does_not_touch_manager(gemini_harness):
     result = client.send_message("Synthetic disabled mood request.")
 
     assert result[10] is None
+
+
+def test_gemini_preview_failure_falls_back_to_one_peek(gemini_harness):
+    client = gemini_harness.client(
+        [
+            valid_envelope_json(
+                mood_analysis=_policy_mood_analysis(stance="boundary")
+            )
+        ],
+        settings={
+            "enable_response_analysis": True,
+            "enable_mood_system": True,
+        },
+    )
+    manager = _PreviewingMoodManager(fail_preview=True, peek_rupture=True)
+    client.mood_manager = manager
+
+    result = client.send_message("Synthetic preview fallback request.")
+
+    assert result[10]["proposed_stance"] == "boundary"
+    assert len(manager.preview_calls) == 1
+    assert manager.peek_calls == 1
 
 
 def test_gemini_success_history_stores_visible_reply_not_raw_envelope(

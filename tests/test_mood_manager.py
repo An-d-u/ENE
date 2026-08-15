@@ -10,7 +10,10 @@ import pytest
 
 from src.ai import mood_engine
 from src.ai.mood_manager import MoodManager
+from src.ai.response_pipeline import execute_final_response
+from src.ai.response_protocol import ProviderResponse, ResponseMode, ResponseStatus
 from src.core import app_paths
+from tests.structured_response_fixtures import make_requirements, valid_envelope_json
 
 
 NOW = datetime(2026, 8, 15, 3, 0, tzinfo=timezone.utc)
@@ -126,6 +129,73 @@ def test_preview_matches_reducer_without_mutating_state_file_or_hysteresis(tmp_p
 
     assert preview["background"] == expected.state["background"]
     assert manager.state == before_state
+    assert state_file.read_bytes() == before_bytes
+    assert manager._last_primary_emotion == before_primary
+
+
+def test_peek_snapshot_is_deep_and_does_not_mutate_state_file_or_hysteresis(tmp_path):
+    state_file = tmp_path / "mood_state.json"
+    manager = _manager(state_file)
+    manager.advance_time_and_save()
+    manager._last_primary_emotion = "synthetic-hysteresis-marker"
+    before_state = deepcopy(manager.state)
+    before_bytes = state_file.read_bytes()
+    before_primary = manager._last_primary_emotion
+
+    snapshot = manager.peek_snapshot()
+    snapshot["background"]["energy"] = 999
+
+    assert manager.state == before_state
+    assert state_file.read_bytes() == before_bytes
+    assert manager._last_primary_emotion == before_primary
+
+
+def test_policy_preview_failure_uses_one_pure_peek_without_manager_mutation(tmp_path):
+    state_file = tmp_path / "mood_state.json"
+    manager = _manager(state_file)
+    manager.advance_time_and_save()
+    manager._last_primary_emotion = "synthetic-hysteresis-marker"
+    before_state = deepcopy(manager.state)
+    before_revision = manager.state["revision"]
+    before_bytes = state_file.read_bytes()
+    before_primary = manager._last_primary_emotion
+    peek_calls = []
+
+    def failing_preview(_analysis):
+        raise RuntimeError("synthetic preview failure")
+
+    def pure_peek():
+        peek_calls.append("peek")
+        return manager.peek_snapshot()
+
+    analysis = {
+        "event": _event(clarity="explicit"),
+        "risk_class": "none",
+        "proposed_stance": "cooperative",
+    }
+    responses = [
+        ProviderResponse(
+            carrier=valid_envelope_json(mood_analysis=analysis),
+            status=ResponseStatus.COMPLETE,
+            mode=ResponseMode.JSON_SCHEMA,
+        )
+    ]
+
+    result = execute_final_response(
+        lambda _attempt: responses.pop(0),
+        requirements=make_requirements(
+            enable_analysis=True,
+            enable_mood=True,
+            enable_mood_analysis=True,
+        ),
+        mood_snapshot_provider=pure_peek,
+        mood_preview=failing_preview,
+    )
+
+    assert result.payload[10]["proposed_stance"] == "cooperative"
+    assert peek_calls == ["peek"]
+    assert manager.state == before_state
+    assert manager.state["revision"] == before_revision
     assert state_file.read_bytes() == before_bytes
     assert manager._last_primary_emotion == before_primary
 

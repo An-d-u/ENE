@@ -1562,11 +1562,11 @@ class _CommonMixin:
         mood_preview = None
         if requirements.enable_mood_analysis:
             mood_manager = getattr(self, "mood_manager", None)
-            get_mood_snapshot = getattr(mood_manager, "get_snapshot", None)
+            peek_mood_snapshot = getattr(mood_manager, "peek_snapshot", None)
             preview_mood_event = getattr(mood_manager, "preview_event", None)
-            if callable(get_mood_snapshot) and callable(preview_mood_event):
+            if callable(peek_mood_snapshot) and callable(preview_mood_event):
                 preview_event_id = str(uuid4())
-                mood_snapshot_provider = get_mood_snapshot
+                mood_snapshot_provider = peek_mood_snapshot
                 mood_preview = lambda analysis: preview_mood_event(
                     preview_event_id,
                     analysis,
