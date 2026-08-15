@@ -1,7 +1,9 @@
 """
 WebBridge의 기분 UI 상태와 쓰다듬기 이벤트 로직.
 """
+from collections.abc import Mapping
 import json
+import math
 
 from PyQt6.QtCore import pyqtSlot
 
@@ -19,13 +21,39 @@ class MoodBridgeMixin:
     def _emit_mood_changed(self, snapshot: dict):
         """기분 상태 변경 시 UI로 전달"""
         try:
+            data = snapshot if isinstance(snapshot, Mapping) else {}
+            background = data.get("background")
+            background = background if isinstance(background, Mapping) else {}
+            relationship = data.get("relationship")
+            relationship = relationship if isinstance(relationship, Mapping) else {}
+
+            def finite_number(*values: object) -> float:
+                for value in values:
+                    if isinstance(value, bool):
+                        continue
+                    try:
+                        number = float(value)
+                    except (TypeError, ValueError, OverflowError):
+                        continue
+                    if math.isfinite(number):
+                        return number
+                return 0.0
+
+            current_mood = data.get("current_mood")
+            temporary_state = data.get("temporary_state")
             self.mood_changed.emit(
-                str(snapshot.get("current_mood", "calm")),
-                float(snapshot.get("valence", 0.0)),
-                float(snapshot.get("energy", 0.0)),
-                float(snapshot.get("bond", 0.0)),
-                float(snapshot.get("stress", 0.0)),
-                str(snapshot.get("temporary_state", "steady")),
+                current_mood if isinstance(current_mood, str) and current_mood else "calm",
+                finite_number(background.get("valence"), data.get("valence")),
+                finite_number(
+                    background.get("activity"),
+                    background.get("energy"),
+                    data.get("energy"),
+                ),
+                finite_number(relationship.get("affection"), data.get("bond")),
+                finite_number(background.get("tension"), data.get("stress")),
+                temporary_state
+                if isinstance(temporary_state, str) and temporary_state
+                else "steady",
             )
         except Exception as e:
             print(f"[Bridge] mood_changed emit 실패: {e}")

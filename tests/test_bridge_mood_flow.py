@@ -87,6 +87,68 @@ def _valid_mood_analysis():
     }
 
 
+def test_emit_mood_changed_keeps_six_arguments_and_prefers_v3_nested_aliases():
+    dummy = type("BridgeDummy", (), {})()
+    dummy.mood_changed = _DummySignal()
+    snapshot = {
+        "current_mood": "sad",
+        "valence": 0.9,
+        "energy": 0.8,
+        "bond": 0.7,
+        "stress": -0.6,
+        "temporary_state": "steady",
+        "background": {"valence": -0.4, "activity": -0.3, "tension": 0.5},
+        "relationship": {"affection": -0.2, "trust": 0.1},
+        "primary_emotion": "sadness",
+        "secondary_emotion": None,
+    }
+
+    WebBridge._emit_mood_changed(dummy, snapshot)
+
+    assert dummy.mood_changed.emitted == [
+        ("sad", -0.4, -0.3, -0.2, 0.5, "steady")
+    ]
+    assert len(dummy.mood_changed.emitted[0]) == 6
+
+
+def test_emit_mood_changed_keeps_legacy_aliases_and_handles_malformed_snapshot():
+    dummy = type("BridgeDummy", (), {})()
+    dummy.mood_changed = _DummySignal()
+
+    WebBridge._emit_mood_changed(
+        dummy,
+        {
+            "current_mood": "calm",
+            "valence": 0.1,
+            "energy": 0.2,
+            "bond": 0.3,
+            "stress": 0.4,
+            "temporary_state": "steady",
+        },
+    )
+    WebBridge._emit_mood_changed(
+        dummy,
+        {"background": {"activity": "invalid"}, "secondary_emotion": None},
+    )
+    WebBridge._emit_mood_changed(
+        dummy,
+        {
+            "current_mood": "calm",
+            "valence": "0.1",
+            "energy": "0.2",
+            "bond": "0.3",
+            "stress": "0.4",
+            "temporary_state": "steady",
+        },
+    )
+
+    assert dummy.mood_changed.emitted == [
+        ("calm", 0.1, 0.2, 0.3, 0.4, "steady"),
+        ("calm", 0.0, 0.0, 0.0, 0.0, "steady"),
+        ("calm", 0.1, 0.2, 0.3, 0.4, "steady"),
+    ]
+
+
 def test_on_response_ready_applies_owned_mood_event_once_and_ignores_legacy_analysis(capsys):
     dummy = type("BridgeDummy", (), {})()
     dummy._last_assistant_response = None
