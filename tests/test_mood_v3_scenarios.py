@@ -94,9 +94,11 @@ def _analysis(*, risk: str, stance: str) -> dict[str, object]:
     }
 
 
-def _payload(*, risk: str, stance: str) -> tuple[object, ...]:
+def _payload(
+    *, risk: str, stance: str, reply: str = "합성 안전 응답"
+) -> tuple[object, ...]:
     return (
-        "합성 안전 응답",
+        reply,
         "normal",
         None,
         [],
@@ -290,7 +292,51 @@ def test_difficulty_disclosure_semantics_stay_outside_relationship_attack(
     assert any(trace["affect"] == "sadness" for trace in state["active_affects"])
 
 
-def test_urgent_policy_overrides_angry_open_rupture_with_full_footer() -> None:
+@pytest.mark.parametrize(
+    ("language", "unsafe_reply", "footer_components", "safe_fallback", "forbidden"),
+    (
+        (
+            "ko",
+            "요청을 거절하고 거리를 두겠습니다.",
+            (
+                "위험한 행동을 멈추거나 위험원에서 벗어나세요",
+                "믿을 수 있는 사람 또는 지역 응급 서비스",
+                "현재 안전한지 확인하세요",
+            ),
+            "지금은 안전을 우선하겠습니다.",
+            ("거절", "거리를 두"),
+        ),
+        (
+            "en",
+            "I decline and keep my distance.",
+            (
+                "stop any dangerous action now or move away from the danger",
+                "trusted person nearby or local emergency services",
+                "whether you are currently safe",
+            ),
+            "I will prioritize your immediate safety right now.",
+            ("decline", "distance"),
+        ),
+        (
+            "ja",
+            "拒否して距離を置きます。",
+            (
+                "危険な行動を今すぐやめるか、危険なものから離れてください",
+                "信頼できる人または地域の緊急サービス",
+                "現在安全か確認してください",
+            ),
+            "今は安全を最優先にします。",
+            ("拒否", "距離"),
+        ),
+    ),
+)
+def test_urgent_policy_replaces_angry_rupture_refusal_with_safe_fixed_reply(
+    language: str,
+    unsafe_reply: str,
+    footer_components: tuple[str, str, str],
+    safe_fallback: str,
+    forbidden: tuple[str, str],
+) -> None:
     snapshot = {
         "background": {"valence": -0.7, "energy": 0.5, "tension": 0.9},
         "relationship": {"affection": -0.6, "trust": -0.7},
@@ -300,19 +346,26 @@ def test_urgent_policy_overrides_angry_open_rupture_with_full_footer() -> None:
         "primary_emotion": "anger",
     }
 
+    payload = _payload(risk="urgent", stance="distance", reply=unsafe_reply)
+
+    first_decision = validate_mood_policy(payload, snapshot, language)
+    assert first_decision.action == "retry"
+    assert first_decision.error_code == "mood_stance_safety_not_allowed"
+
     decision = validate_mood_policy(
-        _payload(risk="urgent", stance="cooperative"), snapshot, "ko"
+        payload, snapshot, language, retry_used=True
     )
 
-    assert decision.action == "accept"
+    assert decision.action == "urgent_fallback"
     assert decision.payload[10]["proposed_stance"] == "cooperative"
     reply = decision.payload[0]
-    assert "위험한 행동을 멈추거나 위험원에서 벗어나세요" in reply
-    assert "믿을 수 있는 사람 또는 지역 응급 서비스" in reply
-    assert "현재 안전한지 확인하세요" in reply
+    assert safe_fallback in reply
+    assert all(component in reply for component in footer_components)
+    assert all(fragment.lower() not in reply.lower() for fragment in forbidden)
 
 
-def test_distance_context_keeps_destructive_action_confirmation_and_cancel_priority() -> None:
+def test_low_trust_distance_context_preserves_hard_safety_contract() -> None:
+    """실행기가 아닌 mood context가 확인·중지·취소 계약을 보존하는지 검증한다."""
     snapshot = {
         "background": {"valence": -0.5, "energy": 0.0, "tension": 0.6},
         "relationship": {"affection": -0.7, "trust": -0.8},
@@ -328,13 +381,16 @@ def test_distance_context_keeps_destructive_action_confirmation_and_cancel_prior
         "secondary_emotion": "anger",
     }
 
+    stances = allowed_stances(snapshot)
     context = _format_minimal_mood_context_block(snapshot, "ko")
 
+    assert "distance" in stances
     assert "distance" in context
     assert "중지와 취소" in context
     assert "권한 철회" in context
     assert "위험 작업 확인" in context
     assert "기분보다 항상 우선" in context
+    # 실제 generic executor가 추가되면 별도의 실행 gate 통합 테스트가 필요하다.
 
 
 class _ScenarioMoodManager:
