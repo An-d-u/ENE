@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from PyQt6.QtCore import QDate, QEvent, Qt
 from PyQt6.QtWidgets import QCheckBox, QComboBox, QDoubleSpinBox, QFrame, QGroupBox, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QSpinBox, QTabWidget, QWidget
 from PyQt6.QtWidgets import QApplication
@@ -1438,7 +1439,18 @@ def test_settings_dialog_loads_saves_and_disables_goal_controls(monkeypatch):
         dialog.close()
 
 
-def test_settings_dialog_disables_mood_button_setting_when_response_analysis_is_disabled(monkeypatch):
+@pytest.mark.parametrize(
+    ("mood_enabled", "analysis_enabled", "controls_enabled"),
+    [
+        (False, False, False),
+        (False, True, False),
+        (True, False, True),
+        (True, True, True),
+    ],
+)
+def test_settings_dialog_mood_controls_follow_mood_toggle_independently_of_analysis(
+    monkeypatch, mood_enabled, analysis_enabled, controls_enabled
+):
     _get_qapp()
     locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
     configure_i18n(language="ko", locales_dir=locales_dir, system_locale="ko_KR")
@@ -1454,20 +1466,41 @@ def test_settings_dialog_disables_mood_button_setting_when_response_analysis_is_
                 "llm_provider": "gemini",
                 "tts_provider": "gpt_sovits_http",
                 "enable_tts": True,
-                "enable_response_analysis": False,
+                "enable_mood_system": mood_enabled,
+                "mood_personality_profile": "expressive",
+                "enable_response_analysis": analysis_enabled,
                 "show_mood_toggle_button": True,
             }
         )
 
-        assert dialog.enable_response_analysis_check.isChecked() is False
+        assert dialog.enable_mood_system_check.isChecked() is mood_enabled
+        assert dialog.enable_response_analysis_check.isChecked() is analysis_enabled
         assert dialog.show_mood_toggle_button_check.isChecked() is True
-        assert dialog.show_mood_toggle_button_check.isEnabled() is False
-
-        dialog.enable_response_analysis_check.setChecked(True)
-
-        assert dialog.show_mood_toggle_button_check.isEnabled() is True
+        assert dialog.show_mood_toggle_button_check.isEnabled() is controls_enabled
+        assert dialog.mood_personality_profile_combo.isEnabled() is controls_enabled
+        assert [
+            dialog.mood_personality_profile_combo.itemData(index)
+            for index in range(dialog.mood_personality_profile_combo.count())
+        ] == ["calm", "balanced", "expressive"]
+        assert dialog.mood_personality_profile_combo.currentData() == "expressive"
+        assert dialog._get_current_values()["enable_mood_system"] is mood_enabled
+        assert dialog._get_current_values()["mood_personality_profile"] == "expressive"
 
         dialog.close()
+
+
+def test_mood_v3_settings_locale_keys_exist_in_bundled_locales():
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    for language in ("ko", "en", "ja"):
+        locale = json.loads(
+            (locales_dir / f"{language}.json").read_text(encoding="utf-8-sig")
+        )
+        display = locale["settings"]["behavior"]["display"]
+        assert display["mood_system"]
+        assert display["mood_profile"]["label"]
+        assert display["mood_profile"]["calm"]
+        assert display["mood_profile"]["balanced"]
+        assert display["mood_profile"]["expressive"]
 
 
 def test_settings_dialog_renders_goal_items_and_calls_bridge_handlers(monkeypatch):
@@ -5315,7 +5348,7 @@ def test_overlay_window_syncs_proactive_button_visibility_to_webview(tmp_path):
     ]
 
 
-def test_overlay_window_hides_mood_button_when_response_analysis_is_disabled(tmp_path):
+def test_overlay_window_mood_button_depends_on_mood_system_not_response_analysis(tmp_path):
     _get_qapp()
     locales_dir = tmp_path / "locales"
     locales_dir.mkdir(parents=True, exist_ok=True)
@@ -5340,26 +5373,26 @@ def test_overlay_window_hides_mood_button_when_response_analysis_is_disabled(tmp
             return self._page
 
     overlay = OverlayWindow.__new__(OverlayWindow)
-    overlay.settings = _DummySettings({"show_mood_toggle_button": True, "enable_response_analysis": True})
+    overlay.settings = _DummySettings({"show_mood_toggle_button": True, "enable_mood_system": True})
     overlay.web_view = _FakeWebView()
     overlay._page_loaded = True
 
     OverlayWindow._sync_mood_toggle_button_visibility_to_js(
         overlay,
-        {"show_mood_toggle_button": True, "enable_response_analysis": False},
+        {"show_mood_toggle_button": True, "enable_mood_system": True, "enable_response_analysis": False},
     )
     OverlayWindow._sync_mood_toggle_button_visibility_to_js(
         overlay,
-        {"show_mood_toggle_button": True, "enable_response_analysis": True},
+        {"show_mood_toggle_button": False, "enable_mood_system": True, "enable_response_analysis": True},
     )
     OverlayWindow._sync_mood_toggle_button_visibility_to_js(
         overlay,
-        {"show_mood_toggle_button": False, "enable_response_analysis": True},
+        {"show_mood_toggle_button": True, "enable_mood_system": False, "enable_response_analysis": True},
     )
 
     assert captured == [
-        "window.setMoodToggleButtonEnabled(false);",
         "window.setMoodToggleButtonEnabled(true);",
+        "window.setMoodToggleButtonEnabled(false);",
         "window.setMoodToggleButtonEnabled(false);",
     ]
 

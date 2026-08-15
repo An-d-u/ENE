@@ -1007,6 +1007,13 @@
         "ene_thought_context": "Reflect ENE thoughts in the next reply",
         "proactive_conversation": "Enable proactive conversation",
         "response_analysis": "Enable response analysis block",
+        "mood_system": "Enable mood system",
+        "mood_profile": {
+          "label": "Mood style:",
+          "calm": "Calm",
+          "balanced": "Balanced",
+          "expressive": "Expressive"
+        },
         "schedule_recognition": "Enable schedule recognition",
         "conversation_promises": "Enable conversation promise recognition",
         "synthetic_gestures": "Enable response gestures",

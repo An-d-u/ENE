@@ -35,6 +35,8 @@ def test_load_missing_file_uses_default_config(tmp_path):
     assert settings.get("message_split_enabled") is False
     assert settings.get("enable_ene_thoughts") is True
     assert settings.get("enable_response_analysis") is True
+    assert settings.get("enable_mood_system") is True
+    assert settings.get("mood_personality_profile") == "balanced"
     assert settings.get("enable_schedule_recognition") is True
     assert settings.get("enable_conversation_promises") is True
     assert settings.get("include_ene_thoughts_in_context") is False
@@ -362,6 +364,50 @@ def test_save_and_reload_roundtrip_preserves_builtin_idle_motion(tmp_path):
 
 def test_default_config_enables_proactive_conversation():
     assert Settings.DEFAULT_CONFIG["enable_proactive_conversation"] is True
+
+
+@pytest.mark.parametrize(
+    ("saved_value", "expected"),
+    [
+        ("calm", "calm"),
+        ("balanced", "balanced"),
+        ("expressive", "expressive"),
+        ("affectionate", "balanced"),
+        ("playful", "expressive"),
+        ("unknown", "balanced"),
+        (None, "balanced"),
+    ],
+)
+def test_mood_personality_profile_normalizes_v3_and_legacy_values(
+    tmp_path, saved_value, expected
+):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"mood_personality_profile": saved_value}),
+        encoding="utf-8",
+    )
+
+    settings = Settings(
+        config_path=str(config_path),
+        secret_path=str(tmp_path / "api_keys.json"),
+    )
+
+    assert settings.get("mood_personality_profile") == expected
+
+
+def test_save_normalizes_legacy_mood_profile_before_persisting(tmp_path):
+    config_path = tmp_path / "config.json"
+    settings = Settings(
+        config_path=str(config_path),
+        secret_path=str(tmp_path / "api_keys.json"),
+    )
+    settings.set("mood_personality_profile", "playful")
+
+    settings.save()
+
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved["mood_personality_profile"] == "expressive"
+    assert settings.get("mood_personality_profile") == "expressive"
 
 
 def test_save_and_reload_roundtrip_preserves_auto_eye_blink(tmp_path):

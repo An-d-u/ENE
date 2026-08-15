@@ -955,6 +955,13 @@
         "ene_thought_context": "エネの内心メモを次の会話に反映",
         "proactive_conversation": "先回り会話を有効化",
         "response_analysis": "応答分析ブロックを有効化",
+        "mood_system": "気分機能を有効化",
+        "mood_profile": {
+          "label": "気分の傾向:",
+          "calm": "穏やか",
+          "balanced": "バランス型",
+          "expressive": "感情豊か"
+        },
         "schedule_recognition": "予定認識を有効化",
         "conversation_promises": "会話の約束認識を有効化",
         "synthetic_gestures": "返答ジェスチャーを有効化",

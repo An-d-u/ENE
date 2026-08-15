@@ -14,6 +14,21 @@ from .app_paths import (
 )
 
 
+_MOOD_PROFILE_ALIASES = {
+    "calm": "calm",
+    "affectionate": "balanced",
+    "balanced": "balanced",
+    "playful": "expressive",
+    "expressive": "expressive",
+}
+
+
+def _normalize_mood_profile(value: object) -> str:
+    if not isinstance(value, str):
+        return "balanced"
+    return _MOOD_PROFILE_ALIASES.get(value, "balanced")
+
+
 class Settings:
     """Application settings manager."""
 
@@ -237,7 +252,7 @@ class Settings:
         "life_record_min_inactive_minutes": 60,
         "enable_mood_system": True,
         "mood_update_speed": "normal",
-        "mood_personality_profile": "affectionate",
+        "mood_personality_profile": "balanced",
         "mood_decay_per_hour": 0.08,
         "mood_state_file": "mood_state.json",
         "obsidian_cli_enabled": False,
@@ -321,6 +336,9 @@ class Settings:
             merged = {**self.DEFAULT_CONFIG, **loaded_config}
             if merged.get("structured_response_mode") not in {"auto", "legacy"}:
                 merged["structured_response_mode"] = "auto"
+            merged["mood_personality_profile"] = _normalize_mood_profile(
+                merged.get("mood_personality_profile")
+            )
             inactive_minutes = merged.get("life_record_min_inactive_minutes")
             if type(inactive_minutes) is not int or inactive_minutes < 1:
                 merged["life_record_min_inactive_minutes"] = 60
@@ -523,6 +541,9 @@ class Settings:
     def save(self):
         """Persist current settings and secret settings."""
         try:
+            self.config["mood_personality_profile"] = _normalize_mood_profile(
+                self.config.get("mood_personality_profile")
+            )
             save_json_data(
                 self.config_path,
                 self.config,

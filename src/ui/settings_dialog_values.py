@@ -513,12 +513,18 @@ class SettingsDialogValuesMixin:
         self._on_setting_changed()
 
     def _refresh_mood_button_controls(self):
-        analysis_enabled = bool(
-            self.enable_response_analysis_check
-            and self.enable_response_analysis_check.isChecked()
+        mood_enabled = bool(
+            self.enable_mood_system_check
+            and self.enable_mood_system_check.isChecked()
         )
         if self.show_mood_toggle_button_check is not None:
-            self.show_mood_toggle_button_check.setEnabled(analysis_enabled)
+            self.show_mood_toggle_button_check.setEnabled(mood_enabled)
+        if self.mood_personality_profile_combo is not None:
+            self.mood_personality_profile_combo.setEnabled(mood_enabled)
+
+    def _on_mood_system_toggle(self, checked: bool):
+        self._refresh_mood_button_controls()
+        self._on_setting_changed()
 
     def _on_response_analysis_toggle(self, checked: bool):
         self._refresh_mood_button_controls()
@@ -619,6 +625,30 @@ class SettingsDialogValuesMixin:
             )
             self.enable_response_analysis_check.setChecked(
                 self._original_settings.get("enable_response_analysis", True)
+            )
+            self.enable_mood_system_check.setChecked(
+                self._original_settings.get("enable_mood_system", True)
+            )
+            mood_profile_aliases = {
+                "calm": "calm",
+                "affectionate": "balanced",
+                "balanced": "balanced",
+                "playful": "expressive",
+                "expressive": "expressive",
+            }
+            saved_mood_profile = self._original_settings.get(
+                "mood_personality_profile"
+            )
+            mood_profile = (
+                mood_profile_aliases.get(saved_mood_profile, "balanced")
+                if isinstance(saved_mood_profile, str)
+                else "balanced"
+            )
+            mood_profile_index = self.mood_personality_profile_combo.findData(
+                mood_profile
+            )
+            self.mood_personality_profile_combo.setCurrentIndex(
+                mood_profile_index if mood_profile_index >= 0 else 1
             )
             self.enable_schedule_recognition_check.setChecked(
                 self._original_settings.get("enable_schedule_recognition", True)
@@ -1055,6 +1085,10 @@ class SettingsDialogValuesMixin:
             "enable_ene_thoughts": self.enable_ene_thoughts_check.isChecked(),
             "enable_proactive_conversation": self.enable_proactive_conversation_check.isChecked(),
             "enable_response_analysis": self.enable_response_analysis_check.isChecked(),
+            "enable_mood_system": self.enable_mood_system_check.isChecked(),
+            "mood_personality_profile": str(
+                self.mood_personality_profile_combo.currentData() or "balanced"
+            ),
             "enable_schedule_recognition": self.enable_schedule_recognition_check.isChecked(),
             "enable_conversation_promises": self.enable_conversation_promises_check.isChecked(),
             "enable_synthetic_gestures": self.enable_synthetic_gestures_check.isChecked(),

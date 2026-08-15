@@ -1009,6 +1009,13 @@
         "ene_thought_context": "에네 생각을 다음 대화에 반영",
         "proactive_conversation": "선제 대화 사용",
         "response_analysis": "응답 분석 블록 사용",
+        "mood_system": "기분 기능 사용",
+        "mood_profile": {
+          "label": "기분 성향:",
+          "calm": "차분함",
+          "balanced": "균형형",
+          "expressive": "감정 풍부형"
+        },
         "schedule_recognition": "일정 인식 사용",
         "conversation_promises": "대화 약속 인식 사용",
         "synthetic_gestures": "응답 제스처 사용",
