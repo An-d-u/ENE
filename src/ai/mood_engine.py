@@ -71,6 +71,37 @@ INTENSITY_WEIGHT = {0: 0.0, 1: 0.45, 2: 0.75, 3: 1.0}
 CLARITY_WEIGHT = {"explicit": 1.0, "inferred": 0.75, "ambiguous": 0.35}
 CERTAINTY_WEIGHT = {"low": 0.5, "medium": 0.75, "high": 1.0}
 PRESET_WEIGHT = {"calm": 0.75, "balanced": 1.0, "expressive": 1.25}
+RELATION_REPEAT_WEIGHT = {0: 1.00, 1: 0.85, 2: 0.70, 3: 0.55}
+
+RELATION_CONNECTION_BASE = {
+    "connection": {"affection": 0.018, "trust": 0.010},
+    "success": {"affection": 0.006, "trust": 0.012},
+}
+RELATION_CONFLICT_BASE = {
+    "broken_commitment": {"affection": -0.008, "trust": -0.040},
+    "disrespect": {"affection": -0.025, "trust": -0.015},
+    "boundary_violation": {"affection": -0.020, "trust": -0.030},
+}
+RELATION_REPAIR_BASE = {
+    "acknowledgment": {"affection": 0.000, "trust": 0.004},
+    "apology": {"affection": 0.006, "trust": 0.008},
+    "explanation": {"affection": 0.000, "trust": 0.004},
+    "correction": {"affection": 0.004, "trust": 0.012},
+    "follow_through": {"affection": 0.006, "trust": 0.016},
+}
+
+RUPTURE_CATEGORY_BASE = {
+    "broken_commitment": 0.18,
+    "disrespect": 0.16,
+    "boundary_violation": 0.20,
+}
+RUPTURE_REPAIR_DECREASE = {
+    "acknowledgment": {"heat": 0.04, "severity": 0.01},
+    "apology": {"heat": 0.08, "severity": 0.06},
+    "explanation": {"heat": 0.03, "severity": 0.02},
+    "correction": {"heat": 0.03, "severity": 0.04},
+    "follow_through": {"heat": 0.04, "severity": 0.06},
+}
 
 BACKGROUND_BASE = {
     "neutral": (0.00, 0.00, 0.00),
@@ -293,6 +324,8 @@ def reduce_mood(
         * CERTAINTY_WEIGHT[normalized_event.certainty]
         * PRESET_WEIGHT[normalized_preset]
     )
+    repeat_count = _next_repeat_count(state, normalized_event, now_utc)
+    relationship_impact = impact * RELATION_REPEAT_WEIGHT[repeat_count]
     rule_ids: list[str] = []
 
     if impact != 0.0 and any(BACKGROUND_BASE[normalized_event.kind]):
@@ -302,6 +335,19 @@ def reduce_mood(
     if impact != 0.0 and AFFECT_BASE.get(normalized_event.kind):
         _apply_affects(state, normalized_event, now_utc, impact)
         rule_ids.append("event.affect")
+
+    relation_base = _relationship_base(normalized_event)
+    if relationship_impact != 0.0 and relation_base is not None:
+        _apply_relationship(state, relation_base, relationship_impact)
+        rule_ids.append("event.relationship")
+
+    if _apply_rupture(
+        state,
+        normalized_event,
+        now_utc,
+        relationship_impact,
+    ):
+        rule_ids.append("event.rupture")
 
     if len(state["active_affects"]) > 5:
         _trim_active_affects(state["active_affects"])
@@ -349,6 +395,139 @@ def _coerce_event(event: object, now_utc: datetime) -> MoodEvent:
 def _apply_background(state: dict[str, Any], kind: str, impact: float) -> None:
     for axis, delta in zip(("valence", "energy", "tension"), BACKGROUND_BASE[kind], strict=True):
         state["background"][axis] = _clamp(state["background"][axis] + delta * impact, -1.0, 1.0)
+
+
+def _next_repeat_count(
+    state: dict[str, Any],
+    event: MoodEvent,
+    now_utc: datetime,
+) -> int:
+    event_group = [
+        item
+        for item in state["active_affects"]
+        if (item["source_kind"], item["target_scope"], item["relation_category"])
+        == (event.kind, event.target_scope, event.relation_category)
+    ]
+    if not event_group:
+        return 0
+    prior_trace = max(
+        event_group,
+        key=lambda item: (
+            _parse_utc_string(item["last_event_at_utc"], "last_event_at_utc"),
+            item["repeat_count"],
+        ),
+    )
+    elapsed = now_utc - _parse_utc_string(prior_trace["last_event_at_utc"], "last_event_at_utc")
+    if elapsed.total_seconds() > 30 * 60:
+        return 0
+    return min(prior_trace["repeat_count"] + 1, 3)
+
+
+def _relationship_base(event: MoodEvent) -> dict[str, float] | None:
+    if not _is_clear_relationship_event(event):
+        return None
+    if event.kind in RELATION_CONNECTION_BASE:
+        return RELATION_CONNECTION_BASE[event.kind]
+    if event.kind == "conflict" and event.relation_category in RELATION_CONFLICT_BASE:
+        return RELATION_CONFLICT_BASE[event.relation_category]
+    if event.kind == "repair" and event.repair_signal in RELATION_REPAIR_BASE:
+        return RELATION_REPAIR_BASE[event.repair_signal]
+    return None
+
+
+def _is_clear_relationship_event(event: MoodEvent) -> bool:
+    return (
+        event.target_scope in {"ene", "relationship"}
+        and event.clarity != "ambiguous"
+        and event.certainty != "low"
+    )
+
+
+def _apply_relationship(
+    state: dict[str, Any],
+    base: dict[str, float],
+    impact: float,
+) -> None:
+    caps = {"affection": 0.025, "trust": 0.040}
+    for axis in ("affection", "trust"):
+        current = state["relationship"][axis]
+        delta = base[axis] * impact * (1.0 - abs(current))
+        delta = _clamp(delta, -caps[axis], caps[axis])
+        state["relationship"][axis] = _clamp(current + delta, -1.0, 1.0)
+
+
+def _apply_rupture(
+    state: dict[str, Any],
+    event: MoodEvent,
+    now_utc: datetime,
+    impact: float,
+) -> bool:
+    if not _is_clear_relationship_event(event):
+        return False
+    rupture = next(
+        (item for item in state["ruptures"] if item["category"] == event.relation_category),
+        None,
+    )
+    timestamp = format_utc(now_utc)
+    if (
+        impact != 0.0
+        and event.kind == "conflict"
+        and event.relation_category in RUPTURE_CATEGORY_BASE
+    ):
+        base = RUPTURE_CATEGORY_BASE[event.relation_category]
+        if rupture is None:
+            initial = _clamp(base * impact, 0.0, 1.0)
+            state["ruptures"].append(
+                {
+                    "category": event.relation_category,
+                    "severity": initial,
+                    "heat": initial,
+                    "repair_stage": "open",
+                    "repeat_count": 0,
+                    "repair_evidence_count": 0,
+                    "last_negative_at_utc": timestamp,
+                    "updated_at_utc": timestamp,
+                }
+            )
+            return True
+        rupture["severity"] = _clamp(
+            rupture["severity"] + base * impact * (1.0 - rupture["severity"]),
+            0.0,
+            1.0,
+        )
+        rupture["heat"] = _clamp(
+            rupture["heat"] + base * impact * (1.0 - rupture["heat"]),
+            0.0,
+            1.0,
+        )
+        rupture["repair_stage"] = "open"
+        rupture["repeat_count"] = min(rupture["repeat_count"] + 1, 3)
+        rupture["repair_evidence_count"] = 0
+        rupture["last_negative_at_utc"] = timestamp
+        rupture["updated_at_utc"] = timestamp
+        return True
+
+    if event.kind != "repair" or rupture is None or event.repair_signal not in RUPTURE_REPAIR_DECREASE:
+        return False
+    decrease = RUPTURE_REPAIR_DECREASE[event.repair_signal]
+    rupture["severity"] = _clamp(rupture["severity"] - decrease["severity"] * impact, 0.0, 1.0)
+    rupture["heat"] = _clamp(rupture["heat"] - decrease["heat"] * impact, 0.0, 1.0)
+    if event.repair_signal in {"correction", "follow_through"}:
+        rupture["repair_stage"] = "observing"
+        rupture["repair_evidence_count"] = min(rupture["repair_evidence_count"] + 1, 2)
+    else:
+        rupture["repair_stage"] = "acknowledged"
+    rupture["updated_at_utc"] = timestamp
+
+    resolved_by_evidence = rupture["repair_evidence_count"] == 2 and _at_or_below(
+        rupture["severity"], 0.12
+    )
+    resolved_by_apology = event.repair_signal == "apology" and _at_or_below(
+        rupture["severity"], 0.08
+    )
+    if resolved_by_evidence or resolved_by_apology:
+        state["ruptures"].remove(rupture)
+    return True
 
 
 def _apply_affects(
@@ -437,6 +616,10 @@ def _trim_active_affects(active_affects: list[dict[str, Any]]) -> None:
 
 def _clamp(value: float, minimum: float, maximum: float) -> float:
     return max(minimum, min(maximum, value))
+
+
+def _at_or_below(value: float, threshold: float) -> bool:
+    return value <= threshold or math.isclose(value, threshold, rel_tol=0.0, abs_tol=1e-12)
 
 
 def _validate_active_affects(value: object) -> None:
