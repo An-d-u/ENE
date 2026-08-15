@@ -30,6 +30,13 @@ def is_response_analysis_enabled(settings_source: object | None = None) -> bool:
     return bool(_read_setting(settings_source, "enable_response_analysis", True))
 
 
+def is_mood_analysis_enabled(settings_source: object | None = None) -> bool:
+    """기분 시스템과 응답 분석이 모두 켜진 경우에만 사건 분류를 활성화한다."""
+    return bool(
+        _read_setting(settings_source, "enable_mood_system", True)
+    ) and is_response_analysis_enabled(settings_source)
+
+
 def is_schedule_recognition_enabled(settings_source: object | None = None) -> bool:
     """설정에서 일정 인식 기능 활성화 여부를 읽는다."""
     return bool(_read_setting(settings_source, "enable_schedule_recognition", True))
@@ -336,6 +343,15 @@ def build_analysis_system_appendix(
             selected.extend(rules["schedule"])
         if is_conversation_promise_enabled(settings_source):
             selected.extend(rules["promise"])
+        if is_mood_analysis_enabled(settings_source):
+            selected.extend(
+                [
+                    "### Mood event classification rules",
+                    "- Classify only the current turn's observable event in `mood_analysis`; do not explain reasoning.",
+                    "- Never include the source text, `reason`, or `event_id`.",
+                    "- Use exactly the schema fields and enum values; `intensity` must be 0, 1, 2, or 3.",
+                ]
+            )
         return "\n".join(selected)
 
     selected_lines: list[str] = []

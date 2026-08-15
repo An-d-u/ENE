@@ -14,6 +14,15 @@ from .analysis_prompt import (
     is_schedule_recognition_enabled,
 )
 from .goal_prompt import is_goal_prompt_enabled
+from .mood_engine import (
+    CERTAINTIES,
+    CLARITIES,
+    CONTROLLABILITIES,
+    EVENT_KINDS,
+    RELATION_CATEGORIES,
+    REPAIR_SIGNALS,
+    TARGET_SCOPES,
+)
 from .prompt_language import resolve_prompt_language, resolve_tts_language
 from .response_cleanup import (
     THOUGHT_TAG_ALIASES,
@@ -45,6 +54,7 @@ TOP_LEVEL_FIELDS = (
     "goal_update",
     "proactive_conversations",
     "gesture",
+    "mood_analysis",
 )
 ANALYSIS_FIELDS = (
     "user_emotion",
@@ -56,6 +66,14 @@ ANALYSIS_FIELDS = (
     "valence_delta_hint",
     "confidence",
     "flags",
+)
+MOOD_EVENT_FIELDS = (
+    "kind", "target_scope", "relation_category", "intensity", "clarity",
+    "certainty", "controllability", "repair_signal",
+)
+RISK_CLASSES = ("none", "concern", "urgent")
+PROPOSED_STANCES = (
+    "proactive", "cooperative", "brief", "limited", "distance", "decline", "boundary",
 )
 
 
@@ -110,6 +128,29 @@ _RESPONSE_ENVELOPE_V1_SCHEMA_TEMPLATE = _strict_object(
             ),
         },
         "gesture": {"type": "string"},
+        "mood_analysis": {
+            "anyOf": [
+                _strict_object(
+                    {
+                        "event": _strict_object(
+                            {
+                                "kind": {"type": "string", "enum": list(EVENT_KINDS)},
+                                "target_scope": {"type": "string", "enum": list(TARGET_SCOPES)},
+                                "relation_category": {"type": "string", "enum": list(RELATION_CATEGORIES)},
+                                "intensity": {"type": "integer", "enum": [0, 1, 2, 3]},
+                                "clarity": {"type": "string", "enum": list(CLARITIES)},
+                                "certainty": {"type": "string", "enum": list(CERTAINTIES)},
+                                "controllability": {"type": "string", "enum": list(CONTROLLABILITIES)},
+                                "repair_signal": {"type": "string", "enum": list(REPAIR_SIGNALS)},
+                            }
+                        ),
+                        "risk_class": {"type": "string", "enum": list(RISK_CLASSES)},
+                        "proposed_stance": {"type": "string", "enum": list(PROPOSED_STANCES)},
+                    }
+                ),
+                {"type": "null"},
+            ]
+        },
     }
 )
 
@@ -128,6 +169,8 @@ class ResponseRequirements:
     require_thought: bool
     require_tts_text: bool
     enable_analysis: bool
+    enable_mood: bool
+    enable_mood_analysis: bool
     enable_events: bool
     enable_promises: bool
     enable_goal_update: bool
@@ -160,12 +203,16 @@ def build_response_requirements(
     )
     cooldown_keys = tuple(get_available_proactive_cooldown_keys(settings_source))
 
+    enable_analysis = is_response_analysis_enabled(settings_source)
+    enable_mood = _read_mood_setting(settings_source)
     return ResponseRequirements(
         response_language=response_language,
         tts_language=tts_language,
         require_thought=is_thought_prompt_enabled(settings_source),
         require_tts_text=tts_language != response_language,
-        enable_analysis=is_response_analysis_enabled(settings_source),
+        enable_analysis=enable_analysis,
+        enable_mood=enable_mood,
+        enable_mood_analysis=enable_mood and enable_analysis,
         enable_events=is_schedule_recognition_enabled(settings_source),
         enable_promises=is_conversation_promise_enabled(settings_source),
         enable_goal_update=is_goal_prompt_enabled(settings_source),
@@ -197,6 +244,18 @@ PROACTIVE_CONVERSATION_FIELDS = (
 )
 ALLOWED_GESTURES = ("nod", "bow", "shake", "surprise", "tilt", "sway")
 
+
+def _read_mood_setting(settings_source: object | None) -> bool:
+    getter = getattr(settings_source, "get", None)
+    if callable(getter):
+        try:
+            return bool(getter("enable_mood_system", True))
+        except Exception:
+            pass
+    config = getattr(settings_source, "config", None)
+    return bool(config.get("enable_mood_system", True)) if isinstance(config, dict) else True
+
+
 LLM_RESPONSE_TUPLE = tuple[
     str,
     str,
@@ -208,7 +267,53 @@ LLM_RESPONSE_TUPLE = tuple[
     dict[str, str],
     list[dict],
     str,
+    dict[str, object] | None,
 ]
+
+
+def neutral_mood_analysis() -> dict[str, object]:
+    return {
+        "event": {
+            "kind": "neutral", "target_scope": "unknown", "relation_category": "none",
+            "intensity": 0, "clarity": "ambiguous", "certainty": "low",
+            "controllability": "low", "repair_signal": "none",
+        },
+        "risk_class": "none",
+        "proposed_stance": "cooperative",
+    }
+
+
+def _normalize_mood_analysis(
+    value: object,
+    requirements: ResponseRequirements,
+) -> tuple[dict[str, object] | None, bool]:
+    if not requirements.enable_mood_analysis:
+        return (None, value is not None)
+    if not isinstance(value, dict) or set(value) != {"event", "risk_class", "proposed_stance"}:
+        return None, True
+    event = value.get("event")
+    if not isinstance(event, dict) or set(event) != set(MOOD_EVENT_FIELDS):
+        return None, True
+    intensity = event.get("intensity")
+    valid = (
+        event.get("kind") in EVENT_KINDS
+        and event.get("target_scope") in TARGET_SCOPES
+        and event.get("relation_category") in RELATION_CATEGORIES
+        and type(intensity) is int and intensity in (0, 1, 2, 3)
+        and event.get("clarity") in CLARITIES
+        and event.get("certainty") in CERTAINTIES
+        and event.get("controllability") in CONTROLLABILITIES
+        and event.get("repair_signal") in REPAIR_SIGNALS
+        and value.get("risk_class") in RISK_CLASSES
+        and value.get("proposed_stance") in PROPOSED_STANCES
+    )
+    if not valid:
+        return None, True
+    return {
+        "event": {field: event[field] for field in MOOD_EVENT_FIELDS},
+        "risk_class": value["risk_class"],
+        "proposed_stance": value["proposed_stance"],
+    }, False
 
 
 def has_valid_response_payload(payload: LLM_RESPONSE_TUPLE | None) -> bool:
@@ -443,7 +548,7 @@ def _normalize_response_tuple(
     preserve_none_goal: bool,
     exact_objects: bool,
 ) -> LLM_RESPONSE_TUPLE:
-    if len(payload) != 10:
+    if len(payload) != 11:
         raise ValueError("invalid_response_tuple")
 
     normalized_reply = _normalize_string(payload[0], "reply", invalid_paths)
@@ -558,6 +663,9 @@ def _normalize_response_tuple(
         if requirements.enable_gesture and gesture_candidate in ALLOWED_GESTURES
         else ""
     )
+    mood_analysis, mood_fatal = _normalize_mood_analysis(payload[10], requirements)
+    if mood_fatal:
+        _add_invalid(invalid_paths, "mood_analysis")
     return (
         reply,
         emotion,
@@ -569,6 +677,7 @@ def _normalize_response_tuple(
         goal_update,
         proactive_conversations,
         gesture,
+        mood_analysis,
     )
 
 
@@ -644,6 +753,14 @@ def decode_response_envelope(
         preserve_none_goal=False,
         exact_objects=True,
     )
+    if "mood_analysis" in invalid_paths:
+        return ResponseEnvelopeDecodeResult(
+            payload=None,
+            present_fields=present_fields,
+            missing_required_fields=(),
+            invalid_paths=tuple(sorted(set(invalid_paths))),
+            root_error="mood_analysis_invalid",
+        )
     if not payload[0]:
         _add_invalid(invalid_paths, "reply")
         return ResponseEnvelopeDecodeResult(

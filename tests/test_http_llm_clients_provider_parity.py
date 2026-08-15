@@ -913,7 +913,7 @@ def test_provider_send_message_keeps_visible_assistant_output_in_history(monkeyp
     client = factory()
     monkeypatch.setattr(client, request_method, lambda *args, **kwargs: RAW_OUTPUT)
 
-    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive, _gesture = client.send_message("테스트")
+    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive, _gesture, _mood = client.send_message("테스트")
     history = client.get_conversation_history()
 
     assert text == "좋은 저녁이에요."
@@ -950,7 +950,7 @@ def test_provider_send_message_returns_fallback_when_response_is_empty(monkeypat
     client = factory()
     monkeypatch.setattr(client, request_method, lambda *args, **kwargs: "   ")
 
-    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive, _gesture = client.send_message("테스트")
+    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive, _gesture, _mood = client.send_message("테스트")
     history = client.get_conversation_history()
 
     assert text == "음... 무슨 일이 있었나봐요."
@@ -1138,7 +1138,7 @@ def test_provider_parse_response_removes_thinking_tags_before_extracting_tts_tex
 こんばんは。
 """.strip()
 
-    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive, _gesture = client._parse_response(response_text)
+    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive, _gesture, _mood = client._parse_response(response_text)
 
     assert text == "좋은 저녁이에요."
     assert emotion == "smile"
@@ -1168,7 +1168,7 @@ def test_provider_parse_response_removes_leading_orphan_thinking_close_tag(facto
 こんばんは。
 """.strip()
 
-    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive, _gesture = client._parse_response(response_text)
+    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive, _gesture, _mood = client._parse_response(response_text)
 
     assert text == "좋은 저녁이에요."
     assert emotion == "smile"

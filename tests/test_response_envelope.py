@@ -61,7 +61,6 @@ def _assert_forbidden_schema_constructs_are_absent(schema):
     assert "pattern" not in schema
     assert "minLength" not in schema
     schema_type = schema.get("type")
-    assert schema_type != "null"
     if isinstance(schema_type, list):
         assert "null" not in schema_type
     for value in schema.values():
@@ -117,7 +116,7 @@ def test_response_schema_has_exact_canonical_top_level_fields():
 def test_response_schema_has_exact_top_level_types():
     properties = RESPONSE_ENVELOPE_V1_SCHEMA["properties"]
 
-    assert {name: schema["type"] for name, schema in properties.items()} == {
+    assert {name: schema.get("type", "anyOf") for name, schema in properties.items()} == {
         "reply": "string",
         "emotion": "string",
         "tts_text": "string",
@@ -128,7 +127,109 @@ def test_response_schema_has_exact_top_level_types():
         "goal_update": "object",
         "proactive_conversations": "array",
         "gesture": "string",
+        "mood_analysis": "anyOf",
     }
+
+
+def test_response_schema_mood_analysis_is_strict_nullable_domain_object():
+    mood_schema = RESPONSE_ENVELOPE_V1_SCHEMA["properties"]["mood_analysis"]
+    assert mood_schema["anyOf"][1] == {"type": "null"}
+    object_schema = mood_schema["anyOf"][0]
+    assert tuple(object_schema["properties"]) == ("event", "risk_class", "proposed_stance")
+    assert tuple(object_schema["properties"]["event"]["properties"]) == (
+        "kind", "target_scope", "relation_category", "intensity", "clarity",
+        "certainty", "controllability", "repair_signal",
+    )
+    assert object_schema["properties"]["event"]["properties"]["intensity"] == {
+        "type": "integer", "enum": [0, 1, 2, 3]
+    }
+
+
+@pytest.mark.parametrize(
+    ("enable_mood_system", "enable_response_analysis", "expected_mood", "expected_analysis"),
+    [(False, False, False, False), (False, True, False, False),
+     (True, False, True, False), (True, True, True, True)],
+)
+def test_response_requirements_map_mood_toggle_combinations(
+    enable_mood_system, enable_response_analysis, expected_mood, expected_analysis
+):
+    requirements = build_response_requirements({
+        "enable_mood_system": enable_mood_system,
+        "enable_response_analysis": enable_response_analysis,
+    })
+    assert requirements.enable_mood is expected_mood
+    assert requirements.enable_mood_analysis is expected_analysis
+
+
+def _valid_mood_analysis():
+    return {
+        "event": {
+            "kind": "connection", "target_scope": "relationship",
+            "relation_category": "none", "intensity": 2, "clarity": "explicit",
+            "certainty": "high", "controllability": "medium", "repair_signal": "none",
+        },
+        "risk_class": "none",
+        "proposed_stance": "cooperative",
+    }
+
+
+def test_strict_mood_analysis_enabled_accepts_exact_object():
+    decoded = decode_response_envelope(
+        valid_envelope_json(mood_analysis=_valid_mood_analysis()),
+        requirements=make_requirements(enable_mood=True, enable_mood_analysis=True),
+    )
+    assert decoded.payload is not None
+    assert decoded.payload[10] == _valid_mood_analysis()
+
+
+@pytest.mark.parametrize(
+    "bad_value",
+    [
+        None,
+        {"event": {}},
+        {"reason": "금지된 합성 설명"},
+        {
+            **_valid_mood_analysis(),
+            "event_id": "synthetic-event",
+        },
+    ],
+)
+def test_strict_mood_analysis_enabled_rejects_invalid_whole_payload(bad_value):
+    decoded = decode_response_envelope(
+        valid_envelope_json(mood_analysis=bad_value),
+        requirements=make_requirements(enable_mood=True, enable_mood_analysis=True),
+    )
+    assert decoded.payload is None
+    assert decoded.root_error == "mood_analysis_invalid"
+
+
+def test_strict_mood_analysis_rejects_bool_intensity():
+    value = _valid_mood_analysis()
+    value["event"]["intensity"] = True
+    decoded = decode_response_envelope(
+        valid_envelope_json(mood_analysis=value),
+        requirements=make_requirements(enable_mood=True, enable_mood_analysis=True),
+    )
+    assert decoded.payload is None
+
+
+def test_strict_mood_analysis_enabled_rejects_missing_field():
+    envelope = make_valid_envelope(mood_analysis=_valid_mood_analysis())
+    del envelope["mood_analysis"]
+    decoded = decode_response_envelope(
+        json.dumps(envelope, ensure_ascii=False),
+        requirements=make_requirements(enable_mood=True, enable_mood_analysis=True),
+    )
+    assert decoded.payload is None
+    assert decoded.root_error == "mood_analysis_invalid"
+
+
+def test_strict_mood_analysis_disabled_accepts_only_null():
+    requirements = make_requirements(enable_mood=False, enable_mood_analysis=False)
+    assert decode_response_envelope(valid_envelope_json(), requirements=requirements).payload[10] is None
+    assert decode_response_envelope(
+        valid_envelope_json(mood_analysis=_valid_mood_analysis()), requirements=requirements
+    ).payload is None
 
 
 @pytest.mark.parametrize(
@@ -376,7 +477,7 @@ def test_valid_envelope_maps_to_existing_tuple_order():
     assert decoded.payload[0] == "중립적인 합성 답변"
     assert decoded.payload[1] == "normal"
     assert decoded.payload[6] == "짧은 합성 내면 반응"
-    assert len(decoded.payload) == 10
+    assert len(decoded.payload) == 11
     assert decoded.present_fields == frozenset(TOP_LEVEL_FIELDS)
     assert decoded.has_valid_reply is True
 
@@ -493,6 +594,7 @@ def test_decoder_normalizes_disabled_features_and_same_language_tts():
         {},
         [],
         "",
+        None,
     )
     assert decoded.missing_required_fields == ()
 
@@ -665,6 +767,7 @@ def test_decoder_diagnoses_disabled_field_structure_before_empty_normalization()
         {},
         [],
         "",
+        None,
     )
     assert {
         "analysis",
@@ -696,6 +799,7 @@ def test_decoder_diagnoses_root_shape_even_when_reply_is_invalid():
                 "events",
                 "gesture",
                 "goal_update",
+                "mood_analysis",
                 "proactive_conversations",
                 "promises",
                 "reply",
@@ -1005,6 +1109,7 @@ def test_structured_exact_keys_and_legacy_semantics_treat_optional_item_keys_dif
             {},
             [],
             "",
+            None,
         ),
         requirements=requirements,
     )

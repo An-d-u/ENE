@@ -94,6 +94,7 @@ LLM_RESPONSE_TUPLE = Tuple[
     Dict[str, str],
     List[Dict],
     str,
+    Dict[str, object] | None,
 ]
 SUMMARY_MIN_OUTPUT_TOKENS = 4096
 GEMINI_MAX_OUTPUT_TOKENS = 8192
@@ -643,7 +644,7 @@ class GeminiClient:
 
     def _empty_text_fallback_response(self) -> LLM_RESPONSE_TUPLE:
         """LLM이 텍스트 없는 응답을 반환했을 때 사용자에게 보여줄 안전한 fallback."""
-        return "음... 무슨 일이 있었나봐요.", "confused", None, [], {}, [], "", {}, [], ""
+        return "음... 무슨 일이 있었나봐요.", "confused", None, [], {}, [], "", {}, [], "", None
 
     def _read_runtime_setting_for_log(self, key: str, default=None):
         """진단 로그용으로 dict/Settings 객체에서 설정값을 읽는다."""
@@ -1467,7 +1468,7 @@ class GeminiClient:
                 "[LLM] category=multimodal_error "
                 f"exception_class={GeminiClient._safe_exception_class(self, failure)}"
             )
-            return "이미지를 처리하는 중에 문제가 생겼어요.", "confused", None, [], {}, [], "", {}, [], ""
+            return "이미지를 처리하는 중에 문제가 생겼어요.", "confused", None, [], {}, [], "", {}, [], "", None
 
     def _build_goal_context_block(self, prompt_language: str | None = None) -> str:
         """메모리 매니저와 독립적으로 활성 목표 컨텍스트를 만든다."""

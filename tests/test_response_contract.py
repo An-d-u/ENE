@@ -62,7 +62,7 @@ def test_response_contract_goal_format_uses_canonical_key_value_block():
     )
 
     assert "[ene_goal_update]\naction=none\ntype=short_term\nid=\ntitle=\nreason=\ncompletion_reason=\n[/ene_goal_update]" in appendix
-    assert "scope=" not in appendix
+    assert "\nscope=" not in appendix
 
 
 def test_response_contract_keeps_analysis_when_goal_and_thought_sections_are_disabled():

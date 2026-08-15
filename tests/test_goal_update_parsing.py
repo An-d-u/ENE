@@ -153,8 +153,8 @@ def test_gemini_parse_response_returns_goal_update_metadata():
         "[ene_goal_update]\naction=none\n[/ene_goal_update]\n좋아요. [smile]",
     )
 
-    assert len(parsed) == 10
-    clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive, gesture = parsed
+    assert len(parsed) == 11
+    clean_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive, gesture, mood = parsed
     assert clean_text == "좋아요."
     assert emotion == "smile"
     assert tts_text is None
@@ -175,7 +175,7 @@ def test_http_parse_response_returns_goal_update_metadata():
         "[ene_goal_update]\naction=none\n[/ene_goal_update]\n좋아요. [smile]"
     )
 
-    assert len(parsed) == 10
+    assert len(parsed) == 11
     assert parsed[7]["action"] == "none"
     assert parsed[8] == []
     assert parsed[9] == ""

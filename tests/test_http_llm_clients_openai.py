@@ -569,7 +569,7 @@ flags=greeting
 こんばんは。
 """.strip()
 
-    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive, _gesture = client._parse_response(response_text)
+    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive, _gesture, _mood = client._parse_response(response_text)
 
     assert text == "좋은 저녁이에요. 오늘도 고생 많으셨어요."
     assert emotion == "smile"
@@ -604,7 +604,7 @@ confidence=0.8
         settings={"structured_response_mode": "legacy"},
     )
 
-    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive, _gesture = client.send_message("테스트")
+    text, emotion, tts_text, events, analysis, promises, thought, _goal_update, _proactive, _gesture, _mood = client.send_message("테스트")
     history = client.get_conversation_history()
 
     assert text == "좋은 저녁이에요."
