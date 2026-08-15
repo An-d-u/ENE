@@ -188,6 +188,7 @@ def test_ai_worker_normalize_response_payload_supports_promises():
         {},
         [],
         "",
+        None,
     )
 
 
@@ -219,6 +220,7 @@ def test_ai_worker_normalize_response_payload_keeps_goal_update_for_runtime_flow
         {"action": "none"},
         [],
         "",
+        None,
     )
 
 

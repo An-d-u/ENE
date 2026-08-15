@@ -36,7 +36,7 @@ class _DummyMoodManager:
         }
 
 
-def test_on_response_ready_applies_user_analysis_before_assistant_emotion():
+def test_on_response_ready_applies_user_analysis_and_ignores_new_mood_payload(capsys):
     dummy = type("BridgeDummy", (), {})()
     dummy._last_assistant_response = None
     dummy.mood_manager = _DummyMoodManager()
@@ -67,12 +67,21 @@ def test_on_response_ready_applies_user_analysis_before_assistant_emotion():
         "",
         [],
         json.dumps({"user_intent": "affection", "confidence": "0.9"}, ensure_ascii=False),
+        "",
+        [],
+        "",
+        "",
+        [],
+        "",
+        "SYNTHETIC-MOOD-RAW",
     )
 
     assert dummy.mood_manager.calls == [
         ("user_analysis", {"user_intent": "affection", "confidence": "0.9"}),
         ("assistant_emotion", "smile"),
     ]
+    captured = capsys.readouterr()
+    assert "SYNTHETIC-MOOD-RAW" not in captured.out + captured.err
 
 
 def test_on_response_ready_sanitizes_leaked_analysis_lines_before_emitting():

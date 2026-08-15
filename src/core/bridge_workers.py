@@ -396,7 +396,7 @@ def build_obsidian_checked_context(checked_contents: list[tuple[str, str]], lang
 class AIWorker(QThread):
     """AI 응답을 비동기로 처리하는 워커 스레드"""
 
-    response_ready = pyqtSignal(str, str, str, list, str, str, list, str, str, list, str)  # (텍스트, 감정, TTS 텍스트, 이벤트, analysis JSON, 토큰 JSON, 약속 리스트, 생각, 목표 업데이트 JSON, 선제 대화 리스트, 제스처)
+    response_ready = pyqtSignal(str, str, str, list, str, str, list, str, str, list, str, str)  # (텍스트, 감정, TTS 텍스트, 이벤트, 분석 JSON, 토큰 JSON, 약속 리스트, 생각, 목표 업데이트 JSON, 선제 대화 리스트, 제스처, 무드 분석 JSON)
     error_occurred = pyqtSignal(str)  # 오류 메시지
 
     def __init__(
@@ -456,28 +456,30 @@ class AIWorker(QThread):
         return resolve_prompt_language(settings_source=getattr(self.llm_client, "settings", None))
 
     def _normalize_response_payload(self, payload):
-        """신구 응답 형식을 모두 10개 값으로 정규화한다."""
+        """신구 응답 형식을 기존 위치를 유지한 11개 값으로 정규화한다."""
         if isinstance(payload, tuple):
-            if len(payload) == 10:
+            if len(payload) == 11:
                 return payload
+            if len(payload) == 10:
+                return (*payload, None)
             if len(payload) == 9:
                 text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations = payload
-                return text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, ""
+                return text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, "", None
             if len(payload) == 8:
                 text, emotion, tts_text, events, analysis, promises, thought, goal_update = payload
-                return text, emotion, tts_text, events, analysis, promises, thought, goal_update, [], ""
+                return text, emotion, tts_text, events, analysis, promises, thought, goal_update, [], "", None
             if len(payload) == 7:
                 text, emotion, tts_text, events, analysis, promises, thought = payload
-                return text, emotion, tts_text, events, analysis, promises, thought, {}, [], ""
+                return text, emotion, tts_text, events, analysis, promises, thought, {}, [], "", None
             if len(payload) == 6:
                 text, emotion, tts_text, events, analysis, promises = payload
-                return text, emotion, tts_text, events, analysis, promises, "", {}, [], ""
+                return text, emotion, tts_text, events, analysis, promises, "", {}, [], "", None
             if len(payload) == 5:
                 text, emotion, tts_text, events, analysis = payload
-                return text, emotion, tts_text, events, analysis, [], "", {}, [], ""
+                return text, emotion, tts_text, events, analysis, [], "", {}, [], "", None
             if len(payload) == 4:
                 text, emotion, tts_text, events = payload
-                return text, emotion, tts_text, events, {}, [], "", {}, [], ""
+                return text, emotion, tts_text, events, {}, [], "", {}, [], "", None
         raise _UnsupportedResponseFormatError()
 
     def _ensure_image_input_supported(self):
@@ -564,7 +566,7 @@ class AIWorker(QThread):
 
             if self._is_cancelled():
                 return
-            response_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture = self._normalize_response_payload(
+            response_text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture, mood_analysis = self._normalize_response_payload(
                 response_payload
             )
 
@@ -604,6 +606,16 @@ class AIWorker(QThread):
             # events도 함께 emit (signal에는 리스트로 전달 가능)
             if self._is_cancelled():
                 return
+            mood_analysis_payload = ""
+            if mood_analysis is not None:
+                try:
+                    mood_analysis_payload = json.dumps(
+                        mood_analysis,
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    )
+                except Exception:
+                    mood_analysis_payload = ""
             self.response_ready.emit(
                 response_text,
                 emotion,
@@ -616,6 +628,7 @@ class AIWorker(QThread):
                 json.dumps(goal_update or {}, ensure_ascii=False),
                 proactive_conversations,
                 gesture,
+                mood_analysis_payload,
             )
         except BaseException as failure:
             if self._is_cancelled():
@@ -750,12 +763,12 @@ class AIWorker(QThread):
             )
             if self._is_cancelled():
                 return None
-            text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture = self._normalize_response_payload(
+            text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture, mood_analysis = self._normalize_response_payload(
                 completion_payload
             )
             if required not in text:
                 text = f"{required}\n{text}".strip()
-            return text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture
+            return text, emotion, tts_text, events, analysis, promises, thought, goal_update, proactive_conversations, gesture, mood_analysis
 
         # 하위 호환 폴백 (기존 클라이언트 경로)
         return self._normalize_response_payload(self.llm_client.send_message(completion_context))

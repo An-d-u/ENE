@@ -1144,6 +1144,7 @@ class ChatFlowBridgeMixin:
         goal_update_payload: str = "",
         proactive_conversations: list | None = None,
         gesture: str = "",
+        mood_analysis_payload: str = "",
         *,
         response_metadata: ResponseDeliveryMetadata | None = None,
         normal_operation_id: int | None = None,

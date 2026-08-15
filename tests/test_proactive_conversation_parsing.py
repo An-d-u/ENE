@@ -99,6 +99,7 @@ def test_ai_worker_normalize_response_payload_adds_empty_proactive_list_for_lega
         {"action": "none"},
         [],
         "",
+        None,
     )
 
 
@@ -121,5 +122,6 @@ def test_ai_worker_normalize_response_payload_preserves_proactive_list():
         ),
     )
 
-    assert normalized[-2] is proactive
-    assert normalized[-1] == ""
+    assert normalized[8] is proactive
+    assert normalized[9] == ""
+    assert normalized[10] is None

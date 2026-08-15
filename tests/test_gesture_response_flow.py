@@ -68,6 +68,7 @@ def test_ai_worker_normalize_response_payload_adds_empty_gesture_for_legacy_payl
         {"action": "none"},
         [{"title": "가벼운 확인"}],
         "",
+        None,
     )
 
 

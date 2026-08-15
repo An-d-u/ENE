@@ -6,6 +6,7 @@ from PyQt6.QtCore import QCoreApplication
 
 from src.ai.response_protocol import ResponseDeliveryMetadata
 from src.core.bridge import AIWorker, WebBridge
+from src.core.bridge_workers import _UnsupportedResponseFormatError
 from src.core.bridge_mixins import chat_flow as chat_flow_module
 from tests.test_bridge_promise_reminders import build_promise_bridge_dummy
 
@@ -44,7 +45,7 @@ class MetadataClient:
         }
 
 
-def test_ai_worker_captures_metadata_without_changing_response_signal_shape():
+def test_ai_worker_captures_metadata_with_mood_analysis_signal_slot():
     _ensure_qt_app()
     emitted = []
     worker = AIWorker(MetadataClient(), "합성 입력", use_memory=False)
@@ -52,14 +53,96 @@ def test_ai_worker_captures_metadata_without_changing_response_signal_shape():
 
     worker.run()
 
-    assert len(emitted[0]) == 11
+    assert len(emitted[0]) == 12
     assert json.loads(emitted[0][5]) == {
         "input_tokens": None,
         "output_tokens": None,
         "total_tokens": None,
     }
-    assert len(worker._normalize_response_payload(FINAL_PAYLOAD)) == 10
+    assert emitted[0][11] == ""
+    assert len(worker._normalize_response_payload(FINAL_PAYLOAD)) == 11
     assert worker.response_metadata == STRUCTURED_METADATA
+
+
+def test_ai_worker_normalizes_legacy_and_new_response_payloads_to_eleven_values():
+    worker = AIWorker.__new__(AIWorker)
+    legacy_four = ("합성 답변", "normal", None, [])
+    legacy_ten = FINAL_PAYLOAD
+    mood_analysis = {"valence": 0.25, "label": "차분함"}
+    new_eleven = (*FINAL_PAYLOAD, mood_analysis)
+
+    assert worker._normalize_response_payload(legacy_four) == (
+        "합성 답변",
+        "normal",
+        None,
+        [],
+        {},
+        [],
+        "",
+        {},
+        [],
+        "",
+        None,
+    )
+    assert worker._normalize_response_payload(legacy_ten) == (*legacy_ten, None)
+    assert worker._normalize_response_payload(new_eleven) is new_eleven
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        ["합성 답변", "normal", None, []],
+        (*FINAL_PAYLOAD, None, "extra"),
+    ],
+)
+def test_ai_worker_keeps_rejecting_unsupported_response_payloads(payload):
+    worker = AIWorker.__new__(AIWorker)
+
+    with pytest.raises(_UnsupportedResponseFormatError):
+        worker._normalize_response_payload(payload)
+
+
+@pytest.mark.parametrize(
+    ("mood_analysis", "expected_payload"),
+    [
+        ({"label": "차분함", "valence": 0.25}, '{"label":"차분함","valence":0.25}'),
+        (None, ""),
+    ],
+)
+def test_ai_worker_emits_stable_mood_analysis_json(mood_analysis, expected_payload):
+    _ensure_qt_app()
+
+    class MoodPayloadClient(MetadataClient):
+        def send_message(self, _message):
+            return (*FINAL_PAYLOAD, mood_analysis)
+
+    emitted = []
+    worker = AIWorker(MoodPayloadClient(), "합성 입력", use_memory=False)
+    worker.response_ready.connect(lambda *args: emitted.append(args))
+
+    worker.run()
+
+    assert emitted[0][11] == expected_payload
+
+
+def test_ai_worker_keeps_response_when_mood_analysis_is_not_json_serializable():
+    _ensure_qt_app()
+
+    class MoodPayloadClient(MetadataClient):
+        def send_message(self, _message):
+            return (*FINAL_PAYLOAD, {"invalid": object()})
+
+    emitted = []
+    errors = []
+    worker = AIWorker(MoodPayloadClient(), "합성 입력", use_memory=False)
+    worker.response_ready.connect(lambda *args: emitted.append(args))
+    worker.error_occurred.connect(errors.append)
+
+    worker.run()
+
+    assert emitted[0][0] == "합성 답변"
+    assert emitted[0][11] == ""
+    assert errors == []
 
 
 def test_ai_worker_clears_stale_metadata_before_request_and_on_error():
@@ -255,6 +338,7 @@ def test_queued_response_consumes_only_its_source_worker_metadata(monkeypatch, f
         "",
         "",
         [],
+        "",
         "",
     )
 
