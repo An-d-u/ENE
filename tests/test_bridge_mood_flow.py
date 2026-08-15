@@ -3,6 +3,9 @@ from datetime import datetime
 from uuid import UUID
 
 from src.core.bridge import WebBridge
+from src.core.bridge_mixins.chat_flow import ChatFlowBridgeMixin
+from src.core.bridge_state import LifeRecordBridgeState
+from src.ai.response_protocol import ResponseDeliveryMetadata
 
 
 class _DummySignal:
@@ -11,6 +14,38 @@ class _DummySignal:
 
     def emit(self, *args):
         self.emitted.append(args)
+
+
+class _DummyWorker:
+    def __init__(self):
+        self.response_metadata = ResponseDeliveryMetadata.empty()
+
+    def isRunning(self):
+        return False
+
+
+class _RaisingSettings(dict):
+    def __init__(self):
+        super().__init__()
+        self._raised = False
+
+    def get(self, key, default=None):
+        if not self._raised:
+            self._raised = True
+            raise RuntimeError("synthetic settings getter failure")
+        return super().get(key, default)
+
+
+def _begin_dummy_normal_operation(dummy):
+    state = LifeRecordBridgeState()
+    operation_id = state.try_begin_operation("normal_reply")
+    worker = _DummyWorker()
+    dummy.life_record_state = state
+    dummy.worker = worker
+    dummy._finish_normal_operation = lambda value: ChatFlowBridgeMixin._finish_normal_operation(
+        dummy, value
+    )
+    return operation_id, worker
 
 
 class _DummyMoodManager:
@@ -75,6 +110,7 @@ def test_on_response_ready_applies_owned_mood_event_once_and_ignores_legacy_anal
     dummy._collect_promise_ids = lambda items=None: []
     dummy._clear_active_promise_tracking = lambda promise_id="": None
     dummy._mark_promise_completed = lambda promise_id="": None
+    dummy._are_ene_thoughts_enabled = lambda: False
     dummy.settings = {
         "enable_mood_system": True,
         "enable_response_analysis": True,
@@ -87,6 +123,7 @@ def test_on_response_ready_applies_owned_mood_event_once_and_ignores_legacy_anal
         "mood_occurred_at": occurred_at,
         "mood_finalized": False,
     }
+    operation_id, worker = _begin_dummy_normal_operation(dummy)
 
     WebBridge._on_response_ready(
         dummy,
@@ -102,6 +139,8 @@ def test_on_response_ready_applies_owned_mood_event_once_and_ignores_legacy_anal
         [],
         "",
         json.dumps(_valid_mood_analysis()),
+        response_worker=worker,
+        operation_id=operation_id,
         expected_mood_event_id=event_id,
         expected_mood_occurred_at=occurred_at,
     )
@@ -112,6 +151,155 @@ def test_on_response_ready_applies_owned_mood_event_once_and_ignores_legacy_anal
     assert dummy._last_request_payload["mood_finalized"] is True
     captured = capsys.readouterr()
     assert event_id not in captured.out + captured.err
+
+
+def test_response_without_current_normal_operation_never_finalizes_mood():
+    bridge = WebBridge(
+        settings={"enable_mood_system": True, "enable_response_analysis": True}
+    )
+    manager = _DummyMoodManager()
+    bridge.mood_manager = manager
+    event_id = "51f64911-b878-4d6b-ad17-25d4d635c79a"
+    occurred_at = "2099-01-01T00:00:00+00:00"
+    bridge._last_request_payload = {
+        "type": "text",
+        "mood_event_id": event_id,
+        "mood_occurred_at": occurred_at,
+        "mood_finalized": False,
+    }
+
+    bridge._on_response_ready(
+        "Synthetic reply without operation.",
+        "normal",
+        "",
+        [],
+        mood_analysis_payload=json.dumps(_valid_mood_analysis()),
+        expected_mood_event_id=event_id,
+        expected_mood_occurred_at=occurred_at,
+    )
+
+    assert manager.calls == []
+    assert bridge._last_request_payload["mood_finalized"] is False
+
+
+def test_direct_response_handler_without_operation_never_finalizes_mood():
+    bridge = WebBridge(
+        settings={"enable_mood_system": True, "enable_response_analysis": False}
+    )
+    manager = _DummyMoodManager()
+    bridge.mood_manager = manager
+    event_id = "81909243-8b27-49ed-a6af-65a3fa162df8"
+    occurred_at = "2099-01-01T00:00:00+00:00"
+    bridge._last_request_payload = {
+        "type": "text",
+        "mood_event_id": event_id,
+        "mood_occurred_at": occurred_at,
+        "mood_finalized": False,
+    }
+
+    bridge._handle_response_ready(
+        "Synthetic direct reply.",
+        "normal",
+        "",
+        [],
+        expected_mood_event_id=event_id,
+        expected_mood_occurred_at=occurred_at,
+        normal_operation_id=None,
+    )
+
+    assert manager.calls == []
+    assert bridge._last_request_payload["mood_finalized"] is False
+
+
+def test_mood_manager_property_failure_keeps_visible_response(monkeypatch, capsys):
+    bridge = WebBridge(
+        settings={"enable_mood_system": True, "enable_response_analysis": True}
+    )
+    event_id = "3acf0cf0-dd66-42c6-855f-a55b9a052e65"
+    occurred_at = "2099-01-01T00:00:00+00:00"
+    bridge._last_request_payload = {
+        "type": "text",
+        "mood_event_id": event_id,
+        "mood_occurred_at": occurred_at,
+        "mood_finalized": False,
+    }
+    worker = _DummyWorker()
+    operation_id = bridge.life_record_state.try_begin_operation("normal_reply")
+    bridge.worker = worker
+    received = []
+    bridge.message_received.connect(lambda *args: received.append(args))
+    monkeypatch.setattr(
+        WebBridge,
+        "mood_manager",
+        property(
+            lambda _self: (_ for _ in ()).throw(
+                RuntimeError("synthetic manager lookup failure")
+            )
+        ),
+        raising=False,
+    )
+
+    bridge._on_response_ready(
+        "Synthetic visible reply.",
+        "normal",
+        "",
+        [],
+        mood_analysis_payload=json.dumps(_valid_mood_analysis()),
+        response_worker=worker,
+        operation_id=operation_id,
+        expected_mood_event_id=event_id,
+        expected_mood_occurred_at=occurred_at,
+    )
+
+    assert received == [("Synthetic visible reply.", "normal", "")]
+    assert bridge.conversation_buffer[-1][0:2] == (
+        "assistant",
+        "Synthetic visible reply.",
+    )
+    assert bridge._last_request_payload["mood_finalized"] is False
+    captured = capsys.readouterr()
+    assert "synthetic manager lookup failure" not in captured.out + captured.err
+
+
+def test_settings_getter_failure_keeps_visible_response(capsys):
+    bridge = WebBridge(
+        settings={"enable_mood_system": True, "enable_response_analysis": True}
+    )
+    bridge.settings = _RaisingSettings()
+    bridge._are_ene_thoughts_enabled = lambda: False
+    bridge._check_auto_summarize = lambda: None
+    bridge._store_proactive_conversations = lambda *_args, **_kwargs: []
+    bridge.mood_manager = _DummyMoodManager()
+    event_id = "2f1ee4af-1644-4aa1-9008-af9bd11beadd"
+    occurred_at = "2099-01-01T00:00:00+00:00"
+    bridge._last_request_payload = {
+        "type": "text",
+        "mood_event_id": event_id,
+        "mood_occurred_at": occurred_at,
+        "mood_finalized": False,
+    }
+    worker = _DummyWorker()
+    operation_id = bridge.life_record_state.try_begin_operation("normal_reply")
+    bridge.worker = worker
+    received = []
+    bridge.message_received.connect(lambda *args: received.append(args))
+
+    bridge._on_response_ready(
+        "Synthetic settings-safe reply.",
+        "normal",
+        "",
+        [],
+        mood_analysis_payload=json.dumps(_valid_mood_analysis()),
+        response_worker=worker,
+        operation_id=operation_id,
+        expected_mood_event_id=event_id,
+        expected_mood_occurred_at=occurred_at,
+    )
+
+    assert received == [("Synthetic settings-safe reply.", "normal", "")]
+    assert bridge._last_request_payload["mood_finalized"] is False
+    captured = capsys.readouterr()
+    assert "synthetic settings getter failure" not in captured.out + captured.err
 
 
 def test_mood_event_context_is_uuid4_and_canonical_utc_seconds():
@@ -150,12 +338,14 @@ def test_stale_or_duplicate_mood_callback_does_not_apply_again():
         "mood_occurred_at": old_time,
         "mood_finalized": False,
     }
+    operation_id, _worker = _begin_dummy_normal_operation(dummy)
 
     WebBridge._finalize_owned_mood_event(
         dummy,
         json.dumps(_valid_mood_analysis()),
         expected_mood_event_id=old_id,
         expected_mood_occurred_at=old_time,
+        normal_operation_id=operation_id,
     )
     assert manager.calls == []
 
@@ -165,17 +355,19 @@ def test_stale_or_duplicate_mood_callback_does_not_apply_again():
         json.dumps(_valid_mood_analysis()),
         expected_mood_event_id=old_id,
         expected_mood_occurred_at=old_time,
+        normal_operation_id=operation_id,
     )
     WebBridge._finalize_owned_mood_event(
         dummy,
         json.dumps(_valid_mood_analysis()),
         expected_mood_event_id=old_id,
         expected_mood_occurred_at=old_time,
+        normal_operation_id=operation_id,
     )
     assert len(manager.calls) == 1
 
 
-def test_invalid_analysis_is_finalized_without_apply_or_advance():
+def test_invalid_analysis_stays_unfinalized_then_valid_retry_can_apply():
     dummy = type("BridgeDummy", (), {})()
     dummy.mood_manager = _DummyMoodManager()
     dummy.settings = {"enable_mood_system": True, "enable_response_analysis": True}
@@ -187,6 +379,7 @@ def test_invalid_analysis_is_finalized_without_apply_or_advance():
         "mood_occurred_at": occurred_at,
         "mood_finalized": False,
     }
+    operation_id, _worker = _begin_dummy_normal_operation(dummy)
     invalid = _valid_mood_analysis()
     invalid["event"]["event_id"] = event_id
 
@@ -195,9 +388,20 @@ def test_invalid_analysis_is_finalized_without_apply_or_advance():
         json.dumps(invalid),
         expected_mood_event_id=event_id,
         expected_mood_occurred_at=occurred_at,
+        normal_operation_id=operation_id,
     )
 
     assert dummy.mood_manager.calls == []
+    assert dummy._last_request_payload["mood_finalized"] is False
+
+    WebBridge._finalize_owned_mood_event(
+        dummy,
+        json.dumps(_valid_mood_analysis()),
+        expected_mood_event_id=event_id,
+        expected_mood_occurred_at=occurred_at,
+        normal_operation_id=operation_id,
+    )
+    assert len(dummy.mood_manager.calls) == 1
     assert dummy._last_request_payload["mood_finalized"] is True
 
 
@@ -214,18 +418,21 @@ def test_analysis_disabled_advances_once_and_apply_failure_is_fail_safe(capsys):
         "mood_finalized": False,
     }
     dummy._emit_mood_changed = lambda snapshot: None
+    operation_id, _worker = _begin_dummy_normal_operation(dummy)
 
     WebBridge._finalize_owned_mood_event(
         dummy,
         "",
         expected_mood_event_id=event_id,
         expected_mood_occurred_at=occurred_at,
+        normal_operation_id=operation_id,
     )
     WebBridge._finalize_owned_mood_event(
         dummy,
         "",
         expected_mood_event_id=event_id,
         expected_mood_occurred_at=occurred_at,
+        normal_operation_id=operation_id,
     )
     assert dummy.mood_manager.calls == [("advance", occurred_at)]
 
@@ -239,11 +446,13 @@ def test_analysis_disabled_advances_once_and_apply_failure_is_fail_safe(capsys):
         "mood_finalized": False,
     }
     failing._emit_mood_changed = lambda snapshot: None
+    failing_operation_id, _worker = _begin_dummy_normal_operation(failing)
     WebBridge._finalize_owned_mood_event(
         failing,
         json.dumps(_valid_mood_analysis()),
         expected_mood_event_id=event_id,
         expected_mood_occurred_at=occurred_at,
+        normal_operation_id=failing_operation_id,
     )
     assert failing._last_request_payload["mood_finalized"] is True
     captured = capsys.readouterr()

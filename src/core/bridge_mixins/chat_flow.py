@@ -158,49 +158,71 @@ class ChatFlowBridgeMixin:
         *,
         expected_mood_event_id: str = "",
         expected_mood_occurred_at: str = "",
+        normal_operation_id: int | None = None,
     ) -> None:
         """현재 일반 채팅 payload가 소유한 기분 사건을 정확히 한 번 마감한다."""
-        event_id = str(expected_mood_event_id or "").strip()
-        occurred_at = str(expected_mood_occurred_at or "").strip()
-        payload = getattr(self, "_last_request_payload", None)
-        if (
-            not event_id
-            or not occurred_at
-            or type(payload) is not dict
-            or payload.get("type") not in {"text", "images", "attachments"}
-            or str(payload.get("mood_event_id", "")).strip() != event_id
-            or str(payload.get("mood_occurred_at", "")).strip() != occurred_at
-            or payload.get("mood_finalized") is True
-        ):
-            return
-
-        # manager 실패 뒤 리롤/중복 callback이 같은 사건을 다시 적용하지 않도록 먼저 소비한다.
-        payload["mood_finalized"] = True
-        manager = getattr(self, "mood_manager", None)
-        settings = getattr(self, "settings", None)
-        getter = getattr(settings, "get", None)
-        mood_enabled = getter("enable_mood_system", True) is True if callable(getter) else True
-        analysis_enabled = (
-            getter("enable_response_analysis", True) is True if callable(getter) else True
-        )
-        if manager is None or not mood_enabled:
-            return
-
-        snapshot = None
         try:
-            if not analysis_enabled:
-                advance = getattr(manager, "advance_time_and_save", None)
-                if callable(advance):
-                    snapshot = advance(occurred_at)
-            else:
+            event_id = str(expected_mood_event_id or "").strip()
+            occurred_at = str(expected_mood_occurred_at or "").strip()
+            state = getattr(self, "life_record_state", None)
+            if (
+                type(normal_operation_id) is not int
+                or state is None
+                or not state.matches_operation(normal_operation_id, "normal_reply")
+            ):
+                return
+            payload = getattr(self, "_last_request_payload", None)
+            if (
+                not event_id
+                or not occurred_at
+                or type(payload) is not dict
+                or payload.get("type") not in {"text", "images", "attachments"}
+                or str(payload.get("mood_event_id", "")).strip() != event_id
+                or str(payload.get("mood_occurred_at", "")).strip() != occurred_at
+                or payload.get("mood_finalized") is True
+            ):
+                return
+
+            settings = getattr(self, "settings", None)
+            getter = getattr(settings, "get", None)
+            mood_enabled = (
+                getter("enable_mood_system", True) is True
+                if callable(getter)
+                else True
+            )
+            analysis_enabled = (
+                getter("enable_response_analysis", True) is True
+                if callable(getter)
+                else True
+            )
+            if not mood_enabled:
+                return
+
+            analysis = None
+            if analysis_enabled:
                 analysis = ChatFlowBridgeMixin._strict_mood_analysis(
                     mood_analysis_payload
                 )
                 if analysis is None:
                     return
+
+            manager = getattr(self, "mood_manager", None)
+            if manager is None:
+                return
+
+            snapshot = None
+            if analysis_enabled:
                 apply_event = getattr(manager, "apply_event", None)
-                if callable(apply_event):
-                    snapshot = apply_event(event_id, analysis, occurred_at)
+                if not callable(apply_event):
+                    return
+                payload["mood_finalized"] = True
+                snapshot = apply_event(event_id, analysis, occurred_at)
+            else:
+                advance = getattr(manager, "advance_time_and_save", None)
+                if not callable(advance):
+                    return
+                payload["mood_finalized"] = True
+                snapshot = advance(occurred_at)
         except Exception as exc:
             print(
                 "[Bridge] mood_finalize_failed category=local_error "
@@ -1379,6 +1401,7 @@ class ChatFlowBridgeMixin:
             mood_analysis_payload,
             expected_mood_event_id=expected_mood_event_id,
             expected_mood_occurred_at=expected_mood_occurred_at,
+            normal_operation_id=normal_operation_id,
         )
         analysis = {}
         if analysis_payload:

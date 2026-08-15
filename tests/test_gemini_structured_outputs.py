@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from copy import deepcopy
 from types import SimpleNamespace
 
@@ -7,6 +8,7 @@ import pytest
 import subprocess
 import sys
 
+from src.ai.llm_client import _mood_policy_callbacks as _gemini_mood_policy_callbacks
 from src.ai.response_envelope import RESPONSE_ENVELOPE_V1_SCHEMA
 from src.ai.response_protocol import (
     LLMRequestKind,
@@ -39,6 +41,17 @@ MOOD_CONTEXT = {
     "event_id": "5ef84bc0-6850-41a5-8fc6-ed21c267370e",
     "occurred_at_utc": "2099-01-01T00:00:00+00:00",
 }
+
+
+class _HostileMoodContext(Mapping):
+    def __getitem__(self, _key):
+        raise RuntimeError("synthetic hostile mapping access")
+
+    def __iter__(self):
+        raise RuntimeError("synthetic hostile mapping iteration")
+
+    def __len__(self):
+        return 2
 
 
 class _PreviewingMoodManager:
@@ -119,6 +132,30 @@ class _FaultyCallbackMoodManager:
             }
 
         return preview
+
+
+@pytest.mark.parametrize(
+    "context",
+    [
+        {"event_id": "not-a-uuid", "occurred_at_utc": MOOD_CONTEXT["occurred_at_utc"]},
+        {"event_id": MOOD_CONTEXT["event_id"].upper(), "occurred_at_utc": MOOD_CONTEXT["occurred_at_utc"]},
+        {"event_id": MOOD_CONTEXT["event_id"], "occurred_at_utc": "2099-01-01T00:00:00Z"},
+        {"event_id": MOOD_CONTEXT["event_id"], "occurred_at_utc": "2099-01-01T00:00:00.000000+00:00"},
+        _HostileMoodContext(),
+    ],
+)
+def test_gemini_malformed_mood_context_uses_peek_only(context):
+    manager = _PreviewingMoodManager()
+    client = SimpleNamespace(mood_manager=manager)
+
+    snapshot_provider, preview = _gemini_mood_policy_callbacks(
+        client,
+        enabled=True,
+        mood_event_context=context,
+    )
+
+    assert snapshot_provider is not None
+    assert preview is None
 
 
 def test_gemini_final_reply_config_uses_json_schema_and_json_mime_type(

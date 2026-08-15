@@ -7,6 +7,7 @@ from datetime import datetime
 import hashlib
 import re
 from typing import Tuple, List, Dict, Mapping
+from uuid import UUID
 
 from google import genai
 
@@ -127,18 +128,29 @@ def _mood_policy_callbacks(
     snapshot_provider = peek_snapshot if callable(peek_snapshot) else None
     if not callable(preview_event):
         return snapshot_provider, None
-    if not isinstance(mood_event_context, Mapping):
-        return snapshot_provider, None
-    if set(mood_event_context) != {"event_id", "occurred_at_utc"}:
-        return snapshot_provider, None
-    preview_event_id = mood_event_context.get("event_id")
-    occurred_at_utc = mood_event_context.get("occurred_at_utc")
-    if (
-        type(preview_event_id) is not str
-        or not preview_event_id.strip()
-        or type(occurred_at_utc) is not str
-        or not occurred_at_utc.strip()
-    ):
+    try:
+        if not isinstance(mood_event_context, Mapping):
+            return snapshot_provider, None
+        if set(mood_event_context) != {"event_id", "occurred_at_utc"}:
+            return snapshot_provider, None
+        preview_event_id = mood_event_context.get("event_id")
+        occurred_at_utc = mood_event_context.get("occurred_at_utc")
+        if type(preview_event_id) is not str or type(occurred_at_utc) is not str:
+            return snapshot_provider, None
+        parsed_event_id = UUID(preview_event_id)
+        parsed_time = datetime.fromisoformat(occurred_at_utc)
+        if (
+            parsed_event_id.version != 4
+            or str(parsed_event_id) != preview_event_id
+            or len(occurred_at_utc) != 25
+            or not occurred_at_utc.endswith("+00:00")
+            or parsed_time.utcoffset() is None
+            or parsed_time.utcoffset().total_seconds() != 0
+            or parsed_time.microsecond != 0
+            or parsed_time.isoformat(timespec="seconds") != occurred_at_utc
+        ):
+            return snapshot_provider, None
+    except Exception:
         return snapshot_provider, None
 
     def preview(analysis):
