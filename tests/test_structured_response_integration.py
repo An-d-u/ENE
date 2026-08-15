@@ -115,7 +115,8 @@ def _run_final_response_flow(
 
     assert errors == []
     assert len(signal_payloads) == 1
-    assert len(signal_payloads[0]) == 11
+    assert len(signal_payloads[0]) == 12
+    assert signal_payloads[0][11] == ""
     return client, bridge, signal_payloads[0]
 
 
