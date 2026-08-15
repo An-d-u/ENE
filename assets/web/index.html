@@ -139,6 +139,21 @@
                 <div class="mood-meter-track"><div id="mood-meter-stress" class="mood-meter-fill mood-meter-fill-stress"></div></div>
             </div>
         </div>
+        <div id="mood-status-details" style="min-height: 72px; margin-top: 8px;">
+            <div id="mood-detail-primary-row" class="mood-meter-row">
+                <span id="mood-detail-primary-label" class="mood-meter-name" style="width: 48px;">주 감정</span>
+                <span id="mood-detail-primary" style="font-size: 11px;"></span>
+            </div>
+            <div id="mood-detail-secondary-row" class="mood-meter-row hidden" hidden style="display: none;">
+                <span id="mood-detail-secondary-label" class="mood-meter-name" style="width: 48px;">보조 감정</span>
+                <span id="mood-detail-secondary" style="font-size: 11px;"></span>
+            </div>
+            <div id="mood-detail-trust-row" class="mood-meter-row">
+                <span id="mood-detail-trust-label" class="mood-meter-name" style="width: 48px;">신뢰</span>
+                <div class="mood-meter-track"><div id="mood-detail-trust" class="mood-meter-fill"></div></div>
+            </div>
+        </div>
+        <button id="mood-state-reset-btn" type="button" aria-label="기분 상태 초기화" style="width: 100%; min-height: 44px; margin-top: 8px; border: 1px solid var(--ene-floating-panel-border); border-radius: 8px; background: var(--ene-floating-panel-button-bg); color: var(--ene-floating-panel-text); cursor: pointer;">상태 초기화</button>
     </div>
 
     <div id="summary-confirm-overlay" class="hidden" role="dialog" aria-modal="true" aria-labelledby="summary-confirm-title">

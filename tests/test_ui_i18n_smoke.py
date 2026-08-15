@@ -5089,6 +5089,12 @@ def test_chat_web_script_has_runtime_i18n_hooks():
     assert "chatInput.placeholder = currentUiStrings.input.placeholder;" in content
     assert "sendButton.textContent = currentUiStrings.send;" in content
     assert "moodStatusLabel.textContent = formatMoodStatusText(label, temporaryState);" in content
+    assert "moodResetButton.textContent = currentUiStrings.mood.reset;" in content
+    assert "moodResetButton.setAttribute('aria-label', currentUiStrings.mood.reset);" in content
+    assert "moodPrimaryLabel.textContent = currentUiStrings.mood.primaryEmotion;" in content
+    assert "moodSecondaryLabel.textContent = currentUiStrings.mood.secondaryEmotion;" in content
+    assert "moodTrustLabel.textContent = currentUiStrings.mood.trust;" in content
+    assert "ko: {" in content and "en: {" in content and "ja: {" in content
     assert "promiseRemindersButton.textContent = currentUiStrings.actions.promises.label;" in content
     assert "proactiveConversationsButton.textContent = currentUiStrings.actions.proactive.label;" in content
     assert "live2dParametersButton.textContent = currentUiStrings.actions.live2dParameters.label;" in content
@@ -5410,6 +5416,12 @@ def test_chat_web_assets_translate_mood_axis_labels_and_center_floating_buttons(
     assert 'id="mood-meter-name-bond"' in html_content
     assert 'id="mood-meter-name-energy"' in html_content
     assert 'id="mood-meter-name-stress"' in html_content
+    assert 'id="mood-detail-primary"' in html_content
+    assert 'id="mood-detail-secondary"' in html_content
+    assert 'id="mood-detail-trust"' in html_content
+    assert 'id="mood-state-reset-btn"' in html_content
+    assert 'aria-label="기분 상태 초기화"' in html_content
+    assert 'min-height: 44px' in html_content
     assert 'id="goal-toggle-floating-btn"' in html_content
     assert 'id="goal-status-panel"' in html_content
     assert 'id="goal-status-list"' in html_content
@@ -5417,6 +5429,12 @@ def test_chat_web_assets_translate_mood_axis_labels_and_center_floating_buttons(
     assert "moodMeterNameBond.textContent = currentUiStrings.mood.axis.bond;" in script_content
     assert "moodMeterNameEnergy.textContent = currentUiStrings.mood.axis.energy;" in script_content
     assert "moodMeterNameStress.textContent = currentUiStrings.mood.axis.stress;" in script_content
+    assert "function applyMoodSnapshot(snapshot)" in script_content
+    assert "secondaryRow.classList.toggle('hidden', !secondaryEmotion);" in script_content
+    assert "setMoodMeterWidth(trustMeter, normalizeMoodAxis(trust));" in script_content
+    assert "window.confirm(strings.resetConfirm)" in script_content
+    assert "window.pyBridge.reset_mood_state(true" in script_content
+    assert "moodResetButton.disabled = true;" in script_content
     assert "proactive-conversation-item" in css_content
     assert "goal-status-item" in css_content
     assert "justify-content: center;" in css_content

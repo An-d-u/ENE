@@ -70,6 +70,25 @@ class _DummyMoodManager:
         return {"current_mood": "calm"}
 
 
+class _ResettableMoodManager:
+    def __init__(self, *, fail=False):
+        self.calls = []
+        self.fail = fail
+
+    def reset_state(self):
+        self.calls.append("reset")
+        if self.fail:
+            raise RuntimeError("synthetic private reset detail")
+        return {
+            "current_mood": "calm",
+            "temporary_state": "steady",
+            "background": {"valence": 0.0, "activity": 0.0, "tension": 0.0},
+            "relationship": {"affection": 0.0, "trust": 0.0},
+            "primary_emotion": "joy",
+            "secondary_emotion": None,
+        }
+
+
 def _valid_mood_analysis():
     return {
         "event": {
@@ -147,6 +166,48 @@ def test_emit_mood_changed_keeps_legacy_aliases_and_handles_malformed_snapshot()
         ("calm", 0.0, 0.0, 0.0, 0.0, "steady"),
         ("calm", 0.1, 0.2, 0.3, 0.4, "steady"),
     ]
+
+
+def test_reset_mood_state_requires_literal_confirmation_and_emits_six_argument_snapshot():
+    dummy = type("BridgeDummy", (), {})()
+    dummy.mood_manager = _ResettableMoodManager()
+    dummy.mood_changed = _DummySignal()
+    dummy._emit_mood_changed = lambda snapshot: WebBridge._emit_mood_changed(dummy, snapshot)
+
+    rejected = json.loads(WebBridge.reset_mood_state(dummy, False))
+    missing = json.loads(WebBridge.reset_mood_state(dummy))
+
+    assert rejected == {"ok": False, "error": "confirmation_required"}
+    assert missing == {"ok": False, "error": "confirmation_required"}
+    assert dummy.mood_manager.calls == []
+    assert dummy.mood_changed.emitted == []
+
+    accepted = json.loads(WebBridge.reset_mood_state(dummy, True))
+
+    assert accepted["ok"] is True
+    assert accepted["snapshot"]["primary_emotion"] == "joy"
+    assert dummy.mood_manager.calls == ["reset"]
+    assert dummy.mood_changed.emitted == [("calm", 0.0, 0.0, 0.0, 0.0, "steady")]
+    assert len(dummy.mood_changed.emitted[0]) == 6
+
+
+def test_reset_mood_state_is_safe_without_manager_or_when_reset_raises(capsys):
+    missing = type("BridgeDummy", (), {"mood_manager": None})()
+    assert json.loads(WebBridge.reset_mood_state(missing, True)) == {
+        "ok": False,
+        "error": "mood_manager_unavailable",
+    }
+
+    failing = type("BridgeDummy", (), {})()
+    failing.mood_manager = _ResettableMoodManager(fail=True)
+    failing.mood_changed = _DummySignal()
+
+    result = json.loads(WebBridge.reset_mood_state(failing, True))
+    captured = capsys.readouterr()
+
+    assert result == {"ok": False, "error": "reset_failed"}
+    assert failing.mood_changed.emitted == []
+    assert "synthetic private reset detail" not in captured.out + captured.err
 
 
 def test_on_response_ready_applies_owned_mood_event_once_and_ignores_legacy_analysis(capsys):

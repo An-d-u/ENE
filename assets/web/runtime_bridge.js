@@ -172,45 +172,11 @@ if (typeof QWebChannel !== 'undefined') {
         if (window.pyBridge.mood_changed) {
             window.pyBridge.mood_changed.connect(function (label, valence, energy, bond, stress, temporaryState) {
                 updateMoodWidget(label, temporaryState, valence, energy, bond, stress);
+                requestMoodSnapshot();
             });
         }
 
-        if (typeof window.pyBridge.get_mood_snapshot_json === 'function') {
-            const applyMoodSnapshot = (value) => {
-                if (!value) return;
-                let snapshot = null;
-                try {
-                    if (typeof value === 'string') {
-                        snapshot = JSON.parse(value);
-                    } else if (typeof value === 'object') {
-                        snapshot = value;
-                    } else {
-                        snapshot = JSON.parse(String(value));
-                    }
-                } catch (e) {
-                    console.warn("Failed to initialize mood widget:", e);
-                    return;
-                }
-
-                if (!snapshot) return;
-                updateMoodWidget(
-                    snapshot.current_mood,
-                    snapshot.temporary_state,
-                    snapshot.valence,
-                    snapshot.energy,
-                    snapshot.bond,
-                    snapshot.stress
-                );
-            };
-
-            try {
-                window.pyBridge.get_mood_snapshot_json(function (value) {
-                    applyMoodSnapshot(value);
-                });
-            } catch (e) {
-                console.warn("Failed to initialize mood widget:", e);
-            }
-        }
+        requestMoodSnapshot();
 
     });
 } else {

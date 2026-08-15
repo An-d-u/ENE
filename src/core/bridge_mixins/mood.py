@@ -79,3 +79,28 @@ class MoodBridgeMixin:
         except Exception as e:
             print(f"[Bridge] 기분 스냅샷 반환 실패: {e}")
             return ""
+
+    @pyqtSlot(bool, result=str)
+    def reset_mood_state(self, confirmed: bool = False) -> str:
+        """사용자가 명시적으로 확인한 경우에만 기분 상태를 초기화한다."""
+        if confirmed is not True:
+            return json.dumps({"ok": False, "error": "confirmation_required"})
+
+        try:
+            manager = getattr(self, "mood_manager", None)
+        except Exception:
+            manager = None
+        if manager is None:
+            return json.dumps({"ok": False, "error": "mood_manager_unavailable"})
+
+        try:
+            snapshot = manager.reset_state()
+            safe_snapshot = dict(snapshot) if isinstance(snapshot, Mapping) else {}
+            self._emit_mood_changed(safe_snapshot)
+            return json.dumps(
+                {"ok": True, "snapshot": safe_snapshot},
+                ensure_ascii=False,
+            )
+        except Exception:
+            print("[Bridge] mood_reset category=mood_reset_failed")
+            return json.dumps({"ok": False, "error": "reset_failed"})
