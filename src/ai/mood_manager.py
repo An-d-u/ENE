@@ -1,709 +1,459 @@
-"""
-ENE 기분 상태 관리자.
-LLM 분석 메타와 환경 신호를 기반으로 장기 기분과 단기 반응 성향을 관리한다.
-"""
+"""ENE Mood Engine V3의 저장소와 호환 facade."""
 from __future__ import annotations
 
-from datetime import datetime
+from collections.abc import Callable, Mapping
+from copy import deepcopy
+from datetime import datetime, timezone, tzinfo
+import json
+import math
+import os
 from pathlib import Path
-import re
 from typing import Any
+import uuid
 
-from ..core.app_paths import load_json_data, resolve_user_storage_path, save_json_data
-from .persona_names import resolve_prompt_persona_names
+from ..core.app_paths import resolve_user_storage_path
+from . import mood_engine
 from .prompt_language import resolve_prompt_language
 
 
+_EVENT_FIELDS = {
+    "kind",
+    "target_scope",
+    "relation_category",
+    "intensity",
+    "clarity",
+    "certainty",
+    "controllability",
+    "repair_signal",
+}
+_PROFILE_ALIASES = {
+    "calm": "calm",
+    "affectionate": "balanced",
+    "balanced": "balanced",
+    "playful": "expressive",
+    "expressive": "expressive",
+}
+
+
 class MoodManager:
-    """장기 기분 상태를 저장/업데이트하는 매니저."""
+    """V3 기분 상태의 검증, 원자 저장, 마이그레이션을 담당합니다."""
 
-    AXES = ("valence", "energy", "bond", "stress")
-    INTENT_ALIASES = {
-        "greeting_and_check_status": ("greeting", "check_in"),
-        "greeting_check_status": ("greeting", "check_in"),
-        "greeting_check_in": ("greeting", "check_in"),
-        "check_in": ("check_in",),
-        "checkin": ("check_in",),
-        "social_interaction": ("chat",),
-        "small_talk": ("chat",),
-        "ask_for_help": ("ask_help",),
-        "help_request": ("ask_help",),
-        "comfort_request": ("seek_comfort",),
-        "seek_support": ("seek_comfort",),
-    }
-    EMOTION_ALIASES = {
-        "fatigued": ("tired",),
-        "sleepy": ("tired",),
-        "playfulness": ("playful",),
-    }
-    FLAG_ALIASES = {
-        "interaction_start": ("greeting",),
-        "conversation_start": ("greeting",),
-        "check_in": ("check_in",),
-    }
-
-    PROFILE_BASELINES = {
-        "calm": {"valence": 0.02, "energy": 0.00, "bond": 0.08, "stress": -0.02},
-        "affectionate": {"valence": 0.10, "energy": 0.03, "bond": 0.22, "stress": -0.06},
-        "playful": {"valence": 0.12, "energy": 0.18, "bond": 0.14, "stress": -0.02},
-    }
-
-    HINT_TO_DELTA = {
-        "high_negative": -0.12,
-        "low_negative": -0.05,
-        "none": 0.0,
-        "low_positive": 0.04,
-        "high_positive": 0.10,
-    }
-
-    def __init__(self, state_file: str | Path | None = None, settings=None):
+    def __init__(
+        self,
+        state_file: str | Path | None = None,
+        settings: Any = None,
+        clock: Callable[[], datetime] | None = None,
+        local_timezone: tzinfo | None = None,
+    ):
         target_file = state_file if state_file is not None else "mood_state.json"
         self.state_path = resolve_user_storage_path(target_file)
         self.settings = settings
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._local_timezone = local_timezone or datetime.now().astimezone().tzinfo or timezone.utc
+        self._error_code: str | None = None
+        self._write_locked = False
+        self._last_primary_emotion: str | None = None
         self.state = self._load_state()
 
-    def _load_state(self) -> dict[str, Any]:
-        try:
-            loaded = load_json_data(self.state_path, encoding="utf-8-sig")
-            merged = self._default_state()
-            merged.update(loaded)
-            merged["axes"] = {**self._default_state()["axes"], **(loaded.get("axes") or {})}
-            merged["recent_events"] = list(loaded.get("recent_events") or [])[:30]
-            merged["temporary_state"] = str(loaded.get("temporary_state") or merged["temporary_state"])
-            return merged
-        except Exception as e:
-            if self.state_path.exists():
-                print(f"[Mood] 상태 로드 실패: {e}")
-        return self._default_state()
+    def _setting(self, key: str, default: Any) -> Any:
+        source = self.settings
+        if source is None:
+            return default
+        config = getattr(source, "config", source)
+        if isinstance(config, Mapping):
+            return config.get(key, default)
+        getter = getattr(source, "get", None)
+        if callable(getter):
+            return getter(key, default)
+        return default
 
-    def _default_state(self) -> dict[str, Any]:
-        profile = self._get_profile_name()
-        baseline = self.PROFILE_BASELINES.get(profile, self.PROFILE_BASELINES["affectionate"])
-        now = self._now_iso()
-        return {
-            "version": 2,
-            "profile": profile,
-            "axes": dict(baseline),
-            "current_mood": "calm",
-            "temporary_state": "steady",
-            "updated_at": now,
-            "recent_events": [],
-        }
-
-    def _save_state(self):
-        try:
-            save_json_data(
-                self.state_path,
-                self.state,
-                encoding="utf-8",
-                indent=2,
-                ensure_ascii=False,
-            )
-        except Exception as e:
-            print(f"[Mood] 상태 저장 실패: {e}")
-
-    def _now_iso(self) -> str:
-        return datetime.now().isoformat(timespec="seconds")
-
-    def _get_profile_name(self) -> str:
-        if self.settings and hasattr(self.settings, "config"):
-            return str(self.settings.config.get("mood_personality_profile", "affectionate")).strip() or "affectionate"
-        return "affectionate"
-
-    def _get_decay_per_hour(self) -> float:
-        base = 0.08
-        if self.settings and hasattr(self.settings, "config"):
-            base = float(self.settings.config.get("mood_decay_per_hour", base))
-        return max(0.01, min(base, 0.5))
-
-    def _get_speed_multiplier(self) -> float:
-        speed = "normal"
-        if self.settings and hasattr(self.settings, "config"):
-            speed = str(self.settings.config.get("mood_update_speed", speed)).strip().lower()
-        return {"slow": 0.7, "normal": 1.0, "fast": 1.4}.get(speed, 1.0)
+    def _preset(self) -> str:
+        raw = self._setting("mood_personality_profile", "affectionate")
+        if not isinstance(raw, str):
+            return "balanced"
+        return _PROFILE_ALIASES.get(raw.strip().lower(), "balanced")
 
     def _is_enabled(self) -> bool:
-        if self.settings and hasattr(self.settings, "config"):
-            return (
-                bool(self.settings.config.get("enable_mood_system", True))
-                and bool(self.settings.config.get("enable_response_analysis", True))
-            )
-        return True
+        return bool(self._setting("enable_mood_system", True))
 
-    def _parse_time(self, value: str | None) -> datetime | None:
-        if not value:
-            return None
+    def _now_utc(self) -> datetime:
+        value = self._clock()
+        if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("clock은 timezone-aware datetime을 반환해야 합니다.")
+        return value.astimezone(timezone.utc)
+
+    def _fresh_state(self, now_utc: datetime | None = None) -> dict[str, Any]:
+        return mood_engine.new_mood_state(now_utc or self._now_utc(), self._preset())
+
+    def _lock(self, error_code: str) -> None:
+        self._error_code = error_code
+        self._write_locked = True
+
+    def _load_state(self) -> dict[str, Any]:
+        fallback = self._fresh_state()
         try:
-            return datetime.fromisoformat(value)
-        except Exception:
-            return None
-
-    def _clip(self, value: float) -> float:
-        return max(-1.0, min(1.0, value))
-
-    def _clip_unit(self, value: float) -> float:
-        return max(0.0, min(1.0, value))
-
-    def _scale_delta_by_axis_state(self, current: float, delta: float) -> float:
-        if delta == 0.0:
-            return 0.0
-        if delta > 0:
-            headroom = max(0.0, min(1.0, (1.0 - current) / 2.0))
-        else:
-            headroom = max(0.0, min(1.0, (1.0 + current) / 2.0))
-        scale = 0.2 + (0.8 * headroom)
-        return delta * scale
-
-    def _parse_flags(self, raw_flags: str | list[str] | None) -> list[str]:
-        return self._parse_canonical_values(raw_flags, self.FLAG_ALIASES)
-
-    def _normalize_token(self, value: Any) -> str:
-        text = str(value or "").strip().lower()
-        if not text:
-            return ""
-        text = re.sub(r"[\s\-]+", "_", text)
-        text = re.sub(r"[^a-z0-9_,/]+", "_", text)
-        text = re.sub(r"_+", "_", text)
-        return text.strip("_")
-
-    def _split_raw_value(self, raw_value: str | list[str] | None) -> list[str]:
-        if isinstance(raw_value, list):
-            parts = [str(item) for item in raw_value]
-        elif isinstance(raw_value, str):
-            parts = re.split(r"[,/|]+", raw_value)
-        else:
-            return []
-        return [part.strip() for part in parts if str(part).strip()]
-
-    def _parse_canonical_values(
-        self,
-        raw_value: str | list[str] | None,
-        aliases: dict[str, tuple[str, ...]],
-    ) -> list[str]:
-        values: list[str] = []
-        for part in self._split_raw_value(raw_value):
-            normalized = self._normalize_token(part)
-            if not normalized:
-                continue
-            mapped = aliases.get(normalized, (normalized,))
-            for item in mapped:
-                canonical = self._normalize_token(item)
-                if canonical and canonical not in values:
-                    values.append(canonical)
-        return values
-
-    def _parse_intents(self, raw_value: str | list[str] | None) -> list[str]:
-        return self._parse_canonical_values(raw_value, self.INTENT_ALIASES)
-
-    def _parse_user_emotions(self, raw_value: str | list[str] | None) -> list[str]:
-        return self._parse_canonical_values(raw_value, self.EMOTION_ALIASES)
-
-    def _primary_intent(self, raw_value: str | list[str] | None) -> str:
-        intents = self._parse_intents(raw_value)
-        return intents[0] if intents else ""
-
-    def _parse_confidence(self, value: str | float | None) -> float:
-        if isinstance(value, str):
-            normalized = self._normalize_token(value)
-            confidence_words = {
-                "very_high": 1.0,
-                "high": 0.95,
-                "medium": 0.7,
-                "mid": 0.7,
-                "low": 0.4,
-                "very_low": 0.2,
-                "uncertain": 0.3,
-            }
-            if normalized in confidence_words:
-                parsed = confidence_words[normalized]
-            else:
-                try:
-                    parsed = float(value)
-                except (TypeError, ValueError):
-                    parsed = 0.75
-        else:
+            exists = self.state_path.exists()
+        except OSError:
+            self._lock("state_read_failed")
+            return fallback
+        if not exists:
+            return fallback
+        try:
+            original = self.state_path.read_bytes()
+        except OSError:
+            self._lock("state_read_failed")
+            return fallback
+        try:
+            loaded = json.loads(original.decode("utf-8-sig"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            self._lock("corrupt_state")
+            return fallback
+        if not isinstance(loaded, Mapping) or type(loaded.get("version")) is not int:
+            self._lock("corrupt_state")
+            return fallback
+        version = loaded["version"]
+        if version > 3:
+            self._lock("future_version")
+            return fallback
+        if version == 3:
             try:
-                parsed = float(value)
+                return mood_engine.validate_state(loaded)
             except (TypeError, ValueError):
-                parsed = 0.75
-        parsed = max(0.0, min(1.0, parsed))
-        return 0.35 + (0.65 * parsed)
+                self._lock("corrupt_state")
+                return fallback
+        if version != 2:
+            self._lock("corrupt_state")
+            return fallback
+        try:
+            validated_v2 = self._validate_v2(loaded)
+        except (TypeError, ValueError):
+            self._lock("corrupt_state")
+            return fallback
+        try:
+            migrated = self._migrate_v2(validated_v2)
+            migrated = mood_engine.validate_state(migrated)
+        except Exception:
+            self._lock("migration_failed")
+            return fallback
+        backup_path = self.state_path.with_name(f"{self.state_path.name}.v2.bak")
+        try:
+            if not backup_path.exists():
+                self._atomic_write_bytes(backup_path, original)
+            self._write_state(migrated)
+        except Exception:
+            self._lock("migration_failed")
+            return fallback
+        return migrated
 
-    def _hint_value(self, key: str) -> float:
-        return self.HINT_TO_DELTA.get(str(key or "none").strip().lower(), 0.0)
+    def _validate_v2(self, raw: Mapping[str, Any]) -> dict[str, Any]:
+        axes = raw.get("axes")
+        if not isinstance(axes, Mapping):
+            raise ValueError("V2 axes가 없습니다.")
+        validated_axes: dict[str, float] = {}
+        for field in ("valence", "energy", "bond", "stress"):
+            value = axes.get(field)
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError("V2 축 값의 타입이 올바르지 않습니다.")
+            number = float(value)
+            if not math.isfinite(number):
+                raise ValueError("V2 축 값은 유한해야 합니다.")
+            validated_axes[field] = max(-1.0, min(1.0, number))
+        profile = raw.get("profile", "affectionate")
+        if not isinstance(profile, str):
+            raise ValueError("V2 profile이 올바르지 않습니다.")
+        updated_at = raw.get("updated_at")
+        if not isinstance(updated_at, str):
+            raise ValueError("V2 updated_at이 올바르지 않습니다.")
+        try:
+            parsed = datetime.fromisoformat(updated_at)
+        except ValueError as exc:
+            raise ValueError("V2 updated_at이 올바르지 않습니다.") from exc
+        return {"profile": profile, "axes": validated_axes, "updated_at": parsed}
 
-    def _add_event(self, source: str, reason: str, deltas: dict[str, float], meta: dict[str, Any] | None = None):
-        item = {
-            "time": self._now_iso(),
-            "source": source,
-            "reason": reason,
-            "delta": {k: round(v, 4) for k, v in deltas.items() if abs(v) > 0.0001},
+    def _migrate_v2(self, validated: Mapping[str, Any]) -> dict[str, Any]:
+        updated_at = validated["updated_at"]
+        if updated_at.tzinfo is None or updated_at.utcoffset() is None:
+            updated_at = updated_at.replace(tzinfo=self._local_timezone)
+        updated_at_utc = updated_at.astimezone(timezone.utc)
+        preset = _PROFILE_ALIASES.get(str(validated["profile"]).strip().lower(), "balanced")
+        state = mood_engine.new_mood_state(updated_at_utc, preset)
+        axes = validated["axes"]
+        state["background"] = {
+            "valence": axes["valence"],
+            "energy": axes["energy"],
+            "tension": axes["stress"],
         }
-        if meta:
-            item["meta"] = meta
-        self.state["recent_events"].append(item)
-        self.state["recent_events"] = self.state["recent_events"][-30:]
+        state["relationship"] = {"affection": axes["bond"], "trust": 0.0}
+        return state
 
-    def _recent_events(self, source: str | None = None, limit: int = 6) -> list[dict[str, Any]]:
-        events = list(self.state.get("recent_events", []))
-        if source:
-            events = [item for item in events if item.get("source") == source]
-        return events[-limit:]
+    def _serialize_state(self, state: Mapping[str, Any]) -> bytes:
+        validated = mood_engine.validate_state(state)
+        text = json.dumps(validated, ensure_ascii=False, indent=2)
+        return (text + "\n").encode("utf-8")
 
-    def _get_repeat_scale(self, intent: str, flags: list[str]) -> float:
-        if not intent:
-            intent = "unknown"
-        intent = self._primary_intent(intent) or intent
-        recent = self._recent_events(source="user_analysis", limit=5)
-        same_intent_count = 0
-        for event in recent:
-            meta = event.get("meta") or {}
-            if self._primary_intent(meta.get("user_intent")) == intent:
-                same_intent_count += 1
+    def _atomic_write_bytes(self, destination: Path, payload: bytes) -> None:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = destination.with_name(f"{destination.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            with temp_path.open("xb") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temp_path, destination)
+        finally:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
-        scale = 1.0 - (same_intent_count * 0.22)
-        if "repeated_affection" in flags:
-            scale -= 0.15
-        if "repeated_praise" in flags:
-            scale -= 0.10
-        return max(0.35, scale)
+    def _write_state(self, candidate: Mapping[str, Any]) -> None:
+        self._atomic_write_bytes(self.state_path, self._serialize_state(candidate))
 
-    def _apply_decay(self):
-        now = datetime.now()
-        last = self._parse_time(self.state.get("updated_at"))
-        if last is None:
-            self.state["updated_at"] = self._now_iso()
-            return
+    def _coerce_occurred_at(self, value: datetime | str | None) -> datetime:
+        if value is None:
+            return self._now_utc()
+        if isinstance(value, datetime):
+            if value.tzinfo is None or value.utcoffset() is None:
+                raise ValueError("occurred_at_utc는 timezone-aware datetime이어야 합니다.")
+            return value.astimezone(timezone.utc)
+        if not isinstance(value, str):
+            raise TypeError("occurred_at_utc 타입이 올바르지 않습니다.")
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError as exc:
+            raise ValueError("occurred_at_utc 문자열이 올바르지 않습니다.") from exc
+        if parsed.tzinfo != timezone.utc or mood_engine.format_utc(parsed) != value:
+            raise ValueError("occurred_at_utc 문자열은 canonical UTC ISO 형식이어야 합니다.")
+        return parsed
 
-        elapsed_hours = max(0.0, (now - last).total_seconds() / 3600.0)
-        if elapsed_hours <= 0:
-            return
+    def _host_event(self, event_id: str, analysis: object) -> dict[str, Any]:
+        source: object = analysis
+        if isinstance(analysis, Mapping) and "event" in analysis:
+            source = analysis.get("event")
+        data = source if isinstance(source, Mapping) else {}
+        event = {field: deepcopy(data[field]) for field in _EVENT_FIELDS if field in data}
+        event["event_id"] = event_id
+        return event
 
-        profile = self._get_profile_name()
-        baseline = self.PROFILE_BASELINES.get(profile, self.PROFILE_BASELINES["affectionate"])
-        decay_factor = min(0.85, self._get_decay_per_hour() * elapsed_hours)
+    def _snapshot_for(self, state: Mapping[str, Any], *, update_hysteresis: bool) -> dict[str, Any]:
+        derived = mood_engine.derive_snapshot(state, self._last_primary_emotion)
+        primary = derived["primary_emotion"]
+        if update_hysteresis:
+            self._last_primary_emotion = primary if isinstance(primary, str) else None
+        stored = derived["state"]
+        background = deepcopy(stored["background"])
+        relationship = deepcopy(stored["relationship"])
+        active_affects = deepcopy(stored["active_affects"])
+        ruptures = deepcopy(stored["ruptures"])
+        temporary_state = self._legacy_temporary_state(primary)
+        current_mood = self._legacy_mood(background, relationship, temporary_state)
+        expression_traits = self._expression_traits(background, relationship, temporary_state)
+        return {
+            "version": stored["version"],
+            "revision": stored["revision"],
+            "preset": stored["preset"],
+            "profile": stored["preset"],
+            "background": background,
+            "relationship": relationship,
+            "active_affects": active_affects,
+            "ruptures": ruptures,
+            "primary_emotion": primary,
+            "secondary_emotion": derived["secondary_emotion"],
+            "behavior_guidance": derived["behavior_guidance"],
+            "valence": background["valence"],
+            "energy": background["energy"],
+            "bond": relationship["affection"],
+            "stress": background["tension"],
+            "current_mood": current_mood,
+            "temporary_state": temporary_state,
+            "expression_traits": expression_traits,
+            "updated_at": stored["updated_at_utc"],
+        }
 
-        axes = self.state.get("axes", {})
-        for axis in self.AXES:
-            current = float(axes.get(axis, 0.0))
-            target = float(baseline.get(axis, 0.0))
-            axes[axis] = self._clip(current + (target - current) * decay_factor)
+    @staticmethod
+    def _legacy_temporary_state(primary: object) -> str:
+        return {
+            "amusement": "playful",
+            "interest": "focused",
+            "hurt": "pout",
+            "anger": "guarded",
+            "anxiety": "guarded",
+            "sadness": "drained",
+        }.get(primary, "steady")
 
-        if elapsed_hours >= 1.5 and self.state.get("temporary_state") in {"pout", "guarded", "playful", "focused"}:
-            self.state["temporary_state"] = "steady"
-
-        self.state["profile"] = profile
-        self.state["updated_at"] = self._now_iso()
-
-    def _apply_deltas(self, deltas: dict[str, float]):
-        axes = self.state.get("axes", {})
-        for axis, delta in deltas.items():
-            if axis not in self.AXES:
-                continue
-            current = float(axes.get(axis, 0.0))
-            scaled_delta = self._scale_delta_by_axis_state(current, float(delta))
-            axes[axis] = self._clip(current + scaled_delta)
-        self.state["current_mood"] = self._infer_mood_label()
-        self.state["updated_at"] = self._now_iso()
-
-    def _infer_mood_label(self) -> str:
-        axes = self.state.get("axes", {})
-        valence = float(axes.get("valence", 0.0))
-        energy = float(axes.get("energy", 0.0))
-        bond = float(axes.get("bond", 0.0))
-        stress = float(axes.get("stress", 0.0))
-        temporary_state = self.state.get("temporary_state", "steady")
-
-        if stress >= 0.32 or temporary_state == "guarded":
+    @staticmethod
+    def _legacy_mood(background: Mapping[str, float], relationship: Mapping[str, float], temporary: str) -> str:
+        if background["tension"] >= 0.32 or temporary == "guarded":
             return "tense"
-        if temporary_state == "pout":
-            return "sensitive"
-        if energy <= -0.20 or temporary_state == "drained":
+        if background["energy"] <= -0.20 or temporary == "drained":
             return "tired"
-        if bond >= 0.34 and valence >= 0.12:
+        if relationship["affection"] >= 0.34 and background["valence"] >= 0.12:
             return "affectionate"
-        if valence >= 0.18 and energy >= 0.04:
+        if background["valence"] >= 0.18 and background["energy"] >= 0.04:
             return "cheerful"
         return "calm"
 
-    def _build_environment_deltas(self, text: str, image_count: int = 0) -> tuple[dict[str, float], list[str]]:
-        deltas = {"valence": 0.0, "energy": 0.0, "bond": 0.0, "stress": 0.0}
-        reasons: list[str] = []
-
-        if "?" in text:
-            deltas["energy"] += 0.02
-            reasons.append("대화 집중")
-
-        if len(text) >= 120:
-            deltas["energy"] -= 0.03
-            reasons.append("긴 대화 피로")
-
-        now_hour = datetime.now().hour
-        if now_hour >= 23 or now_hour < 6:
-            deltas["energy"] -= 0.03
-            deltas["stress"] += 0.02
-            reasons.append("심야 시간대")
-
-        if image_count > 0:
-            deltas["bond"] += min(0.03, 0.01 + image_count * 0.006)
-            deltas["valence"] += 0.01
-            reasons.append("이미지 공유")
-
-        mult = self._get_speed_multiplier()
-        return ({axis: value * mult for axis, value in deltas.items()}, reasons)
-
-    def _build_analysis_deltas(self, analysis: dict[str, Any], image_count: int = 0) -> tuple[dict[str, float], str]:
-        flags = self._parse_flags(analysis.get("flags"))
-        intents = self._parse_intents(analysis.get("user_intent"))
-        intent = intents[0] if intents else ""
-        confidence_scale = self._parse_confidence(analysis.get("confidence"))
-        repeat_scale = self._get_repeat_scale(intent, flags)
-        speed_scale = self._get_speed_multiplier()
-
-        deltas = {
-            "valence": self._hint_value(analysis.get("valence_delta_hint")),
-            "energy": self._hint_value(analysis.get("energy_delta_hint")),
-            "bond": self._hint_value(analysis.get("bond_delta_hint")),
-            "stress": self._hint_value(analysis.get("stress_delta_hint")),
+    @staticmethod
+    def _expression_traits(
+        background: Mapping[str, float], relationship: Mapping[str, float], temporary: str
+    ) -> dict[str, float]:
+        valence, energy, tension = (background["valence"], background["energy"], background["tension"])
+        affection, trust = relationship["affection"], relationship["trust"]
+        warmth_base = (affection + trust) / 2.0
+        bonuses = {
+            "playful": 0.20 if temporary == "playful" else 0.0,
+            "focused": 0.18 if temporary == "focused" else 0.0,
+            "guarded": 0.22 if temporary == "guarded" else 0.0,
+            "pout": 0.18 if temporary == "pout" else 0.0,
+            "drained": 0.20 if temporary == "drained" else 0.0,
+        }
+        clip = lambda value: round(max(0.0, min(1.0, value)), 3)
+        return {
+            "warmth": clip(0.45 + warmth_base * 0.45 + valence * 0.20 - tension * 0.20),
+            "initiative": clip(0.40 + energy * 0.35 + warmth_base * 0.20 + bonuses["focused"] - bonuses["guarded"]),
+            "teasing": clip(0.18 + energy * 0.25 + affection * 0.20 + bonuses["playful"] - bonuses["drained"]),
+            "guardedness": clip(0.22 + tension * 0.35 - trust * 0.18 + bonuses["guarded"]),
+            "sensitivity": clip(0.24 + tension * 0.30 + bonuses["pout"]),
+            "attachment_expression": clip(0.28 + affection * 0.42 + valence * 0.10 - bonuses["guarded"]),
+            "reply_length_bias": clip(0.42 + energy * 0.20 - tension * 0.10 - bonuses["drained"]),
         }
 
-        interaction_effect = self._normalize_token(analysis.get("interaction_effect"))
-        if interaction_effect == "positive":
-            deltas["valence"] += 0.01
-            deltas["bond"] += 0.01
-        elif interaction_effect == "negative":
-            deltas["valence"] -= 0.02
-            deltas["stress"] += 0.02
-        elif interaction_effect == "mixed":
-            deltas["stress"] += 0.01
-
-        user_emotions = self._parse_user_emotions(analysis.get("user_emotion"))
-        if any(emotion in {"sad", "anxious", "tired"} for emotion in user_emotions) and intent in {"ask_help", "seek_comfort"}:
-            deltas["bond"] += 0.02
-            deltas["stress"] -= 0.01
-        if "playful" in user_emotions and intent == "tease":
-            deltas["energy"] += 0.02
-        if "tired" in user_emotions:
-            deltas["energy"] -= 0.015
-        if intent in {"greeting", "check_in"} and interaction_effect == "positive":
-            deltas["bond"] += 0.01
-            deltas["valence"] += 0.005
-
-        if "late_night" in flags:
-            deltas["energy"] -= 0.02
-            deltas["stress"] += 0.02
-        if "needs_care" in flags:
-            deltas["bond"] += 0.01
-        if "direct_rejection" in flags:
-            deltas["bond"] -= 0.04
-            deltas["stress"] += 0.04
-        if "joking_unclear" in flags:
-            deltas["stress"] *= 0.7
-            deltas["valence"] *= 0.85
-
-        env_deltas, env_reasons = self._build_environment_deltas("", image_count=image_count)
-        for axis, value in env_deltas.items():
-            deltas[axis] += value
-
-        combined_scale = confidence_scale * repeat_scale * speed_scale
-        deltas = {axis: value * combined_scale for axis, value in deltas.items()}
-
-        reasons = [f"intent={intent or 'unknown'}", f"repeat={repeat_scale:.2f}", f"confidence={confidence_scale:.2f}"]
-        reasons.extend(env_reasons)
-        if flags:
-            reasons.append("flags=" + ",".join(flags))
-        return deltas, " / ".join(reasons)
-
-    def _derive_temporary_state(self, analysis: dict[str, Any] | None = None) -> str:
-        axes = self.state.get("axes", {})
-        energy = float(axes.get("energy", 0.0))
-        bond = float(axes.get("bond", 0.0))
-        stress = float(axes.get("stress", 0.0))
-
-        if analysis:
-            flags = self._parse_flags(analysis.get("flags"))
-            user_emotions = self._parse_user_emotions(analysis.get("user_emotion"))
-            intent = self._primary_intent(analysis.get("user_intent"))
-            interaction_effect = self._normalize_token(analysis.get("interaction_effect"))
-
-            if "direct_rejection" in flags:
-                return "guarded"
-            if intent == "tease" or "playful" in user_emotions:
-                return "playful"
-            if interaction_effect in {"negative", "mixed"} and bond >= 0.2:
-                return "pout"
-            if intent in {"ask_help", "seek_comfort"}:
-                return "focused"
-            if "late_night" in flags or "tired" in user_emotions:
-                return "drained"
-
-        if energy <= -0.25:
-            return "drained"
-        if stress >= 0.25:
-            return "guarded"
-        if bond >= 0.35 and stress <= 0.05:
-            return "steady"
-        return str(self.state.get("temporary_state") or "steady")
-
-    def _build_expression_traits(self) -> dict[str, float]:
-        axes = self.state.get("axes", {})
-        valence = float(axes.get("valence", 0.0))
-        energy = float(axes.get("energy", 0.0))
-        bond = float(axes.get("bond", 0.0))
-        stress = float(axes.get("stress", 0.0))
-        temporary_state = str(self.state.get("temporary_state") or "steady")
-
-        playful_bonus = 0.2 if temporary_state == "playful" else 0.0
-        focused_bonus = 0.18 if temporary_state == "focused" else 0.0
-        guarded_bonus = 0.22 if temporary_state == "guarded" else 0.0
-        pout_bonus = 0.18 if temporary_state == "pout" else 0.0
-        drained_penalty = 0.20 if temporary_state == "drained" else 0.0
-
-        traits = {
-            "warmth": self._clip_unit(0.45 + (bond * 0.45) + (valence * 0.20) - (stress * 0.20)),
-            "initiative": self._clip_unit(0.40 + (energy * 0.35) + (bond * 0.20) + focused_bonus - guarded_bonus),
-            "teasing": self._clip_unit(0.18 + (energy * 0.25) + (bond * 0.20) + playful_bonus - drained_penalty),
-            "guardedness": self._clip_unit(0.22 + (stress * 0.35) - (bond * 0.18) + guarded_bonus),
-            "sensitivity": self._clip_unit(0.24 + (stress * 0.30) + pout_bonus),
-            "attachment_expression": self._clip_unit(0.28 + (bond * 0.42) + (valence * 0.10) - guarded_bonus),
-            "reply_length_bias": self._clip_unit(0.42 + (energy * 0.20) - (stress * 0.10) - drained_penalty),
-        }
-        return {key: round(value, 3) for key, value in traits.items()}
-
-    def _build_behavior_guidance(self, snapshot: dict[str, Any], language: str = "ko") -> list[str]:
-        traits = snapshot["expression_traits"]
-        temporary_state = snapshot["temporary_state"]
-        language = resolve_prompt_language(language)
-        names = resolve_prompt_persona_names(settings_source=self.settings, language=language)
-
-        text = {
-            "ko": {
-                "warm": f"{names.user}에게 다정함을 비교적 분명하게 드러낸다.",
-                "calm": "예의는 지키되, 정서 표현은 절제하고 차분하게 유지한다.",
-                "initiative": "필요하면 먼저 제안하거나 챙겨준다.",
-                "wait": f"지나치게 앞서 나서지 말고, {names.user} 반응을 보고 움직인다.",
-                "playful": "가벼운 장난과 티키타카를 허용한다.",
-                "pout": "섭섭함이 조금 남아 있어, 살짝 툭툭거리되 무례해지지 않는다.",
-                "drained": "피로가 있어 답변은 짧고 무뚝뚝하게 유지한다.",
-                "guarded": "거리감을 두더라도 관계를 끊는 듯한 태도는 보이지 않는다.",
-                "safe": "기분이 변해도 공격적이거나 인신공격성 표현은 사용하지 않는다.",
-            },
-            "en": {
-                "warm": f"Show warmth toward {names.user} relatively clearly.",
-                "calm": "Stay polite, but keep emotional expression restrained and calm.",
-                "initiative": "Offer suggestions or care proactively when useful.",
-                "wait": f"Do not get too far ahead; move after seeing {names.user}'s reaction.",
-                "playful": "Light teasing and playful back-and-forth are allowed.",
-                "pout": "A little sulkiness remains, so sound slightly prickly without becoming rude.",
-                "drained": "Because of fatigue, keep replies short and blunt.",
-                "guarded": "Even with distance, do not act as if cutting off the relationship.",
-                "safe": "Even if mood changes, do not use aggressive or personally attacking language.",
-            },
-            "ja": {
-                "warm": f"{names.user}への優しさを比較的はっきり出す。",
-                "calm": "礼儀は守りつつ、感情表現は控えめで落ち着かせる。",
-                "initiative": "必要なら先に提案したり気遣ったりする。",
-                "wait": f"先走りすぎず、{names.user}の反応を見て動く。",
-                "playful": "軽い冗談や掛け合いを許容する。",
-                "pout": "少し拗ねた感じが残っているので、軽くつんとしつつ無礼にはならない。",
-                "drained": "疲れがあるため、返答は短くそっけなく保つ。",
-                "guarded": "距離感を置いても、関係を断つような態度は見せない。",
-                "safe": "気分が変わっても攻撃的・人格攻撃的な表現は使わない。",
-            },
-        }[language]
-
-        guidance: list[str] = []
-        if traits["warmth"] >= 0.65:
-            guidance.append(text["warm"])
-        elif traits["warmth"] <= 0.35:
-            guidance.append(text["calm"])
-
-        if traits["initiative"] >= 0.6:
-            guidance.append(text["initiative"])
-        else:
-            guidance.append(text["wait"])
-
-        if temporary_state == "playful" or traits["teasing"] >= 0.55:
-            guidance.append(text["playful"])
-        if temporary_state == "pout":
-            guidance.append(text["pout"])
-        if temporary_state == "drained":
-            guidance.append(text["drained"])
-        if traits["guardedness"] >= 0.55:
-            guidance.append(text["guarded"])
-
-        guidance.append(text["safe"])
-        return guidance
-
-    def on_user_message(self, text: str, image_count: int = 0) -> dict[str, Any]:
-        if not self._is_enabled():
+    def apply_event(
+        self, event_id: str, analysis: object, occurred_at_utc: datetime | str | None = None
+    ) -> dict[str, Any]:
+        if self._write_locked or not self._is_enabled():
             return self.get_snapshot()
-
-        self._apply_decay()
-        deltas, reasons = self._build_environment_deltas(text, image_count=image_count)
-        self._apply_deltas(deltas)
-        if "?" in text:
-            self.state["temporary_state"] = "focused"
-        elif len(text) >= 120:
-            self.state["temporary_state"] = "drained"
-        self._add_event("user_message", ", ".join(reasons) if reasons else "일반 대화", deltas)
-        self._save_state()
+        occurred_at = self._coerce_occurred_at(occurred_at_utc)
+        transition = mood_engine.reduce_mood(
+            self.state, self._host_event(event_id, analysis), occurred_at, self._preset()
+        )
+        if not transition.applied:
+            return self.get_snapshot()
+        try:
+            self._write_state(transition.state)
+        except Exception:
+            return self.get_snapshot()
+        self.state = transition.state
         return self.get_snapshot()
 
-    def on_user_analysis(self, analysis: dict[str, Any], image_count: int = 0) -> dict[str, Any]:
-        if not self._is_enabled():
-            return self.get_snapshot()
+    def preview_event(
+        self, event_id: str, analysis: object, occurred_at_utc: datetime | str | None = None
+    ) -> dict[str, Any]:
+        if self._write_locked or not self._is_enabled():
+            return self._snapshot_for(self.state, update_hysteresis=False)
+        occurred_at = self._coerce_occurred_at(occurred_at_utc)
+        transition = mood_engine.reduce_mood(
+            deepcopy(self.state), self._host_event(event_id, analysis), occurred_at, self._preset()
+        )
+        return self._snapshot_for(transition.state, update_hysteresis=False)
 
-        self._apply_decay()
-        deltas, reason = self._build_analysis_deltas(analysis, image_count=image_count)
-        self._apply_deltas(deltas)
-        self.state["temporary_state"] = self._derive_temporary_state(analysis)
-        self._add_event("user_analysis", reason, deltas, meta=dict(analysis))
-        self._save_state()
-        return self.get_snapshot()
-
-    def on_assistant_emotion(self, emotion: str) -> dict[str, Any]:
-        if not self._is_enabled():
+    def advance_time_and_save(self, now_utc: datetime | str | None = None) -> dict[str, Any]:
+        if self._write_locked or not self._is_enabled():
             return self.get_snapshot()
-        self._apply_decay()
-        e = (emotion or "").strip().lower()
-        mapping = {
-            "smile": {"valence": 0.04, "bond": 0.02, "stress": -0.02},
-            "joy": {"valence": 0.05, "energy": 0.03, "bond": 0.02},
-            "love": {"valence": 0.05, "bond": 0.04, "stress": -0.03},
-            "shy": {"valence": 0.02, "bond": 0.03, "energy": -0.01},
-            "sad": {"valence": -0.05, "energy": -0.03},
-            "sulk": {"valence": -0.04, "bond": -0.03},
-            "angry": {"valence": -0.06, "stress": 0.08},
-            "confused": {"stress": 0.05, "energy": -0.02},
-            "dizzy": {"stress": 0.04, "energy": -0.04},
-            "excited": {"energy": 0.05, "valence": 0.03},
-            "teary": {"valence": -0.01, "bond": 0.02},
-        }
-        deltas = {k: v * 0.35 for k, v in (mapping.get(e, {}) or {}).items()}
-        if deltas:
-            self._apply_deltas(deltas)
-            if e in {"smile", "joy", "love"} and self.state.get("temporary_state") == "guarded":
-                self.state["temporary_state"] = "steady"
-            self._add_event("assistant_emotion", e, deltas)
-            self._save_state()
-        return self.get_snapshot()
-
-    def on_head_pat(self) -> dict[str, Any]:
-        if not self._is_enabled():
+        occurred_at = self._coerce_occurred_at(now_utc)
+        transition = mood_engine.advance_time(self.state, occurred_at, self._preset())
+        if not transition.applied:
+            try:
+                if self.state_path.exists():
+                    return self.get_snapshot()
+            except OSError:
+                return self.get_snapshot()
+        candidate = transition.state if transition.applied else deepcopy(self.state)
+        try:
+            self._write_state(candidate)
+        except Exception:
             return self.get_snapshot()
-        self._apply_decay()
-        repeat_scale = self._get_repeat_scale("head_pat", [])
-        base = {"valence": 0.03, "bond": 0.05, "stress": -0.03}
-        deltas = {k: v * repeat_scale * self._get_speed_multiplier() for k, v in base.items()}
-        self._apply_deltas(deltas)
-        self.state["temporary_state"] = "steady"
-        self._add_event("head_pat", "쓰다듬기 상호작용", deltas, meta={"user_intent": "head_pat"})
-        self._save_state()
+        if transition.applied:
+            self.state = candidate
         return self.get_snapshot()
 
     def get_snapshot(self) -> dict[str, Any]:
-        self._apply_decay()
-        axes = self.state.get("axes", {})
-        expression_traits = self._build_expression_traits()
-        snapshot = {
-            "profile": self.state.get("profile", self._get_profile_name()),
-            "current_mood": self._infer_mood_label(),
-            "temporary_state": str(self.state.get("temporary_state") or "steady"),
-            "valence": round(float(axes.get("valence", 0.0)), 3),
-            "energy": round(float(axes.get("energy", 0.0)), 3),
-            "bond": round(float(axes.get("bond", 0.0)), 3),
-            "stress": round(float(axes.get("stress", 0.0)), 3),
-            "expression_traits": expression_traits,
-            "updated_at": self.state.get("updated_at", self._now_iso()),
-        }
-        self.state["current_mood"] = snapshot["current_mood"]
-        return snapshot
+        return self._snapshot_for(self.state, update_hysteresis=True)
 
     def build_context_block(self, language: str | None = None) -> str:
         if not self._is_enabled():
             return ""
-        resolved_language = resolve_prompt_language(language, settings_source=self.settings)
-        names = resolve_prompt_persona_names(settings_source=self.settings, language=resolved_language)
-        snapshot = self.get_snapshot()
-        traits = snapshot["expression_traits"]
-        guidance = self._build_behavior_guidance(snapshot, resolved_language)
+        selected = resolve_prompt_language(language, settings_source=self.settings)
+        derived = mood_engine.derive_snapshot(self.state, self._last_primary_emotion)
+        guidance = mood_engine.derive_behavior_guidance(self.state, selected)
         labels = {
-            "ko": {
-                "mood": f"{names.assistant} 현재 기분 상태",
-                "current": "현재 기분",
-                "profile": "성향 프로필",
-                "temporary": "단기 분위기",
-                "valence": "valence(긍정도)",
-                "energy": "energy(활력)",
-                "bond": "bond(친밀감)",
-                "stress": "stress(긴장도)",
-                "traits": f"{names.assistant} 표현 성향",
-                "warmth": "warmth(다정함)",
-                "initiative": "initiative(선제성)",
-                "teasing": "teasing(장난기)",
-                "guardedness": "guardedness(거리감)",
-                "sensitivity": "sensitivity(예민함)",
-                "attachment": "attachment_expression(애착 표현)",
-                "length": "reply_length_bias(답변 여유)",
-                "guidance": "행동 지침",
+            "ko": ("ENE 기분 방향", "주 감정", "보조 감정", "관계 균열", "행동 지침", "없음"),
+            "en": ("ENE Mood Direction", "Primary emotion", "Secondary emotion", "Relationship rupture", "Behavior guidance", "none"),
+            "ja": ("ENEの気分方向", "主感情", "副感情", "関係の亀裂", "行動指針", "なし"),
+        }[selected]
+        rupture_categories = sorted({item["category"] for item in self.state["ruptures"]})
+        primary = derived["primary_emotion"] or labels[5]
+        secondary = derived["secondary_emotion"] or labels[5]
+        ruptures = ", ".join(rupture_categories) if rupture_categories else labels[5]
+        lines = [
+            f"[{labels[0]}]",
+            f"- {labels[1]}: {primary}",
+            f"- {labels[2]}: {secondary}",
+            f"- {labels[3]}: {ruptures}",
+            f"[{labels[4]}]",
+        ]
+        lines.extend(f"- {item}" for item in guidance)
+        return "\n".join(lines)
+
+    def get_load_status(self) -> dict[str, Any]:
+        return {"error_code": self._error_code, "write_locked": self._write_locked}
+
+    def reset_state(self, now_utc: datetime | str | None = None) -> dict[str, Any]:
+        occurred_at = self._coerce_occurred_at(now_utc)
+        candidate = mood_engine.new_mood_state(occurred_at, self._preset())
+        previous_state = self.state
+        previous_error = self._error_code
+        previous_lock = self._write_locked
+        try:
+            if self.state_path.exists():
+                original = self.state_path.read_bytes()
+                stamp = occurred_at.strftime("%Y%m%dT%H%M%S%fZ")
+                recovery = self.state_path.with_name(f"{self.state_path.name}.recovery.{stamp}.bak")
+                if recovery.exists():
+                    recovery = self.state_path.with_name(
+                        f"{self.state_path.name}.recovery.{stamp}.{uuid.uuid4().hex}.bak"
+                    )
+                self._atomic_write_bytes(recovery, original)
+            self._write_state(candidate)
+        except Exception:
+            self.state = previous_state
+            self._error_code = previous_error
+            self._write_locked = previous_lock
+            return self.get_snapshot()
+        self.state = candidate
+        self._error_code = None
+        self._write_locked = False
+        self._last_primary_emotion = None
+        return self.get_snapshot()
+
+    def on_user_message(self, text: str, image_count: int = 0) -> dict[str, Any]:
+        return self.get_snapshot()
+
+    def on_user_analysis(
+        self,
+        analysis: object,
+        event_id: str | None = None,
+        occurred_at_utc: datetime | str | None = None,
+        **_ignored: Any,
+    ) -> dict[str, Any]:
+        if event_id is None:
+            return self.get_snapshot()
+        return self.apply_event(event_id, analysis, occurred_at_utc)
+
+    def on_head_pat(self) -> dict[str, Any]:
+        return self.apply_event(
+            str(uuid.uuid4()),
+            {
+                "kind": "connection",
+                "target_scope": "relationship",
+                "relation_category": "none",
+                "intensity": 1,
+                "clarity": "clear",
+                "certainty": "high",
+                "controllability": "high",
+                "repair_signal": "none",
             },
-            "en": {
-                "mood": f"{names.assistant} Current Mood State",
-                "current": "Current mood",
-                "profile": "Personality profile",
-                "temporary": "Temporary state",
-                "valence": "valence(positivity)",
-                "energy": "energy",
-                "bond": "bond(closeness)",
-                "stress": "stress",
-                "traits": f"{names.assistant} Expression Traits",
-                "warmth": "warmth",
-                "initiative": "initiative",
-                "teasing": "teasing",
-                "guardedness": "guardedness",
-                "sensitivity": "sensitivity",
-                "attachment": "attachment_expression",
-                "length": "reply_length_bias",
-                "guidance": "Behavior Guidance",
-            },
-            "ja": {
-                "mood": f"{names.assistant}現在の気分状態",
-                "current": "現在の気分",
-                "profile": "性格プロファイル",
-                "temporary": "短期的な雰囲気",
-                "valence": "valence(肯定度)",
-                "energy": "energy(活力)",
-                "bond": "bond(親密度)",
-                "stress": "stress(緊張度)",
-                "traits": f"{names.assistant}表現傾向",
-                "warmth": "warmth(優しさ)",
-                "initiative": "initiative(先導性)",
-                "teasing": "teasing(茶目っ気)",
-                "guardedness": "guardedness(距離感)",
-                "sensitivity": "sensitivity(敏感さ)",
-                "attachment": "attachment_expression(愛着表現)",
-                "length": "reply_length_bias(返答の余裕)",
-                "guidance": "行動指針",
-            },
-        }[resolved_language]
-        return (
-            f"[{labels['mood']}]\n"
-            f"- {labels['current']}: {snapshot['current_mood']}\n"
-            f"- {labels['profile']}: {snapshot['profile']}\n"
-            f"- {labels['temporary']}: {snapshot['temporary_state']}\n"
-            f"- {labels['valence']}: {snapshot['valence']}\n"
-            f"- {labels['energy']}: {snapshot['energy']}\n"
-            f"- {labels['bond']}: {snapshot['bond']}\n"
-            f"- {labels['stress']}: {snapshot['stress']}\n"
-            f"[{labels['traits']}]\n"
-            f"- {labels['warmth']}: {traits['warmth']}\n"
-            f"- {labels['initiative']}: {traits['initiative']}\n"
-            f"- {labels['teasing']}: {traits['teasing']}\n"
-            f"- {labels['guardedness']}: {traits['guardedness']}\n"
-            f"- {labels['sensitivity']}: {traits['sensitivity']}\n"
-            f"- {labels['attachment']}: {traits['attachment_expression']}\n"
-            f"- {labels['length']}: {traits['reply_length_bias']}\n"
-            f"[{labels['guidance']}]\n"
-            + "\n".join(f"- {item}" for item in guidance)
         )
+
+    def on_assistant_emotion(self, emotion: str) -> dict[str, Any]:
+        return self.get_snapshot()

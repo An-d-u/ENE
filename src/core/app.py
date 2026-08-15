@@ -357,6 +357,13 @@ class ENEApplication(QObject):
 
     def _init_mood_manager(self):
         """기분 매니저 초기화"""
+        if (
+            self.settings
+            and hasattr(self.settings, "config")
+            and not bool(self.settings.config.get("enable_mood_system", True))
+        ):
+            self.mood_manager = None
+            return
         try:
             state_file = "mood_state.json"
             if self.settings and hasattr(self.settings, "config"):

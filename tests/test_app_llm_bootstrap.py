@@ -4,6 +4,7 @@ from src.core.app_llm_bootstrap import (
     create_llm_runtime_client,
     resolve_llm_bootstrap_config,
 )
+from src.core.app import ENEApplication
 
 
 class _Settings:
@@ -176,3 +177,33 @@ def test_create_llm_runtime_client_forwards_runtime_dependencies(monkeypatch):
         "mood_manager": "mood",
         "goal_manager": "goal",
     }
+
+
+def test_mood_init_disabled_skips_constructor_and_state_path(monkeypatch):
+    calls = 0
+    path_calls = 0
+
+    def fail_constructor(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        raise AssertionError("MoodManager를 생성하면 안 됩니다.")
+
+    class ExplodingPath:
+        def __str__(self):
+            nonlocal path_calls
+            path_calls += 1
+            return "should-not-resolve.json"
+
+    app = type("AppStub", (), {})()
+    app.settings = type("Settings", (), {"config": {
+        "enable_mood_system": False,
+        "enable_response_analysis": True,
+        "mood_state_file": ExplodingPath(),
+    }})()
+    monkeypatch.setattr("src.core.app.MoodManager", fail_constructor)
+
+    ENEApplication._init_mood_manager(app)
+
+    assert calls == 0
+    assert path_calls == 0
+    assert app.mood_manager is None
