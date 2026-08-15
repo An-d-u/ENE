@@ -2,6 +2,7 @@ import json
 
 from src.ai.memory import MemoryManager
 from src.ai.memory_types import create_memory_entry
+from src.ai.mood_manager import MoodManager
 
 
 def test_load_reads_existing_utf8_bom_memory_file(tmp_path):
@@ -14,3 +15,14 @@ def test_load_reads_existing_utf8_bom_memory_file(tmp_path):
 
     assert len(manager.memories) == 1
     assert manager.memories[0].summary == "기존 BOM 기억"
+
+
+def test_mood_v3_save_uses_utf8_without_bom(tmp_path):
+    state_file = tmp_path / "mood_state.json"
+    manager = MoodManager(state_file=state_file)
+
+    manager.reset_state()
+
+    raw = state_file.read_bytes()
+    assert not raw.startswith(b"\xef\xbb\xbf")
+    assert json.loads(raw.decode("utf-8"))["version"] == 3

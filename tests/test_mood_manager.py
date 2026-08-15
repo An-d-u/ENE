@@ -1,282 +1,351 @@
-import json
+from __future__ import annotations
 
+from copy import deepcopy
+from datetime import datetime, timedelta, timezone
+import json
+from pathlib import Path
+import uuid
+
+import pytest
+
+from src.ai import mood_engine
 from src.ai.mood_manager import MoodManager
 
 
-class _Settings:
-    def __init__(self, **config):
-        self.config = dict(config)
+NOW = datetime(2026, 8, 15, 3, 0, tzinfo=timezone.utc)
 
 
-def test_load_reads_existing_utf8_bom_mood_state(tmp_path):
-    state_file = tmp_path / "mood.json"
+def _clock() -> datetime:
+    return NOW
+
+
+def _event(**overrides):
+    event = {
+        "kind": "connection", "target_scope": "relationship",
+        "relation_category": "none", "intensity": 2, "clarity": "clear",
+        "certainty": "high", "controllability": "high", "repair_signal": "none",
+    }
+    event.update(overrides)
+    return event
+
+
+def _manager(path: Path, **kwargs) -> MoodManager:
+    return MoodManager(state_file=path, clock=_clock, **kwargs)
+
+
+def test_bom_v2_migration_preserves_backup_and_maps_only_supported_fields(tmp_path):
+    state_file = tmp_path / "mood_state.json"
     payload = {
-        "version": 2,
-        "profile": "affectionate",
-        "axes": {"valence": 0.2, "energy": 0.1, "bond": 0.36, "stress": -0.1},
-        "current_mood": "affectionate",
-        "temporary_state": "steady",
-        "updated_at": "2999-06-23T10:00:00",
-        "recent_events": [],
+        "version": 2, "profile": "affectionate",
+        "axes": {"valence": 2.0, "energy": -0.2, "bond": 0.6, "stress": 0.3},
+        "current_mood": "guarded", "temporary_state": "pout",
+        "updated_at": "2026-08-15T12:00:00",
+        "recent_events": [{"reason": "합성 과거 사건"}],
     }
-    state_file.write_bytes(json.dumps(payload, ensure_ascii=False).encode("utf-8-sig"))
+    original = json.dumps(payload, ensure_ascii=False).encode("utf-8-sig")
+    state_file.write_bytes(original)
 
-    manager = MoodManager(state_file=str(state_file))
+    manager = _manager(state_file, local_timezone=timezone(timedelta(hours=9)))
 
-    assert manager.get_snapshot()["current_mood"] == "affectionate"
-    assert manager.get_snapshot()["bond"] == 0.36
-
-
-def test_response_analysis_disabled_disables_mood_updates_and_context(tmp_path):
-    manager = MoodManager(
-        state_file=str(tmp_path / "mood.json"),
-        settings=_Settings(enable_mood_system=True, enable_response_analysis=False),
-    )
-    before = manager.get_snapshot()
-
-    manager.on_user_message("오늘은 질문이 있어?", image_count=0)
-    manager.on_user_analysis(
-        {
-            "user_emotion": "affectionate",
-            "user_intent": "affection",
-            "bond_delta_hint": "high_positive",
-            "valence_delta_hint": "low_positive",
-            "stress_delta_hint": "low_negative",
-            "energy_delta_hint": "none",
-            "confidence": "0.95",
-            "flags": "",
-        }
-    )
-    manager.on_assistant_emotion("joy")
-    after = manager.get_snapshot()
-
-    assert after["valence"] == before["valence"]
-    assert after["energy"] == before["energy"]
-    assert after["bond"] == before["bond"]
-    assert after["stress"] == before["stress"]
-    assert after["temporary_state"] == before["temporary_state"]
-    assert manager.build_context_block() == ""
+    assert (tmp_path / "mood_state.json.v2.bak").read_bytes() == original
+    assert not state_file.read_bytes().startswith(b"\xef\xbb\xbf")
+    assert manager.state["version"] == 3
+    assert manager.state["preset"] == "balanced"
+    assert manager.state["background"] == {"valence": 1.0, "energy": -0.2, "tension": 0.3}
+    assert manager.state["relationship"] == {"affection": 0.6, "trust": 0.0}
+    assert manager.state["active_affects"] == []
+    assert manager.state["ruptures"] == []
+    assert manager.state["updated_at_utc"] == "2026-08-15T03:00:00+00:00"
+    assert manager.get_load_status() == {"error_code": None, "write_locked": False}
 
 
-def test_repeated_positive_affection_meta_has_reduced_effect(tmp_path):
-    manager = MoodManager(state_file=str(tmp_path / "mood.json"))
-    meta = {
-        "user_emotion": "affectionate",
-        "user_intent": "affection",
-        "bond_delta_hint": "high_positive",
-        "valence_delta_hint": "low_positive",
-        "stress_delta_hint": "low_negative",
-        "energy_delta_hint": "none",
-        "confidence": "0.95",
-        "flags": "",
-    }
+def test_existing_v2_backup_is_not_replaced(tmp_path):
+    state_file = tmp_path / "mood_state.json"
+    payload = {"version": 2, "profile": "calm", "axes": {
+        "valence": 0, "energy": 0, "bond": 0, "stress": 0,
+    }, "updated_at": "2026-08-15T03:00:00+00:00"}
+    state_file.write_text(json.dumps(payload), encoding="utf-8")
+    backup = tmp_path / "mood_state.json.v2.bak"
+    backup.write_bytes(b"first-backup")
 
-    base_bond = manager.get_snapshot()["bond"]
-    first = manager.on_user_analysis(meta)
-    second = manager.on_user_analysis(meta)
+    _manager(state_file)
 
-    first_gain = first["bond"] - base_bond
-    second_gain = second["bond"] - first["bond"]
-
-    assert first_gain > 0
-    assert second_gain > 0
-    assert second_gain < first_gain
+    assert backup.read_bytes() == b"first-backup"
 
 
-def test_snapshot_includes_temporary_state_and_expression_traits(tmp_path):
-    manager = MoodManager(state_file=str(tmp_path / "mood.json"))
-    manager.on_user_analysis(
-        {
-            "user_emotion": "playful",
-            "user_intent": "tease",
-            "bond_delta_hint": "low_positive",
-            "energy_delta_hint": "low_positive",
-            "valence_delta_hint": "low_positive",
-            "stress_delta_hint": "none",
-            "confidence": "0.90",
-            "flags": "",
-        }
-    )
+@pytest.mark.parametrize(("raw", "error_code"), [
+    (json.dumps({"version": 99}).encode(), "future_version"),
+    (b"{not-json", "corrupt_state"),
+    (json.dumps({"version": 3}).encode(), "corrupt_state"),
+])
+def test_unusable_existing_state_is_locked_without_modifying_original(tmp_path, raw, error_code):
+    state_file = tmp_path / "mood_state.json"
+    state_file.write_bytes(raw)
+    manager = _manager(state_file)
+    before = deepcopy(manager.state)
 
-    snapshot = manager.get_snapshot()
+    snapshot = manager.apply_event(str(uuid.uuid4()), _event())
 
-    assert snapshot["temporary_state"] == "playful"
-    assert "expression_traits" in snapshot
-    assert snapshot["expression_traits"]["teasing"] > 0
-    assert snapshot["expression_traits"]["warmth"] > 0
+    assert manager.get_load_status() == {"error_code": error_code, "write_locked": True}
+    assert manager.state == before
+    assert state_file.read_bytes() == raw
+    assert snapshot == manager.get_snapshot()
 
 
-def test_context_block_includes_expression_guidance(tmp_path):
-    manager = MoodManager(state_file=str(tmp_path / "mood.json"))
-    manager.on_user_analysis(
-        {
-            "user_emotion": "tired",
-            "user_intent": "ask_help",
-            "bond_delta_hint": "low_positive",
-            "energy_delta_hint": "low_negative",
-            "valence_delta_hint": "none",
-            "stress_delta_hint": "low_positive",
-            "confidence": "0.92",
-            "flags": "late_night",
-        }
-    )
+def test_apply_event_save_failure_rolls_back_state_and_file(tmp_path, monkeypatch):
+    state_file = tmp_path / "mood_state.json"
+    manager = _manager(state_file)
+    manager.advance_time_and_save()
+    before_state = deepcopy(manager.state)
+    before_bytes = state_file.read_bytes()
+    monkeypatch.setattr(manager, "_atomic_write_bytes", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("disk")))
 
-    block = manager.build_context_block()
+    snapshot = manager.apply_event(str(uuid.uuid4()), _event())
 
-    assert "[에네 표현 성향]" in block
-    assert "[행동 지침]" in block
+    assert manager.state == before_state
+    assert state_file.read_bytes() == before_bytes
+    assert snapshot == manager.get_snapshot()
 
 
-def test_context_block_uses_custom_prompt_names(tmp_path):
-    manager = MoodManager(
-        state_file=str(tmp_path / "mood.json"),
-        settings={
-            "ui_language": "en",
-            "assistant_display_name": "Luna",
-            "user_address_name": "Captain",
-        },
-    )
-    manager.on_user_analysis(
-        {
-            "user_emotion": "calm",
-            "user_intent": "chat",
-            "bond_delta_hint": "high_positive",
-            "energy_delta_hint": "none",
-            "valence_delta_hint": "low_positive",
-            "stress_delta_hint": "none",
-            "confidence": "0.90",
-            "flags": "",
-        }
-    )
+def test_preview_matches_reducer_without_mutating_state_file_or_hysteresis(tmp_path):
+    state_file = tmp_path / "mood_state.json"
+    manager = _manager(state_file)
+    manager.advance_time_and_save()
+    event_id = str(uuid.uuid4())
+    analysis = _event()
+    expected = mood_engine.reduce_mood(manager.state, {**analysis, "event_id": event_id}, NOW, "balanced")
+    before_state = deepcopy(manager.state)
+    before_bytes = state_file.read_bytes()
+    before_primary = manager._last_primary_emotion
 
-    block = manager.build_context_block()
+    preview = manager.preview_event(event_id, analysis)
 
-    assert "[Luna Expression Traits]" in block
-    assert "Captain's reaction" in block
-    assert "ENE Expression Traits" not in block
-    assert "Master" not in block
+    assert preview["background"] == expected.state["background"]
+    assert manager.state == before_state
+    assert state_file.read_bytes() == before_bytes
+    assert manager._last_primary_emotion == before_primary
 
 
-def test_repair_flow_recovers_from_guarded_state(tmp_path):
-    manager = MoodManager(state_file=str(tmp_path / "mood.json"))
+def test_deprecated_paths_are_complete_noops(tmp_path):
+    state_file = tmp_path / "mood_state.json"
+    manager = _manager(state_file)
+    manager.advance_time_and_save()
+    before_state = deepcopy(manager.state)
+    before_bytes = state_file.read_bytes()
+    before_snapshot = manager.get_snapshot()
 
-    rejected = manager.on_user_analysis(
-        {
-            "user_emotion": "angry",
-            "user_intent": "complain",
-            "interaction_effect": "negative",
-            "bond_delta_hint": "low_negative",
-            "valence_delta_hint": "low_negative",
-            "stress_delta_hint": "high_positive",
-            "energy_delta_hint": "none",
-            "confidence": "0.9",
-            "flags": "direct_rejection",
-        }
-    )
-    repaired = manager.on_user_analysis(
-        {
-            "user_emotion": "sad",
-            "user_intent": "seek_comfort",
-            "interaction_effect": "positive",
-            "bond_delta_hint": "low_positive",
-            "valence_delta_hint": "none",
-            "stress_delta_hint": "low_negative",
-            "energy_delta_hint": "none",
-            "confidence": "0.95",
-            "flags": "needs_care",
-        }
-    )
-
-    assert rejected["temporary_state"] == "guarded"
-    assert repaired["temporary_state"] != "guarded"
-    assert repaired["bond"] > rejected["bond"]
-    assert repaired["stress"] < rejected["stress"]
+    assert manager.on_user_message("합성 메시지", image_count=2) == before_snapshot
+    assert manager.on_user_analysis(_event()) == before_snapshot
+    assert manager.on_assistant_emotion("joy") == before_snapshot
+    assert manager.state == before_state
+    assert state_file.read_bytes() == before_bytes
 
 
-def test_playful_teasing_with_joking_unclear_does_not_turn_into_pout(tmp_path):
-    manager = MoodManager(state_file=str(tmp_path / "mood.json"))
+def test_analysis_wrapper_forces_host_identity_and_ignores_freeform_hints(tmp_path):
+    state_file = tmp_path / "mood_state.json"
+    manager = _manager(state_file)
+    host_id, embedded_id = str(uuid.uuid4()), str(uuid.uuid4())
+    analysis = {"event": {**_event(), "event_id": embedded_id,
+        "reason": "저장하면 안 되는 합성 설명", "bond_delta_hint": "high_positive"}}
 
-    snapshot = manager.on_user_analysis(
-        {
-            "user_emotion": "playful",
-            "user_intent": "tease",
-            "interaction_effect": "mixed",
-            "bond_delta_hint": "low_positive",
-            "valence_delta_hint": "low_positive",
-            "stress_delta_hint": "none",
-            "energy_delta_hint": "low_positive",
-            "confidence": "0.9",
-            "flags": "joking_unclear",
-        }
-    )
+    manager.apply_event(host_id, analysis, "2026-08-15T03:00:00+00:00")
+    saved_text = state_file.read_text(encoding="utf-8")
 
-    assert snapshot["temporary_state"] in {"playful", "steady"}
-    assert snapshot["expression_traits"]["teasing"] >= 0.24
-    assert snapshot["expression_traits"]["guardedness"] < 0.3
+    assert host_id in manager.state["recent_event_ids"]
+    assert embedded_id not in saved_text
+    assert "reason" not in saved_text
+    assert "delta_hint" not in saved_text
 
 
-def test_tired_help_request_stays_warm_but_lowers_energy(tmp_path):
-    manager = MoodManager(state_file=str(tmp_path / "mood.json"))
+def test_snapshot_exposes_v3_and_legacy_facades_without_persisting_aliases(tmp_path):
+    manager = _manager(tmp_path / "mood_state.json")
 
-    snapshot = manager.on_user_analysis(
-        {
-            "user_emotion": "tired",
-            "user_intent": "ask_help",
-            "interaction_effect": "positive",
-            "bond_delta_hint": "low_positive",
-            "valence_delta_hint": "none",
-            "stress_delta_hint": "low_positive",
-            "energy_delta_hint": "low_negative",
-            "confidence": "0.92",
-            "flags": "late_night",
-        }
-    )
+    first = manager.get_snapshot()
+    second = manager.get_snapshot()
 
-    assert snapshot["energy"] < 0
-    assert snapshot["expression_traits"]["warmth"] > 0.55
-    assert snapshot["expression_traits"]["reply_length_bias"] < snapshot["expression_traits"]["warmth"]
+    assert first == second
+    assert first["background"] == manager.state["background"]
+    assert first["relationship"] == manager.state["relationship"]
+    assert first["valence"] == first["background"]["valence"]
+    assert first["bond"] == first["relationship"]["affection"]
+    assert first["behavior_guidance"] == mood_engine.derive_snapshot(manager.state)["behavior_guidance"]
+    assert set(first["expression_traits"]) == {"warmth", "initiative", "teasing",
+        "guardedness", "sensitivity", "attachment_expression", "reply_length_bias"}
+    assert all(0.0 <= value <= 1.0 for value in first["expression_traits"].values())
+    assert "current_mood" not in manager.state
+    assert "expression_traits" not in manager.state
 
 
-def test_noncanonical_analysis_values_are_normalized_into_visible_tired_state(tmp_path):
-    manager = MoodManager(state_file=str(tmp_path / "mood.json"))
+def test_context_blocks_hide_raw_state_details_in_all_languages(tmp_path):
+    manager = _manager(tmp_path / "mood_state.json")
 
-    snapshot = manager.on_user_analysis(
-        {
-            "user_emotion": "calm, tired",
-            "user_intent": "greeting_and_check_status",
-            "interaction_effect": "positive",
-            "bond_delta_hint": "low_positive",
-            "valence_delta_hint": "low_positive",
-            "stress_delta_hint": "none",
-            "energy_delta_hint": "none",
-            "confidence": "high",
-            "flags": "interaction_start",
-        }
-    )
-
-    assert snapshot["current_mood"] == "tired"
-    assert snapshot["temporary_state"] == "drained"
-    assert snapshot["bond"] > 0.22
-    assert snapshot["valence"] > 0.10
+    for language in ("ko", "en", "ja"):
+        block = manager.build_context_block(language)
+        assert block
+        assert "revision" not in block
+        assert "updated_at" not in block
+        assert "recent_event_ids" not in block
+        assert "0.0" not in block
 
 
-def test_repeated_positive_affection_can_escape_calm_label(tmp_path):
-    manager = MoodManager(state_file=str(tmp_path / "mood.json"))
-    meta = {
-        "user_emotion": "affectionate",
-        "user_intent": "affection",
-        "interaction_effect": "positive",
-        "bond_delta_hint": "high_positive",
-        "valence_delta_hint": "low_positive",
-        "stress_delta_hint": "low_negative",
-        "energy_delta_hint": "none",
-        "confidence": "0.95",
-        "flags": "",
-    }
+def test_state_read_failure_locks_without_attempting_save(tmp_path, monkeypatch):
+    state_file = tmp_path / "mood_state.json"
+    state_file.write_bytes(b"original")
+    original_read = Path.read_bytes
 
-    snapshot = None
-    for _ in range(4):
-        snapshot = manager.on_user_analysis(meta)
+    def fail_target_read(path):
+        if path == state_file:
+            raise OSError("read denied")
+        return original_read(path)
 
-    assert snapshot is not None
-    assert snapshot["current_mood"] == "affectionate"
+    monkeypatch.setattr(Path, "read_bytes", fail_target_read)
+    manager = _manager(state_file)
+
+    assert manager.get_load_status() == {"error_code": "state_read_failed", "write_locked": True}
+
+
+def test_state_existence_io_failure_is_reported_as_read_failure(tmp_path, monkeypatch):
+    state_file = tmp_path / "mood_state.json"
+    original_exists = Path.exists
+
+    def fail_target_exists(path):
+        if path == state_file:
+            raise OSError("metadata denied")
+        return original_exists(path)
+
+    monkeypatch.setattr(Path, "exists", fail_target_exists)
+
+    manager = _manager(state_file)
+
+    assert manager.get_load_status() == {"error_code": "state_read_failed", "write_locked": True}
+
+
+def test_migration_exception_locks_and_preserves_original(tmp_path, monkeypatch):
+    state_file = tmp_path / "mood_state.json"
+    payload = {"version": 2, "profile": "calm", "axes": {
+        "valence": 0, "energy": 0, "bond": 0, "stress": 0,
+    }, "updated_at": "2026-08-15T03:00:00+00:00"}
+    original = json.dumps(payload).encode()
+    state_file.write_bytes(original)
+    monkeypatch.setattr(MoodManager, "_migrate_v2", lambda *_args: (_ for _ in ()).throw(RuntimeError("boom")))
+
+    manager = _manager(state_file)
+
+    assert manager.get_load_status() == {"error_code": "migration_failed", "write_locked": True}
+    assert state_file.read_bytes() == original
+
+
+def test_backup_failure_prevents_migration_replace(tmp_path, monkeypatch):
+    state_file = tmp_path / "mood_state.json"
+    payload = {"version": 2, "profile": "calm", "axes": {
+        "valence": 0, "energy": 0, "bond": 0, "stress": 0,
+    }, "updated_at": "2026-08-15T03:00:00+00:00"}
+    original = json.dumps(payload).encode()
+    state_file.write_bytes(original)
+    original_write = MoodManager._atomic_write_bytes
+
+    def fail_backup(self, destination, payload_bytes):
+        if destination.name.endswith(".v2.bak"):
+            raise OSError("backup denied")
+        return original_write(self, destination, payload_bytes)
+
+    monkeypatch.setattr(MoodManager, "_atomic_write_bytes", fail_backup)
+    manager = _manager(state_file)
+
+    assert manager.get_load_status() == {"error_code": "migration_failed", "write_locked": True}
+    assert state_file.read_bytes() == original
+
+
+def test_reset_locked_state_preserves_recovery_backup_and_unlocks(tmp_path):
+    state_file = tmp_path / "mood_state.json"
+    original = b"{broken"
+    state_file.write_bytes(original)
+    manager = _manager(state_file)
+
+    snapshot = manager.reset_state()
+
+    backups = list(tmp_path.glob("mood_state.json.recovery.*.bak"))
+    assert len(backups) == 1
+    assert backups[0].read_bytes() == original
+    assert snapshot["version"] == 3
+    assert manager.get_load_status() == {"error_code": None, "write_locked": False}
+
+
+def test_reset_failure_keeps_lock_state_and_original(tmp_path, monkeypatch):
+    state_file = tmp_path / "mood_state.json"
+    original = b"{broken"
+    state_file.write_bytes(original)
+    manager = _manager(state_file)
+    before = deepcopy(manager.state)
+    original_write = manager._atomic_write_bytes
+
+    def fail_fresh(destination, payload):
+        if destination == state_file:
+            raise OSError("save denied")
+        return original_write(destination, payload)
+
+    monkeypatch.setattr(manager, "_atomic_write_bytes", fail_fresh)
+    manager.reset_state()
+
+    assert manager.state == before
+    assert manager.get_load_status() == {"error_code": "corrupt_state", "write_locked": True}
+    assert state_file.read_bytes() == original
+
+
+def test_repeated_resets_with_same_clock_create_distinct_recovery_backups(tmp_path):
+    state_file = tmp_path / "mood_state.json"
+    manager = _manager(state_file)
+    manager.reset_state()
+    first_bytes = state_file.read_bytes()
+
+    manager.reset_state()
+    second_bytes = state_file.read_bytes()
+    manager.reset_state()
+
+    backups = list(tmp_path.glob("mood_state.json.recovery.*.bak"))
+    assert len(backups) == 2
+    assert {backup.read_bytes() for backup in backups} == {first_bytes, second_bytes}
+
+
+def test_duplicate_event_does_not_save_again(tmp_path, monkeypatch):
+    state_file = tmp_path / "mood_state.json"
+    manager = _manager(state_file)
+    event_id = str(uuid.uuid4())
+    manager.apply_event(event_id, _event())
+    calls = 0
+    original_write = manager._write_state
+
+    def count_write(candidate):
+        nonlocal calls
+        calls += 1
+        return original_write(candidate)
+
+    monkeypatch.setattr(manager, "_write_state", count_write)
+    before = deepcopy(manager.state)
+
+    manager.apply_event(event_id, _event())
+
+    assert calls == 0
+    assert manager.state == before
+
+
+def test_noop_advance_tolerates_state_path_metadata_failure(tmp_path, monkeypatch):
+    state_file = tmp_path / "mood_state.json"
+    manager = _manager(state_file)
+    manager.reset_state()
+    before = deepcopy(manager.state)
+    before_bytes = state_file.read_bytes()
+    original_exists = Path.exists
+
+    def fail_target_exists(path):
+        if path == state_file:
+            raise OSError("metadata denied")
+        return original_exists(path)
+
+    monkeypatch.setattr(Path, "exists", fail_target_exists)
+
+    snapshot = manager.advance_time_and_save()
+
+    assert snapshot == manager.get_snapshot()
+    assert manager.state == before
+    assert state_file.read_bytes() == before_bytes

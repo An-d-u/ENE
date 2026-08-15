@@ -44,6 +44,8 @@ prompts/analysis_system_appendix.md
 prompts/emotion_guides.md
 prompts/life_world.md
 mood_state.json
+mood_state.json.*.bak
+mood_state.json.*.tmp
 obs_config.json
 ene_profile.json
 ene_goals.json
