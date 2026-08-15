@@ -1,9 +1,64 @@
+import pytest
+
 from src.ai.goal_prompt import build_goal_update_rules, is_goal_prompt_enabled
+from src.ai.mood_engine import (
+    CERTAINTIES,
+    CLARITIES,
+    CONTROLLABILITIES,
+    EVENT_KINDS,
+    RELATION_CATEGORIES,
+    REPAIR_SIGNALS,
+    TARGET_SCOPES,
+)
 from src.ai.response_contract import (
     build_legacy_response_contract_appendix,
     build_response_contract_appendix,
+    build_structured_response_contract_appendix,
     is_proactive_conversation_enabled,
 )
+
+
+@pytest.mark.parametrize("language", ["ko", "en", "ja"])
+@pytest.mark.parametrize("structured", [False, True])
+def test_active_mood_contract_lists_exact_fields_and_all_domain_enums(language, structured):
+    builder = (
+        build_response_contract_appendix
+        if not structured
+        else build_structured_response_contract_appendix
+    )
+    appendix = builder(
+        {
+            "ui_language": language,
+            "enable_mood_system": True,
+            "enable_response_analysis": True,
+        }
+    )
+    for field in (
+        "kind", "target_scope", "relation_category", "intensity", "clarity",
+        "certainty", "controllability", "repair_signal", "risk_class",
+        "proposed_stance",
+    ):
+        assert field in appendix
+    for value in (
+        *EVENT_KINDS, *TARGET_SCOPES, *RELATION_CATEGORIES, *CLARITIES,
+        *CERTAINTIES, *CONTROLLABILITIES, *REPAIR_SIGNALS,
+        "0", "1", "2", "3", "none", "concern", "urgent", "proactive",
+        "cooperative", "brief", "limited", "distance", "decline", "boundary",
+    ):
+        assert value in appendix
+
+
+@pytest.mark.parametrize("language", ["ko", "en", "ja"])
+def test_inactive_structured_mood_contract_requires_null_without_enum_details(language):
+    appendix = build_structured_response_contract_appendix(
+        {
+            "ui_language": language,
+            "enable_mood_system": False,
+            "enable_response_analysis": True,
+        }
+    )
+    assert "null" in appendix
+    assert "broken_commitment" not in appendix
 from src.ai.thought_prompt import is_thought_prompt_enabled
 
 
