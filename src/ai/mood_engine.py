@@ -751,6 +751,16 @@ def _apply_affects(
         next_repeat_count = 0
 
     for affect, base in AFFECT_BASE[event.kind].items():
+        if (
+            affect == "anger"
+            and next_repeat_count == 0
+            and event.kind == "conflict"
+            and event.target_scope in {"ene", "relationship"}
+            and event.relation_category != "none"
+            and event.clarity == "ambiguous"
+            and event.certainty == "low"
+        ):
+            continue
         trace = next(
             (
                 item
