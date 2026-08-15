@@ -262,9 +262,11 @@ def reduce_mood(
     preset: str,
 ) -> MoodTransition:
     state = validate_state(previous_state)
-    normalized_event = _coerce_event(event, now_utc)
-    if normalized_event.event_id in state["recent_event_ids"]:
+    duplicate_event_id = _extract_canonical_event_id(event)
+    if duplicate_event_id is not None and duplicate_event_id in state["recent_event_ids"]:
         return MoodTransition(state=state, applied=False, rule_ids=("event.duplicate",))
+
+    normalized_event = _coerce_event(event, now_utc)
 
     _require_utc_datetime(now_utc, "사건 적용 시각")
     if now_utc < _parse_utc_string(state["updated_at_utc"], "updated_at_utc"):
@@ -297,6 +299,18 @@ def reduce_mood(
     state["recent_event_ids"] = [*state["recent_event_ids"], normalized_event.event_id][-64:]
     rule_ids.append("event.recorded")
     return MoodTransition(state=validate_state(state), applied=True, rule_ids=tuple(rule_ids))
+
+
+def _extract_canonical_event_id(event: object) -> str | None:
+    if isinstance(event, MoodEvent):
+        event_id = event.event_id
+    elif isinstance(event, Mapping):
+        event_id = event.get("event_id")
+    else:
+        return None
+    if not _is_uuid_v4(event_id):
+        return None
+    return str(uuid.UUID(event_id))
 
 
 def _coerce_event(event: object, now_utc: datetime) -> MoodEvent:

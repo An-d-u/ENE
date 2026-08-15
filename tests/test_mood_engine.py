@@ -444,6 +444,48 @@ def test_duplicate_event_id_is_complete_no_op() -> None:
     assert state == snapshot
 
 
+@pytest.mark.parametrize("event_type", ["mapping", "mood_event"])
+def test_duplicate_event_id_skips_event_and_time_normalization(event_type: str) -> None:
+    event_id = synthetic_event_id("duplicate-before-normalization")
+    state = reduce_mood(
+        new_mood_state(NOW, "balanced"),
+        valid_event(event_id=event_id, kind="success", target_scope="external"),
+        NOW,
+        "balanced",
+    ).state
+    snapshot = deepcopy(state)
+    if event_type == "mapping":
+        duplicate: object = {
+            "event_id": event_id,
+            "kind": [],
+            "intensity": "invalid",
+        }
+    else:
+        duplicate = normalize_event(valid_event(event_id=event_id), NOW)
+
+    transition = reduce_mood(
+        state,
+        duplicate,
+        datetime(2099, 1, 2),
+        "expressive",
+    )
+
+    assert transition == MoodTransition(state=snapshot, applied=False, rule_ids=("event.duplicate",))
+    assert state == snapshot
+
+
+def test_invalid_event_id_does_not_bypass_new_event_normalization() -> None:
+    state = new_mood_state(NOW, "balanced")
+
+    with pytest.raises(ValueError):
+        reduce_mood(
+            state,
+            {"event_id": "invalid-event-id"},
+            datetime(2099, 1, 2),
+            "balanced",
+        )
+
+
 def test_recent_event_ids_keep_latest_sixty_four_ids() -> None:
     state = new_mood_state(NOW, "balanced")
     ids = [synthetic_event_id(f"ring-{index}") for index in range(65)]
