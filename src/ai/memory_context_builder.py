@@ -413,7 +413,10 @@ def _finite_context_number(value: object, default: float = 0.0) -> float:
     """스냅샷의 유한한 수치만 내부 방향 판정에 사용한다."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return default
-    number = float(value)
+    try:
+        number = float(value)
+    except OverflowError:
+        raise OverflowError from None
     return number if math.isfinite(number) else default
 
 
@@ -506,12 +509,17 @@ def _build_minimal_mood_context_block(mood_manager: object, language: str) -> st
         return ""
     try:
         loaded = getter()
+        return _format_minimal_mood_context_block(loaded, language)
     except Exception as failure:
         print(
             "[LLM] context_failed category=mood_context_error "
             f"exception_class={type(failure).__name__}"
         )
-        loaded = {}
+        return ""
+
+
+def _format_minimal_mood_context_block(loaded: object, language: str) -> str:
+    """검증되지 않은 snapshot을 고정된 최소 기분 지침으로 변환한다."""
     snapshot = loaded if isinstance(loaded, Mapping) else {}
     text = _mood_context_text(language)
     background = snapshot.get("background")
