@@ -174,10 +174,19 @@ def build_mood_policy_retry_appendix(error_code: str, language: str) -> str:
 
 
 def _valid_analysis(value: object) -> bool:
-    if not isinstance(value, dict) or set(value) != {"event", "risk_class", "proposed_stance"}:
+    if not isinstance(value, Mapping):
+        return False
+    try:
+        return _valid_analysis_mapping(value)
+    except Exception:
+        return False
+
+
+def _valid_analysis_mapping(value: Mapping[object, object]) -> bool:
+    if set(value) != {"event", "risk_class", "proposed_stance"}:
         return False
     event = value.get("event")
-    if not isinstance(event, dict) or set(event) != _MOOD_EVENT_FIELDS:
+    if not isinstance(event, Mapping) or set(event) != _MOOD_EVENT_FIELDS:
         return False
     risk_class = value.get("risk_class")
     proposed_stance = value.get("proposed_stance")

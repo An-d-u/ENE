@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections import UserDict
 from copy import deepcopy
-from types import SimpleNamespace
+from types import MappingProxyType, SimpleNamespace
 
 import pytest
 
@@ -316,6 +317,57 @@ def test_unhashable_analysis_policy_value_is_crash_free_retry(
     assert decision.action == "retry"
     assert decision.error_code == "mood_analysis_policy_invalid"
     assert decision.payload is payload
+
+
+@pytest.mark.parametrize("mapping_type", [MappingProxyType, UserDict])
+def test_exact_valid_top_level_mapping_is_accepted_without_mutation(mapping_type: type) -> None:
+    source = _analysis()
+    analysis = mapping_type(source)
+    payload = _payload(analysis=analysis)
+
+    decision = validate_mood_policy(payload, _snapshot(), "ko")
+
+    assert decision.action == "accept"
+    assert decision.payload is payload
+    assert dict(analysis) == source
+
+
+@pytest.mark.parametrize("mapping_type", [MappingProxyType, UserDict])
+def test_exact_valid_nested_event_mapping_is_accepted_without_mutation(mapping_type: type) -> None:
+    analysis = _analysis()
+    source_event = dict(analysis["event"])
+    event = mapping_type(source_event)
+    analysis["event"] = event
+    payload = _payload(analysis=analysis)
+
+    decision = validate_mood_policy(payload, _snapshot(), "en")
+
+    assert decision.action == "accept"
+    assert decision.payload is payload
+    assert dict(event) == source_event
+
+
+@pytest.mark.parametrize("container", ["top", "event"])
+def test_exact_mapping_with_invalid_value_retries_without_mutation(container: str) -> None:
+    analysis = _analysis()
+    if container == "top":
+        analysis["risk_class"] = []
+        wrapped = UserDict(analysis)
+        invalid_value = wrapped["risk_class"]
+    else:
+        analysis["event"]["kind"] = []
+        wrapped_event = MappingProxyType(analysis["event"])
+        analysis["event"] = wrapped_event
+        wrapped = analysis
+        invalid_value = wrapped_event["kind"]
+    payload = _payload(analysis=wrapped)
+
+    decision = validate_mood_policy(payload, _snapshot(), "ja")
+
+    assert decision.action == "retry"
+    assert decision.error_code == "mood_analysis_policy_invalid"
+    assert decision.payload is payload
+    assert invalid_value == []
 
 
 @pytest.mark.parametrize("analysis", [{}, "broken", ["broken"], {"risk_class": "none"}])
