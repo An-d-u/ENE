@@ -14,7 +14,10 @@ from src.ai.mood_engine import (
     HALF_LIFE_SECONDS,
     MoodEvent,
     MoodTransition,
+    advance_time,
     affect_half_life_seconds,
+    derive_behavior_guidance,
+    derive_snapshot,
     new_mood_state,
     normalize_event,
     reduce_mood,
@@ -387,7 +390,10 @@ def test_same_affect_trace_merges_with_saturation_resistance() -> None:
     state = reduce_mood(state, second, NOW + timedelta(minutes=10), "balanced").state
 
     assert len(state["active_affects"]) == 1
-    assert state["active_affects"][0]["intensity"] == pytest.approx(0.24 + 0.24 * (1.0 - 0.24))
+    decayed = 0.24 * 2 ** (-600 / affect_half_life_seconds("sadness"))
+    assert state["active_affects"][0]["intensity"] == pytest.approx(
+        decayed + 0.24 * (1.0 - decayed)
+    )
     assert state["active_affects"][0]["repeat_count"] == 1
 
 
@@ -1019,7 +1025,8 @@ def test_acknowledgment_apology_and_explanation_have_distinct_recovery(
 
     rupture = transition.state["ruptures"][0]
     assert rupture["severity"] == pytest.approx(0.30 + severity_delta)
-    assert rupture["heat"] == pytest.approx(0.30 + heat_delta)
+    decayed_heat = 0.30 * 2 ** (-60 / (6 * 3600))
+    assert rupture["heat"] == pytest.approx(decayed_heat + heat_delta)
     assert rupture["repair_stage"] == "acknowledged"
     assert rupture["repair_evidence_count"] == 0
 
@@ -1057,7 +1064,11 @@ def test_explanation_requires_explicit_clarity_and_high_certainty_for_relationsh
     )
 
     assert transition.state["relationship"] == relationship_snapshot
-    assert transition.state["ruptures"] == rupture_snapshot
+    rupture = transition.state["ruptures"][0]
+    assert rupture["severity"] == rupture_snapshot[0]["severity"]
+    assert rupture["heat"] == pytest.approx(0.30 * 2 ** (-60 / (6 * 3600)))
+    assert rupture["repair_stage"] == rupture_snapshot[0]["repair_stage"]
+    assert rupture["repair_evidence_count"] == rupture_snapshot[0]["repair_evidence_count"]
 
 
 def test_correction_then_distinct_follow_through_resolves_moderate_rupture() -> None:
@@ -1131,7 +1142,7 @@ def test_valid_zero_impact_correction_still_counts_as_repair_evidence() -> None:
 
     rupture = transition.state["ruptures"][0]
     assert rupture["severity"] == pytest.approx(0.30)
-    assert rupture["heat"] == pytest.approx(0.30)
+    assert rupture["heat"] == pytest.approx(0.30 * 2 ** (-60 / (6 * 3600)))
     assert rupture["repair_stage"] == "observing"
     assert rupture["repair_evidence_count"] == 1
 
@@ -1160,7 +1171,8 @@ def test_same_category_recurrence_resets_repair_and_increments_repeat() -> None:
     assert recurrent["repair_evidence_count"] == 0
     assert recurrent["repair_stage"] == "open"
     assert recurrent["severity"] == pytest.approx(0.18 + 0.18 * (1.0 - 0.18))
-    assert recurrent["heat"] == pytest.approx(0.10 + 0.18 * (1.0 - 0.10))
+    decayed_heat = 0.10 * 2 ** (-300 / (6 * 3600))
+    assert recurrent["heat"] == pytest.approx(decayed_heat + 0.18 * (1.0 - decayed_heat))
     assert recurrent["last_negative_at_utc"] == event_time.isoformat(timespec="seconds")
     assert recurrent["updated_at_utc"] == event_time.isoformat(timespec="seconds")
 
@@ -1176,7 +1188,10 @@ def test_unrelated_positive_event_is_not_repair_evidence() -> None:
         "balanced",
     )
 
-    assert transition.state["ruptures"] == state["ruptures"]
+    rupture = transition.state["ruptures"][0]
+    assert rupture["severity"] == state["ruptures"][0]["severity"]
+    assert rupture["heat"] == pytest.approx(0.18 * 2 ** (-60 / (6 * 3600)))
+    assert rupture["repair_stage"] == state["ruptures"][0]["repair_stage"]
 
 
 def test_apology_resolves_light_rupture_but_not_large_rupture() -> None:
@@ -1273,3 +1288,256 @@ def test_relationship_and_rupture_rules_are_stable_and_input_is_immutable() -> N
         "event.rupture",
         "event.recorded",
     )
+
+
+def test_advance_time_is_deterministic_and_does_not_mutate_input() -> None:
+    state = new_mood_state(NOW, "balanced")
+    state["background"] = {"valence": 0.8, "energy": -0.6, "tension": 0.4}
+    snapshot = deepcopy(state)
+    now = NOW + timedelta(hours=3)
+
+    first = advance_time(state, now, "balanced")
+    second = advance_time(state, now, "balanced")
+
+    assert first == second
+    assert repr(first) == repr(second)
+    assert state == snapshot
+    assert first.applied is True
+    assert first.state["updated_at_utc"] == now.isoformat(timespec="seconds")
+    assert first.state["revision"] == 1
+    assert first.state["recent_event_ids"] == state["recent_event_ids"]
+
+
+def test_advance_time_applies_each_background_half_life_once() -> None:
+    cases = (("valence", 12), ("energy", 4), ("tension", 6))
+    for field, hours in cases:
+        state = new_mood_state(NOW, "balanced")
+        state["background"][field] = 0.8
+
+        result = advance_time(state, NOW + timedelta(hours=hours), "balanced").state
+
+        assert result["background"][field] == pytest.approx(0.4)
+
+
+def test_advance_time_uses_canonical_affect_half_life_and_removes_faint_trace() -> None:
+    state = new_mood_state(NOW, "balanced")
+    state["active_affects"] = [
+        valid_active_affect(affect="amusement", intensity=0.6),
+        valid_active_affect(affect="sadness", intensity=0.01, source_kind="loss"),
+    ]
+
+    result = advance_time(state, NOW + timedelta(seconds=600), "balanced").state
+
+    assert result["active_affects"][0]["affect"] == "amusement"
+    assert result["active_affects"][0]["intensity"] == pytest.approx(0.3)
+    assert all(item["affect"] != "sadness" for item in result["active_affects"])
+    assert affect_half_life_seconds("amusement") == 600
+
+
+def test_advance_time_decays_only_rupture_heat_and_preserves_relationship() -> None:
+    state = new_mood_state(NOW, "balanced")
+    state["relationship"] = {"affection": 0.31, "trust": -0.27}
+    rupture = seeded_rupture(severity=0.7, heat=0.6)
+    rupture["repair_stage"] = "observing"
+    rupture["repeat_count"] = 2
+    rupture["repair_evidence_count"] = 1
+    state["ruptures"] = [rupture]
+    expected = deepcopy(rupture)
+
+    result = advance_time(state, NOW + timedelta(hours=6), "balanced").state
+    actual = result["ruptures"][0]
+
+    assert result["relationship"] == state["relationship"]
+    assert actual["heat"] == pytest.approx(0.3)
+    assert actual["updated_at_utc"] == (NOW + timedelta(hours=6)).isoformat(timespec="seconds")
+    for field in (
+        "category",
+        "severity",
+        "repair_stage",
+        "repeat_count",
+        "repair_evidence_count",
+        "last_negative_at_utc",
+    ):
+        assert actual[field] == expected[field]
+
+
+@pytest.mark.parametrize("now", [NOW, NOW - timedelta(seconds=1)])
+def test_advance_time_same_or_past_is_complete_no_op(now: datetime) -> None:
+    state = new_mood_state(NOW, "balanced")
+    snapshot = deepcopy(state)
+
+    result = advance_time(state, now, "expressive")
+
+    assert result == MoodTransition(state=snapshot, applied=False, rule_ids=())
+    assert state == snapshot
+
+
+def test_advance_time_rejects_non_utc_aware_datetime() -> None:
+    state = new_mood_state(NOW, "balanced")
+    with pytest.raises(ValueError):
+        advance_time(state, datetime(2099, 1, 2), "balanced")
+
+
+def test_reduce_mood_decays_before_event_and_increments_revision_once() -> None:
+    state = new_mood_state(NOW, "balanced")
+    state["background"]["valence"] = 0.8
+
+    transition = reduce_mood(
+        state,
+        valid_event(
+            event_id=synthetic_event_id("decay-before-event"),
+            kind="success",
+            target_scope="external",
+            intensity=3,
+        ),
+        NOW + timedelta(hours=12),
+        "balanced",
+    )
+
+    assert transition.state["background"]["valence"] == pytest.approx(0.4 + 0.04)
+    assert transition.state["revision"] == 1
+    assert transition.rule_ids.index("time.background") < transition.rule_ids.index("event.background")
+
+
+def test_duplicate_event_does_not_apply_time_decay() -> None:
+    event = valid_event(event_id=synthetic_event_id("duplicate-no-decay"))
+    state = reduce_mood(new_mood_state(NOW, "balanced"), event, NOW, "balanced").state
+    state["background"]["valence"] = 0.8
+    snapshot = deepcopy(state)
+
+    result = reduce_mood(state, event, NOW + timedelta(days=1), "balanced")
+
+    assert result == MoodTransition(state=snapshot, applied=False, rule_ids=("event.duplicate",))
+
+
+def _first_spontaneous_bucket(seed_revision: int = 0, preset: str = "balanced") -> int:
+    for bucket in range(1, 1000):
+        material = f"mood-v3|{preset}|{seed_revision}|{bucket}".encode("utf-8")
+        sample = int.from_bytes(hashlib.sha256(material).digest()[:8], "big") / 2**64
+        if sample > 0.92:
+            return bucket
+    raise AssertionError("합성 탐색 범위에서 자발 변화 bucket을 찾지 못했습니다.")
+
+
+def test_spontaneous_impulse_uses_exact_hash_bucket_and_fixed_digest_bytes() -> None:
+    bucket = _first_spontaneous_bucket()
+    now = datetime.fromtimestamp(bucket * 21600, tz=timezone.utc)
+    state = new_mood_state(now - timedelta(hours=6), "balanced")
+    digest = hashlib.sha256(f"mood-v3|balanced|0|{bucket}".encode("utf-8")).digest()
+    expected_valence = int.from_bytes(digest[8:16], "big") / 2**64 * 0.03 - 0.015
+    expected_energy = int.from_bytes(digest[16:24], "big") / 2**64 * 0.03 - 0.015
+
+    result = advance_time(state, now, "affectionate")
+
+    assert result.state["background"]["valence"] == pytest.approx(expected_valence)
+    assert result.state["background"]["energy"] == pytest.approx(expected_energy)
+    assert abs(result.state["background"]["valence"]) <= 0.015
+    assert abs(result.state["background"]["energy"]) <= 0.015
+    assert result.state["spontaneous"] == {
+        "last_at_utc": now.isoformat(timespec="seconds"),
+        "seed_revision": 1,
+    }
+    assert "time.spontaneous" in result.rule_ids
+
+
+def test_spontaneous_cooldown_and_threshold_leave_metadata_unchanged() -> None:
+    state = new_mood_state(NOW, "balanced")
+    state["spontaneous"] = {
+        "last_at_utc": (NOW - timedelta(hours=5, minutes=58)).isoformat(timespec="seconds"),
+        "seed_revision": 4,
+    }
+    cooldown = advance_time(state, NOW + timedelta(minutes=1), "balanced").state
+    assert cooldown["spontaneous"] == state["spontaneous"]
+
+    for bucket in range(1, 1000):
+        digest = hashlib.sha256(f"mood-v3|balanced|0|{bucket}".encode("utf-8")).digest()
+        if int.from_bytes(digest[:8], "big") / 2**64 <= 0.92:
+            now = datetime.fromtimestamp(bucket * 21600, tz=timezone.utc)
+            quiet = new_mood_state(now - timedelta(hours=6), "balanced")
+            result = advance_time(quiet, now, "balanced").state
+            assert result["spontaneous"] == quiet["spontaneous"]
+            break
+
+
+def test_spontaneous_does_not_change_relationship_rupture_tension_or_guidance() -> None:
+    bucket = _first_spontaneous_bucket()
+    now = datetime.fromtimestamp(bucket * 21600, tz=timezone.utc)
+    state = new_mood_state(now - timedelta(hours=6), "balanced")
+    state["relationship"] = {"affection": -0.6, "trust": -0.5}
+    state["ruptures"] = [seeded_rupture(severity=0.8, heat=0.0)]
+    before_guidance = derive_behavior_guidance(state, "ko")
+
+    result = advance_time(state, now, "balanced").state
+
+    assert result["relationship"] == state["relationship"]
+    assert result["ruptures"][0]["severity"] == state["ruptures"][0]["severity"]
+    assert result["background"]["tension"] == state["background"]["tension"]
+    assert derive_behavior_guidance(result, "ko") == before_guidance
+
+
+def test_snapshot_primary_threshold_tie_secondary_and_input_immutability() -> None:
+    state = new_mood_state(NOW, "balanced")
+    state["active_affects"] = [
+        valid_active_affect(affect="anger", intensity=0.3, source_kind="conflict"),
+        valid_active_affect(affect="joy", intensity=0.3, source_kind="success"),
+        valid_active_affect(affect="hurt", intensity=0.23, source_kind="conflict"),
+    ]
+    original = deepcopy(state)
+
+    snapshot = derive_snapshot(state)
+
+    assert snapshot["primary_emotion"] == "joy"
+    assert snapshot["secondary_emotion"] == "anger"
+    assert isinstance(snapshot["behavior_guidance"], tuple)
+    assert state == original
+    assert snapshot["relationship"] == state["relationship"]
+
+
+def test_snapshot_threshold_secondary_ratio_hysteresis_and_invalid_previous() -> None:
+    state = new_mood_state(NOW, "balanced")
+    state["active_affects"] = [
+        valid_active_affect(affect="joy", intensity=0.20, source_kind="success"),
+        valid_active_affect(affect="sadness", intensity=0.16, source_kind="loss"),
+    ]
+    assert derive_snapshot(state)["secondary_emotion"] == "sadness"
+    assert derive_snapshot(state, "sadness")["primary_emotion"] == "sadness"
+    assert derive_snapshot(state, "unknown")["primary_emotion"] == "joy"
+
+    state["active_affects"][1]["intensity"] = 0.14
+    assert derive_snapshot(state)["secondary_emotion"] is None
+    state["active_affects"][0]["intensity"] = 0.15
+    assert derive_snapshot(state)["primary_emotion"] is None
+
+
+def test_snapshot_uses_max_not_sum_for_duplicate_affect_traces() -> None:
+    state = new_mood_state(NOW, "balanced")
+    state["active_affects"] = [
+        valid_active_affect(affect="joy", intensity=0.12, source_kind="success"),
+        valid_active_affect(affect="joy", intensity=0.11, source_kind="success"),
+        valid_active_affect(affect="anger", intensity=0.18, source_kind="conflict"),
+    ]
+    assert derive_snapshot(state)["primary_emotion"] == "anger"
+
+
+@pytest.mark.parametrize("language", ["ko", "en", "ja", "unsupported"])
+def test_behavior_guidance_is_localized_safe_and_contains_no_raw_state(language: str) -> None:
+    state = new_mood_state(NOW, "balanced")
+    state["background"]["energy"] = -0.7
+    state["relationship"] = {"affection": -0.6, "trust": -0.5}
+    state["ruptures"] = [seeded_rupture(severity=0.8, heat=0.7)]
+    state["recent_event_ids"] = [synthetic_event_id("private-id")]
+
+    guidance = derive_behavior_guidance(state, language)
+
+    assert isinstance(guidance, tuple)
+    assert guidance
+    assert synthetic_event_id("private-id") not in " ".join(guidance)
+    assert "0.7" not in " ".join(guidance)
+    assert derive_behavior_guidance(state, "unsupported") == derive_behavior_guidance(state, "ko")
+    safety_words = {
+        "ko": "안전",
+        "en": "Safety",
+        "ja": "安全",
+        "unsupported": "안전",
+    }
+    assert safety_words[language] in guidance[-1]
