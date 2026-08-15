@@ -16,7 +16,7 @@ cooldown_key=short-followup
         available_emotions={"smile"},
     )
 
-    text, emotion, _tts, _events, _analysis, _promises, _thought, _goal, proactive, _gesture = parsed
+    text, emotion, _tts, _events, _analysis, _promises, _thought, _goal, proactive, _gesture, _mood = parsed
 
     assert text == "좋아요."
     assert emotion == "smile"
@@ -41,7 +41,7 @@ title=불완전
 [/proactive_conversation]"""
     )
 
-    text, _emotion, _tts, _events, _analysis, _promises, _thought, _goal, proactive, _gesture = parsed
+    text, _emotion, _tts, _events, _analysis, _promises, _thought, _goal, proactive, _gesture, _mood = parsed
 
     assert text == "응답입니다."
     assert proactive == []
@@ -56,7 +56,7 @@ title=닫히지 않은 예약
 generation_prompt=내부 예약 지시는 사용자에게 보이면 안 됩니다."""
     )
 
-    text, _emotion, _tts, _events, _analysis, _promises, _thought, _goal, proactive, _gesture = parsed
+    text, _emotion, _tts, _events, _analysis, _promises, _thought, _goal, proactive, _gesture, _mood = parsed
 
     assert text == "응답입니다."
     assert proactive == []
@@ -65,7 +65,7 @@ generation_prompt=내부 예약 지시는 사용자에게 보이면 안 됩니�
 def test_parse_response_does_not_create_proactive_from_visible_keywords_only():
     parsed = parse_llm_response("나중에 다시 확인해볼게요. 잠시 후에 이어가도 좋아요.")
 
-    text, _emotion, _tts, _events, _analysis, _promises, _thought, _goal, proactive, _gesture = parsed
+    text, _emotion, _tts, _events, _analysis, _promises, _thought, _goal, proactive, _gesture, _mood = parsed
 
     assert text == "나중에 다시 확인해볼게요. 잠시 후에 이어가도 좋아요."
     assert proactive == []

@@ -9,7 +9,7 @@ from typing import Callable, Dict, List, Protocol, Tuple, runtime_checkable
 
 from .response_protocol import OneShotGenerationResult
 
-LLM_RESPONSE_TUPLE = Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict], str, Dict[str, str], List[Dict], str]
+LLM_RESPONSE_TUPLE = Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict], str, Dict[str, str], List[Dict], str, Dict[str, object] | None]
 SUMMARY_RESPONSE_TUPLE = (
     tuple[str, list[str], list[str], dict]
     | tuple[str, list[str], list[str], dict, list]

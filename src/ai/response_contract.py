@@ -9,6 +9,7 @@ from typing import Iterable
 from .analysis_prompt import (
     build_analysis_system_appendix,
     is_conversation_promise_enabled,
+    is_mood_analysis_enabled,
     is_response_analysis_enabled,
     is_schedule_recognition_enabled,
 )
@@ -171,6 +172,7 @@ def _build_format_block(
     proactive_cooldown_keys: list[str],
     response_language: str,
     tts_language: str,
+    mood_analysis_enabled: bool,
 ) -> str:
     lines = ["```"]
     if analysis_enabled:
@@ -204,6 +206,15 @@ def _build_format_block(
                 "[/proactive_conversation]",
             ]
         )
+    if mood_analysis_enabled:
+        lines.extend(
+            [
+                "[mood_analysis]", "kind=neutral", "target_scope=unknown",
+                "relation_category=none", "intensity=0", "clarity=ambiguous",
+                "certainty=low", "controllability=low", "repair_signal=none",
+                "risk_class=none", "proposed_stance=cooperative", "[/mood_analysis]",
+            ]
+        )
     lines.append(contract["reply"])
     if tts_language != response_language:
         lines.extend(["[tts]", contract["tts_samples"].get(tts_language, "TTS text"), "[/tts]"])
@@ -218,6 +229,7 @@ def build_legacy_response_contract_appendix(settings_source: object | None = Non
     contract = _RESPONSE_CONTRACT_BY_LANGUAGE.get(language, _RESPONSE_CONTRACT_BY_LANGUAGE["en"])
     names = resolve_prompt_persona_names(settings_source=settings_source, language=language)
     analysis_enabled = is_response_analysis_enabled(settings_source)
+    mood_analysis_enabled = is_mood_analysis_enabled(settings_source)
     goal_enabled = is_goal_prompt_enabled(settings_source)
     thought_enabled = is_thought_prompt_enabled(settings_source)
     gesture_enabled = is_synthetic_gesture_enabled(settings_source)
@@ -233,6 +245,14 @@ def build_legacy_response_contract_appendix(settings_source: object | None = Non
     ]
     if analysis_enabled:
         lines.insert(2, contract["analysis"])
+    if mood_analysis_enabled:
+        lines.extend(
+            [
+                "- `[mood_analysis]` 블록에는 현재 턴의 관찰 가능한 사건 분류만 key=value로 기록하세요.",
+                "- 키 순서는 kind, target_scope, relation_category, intensity, clarity, certainty, controllability, repair_signal, risk_class, proposed_stance입니다.",
+                "- 스키마 enum만 사용하고 원문, reason, event_id, 설명 문장은 만들지 마세요.",
+            ]
+        )
     if goal_enabled:
         lines.append(contract["goal"] if analysis_enabled else contract["goal_without_analysis"])
         lines.extend(build_goal_update_rules(language=language))
@@ -256,12 +276,15 @@ def build_legacy_response_contract_appendix(settings_source: object | None = Non
             proactive_cooldown_keys,
             language,
             tts_language,
+            mood_analysis_enabled,
         )
     )
     return "\n".join(lines)
 
 
 def _schema_member_description(field_schema: dict, language: str) -> str:
+    if "anyOf" in field_schema:
+        return "strict object 또는 null" if language == "ko" else "strict object or null"
     field_type = field_schema.get("type", "unknown")
     if field_type == "object":
         members = ", ".join(
@@ -404,6 +427,7 @@ def build_structured_response_contract_appendix(
         normalized_emotions.append("normal")
     allowed_emotions_text = ", ".join(f"`{emotion}`" for emotion in normalized_emotions)
     analysis_enabled = is_response_analysis_enabled(settings_source)
+    mood_analysis_enabled = is_mood_analysis_enabled(settings_source)
     schedule_enabled = is_schedule_recognition_enabled(settings_source)
     promise_enabled = is_conversation_promise_enabled(settings_source)
     goal_enabled = is_goal_prompt_enabled(settings_source)
@@ -476,6 +500,8 @@ def build_structured_response_contract_appendix(
             "proactive_off": "- 선제 대화 기능이 꺼져 있습니다. `proactive_conversations`에는 empty array를 사용하세요.",
             "gesture": "- `gesture`에는 `nod`, `bow`, `shake`, `surprise`, `tilt`, `sway` 중 최대 하나만 넣고, 필요 없으면 empty string을 사용하세요.",
             "gesture_off": "- 제스처 기능이 꺼져 있습니다. `gesture`에는 empty string을 사용하세요.",
+            "mood_on": "- `mood_analysis`에는 현재 턴의 사건만 분류하세요. 정확한 스키마 필드/enum만 사용하고 원문, `reason`, `event_id`를 만들지 마세요.",
+            "mood_off": "- 기분 사건 분석이 비활성입니다. `mood_analysis`는 반드시 null로 두세요.",
         },
         "en": {
             "tts": "- Put the {language} rendering of `reply` in `tts_text`; do not add control markup.",
@@ -488,6 +514,8 @@ def build_structured_response_contract_appendix(
             "proactive_off": "- Proactive conversation is disabled: use an empty array for `proactive_conversations`.",
             "gesture": "- Put at most one of `nod`, `bow`, `shake`, `surprise`, `tilt`, or `sway` in `gesture`; otherwise use an empty string.",
             "gesture_off": "- Gestures are disabled: use an empty string for `gesture`.",
+            "mood_on": "- Classify only the current turn's event in `mood_analysis`. Use the exact schema fields/enums and never add source text, `reason`, or `event_id`.",
+            "mood_off": "- Mood event analysis is disabled: `mood_analysis` must be null.",
         },
         "ja": {
             "tts": "- `reply` の{language}訳を `tts_text` に入れ、制御用マークアップは追加しないでください。",
@@ -500,9 +528,13 @@ def build_structured_response_contract_appendix(
             "proactive_off": "- 先回り会話は無効です。`proactive_conversations` には empty array を使ってください。",
             "gesture": "- `gesture` には `nod`, `bow`, `shake`, `surprise`, `tilt`, `sway` のうち最大一つだけを入れ、不要なら empty string にしてください。",
             "gesture_off": "- ジェスチャー機能は無効です。`gesture` には empty string を使ってください。",
+            "mood_on": "- `mood_analysis` には現在のターンの出来事だけを分類し、正確なスキーマ項目とenumだけを使って、原文、`reason`、`event_id`を追加しないでください。",
+            "mood_off": "- 気分イベント分析は無効です。`mood_analysis` は必ず null にしてください。",
         },
     }
     messages = all_messages.get(language, all_messages["en"])
+
+    lines.append(messages["mood_on"] if mood_analysis_enabled else messages["mood_off"])
 
     if tts_language != language:
         lines.append(messages["tts"].format(language=_language_name(tts_language, language)))

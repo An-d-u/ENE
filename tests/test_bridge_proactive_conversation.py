@@ -844,5 +844,5 @@ def test_attachment_user_message_cancels_pending_proactive_conversations():
 
 
 def test_llm_response_tuple_aliases_include_proactive_conversations():
-    assert len(get_args(llm_client.LLM_RESPONSE_TUPLE)) == 10
-    assert len(get_args(http_llm_common.LLM_RESPONSE_TUPLE)) == 10
+    assert len(get_args(llm_client.LLM_RESPONSE_TUPLE)) == 11
+    assert len(get_args(http_llm_common.LLM_RESPONSE_TUPLE)) == 11

@@ -20,7 +20,7 @@ def test_parse_response_extracts_optional_gesture_tag_without_visible_leak():
         available_emotions={"smile"},
     )
 
-    text, emotion, tts_text, _events, _analysis, _promises, _thought, _goal, _proactive, gesture = parsed
+    text, emotion, tts_text, _events, _analysis, _promises, _thought, _goal, _proactive, gesture, _mood = parsed
 
     assert text == "좋아, 천천히 같이 해보자."
     assert emotion == "smile"
@@ -33,7 +33,7 @@ def test_parse_response_extracts_optional_gesture_tag_without_visible_leak():
 def test_parse_response_strips_unknown_gesture_tag_without_requesting_gesture():
     parsed = parse_llm_response("괜찮아요. [normal] [gesture:moonwalk]", available_emotions={"normal"})
 
-    text, _emotion, _tts, *_rest, gesture = parsed
+    text, _emotion, _tts, *_rest, gesture, _mood = parsed
 
     assert text == "괜찮아요."
     assert gesture == ""

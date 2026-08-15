@@ -11,7 +11,9 @@ from .prompt_language import resolve_prompt_language, resolve_tts_language
 from .response_envelope import (
     LLM_RESPONSE_TUPLE,
     ResponseRequirements,
+    _normalize_mood_analysis,
     build_response_requirements,
+    neutral_mood_analysis,
     normalize_response_tuple,
 )
 from .response_cleanup import (
@@ -44,6 +46,64 @@ AVAILABLE_GESTURES = {
     "tilt",
     "sway",
 }
+
+_MOOD_ANALYSIS_BLOCK = re.compile(
+    r"\[\s*mood_analysis\s*\](.*?)\[\s*/\s*mood_analysis\s*\]",
+    re.IGNORECASE | re.DOTALL,
+)
+_MOOD_ANALYSIS_OPEN = re.compile(r"\[\s*mood_analysis\s*\]", re.IGNORECASE)
+_MOOD_ANALYSIS_CLOSE = re.compile(r"\[\s*/\s*mood_analysis\s*\]", re.IGNORECASE)
+_MOOD_LEGACY_KEYS = (
+    "kind", "target_scope", "relation_category", "intensity", "clarity",
+    "certainty", "controllability", "repair_signal", "risk_class", "proposed_stance",
+)
+
+
+def extract_mood_analysis_block(
+    response_text: str,
+    requirements: ResponseRequirements,
+) -> tuple[str, dict[str, object] | None]:
+    matches = list(_MOOD_ANALYSIS_BLOCK.finditer(response_text))
+    cleaned = _MOOD_ANALYSIS_BLOCK.sub("", response_text).strip()
+    unclosed = _MOOD_ANALYSIS_OPEN.search(cleaned)
+    if unclosed is not None:
+        cleaned = cleaned[: unclosed.start()].strip()
+    cleaned = _MOOD_ANALYSIS_CLOSE.sub("", cleaned).strip()
+    if not requirements.enable_mood_analysis:
+        return cleaned, None
+    if len(matches) != 1:
+        return cleaned, neutral_mood_analysis()
+
+    values: dict[str, str] = {}
+    valid_lines = True
+    for raw_line in matches[0].group(1).splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if "=" not in line:
+            valid_lines = False
+            break
+        key, value = (part.strip() for part in line.split("=", 1))
+        if key not in _MOOD_LEGACY_KEYS or key in values:
+            valid_lines = False
+            break
+        values[key] = value
+    if not valid_lines or set(values) != set(_MOOD_LEGACY_KEYS):
+        return cleaned, neutral_mood_analysis()
+    try:
+        intensity = int(values["intensity"])
+    except ValueError:
+        return cleaned, neutral_mood_analysis()
+    candidate: dict[str, object] = {
+        "event": {
+            key: intensity if key == "intensity" else values[key]
+            for key in _MOOD_LEGACY_KEYS[:8]
+        },
+        "risk_class": values["risk_class"],
+        "proposed_stance": values["proposed_stance"],
+    }
+    normalized, fatal = _normalize_mood_analysis(candidate, requirements)
+    return cleaned, neutral_mood_analysis() if fatal else normalized
 
 
 PROACTIVE_CONVERSATION_KEYS = {
@@ -248,6 +308,7 @@ def parse_llm_response(
             available_emotions=available_emotions or ("normal",),
         )
 
+    response_text, mood_analysis = extract_mood_analysis_block(response_text, requirements)
     response_text = strip_thinking_markers(response_text)
     response_text = sanitize_reserved_control_blocks(response_text)
     response_text, analysis = extract_analysis_block(response_text)
@@ -326,6 +387,7 @@ def parse_llm_response(
             goal_update,
             proactive_conversations,
             gesture,
+            mood_analysis,
         ),
         requirements=requirements,
         preserve_none_goal=True,

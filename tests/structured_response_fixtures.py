@@ -32,6 +32,7 @@ _BASE_ENVELOPE = {
     },
     "proactive_conversations": [],
     "gesture": "",
+    "mood_analysis": None,
 }
 
 
@@ -52,6 +53,8 @@ def make_requirements(**overrides):
         "require_thought": False,
         "require_tts_text": False,
         "enable_analysis": False,
+        "enable_mood": True,
+        "enable_mood_analysis": False,
         "enable_events": False,
         "enable_promises": False,
         "enable_goal_update": False,
