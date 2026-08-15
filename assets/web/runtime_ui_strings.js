@@ -28,16 +28,19 @@ const MOOD_V3_UI_STRINGS = {
     ko: {
         primaryEmotion: '주 감정', secondaryEmotion: '보조 감정', trust: '신뢰',
         reset: '상태 초기화', resetConfirm: '기분 상태를 초기화하시겠습니까?',
+        trustLevels: { low: '낮음', medium: '보통', high: '높음' },
         emotions: { joy: '기쁨', tenderness: '다정함', amusement: '즐거움', interest: '관심', sadness: '슬픔', hurt: '상처', anger: '분노', anxiety: '불안' }
     },
     en: {
         primaryEmotion: 'Primary emotion', secondaryEmotion: 'Secondary emotion', trust: 'Trust',
         reset: 'Reset state', resetConfirm: 'Reset the mood state?',
+        trustLevels: { low: 'Low', medium: 'Medium', high: 'High' },
         emotions: { joy: 'Joy', tenderness: 'Tenderness', amusement: 'Amusement', interest: 'Interest', sadness: 'Sadness', hurt: 'Hurt', anger: 'Anger', anxiety: 'Anxiety' }
     },
     ja: {
         primaryEmotion: '主な感情', secondaryEmotion: '補助感情', trust: '信頼',
         reset: '状態をリセット', resetConfirm: '気分の状態をリセットしますか？',
+        trustLevels: { low: '低い', medium: '普通', high: '高い' },
         emotions: { joy: '喜び', tenderness: '優しさ', amusement: '楽しさ', interest: '関心', sadness: '悲しみ', hurt: '傷つき', anger: '怒り', anxiety: '不安' }
     }
 };
@@ -55,6 +58,7 @@ function mergeUiStrings(config) {
     const moodStates = mood.states || {};
     const moodTemporaryStates = mood.temporaryStates || {};
     const moodEmotionNames = mood.emotions || {};
+    const moodTrustLevels = mood.trustLevels || {};
     const moodV3Fallback = MOOD_V3_UI_STRINGS[
         ['ko', 'en', 'ja'].includes(source.resolvedLanguage) ? source.resolvedLanguage : 'en'
     ];
@@ -166,6 +170,7 @@ function mergeUiStrings(config) {
             primaryEmotion: mood.primaryEmotion || moodV3Fallback.primaryEmotion,
             secondaryEmotion: mood.secondaryEmotion || moodV3Fallback.secondaryEmotion,
             trust: mood.trust || moodV3Fallback.trust,
+            trustLevels: { ...moodV3Fallback.trustLevels, ...moodTrustLevels },
             reset: mood.reset || moodV3Fallback.reset,
             resetConfirm: mood.resetConfirm || moodV3Fallback.resetConfirm,
             emotions: { ...moodV3Fallback.emotions, ...moodEmotionNames },
