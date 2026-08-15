@@ -910,6 +910,8 @@ def test_reroll_last_response_deletes_only_tracked_promises():
         "memory_search_text": "",
         "promise_ids": ["tracked-1"],
         "include_life_record_context": True,
+        "mood_event_id": "11111111-1111-4111-8111-111111111111",
+        "mood_occurred_at": "2099-04-06T12:00:00+00:00",
     }
     dummy._is_rerolling = False
     dummy._reset_pending_ui_state = lambda notice="": None
@@ -925,6 +927,8 @@ def test_reroll_last_response_deletes_only_tracked_promises():
         recent_memory_context="",
         head_pat_count_before_message=0,
         include_life_record_context=False,
+        mood_event_id="",
+        mood_occurred_at="",
     ):
         started.append(
             {
@@ -935,6 +939,8 @@ def test_reroll_last_response_deletes_only_tracked_promises():
                 "recent_memory_context": recent_memory_context,
                 "head_pat_count_before_message": head_pat_count_before_message,
                 "include_life_record_context": include_life_record_context,
+                "mood_event_id": mood_event_id,
+                "mood_occurred_at": mood_occurred_at,
             }
         )
 
@@ -972,6 +978,8 @@ def test_reroll_last_response_deletes_only_tracked_promises():
             "recent_memory_context": "",
             "head_pat_count_before_message": 0,
             "include_life_record_context": True,
+            "mood_event_id": "11111111-1111-4111-8111-111111111111",
+            "mood_occurred_at": "2099-04-06T12:00:00+00:00",
         }
     ]
 

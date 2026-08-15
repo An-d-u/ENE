@@ -60,7 +60,7 @@ class _PipelineClient:
             raise outcome
         return outcome
 
-    def send_message(self, _message):
+    def send_message(self, _message, *, mood_event_context=None):
         result = execute_final_response(
             self._request,
             requirements=self._requirements,

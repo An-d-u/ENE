@@ -29,7 +29,7 @@ class MetadataClient:
         self.fail = fail
         self.metadata = metadata
 
-    def send_message(self, _message):
+    def send_message(self, _message, *, mood_event_context=None):
         if self.fail:
             raise RuntimeError("synthetic_worker_failure")
         return FINAL_PAYLOAD
@@ -113,7 +113,7 @@ def test_ai_worker_emits_stable_mood_analysis_json(mood_analysis, expected_paylo
     _ensure_qt_app()
 
     class MoodPayloadClient(MetadataClient):
-        def send_message(self, _message):
+        def send_message(self, _message, *, mood_event_context=None):
             return (*FINAL_PAYLOAD, mood_analysis)
 
     emitted = []
@@ -129,7 +129,7 @@ def test_ai_worker_keeps_response_when_mood_analysis_is_not_json_serializable():
     _ensure_qt_app()
 
     class MoodPayloadClient(MetadataClient):
-        def send_message(self, _message):
+        def send_message(self, _message, *, mood_event_context=None):
             return (*FINAL_PAYLOAD, {"invalid": object()})
 
     emitted = []
@@ -159,7 +159,7 @@ def test_ai_worker_clears_captured_metadata_when_postprocessing_fails():
     _ensure_qt_app()
 
     class InvalidPayloadClient(MetadataClient):
-        def send_message(self, _message):
+        def send_message(self, _message, *, mood_event_context=None):
             return ("합성 답변", "normal", None, [], {"invalid": object()}, [], "", {}, [], "")
 
     errors = []
@@ -235,7 +235,7 @@ def test_ai_worker_final_success_with_missing_getter_keeps_empty_metadata():
     _ensure_qt_app()
 
     class LegacyClient:
-        def send_message(self, _message):
+        def send_message(self, _message, *, mood_event_context=None):
             return FINAL_PAYLOAD
 
     worker = AIWorker(LegacyClient(), "합성 입력", use_memory=False)

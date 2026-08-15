@@ -370,7 +370,7 @@ def test_http_final_reply_places_life_record_first_but_keeps_history_original():
     client.life_record_manager = _Manager((record,))
     captured = {}
 
-    def _capture(message, history_user_content=None):
+    def _capture(message, history_user_content=None, *, mood_event_context=None):
         captured["message"] = message
         captured["history_user_content"] = history_user_content
         return "합성 응답", "neutral", None, [], {}, [], "", {}, [], ""

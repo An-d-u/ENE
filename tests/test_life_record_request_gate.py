@@ -287,7 +287,7 @@ def test_idle_tool_command_captures_clock_but_does_not_consume_opportunity() -> 
     assert bridge.life_record_state.auto_decision_completed is False
 
 
-def test_first_general_chat_snapshots_mood_before_mood_update() -> None:
+def test_first_general_chat_snapshots_mood_without_preapplying_user_message() -> None:
     bridge = WebBridge()
     bridge.llm_client = object()
     bridge.calendar_manager = _Calendar()
@@ -297,7 +297,7 @@ def test_first_general_chat_snapshots_mood_before_mood_update() -> None:
 
     bridge.send_to_ai("합성 인사")
 
-    assert bridge.mood_manager.events[:2] == ["snapshot", "message"]
+    assert bridge.mood_manager.events == ["snapshot"]
 
 
 def test_busy_attachment_slot_rejects_before_json_or_session_side_effects(monkeypatch) -> None:
