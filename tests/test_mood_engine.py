@@ -942,6 +942,48 @@ def test_uncertain_or_unrelated_events_are_relationship_safe(overrides: dict[str
     assert transition.state["ruptures"] == []
 
 
+def test_first_ambiguous_low_certainty_relational_conflict_suppresses_only_anger() -> None:
+    state = reduce_mood(
+        new_mood_state(NOW, "balanced"),
+        relationship_event(
+            "ambiguous-relational-conflict",
+            kind="conflict",
+            relation_category="disrespect",
+            intensity=1,
+            clarity="ambiguous",
+            certainty="low",
+        ),
+        NOW,
+        "balanced",
+    ).state
+
+    assert all(trace["affect"] != "anger" for trace in state["active_affects"])
+    assert any(trace["affect"] == "hurt" for trace in state["active_affects"])
+    assert state["background"]["tension"] > 0.0
+    assert state["recent_event_ids"] == [synthetic_event_id("ambiguous-relational-conflict")]
+    assert state["ruptures"] == []
+
+
+def test_repeated_ambiguous_low_certainty_relational_conflict_restores_anger() -> None:
+    state = new_mood_state(NOW, "balanced")
+    for index in range(2):
+        state = reduce_mood(
+            state,
+            relationship_event(
+                f"repeated-ambiguous-relational-conflict-{index}",
+                kind="conflict",
+                relation_category="disrespect",
+                intensity=1,
+                clarity="ambiguous",
+                certainty="low",
+            ),
+            NOW + timedelta(minutes=5 * index),
+            "balanced",
+        ).state
+
+    assert any(trace["affect"] == "anger" for trace in state["active_affects"])
+
+
 def test_repeated_connection_uses_repeat_weight_and_relationship_saturation() -> None:
     state = new_mood_state(NOW, "balanced")
     expected_affection = 0.0
