@@ -114,6 +114,41 @@ def build_behavior_tab(dialog):
     self.enable_response_analysis_check.toggled.connect(self._on_response_analysis_toggle)
     display_layout.addWidget(self.enable_response_analysis_check)
 
+    self.enable_mood_system_check = self._create_toggle(
+        "기분 기능 사용",
+        key="settings.behavior.display.mood_system",
+    )
+    self.enable_mood_system_check.toggled.connect(self._on_mood_system_toggle)
+    display_layout.addWidget(self.enable_mood_system_check)
+
+    mood_profile_layout = QFormLayout()
+    mood_profile_layout.setContentsMargins(0, 0, 0, 0)
+    mood_profile_layout.setSpacing(8)
+    self.mood_personality_profile_combo = QComboBox()
+    for index, (value, label_key, fallback) in enumerate(
+        (
+            ("calm", "settings.behavior.display.mood_profile.calm", "차분함"),
+            ("balanced", "settings.behavior.display.mood_profile.balanced", "균형형"),
+            ("expressive", "settings.behavior.display.mood_profile.expressive", "감정 풍부형"),
+        )
+    ):
+        self.mood_personality_profile_combo.addItem(
+            self._translated_text(label_key, fallback), value
+        )
+        self._bind_combo_item(
+            self.mood_personality_profile_combo, index, label_key, fallback
+        )
+    self.mood_personality_profile_combo.currentIndexChanged.connect(
+        self._on_setting_changed
+    )
+    self._add_form_row(
+        mood_profile_layout,
+        "settings.behavior.display.mood_profile.label",
+        "기분 성향:",
+        self.mood_personality_profile_combo,
+    )
+    display_layout.addLayout(mood_profile_layout)
+
     self.enable_schedule_recognition_check = self._create_toggle(
         "일정 인식 사용",
         key="settings.behavior.display.schedule_recognition",

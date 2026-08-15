@@ -158,6 +158,8 @@ class SettingsDialog(
         self.enable_ene_goals_check: ToggleSwitch | None = None
         self.show_ene_goal_button_check: ToggleSwitch | None = None
         self.enable_response_analysis_check: ToggleSwitch | None = None
+        self.enable_mood_system_check: ToggleSwitch | None = None
+        self.mood_personality_profile_combo: QComboBox | None = None
         self.enable_schedule_recognition_check: ToggleSwitch | None = None
         self.enable_conversation_promises_check: ToggleSwitch | None = None
         self.include_ene_thoughts_in_context_check: ToggleSwitch | None = None

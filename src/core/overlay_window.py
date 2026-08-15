@@ -1060,7 +1060,7 @@ class OverlayWindow(QWidget):
         source = settings_override if settings_override is not None else self.settings.config
         enabled = "true" if (
             bool(source.get("show_mood_toggle_button", True))
-            and bool(source.get("enable_response_analysis", True))
+            and bool(source.get("enable_mood_system", True))
         ) else "false"
         self.web_view.page().runJavaScript(f"window.setMoodToggleButtonEnabled({enabled});")
 
