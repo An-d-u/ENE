@@ -206,6 +206,8 @@ class ChatFlowBridgeMixin:
                 if analysis is None:
                     return
 
+            # 유효한 소유 사건은 manager 경계에 진입하기 전에 소비해 재시도를 막는다.
+            payload["mood_finalized"] = True
             manager = getattr(self, "mood_manager", None)
             if manager is None:
                 return
@@ -215,13 +217,11 @@ class ChatFlowBridgeMixin:
                 apply_event = getattr(manager, "apply_event", None)
                 if not callable(apply_event):
                     return
-                payload["mood_finalized"] = True
                 snapshot = apply_event(event_id, analysis, occurred_at)
             else:
                 advance = getattr(manager, "advance_time_and_save", None)
                 if not callable(advance):
                     return
-                payload["mood_finalized"] = True
                 snapshot = advance(occurred_at)
         except Exception as exc:
             print(
@@ -229,15 +229,15 @@ class ChatFlowBridgeMixin:
                 f"exception_class={type(exc).__name__}"
             )
             return
-        emit = getattr(self, "_emit_mood_changed", None)
-        if snapshot is not None and callable(emit):
-            try:
+        try:
+            emit = getattr(self, "_emit_mood_changed", None)
+            if snapshot is not None and callable(emit):
                 emit(snapshot)
-            except Exception as exc:
-                print(
-                    "[Bridge] mood_emit_failed category=local_error "
-                    f"exception_class={type(exc).__name__}"
-                )
+        except Exception as exc:
+            print(
+                "[Bridge] mood_emit_failed category=local_error "
+                f"exception_class={type(exc).__name__}"
+            )
 
     def _emit_request_pending_stage_changed(self, stage: str):
         normalized = str(stage or "").strip().lower()

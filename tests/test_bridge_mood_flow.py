@@ -256,9 +256,55 @@ def test_mood_manager_property_failure_keeps_visible_response(monkeypatch, capsy
         "assistant",
         "Synthetic visible reply.",
     )
-    assert bridge._last_request_payload["mood_finalized"] is False
+    assert bridge._last_request_payload["mood_finalized"] is True
     captured = capsys.readouterr()
     assert "synthetic manager lookup failure" not in captured.out + captured.err
+
+
+def test_mood_emit_descriptor_failure_keeps_visible_response(monkeypatch, capsys):
+    bridge = WebBridge(
+        settings={"enable_mood_system": True, "enable_response_analysis": True}
+    )
+    bridge.mood_manager = _DummyMoodManager()
+    event_id = "803da7b6-89a3-4ff5-b27d-82c9ea1e69aa"
+    occurred_at = "2099-01-01T00:00:00+00:00"
+    bridge._last_request_payload = {
+        "type": "text",
+        "mood_event_id": event_id,
+        "mood_occurred_at": occurred_at,
+        "mood_finalized": False,
+    }
+    worker = _DummyWorker()
+    operation_id = bridge.life_record_state.try_begin_operation("normal_reply")
+    bridge.worker = worker
+    received = []
+    bridge.message_received.connect(lambda *args: received.append(args))
+    monkeypatch.setattr(
+        WebBridge,
+        "_emit_mood_changed",
+        property(
+            lambda _self: (_ for _ in ()).throw(
+                RuntimeError("synthetic mood emit lookup failure")
+            )
+        ),
+    )
+
+    bridge._on_response_ready(
+        "Synthetic emit-safe reply.",
+        "normal",
+        "",
+        [],
+        mood_analysis_payload=json.dumps(_valid_mood_analysis()),
+        response_worker=worker,
+        operation_id=operation_id,
+        expected_mood_event_id=event_id,
+        expected_mood_occurred_at=occurred_at,
+    )
+
+    assert received == [("Synthetic emit-safe reply.", "normal", "")]
+    assert bridge._last_request_payload["mood_finalized"] is True
+    captured = capsys.readouterr()
+    assert "synthetic mood emit lookup failure" not in captured.out + captured.err
 
 
 def test_settings_getter_failure_keeps_visible_response(capsys):
