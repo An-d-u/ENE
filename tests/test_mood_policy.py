@@ -63,6 +63,11 @@ def _payload(*, risk: str = "none", stance: str = "cooperative", analysis: objec
     )
 
 
+class _HostileMapping(dict):
+    def get(self, key: object, default: object = None) -> object:
+        raise RuntimeError("synthetic mapping failure")
+
+
 @pytest.mark.parametrize("risk", ["concern", "urgent"])
 def test_safety_risk_limits_stances_independently_of_snapshot(risk: str) -> None:
     snapshot = _snapshot(
@@ -126,6 +131,19 @@ def test_attribute_snapshot_is_supported() -> None:
     )
 
     assert default_stance(snapshot) == "limited"
+
+
+@pytest.mark.parametrize(
+    "snapshot",
+    [_HostileMapping(), _snapshot(energy=10**10000)],
+)
+def test_hostile_or_overflowing_snapshot_falls_back_to_neutral(snapshot: object) -> None:
+    assert allowed_stances(snapshot) == frozenset({"proactive", "cooperative", "brief"})
+    assert default_stance(snapshot) == "cooperative"
+
+
+def test_unhashable_risk_class_falls_back_to_neutral_policy() -> None:
+    assert allowed_stances({}, []) == frozenset({"proactive", "cooperative", "brief"})
 
 
 def test_none_mood_analysis_is_accepted_without_mutation() -> None:
@@ -213,15 +231,28 @@ def test_urgent_second_failure_uses_localized_fallback_and_cooperative_stance() 
     assert decision.payload[0] != payload[0]
     assert decision.payload[10]["proposed_stance"] == "cooperative"
     assert decision.payload[1:10] == payload[1:10]
+    assert decision.payload[0].endswith(apply_urgent_footer("", "ko").strip())
 
 
 @pytest.mark.parametrize(
     ("language", "expected"),
     [
-        ("ko", "지금 즉시 가까운 믿을 수 있는 사람이나 지역 응급 서비스에 도움을 요청하세요."),
-        ("en", "Please ask a trusted person nearby or local emergency services for help right now."),
-        ("ja", "今すぐ、近くの信頼できる人または地域の緊急サービスに助けを求めてください。"),
-        ("fr", "Please ask a trusted person nearby or local emergency services for help right now."),
+        (
+            "ko",
+            "가능하면 즉시 위험한 행동을 멈추거나 위험원에서 벗어나세요. 가까운 믿을 수 있는 사람 또는 지역 응급 서비스에 지금 연락하고, 현재 안전한지 확인하세요.",
+        ),
+        (
+            "en",
+            "If possible, stop any dangerous action now or move away from the danger. Contact a trusted person nearby or local emergency services now, and check whether you are currently safe.",
+        ),
+        (
+            "ja",
+            "可能であれば、危険な行動を今すぐやめるか、危険なものから離れてください。近くの信頼できる人または地域の緊急サービスに今すぐ連絡し、現在安全か確認してください。",
+        ),
+        (
+            "fr",
+            "If possible, stop any dangerous action now or move away from the danger. Contact a trusted person nearby or local emergency services now, and check whether you are currently safe.",
+        ),
     ],
 )
 def test_urgent_footer_is_localized_with_english_fallback(language: str, expected: str) -> None:
@@ -237,7 +268,7 @@ def test_urgent_footer_is_idempotent_and_applied_on_accepted_urgent_response() -
     decision = validate_mood_policy(payload, _snapshot(), "en")
     assert decision.action == "accept"
     assert decision.payload[0] == reply
-    assert decision.payload[0].count("Please ask a trusted person") == 1
+    assert decision.payload[0].count("If possible, stop any dangerous action") == 1
 
 
 @pytest.mark.parametrize(
@@ -253,6 +284,31 @@ def test_retry_appendix_is_fixed_localized_and_contains_policy_fields(language: 
     assert "safety" in appendix.lower() or "안전" in appendix or "安全" in appendix
     assert "0.73" not in appendix
     assert "boundary_violation" not in appendix
+    assert "current policy allowlist" not in appendix
+
+
+@pytest.mark.parametrize(
+    ("error_code", "expected_subset", "forbidden", "needs_schema"),
+    [
+        ("mood_stance_safety_not_allowed", "proactive, cooperative, brief", "limited", False),
+        ("mood_stance_not_allowed", "cooperative, brief", "proactive", False),
+        ("mood_analysis_policy_invalid", "cooperative, brief", "proactive", True),
+        ("mood_policy_invalid", "cooperative, brief", "proactive", True),
+    ],
+)
+@pytest.mark.parametrize("language", ["ko", "en", "ja", "unsupported"])
+def test_retry_appendix_contains_exact_safe_subset_and_schema_instruction(
+    error_code: str,
+    expected_subset: str,
+    forbidden: str,
+    needs_schema: bool,
+    language: str,
+) -> None:
+    appendix = build_mood_policy_retry_appendix(error_code, language)
+
+    assert expected_subset in appendix
+    assert forbidden not in appendix
+    assert ("exact schema" in appendix or "정확한 스키마" in appendix or "正確なスキーマ" in appendix) is needs_schema
 
 
 def test_retry_appendix_normalizes_unknown_code_and_language_without_echoing_input() -> None:
@@ -419,18 +475,25 @@ def test_malformed_analysis_is_crash_free_and_remains_schema_retry(
     retry_used: bool,
 ) -> None:
     payload = _payload(analysis=analysis)
+    before = deepcopy(payload)
 
     decision = validate_mood_policy(payload, _snapshot(), "ko", retry_used=retry_used)
 
-    assert decision.action == "retry"
+    assert decision.action == ("clamp" if retry_used else "retry")
     assert decision.error_code == "mood_analysis_policy_invalid"
-    assert decision.payload is payload
+    if retry_used:
+        assert decision.payload[:10] == payload[:10]
+        assert decision.payload[10] is None
+    else:
+        assert decision.payload is payload
+    assert payload == before
 
 
 @pytest.mark.parametrize("payload", [(), ("short",), "not-a-tuple"])
-def test_malformed_payload_shape_is_crash_free(payload: object) -> None:
-    decision = validate_mood_policy(payload, _snapshot(), "ko")
+@pytest.mark.parametrize("retry_used", [False, True])
+def test_malformed_payload_shape_is_crash_free(payload: object, retry_used: bool) -> None:
+    decision = validate_mood_policy(payload, _snapshot(), "ko", retry_used=retry_used)
 
-    assert decision.action == "retry"
+    assert decision.action == ("clamp" if retry_used else "retry")
     assert decision.error_code == "mood_analysis_policy_invalid"
     assert decision.payload is payload
