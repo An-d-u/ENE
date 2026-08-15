@@ -277,6 +277,7 @@ def test_ai_worker_normalize_response_payload_returns_goal_update_for_new_and_le
         {"action": "none"},
         [],
         "",
+        None,
     )
     assert AIWorker._normalize_response_payload(
         worker,
@@ -292,6 +293,7 @@ def test_ai_worker_normalize_response_payload_returns_goal_update_for_new_and_le
             {},
             [],
             "",
+            None,
         )
     assert AIWorker._normalize_response_payload(
         worker,
@@ -307,4 +309,5 @@ def test_ai_worker_normalize_response_payload_returns_goal_update_for_new_and_le
             {},
             [],
             "",
+            None,
         )
