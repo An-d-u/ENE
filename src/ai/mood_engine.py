@@ -197,7 +197,8 @@ def validate_state(state: object) -> dict[str, Any]:
     if type(validated["version"]) is not int or validated["version"] != 3:
         raise ValueError("지원하지 않는 기분 상태 버전입니다.")
     _require_int(validated["revision"], "revision", minimum=0)
-    if validated["preset"] not in PRESET_BASELINES:
+    preset = validated["preset"]
+    if not isinstance(preset, str) or preset not in PRESET_BASELINES:
         raise ValueError("기분 프리셋이 올바르지 않습니다.")
     _parse_utc_string(validated["updated_at_utc"], "updated_at_utc")
 
@@ -239,7 +240,8 @@ def _validate_ruptures(value: object) -> None:
         categories.add(str(category))
         _require_number(item["severity"], "균열 심각도", 0.0, 1.0)
         _require_number(item["heat"], "균열 열기", 0.0, 1.0)
-        if item["repair_stage"] not in {"open", "acknowledged", "observing"}:
+        repair_stage = item["repair_stage"]
+        if not isinstance(repair_stage, str) or repair_stage not in {"open", "acknowledged", "observing"}:
             raise ValueError("회복 단계가 올바르지 않습니다.")
         _require_int(item["repeat_count"], "균열 반복 횟수", 0, 3)
         _require_int(item["repair_evidence_count"], "회복 증거 횟수", 0, 2)

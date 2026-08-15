@@ -243,3 +243,30 @@ def test_validate_state_reports_invalid_unhashable_recent_id_as_value_error() ->
 
     with pytest.raises(ValueError):
         validate_state(state)
+
+
+def test_validate_state_reports_unhashable_preset_as_value_error() -> None:
+    state = new_mood_state(NOW, "balanced")
+    state["preset"] = []
+
+    with pytest.raises(ValueError):
+        validate_state(state)
+
+
+def test_validate_state_reports_unhashable_repair_stage_as_value_error() -> None:
+    state = new_mood_state(NOW, "balanced")
+    state["ruptures"] = [
+        {
+            "category": "broken_commitment",
+            "severity": 0.2,
+            "heat": 0.1,
+            "repair_stage": [],
+            "repeat_count": 0,
+            "repair_evidence_count": 0,
+            "last_negative_at_utc": "2099-01-01T00:00:00+00:00",
+            "updated_at_utc": "2099-01-01T00:00:00+00:00",
+        }
+    ]
+
+    with pytest.raises(ValueError):
+        validate_state(state)
