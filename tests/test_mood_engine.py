@@ -61,6 +61,34 @@ def valid_active_affect(**overrides: object) -> dict[str, object]:
     return trace
 
 
+def relationship_event(label: str, **overrides: object) -> dict[str, object]:
+    values: dict[str, object] = {
+        "event_id": synthetic_event_id(label),
+        "intensity": 3,
+        "clarity": "explicit",
+        "certainty": "high",
+    }
+    values.update(overrides)
+    return valid_event(**values)
+
+
+def seeded_rupture(
+    category: str = "broken_commitment",
+    severity: float = 0.18,
+    heat: float = 0.18,
+) -> dict[str, object]:
+    return {
+        "category": category,
+        "severity": severity,
+        "heat": heat,
+        "repair_stage": "open",
+        "repeat_count": 0,
+        "repair_evidence_count": 0,
+        "last_negative_at_utc": NOW.isoformat(timespec="seconds"),
+        "updated_at_utc": NOW.isoformat(timespec="seconds"),
+    }
+
+
 def test_new_state_has_v3_structure_and_neutral_relationship() -> None:
     state = new_mood_state(NOW, "affectionate")
 
@@ -752,3 +780,460 @@ def test_presets_keep_direction_and_clamp_numeric_ranges() -> None:
     assert clamped["background"]["valence"] == 1.0
     assert all(-1.0 <= value <= 1.0 for value in clamped["background"].values())
     assert all(0.0 <= item["intensity"] <= 1.0 for item in clamped["active_affects"])
+
+
+@pytest.mark.parametrize(
+    ("label", "event"),
+    [
+        (
+            "external-negative",
+            relationship_event(
+                "external-negative",
+                kind="conflict",
+                target_scope="external",
+                relation_category="disrespect",
+            ),
+        ),
+        (
+            "user-fatigue",
+            relationship_event("user-fatigue", kind="loss", target_scope="user"),
+        ),
+        (
+            "user-help-request",
+            relationship_event("user-help-request", kind="threat", target_scope="user"),
+        ),
+        (
+            "legitimate-refusal",
+            relationship_event(
+                "legitimate-refusal",
+                kind="conflict",
+                target_scope="user",
+                relation_category="boundary_violation",
+            ),
+        ),
+    ],
+)
+def test_non_relationship_events_do_not_change_relationship_or_ruptures(
+    label: str,
+    event: dict[str, object],
+) -> None:
+    del label
+    state = new_mood_state(NOW, "balanced")
+
+    transition = reduce_mood(state, event, NOW, "balanced")
+
+    assert transition.state["relationship"] == state["relationship"]
+    assert transition.state["ruptures"] == []
+    assert "event.relationship" not in transition.rule_ids
+    assert "event.rupture" not in transition.rule_ids
+
+
+@pytest.mark.parametrize(
+    ("label", "event", "expected"),
+    [
+        (
+            "connection",
+            relationship_event("golden-connection", kind="connection", relation_category="none"),
+            {"affection": 0.018, "trust": 0.010},
+        ),
+        (
+            "success",
+            relationship_event("golden-success", kind="success", relation_category="none"),
+            {"affection": 0.006, "trust": 0.012},
+        ),
+        (
+            "broken-commitment",
+            relationship_event(
+                "golden-broken-commitment",
+                kind="conflict",
+                relation_category="broken_commitment",
+            ),
+            {"affection": -0.008, "trust": -0.040},
+        ),
+        (
+            "follow-through",
+            relationship_event(
+                "golden-follow-through",
+                kind="repair",
+                relation_category="broken_commitment",
+                repair_signal="follow_through",
+            ),
+            {"affection": 0.006, "trust": 0.016},
+        ),
+    ],
+)
+def test_relationship_golden_deltas(
+    label: str,
+    event: dict[str, object],
+    expected: dict[str, float],
+) -> None:
+    del label
+    transition = reduce_mood(new_mood_state(NOW, "balanced"), event, NOW, "balanced")
+
+    assert transition.state["relationship"] == pytest.approx(expected)
+    assert "event.relationship" in transition.rule_ids
+
+
+def test_relationship_delta_uses_saturation_event_caps_and_final_clamp() -> None:
+    positive = new_mood_state(NOW, "expressive")
+    positive["relationship"] = {"affection": 0.99, "trust": 0.99}
+    positive_result = reduce_mood(
+        positive,
+        relationship_event("saturated-positive", kind="connection", relation_category="none"),
+        NOW,
+        "expressive",
+    ).state["relationship"]
+    assert positive_result == pytest.approx(
+        {"affection": 0.99 + 0.018 * 1.25 * 0.01, "trust": 0.99 + 0.010 * 1.25 * 0.01}
+    )
+
+    negative = new_mood_state(NOW, "expressive")
+    negative["relationship"] = {"affection": 0.0, "trust": 0.0}
+    negative_result = reduce_mood(
+        negative,
+        relationship_event(
+            "capped-negative",
+            kind="conflict",
+            relation_category="broken_commitment",
+        ),
+        NOW,
+        "expressive",
+    ).state["relationship"]
+    assert negative_result == pytest.approx({"affection": -0.010, "trust": -0.040})
+
+    clamped = new_mood_state(NOW, "balanced")
+    clamped["relationship"] = {"affection": 1.0, "trust": -1.0}
+    clamped_result = reduce_mood(
+        clamped,
+        relationship_event("final-clamp", kind="connection", relation_category="none"),
+        NOW,
+        "balanced",
+    ).state["relationship"]
+    assert clamped_result == {"affection": 1.0, "trust": -1.0}
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"clarity": "ambiguous"},
+        {"certainty": "low"},
+        {"target_scope": "unknown"},
+        {"target_scope": "external"},
+    ],
+)
+def test_uncertain_or_unrelated_events_are_relationship_safe(overrides: dict[str, object]) -> None:
+    state = new_mood_state(NOW, "balanced")
+    event = relationship_event(
+        f"safe-{overrides}",
+        kind="conflict",
+        relation_category="boundary_violation",
+        **overrides,
+    )
+
+    transition = reduce_mood(state, event, NOW, "balanced")
+
+    assert transition.state["relationship"] == state["relationship"]
+    assert transition.state["ruptures"] == []
+
+
+def test_repeated_connection_uses_repeat_weight_and_relationship_saturation() -> None:
+    state = new_mood_state(NOW, "balanced")
+    expected_affection = 0.0
+    actual_increments = []
+    expected_increments = []
+    for index, repeat_weight in enumerate((1.0, 0.85, 0.70, 0.55)):
+        previous = state["relationship"]["affection"]
+        expected_increment = 0.018 * repeat_weight * (1.0 - abs(expected_affection))
+        expected_increments.append(expected_increment)
+        expected_affection += expected_increment
+        state = reduce_mood(
+            state,
+            relationship_event(
+                f"repeat-connection-{index}",
+                kind="connection",
+                relation_category="none",
+            ),
+            NOW + timedelta(minutes=index),
+            "balanced",
+        ).state
+        actual_increments.append(state["relationship"]["affection"] - previous)
+        assert state["relationship"]["affection"] == pytest.approx(expected_affection)
+
+    assert actual_increments == pytest.approx(expected_increments)
+
+
+def test_only_clear_relationship_boundary_violation_opens_rupture() -> None:
+    transition = reduce_mood(
+        new_mood_state(NOW, "balanced"),
+        relationship_event(
+            "clear-boundary",
+            kind="conflict",
+            relation_category="boundary_violation",
+        ),
+        NOW,
+        "balanced",
+    )
+
+    assert transition.state["ruptures"] == [
+        {
+            "category": "boundary_violation",
+            "severity": pytest.approx(0.20),
+            "heat": pytest.approx(0.20),
+            "repair_stage": "open",
+            "repeat_count": 0,
+            "repair_evidence_count": 0,
+            "last_negative_at_utc": NOW.isoformat(timespec="seconds"),
+            "updated_at_utc": NOW.isoformat(timespec="seconds"),
+        }
+    ]
+    assert "event.rupture" in transition.rule_ids
+
+
+@pytest.mark.parametrize(
+    ("signal", "severity_delta", "heat_delta"),
+    [
+        ("acknowledgment", -0.01, -0.04),
+        ("apology", -0.06, -0.08),
+        ("explanation", -0.02, -0.03),
+    ],
+)
+def test_acknowledgment_apology_and_explanation_have_distinct_recovery(
+    signal: str,
+    severity_delta: float,
+    heat_delta: float,
+) -> None:
+    state = new_mood_state(NOW, "balanced")
+    state["ruptures"] = [seeded_rupture(severity=0.30, heat=0.30)]
+
+    transition = reduce_mood(
+        state,
+        relationship_event(
+            f"repair-{signal}",
+            kind="repair",
+            relation_category="broken_commitment",
+            repair_signal=signal,
+        ),
+        NOW + timedelta(minutes=1),
+        "balanced",
+    )
+
+    rupture = transition.state["ruptures"][0]
+    assert rupture["severity"] == pytest.approx(0.30 + severity_delta)
+    assert rupture["heat"] == pytest.approx(0.30 + heat_delta)
+    assert rupture["repair_stage"] == "acknowledged"
+    assert rupture["repair_evidence_count"] == 0
+
+
+def test_correction_then_distinct_follow_through_resolves_moderate_rupture() -> None:
+    state = new_mood_state(NOW, "balanced")
+    state["ruptures"] = [seeded_rupture()]
+    state = reduce_mood(
+        state,
+        relationship_event(
+            "correction-one",
+            kind="repair",
+            relation_category="broken_commitment",
+            repair_signal="correction",
+        ),
+        NOW + timedelta(minutes=1),
+        "balanced",
+    ).state
+
+    assert state["ruptures"][0]["repair_stage"] == "observing"
+    assert state["ruptures"][0]["repair_evidence_count"] == 1
+    assert state["ruptures"][0]["severity"] == pytest.approx(0.14)
+
+    state = reduce_mood(
+        state,
+        relationship_event(
+            "follow-through-two",
+            kind="repair",
+            relation_category="broken_commitment",
+            repair_signal="follow_through",
+        ),
+        NOW + timedelta(minutes=2),
+        "balanced",
+    ).state
+    assert state["ruptures"] == []
+
+
+def test_duplicate_repair_id_does_not_increase_evidence() -> None:
+    state = new_mood_state(NOW, "balanced")
+    state["ruptures"] = [seeded_rupture(severity=0.30)]
+    event = relationship_event(
+        "duplicate-repair",
+        kind="repair",
+        relation_category="broken_commitment",
+        repair_signal="correction",
+    )
+    state = reduce_mood(state, event, NOW + timedelta(minutes=1), "balanced").state
+    snapshot = deepcopy(state)
+
+    duplicate = reduce_mood(state, event, NOW + timedelta(minutes=2), "balanced")
+
+    assert duplicate.applied is False
+    assert duplicate.state == snapshot
+    assert duplicate.state["ruptures"][0]["repair_evidence_count"] == 1
+
+
+def test_valid_zero_impact_correction_still_counts_as_repair_evidence() -> None:
+    state = new_mood_state(NOW, "balanced")
+    state["ruptures"] = [seeded_rupture(severity=0.30, heat=0.30)]
+
+    transition = reduce_mood(
+        state,
+        relationship_event(
+            "zero-impact-correction",
+            kind="repair",
+            relation_category="broken_commitment",
+            repair_signal="correction",
+            intensity=0,
+        ),
+        NOW + timedelta(minutes=1),
+        "balanced",
+    )
+
+    rupture = transition.state["ruptures"][0]
+    assert rupture["severity"] == pytest.approx(0.30)
+    assert rupture["heat"] == pytest.approx(0.30)
+    assert rupture["repair_stage"] == "observing"
+    assert rupture["repair_evidence_count"] == 1
+
+
+def test_same_category_recurrence_resets_repair_and_increments_repeat() -> None:
+    state = new_mood_state(NOW, "balanced")
+    rupture = seeded_rupture(severity=0.18, heat=0.10)
+    rupture["repair_stage"] = "observing"
+    rupture["repair_evidence_count"] = 1
+    state["ruptures"] = [rupture]
+    event_time = NOW + timedelta(minutes=5)
+
+    transition = reduce_mood(
+        state,
+        relationship_event(
+            "recurring-broken-commitment",
+            kind="conflict",
+            relation_category="broken_commitment",
+        ),
+        event_time,
+        "balanced",
+    )
+
+    recurrent = transition.state["ruptures"][0]
+    assert recurrent["repeat_count"] == 1
+    assert recurrent["repair_evidence_count"] == 0
+    assert recurrent["repair_stage"] == "open"
+    assert recurrent["severity"] == pytest.approx(0.18 + 0.18 * (1.0 - 0.18))
+    assert recurrent["heat"] == pytest.approx(0.10 + 0.18 * (1.0 - 0.10))
+    assert recurrent["last_negative_at_utc"] == event_time.isoformat(timespec="seconds")
+    assert recurrent["updated_at_utc"] == event_time.isoformat(timespec="seconds")
+
+
+def test_unrelated_positive_event_is_not_repair_evidence() -> None:
+    state = new_mood_state(NOW, "balanced")
+    state["ruptures"] = [seeded_rupture()]
+
+    transition = reduce_mood(
+        state,
+        relationship_event("unrelated-affection", kind="connection", relation_category="none"),
+        NOW + timedelta(minutes=1),
+        "balanced",
+    )
+
+    assert transition.state["ruptures"] == state["ruptures"]
+
+
+def test_apology_resolves_light_rupture_but_not_large_rupture() -> None:
+    light = new_mood_state(NOW, "balanced")
+    light["ruptures"] = [seeded_rupture(severity=0.08, heat=0.10)]
+    apology = relationship_event(
+        "light-apology",
+        kind="repair",
+        relation_category="broken_commitment",
+        repair_signal="apology",
+    )
+    assert reduce_mood(light, apology, NOW + timedelta(minutes=1), "balanced").state["ruptures"] == []
+
+    large = new_mood_state(NOW, "balanced")
+    large["ruptures"] = [seeded_rupture(severity=0.30, heat=0.30)]
+    remaining = reduce_mood(
+        large,
+        relationship_event(
+            "large-apology",
+            kind="repair",
+            relation_category="broken_commitment",
+            repair_signal="apology",
+        ),
+        NOW + timedelta(minutes=1),
+        "balanced",
+    ).state["ruptures"]
+    assert len(remaining) == 1
+    assert remaining[0]["severity"] == pytest.approx(0.24)
+
+
+def test_repair_resolution_includes_exact_float_thresholds() -> None:
+    apology_state = new_mood_state(NOW, "balanced")
+    apology_state["ruptures"] = [seeded_rupture(severity=0.14, heat=0.20)]
+    apology = relationship_event(
+        "exact-apology-threshold",
+        kind="repair",
+        relation_category="broken_commitment",
+        repair_signal="apology",
+    )
+    assert (
+        reduce_mood(apology_state, apology, NOW + timedelta(minutes=1), "balanced").state[
+            "ruptures"
+        ]
+        == []
+    )
+
+    evidence_state = new_mood_state(NOW, "balanced")
+    evidence_state["ruptures"] = [seeded_rupture(severity=0.22, heat=0.22)]
+    evidence_state = reduce_mood(
+        evidence_state,
+        relationship_event(
+            "exact-threshold-correction",
+            kind="repair",
+            relation_category="broken_commitment",
+            repair_signal="correction",
+        ),
+        NOW + timedelta(minutes=1),
+        "balanced",
+    ).state
+    evidence_state = reduce_mood(
+        evidence_state,
+        relationship_event(
+            "exact-threshold-follow-through",
+            kind="repair",
+            relation_category="broken_commitment",
+            repair_signal="follow_through",
+        ),
+        NOW + timedelta(minutes=32),
+        "balanced",
+    ).state
+    assert evidence_state["ruptures"] == []
+
+
+def test_relationship_and_rupture_rules_are_stable_and_input_is_immutable() -> None:
+    state = new_mood_state(NOW, "balanced")
+    snapshot = deepcopy(state)
+
+    transition = reduce_mood(
+        state,
+        relationship_event(
+            "stable-rules",
+            kind="conflict",
+            relation_category="disrespect",
+        ),
+        NOW,
+        "balanced",
+    )
+
+    assert state == snapshot
+    assert transition.rule_ids == (
+        "event.background",
+        "event.affect",
+        "event.relationship",
+        "event.rupture",
+        "event.recorded",
+    )
