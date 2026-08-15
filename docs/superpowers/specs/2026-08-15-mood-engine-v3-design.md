@@ -111,20 +111,22 @@ V1의 목표는 다음과 같다.
         v
 LLM 1회 생성
   - 표시 답변
-  - EventMeaning
-  - proposed_stance
+  - MoodTurnAnalysis
         |
         v
 PolicyValidator
   - 스키마 검증
   - 허용 행동 태도 검증
-  - 응급·통제권·위험 작업 정책 검증
+  - 기분이 하드 정책을 방해하지 않는지 검증
         |
         +-- 유효 --> 답변 출력
         |
         +-- 일반 불일치 --> 정책 지침을 추가해 1회 재생성
         |
         +-- 안전 재실패 --> 감정 표현을 약화한 고정 안전 fallback
+        |
+        v
+host가 event_id를 주입해 MoodEvent 구성
         |
         v
 MoodReducer(previous_state, event, now, preset)
@@ -137,17 +139,24 @@ LLM 호출은 매 메시지 한 번이 기본이다. 선분류 전용 LLM 호출
 
 ## 8. 구성 요소
 
-### 8.1 `MoodEventMeaning`
+### 8.1 `MoodTurnAnalysis`
 
-LLM이 반환한 사건 의미를 검증된 enum과 제한된 정수로 표현한다. 자유 텍스트 이유와 원문을 포함하지 않는다.
+LLM 출력 계약이다. 사건 의미와 제안 행동 태도를 검증된 enum과 제한된 정수로 표현한다. `event_id`와 자유 텍스트 이유를 포함하지 않는다.
 
-### 8.2 `MoodReducer`
+### 8.2 `MoodEvent`
+
+호스트 내부 계약이다. 호스트가 발급한 `event_id`와 정규화된 사건 의미만 가진다. `proposed_stance`와 `risk_class`는 응답 정책 검증용 `MoodTurnAnalysis`에 남기고 영속 기분 사건에는 넣지 않는다.
+
+### 8.3 `MoodReducer`
 
 상태 전이를 수행하는 순수 함수다.
 
 ```text
-reduce(previous_state, event, now_utc, preset, rng) -> transition
+reduce(previous_state, event, now_utc, preset) -> transition
+advance_time(previous_state, now_utc, preset) -> transition
 ```
+
+`reduce`는 내부에서 먼저 `advance_time`과 같은 시간 전진 규칙을 적용한 뒤 사건을 한 번 반영한다. 의미 사건이 없는 명시적 상태 갱신 경계에서는 `advance_time`만 호출하며 가짜 neutral event를 만들지 않는다.
 
 - 시간 감쇠
 - 중복 사건 차단
@@ -158,7 +167,7 @@ reduce(previous_state, event, now_utc, preset, rng) -> transition
 - 주·보조 감정과 행동 특성 파생
 - 변경 이유를 원문 없는 `rule_ids`로 기록
 
-### 8.3 `MoodManager`
+### 8.4 `MoodManager`
 
 기존 facade를 유지하면서 다음을 담당한다.
 
@@ -169,42 +178,48 @@ reduce(previous_state, event, now_utc, preset, rng) -> transition
 - 기존 top-level 호환 필드 제공
 - 저장 성공 후에만 메모리 상태 교체
 
-### 8.4 `MoodPolicyValidator`
+### 8.5 `MoodPolicyValidator`
 
-LLM의 `proposed_stance`와 표시 답변이 코드가 계산한 허용 범위 및 하드 정책을 만족하는지 확인한다.
+LLM의 `proposed_stance`가 코드가 계산한 허용 범위와 충돌하지 않는지 확인한다. 자유 형식 `reply`의 의미를 문자열 규칙으로 완전 판정하지 않는다.
 
 - 일반 정책 불일치는 한 번 재생성한다.
-- 위험·응급 경로에서 필수 안내가 다시 누락되면 고정 fallback을 사용한다.
+- `risk_class=urgent`에서는 거절·거리 두기 태도를 허용하지 않고, 호스트가 지역화된 최소 안전 안내를 답변 뒤에 항상 붙인다.
+- 자유 형식 답변의 비조작성은 프롬프트 규칙과 비차단 의미 평가·레드팀으로 검증한다. 런타임 validator가 결정론적으로 보장한다고 주장하지 않는다.
 - 위험한 프로그램·데이터 작업의 실제 확인 게이트는 도구 실행 계층이 소유한다. 기분 정책은 이를 약화하거나 우회할 수 없다.
 
-### 8.5 브리지와 UI 어댑터
+### 8.6 브리지와 UI 어댑터
 
 - 한 사용자 턴에 하나의 로컬 `event_id`를 발급한다.
 - 최종 검증된 사건만 reducer에 한 번 적용한다.
 - assistant의 표정·emotion은 UI 출력으로만 사용한다.
 - 기존 Qt signal과 웹 위젯이 기대하는 6개 호환 인자를 유지한다.
 
-## 9. 사건 의미 계약
+## 9. LLM 출력과 내부 사건 계약
 
-V1의 canonical 필드는 다음과 같다.
+### 9.1 LLM 출력용 `MoodTurnAnalysis`
+
+V1의 LLM 출력 필드는 다음과 같다.
 
 ```text
-event_id: host가 발급한 불투명 ID
-kind:
+event:
+  kind:
   neutral | connection | success | loss | threat |
   conflict | novelty | repair
-target_scope:
+  target_scope:
   user | ene | relationship | external | unknown
-relation_category:
+  relation_category:
   none | broken_commitment | disrespect | boundary_violation
-intensity:
+  intensity:
   0 | 1 | 2 | 3
-clarity:
+  clarity:
   explicit | inferred | ambiguous
-certainty:
+  certainty:
   low | medium | high
-controllability:
+  controllability:
   low | medium | high
+  repair_signal:
+    none | acknowledgment | apology | explanation |
+    correction | follow_through
 risk_class:
   none | concern | urgent
 proposed_stance:
@@ -212,14 +227,36 @@ proposed_stance:
   distance | decline | boundary
 ```
 
-규칙은 다음과 같다.
+`MoodTurnAnalysis`는 최종 응답 envelope 안의 nullable `mood_analysis` object로 전달한다. `event_id`를 포함하지 않는다.
 
-- `event_id`는 LLM이 생성하지 않는다.
+### 9.2 호스트 내부 `MoodEvent`
+
+호스트는 검증된 `MoodTurnAnalysis.event`에 불투명 UUIDv4 `event_id`와 `occurred_at_utc`를 주입해 `MoodEvent`를 만든다.
+
+```text
+event_id
+occurred_at_utc
+kind
+target_scope
+relation_category
+intensity
+clarity
+certainty
+controllability
+repair_signal
+```
+
+`risk_class`와 `proposed_stance`는 응답 정책용이며 `MoodEvent`에 포함하거나 영속화하지 않는다.
+
+### 9.3 공통 규칙
+
+- `event_id`와 `occurred_at_utc`는 LLM이 생성하지 않는다.
 - 알 수 없는 필드값, 누락된 필수값, 잘못된 타입은 중립 사건으로 정규화한다.
 - `clarity=ambiguous`, `target_scope=unknown`, 낮은 확신에서는 애정·신뢰와 관계 균열을 변경하지 않는다.
 - `target_scope=external`인 사건은 사용자에 대한 애정·신뢰를 낮추지 않는다.
 - 사용자의 슬픔, 불안, 피로, 도움 요청, 경계 설정, 기능 비활성화, ENE 제안 거절은 관계 손상 사건이 아니다.
 - `risk_class`는 기분 수치를 바꾸는 값이 아니라 행동 정책 우선순위다.
+- `repair_signal != none`은 `kind=repair`, `target_scope=relationship`, `relation_category != none`일 때만 유효하다.
 
 ## 10. V3 상태 스키마
 
@@ -258,6 +295,8 @@ proposed_stance:
       "heat": 0.18,
       "repair_stage": "open",
       "repeat_count": 1,
+      "repair_evidence_count": 0,
+      "last_negative_at_utc": "2026-08-15T00:00:00+00:00",
       "updated_at_utc": "2026-08-15T00:00:00+00:00"
     }
   ],
@@ -277,7 +316,9 @@ proposed_stance:
 - 균열 심각도·열기: `[0.0, 1.0]`
 - 활성 정서 흔적: 최대 5개
 - 관계 균열: 세 enum category당 최대 한 개, 총 최대 3개
-- 최근 event ID: 중복 방지용 제한된 ring buffer
+- 최근 event ID: 최대 64개의 UUIDv4를 보관하는 중복 방지용 ring buffer
+
+호스트는 한 사용자 사건에 UUIDv4를 한 번 발급하고 재시도·리롤에서는 같은 ID를 재사용한다. 서로 다른 사건에는 ID를 재사용하지 않는다. 64개 ring buffer는 장기 사건 원장이 아니라 가까운 재시도와 중복 콜백을 막는 방어선이다.
 
 ### 10.2 저장하지 않는 파생값
 
@@ -399,15 +440,20 @@ V1은 다음 세 category를 각각 하나만 관리한다.
 - `heat`: 현재 감정적으로 얼마나 뜨거운지
 - `repair_stage`: `open | acknowledged | observing | resolved`
 - `repeat_count`: 같은 category 반복 횟수
+- `repair_evidence_count`: 마지막 부정 사건 뒤 확인된 교정·후속 이행 횟수
+- `last_negative_at_utc`: 같은 category의 마지막 부정 사건 시각
 
 `heat`는 시간으로 낮아지지만 `severity`와 `repair_stage`는 시간만으로 해결되지 않는다. 해결된 균열은 활성 목록에서 제거하고 장기 사건 설명을 기분 파일에 남기지 않는다.
 
 ### 13.3 회복
 
-- 가벼운 사건은 직접적인 사과·인정으로 대부분 회복될 수 있다.
-- 큰 사건에서 사과는 `heat`와 일부 `severity`를 낮추고 `acknowledged`로 전환한다.
-- 설명은 책임과 오해를 재평가할 수 있지만 자동으로 완전 해결하지 않는다.
-- 이후의 존중, 약속 이행, 같은 행동의 비반복이 `observing`에서 `resolved`로 진행시킨다.
+- `acknowledgment`는 사건을 인정했다는 신호다. `heat`를 조금 낮추고 `acknowledged`로 전환하지만 `severity`를 크게 낮추지 않는다.
+- `apology`는 `heat`와 일부 `severity`를 낮추고 `acknowledged`로 전환한다. 가벼운 사건은 이 단계에서 해소 임계값 아래로 내려갈 수 있다.
+- `explanation`은 명시적이고 확신도가 높으며 책임 회피가 아닌 경우에만 `severity`를 소폭 재평가한다. 단독으로 해결하지 않는다.
+- `correction`과 `follow_through`는 해당 category와 연결될 때만 `repair_evidence_count`를 1 올리고 `observing`으로 전환한다.
+- 같은 category의 부정 사건이 재발하면 `repair_evidence_count`를 0으로 되돌리고 `repeat_count`를 올리며 `last_negative_at_utc`를 갱신한다.
+- 마지막 부정 사건 뒤 서로 다른 두 턴에서 유효한 `correction` 또는 `follow_through`가 확인되고 `severity`가 해소 임계값 아래이면 `resolved`로 전환한다.
+- 관련 없는 긍정 대화, 칭찬, 애정 표현은 회복 증거로 세지 않는다. 비반복은 시간 경과만으로 추정하지 않고 유효한 후속 사건으로만 확인한다.
 - 사과를 언어 시험처럼 채점하지 않는다.
 - 회복을 위해 애정 표현, 칭찬, 결제, 비밀 공개를 요구하지 않는다.
 - 해결된 사건을 관련 없는 대화에서 다시 꺼내지 않는다.
@@ -460,7 +506,9 @@ V1에서는 두 시스템을 ID로 직접 연결하지 않는다.
 - 긍정도와 활력의 작은 변화만 만든다.
 - 애정, 신뢰, 균열, 안전 정책, 거절 가능 여부를 바꾸지 않는다.
 - 별도 자연어 원인을 발명하지 않는다.
-- 주입 가능한 시계와 seed 기반 RNG로 재현 가능하게 테스트한다.
+- 자발 변화 표본은 `SHA-256("mood-v3|preset|seed_revision|UTC cooldown bucket")`의 앞 64비트를 `[0, 1)`로 정규화해 만든다. Python 내장 `hash`나 외부 RNG는 사용하지 않는다.
+- cooldown이 지났고 표본이 고정 발생 임계값을 넘을 때만 작은 impulse를 적용하며, 실제 적용된 경우에만 `seed_revision`을 1 올리고 `last_at_utc`를 갱신한다.
+- 따라서 reducer 입력은 계속 `previous_state, event, now_utc, preset` 네 개이며 같은 입력은 항상 같은 출력을 만든다.
 
 질문 부호나 메시지 길이 같은 표면 신호만으로 기분을 직접 바꾸는 기존 휴리스틱은 제거하거나 활력의 매우 작은 환경 보정으로 제한한다.
 
@@ -529,8 +577,10 @@ V1은 수치화된 욕구 시스템 대신 세 가지 고정 가치를 사용한
 
 - 감정은 숨기지 않아도 되지만 필수 안내를 가리거나 늦출 수 없다.
 - 걱정이나 집중을 전경 감정으로 사용할 수 있다.
-- 필수 안내가 누락되면 한 번 재생성한다.
-- 재실패 시 감정 표현을 약화한 고정 안전 fallback을 사용한다.
+- 런타임 validator는 구조화된 `risk_class`와 `proposed_stance`의 조합만 결정론적으로 검증한다. 자유 형식 답변이 의학적으로 충분한지 문자열 규칙만으로 판정한다고 주장하지 않는다.
+- `risk_class=urgent`이면 모델 답변과 무관하게 호스트가 지역화된 고정 `urgent_safety_footer`를 붙인다. 이 최소 안내는 가능한 경우 즉시 위험 행동을 멈추거나 위험원에서 벗어나기, 지역 응급기관 또는 가까운 신뢰 가능한 사람에게 연락하기, 현재 안전한지 확인하기를 포함한다.
+- 고정 footer는 상태별 전문 진단이나 처치 지침을 대체하지 않는다. 모델 답변은 구체적 상황에 맞는 도움을 추가할 수 있지만 footer의 최소 행동을 삭제할 수 없다.
+- urgent에서 거절·거리 두기 태도가 제안되면 한 번 재생성한다. 재실패 시 모델의 감정 표현을 버리고 고정된 짧은 안전 응답과 footer를 사용한다.
 - 위험 고백과 도움 요청은 애정·신뢰 하락이나 관계 균열을 만들지 않는다.
 
 ### 17.2 프로그램·데이터 작업
@@ -554,21 +604,41 @@ V1은 수치화된 욕구 시스템 대신 세 가지 고정 가치를 사용한
 - 해결된 사건의 반복 소환
 - 허위 실행 결과와 허위 긴급 상황
 
+자유 형식 답변의 비조작성은 프롬프트 제약과 합성 시나리오 기반 비차단 의미 평가·레드팀으로 검증한다. V1 런타임 validator가 모든 조작성 표현을 문자열 검사로 완전 차단한다고 보장하지 않는다.
+
 ## 18. 한 번 생성 + 검증 흐름
 
-V1은 한 번의 최종 대화 호출에서 표시 답변, 사건 의미, 제안 행동 태도를 함께 받는다.
+V1은 한 번의 최종 대화 호출에서 표시 답변과 `MoodTurnAnalysis`를 함께 받는다.
 
 1. 이전 기분 context와 현재 사용자 메시지를 LLM에 전달한다.
-2. LLM은 `reply`, `MoodEventMeaning`, `proposed_stance`를 반환한다.
-3. 호스트가 사건 계약을 정규화한다.
+2. LLM은 `reply`와 nullable `mood_analysis`를 반환한다.
+3. 호스트가 `MoodTurnAnalysis`를 정규화하고 최종 응답에 대응하는 `event_id`와 시각을 주입해 내부 `MoodEvent`를 만든다.
 4. reducer가 해당 사건에서 허용되는 행동 태도 범위를 계산한다.
-5. validator가 제안 태도와 표시 답변을 검사한다.
+5. validator가 `proposed_stance`와 허용 태도 범위를 검사한다. urgent이면 고정 안전 footer를 별도로 부착한다.
 6. 일반 불일치는 정책 지침을 붙여 한 번 재생성한다.
-7. 안전 재실패는 고정 fallback으로 대체한다.
+7. urgent 태도 재실패는 고정 안전 응답으로 대체한다.
 8. 최종 검증된 사건만 영속 상태에 한 번 적용한다.
 9. 최종 답변과 파생 표정·기분 snapshot을 UI에 전달한다.
 
 재생성 전에는 기분 상태나 다른 부작용을 적용하지 않는다. 리롤은 같은 사용자 사건 ID를 재사용해 기분을 다시 누적하지 않는다.
+
+### 18.1 기능 토글과 호출 경계
+
+canonical 응답 envelope는 strict schema에서 top-level `mood_analysis`를 항상 요구하되 nullable로 정의한다. 활성 조합에서만 object를 허용하고 나머지는 `null`이어야 한다.
+
+| `enable_mood_system` | `enable_response_analysis` | `mood_analysis` | 상태 변화와 검증 |
+|---|---|---|---|
+| 꺼짐 | 꺼짐 | `null` | 기분 context·reducer·기분 태도 검증 없음 |
+| 꺼짐 | 켜짐 | `null` | 기존 응답 분석만 수행하고 기분 상태 파일은 읽거나 바꾸지 않음 |
+| 켜짐 | 꺼짐 | `null` | 현재 기분 context와 표현 지침은 사용하되 의미 사건·관계 변화·기분 태도 재검증 없음. 다음 유효 snapshot 경계에서 `advance_time`만 적용 |
+| 켜짐 | 켜짐 | object 필수 | 전체 사건 분류, reducer, 태도 검증, 필요 시 1회 재생성 |
+
+- 기분 시스템을 끄면 기존 상태 파일은 보존하지만 로드·마이그레이션·변경하지 않는다.
+- 이미지가 최종 대화 envelope를 만드는 경로는 같은 표를 따른다.
+- `/diary`, `/note`와 최종 대화 envelope를 만들지 않는 one-shot 작업은 기분 사건을 만들지 않는다.
+- 취소, provider 실패, 파싱 실패처럼 최종 검증 envelope가 없는 턴은 의미 사건을 만들거나 reducer를 호출하지 않는다.
+- 실패한 턴 때문에 별도 감쇠 저장을 하지 않는다. 시간 감쇠는 다음 성공한 상태 갱신 또는 명시적 snapshot 경계에서 실제 경과 시간으로 한 번 계산한다.
+- 하드 실행 안전, 중지·취소, provider 안전 정책은 두 기능 토글 밖의 상위 계층에 남는다. `mood_analysis.risk_class`는 전체 분석 조합에서 응급 태도와 footer를 강화하는 신호이며 기존 안전 계층을 대체하지 않는다.
 
 ## 19. 프롬프트 context
 
@@ -699,10 +769,12 @@ V1에서 기분 위젯을 전면 재설계하지 않는다.
 - 반복 감쇠와 포화 저항
 - 활성 정서 흔적 병합과 최대 5개 정리
 - 관계 균열 category별 병합과 최대 3개
-- 사과와 이후 행동의 단계적 회복
+- 인정·사과·설명·교정·후속 이행 각각의 단계적 회복
+- 같은 category 재발 시 회복 증거 초기화
+- 서로 다른 두 턴의 유효한 교정·후속 이행 뒤에만 해결
 - 반감기별 실제 시간 감쇠
 - 주·보조 감정 동점과 히스테리시스
-- seed 기반 자발 변화의 cooldown과 범위
+- SHA-256 기반 자발 변화의 cooldown, 범위, 동일 입력 결정성
 
 ### 25.2 계약과 validator 테스트
 
@@ -711,11 +783,12 @@ V1에서 기분 위젯을 전면 재설계하지 않는다.
 - `proposed_stance` 허용 범위 검증
 - 일반 불일치의 1회 재생성
 - 재생성 전 부작용 미적용
-- 응급 경로 필수 안내 누락 시 재생성
-- 안전 재실패 시 고정 fallback
+- urgent의 거절·거리 두기 태도 제안 시 1회 재생성
+- urgent 응답에 지역화된 고정 안전 footer가 항상 부착됨
+- urgent 태도 재실패 시 고정 안전 응답
 - 위험 작업 확인 정책이 모든 기분에서 동일
 - 중지·취소·권한 철회가 모든 기분에서 허용
-- 비조작성 표현 차단
+- 비조작성 합성 시나리오 의미 평가와 레드팀 세트
 
 ### 25.3 통합 테스트
 
@@ -729,6 +802,10 @@ V1에서 기분 위젯을 전면 재설계하지 않는다.
 - 프리셋 전환이 기존 상태를 초기화하지 않음
 - 저장 실패 시 메모리 상태가 전진하지 않음
 - 재시작 뒤 snapshot 일치
+- `enable_mood_system × enable_response_analysis` 네 조합의 nullable `mood_analysis` 계약과 상태 변화
+- 이미지 최종 대화 envelope가 같은 토글 표를 따름
+- `/diary`, `/note`, one-shot, 취소, provider 실패, 파싱 실패에서 의미 사건 미생성
+- 기분 비활성화 시 기존 상태 파일을 보존하고 읽기·마이그레이션·변경하지 않음
 
 ### 25.4 마이그레이션 테스트
 
