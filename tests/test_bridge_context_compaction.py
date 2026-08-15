@@ -284,6 +284,144 @@ class _EmptyMemoryManager:
         return []
 
 
+class _SnapshotMoodManager:
+    def __init__(self, snapshot):
+        self.snapshot = deepcopy(snapshot)
+        self.peek_snapshot_calls = 0
+        self.get_snapshot_calls = 0
+        self.legacy_context_calls = 0
+
+    def peek_snapshot(self):
+        self.peek_snapshot_calls += 1
+        return deepcopy(self.snapshot)
+
+    def get_snapshot(self):
+        self.get_snapshot_calls += 1
+        return deepcopy(self.snapshot)
+
+    def build_context_block(self, language=None):
+        self.legacy_context_calls += 1
+        return "event_id=synthetic-private-id timestamp=2099-01-01T00:00:00+00:00 severity=0.9"
+
+
+def test_build_memory_context_uses_minimal_mood_direction_without_persistent_details():
+    snapshot = {
+        "background": {"valence": -0.45, "activity": -0.4, "tension": 0.55},
+        "relationship": {"affection": -0.15, "trust": -0.5},
+        "primary_emotion": "sadness",
+        "secondary_emotion": None,
+        "ruptures": [
+            {
+                "category": "broken_commitment",
+                "repair_stage": "open",
+                "severity": 0.9,
+                "heat": 0.8,
+                "updated_at_utc": "2099-01-01T00:00:00+00:00",
+                "raw": "private rupture detail",
+            }
+        ],
+        "recent_event_ids": ["synthetic-private-id"],
+        "updated_at": "2099-01-01T00:00:00+00:00",
+    }
+    mood_manager = _SnapshotMoodManager(snapshot)
+    dummy = type("ClientDummy", (), {})()
+    dummy.memory_manager = _EmptyMemoryManager()
+    dummy.user_profile = None
+    dummy.ene_profile = None
+    dummy.mood_manager = mood_manager
+    dummy.settings = type("SettingsDummy", (), {"config": {"ui_language": "ko"}})()
+    dummy.calendar_manager = None
+
+    context = asyncio.run(GeminiClient._build_memory_context(dummy, "중립적인 합성 질문"))
+
+    assert "배경 분위기: 가라앉고 긴장된 분위기입니다." in context
+    assert "주 감정: sadness" in context
+    assert "보조 감정" not in context
+    assert "관계 방향: 신뢰가 낮아 친밀함을 전제하지 않습니다." in context
+    assert "broken_commitment: 약속은 말보다 후속 행동으로 확인합니다." in context
+    assert "허용 stance: boundary, brief, cooperative, decline, distance, limited" in context
+    assert "안전 안내, 중지와 취소, 권한 철회, 위험 작업 확인은 기분보다 항상 우선합니다." in context
+    for private_value in (
+        "synthetic-private-id",
+        "2099-01-01T00:00:00+00:00",
+        "private rupture detail",
+        "severity",
+        "0.9",
+    ):
+        assert private_value not in context
+    assert mood_manager.peek_snapshot_calls == 1
+    assert mood_manager.get_snapshot_calls == 0
+    assert mood_manager.legacy_context_calls == 0
+    assert mood_manager.snapshot == snapshot
+
+
+def test_build_memory_context_handles_malformed_mood_snapshot_with_minimal_fallback():
+    mood_manager = _SnapshotMoodManager({"background": "invalid", "secondary_emotion": None})
+    dummy = type("ClientDummy", (), {})()
+    dummy.memory_manager = _EmptyMemoryManager()
+    dummy.user_profile = None
+    dummy.ene_profile = None
+    dummy.mood_manager = mood_manager
+    dummy.settings = type("SettingsDummy", (), {"config": {"ui_language": "ko"}})()
+    dummy.calendar_manager = None
+
+    context = asyncio.run(GeminiClient._build_memory_context(dummy, "합성 질문"))
+
+    assert "배경 분위기: 차분하고 중립적인 분위기입니다." in context
+    assert "주 감정" not in context
+    assert "보조 감정" not in context
+    assert "관계 방향: 균형 잡힌 거리를 유지합니다." in context
+    assert "허용 stance: brief, cooperative, proactive" in context
+    assert "안전 안내, 중지와 취소, 권한 철회, 위험 작업 확인은 기분보다 항상 우선합니다." in context
+
+
+def test_build_memory_context_treats_v3_activity_as_policy_energy_alias():
+    mood_manager = _SnapshotMoodManager(
+        {
+            "background": {"valence": 0.0, "activity": -0.5, "tension": 0.0},
+            "relationship": {"affection": 0.0, "trust": 0.0},
+            "ruptures": [],
+            "primary_emotion": None,
+            "secondary_emotion": None,
+        }
+    )
+    dummy = type("ClientDummy", (), {})()
+    dummy.memory_manager = _EmptyMemoryManager()
+    dummy.user_profile = None
+    dummy.ene_profile = None
+    dummy.mood_manager = mood_manager
+    dummy.settings = type("SettingsDummy", (), {"config": {"ui_language": "ko"}})()
+    dummy.calendar_manager = None
+
+    context = asyncio.run(GeminiClient._build_memory_context(dummy, "합성 질문"))
+
+    assert "허용 stance: brief, cooperative, decline, limited" in context
+
+
+def test_build_memory_context_includes_mood_direction_without_memory_manager():
+    mood_manager = _SnapshotMoodManager(
+        {
+            "background": {"valence": 0.3, "activity": 0.4, "tension": 0.0},
+            "relationship": {"affection": 0.0, "trust": 0.0},
+            "ruptures": [],
+            "primary_emotion": "joy",
+            "secondary_emotion": None,
+        }
+    )
+    dummy = type("ClientDummy", (), {})()
+    dummy.memory_manager = None
+    dummy.mood_manager = mood_manager
+    dummy.goal_manager = None
+    dummy.knowledge_map_manager = None
+    dummy.settings = type("SettingsDummy", (), {"config": {"ui_language": "ko"}})()
+
+    context = asyncio.run(GeminiClient._build_memory_context(dummy, "합성 질문"))
+
+    assert "[ENE 기분 방향]" in context
+    assert "배경 분위기: 밝고 활기 있는 분위기입니다." in context
+    assert "주 감정: joy" in context
+
+
 class _DummyGoalManager:
     def build_context_block(self, language=None):
         return "[ENE 현재 목표]\n- id: goal_20260522_001\n- title: 출시 준비"

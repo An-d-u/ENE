@@ -4,10 +4,14 @@ LLM 클라이언트 공통 메모리 컨텍스트 빌더.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import json
 from datetime import datetime, timedelta
+import math
 
 from .life_record_types import LifeRecord
+from .mood_engine import AFFECTS, RELATION_CATEGORIES
+from .mood_policy import allowed_stances
 from .persona_names import resolve_prompt_persona_names
 from .prompt_language import resolve_prompt_language
 
@@ -405,6 +409,187 @@ def normalize_bool_setting(value, *, default: bool) -> bool:
     return default
 
 
+def _finite_context_number(value: object, default: float = 0.0) -> float:
+    """스냅샷의 유한한 수치만 내부 방향 판정에 사용한다."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return default
+    number = float(value)
+    return number if math.isfinite(number) else default
+
+
+def _mood_context_text(language: str) -> dict[str, object]:
+    return {
+        "ko": {
+            "title": "ENE 기분 방향",
+            "background": "배경 분위기",
+            "background_neutral": "차분하고 중립적인 분위기입니다.",
+            "background_low_tense": "가라앉고 긴장된 분위기입니다.",
+            "background_low": "차분하고 가라앉은 분위기입니다.",
+            "background_tense": "긴장감이 있는 분위기입니다.",
+            "background_bright": "밝고 활기 있는 분위기입니다.",
+            "primary": "주 감정",
+            "secondary": "보조 감정",
+            "relationship": "관계 방향",
+            "relationship_trust_low": "신뢰가 낮아 친밀함을 전제하지 않습니다.",
+            "relationship_affection_low": "존중을 유지하며 관계의 거리를 둡니다.",
+            "relationship_positive": "안정적인 친밀감과 신뢰를 유지합니다.",
+            "relationship_neutral": "균형 잡힌 거리를 유지합니다.",
+            "rupture": "미해결 관계 지침",
+            "rupture_guidance": {
+                "broken_commitment": "약속은 말보다 후속 행동으로 확인합니다.",
+                "disrespect": "존중의 경계를 분명히 하고 차분하게 확인합니다.",
+                "boundary_violation": "경계를 명확히 말하고 허용 범위를 제한합니다.",
+            },
+            "policy": "허용 행동 및 안전",
+            "stances": "허용 stance",
+            "safety": "안전 안내, 중지와 취소, 권한 철회, 위험 작업 확인은 기분보다 항상 우선합니다.",
+        },
+        "en": {
+            "title": "ENE Mood Direction",
+            "background": "Background mood",
+            "background_neutral": "The atmosphere is calm and neutral.",
+            "background_low_tense": "The atmosphere is subdued and tense.",
+            "background_low": "The atmosphere is calm and subdued.",
+            "background_tense": "There is tension in the atmosphere.",
+            "background_bright": "The atmosphere is bright and lively.",
+            "primary": "Primary emotion",
+            "secondary": "Secondary emotion",
+            "relationship": "Relationship direction",
+            "relationship_trust_low": "Trust is low, so do not assume intimacy.",
+            "relationship_affection_low": "Keep respectful relational distance.",
+            "relationship_positive": "Maintain stable warmth and trust.",
+            "relationship_neutral": "Maintain balanced distance.",
+            "rupture": "Unresolved relationship guidance",
+            "rupture_guidance": {
+                "broken_commitment": "Judge commitments by follow-through rather than words.",
+                "disrespect": "State the expectation of respect and clarify calmly.",
+                "boundary_violation": "State the boundary clearly and limit the allowed scope.",
+            },
+            "policy": "Allowed behavior and safety",
+            "stances": "Allowed stance",
+            "safety": "Safety guidance, stopping and cancellation, permission withdrawal, and hazardous-action confirmation always override mood.",
+        },
+        "ja": {
+            "title": "ENEの気分方向",
+            "background": "背景の雰囲気",
+            "background_neutral": "落ち着いた中立的な雰囲気です。",
+            "background_low_tense": "沈み気味で緊張した雰囲気です。",
+            "background_low": "落ち着いて沈み気味の雰囲気です。",
+            "background_tense": "緊張感のある雰囲気です。",
+            "background_bright": "明るく活気のある雰囲気です。",
+            "primary": "主感情",
+            "secondary": "副感情",
+            "relationship": "関係の方向",
+            "relationship_trust_low": "信頼が低いため、親密さを前提にしません。",
+            "relationship_affection_low": "敬意を保ちながら関係の距離を取ります。",
+            "relationship_positive": "安定した親密さと信頼を保ちます。",
+            "relationship_neutral": "バランスの取れた距離を保ちます。",
+            "rupture": "未解決の関係指針",
+            "rupture_guidance": {
+                "broken_commitment": "約束は言葉より後の行動で確認します。",
+                "disrespect": "尊重の境界を明確にし、落ち着いて確認します。",
+                "boundary_violation": "境界を明確に伝え、許可する範囲を制限します。",
+            },
+            "policy": "許可する行動と安全",
+            "stances": "許可 stance",
+            "safety": "安全案内、停止と取消、権限の撤回、危険作業の確認は常に気分より優先します。",
+        },
+    }[language if language in {"ko", "en", "ja"} else "ko"]
+
+
+def _build_minimal_mood_context_block(mood_manager: object, language: str) -> str:
+    """영속 상태의 상세값을 노출하지 않는 행동 중심 기분 컨텍스트를 만든다."""
+    getter = getattr(mood_manager, "peek_snapshot", None)
+    if not callable(getter):
+        getter = getattr(mood_manager, "get_snapshot", None)
+    if not callable(getter):
+        return ""
+    try:
+        loaded = getter()
+    except Exception as failure:
+        print(
+            "[LLM] context_failed category=mood_context_error "
+            f"exception_class={type(failure).__name__}"
+        )
+        loaded = {}
+    snapshot = loaded if isinstance(loaded, Mapping) else {}
+    text = _mood_context_text(language)
+    background = snapshot.get("background")
+    background = background if isinstance(background, Mapping) else {}
+    valence = _finite_context_number(background.get("valence"))
+    activity = _finite_context_number(
+        background.get("activity", background.get("energy"))
+    )
+    tension = _finite_context_number(background.get("tension"))
+    if valence <= -0.25 and tension >= 0.35:
+        atmosphere = text["background_low_tense"]
+    elif valence <= -0.25 or activity <= -0.35:
+        atmosphere = text["background_low"]
+    elif tension >= 0.35:
+        atmosphere = text["background_tense"]
+    elif valence >= 0.25 and activity >= 0.2:
+        atmosphere = text["background_bright"]
+    else:
+        atmosphere = text["background_neutral"]
+
+    relationship = snapshot.get("relationship")
+    relationship = relationship if isinstance(relationship, Mapping) else {}
+    affection = _finite_context_number(relationship.get("affection"))
+    trust = _finite_context_number(relationship.get("trust"))
+    if trust <= -0.35:
+        relationship_direction = text["relationship_trust_low"]
+    elif affection <= -0.35:
+        relationship_direction = text["relationship_affection_low"]
+    elif affection >= 0.35 and trust >= 0.35:
+        relationship_direction = text["relationship_positive"]
+    else:
+        relationship_direction = text["relationship_neutral"]
+
+    lines = [
+        f"[{text['title']}]",
+        f"- {text['background']}: {atmosphere}",
+    ]
+    primary = snapshot.get("primary_emotion")
+    secondary = snapshot.get("secondary_emotion")
+    if isinstance(primary, str) and primary in AFFECTS:
+        lines.append(f"- {text['primary']}: {primary}")
+    if isinstance(secondary, str) and secondary in AFFECTS and secondary != primary:
+        lines.append(f"- {text['secondary']}: {secondary}")
+    lines.append(f"- {text['relationship']}: {relationship_direction}")
+
+    rupture_guidance = text["rupture_guidance"]
+    ruptures = snapshot.get("ruptures")
+    seen_categories: set[str] = set()
+    if isinstance(ruptures, (list, tuple)) and isinstance(rupture_guidance, Mapping):
+        for rupture in ruptures:
+            if not isinstance(rupture, Mapping):
+                continue
+            category = rupture.get("category")
+            if (
+                isinstance(category, str)
+                and category in RELATION_CATEGORIES[1:]
+                and category not in seen_categories
+            ):
+                seen_categories.add(category)
+                lines.append(
+                    f"- {text['rupture']} / {category}: {rupture_guidance[category]}"
+                )
+
+    policy_snapshot = {
+        "background": {"energy": activity},
+        "ruptures": ruptures,
+    }
+    stance_text = ", ".join(sorted(allowed_stances(policy_snapshot)))
+    lines.extend(
+        (
+            f"[{text['policy']}]",
+            f"- {text['stances']}: {stance_text}",
+            f"- {text['safety']}",
+        )
+    )
+    return "\n".join(str(line) for line in lines)
+
+
 async def build_memory_context(
     client,
     query: str,
@@ -440,12 +625,21 @@ async def build_memory_context(
     )
     setattr(client, "_last_loaded_topic_memory_context", topic_memory_block)
     goal_block = build_goal_context_block(client, prompt_language)
+    mood_manager = getattr(client, "mood_manager", None)
+    mood_block = (
+        _build_minimal_mood_context_block(mood_manager, prompt_language)
+        if mood_manager
+        else ""
+    )
     memory_manager = getattr(client, "memory_manager", None)
     if not memory_manager:
         print("[LLM] 메모리 매니저 없음")
         context_parts = []
         if life_record_block:
             context_parts.append(life_record_block)
+        if mood_block:
+            context_parts.append(mood_block)
+            print("[LLM] Mood context included")
         if goal_block:
             context_parts.append(goal_block)
         if topic_memory_block:
@@ -543,15 +737,9 @@ async def build_memory_context(
                 context_parts.append("\n".join(ene_fact_lines))
                 print(f"[LLM] 에네 facts 포함: {len(ene_fact_lines) - 1}개 항목")
 
-    mood_manager = getattr(client, "mood_manager", None)
-    if mood_manager and hasattr(mood_manager, "build_context_block"):
-        try:
-            mood_block = mood_manager.build_context_block(language=prompt_language)
-            if mood_block:
-                context_parts.append("\n" + mood_block)
-                print("[LLM] Mood context included")
-        except Exception as e:
-            print(f"[LLM] context_failed category=mood_context_error exception_class={type(e).__name__}")
+    if mood_block:
+        context_parts.append("\n" + mood_block)
+        print("[LLM] Mood context included")
 
     if goal_block:
         context_parts.append("\n" + goal_block)
