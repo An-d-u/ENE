@@ -262,9 +262,6 @@ class ObsidianBridgeMixin:
         if callable(cancel_proactive):
             cancel_proactive()
         self._mark_user_activity()
-        if self.mood_manager:
-            snapshot = self.mood_manager.on_user_message(message, image_count=0)
-            self._emit_mood_changed(snapshot)
 
         if not obs_body:
             self.message_received.emit("`/obs` 뒤에 작성할 내용을 함께 입력해 주세요.", "confused", "")

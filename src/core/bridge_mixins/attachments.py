@@ -323,9 +323,9 @@ class AttachmentBridgeMixin:
             self._sync_attachment_session_aliases()
         else:
             self._message_attachment_records[message_id] = record
-        if self.mood_manager:
-            snapshot = self.mood_manager.on_user_message(effective_message, image_count=len(image_attachments))
-            self._emit_mood_changed(snapshot)
+        mood_context = self._new_mood_event_context()
+        mood_event_id = str(mood_context.get("event_id", ""))
+        mood_occurred_at = str(mood_context.get("occurred_at_utc", ""))
 
         self._last_request_payload = {
             "type": "attachments" if ready_attachments else "text",
@@ -340,6 +340,9 @@ class AttachmentBridgeMixin:
             "recent_memory_context": memory_search_inputs["recent_context_text"],
             "head_pat_count_before_message": request.head_pat_count_before_message,
             "include_life_record_context": True,
+            "mood_event_id": mood_event_id,
+            "mood_occurred_at": mood_occurred_at,
+            "mood_finalized": False,
         }
         self._is_rerolling = False
 
@@ -353,6 +356,8 @@ class AttachmentBridgeMixin:
                 getattr(getattr(self, "life_record_state", None), "prior_token_usage", None)
                 or request.prior_token_usage
             ),
+            "mood_event_id": mood_event_id,
+            "mood_occurred_at": mood_occurred_at,
         }
         if not emit_pending_state:
             worker_kwargs["emit_pending_state"] = False

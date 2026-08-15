@@ -75,6 +75,36 @@ def test_ai_worker_sends_images_when_client_declares_image_support():
     assert worker.response_metadata == STRUCTURED_METADATA
 
 
+def test_ai_worker_forwards_defensive_per_call_mood_context_to_final_calls():
+    _ensure_qt_app()
+
+    class DummyLLM:
+        def __init__(self):
+            self.contexts = []
+
+        async def send_message_with_memory(self, *_args, mood_event_context=None, **_kwargs):
+            self.contexts.append(mood_event_context)
+            return "Synthetic reply.", "normal", "", [], {}, [], "", {}, [], "", None
+
+    source = {
+        "event_id": "d7d5a32c-a2b0-4b6e-a4da-a103230423b6",
+        "occurred_at_utc": "2099-01-01T00:00:00+00:00",
+        "ignored": "must-not-cross",
+    }
+    client = DummyLLM()
+    worker = AIWorker(client, "Synthetic prompt.", mood_event_context=source)
+    source["event_id"] = "mutated"
+
+    worker.run()
+
+    assert client.contexts == [
+        {
+            "event_id": "d7d5a32c-a2b0-4b6e-a4da-a103230423b6",
+            "occurred_at_utc": "2099-01-01T00:00:00+00:00",
+        }
+    ]
+
+
 def test_ai_worker_forwards_progress_callback_to_memory_client():
     _ensure_qt_app()
 
@@ -84,11 +114,14 @@ def test_ai_worker_forwards_progress_callback_to_memory_client():
         def get_last_response_delivery_metadata(self):
             return STRUCTURED_METADATA
 
-        async def send_message_with_memory(self, *args, progress_callback=None):
+        async def send_message_with_memory(
+            self, *args, progress_callback=None, mood_event_context=None
+        ):
             if progress_callback:
                 progress_callback("searching")
             self.call_args = args
             self.progress_callback = progress_callback
+            self.mood_event_context = mood_event_context
             return "Synthetic response.", "normal", "", [], {}, [], "", {}, [], ""
 
     client = DummyLLM()
@@ -104,6 +137,7 @@ def test_ai_worker_forwards_progress_callback_to_memory_client():
     worker.run()
 
     assert client.progress_callback is progress_callback
+    assert client.mood_event_context is None
     assert stages == ["searching"]
     assert responses == ["Synthetic response."]
     assert worker.response_metadata == STRUCTURED_METADATA

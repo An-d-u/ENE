@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from uuid import UUID
 
 import pytest
 import requests
@@ -52,6 +51,12 @@ def _policy_mood_analysis(*, risk="none", stance="cooperative"):
     }
 
 
+MOOD_CONTEXT = {
+    "event_id": "56c12eb4-82e2-4e67-9cb8-b5c105af01cb",
+    "occurred_at_utc": "2099-01-01T00:00:00+00:00",
+}
+
+
 class _PreviewingMoodManager:
     def __init__(self, *, fail_preview=False, peek_rupture=False):
         self.preview_calls = []
@@ -59,8 +64,8 @@ class _PreviewingMoodManager:
         self.fail_preview = fail_preview
         self.peek_rupture = peek_rupture
 
-    def preview_event(self, event_id, analysis):
-        self.preview_calls.append((event_id, analysis))
+    def preview_event(self, event_id, analysis, occurred_at_utc):
+        self.preview_calls.append((event_id, analysis, occurred_at_utc))
         if self.fail_preview:
             raise RuntimeError("synthetic preview failure")
         return {"background": {"energy": 0.842}, "ruptures": []}
@@ -117,7 +122,7 @@ class _FaultyCallbackMoodManager:
         if self.fail_preview:
             raise RuntimeError("synthetic preview property failure")
 
-        def preview(_event_id, _analysis):
+        def preview(_event_id, _analysis, _occurred_at_utc):
             self.preview_calls += 1
             return {
                 "background": {"energy": 0.0},
@@ -242,7 +247,7 @@ def test_http_policy_retry_changes_only_system_prompt_and_uses_preview(monkeypat
         mood_manager=manager,
     )
 
-    payload = client.send_message(user_content)
+    payload = client.send_message(user_content, mood_event_context=MOOD_CONTEXT)
 
     first_prompt = captured[0]["json"]["instructions"]
     retry_prompt = captured[1]["json"]["instructions"]
@@ -258,9 +263,8 @@ def test_http_policy_retry_changes_only_system_prompt_and_uses_preview(monkeypat
     assert payload[0] == "Second HTTP policy reply."
     assert manager.peek_calls == 0
     assert len(manager.preview_calls) == 2
-    assert manager.preview_calls[0][0] == manager.preview_calls[1][0]
-    assert isinstance(manager.preview_calls[0][0], str)
-    assert UUID(manager.preview_calls[0][0]).version == 4
+    assert manager.preview_calls[0][0] == manager.preview_calls[1][0] == MOOD_CONTEXT["event_id"]
+    assert manager.preview_calls[0][2] == manager.preview_calls[1][2] == MOOD_CONTEXT["occurred_at_utc"]
     assert "First HTTP policy reply." not in str(client._history)
     assert "mood_stance_not_allowed" not in str(client._history)
 
@@ -303,7 +307,9 @@ def test_http_preview_failure_falls_back_to_one_peek(monkeypatch):
         mood_manager=manager,
     )
 
-    payload = client.send_message("Synthetic preview fallback request.")
+    payload = client.send_message(
+        "Synthetic preview fallback request.", mood_event_context=MOOD_CONTEXT
+    )
 
     assert payload[10]["proposed_stance"] == "boundary"
     assert len(manager.preview_calls) == 1
@@ -311,7 +317,7 @@ def test_http_preview_failure_falls_back_to_one_peek(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    ("fail_peek", "fail_preview", "fail_uuid", "stance", "expected_calls"),
+    ("fail_peek", "fail_preview", "invalid_context", "stance", "expected_calls"),
     [
         (True, False, False, "boundary", (0, 1)),
         (False, True, False, "boundary", (1, 0)),
@@ -323,7 +329,7 @@ def test_http_callback_setup_failures_are_independent_and_neutral(
     monkeypatch,
     fail_peek,
     fail_preview,
-    fail_uuid,
+    invalid_context,
     stance,
     expected_calls,
 ):
@@ -350,13 +356,10 @@ def test_http_callback_setup_failures_are_independent_and_neutral(
         ),
         mood_manager=manager,
     )
-    if fail_uuid:
-        monkeypatch.setattr(
-            "src.ai.http_llm_common.uuid4",
-            lambda: (_ for _ in ()).throw(RuntimeError("synthetic uuid failure")),
-        )
-
-    payload = client.send_message("Synthetic callback isolation request.")
+    context = {"event_id": MOOD_CONTEXT["event_id"]} if invalid_context else MOOD_CONTEXT
+    payload = client.send_message(
+        "Synthetic callback isolation request.", mood_event_context=context
+    )
 
     assert payload[10]["proposed_stance"] == stance
     assert (manager.peek_calls, manager.preview_calls) == expected_calls

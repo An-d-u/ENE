@@ -1,4 +1,6 @@
 import json
+from datetime import datetime
+from uuid import UUID
 
 from src.core.bridge import WebBridge
 
@@ -12,11 +14,14 @@ class _DummySignal:
 
 
 class _DummyMoodManager:
-    def __init__(self):
+    def __init__(self, *, fail_apply=False):
         self.calls = []
+        self.fail_apply = fail_apply
 
-    def on_user_analysis(self, analysis):
-        self.calls.append(("user_analysis", analysis))
+    def apply_event(self, event_id, analysis, occurred_at_utc):
+        self.calls.append(("apply", event_id, analysis, occurred_at_utc))
+        if self.fail_apply:
+            raise RuntimeError("synthetic mood save failure")
         return {
             "current_mood": "calm",
             "valence": 0.1,
@@ -25,18 +30,29 @@ class _DummyMoodManager:
             "stress": -0.1,
         }
 
-    def on_assistant_emotion(self, emotion):
-        self.calls.append(("assistant_emotion", emotion))
-        return {
-            "current_mood": "calm",
-            "valence": 0.1,
-            "energy": 0.0,
-            "bond": 0.2,
-            "stress": -0.1,
-        }
+    def advance_time_and_save(self, occurred_at_utc):
+        self.calls.append(("advance", occurred_at_utc))
+        return {"current_mood": "calm"}
 
 
-def test_on_response_ready_applies_user_analysis_and_ignores_new_mood_payload(capsys):
+def _valid_mood_analysis():
+    return {
+        "event": {
+            "kind": "connection",
+            "target_scope": "relationship",
+            "relation_category": "none",
+            "intensity": 2,
+            "clarity": "explicit",
+            "certainty": "high",
+            "controllability": "medium",
+            "repair_signal": "none",
+        },
+        "risk_class": "none",
+        "proposed_stance": "cooperative",
+    }
+
+
+def test_on_response_ready_applies_owned_mood_event_once_and_ignores_legacy_analysis(capsys):
     dummy = type("BridgeDummy", (), {})()
     dummy._last_assistant_response = None
     dummy.mood_manager = _DummyMoodManager()
@@ -59,6 +75,18 @@ def test_on_response_ready_applies_user_analysis_and_ignores_new_mood_payload(ca
     dummy._collect_promise_ids = lambda items=None: []
     dummy._clear_active_promise_tracking = lambda promise_id="": None
     dummy._mark_promise_completed = lambda promise_id="": None
+    dummy.settings = {
+        "enable_mood_system": True,
+        "enable_response_analysis": True,
+    }
+    event_id = "9a317237-bbb9-42c9-8f67-823c4e84c6a6"
+    occurred_at = "2099-01-01T00:00:00+00:00"
+    dummy._last_request_payload = {
+        "type": "text",
+        "mood_event_id": event_id,
+        "mood_occurred_at": occurred_at,
+        "mood_finalized": False,
+    }
 
     WebBridge._on_response_ready(
         dummy,
@@ -73,15 +101,153 @@ def test_on_response_ready_applies_user_analysis_and_ignores_new_mood_payload(ca
         "",
         [],
         "",
-        "SYNTHETIC-MOOD-RAW",
+        json.dumps(_valid_mood_analysis()),
+        expected_mood_event_id=event_id,
+        expected_mood_occurred_at=occurred_at,
     )
 
     assert dummy.mood_manager.calls == [
-        ("user_analysis", {"user_intent": "affection", "confidence": "0.9"}),
-        ("assistant_emotion", "smile"),
+        ("apply", event_id, _valid_mood_analysis(), occurred_at),
     ]
+    assert dummy._last_request_payload["mood_finalized"] is True
     captured = capsys.readouterr()
-    assert "SYNTHETIC-MOOD-RAW" not in captured.out + captured.err
+    assert event_id not in captured.out + captured.err
+
+
+def test_mood_event_context_is_uuid4_and_canonical_utc_seconds():
+    first = WebBridge._new_mood_event_context()
+    second = WebBridge._new_mood_event_context()
+
+    assert UUID(first["event_id"]).version == 4
+    assert UUID(second["event_id"]).version == 4
+    assert first["event_id"] != second["event_id"]
+    parsed = datetime.fromisoformat(first["occurred_at_utc"])
+    assert parsed.utcoffset().total_seconds() == 0
+    assert parsed.microsecond == 0
+    assert first["occurred_at_utc"].endswith("+00:00")
+    assert "Z" not in first["occurred_at_utc"]
+
+
+def test_mood_event_context_generation_failure_is_fail_safe(monkeypatch):
+    monkeypatch.setattr(
+        "src.core.bridge_mixins.chat_flow.uuid4",
+        lambda: (_ for _ in ()).throw(RuntimeError("synthetic uuid failure")),
+    )
+
+    assert WebBridge._new_mood_event_context() == {}
+
+
+def test_stale_or_duplicate_mood_callback_does_not_apply_again():
+    dummy = type("BridgeDummy", (), {})()
+    manager = _DummyMoodManager()
+    dummy.mood_manager = manager
+    dummy.settings = {"enable_mood_system": True, "enable_response_analysis": True}
+    old_id = "e407c175-5952-49b2-85a8-c1b1aaf2269e"
+    old_time = "2099-01-01T00:00:00+00:00"
+    dummy._last_request_payload = {
+        "type": "text",
+        "mood_event_id": "e7c7117e-f4b1-4821-b145-63ae49e152fa",
+        "mood_occurred_at": old_time,
+        "mood_finalized": False,
+    }
+
+    WebBridge._finalize_owned_mood_event(
+        dummy,
+        json.dumps(_valid_mood_analysis()),
+        expected_mood_event_id=old_id,
+        expected_mood_occurred_at=old_time,
+    )
+    assert manager.calls == []
+
+    dummy._last_request_payload["mood_event_id"] = old_id
+    WebBridge._finalize_owned_mood_event(
+        dummy,
+        json.dumps(_valid_mood_analysis()),
+        expected_mood_event_id=old_id,
+        expected_mood_occurred_at=old_time,
+    )
+    WebBridge._finalize_owned_mood_event(
+        dummy,
+        json.dumps(_valid_mood_analysis()),
+        expected_mood_event_id=old_id,
+        expected_mood_occurred_at=old_time,
+    )
+    assert len(manager.calls) == 1
+
+
+def test_invalid_analysis_is_finalized_without_apply_or_advance():
+    dummy = type("BridgeDummy", (), {})()
+    dummy.mood_manager = _DummyMoodManager()
+    dummy.settings = {"enable_mood_system": True, "enable_response_analysis": True}
+    event_id = "1529b839-53fd-44db-be36-0fa87caad31a"
+    occurred_at = "2099-01-01T00:00:00+00:00"
+    dummy._last_request_payload = {
+        "type": "attachments",
+        "mood_event_id": event_id,
+        "mood_occurred_at": occurred_at,
+        "mood_finalized": False,
+    }
+    invalid = _valid_mood_analysis()
+    invalid["event"]["event_id"] = event_id
+
+    WebBridge._finalize_owned_mood_event(
+        dummy,
+        json.dumps(invalid),
+        expected_mood_event_id=event_id,
+        expected_mood_occurred_at=occurred_at,
+    )
+
+    assert dummy.mood_manager.calls == []
+    assert dummy._last_request_payload["mood_finalized"] is True
+
+
+def test_analysis_disabled_advances_once_and_apply_failure_is_fail_safe(capsys):
+    event_id = "20fce916-94f4-44cb-9ad4-16aa69238cbb"
+    occurred_at = "2099-01-01T00:00:00+00:00"
+    dummy = type("BridgeDummy", (), {})()
+    dummy.mood_manager = _DummyMoodManager()
+    dummy.settings = {"enable_mood_system": True, "enable_response_analysis": False}
+    dummy._last_request_payload = {
+        "type": "text",
+        "mood_event_id": event_id,
+        "mood_occurred_at": occurred_at,
+        "mood_finalized": False,
+    }
+    dummy._emit_mood_changed = lambda snapshot: None
+
+    WebBridge._finalize_owned_mood_event(
+        dummy,
+        "",
+        expected_mood_event_id=event_id,
+        expected_mood_occurred_at=occurred_at,
+    )
+    WebBridge._finalize_owned_mood_event(
+        dummy,
+        "",
+        expected_mood_event_id=event_id,
+        expected_mood_occurred_at=occurred_at,
+    )
+    assert dummy.mood_manager.calls == [("advance", occurred_at)]
+
+    failing = type("BridgeDummy", (), {})()
+    failing.mood_manager = _DummyMoodManager(fail_apply=True)
+    failing.settings = {"enable_mood_system": True, "enable_response_analysis": True}
+    failing._last_request_payload = {
+        "type": "text",
+        "mood_event_id": event_id,
+        "mood_occurred_at": occurred_at,
+        "mood_finalized": False,
+    }
+    failing._emit_mood_changed = lambda snapshot: None
+    WebBridge._finalize_owned_mood_event(
+        failing,
+        json.dumps(_valid_mood_analysis()),
+        expected_mood_event_id=event_id,
+        expected_mood_occurred_at=occurred_at,
+    )
+    assert failing._last_request_payload["mood_finalized"] is True
+    captured = capsys.readouterr()
+    assert "synthetic mood save failure" not in captured.out + captured.err
 
 
 def test_on_response_ready_sanitizes_leaked_analysis_lines_before_emitting():
@@ -414,3 +580,10 @@ def test_send_to_ai_captures_pending_head_pat_count_and_resets_it():
     assert dummy.calendar_manager.pending == 0
     assert dummy._last_request_payload["head_pat_count_before_message"] == 3
     assert captured["kwargs"]["head_pat_count_before_message"] == 3
+    event_id = dummy._last_request_payload["mood_event_id"]
+    occurred_at = dummy._last_request_payload["mood_occurred_at"]
+    assert UUID(event_id).version == 4
+    assert datetime.fromisoformat(occurred_at).microsecond == 0
+    assert dummy._last_request_payload["mood_finalized"] is False
+    assert captured["kwargs"]["mood_event_id"] == event_id
+    assert captured["kwargs"]["mood_occurred_at"] == occurred_at

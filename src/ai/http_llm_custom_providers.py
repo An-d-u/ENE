@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Mapping
 import requests
 from .http_llm_common import (
     HTTPFinalRequestDescriptor,
@@ -320,6 +321,8 @@ class GoogleCloudClient(_CommonMixin):
         head_pat_count_before_message: int | None = None,
         progress_callback=None,
         include_life_record_context: bool = False,
+        *,
+        mood_event_context: Mapping[str, str] | None = None,
     ) -> LLM_RESPONSE_TUPLE:
         enhanced = await self._build_contextual_message(
             message,
@@ -330,7 +333,11 @@ class GoogleCloudClient(_CommonMixin):
             include_life_record_context=include_life_record_context,
             progress_callback=progress_callback,
         )
-        return self.send_message(enhanced, history_user_content=message)
+        return self.send_message(
+            enhanced,
+            history_user_content=message,
+            mood_event_context=mood_event_context,
+        )
 
     async def send_message_with_images(
         self,
@@ -342,6 +349,8 @@ class GoogleCloudClient(_CommonMixin):
         head_pat_count_before_message: int | None = None,
         progress_callback=None,
         include_life_record_context: bool = False,
+        *,
+        mood_event_context: Mapping[str, str] | None = None,
     ) -> LLM_RESPONSE_TUPLE:
         enhanced = await self._build_contextual_message(
             message,
@@ -363,9 +372,16 @@ class GoogleCloudClient(_CommonMixin):
             history_user_content=history_parts,
             provider_format=self.wire_format,
             attachments_metadata=self._image_context_metadata(images_data),
+            mood_event_context=mood_event_context,
         )
 
-    def send_message(self, message: str, history_user_content: str | None = None) -> LLM_RESPONSE_TUPLE:
+    def send_message(
+        self,
+        message: str,
+        history_user_content: str | None = None,
+        *,
+        mood_event_context: Mapping[str, str] | None = None,
+    ) -> LLM_RESPONSE_TUPLE:
         return self._execute_final_response(
             lambda descriptor: self._request_google(
                 descriptor.context.user_content,
@@ -376,6 +392,7 @@ class GoogleCloudClient(_CommonMixin):
                 history_user_content if history_user_content is not None else message
             ),
             provider_format=self.wire_format,
+            mood_event_context=mood_event_context,
         )
 
     async def summarize_conversation(
@@ -590,6 +607,8 @@ class CohereClient(_CommonMixin):
         head_pat_count_before_message: int | None = None,
         progress_callback=None,
         include_life_record_context: bool = False,
+        *,
+        mood_event_context: Mapping[str, str] | None = None,
     ) -> LLM_RESPONSE_TUPLE:
         enhanced = await self._build_contextual_message(
             message,
@@ -600,7 +619,11 @@ class CohereClient(_CommonMixin):
             include_life_record_context=include_life_record_context,
             progress_callback=progress_callback,
         )
-        return self.send_message(enhanced, history_user_content=message)
+        return self.send_message(
+            enhanced,
+            history_user_content=message,
+            mood_event_context=mood_event_context,
+        )
 
     async def send_message_with_images(
         self,
@@ -612,6 +635,8 @@ class CohereClient(_CommonMixin):
         head_pat_count_before_message: int | None = None,
         progress_callback=None,
         include_life_record_context: bool = False,
+        *,
+        mood_event_context: Mapping[str, str] | None = None,
     ) -> LLM_RESPONSE_TUPLE:
         enhanced = await self._build_contextual_message(
             message,
@@ -622,9 +647,19 @@ class CohereClient(_CommonMixin):
             include_life_record_context=include_life_record_context,
             progress_callback=progress_callback,
         )
-        return self.send_message(enhanced, history_user_content=message)
+        return self.send_message(
+            enhanced,
+            history_user_content=message,
+            mood_event_context=mood_event_context,
+        )
 
-    def send_message(self, message: str, history_user_content: str | None = None) -> LLM_RESPONSE_TUPLE:
+    def send_message(
+        self,
+        message: str,
+        history_user_content: str | None = None,
+        *,
+        mood_event_context: Mapping[str, str] | None = None,
+    ) -> LLM_RESPONSE_TUPLE:
         return self._execute_final_response(
             lambda descriptor: self._request_cohere(
                 descriptor.context.user_content,
@@ -635,6 +670,7 @@ class CohereClient(_CommonMixin):
                 history_user_content if history_user_content is not None else message
             ),
             provider_format=self.wire_format,
+            mood_event_context=mood_event_context,
         )
 
     async def summarize_conversation(

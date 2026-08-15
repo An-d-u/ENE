@@ -5,7 +5,7 @@ LLM 공급자 추상화 레이어.
 from dataclasses import dataclass, field
 from enum import Enum
 import inspect
-from typing import Callable, Dict, List, Protocol, Tuple, runtime_checkable
+from typing import Callable, Dict, List, Mapping, Protocol, Tuple, runtime_checkable
 
 from .response_protocol import OneShotGenerationResult
 
@@ -33,6 +33,8 @@ class LLMClientProtocol(Protocol):
         head_pat_count_before_message: int | None = None,
         progress_callback=None,
         include_life_record_context: bool = False,
+        *,
+        mood_event_context: Mapping[str, str] | None = None,
     ) -> LLM_RESPONSE_TUPLE:
         ...
 
@@ -46,10 +48,18 @@ class LLMClientProtocol(Protocol):
         head_pat_count_before_message: int | None = None,
         progress_callback=None,
         include_life_record_context: bool = False,
+        *,
+        mood_event_context: Mapping[str, str] | None = None,
     ) -> LLM_RESPONSE_TUPLE:
         ...
 
-    def send_message(self, message: str, history_user_content: str | None = None) -> LLM_RESPONSE_TUPLE:
+    def send_message(
+        self,
+        message: str,
+        history_user_content: str | None = None,
+        *,
+        mood_event_context: Mapping[str, str] | None = None,
+    ) -> LLM_RESPONSE_TUPLE:
         ...
 
     async def summarize_conversation(
