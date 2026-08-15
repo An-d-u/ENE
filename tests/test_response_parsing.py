@@ -715,6 +715,57 @@ def test_parse_response_strips_same_line_orphan_mood_close_metadata(
 
 
 @pytest.mark.parametrize("enabled", [True, False])
+@pytest.mark.parametrize(
+    ("open_marker", "close_marker"),
+    [
+        ("[mood_analysis extra]", "[/mood_analysis]"),
+        ("[mood_analysis_extra]", "[/mood_analysis_extra]"),
+        ("[ Mood_Analysis-debug ]", "[ / MOOD_ANALYSIS-debug ]"),
+    ],
+)
+def test_parse_response_strips_paired_malformed_mood_marker_region_only(
+    enabled, open_marker, close_marker
+):
+    client = GeminiClient.__new__(GeminiClient)
+    client.settings = {
+        "enable_mood_system": enabled,
+        "enable_response_analysis": enabled,
+    }
+    result = client._parse_response(
+        f"앞쪽 합성 문장\n{open_marker}\nkind=loss\nreason=hidden_meta\n"
+        f"{close_marker}\n뒤쪽 합성 답변 [normal]"
+    )
+    assert result[0] == "앞쪽 합성 문장\n뒤쪽 합성 답변"
+    assert "hidden_meta" not in (result[2] or "")
+    if enabled:
+        assert result[10]["event"]["kind"] == "neutral"
+    else:
+        assert result[10] is None
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_parse_response_mixed_exact_and_malformed_mood_blocks_is_safe(enabled):
+    client = GeminiClient.__new__(GeminiClient)
+    client.settings = {
+        "enable_mood_system": enabled,
+        "enable_response_analysis": enabled,
+    }
+    result = client._parse_response(
+        "[mood_analysis]\nkind=loss\ntarget_scope=external\n"
+        "relation_category=none\nintensity=2\nclarity=explicit\ncertainty=high\n"
+        "controllability=low\nrepair_signal=none\nrisk_class=concern\n"
+        "proposed_stance=brief\n[/mood_analysis]\n"
+        "[mood_analysis extra]\nreason=hidden_meta\n[/mood_analysis]\n"
+        "합성 답변 [normal]"
+    )
+    assert result[0] == "합성 답변"
+    if enabled:
+        assert result[10]["event"]["kind"] == "neutral"
+    else:
+        assert result[10] is None
+
+
+@pytest.mark.parametrize("enabled", [True, False])
 def test_parse_response_strips_malformed_mood_open_fragment_and_tail(enabled):
     client = GeminiClient.__new__(GeminiClient)
     client.settings = {

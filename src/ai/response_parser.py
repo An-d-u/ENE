@@ -51,8 +51,20 @@ _MOOD_ANALYSIS_BLOCK = re.compile(
     r"\[\s*mood_analysis\s*\](.*?)\[\s*/\s*mood_analysis\s*\]",
     re.IGNORECASE | re.DOTALL,
 )
-_MOOD_ANALYSIS_CLOSE = re.compile(r"\[\s*/\s*mood_analysis\s*\]", re.IGNORECASE)
-_MOOD_ANALYSIS_OPEN_FRAGMENT = re.compile(r"\[\s*mood_analysis\b", re.IGNORECASE)
+_MOOD_MARKER_NAME = r"mood_analysis(?:[_-][A-Za-z0-9_-]+)?"
+_MOOD_ANALYSIS_MALFORMED_BLOCK = re.compile(
+    rf"\[\s*(?P<name>{_MOOD_MARKER_NAME})(?:\s+[^\]\r\n]*)?\s*\]"
+    rf".*?\[\s*/\s*(?P=name)\s*\][ \t]*(?:\r?\n)?",
+    re.IGNORECASE | re.DOTALL,
+)
+_MOOD_ANALYSIS_CLOSE = re.compile(
+    rf"\[\s*/\s*{_MOOD_MARKER_NAME}(?:\s+[^\]\r\n]*)?\s*\]",
+    re.IGNORECASE,
+)
+_MOOD_ANALYSIS_OPEN_FRAGMENT = re.compile(
+    rf"\[\s*{_MOOD_MARKER_NAME}(?=\s|\]|$)",
+    re.IGNORECASE,
+)
 _MOOD_LEGACY_KEYS = (
     "kind", "target_scope", "relation_category", "intensity", "clarity",
     "certainty", "controllability", "repair_signal", "risk_class", "proposed_stance",
@@ -62,12 +74,14 @@ _MOOD_METADATA_LINE = re.compile(
 )
 
 
-def _strip_orphan_mood_close_regions(source: str) -> str:
+def _strip_orphan_mood_close_regions(source: str) -> tuple[str, bool]:
     cleaned = source
+    found_marker = False
     while True:
         marker = _MOOD_ANALYSIS_CLOSE.search(cleaned)
         if marker is None:
-            return cleaned.strip()
+            return cleaned.strip(), found_marker
+        found_marker = True
 
         prefix = cleaned[: marker.start()]
         lines = prefix.splitlines(keepends=True)
@@ -98,13 +112,17 @@ def extract_mood_analysis_block(
 ) -> tuple[str, dict[str, object] | None]:
     matches = list(_MOOD_ANALYSIS_BLOCK.finditer(response_text))
     cleaned = _MOOD_ANALYSIS_BLOCK.sub("", response_text).strip()
-    cleaned = _strip_orphan_mood_close_regions(cleaned)
+    cleaned, malformed_pair_count = _MOOD_ANALYSIS_MALFORMED_BLOCK.subn("", cleaned)
+    cleaned, orphan_close_found = _strip_orphan_mood_close_regions(cleaned)
     unclosed = _MOOD_ANALYSIS_OPEN_FRAGMENT.search(cleaned)
     if unclosed is not None:
         cleaned = cleaned[: unclosed.start()].strip()
+    malformed_marker_found = bool(
+        malformed_pair_count or orphan_close_found or unclosed is not None
+    )
     if not requirements.enable_mood_analysis:
         return cleaned, None
-    if len(matches) != 1:
+    if len(matches) != 1 or malformed_marker_found:
         return cleaned, neutral_mood_analysis()
 
     values: dict[str, str] = {}
