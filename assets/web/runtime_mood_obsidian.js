@@ -1,4 +1,6 @@
 
+let currentMoodDetailSnapshot = null;
+
 // -1~1 축값을 게이지 표시용 0~1 값으로 정규화한다.
 function normalizeMoodAxis(value) {
     const n = Number(value);
@@ -142,6 +144,7 @@ function updateMoodDetails(snapshot) {
             ? strings.trust
             : 'Trust';
         trustMeter.setAttribute('role', 'meter');
+        trustMeter.setAttribute('aria-labelledby', 'mood-detail-trust-label');
         trustMeter.setAttribute('aria-valuemin', '0');
         trustMeter.setAttribute('aria-valuemax', '2');
         trustMeter.setAttribute('aria-valuenow', String(levelIndex));
@@ -149,6 +152,7 @@ function updateMoodDetails(snapshot) {
     } else if (trustMeter) {
         trustMeter.title = '';
         trustMeter.setAttribute('role', 'meter');
+        trustMeter.setAttribute('aria-labelledby', 'mood-detail-trust-label');
         trustMeter.removeAttribute('aria-valuemin');
         trustMeter.removeAttribute('aria-valuemax');
         trustMeter.removeAttribute('aria-valuenow');
@@ -160,6 +164,11 @@ function applyMoodSnapshot(snapshot) {
     const data = snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot) ? snapshot : {};
     const background = data.background && typeof data.background === 'object' ? data.background : {};
     const relationship = data.relationship && typeof data.relationship === 'object' ? data.relationship : {};
+    currentMoodDetailSnapshot = {
+        primary_emotion: data.primary_emotion,
+        secondary_emotion: data.secondary_emotion,
+        relationship: { trust: relationship.trust }
+    };
     updateMoodWidget(
         data.current_mood,
         data.temporary_state,
@@ -169,6 +178,11 @@ function applyMoodSnapshot(snapshot) {
         background.tension ?? data.stress
     );
     updateMoodDetails(data);
+}
+
+function rerenderMoodDetailsForLocale() {
+    if (!currentMoodDetailSnapshot) return;
+    updateMoodDetails(currentMoodDetailSnapshot);
 }
 
 function requestMoodSnapshot() {

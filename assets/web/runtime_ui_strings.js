@@ -366,6 +366,9 @@ window.applyENEUiStrings = function applyENEUiStrings(config) {
     renderPromiseReminderPanel();
     renderProactiveConversationPanel();
     renderGoalPanel();
+    if (typeof rerenderMoodDetailsForLocale === 'function') {
+        rerenderMoodDetailsForLocale();
+    }
     updateMoodWidget(
         currentMoodSnapshot.label,
         currentMoodSnapshot.temporaryState,
