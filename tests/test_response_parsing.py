@@ -765,6 +765,47 @@ def test_parse_response_mixed_exact_and_malformed_mood_blocks_is_safe(enabled):
         assert result[10] is None
 
 
+_MOOD_OPEN_VARIANTS = (
+    ("exact", "[mood_analysis]"),
+    ("extra", "[ Mood_Analysis extra ]"),
+    ("underscore", "[MOOD_ANALYSIS_extra]"),
+    ("hyphen", "[ mood_analysis-extra ]"),
+)
+_MOOD_CLOSE_VARIANTS = (
+    ("exact", "[/mood_analysis]"),
+    ("extra", "[ / Mood_Analysis extra ]"),
+    ("underscore", "[ / MOOD_ANALYSIS_extra ]"),
+    ("hyphen", "[ / mood_analysis-extra ]"),
+)
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+@pytest.mark.parametrize("open_kind,open_marker", _MOOD_OPEN_VARIANTS)
+@pytest.mark.parametrize("close_kind,close_marker", _MOOD_CLOSE_VARIANTS)
+def test_parse_response_bounds_all_mood_marker_suffix_combinations(
+    enabled, open_kind, open_marker, close_kind, close_marker
+):
+    client = GeminiClient.__new__(GeminiClient)
+    client.settings = {
+        "enable_mood_system": enabled,
+        "enable_response_analysis": enabled,
+    }
+    result = client._parse_response(
+        f"{open_marker}\nkind=loss\ntarget_scope=external\n"
+        "relation_category=none\nintensity=2\nclarity=explicit\ncertainty=high\n"
+        "controllability=low\nrepair_signal=none\nrisk_class=concern\n"
+        f"proposed_stance=brief\n{close_marker}\n합성 답변 [normal]"
+    )
+    assert result[0] == "합성 답변"
+    assert "proposed_stance" not in (result[2] or "")
+    if not enabled:
+        assert result[10] is None
+    elif open_kind == close_kind == "exact":
+        assert result[10]["event"]["kind"] == "loss"
+    else:
+        assert result[10]["event"]["kind"] == "neutral"
+
+
 @pytest.mark.parametrize("enabled", [True, False])
 def test_parse_response_strips_malformed_mood_open_fragment_and_tail(enabled):
     client = GeminiClient.__new__(GeminiClient)
