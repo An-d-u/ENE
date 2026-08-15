@@ -233,13 +233,14 @@ applyMoodSnapshot({
     temporary_state: 'steady',
     primary_emotion: 'sadness',
     secondary_emotion: null,
-    relationship: { trust: 0.25 }
+    relationship: { trust: 0.37 }
 });
 result = {
     primary: document.getElementById('mood-detail-primary').textContent,
     secondaryHidden: document.getElementById('mood-detail-secondary-row').classList.contains('hidden'),
     secondaryHiddenProperty: document.getElementById('mood-detail-secondary-row').hidden,
     trustWidth: document.getElementById('mood-detail-trust').style.width,
+    trustTitle: document.getElementById('mood-detail-trust').title,
 };
 """
     )
@@ -248,8 +249,10 @@ result = {
         "primary": "sadness",
         "secondaryHidden": True,
         "secondaryHiddenProperty": True,
-        "trustWidth": "63%",
+        "trustWidth": "69%",
+        "trustTitle": "Trust",
     }
+    assert "0.37" not in result["trustTitle"]
 
 
 def test_mood_reset_cancel_does_not_call_bridge_or_change_button_state():
