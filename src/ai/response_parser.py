@@ -53,8 +53,9 @@ _MOOD_ANALYSIS_BLOCK = re.compile(
 )
 _MOOD_MARKER_NAME = r"mood_analysis(?:[_-][A-Za-z0-9_-]+)?"
 _MOOD_ANALYSIS_MALFORMED_BLOCK = re.compile(
-    rf"\[\s*(?P<name>{_MOOD_MARKER_NAME})(?:\s+[^\]\r\n]*)?\s*\]"
-    rf".*?\[\s*/\s*(?P=name)\s*\][ \t]*(?:\r?\n)?",
+    rf"\[\s*{_MOOD_MARKER_NAME}(?:\s+[^\]\r\n]*)?\s*\]"
+    rf".*?\[\s*/\s*{_MOOD_MARKER_NAME}(?:\s+[^\]\r\n]*)?\s*\]"
+    r"[ \t]*(?:\r?\n)?",
     re.IGNORECASE | re.DOTALL,
 )
 _MOOD_ANALYSIS_CLOSE = re.compile(
