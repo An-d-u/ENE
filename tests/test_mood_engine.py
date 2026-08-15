@@ -964,7 +964,7 @@ def test_first_ambiguous_low_certainty_relational_conflict_suppresses_only_anger
     assert state["ruptures"] == []
 
 
-def test_repeated_ambiguous_low_certainty_relational_conflict_restores_anger() -> None:
+def test_repeated_ambiguous_low_certainty_relational_conflict_stays_anger_safe() -> None:
     state = new_mood_state(NOW, "balanced")
     for index in range(2):
         state = reduce_mood(
@@ -981,7 +981,55 @@ def test_repeated_ambiguous_low_certainty_relational_conflict_restores_anger() -
             "balanced",
         ).state
 
-    assert any(trace["affect"] == "anger" for trace in state["active_affects"])
+    assert all(trace["affect"] != "anger" for trace in state["active_affects"])
+    assert any(trace["affect"] == "hurt" for trace in state["active_affects"])
+    assert state["revision"] == 2
+
+
+def test_ambiguous_relational_conflict_is_anger_safe_at_affect_cap_and_duplicate_is_noop() -> None:
+    state = new_mood_state(NOW, "balanced")
+    state["active_affects"] = [
+        valid_active_affect(
+            affect="hurt",
+            source_kind="conflict",
+            target_scope="relationship",
+            relation_category="disrespect",
+        ),
+        valid_active_affect(affect="joy", source_kind="success", target_scope="external"),
+        valid_active_affect(affect="sadness", source_kind="loss", target_scope="external"),
+        valid_active_affect(affect="anxiety", source_kind="threat", target_scope="external"),
+        valid_active_affect(affect="interest", source_kind="novelty", target_scope="external"),
+    ]
+    first = relationship_event(
+        "ambiguous-at-cap-first",
+        kind="conflict",
+        relation_category="disrespect",
+        intensity=1,
+        clarity="ambiguous",
+        certainty="low",
+    )
+    second = relationship_event(
+        "ambiguous-at-cap-second",
+        kind="conflict",
+        relation_category="disrespect",
+        intensity=1,
+        clarity="ambiguous",
+        certainty="low",
+    )
+
+    state = reduce_mood(state, first, NOW, "balanced").state
+    first_tension = state["background"]["tension"]
+    state = reduce_mood(state, second, NOW + timedelta(minutes=5), "balanced").state
+
+    assert all(trace["affect"] != "anger" for trace in state["active_affects"])
+    assert len(state["active_affects"]) <= 5
+    assert state["background"]["tension"] > first_tension
+    assert state["revision"] == 2
+
+    duplicate = reduce_mood(state, second, NOW + timedelta(minutes=10), "balanced")
+    assert duplicate.applied is False
+    assert duplicate.rule_ids == ("event.duplicate",)
+    assert duplicate.state == state
 
 
 def test_repeated_connection_uses_repeat_weight_and_relationship_saturation() -> None:

@@ -242,7 +242,7 @@ def test_non_ambiguous_or_non_relational_conflicts_still_create_anger(
     assert any(trace["affect"] == "anger" for trace in state["active_affects"])
 
 
-def test_repeated_ambiguous_relational_conflict_can_create_anger() -> None:
+def test_repeated_ambiguous_relational_conflict_remains_anger_safe() -> None:
     state = _apply(
         new_mood_state(NOW, "balanced"),
         _event(
@@ -256,6 +256,8 @@ def test_repeated_ambiguous_relational_conflict_can_create_anger() -> None:
         ),
         NOW,
     )
+    first_tension = state["background"]["tension"]
+    first_revision = state["revision"]
     state = _apply(
         state,
         _event(
@@ -270,7 +272,14 @@ def test_repeated_ambiguous_relational_conflict_can_create_anger() -> None:
         NOW + timedelta(minutes=5),
     )
 
-    assert any(trace["affect"] == "anger" for trace in state["active_affects"])
+    assert all(trace["affect"] != "anger" for trace in state["active_affects"])
+    assert any(trace["affect"] == "hurt" for trace in state["active_affects"])
+    assert state["background"]["tension"] > first_tension
+    assert state["revision"] == first_revision + 1
+    assert state["recent_event_ids"][-2:] == [
+        _event_id("first-ambiguous-conflict"),
+        _event_id("repeated-ambiguous-conflict"),
+    ]
 
 
 @pytest.mark.parametrize(

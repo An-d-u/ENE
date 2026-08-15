@@ -753,7 +753,6 @@ def _apply_affects(
     for affect, base in AFFECT_BASE[event.kind].items():
         if (
             affect == "anger"
-            and next_repeat_count == 0
             and event.kind == "conflict"
             and event.target_scope in {"ene", "relationship"}
             and event.relation_category != "none"
