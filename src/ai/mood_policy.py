@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from copy import deepcopy
 from dataclasses import dataclass
 import math
-from typing import Literal
+from typing import Literal, cast
 
 from .mood_engine import (
     CERTAINTIES,
@@ -220,8 +219,13 @@ def _replace_reply(payload: Sequence[object], reply: str) -> LLM_RESPONSE_TUPLE:
 
 
 def _clamp_stance(payload: Sequence[object], stance: str) -> LLM_RESPONSE_TUPLE:
-    analysis = deepcopy(payload[10])
-    analysis["proposed_stance"] = stance
+    source = cast(Mapping[str, object], payload[10])
+    source_event = cast(Mapping[str, object], source["event"])
+    analysis = {
+        "event": {field: source_event[field] for field in MOOD_EVENT_FIELDS},
+        "risk_class": source["risk_class"],
+        "proposed_stance": stance,
+    }
     return (*payload[:10], analysis)  # type: ignore[return-value]
 
 
