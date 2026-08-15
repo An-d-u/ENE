@@ -44,6 +44,23 @@ AFFECTS = (
     "anxiety",
 )
 
+HALF_LIFE_SECONDS = {
+    "very_short": 600,
+    "short": 3600,
+    "medium": 21600,
+    "long": 86400,
+}
+AFFECT_HALF_LIFE_CLASS = {
+    "joy": "short",
+    "tenderness": "medium",
+    "amusement": "very_short",
+    "interest": "short",
+    "sadness": "long",
+    "hurt": "long",
+    "anger": "medium",
+    "anxiety": "medium",
+}
+
 PRESET_BASELINES = {
     "calm": {"valence": 0.0, "energy": 0.0, "tension": 0.0},
     "balanced": {"valence": 0.0, "energy": 0.0, "tension": 0.0},
@@ -76,16 +93,7 @@ AFFECT_BASE = {
     "repair": {"tenderness": 0.12},
 }
 
-_AFFECT_RETENTION_PRIORITY = {
-    "amusement": 1.0,
-    "interest": 2.0,
-    "joy": 3.0,
-    "anger": 3.0,
-    "anxiety": 3.0,
-    "tenderness": 4.0,
-    "sadness": 4.0,
-    "hurt": 4.0,
-}
+_AFFECT_ORDER = {affect: index for index, affect in enumerate(AFFECTS)}
 
 _PRESET_ALIASES = {
     "calm": "calm",
@@ -147,6 +155,10 @@ class MoodTransition:
     state: dict[str, Any]
     applied: bool
     rule_ids: tuple[str, ...]
+
+
+def affect_half_life_seconds(affect: str) -> int:
+    return HALF_LIFE_SECONDS[AFFECT_HALF_LIFE_CLASS[affect]]
 
 
 def normalize_preset(preset: object) -> str:
@@ -267,6 +279,8 @@ def reduce_mood(
         return MoodTransition(state=state, applied=False, rule_ids=("event.duplicate",))
 
     normalized_event = _coerce_event(event, now_utc)
+    if normalized_event.event_id in state["recent_event_ids"]:
+        return MoodTransition(state=state, applied=False, rule_ids=("event.duplicate",))
 
     _require_utc_datetime(now_utc, "사건 적용 시각")
     if now_utc < _parse_utc_string(state["updated_at_utc"], "updated_at_utc"):
@@ -344,6 +358,28 @@ def _apply_affects(
     impact: float,
 ) -> None:
     timestamp = format_utc(now_utc)
+    event_group = [
+        item
+        for item in state["active_affects"]
+        if (item["source_kind"], item["target_scope"], item["relation_category"])
+        == (event.kind, event.target_scope, event.relation_category)
+    ]
+    if event_group:
+        prior_trace = max(
+            event_group,
+            key=lambda item: (
+                _parse_utc_string(item["last_event_at_utc"], "마지막 사건 시각"),
+                item["repeat_count"],
+            ),
+        )
+        elapsed = now_utc - _parse_utc_string(prior_trace["last_event_at_utc"], "마지막 사건 시각")
+        if elapsed.total_seconds() <= 30 * 60:
+            next_repeat_count = min(prior_trace["repeat_count"] + 1, 3)
+        else:
+            next_repeat_count = 0
+    else:
+        next_repeat_count = 0
+
     for affect, base in AFFECT_BASE[event.kind].items():
         trace = next(
             (
@@ -367,18 +403,14 @@ def _apply_affects(
                     "source_kind": event.kind,
                     "target_scope": event.target_scope,
                     "relation_category": event.relation_category,
-                    "repeat_count": 0,
+                    "repeat_count": next_repeat_count,
                     "last_event_at_utc": timestamp,
                     "updated_at_utc": timestamp,
                 }
             )
             continue
 
-        elapsed = now_utc - _parse_utc_string(trace["last_event_at_utc"], "마지막 사건 시각")
-        if elapsed.total_seconds() <= 30 * 60:
-            trace["repeat_count"] = min(trace["repeat_count"] + 1, 3)
-        else:
-            trace["repeat_count"] = 0
+        trace["repeat_count"] = next_repeat_count
         current = trace["intensity"]
         trace["intensity"] = _clamp(current + base * impact * (1.0 - current), 0.0, 1.0)
         trace["last_event_at_utc"] = timestamp
@@ -390,8 +422,9 @@ def _trim_active_affects(active_affects: list[dict[str, Any]]) -> None:
         evicted = min(
             active_affects,
             key=lambda item: (
-                item["intensity"] * _AFFECT_RETENTION_PRIORITY[item["affect"]],
-                item["affect"],
+                item["intensity"] * affect_half_life_seconds(item["affect"]),
+                _parse_utc_string(item["updated_at_utc"], "정서 갱신 시각"),
+                _AFFECT_ORDER[item["affect"]],
                 item["source_kind"],
                 item["target_scope"],
                 item["relation_category"],

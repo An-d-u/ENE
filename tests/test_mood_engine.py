@@ -10,8 +10,11 @@ import uuid
 import pytest
 
 from src.ai.mood_engine import (
+    AFFECT_HALF_LIFE_CLASS,
+    HALF_LIFE_SECONDS,
     MoodEvent,
     MoodTransition,
+    affect_half_life_seconds,
     new_mood_state,
     normalize_event,
     reduce_mood,
@@ -433,6 +436,164 @@ def test_active_affect_limit_evicts_lowest_priority_deterministically() -> None:
     assert "state.active_affects.limit" in transition.rule_ids
 
 
+def test_active_affect_limit_uses_canonical_half_life_score() -> None:
+    state = new_mood_state(NOW, "balanced")
+    state["active_affects"] = [
+        valid_active_affect(affect="amusement", source_kind="novelty", intensity=0.9),
+        valid_active_affect(affect="sadness", source_kind="loss", intensity=0.01),
+        valid_active_affect(affect="hurt", source_kind="conflict", intensity=1.0),
+        valid_active_affect(affect="anxiety", source_kind="threat", intensity=1.0),
+        valid_active_affect(affect="tenderness", source_kind="repair", intensity=1.0),
+    ]
+
+    transition = reduce_mood(
+        state,
+        valid_event(
+            event_id=synthetic_event_id("half-life-pruning"),
+            kind="success",
+            target_scope="external",
+            intensity=3,
+        ),
+        NOW,
+        "balanced",
+    )
+
+    affects = {item["affect"] for item in transition.state["active_affects"]}
+    assert "amusement" not in affects
+    assert "sadness" in affects
+    assert affect_half_life_seconds("amusement") == 600
+    assert affect_half_life_seconds("sadness") == 86400
+    assert AFFECT_HALF_LIFE_CLASS == {
+        "joy": "short",
+        "tenderness": "medium",
+        "amusement": "very_short",
+        "interest": "short",
+        "sadness": "long",
+        "hurt": "long",
+        "anger": "medium",
+        "anxiety": "medium",
+    }
+    assert HALF_LIFE_SECONDS == {
+        "very_short": 600,
+        "short": 3600,
+        "medium": 21600,
+        "long": 86400,
+    }
+
+
+def test_active_affect_limit_evicts_older_update_when_scores_tie() -> None:
+    older = (NOW - timedelta(hours=1)).isoformat(timespec="seconds")
+    state = new_mood_state(NOW, "balanced")
+    state["active_affects"] = [
+        valid_active_affect(
+            affect="amusement",
+            source_kind="novelty",
+            intensity=0.1,
+            last_event_at_utc=older,
+            updated_at_utc=older,
+        ),
+        valid_active_affect(affect="amusement", source_kind="connection", intensity=0.1),
+        valid_active_affect(affect="hurt", source_kind="conflict", intensity=1.0),
+        valid_active_affect(affect="anxiety", source_kind="threat", intensity=1.0),
+        valid_active_affect(affect="tenderness", source_kind="repair", intensity=1.0),
+    ]
+
+    transition = reduce_mood(
+        state,
+        valid_event(
+            event_id=synthetic_event_id("oldest-pruning"),
+            kind="success",
+            target_scope="external",
+            intensity=3,
+        ),
+        NOW,
+        "balanced",
+    )
+
+    amusement_sources = {
+        item["source_kind"]
+        for item in transition.state["active_affects"]
+        if item["affect"] == "amusement"
+    }
+    assert amusement_sources == {"connection"}
+
+
+def test_active_affect_limit_uses_affect_enum_order_after_time_tie() -> None:
+    state = new_mood_state(NOW, "balanced")
+    state["active_affects"] = [
+        valid_active_affect(affect="amusement", source_kind="novelty", intensity=1.0),
+        valid_active_affect(affect="joy", source_kind="connection", intensity=1.0 / 6.0),
+        valid_active_affect(affect="hurt", source_kind="conflict", intensity=1.0),
+        valid_active_affect(affect="anxiety", source_kind="threat", intensity=1.0),
+        valid_active_affect(affect="tenderness", source_kind="repair", intensity=1.0),
+    ]
+
+    transition = reduce_mood(
+        state,
+        valid_event(
+            event_id=synthetic_event_id("enum-pruning"),
+            kind="loss",
+            target_scope="external",
+            intensity=3,
+        ),
+        NOW,
+        "balanced",
+    )
+
+    affects = {item["affect"] for item in transition.state["active_affects"]}
+    assert "joy" not in affects
+    assert "amusement" in affects
+
+
+def test_repeat_metadata_is_shared_by_all_affects_in_same_event_group() -> None:
+    state = new_mood_state(NOW, "balanced")
+    state["active_affects"] = [
+        valid_active_affect(affect="sadness", source_kind="loss", intensity=1.0),
+        valid_active_affect(affect="hurt", source_kind="conflict", intensity=1.0),
+        valid_active_affect(affect="anxiety", source_kind="threat", intensity=1.0),
+        valid_active_affect(affect="anger", source_kind="conflict", intensity=1.0),
+    ]
+    state = reduce_mood(
+        state,
+        valid_event(
+            event_id=synthetic_event_id("connection-before-pruning"),
+            kind="connection",
+            target_scope="external",
+            intensity=3,
+        ),
+        NOW,
+        "balanced",
+    ).state
+    assert {
+        item["affect"] for item in state["active_affects"] if item["source_kind"] == "connection"
+    } == {"tenderness"}
+    state["active_affects"] = [
+        item for item in state["active_affects"] if item["affect"] != "anxiety"
+    ]
+    event_time = NOW + timedelta(minutes=10)
+
+    transition = reduce_mood(
+        state,
+        valid_event(
+            event_id=synthetic_event_id("connection-after-pruning"),
+            kind="connection",
+            target_scope="external",
+            intensity=3,
+        ),
+        event_time,
+        "balanced",
+    )
+
+    connection_traces = [
+        item for item in transition.state["active_affects"] if item["source_kind"] == "connection"
+    ]
+    assert {item["affect"] for item in connection_traces} == {"joy", "tenderness"}
+    assert {item["repeat_count"] for item in connection_traces} == {1}
+    assert {item["last_event_at_utc"] for item in connection_traces} == {
+        event_time.isoformat(timespec="seconds")
+    }
+
+
 def test_duplicate_event_id_is_complete_no_op() -> None:
     event = valid_event(event_id=synthetic_event_id("duplicate"), kind="success", target_scope="external")
     state = reduce_mood(new_mood_state(NOW, "balanced"), event, NOW, "balanced").state
@@ -484,6 +645,17 @@ def test_invalid_event_id_does_not_bypass_new_event_normalization() -> None:
             datetime(2099, 1, 2),
             "balanced",
         )
+
+
+def test_repeated_fallback_event_id_is_complete_no_op() -> None:
+    raw_event = {"kind": "loss", "event_id": None}
+    state = reduce_mood(new_mood_state(NOW, "balanced"), raw_event, NOW, "balanced").state
+    snapshot = deepcopy(state)
+
+    transition = reduce_mood(state, raw_event, NOW, "balanced")
+
+    assert transition == MoodTransition(state=snapshot, applied=False, rule_ids=("event.duplicate",))
+    assert state == snapshot
 
 
 def test_recent_event_ids_keep_latest_sixty_four_ids() -> None:
