@@ -261,6 +261,63 @@ def test_retry_appendix_normalizes_unknown_code_and_language_without_echoing_inp
     assert "Mood policy retry" in appendix
 
 
+@pytest.mark.parametrize("error_code", [[], {}, {"unhashable"}])
+def test_retry_appendix_normalizes_unhashable_error_code(error_code: object) -> None:
+    appendix = build_mood_policy_retry_appendix(error_code, "en")
+
+    assert "mood_policy_invalid" in appendix
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid_value"),
+    [
+        ("kind", []),
+        ("target_scope", {}),
+        ("relation_category", True),
+        ("intensity", True),
+        ("intensity", float("nan")),
+        ("clarity", []),
+        ("certainty", {}),
+        ("controllability", False),
+        ("repair_signal", ["none"]),
+    ],
+)
+def test_invalid_event_domain_value_is_schema_retry_and_preserves_payload(
+    field: str,
+    invalid_value: object,
+) -> None:
+    analysis = _analysis()
+    analysis["event"][field] = invalid_value
+    payload = _payload(analysis=analysis)
+    before = deepcopy(payload)
+
+    decision = validate_mood_policy(payload, _snapshot(), "ko")
+
+    assert decision.action == "retry"
+    assert decision.error_code == "mood_analysis_policy_invalid"
+    assert decision.payload is payload
+    assert payload == before
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid_value"),
+    [("risk_class", []), ("risk_class", {}), ("proposed_stance", []), ("proposed_stance", {})],
+)
+def test_unhashable_analysis_policy_value_is_crash_free_retry(
+    field: str,
+    invalid_value: object,
+) -> None:
+    analysis = _analysis()
+    analysis[field] = invalid_value
+    payload = _payload(analysis=analysis)
+
+    decision = validate_mood_policy(payload, _snapshot(), "ko")
+
+    assert decision.action == "retry"
+    assert decision.error_code == "mood_analysis_policy_invalid"
+    assert decision.payload is payload
+
+
 @pytest.mark.parametrize("analysis", [{}, "broken", ["broken"], {"risk_class": "none"}])
 @pytest.mark.parametrize("retry_used", [False, True])
 def test_malformed_analysis_is_crash_free_and_remains_schema_retry(
