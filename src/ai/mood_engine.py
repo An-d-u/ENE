@@ -424,7 +424,7 @@ def _next_repeat_count(
 
 
 def _relationship_base(event: MoodEvent) -> dict[str, float] | None:
-    if not _is_clear_relationship_event(event):
+    if not _can_change_relationship(event):
         return None
     if event.kind in RELATION_CONNECTION_BASE:
         return RELATION_CONNECTION_BASE[event.kind]
@@ -440,6 +440,14 @@ def _is_clear_relationship_event(event: MoodEvent) -> bool:
         event.target_scope in {"ene", "relationship"}
         and event.clarity != "ambiguous"
         and event.certainty != "low"
+    )
+
+
+def _can_change_relationship(event: MoodEvent) -> bool:
+    if not _is_clear_relationship_event(event):
+        return False
+    return event.repair_signal != "explanation" or (
+        event.clarity == "explicit" and event.certainty == "high"
     )
 
 
@@ -462,7 +470,7 @@ def _apply_rupture(
     now_utc: datetime,
     impact: float,
 ) -> bool:
-    if not _is_clear_relationship_event(event):
+    if not _can_change_relationship(event):
         return False
     rupture = next(
         (item for item in state["ruptures"] if item["category"] == event.relation_category),
