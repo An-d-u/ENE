@@ -14,6 +14,15 @@ from .analysis_prompt import (
     is_schedule_recognition_enabled,
 )
 from .goal_prompt import build_goal_update_rules, is_goal_prompt_enabled
+from .mood_engine import (
+    CERTAINTIES,
+    CLARITIES,
+    CONTROLLABILITIES,
+    EVENT_KINDS,
+    RELATION_CATEGORIES,
+    REPAIR_SIGNALS,
+    TARGET_SCOPES,
+)
 from .persona_names import resolve_prompt_persona_names
 from .prompt_language import resolve_prompt_language, resolve_tts_language
 from .proactive_conversation_manager import COOLDOWN_KEY_ORDER
@@ -222,6 +231,51 @@ def _build_format_block(
     return "\n".join(lines)
 
 
+def _mood_contract_rules(language: str) -> list[str]:
+    introductions = {
+        "ko": "- `mood_analysis` 객체는 정확히 `event`, `risk_class`, `proposed_stance`만 포함하고, `event`는 아래 8개 필드만 포함하세요.",
+        "en": "- The `mood_analysis` object must contain exactly `event`, `risk_class`, and `proposed_stance`; `event` must contain only the eight fields below.",
+        "ja": "- `mood_analysis` オブジェクトには `event`, `risk_class`, `proposed_stance` だけを含め、`event` には次の8項目だけを含めてください。",
+    }
+    event_fields = {
+        "ko": "- event 필드: kind, target_scope, relation_category, intensity, clarity, certainty, controllability, repair_signal",
+        "en": "- event fields: kind, target_scope, relation_category, intensity, clarity, certainty, controllability, repair_signal",
+        "ja": "- event の項目: kind, target_scope, relation_category, intensity, clarity, certainty, controllability, repair_signal",
+    }
+    return [
+        introductions.get(language, introductions["en"]),
+        event_fields.get(language, event_fields["en"]),
+        f"- kind: {', '.join(EVENT_KINDS)}",
+        f"- target_scope: {', '.join(TARGET_SCOPES)}",
+        f"- relation_category: {', '.join(RELATION_CATEGORIES)}",
+        "- intensity: 0, 1, 2, 3",
+        f"- clarity: {', '.join(CLARITIES)}",
+        f"- certainty: {', '.join(CERTAINTIES)}",
+        f"- controllability: {', '.join(CONTROLLABILITIES)}",
+        f"- repair_signal: {', '.join(REPAIR_SIGNALS)}",
+        "- risk_class: none, concern, urgent",
+        "- proposed_stance: proactive, cooperative, brief, limited, distance, decline, boundary",
+    ]
+
+
+def _legacy_mood_instructions(language: str) -> list[str]:
+    instructions = {
+        "ko": [
+            "- `[mood_analysis]` 블록에는 현재 턴의 관찰 가능한 사건 분류만 key=value로 기록하세요.",
+            "- 스키마 enum만 사용하고 원문, reason, event_id, 설명 문장은 만들지 마세요.",
+        ],
+        "en": [
+            "- In `[mood_analysis]`, record only the current turn's observable event classification as key=value lines.",
+            "- Use only schema enums; never include source text, reason, event_id, or explanatory prose.",
+        ],
+        "ja": [
+            "- `[mood_analysis]` には現在のターンで観察できる出来事の分類だけを key=value 行で記録してください。",
+            "- スキーマのenumだけを使い、原文、reason、event_id、説明文を含めないでください。",
+        ],
+    }
+    return instructions.get(language, instructions["en"])
+
+
 def build_legacy_response_contract_appendix(settings_source: object | None = None) -> str:
     """설정과 UI 언어에 맞는 최종 응답 형식 계약을 반환한다."""
     language = resolve_prompt_language(settings_source=settings_source)
@@ -246,13 +300,8 @@ def build_legacy_response_contract_appendix(settings_source: object | None = Non
     if analysis_enabled:
         lines.insert(2, contract["analysis"])
     if mood_analysis_enabled:
-        lines.extend(
-            [
-                "- `[mood_analysis]` 블록에는 현재 턴의 관찰 가능한 사건 분류만 key=value로 기록하세요.",
-                "- 키 순서는 kind, target_scope, relation_category, intensity, clarity, certainty, controllability, repair_signal, risk_class, proposed_stance입니다.",
-                "- 스키마 enum만 사용하고 원문, reason, event_id, 설명 문장은 만들지 마세요.",
-            ]
-        )
+        lines.extend(_legacy_mood_instructions(language))
+        lines.extend(_mood_contract_rules(language))
     if goal_enabled:
         lines.append(contract["goal"] if analysis_enabled else contract["goal_without_analysis"])
         lines.extend(build_goal_update_rules(language=language))
@@ -534,7 +583,11 @@ def build_structured_response_contract_appendix(
     }
     messages = all_messages.get(language, all_messages["en"])
 
-    lines.append(messages["mood_on"] if mood_analysis_enabled else messages["mood_off"])
+    if mood_analysis_enabled:
+        lines.append(messages["mood_on"])
+        lines.extend(_mood_contract_rules(language))
+    else:
+        lines.append(messages["mood_off"])
 
     if tts_language != language:
         lines.append(messages["tts"].format(language=_language_name(tts_language, language)))

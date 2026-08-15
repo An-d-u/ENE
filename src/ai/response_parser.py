@@ -51,11 +51,16 @@ _MOOD_ANALYSIS_BLOCK = re.compile(
     r"\[\s*mood_analysis\s*\](.*?)\[\s*/\s*mood_analysis\s*\]",
     re.IGNORECASE | re.DOTALL,
 )
-_MOOD_ANALYSIS_OPEN = re.compile(r"\[\s*mood_analysis\s*\]", re.IGNORECASE)
 _MOOD_ANALYSIS_CLOSE = re.compile(r"\[\s*/\s*mood_analysis\s*\]", re.IGNORECASE)
+_MOOD_ANALYSIS_OPEN_FRAGMENT = re.compile(r"\[\s*mood_analysis\b", re.IGNORECASE)
 _MOOD_LEGACY_KEYS = (
     "kind", "target_scope", "relation_category", "intensity", "clarity",
     "certainty", "controllability", "repair_signal", "risk_class", "proposed_stance",
+)
+_MOOD_ORPHAN_CLOSE_BLOCK = re.compile(
+    rf"(?:^[ \t]*(?:{'|'.join(_MOOD_LEGACY_KEYS)})[ \t]*=.*(?:\r?\n|$))+"
+    r"[ \t]*\[\s*/\s*mood_analysis\s*\]",
+    re.IGNORECASE | re.MULTILINE,
 )
 
 
@@ -65,7 +70,8 @@ def extract_mood_analysis_block(
 ) -> tuple[str, dict[str, object] | None]:
     matches = list(_MOOD_ANALYSIS_BLOCK.finditer(response_text))
     cleaned = _MOOD_ANALYSIS_BLOCK.sub("", response_text).strip()
-    unclosed = _MOOD_ANALYSIS_OPEN.search(cleaned)
+    cleaned = _MOOD_ORPHAN_CLOSE_BLOCK.sub("", cleaned).strip()
+    unclosed = _MOOD_ANALYSIS_OPEN_FRAGMENT.search(cleaned)
     if unclosed is not None:
         cleaned = cleaned[: unclosed.start()].strip()
     cleaned = _MOOD_ANALYSIS_CLOSE.sub("", cleaned).strip()

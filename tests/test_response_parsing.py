@@ -624,3 +624,41 @@ def test_parse_response_strips_unclosed_legacy_mood_analysis_metadata():
         "risk_class": "none",
         "proposed_stance": "cooperative",
     }
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_parse_response_strips_orphan_mood_close_and_preceding_known_metadata(enabled):
+    client = GeminiClient.__new__(GeminiClient)
+    client.settings = {
+        "enable_mood_system": enabled,
+        "enable_response_analysis": enabled,
+    }
+    result = client._parse_response(
+        "합성 답변 [normal]\nkind=loss\nrisk_class=urgent\n[/mood_analysis]"
+    )
+    assert result[0] == "합성 답변"
+    assert "kind=" not in (result[2] or "")
+    assert result[10] is not None if enabled else result[10] is None
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_parse_response_strips_malformed_mood_open_fragment_and_tail(enabled):
+    client = GeminiClient.__new__(GeminiClient)
+    client.settings = {
+        "enable_mood_system": enabled,
+        "enable_response_analysis": enabled,
+    }
+    result = client._parse_response(
+        "합성 답변 [normal]\n[mood_analysis\nkind=loss\nrisk_class=urgent"
+    )
+    assert result[0] == "합성 답변"
+    assert "risk_class" not in (result[2] or "")
+    assert result[10] is not None if enabled else result[10] is None
+
+
+def test_parse_response_preserves_plain_known_key_value_without_mood_marker():
+    parsed = parse_llm_response(
+        "kind=loss 문법을 설명하는 합성 문장 [normal]",
+        settings_source={"enable_mood_system": False},
+    )
+    assert parsed[0] == "kind=loss 문법을 설명하는 합성 문장"
