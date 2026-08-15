@@ -1024,6 +1024,42 @@ def test_acknowledgment_apology_and_explanation_have_distinct_recovery(
     assert rupture["repair_evidence_count"] == 0
 
 
+@pytest.mark.parametrize(
+    ("clarity", "certainty"),
+    [
+        ("inferred", "high"),
+        ("explicit", "medium"),
+        ("inferred", "medium"),
+    ],
+)
+def test_explanation_requires_explicit_clarity_and_high_certainty_for_relationship_repair(
+    clarity: str,
+    certainty: str,
+) -> None:
+    state = new_mood_state(NOW, "balanced")
+    state["relationship"] = {"affection": 0.20, "trust": -0.20}
+    state["ruptures"] = [seeded_rupture(severity=0.30, heat=0.30)]
+    relationship_snapshot = deepcopy(state["relationship"])
+    rupture_snapshot = deepcopy(state["ruptures"])
+
+    transition = reduce_mood(
+        state,
+        relationship_event(
+            f"restricted-explanation-{clarity}-{certainty}",
+            kind="repair",
+            relation_category="broken_commitment",
+            repair_signal="explanation",
+            clarity=clarity,
+            certainty=certainty,
+        ),
+        NOW + timedelta(minutes=1),
+        "balanced",
+    )
+
+    assert transition.state["relationship"] == relationship_snapshot
+    assert transition.state["ruptures"] == rupture_snapshot
+
+
 def test_correction_then_distinct_follow_through_resolves_moderate_rupture() -> None:
     state = new_mood_state(NOW, "balanced")
     state["ruptures"] = [seeded_rupture()]
