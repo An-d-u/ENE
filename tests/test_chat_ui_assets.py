@@ -185,19 +185,24 @@ class Element {{
             }},
             contains: function (name) {{ return this.values.has(name); }}
         }};
+        this.attributes = {{}};
     }}
+    setAttribute(name, value) {{ this.attributes[name] = String(value); }}
+    removeAttribute(name) {{ delete this.attributes[name]; }}
+    getAttribute(name) {{ return Object.prototype.hasOwnProperty.call(this.attributes, name) ? this.attributes[name] : null; }}
 }}
 const elements = {{
     'mood-detail-primary': new Element(),
     'mood-detail-secondary-row': new Element(),
     'mood-detail-secondary': new Element(),
     'mood-detail-trust': new Element(),
+    'mood-detail-trust-row': new Element(),
 }};
 const context = {{
     window: {{}},
     document: {{ getElementById: (id) => elements[id] || null }},
     console: {{ warn: () => {{}} }},
-    currentUiStrings: {{ mood: {{ axis: {{ valence: 'Positive', bond: 'Bond', energy: 'Energy', stress: 'Stress' }}, states: {{ unknown: 'Unknown' }} }} }},
+    currentUiStrings: {{ mood: {{ axis: {{ valence: 'Positive', bond: 'Bond', energy: 'Energy', stress: 'Stress' }}, states: {{ unknown: 'Unknown' }}, trust: 'Trust', trustLevels: {{ low: 'Low', medium: 'Medium', high: 'High' }} }} }},
     DEFAULT_UI_STRINGS: {{ mood: {{ axis: {{ valence: 'Positive', bond: 'Bond', energy: 'Energy', stress: 'Stress' }}, states: {{ unknown: 'Unknown' }} }} }},
     currentMoodSnapshot: {{}},
     moodStatusLabel: null,
@@ -241,6 +246,9 @@ result = {
     secondaryHiddenProperty: document.getElementById('mood-detail-secondary-row').hidden,
     trustWidth: document.getElementById('mood-detail-trust').style.width,
     trustTitle: document.getElementById('mood-detail-trust').title,
+    trustRole: document.getElementById('mood-detail-trust').getAttribute('role'),
+    trustValueNow: document.getElementById('mood-detail-trust').getAttribute('aria-valuenow'),
+    trustValueText: document.getElementById('mood-detail-trust').getAttribute('aria-valuetext'),
 };
 """
     )
@@ -251,8 +259,28 @@ result = {
         "secondaryHiddenProperty": True,
         "trustWidth": "69%",
         "trustTitle": "Trust",
+        "trustRole": "meter",
+        "trustValueNow": "2",
+        "trustValueText": "High",
     }
     assert "0.37" not in result["trustTitle"]
+
+
+def test_mood_v3_malformed_trust_hides_row_and_clears_meter_aria():
+    result = _run_mood_runtime_case(
+        """
+applyMoodSnapshot({ relationship: { trust: 0.8 } });
+applyMoodSnapshot({ relationship: { trust: 'invalid' } });
+const meter = document.getElementById('mood-detail-trust');
+result = {
+    hidden: document.getElementById('mood-detail-trust-row').hidden,
+    valueNow: meter.getAttribute('aria-valuenow'),
+    valueText: meter.getAttribute('aria-valuetext'),
+};
+"""
+    )
+
+    assert result == {"hidden": True, "valueNow": None, "valueText": None}
 
 
 def test_mood_reset_cancel_does_not_call_bridge_or_change_button_state():

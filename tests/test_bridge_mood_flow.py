@@ -210,6 +210,25 @@ def test_reset_mood_state_is_safe_without_manager_or_when_reset_raises(capsys):
     assert "synthetic private reset detail" not in captured.out + captured.err
 
 
+def test_reset_mood_state_does_not_emit_when_manager_reports_save_failure():
+    class FailedResetManager:
+        def reset_state(self):
+            return {"current_mood": "calm", "relationship": {"trust": 0.0}}
+
+        def get_last_reset_status(self):
+            return {"attempted": True, "ok": False}
+
+    dummy = type("BridgeDummy", (), {})()
+    dummy.mood_manager = FailedResetManager()
+    dummy.mood_changed = _DummySignal()
+    dummy._emit_mood_changed = lambda snapshot: WebBridge._emit_mood_changed(dummy, snapshot)
+
+    result = json.loads(WebBridge.reset_mood_state(dummy, True))
+
+    assert result == {"ok": False, "error": "reset_failed"}
+    assert dummy.mood_changed.emitted == []
+
+
 def test_on_response_ready_applies_owned_mood_event_once_and_ignores_legacy_analysis(capsys):
     dummy = type("BridgeDummy", (), {})()
     dummy._last_assistant_response = None

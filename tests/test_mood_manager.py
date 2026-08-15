@@ -340,6 +340,7 @@ def test_reset_locked_state_preserves_recovery_backup_and_unlocks(tmp_path):
     original = b"{broken"
     state_file.write_bytes(original)
     manager = _manager(state_file)
+    assert manager.get_last_reset_status() == {"attempted": False, "ok": False}
 
     snapshot = manager.reset_state()
 
@@ -348,11 +349,21 @@ def test_reset_locked_state_preserves_recovery_backup_and_unlocks(tmp_path):
     assert backups[0].read_bytes() == original
     assert snapshot["version"] == 3
     assert manager.get_load_status() == {"error_code": None, "write_locked": False}
+    assert manager.get_last_reset_status() == {"attempted": True, "ok": True}
+    assert "last_reset" not in state_file.read_text(encoding="utf-8")
 
 
-def test_reset_failure_keeps_lock_state_and_original(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    ("original", "expected_error"),
+    [
+        (b"{broken", "corrupt_state"),
+        (json.dumps({"version": 4}).encode("utf-8"), "future_version"),
+    ],
+)
+def test_reset_failure_keeps_lock_state_and_original(
+    tmp_path, monkeypatch, original, expected_error
+):
     state_file = tmp_path / "mood_state.json"
-    original = b"{broken"
     state_file.write_bytes(original)
     manager = _manager(state_file)
     before = deepcopy(manager.state)
@@ -363,8 +374,27 @@ def test_reset_failure_keeps_lock_state_and_original(tmp_path, monkeypatch):
     manager.reset_state()
 
     assert manager.state == before
-    assert manager.get_load_status() == {"error_code": "corrupt_state", "write_locked": True}
+    assert manager.get_load_status() == {"error_code": expected_error, "write_locked": True}
+    assert manager.get_last_reset_status() == {"attempted": True, "ok": False}
     assert state_file.read_bytes() == original
+
+
+def test_reset_failure_reports_false_for_unlocked_state(tmp_path, monkeypatch):
+    state_file = tmp_path / "mood_state.json"
+    manager = _manager(state_file)
+    before = deepcopy(manager.state)
+    monkeypatch.setattr(
+        manager,
+        "_write_state",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("save denied")),
+    )
+
+    snapshot = manager.reset_state()
+
+    assert snapshot == manager.get_snapshot()
+    assert manager.state == before
+    assert manager.get_load_status() == {"error_code": None, "write_locked": False}
+    assert manager.get_last_reset_status() == {"attempted": True, "ok": False}
 
 
 def test_repeated_resets_with_same_clock_create_distinct_recovery_backups(tmp_path):

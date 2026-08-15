@@ -52,6 +52,8 @@ class MoodManager:
         self._error_code: str | None = None
         self._write_locked = False
         self._last_primary_emotion: str | None = None
+        self._last_reset_attempted = False
+        self._last_reset_ok = False
         self.state = self._load_state()
 
     def _setting(self, key: str, default: Any) -> Any:
@@ -391,7 +393,16 @@ class MoodManager:
     def get_load_status(self) -> dict[str, Any]:
         return {"error_code": self._error_code, "write_locked": self._write_locked}
 
+    def get_last_reset_status(self) -> dict[str, bool]:
+        """마지막 초기화 시도의 성공 여부만 런타임 상태로 반환한다."""
+        return {
+            "attempted": self._last_reset_attempted,
+            "ok": self._last_reset_ok,
+        }
+
     def reset_state(self, now_utc: datetime | str | None = None) -> dict[str, Any]:
+        self._last_reset_attempted = True
+        self._last_reset_ok = False
         occurred_at = self._coerce_occurred_at(now_utc)
         candidate = mood_engine.new_mood_state(occurred_at, self._preset())
         previous_state = self.state
@@ -420,6 +431,7 @@ class MoodManager:
         self._error_code = None
         self._write_locked = False
         self._last_primary_emotion = None
+        self._last_reset_ok = True
         return self.get_snapshot()
 
     def on_user_message(self, text: str, image_count: int = 0) -> dict[str, Any]:

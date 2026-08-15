@@ -95,6 +95,11 @@ class MoodBridgeMixin:
 
         try:
             snapshot = manager.reset_state()
+            reset_status_getter = getattr(manager, "get_last_reset_status", None)
+            if callable(reset_status_getter):
+                reset_status = reset_status_getter()
+                if not isinstance(reset_status, Mapping) or reset_status.get("ok") is not True:
+                    return json.dumps({"ok": False, "error": "reset_failed"})
             safe_snapshot = dict(snapshot) if isinstance(snapshot, Mapping) else {}
             self._emit_mood_changed(safe_snapshot)
             return json.dumps(

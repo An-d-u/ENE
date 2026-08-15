@@ -135,9 +135,24 @@ function updateMoodDetails(snapshot) {
     if (trustMeter && Number.isFinite(trust)) {
         setMoodMeterWidth(trustMeter, normalizeMoodAxis(trust));
         const strings = currentUiStrings && currentUiStrings.mood;
+        const levelKey = trust < (-1 / 3) ? 'low' : (trust > (1 / 3) ? 'high' : 'medium');
+        const levelIndex = { low: 0, medium: 1, high: 2 }[levelKey];
+        const trustLevels = strings && strings.trustLevels ? strings.trustLevels : {};
         trustMeter.title = strings && typeof strings.trust === 'string' && strings.trust
             ? strings.trust
             : 'Trust';
+        trustMeter.setAttribute('role', 'meter');
+        trustMeter.setAttribute('aria-valuemin', '0');
+        trustMeter.setAttribute('aria-valuemax', '2');
+        trustMeter.setAttribute('aria-valuenow', String(levelIndex));
+        trustMeter.setAttribute('aria-valuetext', trustLevels[levelKey] || levelKey);
+    } else if (trustMeter) {
+        trustMeter.title = '';
+        trustMeter.setAttribute('role', 'meter');
+        trustMeter.removeAttribute('aria-valuemin');
+        trustMeter.removeAttribute('aria-valuemax');
+        trustMeter.removeAttribute('aria-valuenow');
+        trustMeter.removeAttribute('aria-valuetext');
     }
 }
 
