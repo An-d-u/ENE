@@ -810,6 +810,10 @@ def test_worker_finished_hook_rechecks_promise_and_proactive_queues():
 
 def test_attachment_user_message_cancels_pending_proactive_conversations():
     dummy = type("BridgeDummy", (), {})()
+    expected_mood_context = {
+        "event_id": "22222222-2222-4222-8222-222222222222",
+        "occurred_at_utc": "2099-05-26T12:20:00+00:00",
+    }
     dummy.llm_client = object()
     dummy.message_received = _DummySignal()
     dummy.settings = {}
@@ -836,11 +840,23 @@ def test_attachment_user_message_cancels_pending_proactive_conversations():
     dummy._mark_user_activity = lambda: None
     dummy._compose_attachment_history_message = lambda message, attachments: message
     dummy._append_conversation = lambda role, text, timestamp=None: dummy.conversation_buffer.append((role, text, timestamp))
-    dummy._start_ai_worker = lambda *args, **kwargs: None
+    dummy._new_mood_event_context = lambda: dict(expected_mood_context)
+    started = []
+    dummy._start_ai_worker = lambda *args, **kwargs: started.append(kwargs)
 
     WebBridge.send_to_ai_with_attachments(dummy, "합성 첨부 답변", "[]")
 
     assert cancelled == ["cancelled"]
+    assert (
+        dummy._last_request_payload["mood_event_id"]
+        == expected_mood_context["event_id"]
+    )
+    assert (
+        dummy._last_request_payload["mood_occurred_at"]
+        == expected_mood_context["occurred_at_utc"]
+    )
+    assert started[0]["mood_event_id"] == expected_mood_context["event_id"]
+    assert started[0]["mood_occurred_at"] == expected_mood_context["occurred_at_utc"]
 
 
 def test_llm_response_tuple_aliases_include_proactive_conversations():
