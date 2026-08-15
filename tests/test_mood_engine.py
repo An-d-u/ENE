@@ -442,6 +442,47 @@ def test_affect_repeat_count_uses_inclusive_thirty_minute_boundary(
     assert trace["last_event_at_utc"] == (NOW + elapsed).isoformat(timespec="seconds")
 
 
+def test_future_trace_is_not_counted_as_relationship_or_affect_repeat() -> None:
+    future_at = NOW + timedelta(hours=1)
+    state = new_mood_state(NOW, "balanced")
+    state["active_affects"] = [
+        valid_active_affect(
+            affect="anger",
+            intensity=0.2,
+            source_kind="conflict",
+            target_scope="relationship",
+            relation_category="disrespect",
+            repeat_count=2,
+            last_event_at_utc=future_at.isoformat(timespec="seconds"),
+            updated_at_utc=future_at.isoformat(timespec="seconds"),
+        )
+    ]
+
+    transition = reduce_mood(
+        state,
+        relationship_event(
+            "future-trace-not-repeat",
+            kind="conflict",
+            relation_category="disrespect",
+        ),
+        NOW,
+        "balanced",
+    )
+
+    assert transition.state["relationship"] == {
+        "affection": pytest.approx(-0.025),
+        "trust": pytest.approx(-0.015),
+    }
+    conflict_traces = [
+        trace
+        for trace in transition.state["active_affects"]
+        if trace["source_kind"] == "conflict"
+        and trace["target_scope"] == "relationship"
+        and trace["relation_category"] == "disrespect"
+    ]
+    assert {trace["repeat_count"] for trace in conflict_traces} == {0}
+
+
 def test_active_affect_limit_evicts_lowest_priority_deterministically() -> None:
     state = new_mood_state(NOW, "balanced")
     state["active_affects"] = [
@@ -1468,6 +1509,9 @@ def test_clock_rollback_resets_anchor_without_decay_and_allows_next_event() -> N
     state["active_affects"] = [
         valid_active_affect(affect="sadness", intensity=0.8, source_kind="loss")
     ]
+    state["spontaneous"]["last_at_utc"] = (NOW + timedelta(hours=2)).isoformat(
+        timespec="seconds"
+    )
     rolled_back_at = NOW - timedelta(hours=1)
 
     rollback = advance_time(state, rolled_back_at, "balanced")
@@ -1477,6 +1521,10 @@ def test_clock_rollback_resets_anchor_without_decay_and_allows_next_event() -> N
     assert rollback.state["updated_at_utc"] == rolled_back_at.isoformat(timespec="seconds")
     assert rollback.state["background"] == state["background"]
     assert rollback.state["active_affects"] == state["active_affects"]
+    assert rollback.state["spontaneous"] == {
+        "last_at_utc": rolled_back_at.isoformat(timespec="seconds"),
+        "seed_revision": 0,
+    }
 
     next_at = rolled_back_at + timedelta(minutes=1)
     event = reduce_mood(
