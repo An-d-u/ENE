@@ -1409,6 +1409,210 @@ def test_urgent_footer_survives_missing_field_repair():
     assert result.payload[6] == "Synthetic public reaction."
 
 
+def test_same_language_urgent_reply_keeps_tts_exactly_synchronized_through_thought_repair():
+    requester = RecordingRequester(
+        [
+            provider_response(
+                valid_envelope_json(
+                    reply="Synthetic urgent source reply.",
+                    tts_text="Synthetic stale speech.",
+                    thought="",
+                    mood_analysis=_mood_analysis(risk="urgent", stance="cooperative"),
+                )
+            ),
+            provider_response(json.dumps({"thought": "Synthetic repaired reaction."})),
+        ]
+    )
+
+    result = execute_final_response(
+        requester,
+        requirements=_mood_requirements(
+            response_language="en",
+            tts_language="en",
+            require_tts_text=True,
+            require_thought=True,
+        ),
+        mood_snapshot_provider=lambda: {},
+    )
+
+    assert [attempt.phase for attempt in result.attempts] == ["primary", "repair"]
+    assert result.payload[2] == result.payload[0]
+    assert "currently safe" in result.payload[2]
+    assert "Synthetic stale speech." not in result.payload[2]
+    assert result.payload[6] == "Synthetic repaired reaction."
+
+
+def test_cross_language_urgent_fallback_repairs_only_the_new_safety_reply():
+    stale_tts = "Synthetic stale unsafe translation."
+    requester = RecordingRequester(
+        [
+            provider_response(
+                valid_envelope_json(
+                    reply="First unsafe reply.",
+                    tts_text=stale_tts,
+                    mood_analysis=_mood_analysis(risk="urgent", stance="decline"),
+                )
+            ),
+            provider_response(
+                valid_envelope_json(
+                    reply="Second unsafe reply.",
+                    tts_text=stale_tts,
+                    mood_analysis=_mood_analysis(risk="urgent", stance="decline"),
+                )
+            ),
+            provider_response(json.dumps({"tts_text": "Synthetic safe translated speech."})),
+        ]
+    )
+
+    result = execute_final_response(
+        requester,
+        requirements=_mood_requirements(
+            response_language="en",
+            tts_language="ja",
+            require_tts_text=True,
+        ),
+        mood_snapshot_provider=lambda: {},
+    )
+
+    assert [attempt.phase for attempt in result.attempts] == [
+        "primary",
+        "policy_regenerate",
+        "repair",
+    ]
+    assert result.payload[0] != "Second unsafe reply."
+    assert "currently safe" in result.payload[0]
+    assert result.payload[2] == "Synthetic safe translated speech."
+    assert stale_tts not in result.payload
+
+
+def test_cross_language_urgent_fallback_never_keeps_stale_tts_when_repair_fails():
+    stale_tts = "Synthetic stale unsafe translation."
+    requester = RecordingRequester(
+        [
+            provider_response(
+                valid_envelope_json(
+                    tts_text=stale_tts,
+                    mood_analysis=_mood_analysis(risk="urgent", stance="distance"),
+                )
+            ),
+            provider_response(
+                valid_envelope_json(
+                    tts_text=stale_tts,
+                    mood_analysis=_mood_analysis(risk="urgent", stance="distance"),
+                )
+            ),
+            RuntimeError("synthetic repair failure"),
+        ]
+    )
+
+    result = execute_final_response(
+        requester,
+        requirements=_mood_requirements(
+            response_language="en",
+            tts_language="ja",
+            require_tts_text=True,
+        ),
+        mood_snapshot_provider=lambda: {},
+    )
+
+    assert result.payload[2] is None
+    assert stale_tts not in result.payload
+
+
+def test_expanded_schema_budget_is_preserved_for_following_policy_regeneration():
+    requester = RecordingRequester(
+        [
+            provider_response(
+                "truncated",
+                status=ResponseStatus.INCOMPLETE,
+                finish_reason="max_tokens",
+            ),
+            provider_response(
+                valid_envelope_json(mood_analysis=_mood_analysis(stance="distance"))
+            ),
+            provider_response(
+                valid_envelope_json(mood_analysis=_mood_analysis(stance="cooperative"))
+            ),
+        ]
+    )
+
+    execute_final_response(
+        requester,
+        requirements=_mood_requirements(),
+        mood_snapshot_provider=lambda: {},
+    )
+
+    assert [attempt.phase for attempt in requester.attempts] == [
+        "primary",
+        "regenerate",
+        "policy_regenerate",
+    ]
+    assert [attempt.expand_output_budget for attempt in requester.attempts] == [
+        False,
+        True,
+        True,
+    ]
+
+
+def test_primary_policy_regeneration_does_not_expand_output_budget():
+    requester = RecordingRequester(
+        [
+            provider_response(
+                valid_envelope_json(mood_analysis=_mood_analysis(stance="distance"))
+            ),
+            provider_response(
+                valid_envelope_json(mood_analysis=_mood_analysis(stance="cooperative"))
+            ),
+        ]
+    )
+
+    execute_final_response(
+        requester,
+        requirements=_mood_requirements(),
+        mood_snapshot_provider=lambda: {},
+    )
+
+    assert [attempt.expand_output_budget for attempt in requester.attempts] == [
+        False,
+        False,
+    ]
+
+
+def test_policy_retry_length_failure_expands_following_schema_regeneration():
+    requester = RecordingRequester(
+        [
+            provider_response(
+                valid_envelope_json(mood_analysis=_mood_analysis(stance="distance"))
+            ),
+            provider_response(
+                "truncated",
+                status=ResponseStatus.INCOMPLETE,
+                finish_reason="max_tokens",
+            ),
+            provider_response(
+                valid_envelope_json(mood_analysis=_mood_analysis(stance="cooperative"))
+            ),
+        ]
+    )
+
+    execute_final_response(
+        requester,
+        requirements=_mood_requirements(),
+        mood_snapshot_provider=lambda: {},
+    )
+
+    assert [attempt.phase for attempt in requester.attempts] == [
+        "primary",
+        "policy_regenerate",
+        "regenerate",
+    ]
+    assert [attempt.expand_output_budget for attempt in requester.attempts] == [
+        False,
+        False,
+        True,
+    ]
+
+
 def test_control_only_native_reply_uses_the_single_regeneration_budget():
     requester = RecordingRequester(
         [
