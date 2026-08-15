@@ -681,6 +681,40 @@ def test_parse_response_strips_orphan_mood_metadata_across_blank_lines(
 
 
 @pytest.mark.parametrize("enabled", [True, False])
+@pytest.mark.parametrize(
+    ("newline", "metadata", "close_marker"),
+    [
+        ("\n", "reason=hidden_meta", "[/mood_analysis]"),
+        ("\r\n", "kind=loss\t", "[ / MOOD_ANALYSIS ]"),
+        (
+            "\n",
+            "kind=loss\nextra_key=hidden_meta\t",
+            "[  /  Mood_Analysis  ]",
+        ),
+        (
+            "\r\n",
+            "kind=loss\r\nreason=hidden_meta\r\ncustom-field=synthetic\t",
+            "[ / mood_analysis ]",
+        ),
+    ],
+)
+def test_parse_response_strips_same_line_orphan_mood_close_metadata(
+    enabled, newline, metadata, close_marker
+):
+    client = GeminiClient.__new__(GeminiClient)
+    client.settings = {
+        "enable_mood_system": enabled,
+        "enable_response_analysis": enabled,
+    }
+    result = client._parse_response(
+        f"합성 답변 [normal]{newline}{metadata}{close_marker}"
+    )
+    assert result[0] == "합성 답변"
+    assert "hidden_meta" not in (result[2] or "")
+    assert result[10] is not None if enabled else result[10] is None
+
+
+@pytest.mark.parametrize("enabled", [True, False])
 def test_parse_response_strips_malformed_mood_open_fragment_and_tail(enabled):
     client = GeminiClient.__new__(GeminiClient)
     client.settings = {
