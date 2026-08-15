@@ -208,7 +208,8 @@ def normalize_preset(preset: object) -> str:
 
 def format_utc(value: datetime) -> str:
     _require_utc_datetime(value, "시각")
-    return value.isoformat(timespec="seconds")
+    timespec = "microseconds" if value.microsecond else "seconds"
+    return value.isoformat(timespec=timespec)
 
 
 def new_mood_state(now_utc: datetime, preset: str) -> dict[str, Any]:
@@ -353,11 +354,12 @@ def derive_snapshot(state: object, previous_primary: object = None) -> dict[str,
                 secondary = affect
             break
 
-    snapshot: dict[str, object] = deepcopy(validated)
-    snapshot["primary_emotion"] = primary
-    snapshot["secondary_emotion"] = secondary
-    snapshot["behavior_guidance"] = derive_behavior_guidance(validated, "ko")
-    return snapshot
+    return {
+        "state": deepcopy(validated),
+        "primary_emotion": primary,
+        "secondary_emotion": secondary,
+        "behavior_guidance": derive_behavior_guidance(validated, "ko"),
+    }
 
 
 def derive_behavior_guidance(state: object, language: str) -> tuple[str, ...]:
@@ -366,31 +368,23 @@ def derive_behavior_guidance(state: object, language: str) -> tuple[str, ...]:
     selected_language = (
         language if isinstance(language, str) and language in {"ko", "en", "ja"} else "ko"
     )
-    snapshot = _derive_emotion_pair(validated)
-
     messages = {
         "ko": {
             "rupture": "열린 관계 균열이 강하므로 단정하지 말고 차분하게 확인합니다.",
             "energy": "에너지가 낮으므로 짧고 부담이 적은 표현을 사용합니다.",
             "relationship": "관계 온도가 낮으므로 친밀함을 전제하지 않고 존중하는 거리를 둡니다.",
-            "positive": "따뜻한 정서의 뉘앙스를 절제해 표현합니다.",
-            "negative": "불편한 정서의 뉘앙스를 차분하고 비난 없이 표현합니다.",
             "safety": "안전 안내, 중지나 취소, 권한 철회, 위험 작업 확인은 mood보다 항상 우선합니다.",
         },
         "en": {
             "rupture": "A strong open rupture calls for calm clarification without assumptions.",
             "energy": "Low energy calls for brief, low-pressure phrasing.",
             "relationship": "Low relational warmth calls for respectful distance without assumed intimacy.",
-            "positive": "Express the warm emotional nuance with restraint.",
-            "negative": "Express the uneasy emotional nuance calmly and without blame.",
             "safety": "Safety guidance, stopping or cancellation, permission withdrawal, and hazardous-action confirmation always override mood.",
         },
         "ja": {
             "rupture": "強い未解決の関係亀裂があるため、決めつけず落ち着いて確認します。",
             "energy": "エネルギーが低いため、短く負担の少ない表現を使います。",
             "relationship": "関係の温度が低いため、親密さを前提にせず敬意ある距離を保ちます。",
-            "positive": "温かい感情のニュアンスを控えめに表現します。",
-            "negative": "不快な感情のニュアンスを落ち着いて非難せず表現します。",
             "safety": "安全案内、停止や取消、権限の撤回、危険作業の確認は常にmoodより優先します。",
         },
     }
@@ -411,11 +405,6 @@ def derive_behavior_guidance(state: object, language: str) -> tuple[str, ...]:
     ) / 2.0
     if warmth <= -0.35:
         guidance.append(text["relationship"])
-    primary = snapshot[0]
-    if primary in {"joy", "tenderness", "amusement", "interest"}:
-        guidance.append(text["positive"])
-    elif primary is not None:
-        guidance.append(text["negative"])
     guidance.append(text["safety"])
     return tuple(guidance)
 
@@ -553,24 +542,6 @@ def _advance_time_in_place(state: dict[str, Any], now_utc: datetime, preset: str
     state["preset"] = normalized_preset
     state["updated_at_utc"] = format_utc(now_utc)
     return rule_ids
-
-
-def _derive_emotion_pair(state: dict[str, Any]) -> tuple[str | None, str | None]:
-    strengths = {affect: 0.0 for affect in AFFECTS}
-    for trace in state["active_affects"]:
-        affect = trace["affect"]
-        strengths[affect] = max(strengths[affect], float(trace["intensity"]))
-    ranked = sorted(AFFECTS, key=lambda affect: (-strengths[affect], _AFFECT_ORDER[affect]))
-    primary = ranked[0] if strengths[ranked[0]] >= 0.16 else None
-    secondary = None
-    if primary is not None:
-        for affect in ranked:
-            if affect == primary:
-                continue
-            if strengths[affect] >= 0.14 and strengths[affect] >= strengths[primary] * 0.75:
-                secondary = affect
-            break
-    return primary, secondary
 
 
 def _extract_canonical_event_id(event: object) -> str | None:
