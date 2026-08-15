@@ -627,17 +627,26 @@ def test_parse_response_strips_unclosed_legacy_mood_analysis_metadata():
 
 
 @pytest.mark.parametrize("enabled", [True, False])
-def test_parse_response_strips_orphan_mood_close_and_preceding_known_metadata(enabled):
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        "reason=hidden_meta",
+        "kind=loss\nreason=hidden_meta\nrisk_class=urgent",
+    ],
+)
+def test_parse_response_strips_orphan_mood_close_and_connected_metadata(
+    enabled, metadata
+):
     client = GeminiClient.__new__(GeminiClient)
     client.settings = {
         "enable_mood_system": enabled,
         "enable_response_analysis": enabled,
     }
     result = client._parse_response(
-        "합성 답변 [normal]\nkind=loss\nrisk_class=urgent\n[/mood_analysis]"
+        f"합성 답변 [normal]\n{metadata}\n[/mood_analysis]"
     )
     assert result[0] == "합성 답변"
-    assert "kind=" not in (result[2] or "")
+    assert "hidden_meta" not in (result[2] or "")
     assert result[10] is not None if enabled else result[10] is None
 
 
