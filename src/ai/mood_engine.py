@@ -73,6 +73,14 @@ CERTAINTY_WEIGHT = {"low": 0.5, "medium": 0.75, "high": 1.0}
 PRESET_WEIGHT = {"calm": 0.75, "balanced": 1.0, "expressive": 1.25}
 RELATION_REPEAT_WEIGHT = {0: 1.00, 1: 0.85, 2: 0.70, 3: 0.55}
 
+BACKGROUND_HALF_LIFE_SECONDS = {
+    "valence": 12 * 3600,
+    "energy": 4 * 3600,
+    "tension": 6 * 3600,
+}
+SPONTANEOUS_COOLDOWN_SECONDS = 6 * 3600
+SPONTANEOUS_THRESHOLD = 0.92
+
 RELATION_CONNECTION_BASE = {
     "connection": {"affection": 0.018, "trust": 0.010},
     "success": {"affection": 0.006, "trust": 0.012},
@@ -298,6 +306,120 @@ def validate_state(state: object) -> dict[str, Any]:
     return validated
 
 
+def advance_time(state: object, now_utc: datetime, preset: str) -> MoodTransition:
+    """실제 UTC 경과시간만큼 상태를 결정론적으로 전진시킵니다."""
+    validated = validate_state(state)
+    _require_utc_datetime(now_utc, "시간 전진 시각")
+    previous_at = _parse_utc_string(validated["updated_at_utc"], "updated_at_utc")
+    if now_utc <= previous_at:
+        return MoodTransition(state=validated, applied=False, rule_ids=())
+
+    rule_ids = _advance_time_in_place(validated, now_utc, preset)
+    validated["revision"] += 1
+    return MoodTransition(
+        state=validate_state(validated),
+        applied=True,
+        rule_ids=tuple(rule_ids),
+    )
+
+
+def derive_snapshot(state: object, previous_primary: object = None) -> dict[str, object]:
+    """저장 상태를 바꾸지 않고 현재 감정과 행동 지침을 파생합니다."""
+    validated = validate_state(state)
+    strengths = {affect: 0.0 for affect in AFFECTS}
+    for trace in validated["active_affects"]:
+        affect = trace["affect"]
+        strengths[affect] = max(strengths[affect], float(trace["intensity"]))
+
+    ranked = sorted(AFFECTS, key=lambda affect: (-strengths[affect], _AFFECT_ORDER[affect]))
+    candidate = ranked[0] if strengths[ranked[0]] >= 0.16 else None
+    primary = candidate
+    if (
+        candidate is not None
+        and isinstance(previous_primary, str)
+        and previous_primary in strengths
+        and strengths[previous_primary] >= 0.16
+        and _at_or_below(strengths[candidate] - strengths[previous_primary], 0.04)
+    ):
+        primary = previous_primary
+
+    secondary = None
+    if primary is not None:
+        for affect in ranked:
+            if affect == primary:
+                continue
+            intensity = strengths[affect]
+            if intensity >= 0.14 and intensity >= strengths[primary] * 0.75:
+                secondary = affect
+            break
+
+    snapshot: dict[str, object] = deepcopy(validated)
+    snapshot["primary_emotion"] = primary
+    snapshot["secondary_emotion"] = secondary
+    snapshot["behavior_guidance"] = derive_behavior_guidance(validated, "ko")
+    return snapshot
+
+
+def derive_behavior_guidance(state: object, language: str) -> tuple[str, ...]:
+    """수치나 사건 원문을 노출하지 않는 최소 행동 지침을 파생합니다."""
+    validated = validate_state(state)
+    selected_language = (
+        language if isinstance(language, str) and language in {"ko", "en", "ja"} else "ko"
+    )
+    snapshot = _derive_emotion_pair(validated)
+
+    messages = {
+        "ko": {
+            "rupture": "열린 관계 균열이 강하므로 단정하지 말고 차분하게 확인합니다.",
+            "energy": "에너지가 낮으므로 짧고 부담이 적은 표현을 사용합니다.",
+            "relationship": "관계 온도가 낮으므로 친밀함을 전제하지 않고 존중하는 거리를 둡니다.",
+            "positive": "따뜻한 정서의 뉘앙스를 절제해 표현합니다.",
+            "negative": "불편한 정서의 뉘앙스를 차분하고 비난 없이 표현합니다.",
+            "safety": "안전 안내, 중지나 취소, 권한 철회, 위험 작업 확인은 mood보다 항상 우선합니다.",
+        },
+        "en": {
+            "rupture": "A strong open rupture calls for calm clarification without assumptions.",
+            "energy": "Low energy calls for brief, low-pressure phrasing.",
+            "relationship": "Low relational warmth calls for respectful distance without assumed intimacy.",
+            "positive": "Express the warm emotional nuance with restraint.",
+            "negative": "Express the uneasy emotional nuance calmly and without blame.",
+            "safety": "Safety guidance, stopping or cancellation, permission withdrawal, and hazardous-action confirmation always override mood.",
+        },
+        "ja": {
+            "rupture": "強い未解決の関係亀裂があるため、決めつけず落ち着いて確認します。",
+            "energy": "エネルギーが低いため、短く負担の少ない表現を使います。",
+            "relationship": "関係の温度が低いため、親密さを前提にせず敬意ある距離を保ちます。",
+            "positive": "温かい感情のニュアンスを控えめに表現します。",
+            "negative": "不快な感情のニュアンスを落ち着いて非難せず表現します。",
+            "safety": "安全案内、停止や取消、権限の撤回、危険作業の確認は常にmoodより優先します。",
+        },
+    }
+    text = messages[selected_language]
+    guidance: list[str] = []
+    strong_open_rupture = any(
+        rupture["repair_stage"] == "open"
+        and max(float(rupture["severity"]), float(rupture["heat"])) >= 0.5
+        for rupture in validated["ruptures"]
+    )
+    if strong_open_rupture:
+        guidance.append(text["rupture"])
+    if float(validated["background"]["energy"]) <= -0.35:
+        guidance.append(text["energy"])
+    warmth = (
+        float(validated["relationship"]["affection"])
+        + float(validated["relationship"]["trust"])
+    ) / 2.0
+    if warmth <= -0.35:
+        guidance.append(text["relationship"])
+    primary = snapshot[0]
+    if primary in {"joy", "tenderness", "amusement", "interest"}:
+        guidance.append(text["positive"])
+    elif primary is not None:
+        guidance.append(text["negative"])
+    guidance.append(text["safety"])
+    return tuple(guidance)
+
+
 def reduce_mood(
     previous_state: object,
     event: object,
@@ -318,6 +440,9 @@ def reduce_mood(
         raise ValueError("사건 적용 시각은 상태 갱신 시각보다 빠를 수 없습니다.")
 
     normalized_preset = normalize_preset(preset)
+    rule_ids: list[str] = []
+    if now_utc > _parse_utc_string(state["updated_at_utc"], "updated_at_utc"):
+        rule_ids.extend(_advance_time_in_place(state, now_utc, normalized_preset))
     impact = (
         INTENSITY_WEIGHT[normalized_event.intensity]
         * CLARITY_WEIGHT[normalized_event.clarity]
@@ -326,8 +451,6 @@ def reduce_mood(
     )
     repeat_count = _next_repeat_count(state, normalized_event, now_utc)
     relationship_impact = impact * RELATION_REPEAT_WEIGHT[repeat_count]
-    rule_ids: list[str] = []
-
     if impact != 0.0 and any(BACKGROUND_BASE[normalized_event.kind]):
         _apply_background(state, normalized_event.kind, impact)
         rule_ids.append("event.background")
@@ -359,6 +482,95 @@ def reduce_mood(
     state["recent_event_ids"] = [*state["recent_event_ids"], normalized_event.event_id][-64:]
     rule_ids.append("event.recorded")
     return MoodTransition(state=validate_state(state), applied=True, rule_ids=tuple(rule_ids))
+
+
+def _advance_time_in_place(state: dict[str, Any], now_utc: datetime, preset: str) -> list[str]:
+    previous_at = _parse_utc_string(state["updated_at_utc"], "updated_at_utc")
+    elapsed_seconds = (now_utc - previous_at).total_seconds()
+    normalized_preset = normalize_preset(preset)
+    rule_ids: list[str] = []
+
+    background_changed = False
+    for field, half_life in BACKGROUND_HALF_LIFE_SECONDS.items():
+        current = float(state["background"][field])
+        target = float(PRESET_BASELINES[normalized_preset][field])
+        decayed = target + (current - target) * 2 ** (-elapsed_seconds / half_life)
+        state["background"][field] = decayed
+        background_changed = background_changed or decayed != current
+    if background_changed:
+        rule_ids.append("time.background")
+
+    if state["active_affects"]:
+        surviving = []
+        for trace in state["active_affects"]:
+            decayed = float(trace["intensity"]) * 2 ** (
+                -elapsed_seconds / affect_half_life_seconds(trace["affect"])
+            )
+            if decayed < 0.01:
+                continue
+            trace["intensity"] = decayed
+            trace["updated_at_utc"] = format_utc(now_utc)
+            surviving.append(trace)
+        state["active_affects"] = surviving
+        rule_ids.append("time.affect")
+
+    rupture_changed = False
+    for rupture in state["ruptures"]:
+        current_heat = float(rupture["heat"])
+        if current_heat == 0.0:
+            continue
+        rupture["heat"] = current_heat * 2 ** (-elapsed_seconds / (6 * 3600))
+        rupture["updated_at_utc"] = format_utc(now_utc)
+        rupture_changed = True
+    if rupture_changed:
+        rule_ids.append("time.rupture")
+
+    spontaneous = state["spontaneous"]
+    anchor = previous_at
+    if spontaneous["last_at_utc"] is not None:
+        anchor = _parse_utc_string(spontaneous["last_at_utc"], "마지막 자발 변화 시각")
+    if (now_utc - anchor).total_seconds() >= SPONTANEOUS_COOLDOWN_SECONDS:
+        bucket = int(now_utc.timestamp()) // SPONTANEOUS_COOLDOWN_SECONDS
+        seed_revision = spontaneous["seed_revision"]
+        material = f"mood-v3|{normalized_preset}|{seed_revision}|{bucket}".encode("utf-8")
+        digest = hashlib.sha256(material).digest()
+        sample = int.from_bytes(digest[:8], "big") / 2**64
+        if sample > SPONTANEOUS_THRESHOLD:
+            for field, chunk in (("valence", digest[8:16]), ("energy", digest[16:24])):
+                unit = int.from_bytes(chunk, "big") / 2**64
+                impulse = unit * 0.03 - 0.015
+                state["background"][field] = _clamp(
+                    float(state["background"][field]) + impulse,
+                    -1.0,
+                    1.0,
+                )
+            spontaneous["seed_revision"] += 1
+            spontaneous["last_at_utc"] = format_utc(now_utc)
+            rule_ids.append("time.spontaneous")
+
+    for field in state["background"]:
+        state["background"][field] = _clamp(float(state["background"][field]), -1.0, 1.0)
+    state["preset"] = normalized_preset
+    state["updated_at_utc"] = format_utc(now_utc)
+    return rule_ids
+
+
+def _derive_emotion_pair(state: dict[str, Any]) -> tuple[str | None, str | None]:
+    strengths = {affect: 0.0 for affect in AFFECTS}
+    for trace in state["active_affects"]:
+        affect = trace["affect"]
+        strengths[affect] = max(strengths[affect], float(trace["intensity"]))
+    ranked = sorted(AFFECTS, key=lambda affect: (-strengths[affect], _AFFECT_ORDER[affect]))
+    primary = ranked[0] if strengths[ranked[0]] >= 0.16 else None
+    secondary = None
+    if primary is not None:
+        for affect in ranked:
+            if affect == primary:
+                continue
+            if strengths[affect] >= 0.14 and strengths[affect] >= strengths[primary] * 0.75:
+                secondary = affect
+            break
+    return primary, secondary
 
 
 def _extract_canonical_event_id(event: object) -> str | None:
