@@ -220,7 +220,6 @@ class AnthropicClient(_CommonMixin):
         generation_params = dict(context.generation_params)
         if (
             request_descriptor is not None
-            and request_descriptor.attempt.phase == "regenerate"
             and request_descriptor.attempt.expand_output_budget
         ):
             generation_params["max_tokens"] = self._expanded_output_token_budget(

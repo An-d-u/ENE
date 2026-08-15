@@ -103,6 +103,36 @@ SUMMARY_MIN_OUTPUT_TOKENS = 4096
 GEMINI_MAX_OUTPUT_TOKENS = 8192
 _GEMINI_RESPONSE_CAPABILITY_REGISTRY = ResponseCapabilityRegistry()
 
+
+def _mood_policy_callbacks(client, *, enabled: bool):
+    if not enabled:
+        return None, None
+    try:
+        mood_manager = getattr(client, "mood_manager", None)
+    except Exception:
+        mood_manager = None
+    try:
+        peek_snapshot = getattr(mood_manager, "peek_snapshot", None)
+    except Exception:
+        peek_snapshot = None
+    try:
+        preview_event = getattr(mood_manager, "preview_event", None)
+    except Exception:
+        preview_event = None
+
+    snapshot_provider = peek_snapshot if callable(peek_snapshot) else None
+    if not callable(preview_event):
+        return snapshot_provider, None
+    try:
+        preview_event_id = str(uuid4())
+    except Exception:
+        return snapshot_provider, None
+
+    def preview(analysis):
+        return preview_event(preview_event_id, analysis)
+
+    return snapshot_provider, preview
+
 _SAFE_GEMINI_ENUM_CATEGORIES = {
     "block_reason_unspecified",
     "blocked_reason_unspecified",
@@ -1056,19 +1086,10 @@ class GeminiClient:
         )
         history_snapshot = self._get_sdk_history(deep_copy=True)
         non_repair_attempts = 0
-        mood_snapshot_provider = None
-        mood_preview = None
-        if requirements.enable_mood_analysis:
-            mood_manager = getattr(self, "mood_manager", None)
-            peek_mood_snapshot = getattr(mood_manager, "peek_snapshot", None)
-            preview_mood_event = getattr(mood_manager, "preview_event", None)
-            if callable(peek_mood_snapshot) and callable(preview_mood_event):
-                preview_event_id = str(uuid4())
-                mood_snapshot_provider = peek_mood_snapshot
-                mood_preview = lambda analysis: preview_mood_event(
-                    preview_event_id,
-                    analysis,
-                )
+        mood_snapshot_provider, mood_preview = _mood_policy_callbacks(
+            self,
+            enabled=requirements.enable_mood_analysis,
+        )
 
         def requester(attempt: ResponseAttempt) -> ProviderResponse:
             nonlocal non_repair_attempts

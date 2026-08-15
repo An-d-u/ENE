@@ -103,6 +103,36 @@ LLM_RESPONSE_TUPLE = Tuple[str, str, str | None, List[Dict], Dict[str, str], Lis
 _CONTEXT_FINGERPRINT_KEY = secrets.token_bytes(32)
 
 
+def _mood_policy_callbacks(client, *, enabled: bool):
+    if not enabled:
+        return None, None
+    try:
+        mood_manager = getattr(client, "mood_manager", None)
+    except Exception:
+        mood_manager = None
+    try:
+        peek_snapshot = getattr(mood_manager, "peek_snapshot", None)
+    except Exception:
+        peek_snapshot = None
+    try:
+        preview_event = getattr(mood_manager, "preview_event", None)
+    except Exception:
+        preview_event = None
+
+    snapshot_provider = peek_snapshot if callable(peek_snapshot) else None
+    if not callable(preview_event):
+        return snapshot_provider, None
+    try:
+        preview_event_id = str(uuid4())
+    except Exception:
+        return snapshot_provider, None
+
+    def preview(analysis):
+        return preview_event(preview_event_id, analysis)
+
+    return snapshot_provider, preview
+
+
 def _fingerprint_payload(value) -> str:
     """원문을 남기지 않고 컨텍스트 동일성만 비교하기 위한 process-local HMAC을 만든다."""
     try:
@@ -1558,19 +1588,10 @@ class _CommonMixin:
             str(settings_snapshot.get("structured_response_mode", "auto") or "auto"),
             capability_key=capability_key,
         )
-        mood_snapshot_provider = None
-        mood_preview = None
-        if requirements.enable_mood_analysis:
-            mood_manager = getattr(self, "mood_manager", None)
-            peek_mood_snapshot = getattr(mood_manager, "peek_snapshot", None)
-            preview_mood_event = getattr(mood_manager, "preview_event", None)
-            if callable(peek_mood_snapshot) and callable(preview_mood_event):
-                preview_event_id = str(uuid4())
-                mood_snapshot_provider = peek_mood_snapshot
-                mood_preview = lambda analysis: preview_mood_event(
-                    preview_event_id,
-                    analysis,
-                )
+        mood_snapshot_provider, mood_preview = _mood_policy_callbacks(
+            self,
+            enabled=requirements.enable_mood_analysis,
+        )
 
         def request_attempt(attempt: ResponseAttempt) -> ProviderResponse:
             is_repair = attempt.phase == "repair"

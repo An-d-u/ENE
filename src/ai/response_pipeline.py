@@ -249,9 +249,18 @@ def execute_final_response(
                     policy_regeneration_used = True
                     phase = "policy_regenerate"
                     policy_error_code = decision.error_code
-                    expand_output_budget = False
                     continue
-                payload = decision.payload
+                decision_payload = decision.payload
+                if decision_payload[0] != payload[0]:
+                    synchronized_payload = list(decision_payload)
+                    synchronized_payload[2] = (
+                        decision_payload[0]
+                        if requirements.tts_language == requirements.response_language
+                        else None
+                    )
+                    payload = tuple(synchronized_payload)
+                else:
+                    payload = decision_payload
             return _repair_missing_response_fields(
                 requester,
                 payload=payload,
@@ -266,4 +275,6 @@ def execute_final_response(
         regeneration_used = True
         phase = "regenerate"
         policy_error_code = ""
-        expand_output_budget = _needs_expanded_output_budget(response)
+        expand_output_budget = (
+            expand_output_budget or _needs_expanded_output_budget(response)
+        )

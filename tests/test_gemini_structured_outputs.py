@@ -76,6 +76,46 @@ class _UntouchedMoodManager:
         raise AssertionError("비활성 기분 peek에 접근하면 안 됩니다.")
 
 
+class _FaultyCallbackMoodManager:
+    def __init__(self, *, fail_peek=False, fail_preview=False):
+        self.fail_peek = fail_peek
+        self.fail_preview = fail_preview
+        self.peek_calls = 0
+        self.preview_calls = 0
+
+    @property
+    def peek_snapshot(self):
+        if self.fail_peek:
+            raise RuntimeError("synthetic peek property failure")
+
+        def peek():
+            self.peek_calls += 1
+            return {
+                "background": {"energy": 0.0},
+                "ruptures": [
+                    {"repair_stage": "open", "severity": 0.7, "heat": 0.2}
+                ],
+            }
+
+        return peek
+
+    @property
+    def preview_event(self):
+        if self.fail_preview:
+            raise RuntimeError("synthetic preview property failure")
+
+        def preview(_event_id, _analysis):
+            self.preview_calls += 1
+            return {
+                "background": {"energy": 0.0},
+                "ruptures": [
+                    {"repair_stage": "open", "severity": 0.7, "heat": 0.2}
+                ],
+            }
+
+        return preview
+
+
 def test_gemini_final_reply_config_uses_json_schema_and_json_mime_type(
     gemini_harness,
 ):
@@ -233,6 +273,104 @@ def test_gemini_preview_failure_falls_back_to_one_peek(gemini_harness):
     assert result[10]["proposed_stance"] == "boundary"
     assert len(manager.preview_calls) == 1
     assert manager.peek_calls == 1
+
+
+@pytest.mark.parametrize(
+    ("fail_peek", "fail_preview", "fail_uuid", "stance", "expected_calls"),
+    [
+        (True, False, False, "boundary", (0, 1)),
+        (False, True, False, "boundary", (1, 0)),
+        (False, False, True, "boundary", (1, 0)),
+        (True, True, False, "cooperative", (0, 0)),
+    ],
+)
+def test_gemini_callback_setup_failures_are_independent_and_neutral(
+    gemini_harness,
+    monkeypatch,
+    fail_peek,
+    fail_preview,
+    fail_uuid,
+    stance,
+    expected_calls,
+):
+    client = gemini_harness.client(
+        [valid_envelope_json(mood_analysis=_policy_mood_analysis(stance=stance))],
+        settings={
+            "enable_response_analysis": True,
+            "enable_mood_system": True,
+        },
+    )
+    manager = _FaultyCallbackMoodManager(
+        fail_peek=fail_peek,
+        fail_preview=fail_preview,
+    )
+    client.mood_manager = manager
+    if fail_uuid:
+        monkeypatch.setattr(
+            "src.ai.llm_client.uuid4",
+            lambda: (_ for _ in ()).throw(RuntimeError("synthetic uuid failure")),
+        )
+
+    result = client.send_message("Synthetic callback isolation request.")
+
+    assert result[10]["proposed_stance"] == stance
+    assert (manager.peek_calls, manager.preview_calls) == expected_calls
+
+
+def test_gemini_manager_attribute_failure_uses_neutral_policy(gemini_harness, monkeypatch):
+    client = gemini_harness.client(
+        [valid_envelope_json(mood_analysis=_policy_mood_analysis())],
+        settings={
+            "enable_response_analysis": True,
+            "enable_mood_system": True,
+        },
+    )
+    del client.mood_manager
+    monkeypatch.setattr(
+        type(client),
+        "mood_manager",
+        property(
+            lambda _self: (_ for _ in ()).throw(
+                RuntimeError("synthetic manager property failure")
+            )
+        ),
+        raising=False,
+    )
+
+    result = client.send_message("Synthetic manager isolation request.")
+
+    assert result[10]["proposed_stance"] == "cooperative"
+
+
+def test_gemini_policy_regeneration_keeps_expanded_request_budget(gemini_harness):
+    incomplete = gemini_harness.response(
+        '{"reply":',
+        finish_reason="MAX_TOKENS",
+    )
+    client = gemini_harness.client(
+        [
+            incomplete,
+            valid_envelope_json(
+                mood_analysis=_policy_mood_analysis(stance="distance")
+            ),
+            valid_envelope_json(
+                mood_analysis=_policy_mood_analysis(stance="cooperative")
+            ),
+        ],
+        settings={
+            "enable_response_analysis": True,
+            "enable_mood_system": True,
+        },
+        max_tokens=256,
+    )
+
+    client.send_message("Synthetic expanded Gemini policy request.")
+
+    assert gemini_harness.sdk.send_message_configs[0] is None
+    assert [
+        config["max_output_tokens"]
+        for config in gemini_harness.sdk.send_message_configs[1:]
+    ] == [768, 768]
 
 
 def test_gemini_success_history_stores_visible_reply_not_raw_envelope(

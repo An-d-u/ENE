@@ -89,6 +89,46 @@ class _UntouchedMoodManager:
         raise AssertionError("비활성 기분 peek에 접근하면 안 됩니다.")
 
 
+class _FaultyCallbackMoodManager:
+    def __init__(self, *, fail_peek=False, fail_preview=False):
+        self.fail_peek = fail_peek
+        self.fail_preview = fail_preview
+        self.peek_calls = 0
+        self.preview_calls = 0
+
+    @property
+    def peek_snapshot(self):
+        if self.fail_peek:
+            raise RuntimeError("synthetic peek property failure")
+
+        def peek():
+            self.peek_calls += 1
+            return {
+                "background": {"energy": 0.0},
+                "ruptures": [
+                    {"repair_stage": "open", "severity": 0.7, "heat": 0.2}
+                ],
+            }
+
+        return peek
+
+    @property
+    def preview_event(self):
+        if self.fail_preview:
+            raise RuntimeError("synthetic preview property failure")
+
+        def preview(_event_id, _analysis):
+            self.preview_calls += 1
+            return {
+                "background": {"energy": 0.0},
+                "ruptures": [
+                    {"repair_stage": "open", "severity": 0.7, "heat": 0.2}
+                ],
+            }
+
+        return preview
+
+
 def _openai_output_text_body(carrier: str, *, status: str = "completed") -> dict:
     return {
         "id": "resp_synthetic",
@@ -268,6 +308,92 @@ def test_http_preview_failure_falls_back_to_one_peek(monkeypatch):
     assert payload[10]["proposed_stance"] == "boundary"
     assert len(manager.preview_calls) == 1
     assert manager.peek_calls == 1
+
+
+@pytest.mark.parametrize(
+    ("fail_peek", "fail_preview", "fail_uuid", "stance", "expected_calls"),
+    [
+        (True, False, False, "boundary", (0, 1)),
+        (False, True, False, "boundary", (1, 0)),
+        (False, False, True, "boundary", (1, 0)),
+        (True, True, False, "cooperative", (0, 0)),
+    ],
+)
+def test_http_callback_setup_failures_are_independent_and_neutral(
+    monkeypatch,
+    fail_peek,
+    fail_preview,
+    fail_uuid,
+    stance,
+    expected_calls,
+):
+    _install_http_sequence(
+        monkeypatch,
+        [
+            DummyHTTPResponse(
+                _openai_output_text_body(
+                    valid_envelope_json(
+                        mood_analysis=_policy_mood_analysis(stance=stance)
+                    )
+                )
+            )
+        ],
+    )
+    manager = _FaultyCallbackMoodManager(
+        fail_peek=fail_peek,
+        fail_preview=fail_preview,
+    )
+    client = _client(
+        settings=structured_settings(
+            enable_response_analysis=True,
+            enable_mood_system=True,
+        ),
+        mood_manager=manager,
+    )
+    if fail_uuid:
+        monkeypatch.setattr(
+            "src.ai.http_llm_common.uuid4",
+            lambda: (_ for _ in ()).throw(RuntimeError("synthetic uuid failure")),
+        )
+
+    payload = client.send_message("Synthetic callback isolation request.")
+
+    assert payload[10]["proposed_stance"] == stance
+    assert (manager.peek_calls, manager.preview_calls) == expected_calls
+
+
+def test_http_manager_attribute_failure_uses_neutral_policy(monkeypatch):
+    _install_http_sequence(
+        monkeypatch,
+        [
+            DummyHTTPResponse(
+                _openai_output_text_body(
+                    valid_envelope_json(mood_analysis=_policy_mood_analysis())
+                )
+            )
+        ],
+    )
+    client = _client(
+        settings=structured_settings(
+            enable_response_analysis=True,
+            enable_mood_system=True,
+        )
+    )
+    del client.mood_manager
+    monkeypatch.setattr(
+        type(client),
+        "mood_manager",
+        property(
+            lambda _self: (_ for _ in ()).throw(
+                RuntimeError("synthetic manager property failure")
+            )
+        ),
+        raising=False,
+    )
+
+    payload = client.send_message("Synthetic manager isolation request.")
+
+    assert payload[10]["proposed_stance"] == "cooperative"
 
 
 
@@ -2133,6 +2259,132 @@ def test_ollama_unknown_done_reason_regenerates_without_budget_expansion(
         1024,
         1024,
     ]
+
+
+def test_openai_policy_regeneration_keeps_expanded_wire_budget(monkeypatch):
+    incomplete = _openai_output_text_body('{"reply":')
+    incomplete["output"][0]["status"] = "incomplete"
+    incomplete["output"][0]["incomplete_details"] = {
+        "reason": "max_output_tokens"
+    }
+    captured = _install_http_sequence(
+        monkeypatch,
+        [
+            DummyHTTPResponse(incomplete),
+            DummyHTTPResponse(
+                _openai_output_text_body(
+                    valid_envelope_json(
+                        mood_analysis=_policy_mood_analysis(stance="distance")
+                    )
+                )
+            ),
+            DummyHTTPResponse(
+                _openai_output_text_body(
+                    valid_envelope_json(
+                        mood_analysis=_policy_mood_analysis(stance="cooperative")
+                    )
+                )
+            ),
+        ],
+    )
+    client = _client(
+        generation_params={"max_tokens": 256},
+        settings=structured_settings(
+            enable_response_analysis=True,
+            enable_mood_system=True,
+        ),
+    )
+    monkeypatch.setattr(client, "_response_output_token_cap", lambda: 1536)
+
+    client.send_message("Synthetic expanded policy request.")
+
+    assert [request["json"]["max_output_tokens"] for request in captured] == [
+        256,
+        768,
+        768,
+    ]
+
+
+def test_anthropic_policy_regeneration_keeps_expanded_wire_budget(monkeypatch):
+    captured = _install_adapter_sequence(
+        monkeypatch,
+        "src.ai.http_llm_anthropic.requests.post",
+        [
+            DummyHTTPResponse(
+                _anthropic_body('{"reply":', stop_reason="max_tokens")
+            ),
+            DummyHTTPResponse(
+                _anthropic_body(
+                    valid_envelope_json(
+                        mood_analysis=_policy_mood_analysis(stance="distance")
+                    )
+                )
+            ),
+            DummyHTTPResponse(
+                _anthropic_body(
+                    valid_envelope_json(
+                        mood_analysis=_policy_mood_analysis(stance="cooperative")
+                    )
+                )
+            ),
+        ],
+    )
+    client = _anthropic_structured_client(
+        generation_params={"max_tokens": 256},
+        settings=structured_settings(
+            enable_response_analysis=True,
+            enable_mood_system=True,
+        ),
+    )
+    monkeypatch.setattr(client, "_response_output_token_cap", lambda: 1536)
+
+    client.send_message("Synthetic expanded Anthropic policy request.")
+
+    assert [request["json"]["max_tokens"] for request in captured] == [
+        256,
+        768,
+        768,
+    ]
+
+
+def test_ollama_policy_regeneration_keeps_expanded_wire_budget(monkeypatch):
+    captured = _install_adapter_sequence(
+        monkeypatch,
+        "src.ai.http_llm_ollama.requests.post",
+        [
+            DummyHTTPResponse(
+                _ollama_body('{"reply":', done=True, done_reason="length")
+            ),
+            DummyHTTPResponse(
+                _ollama_body(
+                    valid_envelope_json(
+                        mood_analysis=_policy_mood_analysis(stance="distance")
+                    )
+                )
+            ),
+            DummyHTTPResponse(
+                _ollama_body(
+                    valid_envelope_json(
+                        mood_analysis=_policy_mood_analysis(stance="cooperative")
+                    )
+                )
+            ),
+        ],
+    )
+    client = _ollama_structured_client(
+        generation_params={"max_tokens": 256},
+        settings=structured_settings(
+            enable_response_analysis=True,
+            enable_mood_system=True,
+        ),
+    )
+    monkeypatch.setattr(client, "_response_output_token_cap", lambda: 1536)
+
+    client.send_message("Synthetic expanded Ollama policy request.")
+
+    assert [
+        request["json"]["options"]["num_predict"] for request in captured
+    ] == [256, 768, 768]
 
 
 def test_ollama_unknown_done_reason_during_repair_is_not_merged(monkeypatch):
