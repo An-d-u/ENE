@@ -1,5 +1,6 @@
 # ruff: noqa: E402
 import asyncio
+from collections.abc import Mapping
 from copy import deepcopy
 from datetime import datetime
 import sys
@@ -304,6 +305,33 @@ class _SnapshotMoodManager:
         return "event_id=synthetic-private-id timestamp=2099-01-01T00:00:00+00:00 severity=0.9"
 
 
+class _HostileMoodMapping(Mapping):
+    def __init__(self, message):
+        self.message = message
+
+    def __getitem__(self, key):
+        raise RuntimeError(self.message)
+
+    def __iter__(self):
+        return iter(())
+
+    def __len__(self):
+        return 0
+
+    def get(self, key, default=None):
+        raise RuntimeError(self.message)
+
+
+def _client_with_mood_snapshot(snapshot):
+    dummy = type("ClientDummy", (), {})()
+    dummy.memory_manager = None
+    dummy.mood_manager = _SnapshotMoodManager(snapshot)
+    dummy.goal_manager = None
+    dummy.knowledge_map_manager = None
+    dummy.settings = type("SettingsDummy", (), {"config": {"ui_language": "ko"}})()
+    return dummy
+
+
 def test_build_memory_context_uses_minimal_mood_direction_without_persistent_details():
     snapshot = {
         "background": {"valence": -0.45, "activity": -0.4, "tension": 0.55},
@@ -448,6 +476,48 @@ def test_build_memory_context_skips_mood_snapshot_when_mood_system_is_disabled()
     assert "[ENE 기분 방향]" not in context
     assert mood_manager.peek_snapshot_calls == 0
     assert mood_manager.get_snapshot_calls == 0
+
+
+def test_build_memory_context_omits_mood_block_when_top_mapping_get_raises(capsys):
+    dummy = _client_with_mood_snapshot(
+        _HostileMoodMapping("synthetic private top mapping detail")
+    )
+
+    context = asyncio.run(GeminiClient._build_memory_context(dummy, "합성 질문"))
+
+    captured = capsys.readouterr()
+    assert context == ""
+    assert "exception_class=RuntimeError" in captured.out
+    assert "synthetic private top mapping detail" not in captured.out + captured.err
+
+
+def test_build_memory_context_omits_mood_block_when_nested_mapping_get_raises(capsys):
+    dummy = _client_with_mood_snapshot(
+        {
+            "background": _HostileMoodMapping(
+                "synthetic private nested mapping detail"
+            )
+        }
+    )
+
+    context = asyncio.run(GeminiClient._build_memory_context(dummy, "합성 질문"))
+
+    captured = capsys.readouterr()
+    assert context == ""
+    assert "exception_class=RuntimeError" in captured.out
+    assert "synthetic private nested mapping detail" not in captured.out + captured.err
+
+
+def test_build_memory_context_omits_mood_block_for_huge_integer(capsys):
+    dummy = _client_with_mood_snapshot(
+        {"background": {"valence": 10**10000}, "relationship": {}, "ruptures": []}
+    )
+
+    context = asyncio.run(GeminiClient._build_memory_context(dummy, "합성 질문"))
+
+    captured = capsys.readouterr()
+    assert context == ""
+    assert "exception_class=OverflowError" in captured.out
 
 
 class _DummyGoalManager:
