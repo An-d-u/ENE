@@ -10,6 +10,7 @@ import pytest
 
 from src.ai import mood_engine
 from src.ai.mood_manager import MoodManager
+from src.core import app_paths
 
 
 NOW = datetime(2026, 8, 15, 3, 0, tzinfo=timezone.utc)
@@ -98,7 +99,10 @@ def test_apply_event_save_failure_rolls_back_state_and_file(tmp_path, monkeypatc
     manager.advance_time_and_save()
     before_state = deepcopy(manager.state)
     before_bytes = state_file.read_bytes()
-    monkeypatch.setattr(manager, "_atomic_write_bytes", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("disk")))
+    monkeypatch.setattr(
+        "src.ai.mood_manager.app_paths.save_json_data",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("disk")),
+    )
 
     snapshot = manager.apply_event(str(uuid.uuid4()), _event())
 
@@ -139,6 +143,23 @@ def test_deprecated_paths_are_complete_noops(tmp_path):
     assert manager.on_assistant_emotion("joy") == before_snapshot
     assert manager.state == before_state
     assert state_file.read_bytes() == before_bytes
+
+
+def test_head_pat_applies_valid_connection_without_raw_text(tmp_path):
+    state_file = tmp_path / "mood_state.json"
+    manager = _manager(state_file)
+    before = manager.get_snapshot()
+
+    snapshot = manager.on_head_pat()
+
+    assert snapshot["revision"] == before["revision"] + 1
+    assert snapshot["relationship"]["affection"] > before["relationship"]["affection"]
+    assert any(item["affect"] == "tenderness" for item in snapshot["active_affects"])
+    assert len(manager.state["recent_event_ids"]) == 1
+    assert uuid.UUID(manager.state["recent_event_ids"][0]).version == 4
+    saved = state_file.read_text(encoding="utf-8")
+    assert "head_pat" not in saved
+    assert "쓰다듬" not in saved
 
 
 def test_analysis_wrapper_forces_host_identity_and_ignores_freeform_hints(tmp_path):
@@ -191,33 +212,21 @@ def test_context_blocks_hide_raw_state_details_in_all_languages(tmp_path):
 def test_state_read_failure_locks_without_attempting_save(tmp_path, monkeypatch):
     state_file = tmp_path / "mood_state.json"
     state_file.write_bytes(b"original")
-    original_read = Path.read_bytes
-
-    def fail_target_read(path):
-        if path == state_file:
-            raise OSError("read denied")
-        return original_read(path)
-
-    monkeypatch.setattr(Path, "read_bytes", fail_target_read)
+    monkeypatch.setattr(
+        "src.ai.mood_manager.app_paths.read_bytes_data",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("read denied")),
+    )
     manager = _manager(state_file)
 
     assert manager.get_load_status() == {"error_code": "state_read_failed", "write_locked": True}
 
 
-def test_state_existence_io_failure_is_reported_as_read_failure(tmp_path, monkeypatch):
+def test_missing_authoritative_state_starts_unlocked(tmp_path):
     state_file = tmp_path / "mood_state.json"
-    original_exists = Path.exists
-
-    def fail_target_exists(path):
-        if path == state_file:
-            raise OSError("metadata denied")
-        return original_exists(path)
-
-    monkeypatch.setattr(Path, "exists", fail_target_exists)
 
     manager = _manager(state_file)
 
-    assert manager.get_load_status() == {"error_code": "state_read_failed", "write_locked": True}
+    assert manager.get_load_status() == {"error_code": None, "write_locked": False}
 
 
 def test_migration_exception_locks_and_preserves_original(tmp_path, monkeypatch):
@@ -242,14 +251,14 @@ def test_backup_failure_prevents_migration_replace(tmp_path, monkeypatch):
     }, "updated_at": "2026-08-15T03:00:00+00:00"}
     original = json.dumps(payload).encode()
     state_file.write_bytes(original)
-    original_write = MoodManager._atomic_write_bytes
+    original_write = app_paths.write_bytes_data_atomic
 
-    def fail_backup(self, destination, payload_bytes):
+    def fail_backup(destination, payload_bytes, **kwargs):
         if destination.name.endswith(".v2.bak"):
             raise OSError("backup denied")
-        return original_write(self, destination, payload_bytes)
+        return original_write(destination, payload_bytes, **kwargs)
 
-    monkeypatch.setattr(MoodManager, "_atomic_write_bytes", fail_backup)
+    monkeypatch.setattr(app_paths, "write_bytes_data_atomic", fail_backup)
     manager = _manager(state_file)
 
     assert manager.get_load_status() == {"error_code": "migration_failed", "write_locked": True}
@@ -277,14 +286,10 @@ def test_reset_failure_keeps_lock_state_and_original(tmp_path, monkeypatch):
     state_file.write_bytes(original)
     manager = _manager(state_file)
     before = deepcopy(manager.state)
-    original_write = manager._atomic_write_bytes
-
-    def fail_fresh(destination, payload):
-        if destination == state_file:
-            raise OSError("save denied")
-        return original_write(destination, payload)
-
-    monkeypatch.setattr(manager, "_atomic_write_bytes", fail_fresh)
+    monkeypatch.setattr(
+        "src.ai.mood_manager.app_paths.save_json_data",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("save denied")),
+    )
     manager.reset_state()
 
     assert manager.state == before

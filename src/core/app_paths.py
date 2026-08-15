@@ -446,6 +446,42 @@ def save_json_data_atomic(path: Path, data: object) -> None:
     _write_file_bytes_atomic(path, payload)
 
 
+def read_bytes_data(
+    path_like: str | Path,
+    *,
+    user_root: Path | None = None,
+) -> bytes:
+    """Store Python의 authoritative visible 원본 bytes를 읽고 runtime에 미러링한다."""
+    target = _normalize_path(path_like)
+    visible_path = _get_visible_store_python_path(target, user_root=user_root)
+    if visible_path is not None:
+        payload = _read_file_bytes_via_powershell(visible_path)
+        if payload is None:
+            raise FileNotFoundError(2, "Authoritative JSON file does not exist", str(visible_path))
+        try:
+            _write_file_bytes_atomic_python(target, payload)
+        except Exception:
+            pass
+        return payload
+
+    _cleanup_orphaned_atomic_temp_files(target)
+    return target.read_bytes()
+
+
+def write_bytes_data_atomic(
+    path_like: str | Path,
+    payload: bytes | bytearray | memoryview,
+    *,
+    user_root: Path | None = None,
+) -> Path:
+    """bytes-like payload를 Store-aware authoritative 경계에 원자 저장한다."""
+    if not isinstance(payload, (bytes, bytearray, memoryview)):
+        raise TypeError("payload는 bytes-like 타입이어야 합니다.")
+    target = _normalize_path(path_like)
+    _write_file_bytes_atomic(target, bytes(payload), user_root=user_root)
+    return target
+
+
 def sync_visible_store_python_file_to_runtime(
     path_like: str | Path,
     *,

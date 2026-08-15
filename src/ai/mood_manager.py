@@ -6,12 +6,11 @@ from copy import deepcopy
 from datetime import datetime, timezone, tzinfo
 import json
 import math
-import os
 from pathlib import Path
 from typing import Any
 import uuid
 
-from ..core.app_paths import resolve_user_storage_path
+from ..core import app_paths
 from . import mood_engine
 from .prompt_language import resolve_prompt_language
 
@@ -46,7 +45,7 @@ class MoodManager:
         local_timezone: tzinfo | None = None,
     ):
         target_file = state_file if state_file is not None else "mood_state.json"
-        self.state_path = resolve_user_storage_path(target_file)
+        self.state_path = app_paths.resolve_user_storage_path(target_file)
         self.settings = settings
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._local_timezone = local_timezone or datetime.now().astimezone().tzinfo or timezone.utc
@@ -92,14 +91,9 @@ class MoodManager:
     def _load_state(self) -> dict[str, Any]:
         fallback = self._fresh_state()
         try:
-            exists = self.state_path.exists()
-        except OSError:
-            self._lock("state_read_failed")
+            original = app_paths.read_bytes_data(self.state_path)
+        except FileNotFoundError:
             return fallback
-        if not exists:
-            return fallback
-        try:
-            original = self.state_path.read_bytes()
         except OSError:
             self._lock("state_read_failed")
             return fallback
@@ -137,13 +131,21 @@ class MoodManager:
             return fallback
         backup_path = self.state_path.with_name(f"{self.state_path.name}.v2.bak")
         try:
-            if not backup_path.exists():
-                self._atomic_write_bytes(backup_path, original)
+            if not self._authoritative_exists(backup_path):
+                app_paths.write_bytes_data_atomic(backup_path, original)
             self._write_state(migrated)
         except Exception:
             self._lock("migration_failed")
             return fallback
         return migrated
+
+    @staticmethod
+    def _authoritative_exists(path: Path) -> bool:
+        try:
+            app_paths.read_bytes_data(path)
+        except FileNotFoundError:
+            return False
+        return True
 
     def _validate_v2(self, raw: Mapping[str, Any]) -> dict[str, Any]:
         axes = raw.get("axes")
@@ -186,28 +188,16 @@ class MoodManager:
         state["relationship"] = {"affection": axes["bond"], "trust": 0.0}
         return state
 
-    def _serialize_state(self, state: Mapping[str, Any]) -> bytes:
-        validated = mood_engine.validate_state(state)
-        text = json.dumps(validated, ensure_ascii=False, indent=2)
-        return (text + "\n").encode("utf-8")
-
-    def _atomic_write_bytes(self, destination: Path, payload: bytes) -> None:
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = destination.with_name(f"{destination.name}.{uuid.uuid4().hex}.tmp")
-        try:
-            with temp_path.open("xb") as handle:
-                handle.write(payload)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temp_path, destination)
-        finally:
-            try:
-                temp_path.unlink(missing_ok=True)
-            except OSError:
-                pass
-
     def _write_state(self, candidate: Mapping[str, Any]) -> None:
-        self._atomic_write_bytes(self.state_path, self._serialize_state(candidate))
+        validated = mood_engine.validate_state(candidate)
+        app_paths.save_json_data(
+            self.state_path,
+            validated,
+            encoding="utf-8",
+            indent=2,
+            ensure_ascii=False,
+            trailing_newline=True,
+        )
 
     def _coerce_occurred_at(self, value: datetime | str | None) -> datetime:
         if value is None:
@@ -405,15 +395,18 @@ class MoodManager:
         previous_error = self._error_code
         previous_lock = self._write_locked
         try:
-            if self.state_path.exists():
-                original = self.state_path.read_bytes()
+            try:
+                original = app_paths.read_bytes_data(self.state_path)
+            except FileNotFoundError:
+                original = None
+            if original is not None:
                 stamp = occurred_at.strftime("%Y%m%dT%H%M%S%fZ")
                 recovery = self.state_path.with_name(f"{self.state_path.name}.recovery.{stamp}.bak")
-                if recovery.exists():
+                if self._authoritative_exists(recovery):
                     recovery = self.state_path.with_name(
                         f"{self.state_path.name}.recovery.{stamp}.{uuid.uuid4().hex}.bak"
                     )
-                self._atomic_write_bytes(recovery, original)
+                app_paths.write_bytes_data_atomic(recovery, original)
             self._write_state(candidate)
         except Exception:
             self.state = previous_state
@@ -448,7 +441,7 @@ class MoodManager:
                 "target_scope": "relationship",
                 "relation_category": "none",
                 "intensity": 1,
-                "clarity": "clear",
+                "clarity": "explicit",
                 "certainty": "high",
                 "controllability": "high",
                 "repair_signal": "none",
