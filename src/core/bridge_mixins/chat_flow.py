@@ -2,9 +2,10 @@
 WebBridge의 일반 채팅 요청, 재시도, 응답 완료 흐름.
 """
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import partial
 from typing import Mapping
+from uuid import uuid4
 
 from PyQt6.QtCore import pyqtSlot
 
@@ -16,6 +17,20 @@ from ...ai.response_protocol import (
     RESPONSE_ENVELOPE_SCHEMA_VERSION,
     ResponseDeliveryMetadata,
     ResponseMode,
+)
+from ...ai.response_envelope import (
+    MOOD_EVENT_FIELDS,
+    PROPOSED_STANCES,
+    RISK_CLASSES,
+)
+from ...ai.mood_engine import (
+    CERTAINTIES,
+    CLARITIES,
+    CONTROLLABILITIES,
+    EVENT_KINDS,
+    RELATION_CATEGORIES,
+    REPAIR_SIGNALS,
+    TARGET_SCOPES,
 )
 from ..bridge_workers import AIWorker
 from .life_records import LifeRecordBridgeMixin, PreparedChatRequest
@@ -81,6 +96,127 @@ def _log_callback_exception(event: str, exc: BaseException) -> None:
 
 
 class ChatFlowBridgeMixin:
+    @staticmethod
+    def _new_mood_event_context() -> dict[str, str]:
+        """일반 사용자 턴이 소유하는 사건 식별자와 UTC 발생 시각을 만든다."""
+        try:
+            return {
+                "event_id": str(uuid4()),
+                "occurred_at_utc": datetime.now(timezone.utc)
+                .replace(microsecond=0)
+                .isoformat(),
+            }
+        except Exception as exc:
+            print(
+                "[Bridge] mood_event_context_failed category=local_error "
+                f"exception_class={type(exc).__name__}"
+            )
+            return {}
+
+    @staticmethod
+    def _strict_mood_analysis(payload: str) -> dict[str, object] | None:
+        """브리지 적용 경계에서 기분 분석 객체를 닫힌 스키마로 검증한다."""
+        try:
+            parsed = json.loads(payload)
+        except Exception:
+            return None
+        if type(parsed) is not dict or set(parsed) != {
+            "event",
+            "risk_class",
+            "proposed_stance",
+        }:
+            return None
+        event = parsed.get("event")
+        if type(event) is not dict or set(event) != set(MOOD_EVENT_FIELDS):
+            return None
+        if event.get("kind") not in EVENT_KINDS:
+            return None
+        if event.get("target_scope") not in TARGET_SCOPES:
+            return None
+        if event.get("relation_category") not in RELATION_CATEGORIES:
+            return None
+        intensity = event.get("intensity")
+        if type(intensity) is not int or intensity not in {0, 1, 2, 3}:
+            return None
+        if event.get("clarity") not in CLARITIES:
+            return None
+        if event.get("certainty") not in CERTAINTIES:
+            return None
+        if event.get("controllability") not in CONTROLLABILITIES:
+            return None
+        if event.get("repair_signal") not in REPAIR_SIGNALS:
+            return None
+        if parsed.get("risk_class") not in RISK_CLASSES:
+            return None
+        if parsed.get("proposed_stance") not in PROPOSED_STANCES:
+            return None
+        return parsed
+
+    def _finalize_owned_mood_event(
+        self,
+        mood_analysis_payload: str,
+        *,
+        expected_mood_event_id: str = "",
+        expected_mood_occurred_at: str = "",
+    ) -> None:
+        """현재 일반 채팅 payload가 소유한 기분 사건을 정확히 한 번 마감한다."""
+        event_id = str(expected_mood_event_id or "").strip()
+        occurred_at = str(expected_mood_occurred_at or "").strip()
+        payload = getattr(self, "_last_request_payload", None)
+        if (
+            not event_id
+            or not occurred_at
+            or type(payload) is not dict
+            or payload.get("type") not in {"text", "images", "attachments"}
+            or str(payload.get("mood_event_id", "")).strip() != event_id
+            or str(payload.get("mood_occurred_at", "")).strip() != occurred_at
+            or payload.get("mood_finalized") is True
+        ):
+            return
+
+        # manager 실패 뒤 리롤/중복 callback이 같은 사건을 다시 적용하지 않도록 먼저 소비한다.
+        payload["mood_finalized"] = True
+        manager = getattr(self, "mood_manager", None)
+        settings = getattr(self, "settings", None)
+        getter = getattr(settings, "get", None)
+        mood_enabled = getter("enable_mood_system", True) is True if callable(getter) else True
+        analysis_enabled = (
+            getter("enable_response_analysis", True) is True if callable(getter) else True
+        )
+        if manager is None or not mood_enabled:
+            return
+
+        snapshot = None
+        try:
+            if not analysis_enabled:
+                advance = getattr(manager, "advance_time_and_save", None)
+                if callable(advance):
+                    snapshot = advance(occurred_at)
+            else:
+                analysis = ChatFlowBridgeMixin._strict_mood_analysis(
+                    mood_analysis_payload
+                )
+                if analysis is None:
+                    return
+                apply_event = getattr(manager, "apply_event", None)
+                if callable(apply_event):
+                    snapshot = apply_event(event_id, analysis, occurred_at)
+        except Exception as exc:
+            print(
+                "[Bridge] mood_finalize_failed category=local_error "
+                f"exception_class={type(exc).__name__}"
+            )
+            return
+        emit = getattr(self, "_emit_mood_changed", None)
+        if snapshot is not None and callable(emit):
+            try:
+                emit(snapshot)
+            except Exception as exc:
+                print(
+                    "[Bridge] mood_emit_failed category=local_error "
+                    f"exception_class={type(exc).__name__}"
+                )
+
     def _emit_request_pending_stage_changed(self, stage: str):
         normalized = str(stage or "").strip().lower()
         if normalized not in {
@@ -228,6 +364,8 @@ class ChatFlowBridgeMixin:
         prior_token_usage: Mapping[str, object] | None = None,
         *,
         emit_pending_state: bool = True,
+        mood_event_id: str = "",
+        mood_occurred_at: str = "",
     ):
         """현재 요청 페이로드로 AI 워커를 시작한다."""
         if self.worker and self.worker.isRunning():
@@ -261,12 +399,18 @@ class ChatFlowBridgeMixin:
                     else getattr(getattr(self, "life_record_state", None), "prior_token_usage", None)
                 ),
                 progress_callback=self._emit_request_pending_stage_changed,
+                mood_event_context={
+                    "event_id": mood_event_id,
+                    "occurred_at_utc": mood_occurred_at,
+                },
             )
             self.worker.response_ready.connect(
                 partial(
                     self._on_response_ready,
                     response_worker=self.worker,
                     operation_id=operation_id,
+                    expected_mood_event_id=mood_event_id,
+                    expected_mood_occurred_at=mood_occurred_at,
                 )
             )
             self.worker.error_occurred.connect(
@@ -443,9 +587,6 @@ class ChatFlowBridgeMixin:
         if callable(cancel_proactive):
             cancel_proactive()
         self._mark_user_activity()
-        if self.mood_manager:
-            snapshot = self.mood_manager.on_user_message(message, image_count=0)
-            self._emit_mood_changed(snapshot)
 
         if not diary_body:
             self.message_received.emit("`/diary` 뒤에 작성할 내용을 함께 입력해 주세요.", "confused", "")
@@ -472,9 +613,6 @@ class ChatFlowBridgeMixin:
         if callable(cancel_proactive):
             cancel_proactive()
         self._mark_user_activity()
-        if self.mood_manager:
-            snapshot = self.mood_manager.on_user_message(message, image_count=0)
-            self._emit_mood_changed(snapshot)
 
         if not note_body:
             self.message_received.emit("`/note` 뒤에 실행할 내용을 함께 입력해 주세요.", "confused", "")
@@ -699,9 +837,9 @@ class ChatFlowBridgeMixin:
         print(f"[Bridge] prompt_built prompt_chars={_safe_text_length(message_with_time)}")
 
         self._append_conversation("user", request.message, timestamp)
-        if self.mood_manager:
-            snapshot = self.mood_manager.on_user_message(request.message, image_count=0)
-            self._emit_mood_changed(snapshot)
+        mood_context = ChatFlowBridgeMixin._new_mood_event_context()
+        mood_event_id = str(mood_context.get("event_id", ""))
+        mood_occurred_at = str(mood_context.get("occurred_at_utc", ""))
 
         self._last_request_payload = {
             "type": "text",
@@ -714,6 +852,9 @@ class ChatFlowBridgeMixin:
             "recent_memory_context": memory_search_inputs["recent_context_text"],
             "head_pat_count_before_message": committed_head_pat_count,
             "include_life_record_context": True,
+            "mood_event_id": mood_event_id,
+            "mood_occurred_at": mood_occurred_at,
+            "mood_finalized": False,
         }
         self._is_rerolling = False
 
@@ -727,6 +868,8 @@ class ChatFlowBridgeMixin:
                 getattr(getattr(self, "life_record_state", None), "prior_token_usage", None)
                 or request.prior_token_usage
             ),
+            "mood_event_id": mood_event_id,
+            "mood_occurred_at": mood_occurred_at,
         }
         if not emit_pending_state:
             worker_kwargs["emit_pending_state"] = False
@@ -798,6 +941,8 @@ class ChatFlowBridgeMixin:
             include_life_record_context=(
                 payload.get("include_life_record_context") is True
             ),
+            mood_event_id=str(payload.get("mood_event_id", "") or ""),
+            mood_occurred_at=str(payload.get("mood_occurred_at", "") or ""),
         )
         print("[Bridge] Reroll started")
 
@@ -901,11 +1046,15 @@ class ChatFlowBridgeMixin:
             return
 
         timestamp = self._now_timestamp()
-        payload_type = self._last_request_payload.get("type", "text")
-        images = self._last_request_payload.get("images") or []
-        attachment_note = str(self._last_request_payload.get("attachment_note", "") or "")
-        attachment_context = str(self._last_request_payload.get("attachment_context", "") or "")
-        message_id = str(self._last_request_payload.get("message_id", "") or "")
+        previous_payload = self._last_request_payload
+        payload_type = previous_payload.get("type", "text")
+        images = previous_payload.get("images") or []
+        attachment_note = str(previous_payload.get("attachment_note", "") or "")
+        attachment_context = str(previous_payload.get("attachment_context", "") or "")
+        message_id = str(previous_payload.get("message_id", "") or "")
+        mood_event_id = str(previous_payload.get("mood_event_id", "") or "")
+        mood_occurred_at = str(previous_payload.get("mood_occurred_at", "") or "")
+        mood_finalized = previous_payload.get("mood_finalized") is True
         if payload_type in {"images", "attachments"}:
             self._append_conversation("user", edited_message + attachment_note, timestamp)
         else:
@@ -934,7 +1083,7 @@ class ChatFlowBridgeMixin:
         memory_search_inputs = self._build_memory_search_inputs(edited_message, timestamp)
         memory_search_text = memory_search_inputs["memory_search_text"]
         include_life_record_context = (
-            self._last_request_payload.get("include_life_record_context") is True
+            previous_payload.get("include_life_record_context") is True
         )
         self._last_request_payload = {
             "type": payload_type,
@@ -947,8 +1096,11 @@ class ChatFlowBridgeMixin:
             "memory_search_text": memory_search_text,
             "latest_user_message": memory_search_inputs["latest_user_message"],
             "recent_memory_context": memory_search_inputs["recent_context_text"],
-            "head_pat_count_before_message": int(self._last_request_payload.get("head_pat_count_before_message", 0) or 0),
+            "head_pat_count_before_message": int(previous_payload.get("head_pat_count_before_message", 0) or 0),
             "include_life_record_context": include_life_record_context,
+            "mood_event_id": mood_event_id,
+            "mood_occurred_at": mood_occurred_at,
+            "mood_finalized": mood_finalized,
         }
 
         self._is_rerolling = True
@@ -961,6 +1113,8 @@ class ChatFlowBridgeMixin:
             recent_memory_context=memory_search_inputs["recent_context_text"],
             head_pat_count_before_message=int(self._last_request_payload.get("head_pat_count_before_message", 0) or 0),
             include_life_record_context=include_life_record_context,
+            mood_event_id=mood_event_id,
+            mood_occurred_at=mood_occurred_at,
         )
         print("[Bridge] Edit last user message started")
 
@@ -969,6 +1123,8 @@ class ChatFlowBridgeMixin:
         *args,
         response_worker=None,
         operation_id=_UNSET_OPERATION,
+        expected_mood_event_id: str = "",
+        expected_mood_occurred_at: str = "",
         **kwargs,
     ):
         worker = (
@@ -1000,6 +1156,8 @@ class ChatFlowBridgeMixin:
                 *args,
                 response_metadata=response_metadata,
                 normal_operation_id=matched_operation_id,
+                expected_mood_event_id=expected_mood_event_id,
+                expected_mood_occurred_at=expected_mood_occurred_at,
                 **kwargs,
             )
         except Exception as exc:
@@ -1148,6 +1306,8 @@ class ChatFlowBridgeMixin:
         *,
         response_metadata: ResponseDeliveryMetadata | None = None,
         normal_operation_id: int | None = None,
+        expected_mood_event_id: str = "",
+        expected_mood_occurred_at: str = "",
     ):
         """AI 응답 준비 완료"""
         completed_promise_id = str(getattr(self, "_active_promise_id", "") or "").strip()
@@ -1214,6 +1374,12 @@ class ChatFlowBridgeMixin:
             f"proactive_count={_safe_list_count(proactive_conversations)}"
         )
         self._last_assistant_response = {"text": text, "emotion": emotion}
+        ChatFlowBridgeMixin._finalize_owned_mood_event(
+            self,
+            mood_analysis_payload,
+            expected_mood_event_id=expected_mood_event_id,
+            expected_mood_occurred_at=expected_mood_occurred_at,
+        )
         analysis = {}
         if analysis_payload:
             try:
@@ -1223,13 +1389,7 @@ class ChatFlowBridgeMixin:
             if isinstance(parsed, dict):
                 analysis = {str(key): str(value) for key, value in parsed.items()}
 
-        if self.mood_manager and analysis:
-            snapshot = self.mood_manager.on_user_analysis(analysis)
-            self._emit_mood_changed(snapshot)
         resolved_token_usage_payload = self._resolve_token_usage_payload(token_usage_payload)
-        if self.mood_manager:
-            snapshot = self.mood_manager.on_assistant_emotion(emotion)
-            self._emit_mood_changed(snapshot)
 
         GoalBridgeMixin._apply_goal_update_payload(self, goal_update_payload)
         

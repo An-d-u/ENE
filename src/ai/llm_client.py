@@ -6,8 +6,7 @@ import copy
 from datetime import datetime
 import hashlib
 import re
-from typing import Tuple, List, Dict
-from uuid import uuid4
+from typing import Tuple, List, Dict, Mapping
 
 from google import genai
 
@@ -104,7 +103,12 @@ GEMINI_MAX_OUTPUT_TOKENS = 8192
 _GEMINI_RESPONSE_CAPABILITY_REGISTRY = ResponseCapabilityRegistry()
 
 
-def _mood_policy_callbacks(client, *, enabled: bool):
+def _mood_policy_callbacks(
+    client,
+    *,
+    enabled: bool,
+    mood_event_context: Mapping[str, str] | None = None,
+):
     if not enabled:
         return None, None
     try:
@@ -123,13 +127,22 @@ def _mood_policy_callbacks(client, *, enabled: bool):
     snapshot_provider = peek_snapshot if callable(peek_snapshot) else None
     if not callable(preview_event):
         return snapshot_provider, None
-    try:
-        preview_event_id = str(uuid4())
-    except Exception:
+    if not isinstance(mood_event_context, Mapping):
+        return snapshot_provider, None
+    if set(mood_event_context) != {"event_id", "occurred_at_utc"}:
+        return snapshot_provider, None
+    preview_event_id = mood_event_context.get("event_id")
+    occurred_at_utc = mood_event_context.get("occurred_at_utc")
+    if (
+        type(preview_event_id) is not str
+        or not preview_event_id.strip()
+        or type(occurred_at_utc) is not str
+        or not occurred_at_utc.strip()
+    ):
         return snapshot_provider, None
 
     def preview(analysis):
-        return preview_event(preview_event_id, analysis)
+        return preview_event(preview_event_id, analysis, occurred_at_utc)
 
     return snapshot_provider, preview
 
@@ -1042,6 +1055,7 @@ class GeminiClient:
         label: str,
         settings_source: dict | None = None,
         response_mode: ResponseMode | None = None,
+        mood_event_context: Mapping[str, str] | None = None,
     ) -> LLM_RESPONSE_TUPLE:
         """Gemini final 응답 호출 전체를 하나의 usage transaction으로 처리한다."""
         self._begin_response_turn_usage()
@@ -1052,6 +1066,7 @@ class GeminiClient:
                 label=label,
                 settings_source=settings_source,
                 response_mode=response_mode,
+                mood_event_context=mood_event_context,
             )
         finally:
             self._finish_response_turn_usage()
@@ -1064,6 +1079,7 @@ class GeminiClient:
         label: str,
         settings_source: dict | None = None,
         response_mode: ResponseMode | None = None,
+        mood_event_context: Mapping[str, str] | None = None,
     ) -> LLM_RESPONSE_TUPLE:
         """Gemini 자동 history를 한 턴 단위 transaction으로 검증하고 확정한다."""
         self._last_response_delivery_metadata = ResponseDeliveryMetadata.empty()
@@ -1089,6 +1105,7 @@ class GeminiClient:
         mood_snapshot_provider, mood_preview = _mood_policy_callbacks(
             self,
             enabled=requirements.enable_mood_analysis,
+            mood_event_context=mood_event_context,
         )
 
         def requester(attempt: ResponseAttempt) -> ProviderResponse:
@@ -1290,6 +1307,8 @@ class GeminiClient:
         head_pat_count_before_message: int | None = None,
         progress_callback=None,
         include_life_record_context: bool = False,
+        *,
+        mood_event_context: Mapping[str, str] | None = None,
     ) -> LLM_RESPONSE_TUPLE:
         """
         메모리를 활용한 메시지 전송
@@ -1338,7 +1357,11 @@ class GeminiClient:
             )
         
         # 일반 메시지 전송. 모델 입력에는 컨텍스트를 붙이되, SDK 히스토리에는 사용자 원문을 남긴다.
-        return self.send_message(enhanced_message, history_user_content=message)
+        return self.send_message(
+            enhanced_message,
+            history_user_content=message,
+            mood_event_context=mood_event_context,
+        )
 
     async def send_message_with_images(
         self,
@@ -1350,6 +1373,8 @@ class GeminiClient:
         head_pat_count_before_message: int | None = None,
         progress_callback=None,
         include_life_record_context: bool = False,
+        *,
+        mood_event_context: Mapping[str, str] | None = None,
     ) -> LLM_RESPONSE_TUPLE:
         """이미지 final 응답의 전처리부터 usage transaction으로 처리한다."""
         self._last_response_delivery_metadata = ResponseDeliveryMetadata.empty()
@@ -1364,6 +1389,7 @@ class GeminiClient:
                 head_pat_count_before_message=head_pat_count_before_message,
                 include_life_record_context=include_life_record_context,
                 progress_callback=progress_callback,
+                mood_event_context=mood_event_context,
             )
         finally:
             self._finish_response_turn_usage()
@@ -1378,6 +1404,8 @@ class GeminiClient:
         head_pat_count_before_message: int | None = None,
         progress_callback=None,
         include_life_record_context: bool = False,
+        *,
+        mood_event_context: Mapping[str, str] | None = None,
     ) -> LLM_RESPONSE_TUPLE:
         """
         이미지와 함께 메시지 전송 (멀티모달)
@@ -1439,6 +1467,7 @@ class GeminiClient:
                     head_pat_count_before_message,
                     include_life_record_context=include_life_record_context,
                     progress_callback=progress_callback,
+                    mood_event_context=mood_event_context,
                 )
             
             # 메모리 컨텍스트 추가
@@ -1491,6 +1520,7 @@ class GeminiClient:
                     label="멀티모달",
                     settings_source=settings_snapshot,
                     response_mode=response_mode,
+                    mood_event_context=mood_event_context,
                 )
                 GeminiClient._log_final_response_metadata(
                     self, result, request_kind="multimodal"
@@ -1700,6 +1730,8 @@ class GeminiClient:
         self,
         message: str,
         history_user_content: str | None = None,
+        *,
+        mood_event_context: Mapping[str, str] | None = None,
     ) -> LLM_RESPONSE_TUPLE:
         """
         메시지 전송 및 응답 받기
@@ -1731,6 +1763,7 @@ class GeminiClient:
                     label="텍스트",
                     settings_source=settings_snapshot,
                     response_mode=response_mode,
+                    mood_event_context=mood_event_context,
                 )
                 GeminiClient._log_final_response_metadata(self, result, request_kind="text")
                 return result

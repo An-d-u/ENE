@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from copy import deepcopy
 from types import SimpleNamespace
-from uuid import UUID
 
 import pytest
 import subprocess
@@ -36,6 +35,12 @@ def _policy_mood_analysis(*, risk="none", stance="cooperative"):
     }
 
 
+MOOD_CONTEXT = {
+    "event_id": "5ef84bc0-6850-41a5-8fc6-ed21c267370e",
+    "occurred_at_utc": "2099-01-01T00:00:00+00:00",
+}
+
+
 class _PreviewingMoodManager:
     def __init__(self, *, fail_preview=False, peek_rupture=False):
         self.preview_calls = []
@@ -43,8 +48,8 @@ class _PreviewingMoodManager:
         self.fail_preview = fail_preview
         self.peek_rupture = peek_rupture
 
-    def preview_event(self, event_id, analysis):
-        self.preview_calls.append((event_id, deepcopy(analysis)))
+    def preview_event(self, event_id, analysis, occurred_at_utc):
+        self.preview_calls.append((event_id, deepcopy(analysis), occurred_at_utc))
         if self.fail_preview:
             raise RuntimeError("synthetic preview failure")
         return {
@@ -104,7 +109,7 @@ class _FaultyCallbackMoodManager:
         if self.fail_preview:
             raise RuntimeError("synthetic preview property failure")
 
-        def preview(_event_id, _analysis):
+        def preview(_event_id, _analysis, _occurred_at_utc):
             self.preview_calls += 1
             return {
                 "background": {"energy": 0.0},
@@ -220,7 +225,7 @@ def test_gemini_policy_retry_uses_safe_appendix_and_reuses_preview_id(gemini_har
     client.mood_manager = manager
     first_system_prompt = gemini_harness.created_configs[0]["system_instruction"]
 
-    result = client.send_message(user_content)
+    result = client.send_message(user_content, mood_event_context=MOOD_CONTEXT)
 
     retry_config = gemini_harness.sdk.send_message_configs[1]
     retry_system_prompt = retry_config["system_instruction"]
@@ -236,9 +241,8 @@ def test_gemini_policy_retry_uses_safe_appendix_and_reuses_preview_id(gemini_har
     assert result[10]["proposed_stance"] == "cooperative"
     assert manager.peek_calls == 0
     assert len(manager.preview_calls) == 2
-    assert manager.preview_calls[0][0] == manager.preview_calls[1][0]
-    assert isinstance(manager.preview_calls[0][0], str)
-    assert UUID(manager.preview_calls[0][0]).version == 4
+    assert manager.preview_calls[0][0] == manager.preview_calls[1][0] == MOOD_CONTEXT["event_id"]
+    assert manager.preview_calls[0][2] == manager.preview_calls[1][2] == MOOD_CONTEXT["occurred_at_utc"]
     history = client.get_conversation_history()
     assert "First policy reply." not in str(history)
     assert "mood_stance_not_allowed" not in str(history)
@@ -268,7 +272,9 @@ def test_gemini_preview_failure_falls_back_to_one_peek(gemini_harness):
     manager = _PreviewingMoodManager(fail_preview=True, peek_rupture=True)
     client.mood_manager = manager
 
-    result = client.send_message("Synthetic preview fallback request.")
+    result = client.send_message(
+        "Synthetic preview fallback request.", mood_event_context=MOOD_CONTEXT
+    )
 
     assert result[10]["proposed_stance"] == "boundary"
     assert len(manager.preview_calls) == 1
@@ -276,7 +282,7 @@ def test_gemini_preview_failure_falls_back_to_one_peek(gemini_harness):
 
 
 @pytest.mark.parametrize(
-    ("fail_peek", "fail_preview", "fail_uuid", "stance", "expected_calls"),
+    ("fail_peek", "fail_preview", "invalid_context", "stance", "expected_calls"),
     [
         (True, False, False, "boundary", (0, 1)),
         (False, True, False, "boundary", (1, 0)),
@@ -289,7 +295,7 @@ def test_gemini_callback_setup_failures_are_independent_and_neutral(
     monkeypatch,
     fail_peek,
     fail_preview,
-    fail_uuid,
+    invalid_context,
     stance,
     expected_calls,
 ):
@@ -305,13 +311,10 @@ def test_gemini_callback_setup_failures_are_independent_and_neutral(
         fail_preview=fail_preview,
     )
     client.mood_manager = manager
-    if fail_uuid:
-        monkeypatch.setattr(
-            "src.ai.llm_client.uuid4",
-            lambda: (_ for _ in ()).throw(RuntimeError("synthetic uuid failure")),
-        )
-
-    result = client.send_message("Synthetic callback isolation request.")
+    context = {"event_id": MOOD_CONTEXT["event_id"]} if invalid_context else MOOD_CONTEXT
+    result = client.send_message(
+        "Synthetic callback isolation request.", mood_event_context=context
+    )
 
     assert result[10]["proposed_stance"] == stance
     assert (manager.peek_calls, manager.preview_calls) == expected_calls

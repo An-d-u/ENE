@@ -419,6 +419,7 @@ class AIWorker(QThread):
         progress_callback=None,
         include_life_record_context: bool = False,
         prior_token_usage: Mapping[str, object] | None = None,
+        mood_event_context: Mapping[str, str] | None = None,
     ):
         super().__init__()
         self.llm_client = llm_client
@@ -432,6 +433,17 @@ class AIWorker(QThread):
         self.include_life_record_context = include_life_record_context is True
         self.prior_token_usage = (
             dict(prior_token_usage) if isinstance(prior_token_usage, Mapping) else None
+        )
+        copied_mood_context = {}
+        if isinstance(mood_event_context, Mapping):
+            for key in ("event_id", "occurred_at_utc"):
+                value = mood_event_context.get(key)
+                if type(value) is str and value.strip():
+                    copied_mood_context[key] = value
+        self.mood_event_context = (
+            copied_mood_context
+            if set(copied_mood_context) == {"event_id", "occurred_at_utc"}
+            else {}
         )
         self.diary_request = (diary_request or "").strip()
         self.note_request = (note_request or "").strip()
@@ -529,6 +541,7 @@ class AIWorker(QThread):
                         self.recent_memory_context,
                         self.head_pat_count_before_message,
                         progress_callback=self.progress_callback,
+                        mood_event_context=self.mood_event_context or None,
                         **(
                             {"include_life_record_context": True}
                             if self.include_life_record_context
@@ -549,6 +562,7 @@ class AIWorker(QThread):
                         self.recent_memory_context,
                         self.head_pat_count_before_message,
                         progress_callback=self.progress_callback,
+                        mood_event_context=self.mood_event_context or None,
                         **(
                             {"include_life_record_context": True}
                             if self.include_life_record_context
@@ -561,7 +575,10 @@ class AIWorker(QThread):
                 self._capture_response_delivery_metadata()
             else:
                 print("[AI Worker] 일반 모드 (메모리 없음)")
-                response_payload = self.llm_client.send_message(self.message)
+                response_payload = self.llm_client.send_message(
+                    self.message,
+                    mood_event_context=self.mood_event_context or None,
+                )
                 self._capture_response_delivery_metadata()
 
             if self._is_cancelled():

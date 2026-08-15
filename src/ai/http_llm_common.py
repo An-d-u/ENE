@@ -21,7 +21,6 @@ import threading
 from types import MappingProxyType
 from typing import Callable, Dict, List, Mapping, Tuple
 from urllib.parse import urlsplit
-from uuid import uuid4
 
 import requests
 
@@ -103,7 +102,12 @@ LLM_RESPONSE_TUPLE = Tuple[str, str, str | None, List[Dict], Dict[str, str], Lis
 _CONTEXT_FINGERPRINT_KEY = secrets.token_bytes(32)
 
 
-def _mood_policy_callbacks(client, *, enabled: bool):
+def _mood_policy_callbacks(
+    client,
+    *,
+    enabled: bool,
+    mood_event_context: Mapping[str, str] | None = None,
+):
     if not enabled:
         return None, None
     try:
@@ -122,13 +126,22 @@ def _mood_policy_callbacks(client, *, enabled: bool):
     snapshot_provider = peek_snapshot if callable(peek_snapshot) else None
     if not callable(preview_event):
         return snapshot_provider, None
-    try:
-        preview_event_id = str(uuid4())
-    except Exception:
+    if not isinstance(mood_event_context, Mapping):
+        return snapshot_provider, None
+    if set(mood_event_context) != {"event_id", "occurred_at_utc"}:
+        return snapshot_provider, None
+    preview_event_id = mood_event_context.get("event_id")
+    occurred_at_utc = mood_event_context.get("occurred_at_utc")
+    if (
+        type(preview_event_id) is not str
+        or not preview_event_id.strip()
+        or type(occurred_at_utc) is not str
+        or not occurred_at_utc.strip()
+    ):
         return snapshot_provider, None
 
     def preview(analysis):
-        return preview_event(preview_event_id, analysis)
+        return preview_event(preview_event_id, analysis, occurred_at_utc)
 
     return snapshot_provider, preview
 
@@ -1553,6 +1566,7 @@ class _CommonMixin:
         history_user_content,
         provider_format: str,
         attachments_metadata: list[dict] | None = None,
+        mood_event_context: Mapping[str, str] | None = None,
     ) -> LLM_RESPONSE_TUPLE:
         """최종 응답을 검증한 뒤 사용자에게 보이는 텍스트만 대화 기록에 저장한다."""
         self._last_response_delivery_metadata = ResponseDeliveryMetadata.empty()
@@ -1591,6 +1605,7 @@ class _CommonMixin:
         mood_snapshot_provider, mood_preview = _mood_policy_callbacks(
             self,
             enabled=requirements.enable_mood_analysis,
+            mood_event_context=mood_event_context,
         )
 
         def request_attempt(attempt: ResponseAttempt) -> ProviderResponse:
