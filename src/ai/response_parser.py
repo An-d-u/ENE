@@ -58,7 +58,7 @@ _MOOD_LEGACY_KEYS = (
     "certainty", "controllability", "repair_signal", "risk_class", "proposed_stance",
 )
 _MOOD_ORPHAN_CLOSE_BLOCK = re.compile(
-    rf"(?:^[ \t]*(?:{'|'.join(_MOOD_LEGACY_KEYS)})[ \t]*=.*(?:\r?\n|$))+"
+    r"(?:^[ \t]*[A-Za-z_][A-Za-z0-9_-]*[ \t]*=.*(?:\r?\n|$))+"
     r"[ \t]*\[\s*/\s*mood_analysis\s*\]",
     re.IGNORECASE | re.MULTILINE,
 )
