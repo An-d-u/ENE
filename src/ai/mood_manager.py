@@ -344,7 +344,7 @@ class MoodManager:
         transition = mood_engine.advance_time(self.state, occurred_at, self._preset())
         if not transition.applied:
             try:
-                if self.state_path.exists():
+                if self._authoritative_exists(self.state_path):
                     return self.get_snapshot()
             except OSError:
                 return self.get_snapshot()

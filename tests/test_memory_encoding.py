@@ -1,5 +1,7 @@
 import json
+from datetime import datetime, timezone
 from pathlib import Path
+import subprocess
 
 import pytest
 
@@ -72,6 +74,49 @@ def test_read_bytes_data_propagates_authoritative_read_failure(tmp_path, monkeyp
 
     with pytest.raises(OSError, match="read denied"):
         app_paths.read_bytes_data(target)
+
+
+def test_store_bridge_process_failure_is_normalized_and_locks_mood_manager(tmp_path, monkeypatch):
+    target = tmp_path / "mood_state.json"
+    target.write_bytes(b"stale-runtime")
+    visible = tmp_path / "visible.json"
+    failure = subprocess.CalledProcessError(1, ["powershell"])
+    monkeypatch.setattr(app_paths, "_get_visible_store_python_path", lambda *_args, **_kwargs: visible)
+    monkeypatch.setattr(
+        app_paths,
+        "_read_file_bytes_via_powershell",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(failure),
+    )
+
+    with pytest.raises(OSError) as raised:
+        app_paths.read_bytes_data(target)
+    assert raised.value.__cause__ is failure
+
+    manager = MoodManager(state_file=target)
+    assert manager.get_load_status() == {"error_code": "state_read_failed", "write_locked": True}
+    assert target.read_bytes() == b"stale-runtime"
+
+
+def test_noop_advance_creates_visible_state_when_only_stale_runtime_exists(tmp_path, monkeypatch):
+    target = tmp_path / "mood_state.json"
+    target.write_bytes(b"stale-runtime")
+    saves = []
+    monkeypatch.setattr(
+        "src.ai.mood_manager.app_paths.read_bytes_data",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(FileNotFoundError()),
+    )
+    monkeypatch.setattr(
+        "src.ai.mood_manager.app_paths.save_json_data",
+        lambda path, payload, **kwargs: saves.append((Path(path), payload, kwargs)),
+    )
+    manager = MoodManager(state_file=target, clock=lambda: datetime(2026, 8, 15, 3, 0, tzinfo=timezone.utc))
+
+    snapshot = manager.advance_time_and_save()
+
+    assert len(saves) == 1
+    assert saves[0][0] == target
+    assert saves[0][1]["version"] == 3
+    assert snapshot["revision"] == 0
 
 
 def test_mood_store_load_uses_visible_raw_when_runtime_is_semantically_same(tmp_path, monkeypatch):

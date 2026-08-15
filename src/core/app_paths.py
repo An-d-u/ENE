@@ -9,6 +9,7 @@ ENE 런타임 경로 유틸리티.
 from __future__ import annotations
 
 import base64
+import binascii
 import json
 import os
 import subprocess
@@ -455,7 +456,10 @@ def read_bytes_data(
     target = _normalize_path(path_like)
     visible_path = _get_visible_store_python_path(target, user_root=user_root)
     if visible_path is not None:
-        payload = _read_file_bytes_via_powershell(visible_path)
+        try:
+            payload = _read_file_bytes_via_powershell(visible_path)
+        except (subprocess.SubprocessError, binascii.Error, UnicodeError) as exc:
+            raise OSError("Store Python authoritative bytes를 읽지 못했습니다.") from exc
         if payload is None:
             raise FileNotFoundError(2, "Authoritative JSON file does not exist", str(visible_path))
         try:
