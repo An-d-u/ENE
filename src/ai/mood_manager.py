@@ -12,6 +12,7 @@ import uuid
 
 from ..core import app_paths
 from . import mood_engine
+from .mood_policy import SAFETY_RISK_CLASSES
 from .prompt_language import resolve_prompt_language
 
 
@@ -226,7 +227,7 @@ class MoodManager:
         event = {field: deepcopy(data[field]) for field in _EVENT_FIELDS if field in data}
         if (
             isinstance(analysis, Mapping)
-            and analysis.get("risk_class") == "urgent"
+            and analysis.get("risk_class") in SAFETY_RISK_CLASSES
             and event.get("kind") == "conflict"
             and (
                 event.get("target_scope") in {"ene", "relationship"}

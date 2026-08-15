@@ -81,6 +81,7 @@ BACKGROUND_HALF_LIFE_SECONDS = {
 SPONTANEOUS_COOLDOWN_SECONDS = 6 * 3600
 SPONTANEOUS_THRESHOLD = 0.92
 MAX_ADVANCE_SECONDS = 7 * 24 * 3600
+REPEAT_WINDOW_SECONDS = 30 * 60
 
 RELATION_CONNECTION_BASE = {
     "connection": {"affection": 0.018, "trust": 0.010},
@@ -317,7 +318,7 @@ def advance_time(state: object, now_utc: datetime, preset: str) -> MoodTransitio
         return MoodTransition(state=validated, applied=False, rule_ids=())
     if now_utc < previous_at:
         # rollback 구간은 감쇠하지 않고 요청 시각을 새 기준점으로 삼는다.
-        validated["updated_at_utc"] = format_utc(now_utc)
+        _reset_clock_anchor_in_place(validated, now_utc)
         validated["revision"] += 1
         return MoodTransition(
             state=validate_state(validated),
@@ -439,7 +440,7 @@ def reduce_mood(
     rule_ids: list[str] = []
     previous_at = _parse_utc_string(state["updated_at_utc"], "updated_at_utc")
     if now_utc < previous_at:
-        state["updated_at_utc"] = format_utc(now_utc)
+        _reset_clock_anchor_in_place(state, now_utc)
         rule_ids.append("time.clock_rollback")
     elif now_utc > previous_at:
         rule_ids.extend(_advance_time_in_place(state, now_utc, normalized_preset))
@@ -558,6 +559,21 @@ def _advance_time_in_place(state: dict[str, Any], now_utc: datetime, preset: str
     return rule_ids
 
 
+def _reset_clock_anchor_in_place(state: dict[str, Any], now_utc: datetime) -> None:
+    """rollback 시 감쇠 없이 전역·자발 변화 시간 기준점만 현재로 되돌린다."""
+    state["updated_at_utc"] = format_utc(now_utc)
+    spontaneous_at = state["spontaneous"]["last_at_utc"]
+    if (
+        spontaneous_at is not None
+        and _parse_utc_string(spontaneous_at, "마지막 자발 변화 시각") > now_utc
+    ):
+        state["spontaneous"]["last_at_utc"] = format_utc(now_utc)
+
+
+def _is_within_repeat_window(elapsed_seconds: float) -> bool:
+    return 0.0 <= elapsed_seconds <= REPEAT_WINDOW_SECONDS
+
+
 def _extract_canonical_event_id(event: object) -> str | None:
     if isinstance(event, MoodEvent):
         event_id = event.event_id
@@ -615,7 +631,7 @@ def _next_repeat_count(
         ),
     )
     elapsed = now_utc - _parse_utc_string(prior_trace["last_event_at_utc"], "last_event_at_utc")
-    if elapsed.total_seconds() > 30 * 60:
+    if not _is_within_repeat_window(elapsed.total_seconds()):
         return 0
     return min(prior_trace["repeat_count"] + 1, 3)
 
@@ -757,7 +773,7 @@ def _apply_affects(
             ),
         )
         elapsed = now_utc - _parse_utc_string(prior_trace["last_event_at_utc"], "마지막 사건 시각")
-        if elapsed.total_seconds() <= 30 * 60:
+        if _is_within_repeat_window(elapsed.total_seconds()):
             next_repeat_count = min(prior_trace["repeat_count"] + 1, 3)
         else:
             next_repeat_count = 0

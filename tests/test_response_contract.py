@@ -19,15 +19,30 @@ from src.ai.response_contract import (
 
 
 @pytest.mark.parametrize(
-    ("language", "markers"),
+    ("language", "semantic_heading", "markers", "forbidden_only_phrase"),
     [
-        ("ko", ("관계 손상", "응급", "교정", "안전 우선순위")),
-        ("en", ("relationship damage", "urgent", "correction", "safety priority")),
-        ("ja", ("関係悪化", "緊急", "訂正", "安全優先順位")),
+        (
+            "ko",
+            "### 기분 사건 분류 의미 규칙",
+            ("관계 손상", "응급", "사건을 인정", "책임을 인정", "책임 회피가 아닌 맥락 설명", "실제 교정", "실제 이행", "안전 우선순위"),
+            "질감으로만 안전하게 반영",
+        ),
+        (
+            "en",
+            "### Mood event classification semantic rules",
+            ("relationship damage", "urgent", "recognizes the event", "accepts responsibility", "context without evading responsibility", "actual correction", "actual follow-through", "safety priority"),
+            "only through tone",
+        ),
+        (
+            "ja",
+            "### 気分イベント分類の意味ルール",
+            ("関係悪化", "緊急", "出来事を認め", "責任を認め", "責任逃れではない文脈説明", "実際の訂正", "実際の履行", "安全優先順位"),
+            "だけで安全に反映",
+        ),
     ],
 )
 def test_structured_mood_semantics_are_complete_and_localized_without_drift(
-    language, markers
+    language, semantic_heading, markers, forbidden_only_phrase
 ):
     from src.ai.analysis_prompt import build_analysis_system_appendix
 
@@ -46,6 +61,10 @@ def test_structured_mood_semantics_are_complete_and_localized_without_drift(
     for marker in markers:
         assert marker in analysis_appendix
         assert marker in response_appendix
+    assert forbidden_only_phrase not in analysis_appendix
+    assert forbidden_only_phrase not in response_appendix
+    assert analysis_appendix.count(semantic_heading) == 1
+    assert response_appendix.count(semantic_heading) == 1
     for value in (
         "clarity=ambiguous",
         "target_scope=external",
@@ -62,6 +81,28 @@ def test_structured_mood_semantics_are_complete_and_localized_without_drift(
     ):
         assert value in analysis_appendix
         assert value in response_appendix
+
+
+@pytest.mark.parametrize(
+    ("language", "semantic_heading"),
+    [
+        ("ko", "### 기분 사건 분류 의미 규칙"),
+        ("en", "### Mood event classification semantic rules"),
+        ("ja", "### 気分イベント分類の意味ルール"),
+    ],
+)
+def test_legacy_mood_contract_uses_shared_semantic_block_once(
+    language, semantic_heading
+):
+    appendix = build_legacy_response_contract_appendix(
+        {
+            "ui_language": language,
+            "enable_mood_system": True,
+            "enable_response_analysis": True,
+        }
+    )
+
+    assert appendix.count(semantic_heading) == 1
 
 
 @pytest.mark.parametrize("language", ["ko", "en", "ja"])

@@ -31,6 +31,7 @@ _RUPTURE_STANCES = frozenset(
 )
 _STRONG_OPEN_RUPTURE_THRESHOLD = 0.16
 _SAFETY_STANCES = frozenset({"proactive", "cooperative", "brief"})
+SAFETY_RISK_CLASSES = frozenset({"concern", "urgent"})
 _RISK_CLASSES = frozenset(RISK_CLASSES)
 _PROPOSED_STANCES = frozenset(PROPOSED_STANCES)
 _MOOD_EVENT_FIELDS = frozenset(MOOD_EVENT_FIELDS)
@@ -150,7 +151,7 @@ def _has_low_energy(snapshot: object) -> bool:
 
 def allowed_stances(snapshot: object, risk_class: str = "none") -> frozenset[str]:
     """위험 등급과 실제 기분 원인에 따라 허용할 응답 태도를 반환한다."""
-    if isinstance(risk_class, str) and risk_class in {"concern", "urgent"}:
+    if isinstance(risk_class, str) and risk_class in SAFETY_RISK_CLASSES:
         return _SAFETY_STANCES
     if _has_strong_open_rupture(snapshot):
         return _RUPTURE_STANCES
@@ -294,7 +295,7 @@ def validate_mood_policy(
 
     error_code = (
         "mood_stance_safety_not_allowed"
-        if risk_class in {"concern", "urgent"}
+        if risk_class in SAFETY_RISK_CLASSES
         else "mood_stance_not_allowed"
     )
     if not retry_used:

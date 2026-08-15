@@ -153,7 +153,10 @@ def test_first_explicit_disrespect_preview_allows_boundary_stance(tmp_path):
     assert "boundary" in allowed_stances(preview, "none")
 
 
-def test_urgent_relationship_conflict_cannot_damage_persisted_relationship(tmp_path):
+@pytest.mark.parametrize("risk_class", ["concern", "urgent"])
+def test_safety_risk_relationship_conflict_cannot_damage_persisted_relationship(
+    tmp_path, risk_class
+):
     state_file = tmp_path / "mood_state.json"
     manager = _manager(state_file)
     manager.advance_time_and_save()
@@ -165,22 +168,29 @@ def test_urgent_relationship_conflict_cannot_damage_persisted_relationship(tmp_p
             relation_category="boundary_violation",
             intensity=3,
         ),
-        "risk_class": "urgent",
+        "risk_class": risk_class,
         "proposed_stance": "cooperative",
     }
 
-    preview = manager.preview_event(str(uuid.uuid4()), analysis)
-    manager.apply_event(str(uuid.uuid4()), analysis)
+    event_id = str(uuid.uuid4())
+    preview = manager.preview_event(event_id, analysis)
+    manager.apply_event(event_id, analysis)
     persisted = json.loads(state_file.read_text(encoding="utf-8"))
+    applied_state = deepcopy(manager.state)
+    applied_bytes = state_file.read_bytes()
+    manager.apply_event(event_id, analysis)
 
     assert preview["relationship"] == before_relationship
     assert preview["ruptures"] == []
     assert preview["active_affects"]
+    assert preview["background"] != {"valence": 0.0, "energy": 0.0, "tension": 0.0}
     assert manager.state["relationship"] == before_relationship
     assert manager.state["ruptures"] == []
     assert manager.state["active_affects"]
     assert persisted["relationship"] == before_relationship
     assert persisted["ruptures"] == []
+    assert manager.state == applied_state
+    assert state_file.read_bytes() == applied_bytes
 
 
 def test_peek_snapshot_is_deep_and_does_not_mutate_state_file_or_hysteresis(tmp_path):
