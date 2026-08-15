@@ -1372,6 +1372,19 @@ def test_advance_time_same_or_past_is_complete_no_op(now: datetime) -> None:
     assert state == snapshot
 
 
+def test_advance_time_preserves_microseconds_and_same_now_is_no_op() -> None:
+    state = new_mood_state(NOW, "balanced")
+    now = NOW + timedelta(microseconds=500_000)
+
+    first = advance_time(state, now, "balanced")
+    second = advance_time(first.state, now, "balanced")
+
+    assert first.applied is True
+    assert first.state["updated_at_utc"] == "2099-01-01T00:00:00.500000+00:00"
+    assert second == MoodTransition(state=first.state, applied=False, rule_ids=())
+    assert second.state["revision"] == first.state["revision"]
+
+
 def test_advance_time_rejects_non_utc_aware_datetime() -> None:
     state = new_mood_state(NOW, "balanced")
     with pytest.raises(ValueError):
@@ -1490,7 +1503,15 @@ def test_snapshot_primary_threshold_tie_secondary_and_input_immutability() -> No
     assert snapshot["secondary_emotion"] == "anger"
     assert isinstance(snapshot["behavior_guidance"], tuple)
     assert state == original
-    assert snapshot["relationship"] == state["relationship"]
+    assert set(snapshot) == {
+        "state",
+        "primary_emotion",
+        "secondary_emotion",
+        "behavior_guidance",
+    }
+    assert snapshot["state"] == state
+    snapshot["state"]["relationship"]["trust"] = -0.9
+    assert state == original
 
 
 def test_snapshot_threshold_secondary_ratio_hysteresis_and_invalid_previous() -> None:
@@ -1541,3 +1562,17 @@ def test_behavior_guidance_is_localized_safe_and_contains_no_raw_state(language:
         "unsupported": "안전",
     }
     assert safety_words[language] in guidance[-1]
+
+
+@pytest.mark.parametrize(
+    ("affect", "source_kind"),
+    [("joy", "success"), ("anger", "conflict")],
+)
+def test_behavior_guidance_does_not_use_active_affects(affect: str, source_kind: str) -> None:
+    neutral = new_mood_state(NOW, "balanced")
+    affect_only = deepcopy(neutral)
+    affect_only["active_affects"] = [
+        valid_active_affect(affect=affect, intensity=0.8, source_kind=source_kind)
+    ]
+
+    assert derive_behavior_guidance(affect_only, "ko") == derive_behavior_guidance(neutral, "ko")
