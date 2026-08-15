@@ -1,14 +1,22 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError, fields
-from datetime import datetime, timezone
+from copy import deepcopy
+from datetime import datetime, timedelta, timezone
 import hashlib
 import math
 import uuid
 
 import pytest
 
-from src.ai.mood_engine import MoodEvent, new_mood_state, normalize_event, validate_state
+from src.ai.mood_engine import (
+    MoodEvent,
+    MoodTransition,
+    new_mood_state,
+    normalize_event,
+    reduce_mood,
+    validate_state,
+)
 
 
 NOW = datetime(2099, 1, 1, tzinfo=timezone.utc)
@@ -270,3 +278,263 @@ def test_validate_state_reports_unhashable_repair_stage_as_value_error() -> None
 
     with pytest.raises(ValueError):
         validate_state(state)
+
+
+def test_loss_event_applies_golden_background_and_affect() -> None:
+    transition = reduce_mood(
+        new_mood_state(NOW, "balanced"),
+        valid_event(
+            event_id=synthetic_event_id("golden-loss"),
+            kind="loss",
+            target_scope="external",
+            intensity=3,
+        ),
+        NOW,
+        "balanced",
+    )
+
+    assert isinstance(transition, MoodTransition)
+    assert transition.applied is True
+    assert transition.rule_ids == ("event.background", "event.affect", "event.recorded")
+    with pytest.raises(FrozenInstanceError):
+        transition.applied = False  # type: ignore[misc]
+    assert transition.state["background"] == {
+        "valence": pytest.approx(-0.05),
+        "energy": pytest.approx(-0.03),
+        "tension": pytest.approx(0.02),
+    }
+    assert transition.state["active_affects"] == [
+        {
+            "affect": "sadness",
+            "intensity": pytest.approx(0.24),
+            "source_kind": "loss",
+            "target_scope": "external",
+            "relation_category": "none",
+            "repeat_count": 0,
+            "last_event_at_utc": "2099-01-01T00:00:00+00:00",
+            "updated_at_utc": "2099-01-01T00:00:00+00:00",
+        }
+    ]
+
+
+def test_loss_trace_survives_unrelated_external_events_without_relationship_change() -> None:
+    state = new_mood_state(NOW, "balanced")
+    for label, kind in (("loss", "loss"), ("success", "success"), ("plan", "novelty")):
+        state = reduce_mood(
+            state,
+            valid_event(
+                event_id=synthetic_event_id(label),
+                kind=kind,
+                target_scope="external",
+                intensity=3,
+            ),
+            NOW,
+            "balanced",
+        ).state
+
+    sadness = next(item for item in state["active_affects"] if item["affect"] == "sadness")
+    assert sadness["intensity"] > 0.20
+    assert state["relationship"] == {"affection": 0.0, "trust": 0.0}
+
+
+def test_same_affect_trace_merges_with_saturation_resistance() -> None:
+    state = new_mood_state(NOW, "balanced")
+    first = valid_event(
+        event_id=synthetic_event_id("loss-first"),
+        kind="loss",
+        target_scope="external",
+        intensity=3,
+    )
+    second = valid_event(
+        event_id=synthetic_event_id("loss-second"),
+        kind="loss",
+        target_scope="external",
+        intensity=3,
+    )
+
+    state = reduce_mood(state, first, NOW, "balanced").state
+    state = reduce_mood(state, second, NOW + timedelta(minutes=10), "balanced").state
+
+    assert len(state["active_affects"]) == 1
+    assert state["active_affects"][0]["intensity"] == pytest.approx(0.24 + 0.24 * (1.0 - 0.24))
+    assert state["active_affects"][0]["repeat_count"] == 1
+
+
+def test_affect_repeat_count_saturates_at_three() -> None:
+    state = new_mood_state(NOW, "balanced")
+    for index in range(5):
+        state = reduce_mood(
+            state,
+            valid_event(
+                event_id=synthetic_event_id(f"repeat-cap-{index}"),
+                kind="loss",
+                target_scope="external",
+            ),
+            NOW + timedelta(minutes=index),
+            "balanced",
+        ).state
+
+    assert state["active_affects"][0]["repeat_count"] == 3
+
+
+@pytest.mark.parametrize(
+    ("elapsed", "expected_repeat_count"),
+    [(timedelta(minutes=30), 1), (timedelta(minutes=30, seconds=1), 0)],
+)
+def test_affect_repeat_count_uses_inclusive_thirty_minute_boundary(
+    elapsed: timedelta,
+    expected_repeat_count: int,
+) -> None:
+    state = reduce_mood(
+        new_mood_state(NOW, "balanced"),
+        valid_event(event_id=synthetic_event_id("repeat-first"), kind="loss", target_scope="external"),
+        NOW,
+        "balanced",
+    ).state
+
+    state = reduce_mood(
+        state,
+        valid_event(event_id=synthetic_event_id(str(elapsed)), kind="loss", target_scope="external"),
+        NOW + elapsed,
+        "balanced",
+    ).state
+
+    trace = state["active_affects"][0]
+    assert trace["repeat_count"] == expected_repeat_count
+    assert trace["last_event_at_utc"] == (NOW + elapsed).isoformat(timespec="seconds")
+
+
+def test_active_affect_limit_evicts_lowest_priority_deterministically() -> None:
+    state = new_mood_state(NOW, "balanced")
+    state["active_affects"] = [
+        valid_active_affect(affect="amusement", source_kind="connection", intensity=0.1),
+        valid_active_affect(affect="amusement", source_kind="novelty", intensity=0.1),
+        valid_active_affect(affect="joy", source_kind="success", intensity=0.2),
+        valid_active_affect(affect="hurt", source_kind="conflict", intensity=0.2),
+        valid_active_affect(affect="anxiety", source_kind="threat", intensity=0.2),
+    ]
+
+    transition = reduce_mood(
+        state,
+        valid_event(
+            event_id=synthetic_event_id("sixth-trace"),
+            kind="loss",
+            target_scope="external",
+            intensity=3,
+        ),
+        NOW,
+        "balanced",
+    )
+
+    remaining = {(item["affect"], item["source_kind"]) for item in transition.state["active_affects"]}
+    assert ("amusement", "connection") not in remaining
+    assert ("amusement", "novelty") in remaining
+    assert len(remaining) == 5
+    assert "state.active_affects.limit" in transition.rule_ids
+
+
+def test_duplicate_event_id_is_complete_no_op() -> None:
+    event = valid_event(event_id=synthetic_event_id("duplicate"), kind="success", target_scope="external")
+    state = reduce_mood(new_mood_state(NOW, "balanced"), event, NOW, "balanced").state
+    snapshot = deepcopy(state)
+
+    transition = reduce_mood(state, event, NOW + timedelta(days=1), "expressive")
+
+    assert transition == MoodTransition(state=snapshot, applied=False, rule_ids=("event.duplicate",))
+    assert state == snapshot
+
+
+def test_recent_event_ids_keep_latest_sixty_four_ids() -> None:
+    state = new_mood_state(NOW, "balanced")
+    ids = [synthetic_event_id(f"ring-{index}") for index in range(65)]
+    for index, event_id in enumerate(ids):
+        state = reduce_mood(
+            state,
+            valid_event(
+                event_id=event_id,
+                kind="neutral",
+                target_scope="external",
+                intensity=0,
+            ),
+            NOW + timedelta(minutes=index),
+            "balanced",
+        ).state
+
+    assert state["recent_event_ids"] == ids[-64:]
+    assert state["revision"] == 65
+
+
+def test_reduce_mood_does_not_mutate_input_state() -> None:
+    state = new_mood_state(NOW, "balanced")
+    snapshot = deepcopy(state)
+
+    reduce_mood(
+        state,
+        valid_event(event_id=synthetic_event_id("immutable-input"), kind="loss", target_scope="external"),
+        NOW,
+        "balanced",
+    )
+
+    assert state == snapshot
+
+
+def test_valid_zero_impact_event_is_recorded_without_numeric_or_relationship_change() -> None:
+    state = new_mood_state(NOW, "balanced")
+    event_id = synthetic_event_id("neutral-zero")
+
+    transition = reduce_mood(
+        state,
+        valid_event(
+            event_id=event_id,
+            kind="neutral",
+            target_scope="relationship",
+            intensity=0,
+        ),
+        NOW + timedelta(minutes=1),
+        "balanced",
+    )
+
+    assert transition.applied is True
+    assert transition.rule_ids == ("event.recorded",)
+    assert transition.state["background"] == state["background"]
+    assert transition.state["active_affects"] == []
+    assert transition.state["relationship"] == state["relationship"]
+    assert transition.state["revision"] == 1
+    assert transition.state["recent_event_ids"] == [event_id]
+
+
+def test_presets_keep_direction_and_clamp_numeric_ranges() -> None:
+    deltas = []
+    for preset in ("calm", "balanced", "expressive"):
+        transition = reduce_mood(
+            new_mood_state(NOW, preset),
+            valid_event(
+                event_id=synthetic_event_id(f"preset-{preset}"),
+                kind="success",
+                target_scope="external",
+                intensity=3,
+            ),
+            NOW,
+            preset,
+        )
+        deltas.append(transition.state["background"]["valence"])
+
+    assert 0.0 < deltas[0] < deltas[1] < deltas[2]
+
+    state = new_mood_state(NOW, "expressive")
+    state["background"] = {"valence": 0.99, "energy": 0.99, "tension": -0.99}
+    clamped = reduce_mood(
+        state,
+        valid_event(
+            event_id=synthetic_event_id("clamp"),
+            kind="success",
+            target_scope="external",
+            intensity=3,
+        ),
+        NOW,
+        "expressive",
+    ).state
+
+    assert clamped["background"]["valence"] == 1.0
+    assert all(-1.0 <= value <= 1.0 for value in clamped["background"].values())
+    assert all(0.0 <= item["intensity"] <= 1.0 for item in clamped["active_affects"])

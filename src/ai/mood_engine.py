@@ -50,6 +50,43 @@ PRESET_BASELINES = {
     "expressive": {"valence": 0.0, "energy": 0.0, "tension": 0.0},
 }
 
+INTENSITY_WEIGHT = {0: 0.0, 1: 0.45, 2: 0.75, 3: 1.0}
+CLARITY_WEIGHT = {"explicit": 1.0, "inferred": 0.75, "ambiguous": 0.35}
+CERTAINTY_WEIGHT = {"low": 0.5, "medium": 0.75, "high": 1.0}
+PRESET_WEIGHT = {"calm": 0.75, "balanced": 1.0, "expressive": 1.25}
+
+BACKGROUND_BASE = {
+    "neutral": (0.00, 0.00, 0.00),
+    "connection": (0.03, 0.01, -0.02),
+    "success": (0.04, 0.03, -0.01),
+    "loss": (-0.05, -0.03, 0.02),
+    "threat": (-0.03, 0.01, 0.06),
+    "conflict": (-0.04, 0.02, 0.07),
+    "novelty": (0.01, 0.04, 0.01),
+    "repair": (0.02, 0.00, -0.03),
+}
+
+AFFECT_BASE = {
+    "connection": {"tenderness": 0.18, "joy": 0.06},
+    "success": {"joy": 0.22},
+    "loss": {"sadness": 0.24},
+    "threat": {"anxiety": 0.25},
+    "conflict": {"anger": 0.22, "hurt": 0.16},
+    "novelty": {"interest": 0.22, "amusement": 0.06},
+    "repair": {"tenderness": 0.12},
+}
+
+_AFFECT_RETENTION_PRIORITY = {
+    "amusement": 1.0,
+    "interest": 2.0,
+    "joy": 3.0,
+    "anger": 3.0,
+    "anxiety": 3.0,
+    "tenderness": 4.0,
+    "sadness": 4.0,
+    "hurt": 4.0,
+}
+
 _PRESET_ALIASES = {
     "calm": "calm",
     "affectionate": "balanced",
@@ -103,6 +140,13 @@ class MoodEvent:
     certainty: str
     controllability: str
     repair_signal: str
+
+
+@dataclass(frozen=True)
+class MoodTransition:
+    state: dict[str, Any]
+    applied: bool
+    rule_ids: tuple[str, ...]
 
 
 def normalize_preset(preset: object) -> str:
@@ -209,6 +253,143 @@ def validate_state(state: object) -> dict[str, Any]:
     _validate_recent_event_ids(validated["recent_event_ids"])
     _validate_spontaneous(validated["spontaneous"])
     return validated
+
+
+def reduce_mood(
+    previous_state: object,
+    event: object,
+    now_utc: datetime,
+    preset: str,
+) -> MoodTransition:
+    state = validate_state(previous_state)
+    normalized_event = _coerce_event(event, now_utc)
+    if normalized_event.event_id in state["recent_event_ids"]:
+        return MoodTransition(state=state, applied=False, rule_ids=("event.duplicate",))
+
+    _require_utc_datetime(now_utc, "사건 적용 시각")
+    if now_utc < _parse_utc_string(state["updated_at_utc"], "updated_at_utc"):
+        raise ValueError("사건 적용 시각은 상태 갱신 시각보다 빠를 수 없습니다.")
+
+    normalized_preset = normalize_preset(preset)
+    impact = (
+        INTENSITY_WEIGHT[normalized_event.intensity]
+        * CLARITY_WEIGHT[normalized_event.clarity]
+        * CERTAINTY_WEIGHT[normalized_event.certainty]
+        * PRESET_WEIGHT[normalized_preset]
+    )
+    rule_ids: list[str] = []
+
+    if impact != 0.0 and any(BACKGROUND_BASE[normalized_event.kind]):
+        _apply_background(state, normalized_event.kind, impact)
+        rule_ids.append("event.background")
+
+    if impact != 0.0 and AFFECT_BASE.get(normalized_event.kind):
+        _apply_affects(state, normalized_event, now_utc, impact)
+        rule_ids.append("event.affect")
+
+    if len(state["active_affects"]) > 5:
+        _trim_active_affects(state["active_affects"])
+        rule_ids.append("state.active_affects.limit")
+
+    state["preset"] = normalized_preset
+    state["updated_at_utc"] = format_utc(now_utc)
+    state["revision"] += 1
+    state["recent_event_ids"] = [*state["recent_event_ids"], normalized_event.event_id][-64:]
+    rule_ids.append("event.recorded")
+    return MoodTransition(state=validate_state(state), applied=True, rule_ids=tuple(rule_ids))
+
+
+def _coerce_event(event: object, now_utc: datetime) -> MoodEvent:
+    if not isinstance(event, MoodEvent):
+        return normalize_event(event, now_utc)
+    return normalize_event(
+        {
+            "event_id": event.event_id,
+            "kind": event.kind,
+            "target_scope": event.target_scope,
+            "relation_category": event.relation_category,
+            "intensity": event.intensity,
+            "clarity": event.clarity,
+            "certainty": event.certainty,
+            "controllability": event.controllability,
+            "repair_signal": event.repair_signal,
+        },
+        now_utc,
+    )
+
+
+def _apply_background(state: dict[str, Any], kind: str, impact: float) -> None:
+    for axis, delta in zip(("valence", "energy", "tension"), BACKGROUND_BASE[kind], strict=True):
+        state["background"][axis] = _clamp(state["background"][axis] + delta * impact, -1.0, 1.0)
+
+
+def _apply_affects(
+    state: dict[str, Any],
+    event: MoodEvent,
+    now_utc: datetime,
+    impact: float,
+) -> None:
+    timestamp = format_utc(now_utc)
+    for affect, base in AFFECT_BASE[event.kind].items():
+        trace = next(
+            (
+                item
+                for item in state["active_affects"]
+                if (
+                    item["source_kind"],
+                    item["target_scope"],
+                    item["relation_category"],
+                    item["affect"],
+                )
+                == (event.kind, event.target_scope, event.relation_category, affect)
+            ),
+            None,
+        )
+        if trace is None:
+            state["active_affects"].append(
+                {
+                    "affect": affect,
+                    "intensity": _clamp(base * impact, 0.0, 1.0),
+                    "source_kind": event.kind,
+                    "target_scope": event.target_scope,
+                    "relation_category": event.relation_category,
+                    "repeat_count": 0,
+                    "last_event_at_utc": timestamp,
+                    "updated_at_utc": timestamp,
+                }
+            )
+            continue
+
+        elapsed = now_utc - _parse_utc_string(trace["last_event_at_utc"], "마지막 사건 시각")
+        if elapsed.total_seconds() <= 30 * 60:
+            trace["repeat_count"] = min(trace["repeat_count"] + 1, 3)
+        else:
+            trace["repeat_count"] = 0
+        current = trace["intensity"]
+        trace["intensity"] = _clamp(current + base * impact * (1.0 - current), 0.0, 1.0)
+        trace["last_event_at_utc"] = timestamp
+        trace["updated_at_utc"] = timestamp
+
+
+def _trim_active_affects(active_affects: list[dict[str, Any]]) -> None:
+    while len(active_affects) > 5:
+        evicted = min(
+            active_affects,
+            key=lambda item: (
+                item["intensity"] * _AFFECT_RETENTION_PRIORITY[item["affect"]],
+                item["affect"],
+                item["source_kind"],
+                item["target_scope"],
+                item["relation_category"],
+                item["last_event_at_utc"],
+                item["updated_at_utc"],
+            ),
+        )
+        active_affects.remove(evicted)
+
+
+def _clamp(value: float, minimum: float, maximum: float) -> float:
+    return max(minimum, min(maximum, value))
 
 
 def _validate_active_affects(value: object) -> None:
