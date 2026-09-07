@@ -123,3 +123,26 @@ def test_apply_tts_runtime_to_bridge_updates_flags_and_client_binding():
     assert bridge.tts_streaming_enabled is True
     assert bridge.tts_streaming_emit_message_on_first_chunk is False
     assert calls == [("client", "audio")]
+
+
+def test_fish_audio_runtime_uses_saved_key_and_existing_audio_player():
+    from src.ai.tts_client import FishAudioSpeechClient
+
+    settings = _Settings({
+        "enable_tts": True,
+        "tts_provider": "fish_audio",
+        "tts_provider_configs": {"fish_audio": {"reference_id": "synthetic-voice-id", "speed": 1.15}},
+        "tts_api_keys": {"fish_audio": "synthetic-fish-key"},
+    })
+    runtime = build_tts_runtime(settings, audio_player_factory=lambda **_: "audio-player")
+    assert isinstance(runtime.tts_client, FishAudioSpeechClient)
+    assert runtime.tts_client.api_key == "synthetic-fish-key"
+    assert runtime.tts_client.reference_id == "synthetic-voice-id"
+    assert runtime.tts_client.speed == 1.15
+    assert runtime.audio_player == "audio-player"
+
+
+def test_fish_audio_runtime_without_key_is_unavailable():
+    settings = _Settings({"enable_tts": True, "tts_provider": "fish_audio"})
+    runtime = build_tts_runtime(settings, audio_player_factory=lambda **_: "audio-player")
+    assert runtime == TTSRuntime()

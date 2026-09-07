@@ -409,6 +409,12 @@ class SettingsDialogTtsMixin:
                 "use_speaker_boost": self.tts_elevenlabs_speaker_boost_check.isChecked(),
                 "output_format": "pcm_44100",
             },
+            "fish_audio": {
+                "api_url": self.tts_fish_api_url_edit.text().strip() or "https://api.fish.audio/v1",
+                "model": str(self.tts_fish_model_combo.currentData() or "s2.1-pro"),
+                "reference_id": self.tts_fish_reference_id_edit.text().strip(),
+                "speed": round(self.tts_fish_speed_spin.value(), 2),
+            },
             "browser_speech": {
                 "lang": self.tts_browser_lang_edit.text().strip() or "ja-JP",
                 "voice": self.tts_browser_voice_combo.currentData() or self.tts_browser_voice_combo.currentText().strip(),
@@ -423,6 +429,7 @@ class SettingsDialogTtsMixin:
             "openai_audio_speech": self.tts_openai_api_key_edit.text().strip(),
             "openai_compatible_audio_speech": self.tts_compatible_api_key_edit.text().strip(),
             "elevenlabs": self.tts_elevenlabs_api_key_edit.text().strip(),
+            "fish_audio": self.tts_fish_api_key_edit.text().strip(),
         }
 
     def _load_tts_values(self):
@@ -432,6 +439,7 @@ class SettingsDialogTtsMixin:
         openai = {**get_tts_provider_defaults("openai_audio_speech"), **configs.get("openai_audio_speech", {})}
         compatible = {**get_tts_provider_defaults("openai_compatible_audio_speech"), **configs.get("openai_compatible_audio_speech", {})}
         elevenlabs = {**get_tts_provider_defaults("elevenlabs"), **configs.get("elevenlabs", {})}
+        fish = {**get_tts_provider_defaults("fish_audio"), **configs.get("fish_audio", {})}
         browser = {**get_tts_provider_defaults("browser_speech"), **configs.get("browser_speech", {})}
 
         self.enable_tts_check.setChecked(self._original_settings.get("enable_tts", True))
@@ -512,6 +520,17 @@ class SettingsDialogTtsMixin:
         self.tts_elevenlabs_similarity_spin.setValue(float(elevenlabs.get("similarity_boost", 0.75) or 0.75))
         self.tts_elevenlabs_style_spin.setValue(float(elevenlabs.get("style", 0.0) or 0.0))
         self.tts_elevenlabs_speaker_boost_check.setChecked(bool(elevenlabs.get("use_speaker_boost", True)))
+
+        self.tts_fish_api_key_edit.setText(str(self._tts_api_keys.get("fish_audio", "")))
+        self.tts_fish_api_url_edit.setText(str(fish.get("api_url", "https://api.fish.audio/v1")))
+        fish_model = str(fish.get("model", "s2.1-pro") or "s2.1-pro")
+        fish_model_index = self.tts_fish_model_combo.findData(fish_model)
+        if fish_model_index < 0:
+            self.tts_fish_model_combo.addItem(fish_model, fish_model)
+            fish_model_index = self.tts_fish_model_combo.count() - 1
+        self.tts_fish_model_combo.setCurrentIndex(fish_model_index)
+        self.tts_fish_reference_id_edit.setText(str(fish.get("reference_id", "")))
+        self.tts_fish_speed_spin.setValue(float(fish.get("speed", 1.0) or 1.0))
 
         self.tts_browser_lang_edit.setText(str(browser.get("lang", "ja-JP")))
         self.tts_browser_voice_combo.setEditText(str(browser.get("voice", "")))

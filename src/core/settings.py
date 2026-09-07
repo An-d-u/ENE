@@ -236,6 +236,12 @@ class Settings:
                 "use_speaker_boost": True,
                 "output_format": "pcm_44100",
             },
+            "fish_audio": {
+                "api_url": "https://api.fish.audio/v1",
+                "model": "s2.1-pro",
+                "reference_id": "",
+                "speed": 1.0,
+            },
             "browser_speech": {
                 "lang": "ja-JP",
                 "voice": "",
@@ -296,6 +302,7 @@ class Settings:
             "openai_audio_speech": "",
             "openai_compatible_audio_speech": "",
             "elevenlabs": "",
+            "fish_audio": "",
         },
         "web_search_api_keys": {
             "tavily": "",

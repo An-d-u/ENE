@@ -1,7 +1,7 @@
 """
 다중 TTS 공급자 추상화 레이어.
 현재 ENE는 GPT-SoVITS HTTP, OpenAI Audio Speech,
-OpenAI Compatible Audio Speech, ElevenLabs를 지원한다.
+OpenAI Compatible Audio Speech, ElevenLabs, Fish Audio를 지원한다.
 """
 from __future__ import annotations
 
@@ -123,6 +123,18 @@ TTS_PROVIDER_CATALOG: dict[str, TTSProviderMeta] = {
             "style": 0.0,
             "use_speaker_boost": True,
             "output_format": "pcm_44100",
+        },
+    ),
+    "fish_audio": TTSProviderMeta(
+        provider="fish_audio",
+        display_name="Fish Audio",
+        description="API 키와 음성 ID를 사용하는 Fish Audio 공식 음성 합성 API",
+        requires_api_key=True,
+        default_config={
+            "api_url": "https://api.fish.audio/v1",
+            "model": "s2.1-pro",
+            "reference_id": "",
+            "speed": 1.0,
         },
     ),
     "browser_speech": TTSProviderMeta(
@@ -584,6 +596,80 @@ class ElevenLabsSpeechClient(BaseTTSClient):
         return bool(self.api_url and self.api_key and self.model and self.voice)
 
 
+class FishAudioSpeechClient(BaseTTSClient):
+    """Fish Audio 공식 API의 PCM 출력을 기존 WAV 재생 경로에 연결한다."""
+
+    def __init__(
+        self,
+        *,
+        api_url: str,
+        api_key: str,
+        model: str,
+        reference_id: str = "",
+        speed: float = 1.0,
+    ):
+        super().__init__("fish_audio")
+        self.api_url = self._normalize_base_url(api_url, "https://api.fish.audio/v1")
+        self.api_key = str(api_key or "").strip()
+        self.model = str(model or "").strip() or "s2.1-pro"
+        self.reference_id = str(reference_id or "").strip()
+        self.speed = float(speed or 1.0)
+
+    async def generate_speech(self, text: str) -> bytes:
+        normalized_text = self._normalize_tts_text(text)
+        if not normalized_text:
+            raise ValueError("합성할 텍스트를 입력하세요.")
+        if not self.api_key:
+            raise ValueError("TTS 설정에서 Fish Audio API 키를 입력하세요.")
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+            "model": self.model,
+        }
+        payload = {
+            "text": normalized_text,
+            "format": "pcm",
+            "sample_rate": 44100,
+            "prosody": {"speed": max(0.5, min(self.speed, 2.0))},
+        }
+        if self.reference_id:
+            payload["reference_id"] = self.reference_id
+        endpoint = self.api_url if self.api_url.endswith("/tts") else f"{self.api_url}/tts"
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    endpoint,
+                    json=payload,
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=60),
+                ) as response:
+                    if response.status != 200:
+                        # 서버 오류 원문에는 키나 합성 텍스트가 포함될 수 있다.
+                        message = {
+                            401: "API 키가 올바른지 확인하세요.",
+                            402: "API 크레딧 또는 선택한 모델의 이용 조건을 확인하세요.",
+                            403: "API 키와 음성 모델의 접근 권한을 확인하세요.",
+                            404: "API URL과 음성 ID 설정을 확인하세요.",
+                            422: "음성 ID와 모델 등 합성 설정을 확인하세요.",
+                            429: "요청 한도에 도달했습니다. 잠시 후 다시 시도하세요.",
+                        }.get(response.status, "서버 요청에 실패했습니다. 잠시 후 다시 시도하세요.")
+                        raise RuntimeError(f"Fish Audio 오류 ({response.status}): {message}")
+                    raw_audio = await response.read()
+        except asyncio.TimeoutError:
+            raise RuntimeError("Fish Audio 응답 대기 시간을 초과했습니다. 잠시 후 다시 시도하세요.") from None
+        except aiohttp.ClientError:
+            raise RuntimeError("Fish Audio 연결에 실패했습니다. 네트워크와 API URL을 확인하세요.") from None
+
+        if not raw_audio or len(raw_audio) % 2:
+            raise RuntimeError("Fish Audio에서 유효한 오디오를 받지 못했습니다.")
+        return self._pcm_to_wav_bytes(raw_audio, sample_rate=44100)
+
+    def is_available(self) -> bool:
+        return bool(self.api_url and self.api_key and self.model)
+
+
 class BrowserSpeechClient(BaseTTSClient):
     """웹뷰의 speechSynthesis를 사용하는 테스트용 TTS 클라이언트."""
 
@@ -696,6 +782,15 @@ def create_tts_client(provider: str, config: dict | None = None, api_key: str = 
             output_format=str(merged.get("output_format", "pcm_44100")).strip() or "pcm_44100",
         )
 
+    if normalized == "fish_audio":
+        return FishAudioSpeechClient(
+            api_url=str(merged.get("api_url", "https://api.fish.audio/v1")).strip(),
+            api_key=str(api_key or "").strip(),
+            model=str(merged.get("model", "s2.1-pro")).strip(),
+            reference_id=str(merged.get("reference_id", "")).strip(),
+            speed=float(merged.get("speed", 1.0) or 1.0),
+        )
+
     if normalized == "browser_speech":
         return BrowserSpeechClient(
             lang=str(merged.get("lang", "ja-JP")).strip() or "ja-JP",
@@ -711,4 +806,3 @@ def create_tts_client(provider: str, config: dict | None = None, api_key: str = 
 
 # 하위 호환성을 위해 기존 이름을 유지한다.
 TTSClient = GPTSoVITSHTTPClient
-

@@ -115,8 +115,6 @@ def build_tts_tab(dialog):
             key="settings.tts.playback.hint",
         )
     )
-    layout.addWidget(playback_group)
-
     self._tts_provider_pages = {}
     self.tts_provider_stack = QStackedWidget()
 
@@ -624,6 +622,70 @@ def build_tts_tab(dialog):
     self.tts_provider_stack.addWidget(elevenlabs_page)
     self._tts_provider_pages["elevenlabs"] = elevenlabs_page
 
+    fish_page = QWidget()
+    fish_layout = QVBoxLayout(fish_page)
+    fish_layout.setSpacing(12)
+    fish_layout.setContentsMargins(0, 0, 0, 0)
+
+    fish_connection_group = QGroupBox("Fish Audio 연결")
+    self._bind_group_title(fish_connection_group, "settings.tts.fish.connection.title", "Fish Audio 연결")
+    fish_connection_form = QFormLayout(fish_connection_group)
+    fish_connection_form.setSpacing(8)
+    fish_connection_form.setContentsMargins(10, 15, 10, 10)
+    self.tts_fish_api_key_edit = QLineEdit()
+    self._bind_placeholder(self.tts_fish_api_key_edit, "settings.tts.fish.connection.api_key.placeholder", "Fish Audio API 키 입력")
+    self.tts_fish_api_key_edit.textChanged.connect(self._on_setting_changed)
+    self._add_form_row(
+        fish_connection_form,
+        "settings.tts.fish.connection.api_key.label",
+        "API 키:",
+        self._build_secret_row(
+            self.tts_fish_api_key_edit,
+            lambda: self._toggle_secret_field(self.tts_fish_api_key_edit, self.tts_fish_api_key_toggle_button),
+            "tts_fish_api_key_toggle_button",
+        ),
+    )
+    self.tts_fish_api_url_edit = QLineEdit()
+    self._bind_placeholder(self.tts_fish_api_url_edit, "settings.tts.fish.connection.api_url.placeholder", "https://api.fish.audio/v1")
+    self.tts_fish_api_url_edit.textChanged.connect(self._on_setting_changed)
+    self._add_form_row(fish_connection_form, "settings.tts.fish.connection.api_url.label", "API URL:", self.tts_fish_api_url_edit)
+    fish_connection_form.addRow(self._build_hint_label(
+        "Fish Audio에서 발급받은 API 키를 입력하세요. 키는 다른 설정과 분리해 저장됩니다.",
+        key="settings.tts.fish.connection.hint",
+    ))
+    fish_layout.addWidget(fish_connection_group)
+
+    fish_voice_group = QGroupBox("모델과 음성")
+    self._bind_group_title(fish_voice_group, "settings.tts.fish.voice.title", "모델과 음성")
+    fish_voice_form = QFormLayout(fish_voice_group)
+    fish_voice_form.setSpacing(8)
+    fish_voice_form.setContentsMargins(10, 15, 10, 10)
+    self.tts_fish_model_combo = QComboBox()
+    for model_name in ("s2.1-pro", "s2.1-pro-free", "s2-pro", "s1"):
+        self.tts_fish_model_combo.addItem(model_name, model_name)
+    self.tts_fish_model_combo.currentIndexChanged.connect(self._on_setting_changed)
+    self._add_form_row(fish_voice_form, "settings.tts.fish.voice.model", "모델:", self.tts_fish_model_combo)
+    self.tts_fish_reference_id_edit = QLineEdit()
+    self._bind_placeholder(self.tts_fish_reference_id_edit, "settings.tts.fish.voice.reference_id.placeholder", "음성 ID (선택 사항)")
+    self.tts_fish_reference_id_edit.textChanged.connect(self._on_setting_changed)
+    self._add_form_row(fish_voice_form, "settings.tts.fish.voice.reference_id.label", "음성 ID:", self.tts_fish_reference_id_edit)
+    self.tts_fish_speed_spin = QDoubleSpinBox()
+    self.tts_fish_speed_spin.setRange(0.5, 2.0)
+    self.tts_fish_speed_spin.setSingleStep(0.05)
+    self.tts_fish_speed_spin.setDecimals(2)
+    self.tts_fish_speed_spin.setValue(1.0)
+    self.tts_fish_speed_spin.valueChanged.connect(self._on_setting_changed)
+    self._add_form_row(fish_voice_form, "settings.tts.fish.voice.speed", "속도:", self.tts_fish_speed_spin)
+    fish_voice_form.addRow(self._build_hint_label(
+        "원하는 목소리를 쓰려면 Fish Audio 음성 페이지에서 ID를 복사하세요. 비워 두면 기본 음성을 사용합니다. "
+        "s2.1-pro-free는 무료 개발자용 모델이며, 다른 모델은 API 크레딧이 필요할 수 있습니다. 이용 조건은 Fish Audio에서 확인하세요.",
+        key="settings.tts.fish.voice.hint",
+    ))
+    fish_layout.addWidget(fish_voice_group)
+    fish_layout.addStretch()
+    self.tts_provider_stack.addWidget(fish_page)
+    self._tts_provider_pages["fish_audio"] = fish_page
+
     browser_page = QWidget()
     browser_layout = QVBoxLayout(browser_page)
     browser_layout.setSpacing(12)
@@ -705,8 +767,8 @@ def build_tts_tab(dialog):
     self._tts_provider_pages["browser_speech"] = browser_page
 
     layout.addWidget(self.tts_provider_stack)
+    layout.addWidget(playback_group)
 
     layout.addStretch()
     scroll.setWidget(widget)
     return scroll
-
