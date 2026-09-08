@@ -2,7 +2,7 @@
 
 > **실행 에이전트 지침:** `@superpowers:executing-plans`로 체크박스 순서대로 직접 구현한다. 독립 작업의 병렬화는 사용자 실행 규칙을 만족할 때만 `@superpowers:subagent-driven-development`로 전환한다. 기본값은 순차 직접 구현이며 작업마다 별도 리뷰 에이전트를 만들지 않는다.
 
-**목표:** 실행 중인 PC ENE와 Android 한 대가 개인 LAN에서 안전한 수락·중복 방지 규칙으로 현재 대화 전체를 공유하는 텍스트 앱을 만든다.
+**목표:** 실행 중인 PC ENE와 Android 한 대가 개인 LAN에서 HTTPS/WSS 및 안전한 수락·중복 방지 규칙으로 현재 대화 전체를 공유하는 텍스트 앱을 만든다.
 
 **아키텍처:** PC Qt 메인 스레드가 표시용 대화 기록·요청 원장·AI 작업 상태를 소유한다. 별도 aiohttp 루프의 게이트웨이는 인증된 불변 요청을 Qt로 전달하며, Android Kotlin/Compose 앱은 전체 스냅샷과 순서 있는 변경을 메모리에서 적용한다. PC와 APK는 독립 저장소이며 기본 텍스트 계약을 고정하고 향후 표현 기능은 별도로 협상한다.
 
@@ -10,13 +10,15 @@
 
 ---
 
+> **2026-09-08 전송 보안 변경:** 사용자가 HTTPS/WSS 전환 방향을 선택했다. [TLS 전환 부속 명세](../specs/2026-09-08-ene-companion-tls-design.md)의 문서 검토와 상세 TLS 선행 계획을 마친 뒤 Task 5/6을 재개한다. 아래의 기존 완료 기록은 평문 개발 기반에 대한 결과이며 TLS 검증 완료가 아니다. 평문 허용 승인을 기다리거나 해당 설정을 적용하는 경로는 폐기했다. 아직 코드·두 저장소의 계약 사본·APK는 TLS로 전환하지 않았다.
+
 ## 1. 기준과 실행 원칙
 
 - 승인 명세: [2026-09-07 설계](../specs/2026-09-07-ene-companion-lan-v1-design.md). 과거 모바일 원격 APK 명세와 실패한 작업 브랜치는 구현 원본으로 사용하지 않는다.
 - 코드 확인 기준: `b80cef1e` — Fish Audio TTS 추가를 포함한다. 계획 시작 시 작업 트리는 깨끗했다. 실제 구현 시작 때 이후 변경과 충돌 여부를 다시 확인한다.
 - 이 파일은 실행 상태를 함께 기록하는 계획이다. 체크하지 않은 테스트·빌드·실기기 시험은 완료하지 않았다. 문서 검토 승인은 앱 동작 검증을 의미하지 않는다.
 - 이 문서의 `ENE/`는 PC 저장소의 실행 작업 트리, `ENE_APP/`는 사용자가 지정한 독립 Android 저장소를 뜻한다. 실제 개인 경로·주소·단말 식별자를 문서에 기록하지 않는다.
-- Android 폴더는 현재 비어 있고 Git 저장소가 아니다. 기존 쓰기 허용 범위 밖이므로 파일 생성 전에 도구의 권한 승인 절차를 사용한다. PC 폴더 안으로 옮겨 우회하지 않는다.
+- 계획 시작 시 비어 있던 Android 폴더는 Task 0/1에서 독립 저장소와 빌드 기반을 만들었다. 기본 쓰기 허용 범위 밖의 파일 작업은 도구의 권한 승인 절차를 사용하며 PC 폴더 안으로 옮겨 우회하지 않는다.
 - PC 내부 기능 변경은 텍스트 계약을 유지하면 구버전 앱이 활용한다. 음성·Live2D·쓰다듬기·모바일 설정·외부 접속·Tailscale·알림·첨부 업로드는 이 계획에서 구현하지 않는다.
 - 일반 작업은 집중 테스트만 한다. 핵심 대화 통합, 전체 연결 통합, 최종 인수에서 전체 테스트와 통합 리뷰를 한다. 단계별 새 테스트는 실패 확인 후 구현하고 같은 명령으로 통과를 확인한다. `@superpowers:test-driven-development`, 완료·커밋 전 `@superpowers:verification-before-completion`을 적용한다.
 - 체크박스는 한 번에 하나씩 처리한다. 긴 구현 항목은 아래에 명시된 테스트 사례별로 나누어 실패→최소 구현→통과를 반복한다. 실패를 건너뛰거나 검증 없이 다음 체크포인트로 이동하지 않는다.
@@ -38,7 +40,7 @@
 | Compose | BOM 2025.12.00, Material3·UI·UI tooling·UI test를 동일 BOM으로 관리 |
 | AndroidX | Activity Compose 1.11.0, Lifecycle runtime-compose·viewmodel-compose·process 2.9.4 |
 | 비동기·직렬화 | Coroutines Android·test 1.10.2, Serialization JSON 1.9.0 |
-| HTTP/WS | OkHttp·MockWebServer3 5.3.2, HTTP 로깅 인터셉터 없음 |
+| HTTPS/WSS | OkHttp·MockWebServer3 5.3.2, HTTP 로깅 인터셉터 없음. TLS 인증서 생성·시험 의존성은 부속 명세 검토 후 별도 선행 계획에서 확정 |
 | QR 카메라 | CameraX camera-camera2·camera-lifecycle·camera-view 1.5.3, ML Kit barcode-scanning 17.3.0 번들형 |
 | 테스트 | JUnit 4.13.2, AndroidX test runner 1.6.2·ext junit 1.2.1·core 1.6.1, Compose ui-test-junit4 |
 
@@ -122,11 +124,12 @@ PC 테스트 신규 파일은 각 Task에 명시한다. 기존 테스트를 무�
 
 | 항목 | 값 |
 | --- | --- |
+| 전송 | TLS 1.2 이상 HTTPS/WSS 전용, QR CA 기반 PC 신원과 기본 서버 이름 검증, 평문 자동 전환 없음 |
 | PC 정보 | `GET /companion/v1/info`, 인증 없이 `server_id`, `protocol_versions:[1]`만 제공, cache 금지 |
 | 페어링 | `GET /companion/v1/pair` WebSocket. 첫 `pair_request` 본문에 QR 암호. 일반 대화 접근 없음 |
 | 일반 연결 | `GET /companion/v1/ws` WebSocket, `Authorization: Bearer` 헤더. 성공 후 hello 교환 전 채팅 금지 |
 | 거절 | 등록·명령 HTTP 경로를 더 만들지 않음. Origin 헤더가 있는 브라우저 요청은 거절, CORS 미개방 |
-| QR | `protocol_version`, `server_id`, `pairing_id`, `expires_at`(UTC RFC3339), `secret`(난수 32바이트 base64url), `addresses:[{host,port}]`. 최대 2 KiB, 주소 최대 8개 |
+| QR | `protocol_version`, `server_id`, `pairing_id`, `expires_at`(UTC RFC3339), `secret`(난수 32바이트 base64url), `addresses:[{host,port}]`와 필수 `transport:"tls_v1"`, `ca_certificate`(공개 CA DER의 base64). 최대 2 KiB, CA DER 768바이트, 주소 최대 8개. 현재 코드·계약에는 TLS 필드 미반영 |
 | 연결 제한 | 주소당 연결/정보 조회 3초, 최초 hello/페어링 메시지 5초, QR 120초, 정상 WS 종료 유예 2초 |
 | 생존 확인 | 양쪽 앱 수준 `ping` 15초, 대응 `pong` 10초. nonce와 현재 연결 세대로 검증, 단조 시계 |
 | 수신 크기 | 일반 JSON 최대 64 KiB, 인증 전 첫 본문 최대 8 KiB, 입력 텍스트 UTF-8 최대 16 KiB |
@@ -140,7 +143,7 @@ PC 테스트 신규 파일은 각 Task에 명시한다. 기존 테스트를 무�
 
 64 KiB는 양쪽의 애플리케이션 메시지 한도다. PC는 aiohttp 수신 한도를 적용하고 송신 전에도 검사한다. Android는 callback에서 검사 후 한도가 있는 처리 대기열로 전달한다. 다만 OkHttp 5.3.2는 메시지 전체를 버퍼링한 뒤 callback하므로 이 검사만으로 악의적인 서버의 초대형 메시지에 대한 수신 전 메모리 상한을 보장하지 않는다([해당 버전 구현](https://raw.githubusercontent.com/square/okhttp/parent-5.3.2/okhttp/src/commonJvmAndroid/kotlin/okhttp3/internal/ws/WebSocketReader.kt)). V1의 신뢰하는 PC·개인 LAN 범위와 이 잔여 한계를 안내하며, 자체 WebSocket 구현을 추가하지 않는다.
 
-주소 편집은 호스트와 1~65535 포트만 허용한다. scheme·userinfo·path·query 입력은 거절한다. IPv4 바인딩을 유지하고 IPv6 전용 대상은 미지원 안내를 낸다. 인증정보를 보낼 때 HTTP 리다이렉트·시스템 프록시·자동 자격증명 공급자를 사용하지 않는다. 후보마다 `/info`의 PC 식별자가 일치해야 토큰을 보내며, 불일치 대상에는 토큰을 보내지 않고 다음 후보 또는 재등록 안내로 진행한다. 이 절차는 평문 환경의 암호학적 서버 인증은 아니다.
+주소 편집은 호스트와 1~65535 포트만 허용한다. scheme·userinfo·path·query 입력은 거절한다. IPv4 바인딩을 유지하고 IPv6 전용 대상은 미지원 안내를 낸다. 인증정보를 보낼 때 리다이렉트·시스템 프록시·자동 자격증명 공급자를 사용하지 않는다. TLS 전환 후에는 고정 서버 이름과 실제 접속 주소를 분리하고 QR/보관된 CA로 `/info`부터 신원을 검증한다. `/info`의 PC 식별자 확인 외에도 실제 페어링·일반 WSS 연결마다 TLS 체인·서버 이름 검증이 필요하며, 검증 이전에는 QR 비밀값·토큰을 전송하지 않는다. 단순 ID 비교만으로 이를 대체하지 않는다.
 
 ### 4.2 메시지 표
 
@@ -297,6 +300,12 @@ def test_gateway_recreation_does_not_reexecute_reserved_request():
 
 **생성:** Android §3의 `connection/`, `pairing/`, `storage/`, `ui/ConnectionScreen.kt`, `ui/EneApp.kt`, `ui/Theme.kt`, 세 XML 정책 파일; 단위 테스트 `ConnectionRepositoryTest.kt`, `PairingQrTest.kt`, `HeartbeatTest.kt`; 계측 테스트 `TokenStoreTest.kt`, `PairingPermissionTest.kt`.
 
+진행 기록(미완료): `ENE_APP/`에 QR·주소 검증, 단조 생존 확인/재시도 간격, 실제 OkHttp 전송과 상한 있는 수신 큐, Keystore AES-GCM 보관, 주소 별도 보관 및 백업 제외 정책을 작성했다. 추가 집중 파일 `EndpointResolverTest.kt`, `CompanionSocketTest.kt`, `StoragePolicyTest.kt`를 사용한다. 정상 WS close가 최종 승인 프레임을 지우는 문제를 실패 시험으로 재현하고 정상 종료의 잔여 프레임 소비와 오류 종료의 폐기를 구분했다. 구현된 범위의 선택 단위 시험 **31개 통과**, 엄격 잠금/해시 검증 오프라인 debug 빌드 성공, Keystore 계측 코드 컴파일 성공. Keystore 실기기 실행은 하지 않았으며 앱 화면·연결 Repository·카메라 분석·전경 수명은 아직 작성하지 않았다. 현재 APK는 개발 기반 화면이며 사용 가능한 동반 앱 완성본이 아니다.
+
+변경 이력: 자동 권한 검토가 Manifest의 앱 전체 평문 HTTP/WS 허용 및 `network_security_config.xml` 추가를 거절했고 해당 변경은 적용되지 않았다. 이후 사용자가 HTTPS/WSS 방향을 선택했으므로 평문 허용 승인을 요청하는 경로는 종료한다. 당시 미충족이었던 `StoragePolicyTest.manifestDisablesBackupAndDeclaresLanAndCameraPolicy`는 선택 집중 검사에서 제외했던 이력을 유지한다. TLS 선행 구현에서 이 테스트를 평문 차단·카메라·백업 정책 검증으로 수정한 뒤 제외 없이 다시 실행해야 한다. 기존 Keystore 보관·백업 제외 작업은 유지하되 CA와 토큰의 원자적 묶음 저장을 추가한다. Android 변경은 아직 Task 5 완료 커밋을 만들지 않았다.
+
+선행 조건: TLS 부속 명세의 문서 검토 이후 PC 신원 보관·QR 계약·TLS 리스너·Android 전용 신뢰/주소 매핑·보관 이행의 상세 실패 테스트와 파일별 작업을 별도 계획으로 고정한다. 해당 선행 단계가 검증되기 전에 아래 일반 연결 구현이나 실제 단말 인수를 TLS 완료로 처리하지 않는다.
+
 - [ ] 단위 테스트부터 작성한다. 가상 socket/clock으로 후보 1 실패→후보 2 성공, 다른 server_id에 토큰 미전달, 미지 401/명확한 인증 폐기 구분, QR 오류·만료, 연결 시도 하나, 세대가 지난 callback 무시, heartbeat 15/10초·backoff 1/2/4/8/16/30초+jitter를 검증한다.
 - [ ] `.\gradlew.bat :app:testDebugUnitTest --tests "dev.ene.companion.ConnectionRepositoryTest" --tests "dev.ene.companion.PairingQrTest" --tests "dev.ene.companion.HeartbeatTest"`로 실패를 확인한다.
 - [ ] `ConnectionRepository`를 application 수명 객체로 생성하고 전경 상태에 따라 연결을 유지한다. 화면 회전은 재접속하지 않고 실제 백그라운드→전경 복귀는 새 세대로 인증·전체 sync 한다. OkHttp callback은 단일 coroutine 처리 경로로 보내 상태를 변경한다. 실패 시 socket을 cancel하고 app 단위 재시도만 수행한다. 다음 설정을 적용한다.
@@ -312,10 +321,10 @@ val client = okhttp3.OkHttpClient.Builder()
 ```
 
 - [ ] callback 메시지는 크기 검사 뒤 최대 256개/4 MiB의 대기열에 넣으며, 가득 차면 무제한 coroutine을 만들거나 내용을 조용히 버리지 않고 연결을 닫아 전체 재동기화한다. 스냅샷 조립은 하나만 유지하고 구연결·구스냅샷 부분은 폐기한다. 과속 서버·불완전 snapshot·교체 중 늦은 부분 도착 테스트에서 작업/버퍼 누적이 없음을 확인한다. callback 전 OkHttp 내부 버퍼까지 이 한도로 제한했다고 주장하지 않는다.
-- [ ] Keystore AES/GCM/NoPadding 키로 토큰을 암호화해 앱 전용 `noBackupFilesDir`에 nonce와 암호문만 원자적으로 저장한다. `TokenStore`는 키 손실·복호화 실패 시 재등록 결과를 반환한다. 주소 목록·PC ID만 별도 보관한다. Manifest backup 비활성화와 두 OS 세대의 backup/data extraction 제외 규칙을 모두 설정한다. transcript/초안/QR/token을 Bundle·SavedStateHandle·로그로 보내지 않는다.
+- [ ] Keystore AES/GCM/NoPadding 키로 토큰·그 등록의 PC ID·CA·전송 프로필을 함께 암호화해 앱 전용 `noBackupFilesDir`에 원자적으로 저장한다. `TokenStore`는 키 손실·복호화 실패·TLS 신뢰 정보 없는 구형 등록에서 재등록 결과를 반환한다. 주소 목록·PC ID만 별도 보관한다. Manifest backup 비활성화와 두 OS 세대의 backup/data extraction 제외 규칙을 모두 설정한다. transcript/초안/QR/token을 Bundle·SavedStateHandle·로그로 보내지 않는다.
 - [ ] CameraX Preview+ImageAnalysis와 번들형 ML Kit의 QR 형식만 사용한다. ImageProxy는 성공/실패 모두 닫고, 최초 유효 결과 후 analyzer를 멈춘다. 카메라 이미지를 파일로 저장하지 않는다. 권한 거절은 설명·재시도 버튼으로 처리한다. QR 결과는 ViewModel/Repository 메모리로 직접 전달한다. 임의 웹페이지를 열지 않는다.
 - [ ] 조기 연결 시험을 위해 ConnectionScreen에 최소 텍스트 입력·전송·메시지 목록을 붙인다. Repository의 `send_text`와 SnapshotAssembler를 그대로 사용하고 UI만 Task 11에서 ChatScreen으로 옮긴다. 별도의 임시 통신 규격이나 자동 페어링 경로를 만들지 않는다.
-- [ ] `network_security_config.xml`에서 V1 cleartext를 명시 허용하고 연결/등록 화면에 승인된 평문 전송 제한을 표시한다. 위 단위 테스트를 통과시킨 뒤 `.\gradlew.bat :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=dev.ene.companion.TokenStoreTest,dev.ene.companion.PairingPermissionTest`로 단말 보관·권한 시험을 수행한다. 단말이 없으면 미검증으로 기록한다. `feat: QR 등록과 전경 재연결 구현`으로 커밋한다.
+- [ ] `network_security_config.xml`과 Manifest에서 V1 cleartext를 명시 차단하고 연결/등록 화면에 PC 신원 확인·TLS 오류·재등록 안내를 표시한다. TLS 선행 검증과 위 단위 테스트를 통과시킨 뒤 `.\gradlew.bat :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=dev.ene.companion.TokenStoreTest,dev.ene.companion.PairingPermissionTest`로 단말 보관·권한 시험을 수행한다. 단말이 없으면 미검증으로 기록한다. `feat: QR 등록과 전경 재연결 구현`으로 커밋한다.
 
 ## 11. Task 6 — 조기 실제 휴대폰 연결 체크포인트
 
@@ -323,7 +332,7 @@ val client = okhttp3.OkHttpClient.Builder()
 
 - [ ] Android에서 `.\gradlew.bat :app:assembleDebug`를 실행한다. 개발 APK임을 표시하고 사용자 단말 선택·설치 동의를 확인한다. 단말 하나를 명확히 선택한 뒤 `adb devices -l`, `adb install -r app/build/outputs/apk/debug/app-debug.apk`로 설치한다. 실제 단말 serial은 문서/커밋에 넣지 않는다.
 - [ ] PC에서 `python -m tools.companion_smoke`를 실행하고 사용자 Android가 PC와 같은 개인 LAN인지 확인한다. PC 유선도 허용한다. 방화벽이 막으면 사용자에게 개인 프로필·해당 실행 파일/포트·로컬 서브넷 범위의 설정만 안내한다. 여기서 전체 방화벽 해제나 Tailscale 설치를 하지 않는다.
-- [ ] QR 스캔→PC 승인→가상 메시지 왕복→앱 전경 복귀→현재 전체 재동기화를 확인한다. 임시 채팅 입력/표시는 Task 5의 연결 화면에서 최소 TextField·목록으로 제공하며 실제 ENE·개인 데이터는 쓰지 않는다. 승인 거절·QR 만료·두 번째 주소 후보·카메라 거절 후 복구도 확인한다.
+- [ ] HTTPS/WSS에서 QR 스캔→PC 승인→가상 메시지 왕복→앱 전경 복귀→현재 전체 재동기화를 확인한다. 임시 채팅 입력/표시는 Task 5의 연결 화면에서 최소 TextField·목록으로 제공하며 실제 ENE·개인 데이터는 쓰지 않는다. 잘못된 인증서 거절·승인 거절·QR 만료·두 번째 주소 후보·카메라 거절 후 복구도 확인한다.
 - [ ] 실제 결과를 기기 OS/API·앱 버전·두 저장소 커밋·성공/실패/미검증으로 기록한다. 조기 연결이 막혔으면 이 체크포인트를 성공 처리하지 않는다. 단말 접근이 없으면 진행 가능한 단위 작업과 실기기 검증 일정을 사용자와 정한 뒤 실제 ENE 통합을 확대한다.
 - [ ] 가상 응답 계수와 화면 기록이 왕복당 한 번 증가함을 확인한다. 이 시험은 실제 AI/TTS/기억 통합의 증거가 아니다. 개인정보 없이 결과 문서만 `docs: 초기 LAN 실기기 연결 결과 기록`으로 해당 저장소에 커밋한다.
 
@@ -421,7 +430,7 @@ def classify_existing_request(ledger, key, body_hash):
 **수정:** 두 계약 사본, 각 구현 파일 중 실패를 재현한 경계만; PC `docs/companion-lan-v1-acceptance.md`.
 
 - [ ] 실제 socket/Qt adapter와 가상 worker로 통합 실패 테스트를 만든다. 수락 직후 ACK 유실, 생활 기록 준비 중 끊김, gateway 재생성, snapshot 중 reset/편집, 초기화 직전 Qt 큐에 있던 send, 등록 교체 장벽, 길이·속도 제한을 자동 검증한다. 테스트 제어점은 테스트 adapter/주입 clock에 두고 production 원격 명령으로 노출하지 않는다.
-- [ ] PC `python -m pytest tests/test_companion_end_to_end.py tests/test_companion_compatibility.py -q`, Android `.\gradlew.bat :app:testDebugUnitTest --tests "dev.ene.companion.CompanionInteropTest"`로 실패를 확인한다. Android 단위 시험은 MockWebServer3와 동일 계약 사례로 실제 HTTP/WS 클라이언트를 구동하고 인증 헤더·호환 이벤트·재시도를 검증한다. 이는 실제 PC와의 통합 성공을 대신하지 않는다. PC↔APK 실제 왕복은 Task 6과 최종 실기기 인수에서 별도로 확인한다. 테스트 서버는 fixture 종료 시 닫고 포트·종료 timeout을 둔다.
+- [ ] PC `python -m pytest tests/test_companion_end_to_end.py tests/test_companion_compatibility.py -q`, Android `.\gradlew.bat :app:testDebugUnitTest --tests "dev.ene.companion.CompanionInteropTest"`로 실패를 확인한다. Android 단위 시험은 MockWebServer3와 동일 계약 사례로 실제 HTTPS/WSS 클라이언트를 구동하고 TLS 검증·인증 헤더·호환 이벤트·재시도를 검증한다. 이는 실제 PC와의 통합 성공을 대신하지 않는다. PC↔APK 실제 왕복은 Task 6과 최종 실기기 인수에서 별도로 확인한다. 테스트 서버는 fixture 종료 시 닫고 포트·종료 timeout을 둔다.
 - [ ] `companion_fault_proxy.py`는 지정한 PC 로컬 gateway 한 곳에만 전달하는 테스트 TCP 프록시로 만든다. outbound/inbound/both 방향을 로컬 제어로 드롭하고 소켓은 열어 둔다. 원격 제어 API나 임의 목적지 open proxy 기능을 만들지 않는다. 인증정보·payload를 출력하거나 기록하지 않는다. 실기기에서는 QR 주소 후보를 테스트 adapter의 프록시 endpoint로 만드는 별도 개발 설정만 사용한다.
 - [ ] 가상 시계에서 정확한 15/10초를, 실제 전경 단말에서 약 25초 내 재연결 표시를 확인한다. 큰 snapshot 수신 중 heartbeat가 굶지 않아야 한다. API36 기본 권한 조합과 실제 단말의 권한 거절/복구를 검증한다. 타깃을 시험 없이 37로 바꾸지 않는다.
 - [ ] 기본 `capabilities` 누락/빈 목록을 보내는 고정 V1 client로 인증·전체 기록·전송을 확인한다. 선택 필드 추가는 수용하고 잘못된 필수 필드/미지원 버전은 거절한다. 확장 이벤트 미전송과 대화 event_seq 연속성을 확인한다. 양쪽 계약 파일 SHA-256을 비교하고 각각의 계약 테스트를 통과시킨다.
@@ -437,7 +446,7 @@ def classify_existing_request(ledger, key, body_hash):
 - [ ] 실제 ENE 시험 전에 소스 작업 트리의 `main.py` 절대 경로를 확인하고, `New-Item -ItemType Directory`로 고유한 빈 임시 시험 폴더를 만든다. 자식 프로세스의 cwd와 `ENE_USER_DATA_DIR`를 모두 그 폴더로 설정한 다음 확인한 절대 경로의 `main.py`를 실행한다. 환경 변수는 Python import 전에 적용하고 부모 환경을 바꿨으면 종료 시 원래 값으로 복구한다. `Settings._migrate_legacy_embedding_key_file`이 cwd의 옛 키 파일을 읽고 삭제할 수 있으므로 데이터 환경 변수만 바꾸고 개인 작업 폴더에서 실행하지 않는다. 기존 config/키/기억/프로필/개인 프롬프트를 복사하지 않는다. 시험용 provider는 사용자 동의로 별도 설정하고 시험 폴더 정리는 정확한 경로·내용 확인 후 별도 처리한다.
 - [ ] 최종 release APK를 실제 Android에 설치하여 승인 명세 §11의 모든 필수 시나리오를 수행한다. fake 기반 검증과 실제 ENE 통합 결과를 별도 열로 기록한다. 실제 AI가 필요한 시험은 사용자 승인한 가상 대화·격리된 실행 데이터만 사용하며 외부 API 사용 비용을 알린다. 기존 개인 기억·대화로 테스트하지 않는다. 실제 단말이 없거나 시나리오가 남으면 해당 항목은 미검증이며 전체 완료가 아니다.
 - [ ] 동일 보관 정책의 debug 테스트 앱에서 가상 canary 문장·토큰을 사용한 뒤 process kill 후 `run-as`로 앱 전용 파일/캐시·로그를 검사한다. non-debuggable release에는 `run-as`를 요구하거나 debuggable을 켜지 않고 APK Analyzer와 패키징 검사를 별도로 적용한다. 실제 사용자 앱 데이터나 전체 logcat을 수집하지 않는다. APK에 제공자 키·설정·프롬프트·모델·개인 대화가 없는지 확인하고 decoder/QR 이미지가 남지 않는지도 검사한다.
-- [ ] 최종 PC 전체 테스트·Android 단위/lint/build·실기기 결과와 두 저장소 커밋·지원 프로토콜·APK SHA-256을 인수 문서에 기록한다. 설치 안내에는 PC 켜짐 필요, 개인 LAN, 수동 주소 수정, 제한된 방화벽 안내, QR 재등록, 프로세스 종료 시 초안 소실, 평문 전송 한계, 구버전 호환을 포함한다. 성공한 테스트 수를 추측하지 않는다.
+- [ ] 최종 PC 전체 테스트·Android 단위/lint/build·실기기 결과와 두 저장소 커밋·지원 프로토콜·APK SHA-256을 인수 문서에 기록한다. 설치 안내에는 PC 켜짐 필요, 개인 LAN, 수동 주소 수정, 제한된 방화벽 안내, QR 재등록, 프로세스 종료 시 초안 소실, TLS 신원·인증서 갱신/초기화·키 보호의 한계, `tls_v1` 이후 구버전 호환을 포함한다. 성공한 테스트 수를 추측하지 않는다.
 - [ ] 두 저장소에서 `git diff --check`, 변경 파일 목록·개인정보 후보·API 키 패턴 검사를 하고 해당 소스/문서만 커밋한다. 빌드/로그/스크린샷/키/실행 데이터는 stage하지 않는다. 최종 통합은 `@superpowers:finishing-a-development-branch`에 따라 사용자에게 인계한다. GitHub 저장소 생성·push·태그·Release asset 업로드는 별도 승인 대상이며, 태그/Release 전에는 전체 히스토리와 asset 개인정보 검사도 수행한다.
 
 ## 19. 공통 커밋·검증 명령 규칙
