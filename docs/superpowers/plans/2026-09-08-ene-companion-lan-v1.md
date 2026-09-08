@@ -10,7 +10,7 @@
 
 ---
 
-> **2026-09-08 전송 보안 변경:** 사용자가 HTTPS/WSS 전환 방향을 선택했다. [TLS 전환 부속 명세](../specs/2026-09-08-ene-companion-tls-design.md)의 문서 검토와 상세 TLS 선행 계획을 마친 뒤 Task 5/6을 재개한다. 아래의 기존 완료 기록은 평문 개발 기반에 대한 결과이며 TLS 검증 완료가 아니다. 평문 허용 승인을 기다리거나 해당 설정을 적용하는 경로는 폐기했다. 아직 코드·두 저장소의 계약 사본·APK는 TLS로 전환하지 않았다.
+> **2026-09-08 전송 보안 변경:** HTTPS/WSS 선행 구현과 자동 검증을 마쳤다. [TLS 검증 기록](../../companion-tls-validation.md) 및 [상세 TLS 계획](2026-09-08-ene-companion-tls.md)에 PC 전체 3,478개·Android 60개 시험과 미검증 단말 경계를 기록했다. 두 계약 사본과 전송/등록 코드는 TLS 필수다. 아래 Task 0~4의 과거 실행 기록은 당시 개발 단계의 결과로 유지하며 Task 5 연결 Repository·카메라·화면부터 재개한다. 전체 동반 앱과 실제 ENE 통합은 아직 미완료다. 평문 허용·자동 fallback 경로는 없다.
 
 ## 1. 기준과 실행 원칙
 
@@ -304,20 +304,15 @@ def test_gateway_recreation_does_not_reexecute_reserved_request():
 
 변경 이력: 자동 권한 검토가 Manifest의 앱 전체 평문 HTTP/WS 허용 및 `network_security_config.xml` 추가를 거절했고 해당 변경은 적용되지 않았다. 이후 사용자가 HTTPS/WSS 방향을 선택했으므로 평문 허용 승인을 요청하는 경로는 종료한다. 당시 미충족이었던 `StoragePolicyTest.manifestDisablesBackupAndDeclaresLanAndCameraPolicy`는 선택 집중 검사에서 제외했던 이력을 유지한다. TLS 선행 구현에서 이 테스트를 평문 차단·카메라·백업 정책 검증으로 수정한 뒤 제외 없이 다시 실행해야 한다. 기존 Keystore 보관·백업 제외 작업은 유지하되 CA와 토큰의 원자적 묶음 저장을 추가한다. Android 변경은 아직 Task 5 완료 커밋을 만들지 않았다.
 
-선행 조건: TLS 부속 명세의 문서 검토 이후 PC 신원 보관·QR 계약·TLS 리스너·Android 전용 신뢰/주소 매핑·보관 이행의 상세 실패 테스트와 파일별 작업을 별도 계획으로 고정한다. 해당 선행 단계가 검증되기 전에 아래 일반 연결 구현이나 실제 단말 인수를 TLS 완료로 처리하지 않는다.
+TLS 선행 결과: PC 신원 보관·갱신/복구·QR·TLS 리스너와 Android 전용 신뢰/주소 매핑·등록 보관·평문 차단을 구현했다. 기존 미충족 StoragePolicyTest를 포함해 Android 전체 단위 시험 60개와 Lint/debug/계측 컴파일이 통과했다. 실제 Keystore 기기 실행은 하지 않았다. 아래 일반 연결 구현에는 이 전송을 그대로 사용하며 신뢰 없는 별도 OkHttp 클라이언트를 만들지 않는다. 과거의 선택 시험 제외 이력은 위에 보존한다.
 
 - [ ] 단위 테스트부터 작성한다. 가상 socket/clock으로 후보 1 실패→후보 2 성공, 다른 server_id에 토큰 미전달, 미지 401/명확한 인증 폐기 구분, QR 오류·만료, 연결 시도 하나, 세대가 지난 callback 무시, heartbeat 15/10초·backoff 1/2/4/8/16/30초+jitter를 검증한다.
 - [ ] `.\gradlew.bat :app:testDebugUnitTest --tests "dev.ene.companion.ConnectionRepositoryTest" --tests "dev.ene.companion.PairingQrTest" --tests "dev.ene.companion.HeartbeatTest"`로 실패를 확인한다.
 - [ ] `ConnectionRepository`를 application 수명 객체로 생성하고 전경 상태에 따라 연결을 유지한다. 화면 회전은 재접속하지 않고 실제 백그라운드→전경 복귀는 새 세대로 인증·전체 sync 한다. OkHttp callback은 단일 coroutine 처리 경로로 보내 상태를 변경한다. 실패 시 socket을 cancel하고 app 단위 재시도만 수행한다. 다음 설정을 적용한다.
 
 ```kotlin
-val client = okhttp3.OkHttpClient.Builder()
-    .followRedirects(false)
-    .followSslRedirects(false)
-    .retryOnConnectionFailure(false)
-    .proxy(java.net.Proxy.NO_PROXY)
-    .connectTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
-    .build()
+val trust = credentials.trustedServer()
+val transport = OkHttpTransport(trust)
 ```
 
 - [ ] callback 메시지는 크기 검사 뒤 최대 256개/4 MiB의 대기열에 넣으며, 가득 차면 무제한 coroutine을 만들거나 내용을 조용히 버리지 않고 연결을 닫아 전체 재동기화한다. 스냅샷 조립은 하나만 유지하고 구연결·구스냅샷 부분은 폐기한다. 과속 서버·불완전 snapshot·교체 중 늦은 부분 도착 테스트에서 작업/버퍼 누적이 없음을 확인한다. callback 전 OkHttp 내부 버퍼까지 이 한도로 제한했다고 주장하지 않는다.

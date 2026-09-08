@@ -49,6 +49,7 @@ CA 키를 분리하는 이유는 서버 인증서 갱신 때 신뢰 기준을 �
 - QR을 읽은 앱은 네트워크 접근 전에 기존 ID·만료·secret 검증과 함께 CA 파싱·단일 인증서·자체 서명·P-256·CA 용도·유효기간·상한을 검증한다. `transport` 또는 CA가 없으면 구형 페어링 정보로 거절한다.
 - QR은 사용자가 신뢰하는 PC 화면에서 직접 스캔하는 별도 신뢰 경로다. 네트워크에서 처음 받은 인증서를 무조건 신뢰하는 방식이나 인증서 오류를 무시하고 비밀값을 보내는 부트스트랩을 만들지 않는다.
 - 앱은 QR의 CA만 넣은 전용 trust store와 플랫폼 `TrustManagerFactory`로 체인을 검증하고 기본 서버 이름 검증을 유지한다. 시스템·사용자 설치 CA를 추가하지 않는다. 자체 인증서 무검증 구현이나 `CertificatePinner` 하나로 자체 서명 인증서의 신뢰가 자동 해결된다는 가정을 하지 않는다.
+- 구현 검증 보완: OkHttp 5.3.2의 WebSocket은 `EventListener`를 끄고 network interceptor를 생략한다. 따라서 기본 `HostnameVerifier.verify()`의 성공을 반드시 요구하는 제한적 래퍼에서 CA 유효기간을 전후 검사한다. 이름 불일치·검증 오류를 허용하는 대체 검증기는 금지한다. 유휴 연결 수를 0으로 두어 `/info`의 HTTP/1 연결 재사용이 새 날짜 검사를 생략하지 못하게 하며, 활성 HTTP/2 연결을 공유하는 HTTPS 요청은 `connectionAcquired`에서도 만료 시 취소한다. 이 보완은 DNS/협상 중 CA 만료 후 토큰이 전송되는 실제 실패 테스트로 도출했다.
 - 저장된 등록 복원과 매 연결 시도에도 CA 자체의 유효기간을 명시적으로 검사한다. 플랫폼이 신뢰 앵커의 만료까지 검사한다고 가정하지 않는다. 연결 중 CA 유효기간 종료 및 전경 복귀 때도 확인하여 만료된 신뢰 정보로 대화를 계속 전송하지 않는다. 신뢰 체인·서버 이름 검증에 실패한 연결을 이 검사만으로 허용하지 않는다.
 - 익명 `/info` 조회도 위 TLS 설정을 사용한다. `server_id`와 지원 텍스트 버전을 확인한 뒤 실제 `/pair`와 `/ws` 연결에서도 같은 TLS 검증을 다시 거친다. 앞선 `/info` 성공만 믿고 다음 연결에 토큰을 먼저 전송하지 않는다.
 - QR의 120초 수명·첫 요청 바인딩·PC 승인·기기 교체 장벽은 유지한다. 신뢰 기준을 등록했어도 PC 승인 전에는 대화를 읽거나 보낼 수 없다. 클라이언트 인증서를 추가하는 상호 TLS는 도입하지 않는다.
@@ -104,6 +105,7 @@ TLS 이전 연결은 핸드셰이크 제한 시간과 서버 연결 자원 제�
 - [Android TLS와 인증서 검증](https://developer.android.com/privacy-and-security/security-ssl): 신뢰 체인·서버 이름 검증, 무검증 TrustManager 금지. 특정 공개 서비스 인증서를 APK에 고정하는 방식의 갱신 문제와 PC별 QR 신뢰 등록을 구분한다.
 - [Android 네트워크 보안 설정](https://developer.android.com/privacy-and-security/security-config): 앱 범위의 평문 차단과 신뢰 설정. 동적으로 QR에서 받은 CA는 APK의 정적 인증서 목록 대신 연결 전용 trust store로 적용한다.
 - [OkHttp 5.3.2 DNS 인터페이스](https://raw.githubusercontent.com/square/okhttp/parent-5.3.2/okhttp/src/commonJvmAndroid/kotlin/okhttp3/Dns.kt): 고정된 서버 이름을 특정 접속 IP에 매핑하는 확장 지점.
+- [OkHttp 5.3.2 WebSocket 연결](https://raw.githubusercontent.com/square/okhttp/parent-5.3.2/okhttp/src/commonJvmAndroid/kotlin/okhttp3/internal/ws/RealWebSocket.kt), [TLS 협상](https://raw.githubusercontent.com/square/okhttp/parent-5.3.2/okhttp/src/commonJvmAndroid/kotlin/okhttp3/internal/connection/ConnectPlan.kt): WebSocket의 감시 기능 제외 및 협상 후 기본 이름 검증 호출 경계를 확인했다. 구현에서 내부 API를 직접 호출하지 않는다.
 - [Python SSL](https://docs.python.org/3/library/ssl.html): TLS 컨텍스트·최소 버전·인증서 체인 로딩. 실제 구현은 프로젝트 Python 3.11/3.12 공통 API로 확인한다.
 - [Cryptography X.509](https://cryptography.io/en/latest/x509/tutorial/): CA·서버 인증서 생성 원리. 개발 문서의 버전을 그대로 설치하지 않으며 실제 패키지 버전·배포 호환성은 상세 구현 계획에서 고정한다.
 

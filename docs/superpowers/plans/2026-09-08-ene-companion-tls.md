@@ -39,11 +39,13 @@
 | --- | --- |
 | `main/java/dev/ene/companion/connection/TrustedServer.kt` | CA·고정 이름·유효기간 검증, 불변 등록 신뢰 정보 |
 | `main/java/dev/ene/companion/connection/TlsClient.kt` | 전용 trust store·실제 주소 매핑·HTTPS 전용 클라이언트 |
+| `main/java/dev/ene/companion/connection/BoundedDnsLookup.kt` | 취소가 늦는 OS DNS에도 실제 작업 스레드 1개·추가 대기열 0개 유지 |
 | `main/java/dev/ene/companion/connection/CompanionSocket.kt`, `EndpointResolver.kt` | TLS 필수 전송·분류 가능한 오류·수명 취소 |
 | `main/java/dev/ene/companion/pairing/PairingQr.kt` | 필수 TLS QR 검증 |
 | `main/java/dev/ene/companion/storage/TokenStore.kt` | 토큰과 CA를 단일 암호화 레코드로 보관 |
 | `main/AndroidManifest.xml`, `main/res/xml/network_security_config.xml` | 앱 전체 평문 차단, 기존 백업 제외 유지 |
 | `test/java/dev/ene/companion/TlsClientTest.kt`, `TrustedServerTest.kt`, `TlsTestCertificates.kt` | 실행 시 인증 키 생성·실제 HTTPS/WSS 검증 |
+| `test/java/dev/ene/companion/TlsTransportTest.kt`, `DeviceCredentialsTest.kt` | 전송 수명·서버 교체·만료·버전별 등록 복원 검증 |
 | 기존 `CompanionSocketTest.kt`, `PairingQrTest.kt`, `StoragePolicyTest.kt`, `androidTest/.../TokenStoreTest.kt` | 기존 기능의 TLS·보관 형식 회귀 |
 
 Android 계약 사본은 `ENE_APP/contracts/companion/v1/`에 동일 바이트로 유지한다. 실제 구현에서 더 적합한 작은 파일 분리가 필요하면 변경 이유와 실제 파일명을 이 계획에 기록하며 범용 프레임워크를 추가하지 않는다.
@@ -104,32 +106,42 @@ assert identity.leaf_not_after <= identity.ca_not_after
 
 ## 6. Task T4 — Android 신뢰와 실제 HTTPS/WSS
 
-- [ ] `TrustedServerTest.kt`와 `TlsTestCertificates.kt`를 작성한다. 테스트 실행 때 CA/서버 키를 만들며 CA 복원·유효기간·형식·고정 이름·CA 범위·후행 DER를 검증한다. `.\gradlew.bat :app:testDebugUnitTest --tests "dev.ene.companion.TrustedServerTest"`로 실패를 확인한다.
-- [ ] `TrustedServer`는 `serverId`, canonical CA 문자열, 고정 이름과 매 연결 유효성 검사를 제공한다. JVM `CertificateFactory`·`X509Certificate`를 쓰고 원본 CA의 단일 DER·서명·P-256 파라미터·keyCertSign·CA pathLen=0을 검사한다. 문자열 출력에는 인증서나 등록 상세를 넣지 않는다.
-- [ ] `TlsClientTest.kt`에서 진짜 MockWebServer TLS 연결, 다른 CA·동일 CA 다른 이름·만료/미래 leaf·평문 서버 거절, 토큰 미전송, `/info` 뒤 서버 교체, 리다이렉트, client 교체, endpoint 변경을 작성한다. `.\gradlew.bat :app:testDebugUnitTest --tests "dev.ene.companion.TlsClientTest"`로 실패를 확인한다.
-- [ ] 전용 빈 `KeyStore`에 QR CA 하나만 넣고 `TrustManagerFactory`로 `SSLContext`를 만든다. `ConnectionSpec`은 TLS 1.2/1.3만 허용한다. 기본 `HostnameVerifier`를 바꾸지 않는다. 전송 생성 시 `TrustedServer`를 필수 인자로 받고 신뢰 없는 기본 생성자를 제거한다.
-- [ ] URL은 `https://ene-<id>.invalid:<port>/companion/v1/...`로 만들고 전용 `Dns`는 그 이름을 현재 endpoint의 IPv4로만 연결한다. 임의 이름 요청을 거절하고 endpoint가 바뀌면 새 client/pool을 사용한다. 수동 DNS 해석은 IO에서 timeout/cancel·최대 8개 IPv4 후보로 제한하며 내부 TLS 이름은 시스템 DNS에 보내지 않는다.
-- [ ] SSL 검증 오류는 `tls_identity_invalid`/`tls_expired` 등 안전한 코드로 분리한다. 원본 예외를 화면·로그로 전달하지 않는다. 실제 HTTPS/WSS에서는 TLS 후에만 HTTP 토큰 헤더가 전송됨을 서버 수신 계수로 검증한다. 신뢰 확인 안 된 `401`은 등록 폐기로 처리하지 않는다.
-- [ ] CA 유효성은 보관 복원·매 요청·소켓의 송수신 및 만료 타이머에서도 확인한다. 클라이언트/소켓을 닫으면 타이머와 진행 call이 함께 취소된다. 키가 다른 client 간 기존 TLS 세션·pool을 공유하지 않는다.
-- [ ] 기존 `CompanionSocketTest.kt`를 TLS로 전환한 뒤 `.\gradlew.bat :app:testDebugUnitTest --tests "dev.ene.companion.TrustedServerTest" --tests "dev.ene.companion.TlsClientTest" --tests "dev.ene.companion.CompanionSocketTest"`를 통과시키고 `feat: Android QR 신뢰 기반 HTTPS WSS 전송 추가`로 커밋한다.
+진행 기록: 신뢰 모델 부재 실패→구현 통과, 실제 HTTPS/WSS 및 기존 전송 시험 전환 후 신뢰·전송·주소·heartbeat 집중 31개 통과를 확인했다. 공통 `anchor_cases`도 실행한다. 정상 종료 후 남은 프레임이 transport 종료 뒤 소비되는 경합은 실패 재현 후 현재 TLS binding의 유효성까지 검사하여 해결했다. 네이티브 DNS가 interrupt를 무시해도 실제 작업 스레드가 1개임을 카운터로 확인했다.
+
+집중 보안 리뷰: Critical 없음, Important 1건(연결 협상 중 CA 만료), Minor 1건(숫자가 섞인 DNS 이름 오인)을 각각 실패 테스트로 재현하고 수정했다. WebSocket이 EventListener와 network interceptor를 생략하는 5.3.2 구현 때문에 기본 이름 검증을 반드시 통과시키는 CA 날짜 검사 래퍼·유휴 풀 0·HTTPS connectionAcquired 취소를 함께 적용했다. 제한적 보완 방식은 읽기 전용 재검토에서 타당함을 확인했다. 이후 잘못된 이름/CA 거절을 포함한 전송 집중 20개 통과. HTTP/1 유휴 재사용 회귀를 추가해 T6 전체 검증에 포함한다.
+
+시험 인증서: `HeldCertificate` 빌더는 CA의 keyCertSign을 만들지 않으므로 JVM 시험 CA만 JDK `keytool`로 생성하고 leaf/실제 TLS 서버에는 기존 okhttp-tls를 쓴다. 실제 개인키·고정 만료 fixture나 추가 Bouncy Castle 의존성은 넣지 않는다. 기기 시험은 `tools/GenerateTestCa.java`가 빌드 때 공개 CA만 생성하며 개인키는 임시 폴더에서 삭제한다. APK에는 공개 시험 CA만 포함하고 실제 앱 APK에는 넣지 않는다.
+
+- [x] `TrustedServerTest.kt`와 `TlsTestCertificates.kt`의 실패→통과로 CA 복원·유효기간·형식·고정 이름·CA 범위·후행 DER를 검증했다.
+- [x] `TrustedServer`에 단일 DER·서명·P-256·keyCertSign·pathLen=0·날짜 검사를 구현했다. 문자열 출력에는 인증서나 등록 상세를 넣지 않는다.
+- [x] `TlsClientTest.kt`와 `TlsTransportTest.kt`에 실제 TLS, 다른 CA/이름·만료/미래 leaf·평문 거절, 토큰 미전송, 서버/endpoint 교체, 만료·종료 수명을 검증했다.
+- [x] 빈 `KeyStore`의 QR CA 하나와 플랫폼 `TrustManagerFactory`, TLS 1.2/1.3을 필수 적용한다. 기본 이름 검증의 성공은 유지하며 위 날짜 검사만 추가한다. 신뢰 없는 기본 생성자는 제거했다.
+- [x] 고정 HTTPS URL/SNI와 실제 IPv4/DNS 주소를 분리했다. 잘못된 이름은 거절하며 endpoint 변경 시 기존 소켓/client/pool을 닫는다. DNS는 실제 작업 수까지 제한한다.
+- [x] SSL 오류를 안전한 코드로 분류하고 신뢰 없는 `401`에서 토큰을 폐기하지 않는다. 잘못된 TLS와 연결 중 CA 만료 시 HTTP 요청이 서버에 도착하지 않음을 확인했다.
+- [x] 매 요청·연결 이름 검증·소켓 송수신·만료 타이머로 유효성을 재검사한다. 닫을 때 call/소켓/타이머를 취소하며 키가 다른 풀을 공유하지 않는다.
+- [x] T4/T5를 `6e2e7dd feat: Android TLS 전송과 QR 등록 보관 구현`으로 함께 로컬 커밋했다. 앞서 미커밋이던 기본 Task 5의 전송·보관 코드 및 같은 Gradle 설정이 연결되어 있어 TLS 없는 중간 등록 형식을 남기지 않는 하나의 검증 가능한 변경 묶음으로 저장했다.
 
 ## 7. Task T5 — Android QR·보관·평문 차단
 
-- [ ] `PairingQrTest.kt`를 공통 TLS 사례로 확대하고 `StoragePolicyTest.kt`에 실제 XML 파싱 기반의 `usesCleartextTraffic=false`/`cleartextTrafficPermitted=false`·허용 override 없음 검증을 추가한다. `DeviceCredentials`에 TLS 신뢰 정보 없는 구형 레코드 거절 시험을 추가한다.
-- [ ] `.\gradlew.bat :app:testDebugUnitTest --tests "dev.ene.companion.PairingQrTest" --tests "dev.ene.companion.StoragePolicyTest" --tests "dev.ene.companion.DeviceCredentialsTest"`로 실패를 확인한다.
-- [ ] QR에는 필수 `transport`·CA를 적용하고 QR 원문은 메모리로만 넘긴다. Keystore 암호화 내부 레코드에 전송 프로필·CA를 필수 포함하고 parse/save 양쪽에서 유효성을 검사한다. envelope/내부 버전을 구별하고 구형 레코드를 자동 승격하지 않는다. 원자 저장과 주소 별도 보관·백업 제외는 유지한다.
-- [ ] Manifest와 network XML에 평문 차단만 추가한다. CAMERA는 기존 승인된 QR 기능에 맞춰 선언하되 실제 요청/카메라 분석기는 기본 Task 5에서 완성한다. SSL 오류 무시·debug 전용 평문 우회도 넣지 않는다.
-- [ ] 계측 `TokenStoreTest`에 CA/토큰 원자 복원·키 손실·구형 형식 거절·백업 제외를 반영하고 `.\gradlew.bat :app:compileDebugAndroidTestKotlin`로 컴파일한다. 실제 단말이 없으면 실행 성공으로 기록하지 않는다.
-- [ ] 단위 집중 시험과 `.\gradlew.bat :app:assembleDebug` 성공 후 문서/개인정보·키·산출물 검사를 수행한다. `feat: TLS QR 등록 보관과 평문 차단 적용`으로 커밋한다.
+진행 기록: 새 필수 필드 부재 실패를 확인한 뒤 QR·암호화 내부 등록·정책 집중 **13개 통과**. 암호화 envelope는 1, 내부 TLS 등록은 2이며 토큰·PC ID·세대·CA·전송 프로필을 하나의 AES-GCM 레코드로 저장한다. parse/save에서 CA 신원·유효기간을 확인한다. 키 손실은 재등록, TLS 없는 구형 등록은 `tls_repair_required`로 구분한다. 기기용 Keystore 시험 6개를 컴파일하고 시험 APK도 빌드했지만 단말에서 실행하지 않았다.
+
+- [x] 공통 QR 사례, 실제 XML 평문 차단/허용 override 없음, 구형 TLS 없는 등록 거절 시험을 작성했다.
+- [x] 세 집중 시험 클래스의 구현 전 실패와 구현 후 13개 통과를 확인했다.
+- [x] QR 필수 TLS/CA와 살아 있는 시계, AES-GCM 단일 버전 등록, parse/save 검증·원자 보관·주소 분리·백업 제외를 구현했다.
+- [x] Manifest/XML에서 평문을 막고 CAMERA 권한만 선언했다. 카메라 화면/요청/분석기는 아직 없다.
+- [x] 계측 시험에 원자 복원·키 손실·만료·구형 암호화 내용 거절·백업 경로 제한을 반영했다. `compileDebugAndroidTestKotlin assembleDebugAndroidTest` 빌드 성공. 실제 실행은 미검증이다.
+- [x] T6 전체 빌드와 개인정보/키 검사 후 T4와 함께 `6e2e7dd`로 커밋했다. APK·키·로컬 SDK 경로는 포함하지 않았으며 원격 게시도 하지 않았다.
 
 ## 8. Task T6 — 통합 검증과 기본 작업 복귀
 
-- [ ] 두 계약 디렉터리의 `protocol.md`, `cases.json`, `tls_cases.json` 바이트 동일성을 확인한다. old HTTP·검증 해제·기밀 로깅·실제 키 fixture가 남지 않았는지 현재 diff를 집중 리뷰한다.
-- [ ] PC 동반 앱 전체 집중 시험 `python -m pytest tests/test_companion_*.py -q`는 PowerShell이 glob을 넘기지 않으므로 실제 파일 목록을 `rg --files tests -g 'test_companion_*.py'`로 얻어 명령 인자로 전달한다. 전체 인터페이스/수명 변경 체크포인트이므로 PC 전체 테스트도 격리된 실행 데이터와 임시 cwd 규칙으로 실행한다.
-- [ ] Android `.\gradlew.bat :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:compileDebugAndroidTestKotlin --offline --console=plain`을 실행한다. 미완성 Repository/UI 시험이나 단말 시험이 있다면 그대로 미완료로 기록한다.
-- [ ] 실제 loopback Qt·TLS·클라이언트 통합에서 QR→PC 승인→WSS→전체 sync→가상 echo→중복 재시도 1회 실행을 확인한다. 자동 시험만으로 실제 Android의 LAN 성공을 주장하지 않는다.
-- [ ] [기본 구현 계획](2026-09-08-ene-companion-lan-v1.md)의 Task 5 연결 Repository·카메라·최소 화면 작업을 재개할 수 있는 상태와 검증 결과를 기록한다. 기존 Task 6의 단말 선택/설치 승인 경계는 유지한다.
-- [ ] 최종 개인정보 후보·UTF-8/BOM·`git diff --check` 및 커밋 범위 확인 후 `docs: 동반 앱 TLS 전환 검증 기록`으로 인계 문서를 커밋한다. 원격 push·태그·APK 업로드는 하지 않는다.
+진행 기록: PC 동반 앱 비동기 강화 **229개 통과·1개 건너뜀**, PC 전체 **3,478개 통과·1개 건너뜀**, Android 전체 **60개 통과**. PC 전체 첫 실행의 기존 UI 시험 6개 실패는 격리 cwd의 상대 번역 리소스 누락이었다. 공개 번역 리소스만 제공해 전체 재실행을 통과했다. Android Lint 의존성 캐시와 로컬 SDK properties 표기를 수정한 후 오프라인 전체 검증을 통과했다. Lint 오류 0·경고 23은 버전 업데이트 안내와 미구현 아이콘이며 baseline/검증 해제를 추가하지 않았다. 기기 시험 APK에는 빌드 때 생성한 공개 CA만 있고 실제 앱 APK에는 없으며 개인키 파일은 두 APK 모두 없다. 상세 결과와 남은 경계는 [TLS 인계 기록](../../companion-tls-validation.md)에 정리했다.
+
+- [x] 계약 세 파일의 바이트 동일성을 확인했다. 현재 보안 diff를 집중 리뷰했으며 실제 키 fixture·기밀 로그·평문 우회를 추가하지 않았다.
+- [x] PowerShell 파일 목록을 사용한 PC 집중 및 격리 cwd/실행 데이터의 전체 테스트, 기본 Ruff를 통과했다. skip 사유·첫 환경 실패 및 재검증을 기록했다.
+- [x] Android 단위/Lint/debug APK/계측 컴파일을 오프라인 검증했고 기기 시험 APK도 엄격한 의존성 검증으로 생성했다. Repository/UI/단말은 미완료로 기록했다.
+- [x] 실제 Qt·TLS 루프백에서 로컬 승인·전체 sync·가상 응답·중복 1회 실행을 확인했다. 실제 Android 단말 성공으로 해석하지 않는다.
+- [x] 기본 Task 5의 안전한 재개 지점과 TLS 필수 전송 사용을 기록했다. 단말 선택/설치 승인 경계는 그대로다.
+- [x] 최종 개인정보 후보·UTF-8/BOM·`git diff --check` 및 범위를 확인하고 `docs: 동반 앱 TLS 전환 검증 기록`에 인계 문서를 포함한다. 원격 push·태그·APK 업로드는 하지 않는다.
 
 ## 9. 검증·커밋 규칙
 
