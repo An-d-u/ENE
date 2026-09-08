@@ -22,24 +22,32 @@ class RegistrationRecord:
     registration_generation: int = 0
     device_id: str | None = None
     token_hash: str | None = field(default=None, repr=False)
+    ca_sha256: str | None = field(default=None, repr=False)
 
     def to_dict(self):
-        return {
+        value = {
             "server_id": self.server_id,
             "registration_generation": self.registration_generation,
             "device_id": self.device_id,
             "token_hash": self.token_hash,
         }
+        if self.ca_sha256 is not None:
+            value["ca_sha256"] = self.ca_sha256
+        return value
 
 
 def _record(value):
     try:
-        if not isinstance(value, dict) or set(value) != {
+        required = {
             "server_id",
             "registration_generation",
             "device_id",
             "token_hash",
-        }:
+        }
+        if not isinstance(value, dict) or set(value) not in (
+            required,
+            required | {"ca_sha256"},
+        ):
             raise ProtocolError()
         server_id = uuid_value(value["server_id"])
         generation = integer_value(value["registration_generation"])
@@ -54,7 +62,13 @@ def _record(value):
                 or not re.fullmatch(r"[0-9a-f]{64}", digest)
             ):
                 raise ProtocolError()
-        return RegistrationRecord(server_id, generation, device, digest)
+        ca_digest = value.get("ca_sha256")
+        if ca_digest is not None and (
+            not isinstance(ca_digest, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", ca_digest)
+        ):
+            raise ProtocolError()
+        return RegistrationRecord(server_id, generation, device, digest, ca_digest)
     except ProtocolError:
         raise StorageError("storage_invalid") from None
 

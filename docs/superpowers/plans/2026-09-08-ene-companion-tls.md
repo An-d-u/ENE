@@ -52,12 +52,12 @@ Android 계약 사본은 `ENE_APP/contracts/companion/v1/`에 동일 바이트�
 
 진행 기록: 계획 집중 리뷰에서 중대 차단 사유 없음. PC 기존 동반 앱 156개 기준 시험 통과. 격리된 `.venv/`에 cryptography 50.0.1을 설치했으며 이 계획의 PC `python`은 `.venv/Scripts/python.exe`를 뜻한다. T1은 20개 새 시험의 모듈 부재 실패→구현 후 20개 통과→공통 계약 사례 포함 21개 통과를 확인했다. 현재 TLS 모델·계약만 구현되었고 네트워크는 아직 전환하지 않았다.
 
-- [ ] `test_companion_tls_identity.py`에 PC별 CA 독립성, P-256/SHA-256/CA pathLen=0, 서버 SAN·EKU·기간 상한·인증서 크기·비밀 repr·원자 모델 복원 테스트를 작성한다. `TlsIdentity.create(server_id, now)`, `TrustAnchor.parse(ca_certificate, server_id, now)` API를 기준으로 한다.
-- [ ] `python -m pytest tests/test_companion_tls_identity.py -q`로 새 기능 부재의 실패를 확인한다.
-- [ ] `tls_identity.py`를 구현한다. DER 전체 소비와 canonical base64를 검사하고 CA는 DER 768바이트 이하, QR은 2 KiB 이하로 제한한다. CA 3,650일, 서버 90일 이하·CA 만료 이하, notBefore 5분 여유, CA 만료 30일 이내에는 자동 갱신 중단, 서버 만료 30일 이내에는 갱신한다. 시간은 주입 가능하며 wall clock을 QR 단조 수명에 혼용하지 않는다.
-- [ ] 정상·변조/과대/후행 바이트·잘못된 키·서명·서버 이름·만료/미래 날짜의 실패 테스트를 추가하고 동일 명령으로 통과시킨다. 키를 모델에 보관할 때 `repr=False` 또는 안전한 `__repr__`를 사용한다.
-- [ ] `protocol.md`에 `transport:"tls_v1"`와 `ca_certificate`, 주소/고정 이름 분리, 평문 미지원·구형 재등록을 추가한다. `tls_cases.json`은 키가 없는 합성 QR 필드·인증서 변형 지시만 저장한다. CA 자체는 양쪽 테스트가 생성하므로 고정 유효기간 fixture를 만들지 않는다.
-- [ ] 계약 사본 동일성, UTF-8/BOM·민감정보·diff 검사를 확인하고 T1 파일만 `feat: 동반 앱 TLS 인증서 모델과 계약 추가`로 커밋한다.
+- [x] `test_companion_tls_identity.py`에 PC별 CA 독립성, P-256/SHA-256/CA pathLen=0, 서버 SAN·EKU·기간 상한·인증서 크기·비밀 repr·원자 모델 복원 테스트를 작성한다. `TlsIdentity.create(server_id, now)`, `TrustAnchor.parse(ca_certificate, server_id, now)` API를 기준으로 한다.
+- [x] `python -m pytest tests/test_companion_tls_identity.py -q`로 새 기능 부재의 실패를 확인한다.
+- [x] `tls_identity.py`를 구현한다. DER 전체 소비와 canonical base64를 검사하고 CA는 DER 768바이트 이하, QR은 2 KiB 이하로 제한한다. CA 3,650일, 서버 90일 이하·CA 만료 이하, notBefore 5분 여유, CA 만료 30일 이내에는 자동 갱신 중단, 서버 만료 30일 이내에는 갱신한다. 시간은 주입 가능하며 wall clock을 QR 단조 수명에 혼용하지 않는다.
+- [x] 정상·변조/과대/후행 바이트·잘못된 키·서명·서버 이름·만료/미래 날짜의 실패 테스트를 추가하고 동일 명령으로 통과시킨다. 키를 모델에 보관할 때 `repr=False` 또는 안전한 `__repr__`를 사용한다.
+- [x] `protocol.md`에 `transport:"tls_v1"`와 `ca_certificate`, 주소/고정 이름 분리, 평문 미지원·구형 재등록을 추가한다. `tls_cases.json`은 키가 없는 합성 QR 필드·인증서 변형 지시만 저장한다. CA 자체는 양쪽 테스트가 생성하므로 고정 유효기간 fixture를 만들지 않는다.
+- [x] 계약 사본 동일성, UTF-8/BOM·민감정보·diff 검사를 확인하고 T1 파일만 `feat: 동반 앱 TLS 인증서 모델과 계약 추가`로 커밋한다.
 
 인증서 검증의 최소 기대 예:
 
@@ -71,12 +71,14 @@ assert identity.leaf_not_after <= identity.ca_not_after
 
 ## 4. Task T2 — OS 보호 보관·등록 신뢰 연결
 
-- [ ] `test_companion_private_files.py`에서 생성 시 제한된 권한, 기존 과도한 권한 거절, 링크/재분석 지점 거절, 원자 저장 실패 전후, 임시 키 파일 정리를 작성한다. Windows 실제 API·POSIX 실제 mode를 각 OS에서 시험하며 운영체제를 속이는 광범위 mock은 사용하지 않는다.
-- [ ] `python -m pytest tests/test_companion_private_files.py -q`의 실패를 확인한 뒤 보호 파일 래퍼를 구현한다. Windows는 보안 속성을 넣어 디렉터리를 생성하고 현재 SID/SYSTEM 두 ACE·보호 DACL·소유자를 확인한다. 디렉터리 안 파일도 쓰기 전 권한을 제한하며 다른 사용자의 기존 폴더를 수리한다며 접근권을 넓히지 않는다.
-- [ ] `test_companion_tls_storage.py`와 기존 storage 시험에 재시작 동일 CA, 손상·개인키 불일치·루트 누락·지문 불일치·구형 등록·저장 결과 불명확을 추가하고 `python -m pytest tests/test_companion_tls_storage.py tests/test_companion_storage.py -q`로 실패를 확인한다.
-- [ ] 등록 레코드에 선택 `ca_sha256`을 추가한다. 새 등록은 활성 CA 지문에 결합하며 지문 없는 구형 토큰은 인증하지 않는다. `TlsIdentityStore`는 등록 파일 옆의 `companion_tls/identity.json`에 버전·PC ID·CA/서버 인증서·키를 하나의 제한된 크기 레코드로 원자 보관한다. 등록이 없는 첫 실행만 자동 생성하며 기존 지문/등록에 키가 없으면 `tls_repair_required`다.
-- [ ] 로컬 초기화는 먼저 등록 세대를 증가시키고 토큰 폐기·CA 지문 비우기를 내구 확인한 뒤 새 신원을 저장하고 새 지문을 결합한다. 어느 단계에서 실패해도 기존 토큰을 새 CA에 결합하지 않는다. 초기화 함수는 네트워크 API가 아니며 T3의 로컬 UI만 호출한다.
-- [ ] SSLContext는 `ssl.PROTOCOL_TLS_SERVER`, `minimum_version=TLSv1_2`로 생성한다. PEM 로딩용 파일은 보호 폴더에서만 생성하고 `finally`에 닫기·삭제, 재시작 시 소유한 임시 파일만 정리한다. raw 예외나 개인키를 로그에 쓰지 않는다.
+진행 기록: 보호 파일의 첫 14개 시험 실패→14개 통과, 신원 보관·단독 소유 추가 후 11개 실패→구현 후 통과를 확인했다. 최종 T1/T2/기존 등록 집중 시험은 74개 통과·1개 건너뜀이다. Windows 실제 DACL 및 OS 파일 잠금을 검증했다. 심볼릭 링크 생성은 시험 계정 권한 부족으로 건너뛰었고 POSIX 분기는 이 Windows 호스트에서 실행하지 않았다. 동시 ENE 실행이 신원을 덮어쓰지 않도록 보관 소유 기간 내내 `identity.lock`을 OS 배타 잠금하며 잠금 파일은 교체·삭제하지 않는다. 초기화 중단 표식(증가한 세대·빈 지문)은 재시작에도 옛 CA를 채택하지 않는다. 네트워크 인증 경로 전환은 T3에서 진행한다.
+
+- [x] `test_companion_private_files.py`에서 생성 시 제한된 권한, 기존 과도한 권한 거절, 링크/재분석 지점 거절, 원자 저장 실패 전후, 임시 키 파일 정리를 작성한다. Windows 실제 API·POSIX 실제 mode를 각 OS에서 시험하며 운영체제를 속이는 광범위 mock은 사용하지 않는다.
+- [x] `python -m pytest tests/test_companion_private_files.py -q`의 실패를 확인한 뒤 보호 파일 래퍼를 구현한다. Windows는 보안 속성을 넣어 디렉터리를 생성하고 현재 SID/SYSTEM 두 ACE·보호 DACL·소유자를 확인한다. 디렉터리 안 파일도 쓰기 전 권한을 제한하며 다른 사용자의 기존 폴더를 수리한다며 접근권을 넓히지 않는다.
+- [x] `test_companion_tls_storage.py`와 기존 storage 시험에 재시작 동일 CA, 손상·개인키 불일치·루트 누락·지문 불일치·구형 등록·저장 결과 불명확을 추가하고 실패를 확인한다.
+- [x] 등록 레코드에 선택 `ca_sha256`을 추가한다. `TlsIdentityStore`는 등록 파일 옆의 `companion_tls/identity.json`에 버전·PC ID·CA/서버 인증서·키를 하나의 제한된 크기 레코드로 원자 보관한다. 등록이 없는 첫 실행만 자동 생성하며 기존 지문/등록에 키가 없거나 구형 토큰이면 `tls_repair_required`다. 새 페어링 지문 결합 및 구형 토큰 네트워크 거절은 T3에서 필수 적용한다.
+- [x] 로컬 초기화는 먼저 등록 세대를 증가시키고 토큰 폐기·CA 지문 비우기를 내구 확인한 뒤 새 신원을 저장하고 새 지문을 결합한다. 어느 단계에서 실패해도 기존 토큰을 새 CA에 결합하지 않는다. 초기화 함수는 네트워크 API가 아니며 T3의 로컬 UI만 호출한다.
+- [x] SSLContext는 `ssl.PROTOCOL_TLS_SERVER`, `minimum_version=TLSv1_2`로 생성한다. PEM 로딩용 파일은 보호 폴더에서만 생성하고 `finally`에 닫기·삭제, 재시작 시 소유한 임시 파일만 정리한다. raw 예외나 개인키를 로그에 쓰지 않는다.
 - [ ] 집중 시험을 통과시키고 보관 파일·키가 Git에서 제외되는지 확인한다. `feat: PC TLS 신원 보호 보관 추가`로 해당 파일만 커밋한다.
 
 ## 5. Task T3 — TLS 전용 서버·갱신·로컬 복구

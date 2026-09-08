@@ -102,6 +102,9 @@ def test_malformed_registration_is_rejected(tmp_path):
         replace(initial, registration_generation=True),
         replace(initial, device_id=sample_id(3)),
         replace(initial, token_hash="bad"),
+        replace(initial, ca_sha256="bad"),
+        replace(initial, ca_sha256="A" * 64),
+        replace(initial, ca_sha256=True),
     ]:
         with pytest.raises(StorageError, match="storage_invalid"):
             store.save(record)

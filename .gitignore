@@ -57,6 +57,7 @@ life_session_state.json
 life_session_state.lock
 companion_registration.json
 companion_registration.json.*
+companion_tls/
 .*.json.*.tmp
 diary.json
 docs/prototypes/
