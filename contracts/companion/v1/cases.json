@@ -1,0 +1,615 @@
+{
+  "protocol_version": 1,
+  "cases": [
+    {
+      "name": "기능 목록 생략",
+      "message": {
+        "type": "hello",
+        "protocol_version": 1
+      },
+      "expected": {
+        "type": "hello",
+        "protocol_version": 1,
+        "capabilities": []
+      }
+    },
+    {
+      "name": "선택 키 무시",
+      "message": {
+        "type": "hello",
+        "protocol_version": 1,
+        "capabilities": [],
+        "future": {
+          "theme": "neutral"
+        }
+      },
+      "expected": {
+        "type": "hello",
+        "protocol_version": 1,
+        "capabilities": []
+      }
+    },
+    {
+      "name": "기본 준비 응답",
+      "message": {
+        "type": "ready",
+        "protocol_version": 1,
+        "server_id": "00000000-0000-4000-8000-000000000004",
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "conversation_id": "00000000-0000-4000-8000-000000000002",
+        "registration_generation": 1
+      },
+      "expected": {
+        "type": "ready",
+        "protocol_version": 1,
+        "server_id": "00000000-0000-4000-8000-000000000004",
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "conversation_id": "00000000-0000-4000-8000-000000000002",
+        "registration_generation": 1,
+        "capabilities": []
+      }
+    },
+    {
+      "name": "동기화 기본값",
+      "message": {
+        "type": "sync_request",
+        "protocol_version": 1
+      },
+      "expected": {
+        "type": "sync_request",
+        "protocol_version": 1,
+        "pending_request_ids": []
+      }
+    },
+    {
+      "name": "미확정 조회",
+      "message": {
+        "type": "sync_request",
+        "protocol_version": 1,
+        "pending_request_ids": [
+          "00000000-0000-4000-8000-000000000003"
+        ]
+      },
+      "expected": {
+        "type": "sync_request",
+        "protocol_version": 1,
+        "pending_request_ids": [
+          "00000000-0000-4000-8000-000000000003"
+        ]
+      }
+    },
+    {
+      "name": "입력 공백 보존",
+      "message": {
+        "type": "send_text",
+        "protocol_version": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "conversation_id": "00000000-0000-4000-8000-000000000002",
+        "request_id": "00000000-0000-4000-8000-000000000003",
+        "text": "  가상 행성 🪐\n  "
+      },
+      "expected": {
+        "type": "send_text",
+        "protocol_version": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "conversation_id": "00000000-0000-4000-8000-000000000002",
+        "request_id": "00000000-0000-4000-8000-000000000003",
+        "text": "  가상 행성 🪐\n  "
+      }
+    },
+    {
+      "name": "생존 확인",
+      "message": {
+        "type": "ping",
+        "protocol_version": 1,
+        "nonce": "00000000-0000-4000-8000-000000000005"
+      },
+      "expected": {
+        "type": "ping",
+        "protocol_version": 1,
+        "nonce": "00000000-0000-4000-8000-000000000005"
+      }
+    },
+    {
+      "name": "생존 응답",
+      "message": {
+        "type": "pong",
+        "protocol_version": 1,
+        "nonce": "00000000-0000-4000-8000-000000000005"
+      },
+      "expected": {
+        "type": "pong",
+        "protocol_version": 1,
+        "nonce": "00000000-0000-4000-8000-000000000005"
+      }
+    },
+    {
+      "name": "예약 상태",
+      "message": {
+        "type": "request_status",
+        "protocol_version": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "conversation_id": "00000000-0000-4000-8000-000000000002",
+        "request_id": "00000000-0000-4000-8000-000000000003",
+        "state": "reserved"
+      },
+      "expected": {
+        "type": "request_status",
+        "protocol_version": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "conversation_id": "00000000-0000-4000-8000-000000000002",
+        "request_id": "00000000-0000-4000-8000-000000000003",
+        "state": "reserved"
+      }
+    },
+    {
+      "name": "완료 상태",
+      "message": {
+        "type": "request_status",
+        "protocol_version": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "conversation_id": "00000000-0000-4000-8000-000000000002",
+        "request_id": "00000000-0000-4000-8000-000000000003",
+        "state": "completed",
+        "message_id": "00000000-0000-4000-8000-000000000004"
+      },
+      "expected": {
+        "type": "request_status",
+        "protocol_version": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "conversation_id": "00000000-0000-4000-8000-000000000002",
+        "request_id": "00000000-0000-4000-8000-000000000003",
+        "state": "completed",
+        "message_id": "00000000-0000-4000-8000-000000000004"
+      }
+    },
+    {
+      "name": "안전한 오류",
+      "message": {
+        "type": "error",
+        "protocol_version": 1,
+        "code": "busy",
+        "request_id": "00000000-0000-4000-8000-000000000003"
+      },
+      "expected": {
+        "type": "error",
+        "protocol_version": 1,
+        "code": "busy",
+        "request_id": "00000000-0000-4000-8000-000000000003"
+      }
+    },
+    {
+      "name": "페어링 대기",
+      "message": {
+        "type": "pair_pending",
+        "protocol_version": 1,
+        "pairing_id": "00000000-0000-4000-8000-000000000005"
+      },
+      "expected": {
+        "type": "pair_pending",
+        "protocol_version": 1,
+        "pairing_id": "00000000-0000-4000-8000-000000000005"
+      }
+    },
+    {
+      "name": "페어링 거절",
+      "message": {
+        "type": "pair_failed",
+        "protocol_version": 1,
+        "pairing_id": "00000000-0000-4000-8000-000000000005",
+        "code": "pairing_rejected"
+      },
+      "expected": {
+        "type": "pair_failed",
+        "protocol_version": 1,
+        "pairing_id": "00000000-0000-4000-8000-000000000005",
+        "code": "pairing_rejected"
+      }
+    },
+    {
+      "name": "대화 이벤트",
+      "message": {
+        "type": "event",
+        "protocol_version": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "conversation_id": "00000000-0000-4000-8000-000000000002",
+        "event_seq": 1,
+        "conversation_revision": 1,
+        "op": "append",
+        "payload": {
+          "id": "00000000-0000-4000-8000-000000000003",
+          "role": "assistant",
+          "text": "가상 도형이 천천히 회전합니다.",
+          "displayed_at": "2026-01-01T00:00:00Z"
+        }
+      },
+      "expected": {
+        "type": "event",
+        "protocol_version": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "conversation_id": "00000000-0000-4000-8000-000000000002",
+        "event_seq": 1,
+        "conversation_revision": 1,
+        "op": "append",
+        "payload": {
+          "id": "00000000-0000-4000-8000-000000000003",
+          "role": "assistant",
+          "text": "가상 도형이 천천히 회전합니다.",
+          "displayed_at": "2026-01-01T00:00:00Z"
+        }
+      }
+    },
+    {
+      "name": "처리 이벤트",
+      "message": {
+        "type": "event",
+        "protocol_version": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "conversation_id": "00000000-0000-4000-8000-000000000002",
+        "event_seq": 2,
+        "conversation_revision": 1,
+        "op": "processing",
+        "payload": {
+          "phase": "responding",
+          "request_id": "00000000-0000-4000-8000-000000000003"
+        }
+      },
+      "expected": {
+        "type": "event",
+        "protocol_version": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "conversation_id": "00000000-0000-4000-8000-000000000002",
+        "event_seq": 2,
+        "conversation_revision": 1,
+        "op": "processing",
+        "payload": {
+          "phase": "responding",
+          "request_id": "00000000-0000-4000-8000-000000000003"
+        }
+      }
+    },
+    {
+      "name": "스냅샷 시작",
+      "message": {
+        "type": "snapshot_begin",
+        "protocol_version": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "conversation_id": "00000000-0000-4000-8000-000000000002",
+        "snapshot_id": "00000000-0000-4000-8000-000000000006",
+        "event_seq": 0,
+        "conversation_revision": 0,
+        "part_count": 1,
+        "byte_count": 2,
+        "message_count": 0,
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "type": "snapshot_begin",
+        "protocol_version": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "conversation_id": "00000000-0000-4000-8000-000000000002",
+        "snapshot_id": "00000000-0000-4000-8000-000000000006",
+        "event_seq": 0,
+        "conversation_revision": 0,
+        "part_count": 1,
+        "byte_count": 2,
+        "message_count": 0,
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    {
+      "name": "스냅샷 부분",
+      "message": {
+        "type": "snapshot_part",
+        "protocol_version": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "conversation_id": "00000000-0000-4000-8000-000000000002",
+        "snapshot_id": "00000000-0000-4000-8000-000000000006",
+        "index": 0,
+        "data_base64": "e30="
+      },
+      "expected": {
+        "type": "snapshot_part",
+        "protocol_version": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "conversation_id": "00000000-0000-4000-8000-000000000002",
+        "snapshot_id": "00000000-0000-4000-8000-000000000006",
+        "index": 0,
+        "data_base64": "e30="
+      }
+    },
+    {
+      "name": "스냅샷 끝",
+      "message": {
+        "type": "snapshot_end",
+        "protocol_version": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "conversation_id": "00000000-0000-4000-8000-000000000002",
+        "snapshot_id": "00000000-0000-4000-8000-000000000006",
+        "part_count": 1,
+        "byte_count": 2,
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "type": "snapshot_end",
+        "protocol_version": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "conversation_id": "00000000-0000-4000-8000-000000000002",
+        "snapshot_id": "00000000-0000-4000-8000-000000000006",
+        "part_count": 1,
+        "byte_count": 2,
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    {
+      "name": "초기화 안내",
+      "message": {
+        "type": "resync_required",
+        "protocol_version": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "conversation_id": "00000000-0000-4000-8000-000000000002",
+        "reason": "reset"
+      },
+      "expected": {
+        "type": "resync_required",
+        "protocol_version": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "conversation_id": "00000000-0000-4000-8000-000000000002",
+        "reason": "reset"
+      }
+    },
+    {
+      "name": "버전 불리언",
+      "message": {
+        "type": "hello",
+        "protocol_version": true
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "버전 문자열",
+      "message": {
+        "type": "hello",
+        "protocol_version": "1"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "미지원 버전",
+      "message": {
+        "type": "hello",
+        "protocol_version": 2
+      },
+      "error": "unsupported_version"
+    },
+    {
+      "name": "미지 명령",
+      "message": {
+        "type": "remote_call",
+        "protocol_version": 1
+      },
+      "error": "unsupported_command"
+    },
+    {
+      "name": "빈 입력",
+      "message": {
+        "type": "send_text",
+        "protocol_version": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "conversation_id": "00000000-0000-4000-8000-000000000002",
+        "request_id": "00000000-0000-4000-8000-000000000003",
+        "text": " \n\t"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "잘못된 UUID",
+      "message": {
+        "type": "ping",
+        "protocol_version": 1,
+        "nonce": "not-a-uuid"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "null 기능",
+      "message": {
+        "type": "hello",
+        "protocol_version": 1,
+        "capabilities": null
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "중복 기능",
+      "message": {
+        "type": "hello",
+        "protocol_version": 1,
+        "capabilities": [
+          "text",
+          "text"
+        ]
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "초과 미확정 조회",
+      "message": {
+        "type": "sync_request",
+        "protocol_version": 1,
+        "pending_request_ids": [
+          "00000000-0000-4000-8000-000000000003",
+          "00000000-0000-4000-8000-000000000004"
+        ]
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "처리 중 역할 오류",
+      "message": {
+        "type": "event",
+        "protocol_version": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "conversation_id": "00000000-0000-4000-8000-000000000002",
+        "event_seq": 1,
+        "conversation_revision": 1,
+        "op": "append",
+        "payload": {
+          "id": "00000000-0000-4000-8000-000000000003",
+          "role": "system",
+          "text": "가상 도형이 천천히 회전합니다.",
+          "displayed_at": "2026-01-01T00:00:00Z"
+        }
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "불리언 시퀀스",
+      "message": {
+        "type": "event",
+        "protocol_version": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "conversation_id": "00000000-0000-4000-8000-000000000002",
+        "event_seq": true,
+        "conversation_revision": 1,
+        "op": "append",
+        "payload": {
+          "id": "00000000-0000-4000-8000-000000000003",
+          "role": "assistant",
+          "text": "가상 도형이 천천히 회전합니다.",
+          "displayed_at": "2026-01-01T00:00:00Z"
+        }
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "문자열 개정",
+      "message": {
+        "type": "event",
+        "protocol_version": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "conversation_id": "00000000-0000-4000-8000-000000000002",
+        "event_seq": 1,
+        "conversation_revision": "1",
+        "op": "append",
+        "payload": {
+          "id": "00000000-0000-4000-8000-000000000003",
+          "role": "assistant",
+          "text": "가상 도형이 천천히 회전합니다.",
+          "displayed_at": "2026-01-01T00:00:00Z"
+        }
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "잘못된 상태",
+      "message": {
+        "type": "request_status",
+        "protocol_version": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "conversation_id": "00000000-0000-4000-8000-000000000002",
+        "request_id": "00000000-0000-4000-8000-000000000003",
+        "state": "done"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "등록 세대 0",
+      "message": {
+        "type": "ready",
+        "protocol_version": 1,
+        "server_id": "00000000-0000-4000-8000-000000000004",
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "conversation_id": "00000000-0000-4000-8000-000000000002",
+        "registration_generation": 0
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "idle 요청 참조",
+      "message": {
+        "type": "event",
+        "protocol_version": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "conversation_id": "00000000-0000-4000-8000-000000000002",
+        "event_seq": 1,
+        "conversation_revision": 0,
+        "op": "processing",
+        "payload": {
+          "phase": "idle",
+          "request_id": "00000000-0000-4000-8000-000000000003"
+        }
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "부분 인덱스 음수",
+      "message": {
+        "type": "snapshot_part",
+        "protocol_version": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "conversation_id": "00000000-0000-4000-8000-000000000002",
+        "snapshot_id": "00000000-0000-4000-8000-000000000006",
+        "index": -1,
+        "data_base64": "e30="
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "잘못된 base64",
+      "message": {
+        "type": "snapshot_part",
+        "protocol_version": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "conversation_id": "00000000-0000-4000-8000-000000000002",
+        "snapshot_id": "00000000-0000-4000-8000-000000000006",
+        "index": 0,
+        "data_base64": "@@"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "해시 형식",
+      "message": {
+        "type": "snapshot_end",
+        "protocol_version": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "conversation_id": "00000000-0000-4000-8000-000000000002",
+        "snapshot_id": "00000000-0000-4000-8000-000000000006",
+        "part_count": 1,
+        "byte_count": 2,
+        "sha256": "hash"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "부분 수 불일치",
+      "message": {
+        "type": "snapshot_begin",
+        "protocol_version": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "conversation_id": "00000000-0000-4000-8000-000000000002",
+        "snapshot_id": "00000000-0000-4000-8000-000000000006",
+        "event_seq": 0,
+        "conversation_revision": 0,
+        "part_count": 2,
+        "byte_count": 2,
+        "message_count": 0,
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "다음 줄 공백 입력",
+      "message": {
+        "type": "send_text",
+        "protocol_version": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "conversation_id": "00000000-0000-4000-8000-000000000002",
+        "request_id": "00000000-0000-4000-8000-000000000003",
+        "text": ""
+      },
+      "error": "invalid_message"
+    }
+  ]
+}

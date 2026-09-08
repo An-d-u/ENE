@@ -14,13 +14,13 @@
 
 - 승인 명세: [2026-09-07 설계](../specs/2026-09-07-ene-companion-lan-v1-design.md). 과거 모바일 원격 APK 명세와 실패한 작업 브랜치는 구현 원본으로 사용하지 않는다.
 - 코드 확인 기준: `b80cef1e` — Fish Audio TTS 추가를 포함한다. 계획 시작 시 작업 트리는 깨끗했다. 실제 구현 시작 때 이후 변경과 충돌 여부를 다시 확인한다.
-- 이 파일은 계획이다. 체크박스의 테스트·빌드·실기기 시험은 아직 실행하지 않았다. 문서 검토 승인은 앱 동작 검증을 의미하지 않는다.
+- 이 파일은 실행 상태를 함께 기록하는 계획이다. 체크하지 않은 테스트·빌드·실기기 시험은 완료하지 않았다. 문서 검토 승인은 앱 동작 검증을 의미하지 않는다.
 - 이 문서의 `ENE/`는 PC 저장소의 실행 작업 트리, `ENE_APP/`는 사용자가 지정한 독립 Android 저장소를 뜻한다. 실제 개인 경로·주소·단말 식별자를 문서에 기록하지 않는다.
 - Android 폴더는 현재 비어 있고 Git 저장소가 아니다. 기존 쓰기 허용 범위 밖이므로 파일 생성 전에 도구의 권한 승인 절차를 사용한다. PC 폴더 안으로 옮겨 우회하지 않는다.
 - PC 내부 기능 변경은 텍스트 계약을 유지하면 구버전 앱이 활용한다. 음성·Live2D·쓰다듬기·모바일 설정·외부 접속·Tailscale·알림·첨부 업로드는 이 계획에서 구현하지 않는다.
 - 일반 작업은 집중 테스트만 한다. 핵심 대화 통합, 전체 연결 통합, 최종 인수에서 전체 테스트와 통합 리뷰를 한다. 단계별 새 테스트는 실패 확인 후 구현하고 같은 명령으로 통과를 확인한다. `@superpowers:test-driven-development`, 완료·커밋 전 `@superpowers:verification-before-completion`을 적용한다.
 - 체크박스는 한 번에 하나씩 처리한다. 긴 구현 항목은 아래에 명시된 테스트 사례별로 나누어 실패→최소 구현→통과를 반복한다. 실패를 건너뛰거나 검증 없이 다음 체크포인트로 이동하지 않는다.
-- 현재 작업에서는 계획 문서만 작성한다. 기능 구현용 작업 트리·Android 저장소 생성·설치·방화벽 변경·단말 설치는 후속 실행 단계다.
+- 2026-09-08 사용자 승인으로 구현 실행을 시작했다. PC는 `codex/companion-lan-v1` 작업 트리에서, Android는 별도 `ENE_APP/`에서 작업한다. 방화벽 변경·단말 설치·외부 게시는 각각의 후속 승인 경계를 유지한다.
 
 ## 2. 빌드 기준과 의존성
 
@@ -195,17 +195,19 @@ Qt 수락 순서: 등록·게이트웨이 세대 → 실행·대화 ID → 입�
 
 **파일:** 이 단계는 PC 작업 트리와 `ENE_APP/` 준비, 후속 파일 목록은 Task 1. 기존 파일 임의 변경 없음.
 
-- [ ] `git status --short --branch`, `git log -3 --oneline`, `git worktree list`로 변경·기준을 확인한다. `@superpowers:using-git-worktrees`에 따라 PC 기능 브랜치 `codex/companion-lan-v1`을 현재 승인된 코드에서 준비한다. 이전 실패 브랜치나 기존 작업 트리를 삭제·재사용하지 않는다. Android는 지정된 `ENE_APP/`에서 작업한다.
-- [ ] Android 경로 쓰기 권한 확보 후 폴더가 여전히 비어 있는지 확인한다. 빈 경우에만 그 폴더를 cwd로 `git init -b main`을 실행한다. 이미 저장소나 파일이 생겼으면 보존하고 기존 상태에 맞춘다. 원격 저장소 생성·push는 하지 않는다.
-- [ ] PC에서 `python --version`, `python -m pytest --version`, `node --version`; Android 빌드 환경에서 `java -version`, SDK platform/build-tools 존재를 확인한다. 필요한 다운로드·설치는 도구의 승인 범위 안에서 수행하며 실제 설정·키 파일을 읽지 않는다.
-- [ ] PC 기준선으로 `python -m pytest -q`를 한 번 실행해 기존 실패를 기록한다. Linux/headless 환경은 `QT_QPA_PLATFORM=offscreen`을 사용한다. 기존 실패는 이번 기능의 성공/실패와 분리한다. 계획 작성만으로 이 명령의 통과를 기록하지 않는다.
+- [x] `git status --short --branch`, `git log -3 --oneline`, `git worktree list`로 변경·기준을 확인한다. `@superpowers:using-git-worktrees`에 따라 PC 기능 브랜치 `codex/companion-lan-v1`을 현재 승인된 코드에서 준비한다. 이전 실패 브랜치나 기존 작업 트리를 삭제·재사용하지 않는다. Android는 지정된 `ENE_APP/`에서 작업한다.
+- [x] Android 경로 쓰기 권한 확보 후 폴더가 여전히 비어 있는지 확인한다. 빈 경우에만 그 폴더를 cwd로 `git init -b main`을 실행한다. 이미 저장소나 파일이 생겼으면 보존하고 기존 상태에 맞춘다. 원격 저장소 생성·push는 하지 않는다.
+- [x] PC에서 `python --version`, `python -m pytest --version`, `node --version`; Android 빌드 환경에서 `java -version`, SDK platform/build-tools 존재를 확인한다. 필요한 다운로드·설치는 도구의 승인 범위 안에서 수행하며 실제 설정·키 파일을 읽지 않는다.
+- [x] PC 기준선으로 `python -m pytest -q`를 한 번 실행해 기존 실패를 기록한다. Linux/headless 환경은 `QT_QPA_PLATFORM=offscreen`을 사용한다. 기존 실패는 이번 기능의 성공/실패와 분리한다. 계획 작성만으로 이 명령의 통과를 기록하지 않는다.
+
+실행 기록: 기준 커밋 `c620a057`, Python 3.12.10·pytest 9.1.1·Node 24.13.1·JDK 21 확인. 개인 데이터는 새 임시 `ENE_USER_DATA_DIR`로 격리했다. 최초 제한 환경에서는 pytest 임시 폴더 접근 오류가 반복되어 중단했다. 동일 오류의 집중 재현 후 권한 승인 실행에서 3개 통과를 확인했고, 전체를 `python -m pytest -q --tb=short`로 다시 실행해 **3,249개 통과, 44.12초**를 확인했다. 앱 코드를 수정해 통과시킨 결과가 아니다.
 
 ## 6. Task 1 — Android 최소 빌드와 재현 가능한 도구
 
 **생성:** §3 Android 빌드 파일, `MainActivity.kt`, `EneApplication.kt`, `AndroidManifest.xml`, `res/values/strings.xml`, `themes.xml`, `app/src/test/java/dev/ene/companion/SmokeTest.kt`.
 
-- [ ] 공식 Gradle 8.13 배포의 SHA-256을 확인하고 임시 폴더에서 실행해 `gradle wrapper --gradle-version 8.13 --distribution-type bin`으로 Wrapper를 생성한다. Wrapper JAR·scripts·distributionSha256Sum은 확인된 생성물만 추적한다. 무관한 저장소의 wrapper를 복사하거나 JAR을 직접 작성하지 않는다.
-- [ ] 아래 최소 설정으로 `app` 모듈과 §2의 버전 카탈로그를 만든다. 플랫폼/앱 플러그인과 Compose compiler 버전은 섞지 않는다. release는 우선 `isMinifyEnabled=false`, 디버그와 같은 계약으로 테스트한다. 서명 비밀은 Gradle 파일에 쓰지 않는다.
+- [x] 공식 Gradle 8.13 배포의 SHA-256을 확인하고 임시 폴더에서 실행해 `gradle wrapper --gradle-version 8.13 --distribution-type bin`으로 Wrapper를 생성한다. Wrapper JAR·scripts·distributionSha256Sum은 확인된 생성물만 추적한다. 무관한 저장소의 wrapper를 복사하거나 JAR을 직접 작성하지 않는다.
+- [x] 아래 최소 설정으로 `app` 모듈과 §2의 버전 카탈로그를 만든다. 플랫폼/앱 플러그인과 Compose compiler 버전은 섞지 않는다. release는 우선 `isMinifyEnabled=false`, 디버그와 같은 계약으로 테스트한다. 서명 비밀은 Gradle 파일에 쓰지 않는다.
 
 ```kotlin
 android {
@@ -229,16 +231,18 @@ android {
 kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
 ```
 
-- [ ] `.gitignore`에 `local.properties`, `.gradle/`, `.kotlin/`, `**/build/`, `.idea/`, `*.apk`, `*.aab`, `*.jks`, `*.keystore`, `.env*`, `keystore.properties`를 넣는다. wrapper JAR만 의도적인 빌드 도구 예외다. `.gitattributes`로 `gradlew` LF를 유지한다.
-- [ ] Android cwd에서 `.\gradlew.bat --version`, `.\gradlew.bat :app:testDebugUnitTest :app:assembleDebug`를 실행한다. 기대: 고정 Gradle/JDK 확인, 최소 테스트 통과, `app/build/outputs/apk/debug/app-debug.apk` 생성. 첫 단계는 구조 부트스트랩이므로 빈 모듈의 빌드 실패를 기능 TDD 성공으로 세지 않는다.
-- [ ] Android에서 생성 파일만 검토·개인정보 검사 후 `chore: 안드로이드 동반 앱 빌드 기반 추가`로 커밋한다. Gradle 의존성 lock/verification metadata를 생성·검토하고 고정값을 추적한다.
+- [x] `.gitignore`에 `local.properties`, `.gradle/`, `.kotlin/`, `**/build/`, `.idea/`, `*.apk`, `*.aab`, `*.jks`, `*.keystore`, `.env*`, `keystore.properties`를 넣는다. wrapper JAR만 의도적인 빌드 도구 예외다. `.gitattributes`로 `gradlew` LF를 유지한다.
+- [x] Android cwd에서 `.\gradlew.bat --version`, `.\gradlew.bat :app:testDebugUnitTest :app:assembleDebug`를 실행한다. 기대: 고정 Gradle/JDK 확인, 최소 테스트 통과, `app/build/outputs/apk/debug/app-debug.apk` 생성. 첫 단계는 구조 부트스트랩이므로 빈 모듈의 빌드 실패를 기능 TDD 성공으로 세지 않는다.
+- [x] Android에서 생성 파일만 검토·개인정보 검사 후 `chore: 안드로이드 동반 앱 빌드 기반 추가`로 커밋한다. Gradle 의존성 lock/verification metadata를 생성·검토하고 고정값을 추적한다.
+
+실행 기록: [공식 체크섬](https://gradle.org/release-checksums/)으로 Gradle 배포와 생성 Wrapper JAR을 대조했다. `--write-locks --write-verification-metadata sha256` 빌드 후 `--offline --dependency-verification strict`로 재빌드하여 둘 다 성공했다. 최소 단위 테스트 1개 통과. 메타데이터 486개 구성요소에는 수동 신뢰 우회 규칙이 없으며, 최초 다운로드 기록은 이후 변조 감지용이지 별도 서명 인증을 뜻하지 않는다. UI 검색 스크립트가 없어 스킬의 접근성 지침과 Material 기본 구성으로 안내 화면만 구성했다. 실기기 실행·PC 연결·release 서명은 아직 미검증이다.
 
 ## 7. Task 2 — 양쪽 텍스트 계약과 순수 상태 모델
 
 **생성:** 두 저장소 `contracts/companion/v1/protocol.md`, `cases.json`; PC `protocol.py`, `transcript.py`, `requests.py`, `tests/companion_helpers.py`, `tests/test_companion_protocol.py`, `tests/test_companion_transcript.py`, `tests/test_companion_requests.py`; Android `protocol/WireMessage.kt`, `ProtocolCodec.kt`, `SnapshotAssembler.kt`, 단위 테스트 `ProtocolCodecTest.kt`, `SnapshotAssemblerTest.kt`.
 
-- [ ] §4를 규격 원본으로 옮기고 가상 사례를 작성한다. valid/invalid 메시지마다 입력·기대 오류/정규화 결과를 넣는다. UUID·한글·이모지 UTF-8 경계, 잘못된 정수/역할/버전, 선택 키, capabilities 누락, 부분 순서·해시 오류를 포함한다. 자격증명 사례는 실행 중 생성하며 유효 키처럼 보이는 문자열을 문서에 넣지 않는다.
-- [ ] 공개 기록 테스트를 먼저 작성한다. `append_user`, `publish_assistant`, `replace`, `reset`, `capture`는 불변 결과를 반환하고 원장은 재전송을 조회할 수 있어야 한다. helper의 시계·UUID·가상 worker는 주입하며 실제 기억/설정/네트워크를 읽지 않는다.
+- [x] §4를 규격 원본으로 옮기고 가상 사례를 작성한다. valid/invalid 메시지마다 입력·기대 오류/정규화 결과를 넣는다. UUID·한글·이모지 UTF-8 경계, 잘못된 정수/역할/버전, 선택 키, capabilities 누락, 부분 순서·해시 오류를 포함한다. 자격증명 사례는 실행 중 생성하며 유효 키처럼 보이는 문자열을 문서에 넣지 않는다.
+- [x] 공개 기록 테스트를 먼저 작성한다. `append_user`, `publish_assistant`, `replace`, `reset`, `capture`는 불변 결과를 반환하고 원장은 재전송을 조회할 수 있어야 한다. helper의 시계·UUID·가상 worker는 주입하며 실제 기억/설정/네트워크를 읽지 않는다.
 
 ```python
 def test_gateway_recreation_does_not_reexecute_reserved_request():
@@ -253,9 +257,11 @@ def test_gateway_recreation_does_not_reexecute_reserved_request():
     assert second.state == "reserved"
 ```
 
-- [ ] PC에서 `python -m pytest tests/test_companion_protocol.py tests/test_companion_transcript.py tests/test_companion_requests.py -q`, Android에서 `.\gradlew.bat :app:testDebugUnitTest --tests "dev.ene.companion.ProtocolCodecTest" --tests "dev.ene.companion.SnapshotAssemblerTest"`를 실행해 해당 모델/검증기가 없거나 요구 동작이 틀려 실패함을 확인한다. 문법/의존성 실패는 먼저 수정한다.
-- [ ] dataclass·엄격 파서와 Kotlin 명시적 DTO를 구현한다. SnapshotAssembler는 빈 메모리의 임시 버퍼에 조립→검증→원자 교체하고 기존 화면 목록을 직접 수정하지 않는다. `WireMessage`의 `type` 분기로 허용한 subtype만 해석한다. 원장 body hash는 파서가 확정한 전송 text의 UTF-8 해시이며 양쪽 문자를 추가 변형하지 않는다.
-- [ ] 같은 두 명령을 다시 실행해 통과를 확인하고 가상 메시지 5,000개·단일 1 MiB 경계·총량 초과 오류를 추가한다. PowerShell `Get-FileHash`로 두 계약 파일 사본이 각각 같은 SHA-256인지 확인한다. PC/Android 각각 `feat: 동반 앱 텍스트 계약과 상태 모델 추가`로 커밋한다.
+- [x] PC에서 `python -m pytest tests/test_companion_protocol.py tests/test_companion_transcript.py tests/test_companion_requests.py -q`, Android에서 `.\gradlew.bat :app:testDebugUnitTest --tests "dev.ene.companion.ProtocolCodecTest" --tests "dev.ene.companion.SnapshotAssemblerTest"`를 실행해 해당 모델/검증기가 없거나 요구 동작이 틀려 실패함을 확인한다. 문법/의존성 실패는 먼저 수정한다.
+- [x] dataclass·엄격 파서와 Kotlin 명시적 DTO를 구현한다. SnapshotAssembler는 빈 메모리의 임시 버퍼에 조립→검증→원자 교체하고 기존 화면 목록을 직접 수정하지 않는다. `WireMessage`의 `type` 분기로 허용한 subtype만 해석한다. 원장 body hash는 파서가 확정한 전송 text의 UTF-8 해시이며 양쪽 문자를 추가 변형하지 않는다.
+- [x] 같은 두 명령을 다시 실행해 통과를 확인하고 가상 메시지 5,000개·단일 1 MiB 경계·총량 초과 오류를 추가한다. PowerShell `Get-FileHash`로 두 계약 파일 사본이 각각 같은 SHA-256인지 확인한다. PC/Android 각각 `feat: 동반 앱 텍스트 계약과 상태 모델 추가`로 커밋한다.
+
+실행 기록: 최초 PC 테스트 67개가 미구현 패키지 때문에 실패함을 확인한 뒤 구현했다. Kotlin도 모델 미구현 참조로 실패한 뒤 구현했다. JSON 의존성 잠금은 별도 의존성 확인 작업에서 정상 갱신했다. 공통 가상 사례 39개 중 NEXT LINE 공백 판정 차이를 실제 실패 테스트로 재현·수정했다. 최종 PC 집중 테스트 **68개 통과**, 기본 Ruff 통과. Android는 **14개 단위 테스트 통과**(공통 사례 39개를 검사하는 테스트 포함), 엄격한 의존성 검증의 오프라인 debug APK 빌드 성공. 5,000개 대화, 1 MiB 단일 메시지, 스냅샷 총량/개수 초과, 부분 교체·순서·해시·진행/전체 timeout을 확인했고 두 계약 사본의 SHA-256이 일치했다. 실제 네트워크·ENE 통합·단말 검증은 후속 단계다.
 
 ## 8. Task 3 — PC 페어링·내구 보관·주소
 
