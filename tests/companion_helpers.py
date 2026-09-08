@@ -27,3 +27,36 @@ class FakeClock:
 
     def advance(self, seconds):
         self.seconds += seconds
+
+
+class LoopbackClient:
+    """실제 클라이언트의 업그레이드 응답까지 명시적으로 닫는 시험용 수명 래퍼."""
+
+    def __init__(self):
+        import aiohttp
+
+        self.session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=3))
+        self._sockets = []
+
+    def get(self, *args, **kwargs):
+        return self.session.get(*args, **kwargs)
+
+    async def ws_connect(self, *args, **kwargs):
+        socket = await self.session.ws_connect(*args, **kwargs)
+        self._sockets.append(socket)
+        return socket
+
+    async def close(self):
+        import asyncio
+
+        try:
+            for socket in self._sockets:
+                await asyncio.wait_for(socket.close(), 2)
+        finally:
+            await self.session.close()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        await self.close()
