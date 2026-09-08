@@ -4,7 +4,7 @@
 
 ## 기본 규칙
 
-- HTTP/WS 평문, 신뢰하는 개인 LAN 전용이다. TLS·외부 중계·임의 WebBridge 호출은 제공하지 않는다.
+- HTTPS/WSS와 `tls_v1` 신뢰 프로필이 필수인 개인 LAN 전용이다. TLS 1.2 이상만 사용하며 평문·외부 중계·임의 WebBridge 호출은 제공하지 않는다. 이 규격의 TLS 구현 여부는 별도 시험 기록으로 확인한다.
 - JSON UTF-8. 모든 WS 메시지에 `type` 문자열과 실제 정수 `protocol_version:1`이 필요하다. 숫자 모양 문자열·소수·불리언을 정수로 취급하지 않는다.
 - UUID는 표준 하이픈 문자열이며 소문자로 정규화한다. 시퀀스·개정은 0~9007199254740991이다. 등록 세대는 1 이상이다.
 - 알려진 종류의 추가 선택 필드는 무시한다. 필수 키 누락·자료형 오류는 `invalid_message`, 미지원 버전은 `unsupported_version`, 미지 종류는 `unsupported_command`다.
@@ -20,9 +20,11 @@
 | `GET /companion/v1/pair` | 페어링 전용 WS. 첫 본문 `pair_request`로 QR 암호 전달. PC 로컬 승인만 가능 |
 | `GET /companion/v1/ws` | 일반 WS. `Authorization: Bearer` 토큰 검사 후 hello, ready, 전체 동기화 |
 
-Origin 헤더가 있는 브라우저 연결은 거절한다. 리다이렉트·시스템 프록시·URL 쿼리 자격증명을 사용하지 않는다. 먼저 정보 경로의 PC ID가 일치하는지 확인하지만 이것이 평문 서버의 암호학적 인증은 아니다.
+Origin 헤더가 있는 브라우저 연결은 거절한다. 리다이렉트·시스템 프록시·URL 쿼리 자격증명을 사용하지 않는다. 정보 조회부터 QR/저장된 PC 전용 CA와 고정 TLS 이름을 검증한다. 실제 페어링·일반 WSS에서도 TLS를 검증한 뒤에만 비밀값을 전송한다. 단순 PC ID 비교는 서버 인증을 대체하지 않는다.
 
-QR은 `protocol_version, server_id, pairing_id, expires_at, secret, addresses:[{host,port}]`이며 최대 2048바이트·IPv4 주소 후보 8개다. secret/token은 난수 32바이트의 패딩 없는 base64url 문자열이다. QR 유효 시간은 서버 단조 시계로 120초, 최초 유효 연결에 묶고 거절·종료·만료·재발급·소비 후 재사용하지 않는다. 새 등록을 내구 저장하고 Qt 장벽을 확정한 뒤 구등록을 폐기하고 새 토큰을 한 번만 보낸다.
+QR은 `protocol_version, server_id, pairing_id, expires_at, secret, addresses:[{host,port}], transport:"tls_v1", ca_certificate`이며 최대 2048바이트·IPv4 주소 후보 8개다. CA는 DER 768바이트 이하의 단일 공개 인증서를 정규 base64로 표현한다. P-256/SHA-256 자체 서명, CA pathLen=0·keyCertSign, CN `ENE CA <server_id>`와 유효기간을 검사한다. secret/token은 난수 32바이트의 패딩 없는 base64url 문자열이다. QR 유효 시간은 서버 단조 시계로 120초, 최초 유효 연결에 묶고 거절·종료·만료·재발급·소비 후 재사용하지 않는다. 새 등록을 내구 저장하고 Qt 장벽을 확정한 뒤 구등록을 폐기하고 새 토큰을 한 번만 보낸다.
+
+TLS 서버 이름은 `ene-<정규 server_id>.invalid`이며 서버 인증서 SAN·URL·SNI·기본 이름 검증에 사용한다. 전용 주소 해석으로 이 이름을 실제 LAN IPv4에 연결하고 시스템 DNS에 이 이름을 질의하지 않는다. 앱에는 이 PC의 CA만 신뢰하는 전용 저장소를 둔다. CA 만료는 복원·연결 때에도 직접 확인하며 신뢰 오류에서 인증서 자동 수용·검증 해제·평문 전환을 하지 않는다. 다른 CA로 재등록할 때는 새 QR과 PC 승인이 필요하다. TLS 정보가 없는 구형 개발 등록은 자동 승격하지 않는다. 기본 텍스트의 이후 구버전 호환은 `tls_v1`을 구현한 앱부터 적용한다.
 
 주소당 연결/정보 조회 3초, 첫 hello/pair_request 5초, WS 종료 유예 2초다. 같은 등록의 새 소켓은 인증과 hello 검증 후에만 구소켓을 교체한다. 구소켓의 늦은 callback/미수락 요청은 무효이며 이미 예약/수락한 작업과 원장은 유지한다.
 

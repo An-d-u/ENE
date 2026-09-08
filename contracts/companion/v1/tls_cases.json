@@ -1,0 +1,22 @@
+{
+  "transport": "tls_v1",
+  "limits": {"qr_bytes": 2048, "ca_der_bytes": 768, "addresses": 8},
+  "anchor_cases": [
+    {"id": "valid", "mutation": "none", "accepted": true},
+    {"id": "wrong-id", "mutation": "wrong-id", "accepted": false},
+    {"id": "extra-der", "mutation": "extra-der", "accepted": false},
+    {"id": "noncanonical", "mutation": "noncanonical", "accepted": false},
+    {"id": "oversize", "mutation": "oversize", "accepted": false},
+    {"id": "leaf-as-ca", "mutation": "leaf-as-ca", "accepted": false},
+    {"id": "garbage", "mutation": "garbage", "accepted": false},
+    {"id": "missing", "mutation": "missing", "accepted": false}
+  ],
+  "qr_cases": [
+    {"id": "valid", "mutation": "none", "accepted": true},
+    {"id": "missing-transport", "mutation": "missing-transport", "accepted": false},
+    {"id": "wrong-transport", "mutation": "wrong-transport", "accepted": false},
+    {"id": "missing-ca", "mutation": "missing-ca", "accepted": false},
+    {"id": "eight-addresses", "mutation": "eight-addresses", "accepted": true},
+    {"id": "nine-addresses", "mutation": "nine-addresses", "accepted": false}
+  ]
+}
