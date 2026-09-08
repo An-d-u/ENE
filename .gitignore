@@ -55,6 +55,8 @@ life_records.json
 life_records.json.write.lock
 life_session_state.json
 life_session_state.lock
+companion_registration.json
+companion_registration.json.*
 .*.json.*.tmp
 diary.json
 docs/prototypes/

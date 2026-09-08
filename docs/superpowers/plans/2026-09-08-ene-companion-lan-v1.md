@@ -269,11 +269,13 @@ def test_gateway_recreation_does_not_reexecute_reserved_request():
 
 **수정:** PC `requirements.txt`, `.gitignore`.
 
-- [ ] 주입 가능한 단조 시계·난수 생성기·저장 대역으로 QR 120초/재발급/거절/소켓 종료/동시 두 요청/기기 교체/내구 저장 실패 테스트를 쓴다. Storage는 `tmp_path`만 사용하고 첫 승인 전 기존 등록이 바뀌지 않아야 한다.
-- [ ] `python -m pytest tests/test_companion_pairing.py tests/test_companion_storage.py tests/test_companion_network.py -q`로 실패를 확인한다.
-- [ ] `get_user_file("companion_registration.json")`와 기존 `save_json_data_atomic`을 사용한다. 파일에는 안정적 `server_id`, 등록 세대, 기기 ID, SHA-256 토큰 해시만 저장한다. 키가 없는 초기 상태와 토큰 폐기를 구분한다. 파일 쓰기는 서버 루프에서 직렬화해 수행하며 Qt 객체에 접근하지 않는다. 해시 검증은 `hmac.compare_digest`; 토큰 원문은 승인 전송을 위한 수명에만 보유한다.
-- [ ] `QNetworkInterface`를 Qt 쪽에서 조회해 활성·실행 중·비루프백 IPv4를 불변 후보로 만든다. `0.0.0.0`, 루프백, 멀티캐스트·미지정·연결 끊긴 주소를 제외하고 성공 후보 우선·중복 제거·최대 8개를 유지한다. 특정 사설 대역이나 SSID를 강제하지 않는다. QR은 `qrcode==8.2` 행렬로 메모리에만 생성한다.
-- [ ] 위 테스트를 다시 실행한다. 등록 파일과 임시 파일이 `.gitignore`로 제외되는지 `git check-ignore`로 확인한다. 변경 파일을 명시해 `feat: 모바일 페어링과 등록 보관 추가`로 커밋한다.
+- [x] 주입 가능한 단조 시계·난수 생성기·저장 대역으로 QR 120초/재발급/거절/소켓 종료/동시 두 요청/기기 교체/내구 저장 실패 테스트를 쓴다. Storage는 `tmp_path`만 사용하고 첫 승인 전 기존 등록이 바뀌지 않아야 한다.
+- [x] `python -m pytest tests/test_companion_pairing.py tests/test_companion_storage.py tests/test_companion_network.py -q`로 실패를 확인한다.
+- [x] `get_user_file("companion_registration.json")`와 기존 `save_json_data_atomic`을 사용한다. 파일에는 안정적 `server_id`, 등록 세대, 기기 ID, SHA-256 토큰 해시만 저장한다. 키가 없는 초기 상태와 토큰 폐기를 구분한다. 파일 쓰기는 서버 루프에서 직렬화해 수행하며 Qt 객체에 접근하지 않는다. 해시 검증은 `hmac.compare_digest`; 토큰 원문은 승인 전송을 위한 수명에만 보유한다.
+- [x] `QNetworkInterface`를 Qt 쪽에서 조회해 활성·실행 중·비루프백 IPv4를 불변 후보로 만든다. `0.0.0.0`, 루프백, 멀티캐스트·미지정·연결 끊긴 주소를 제외하고 성공 후보 우선·중복 제거·최대 8개를 유지한다. 특정 사설 대역이나 SSID를 강제하지 않는다. QR은 `qrcode==8.2` 행렬로 메모리에만 생성한다.
+- [x] 위 테스트를 다시 실행한다. 등록 파일과 임시 파일이 `.gitignore`로 제외되는지 `git check-ignore`로 확인한다. 변경 파일을 명시해 `feat: 모바일 페어링과 등록 보관 추가`로 커밋한다.
+
+실행 기록: 미구현 실패를 확인한 뒤 등록·주소 집중 테스트 **40개 통과**, 기존 원자 저장 및 앞 단계 계약/모델을 포함한 **137개 통과**, 기본 Ruff 통과. 등록 파일·백업·원자 교체 임시 파일의 Git 제외를 확인했다. 재시작 후 인증 복원, 일반 저장 실패 시 기존 등록 유지, 등록 해제 실패, 승인 응답의 계약 일치도 검증했다. 교체 후 내구 확인 오류처럼 최종 저장 상태가 불명확한 경우는 `storage_uncertain`으로 구분해 인증을 중단한다. 이때 이전 등록 복구를 보장하지 않으며 후속 게이트웨이는 Qt 접수 차단을 유지하고 모바일 서버 재시작·등록 상태 재확인을 요구해야 한다.
 
 ## 9. Task 4 — 가상 어댑터로 실제 게이트웨이 연결
 
@@ -281,7 +283,7 @@ def test_gateway_recreation_does_not_reexecute_reserved_request():
 
 - [ ] 실제 loopback 포트 0을 사용하는 테스트를 작성한다. production 포트는 8765이며 테스트의 port 0을 사용자 설정으로 노출하지 않는다. `/info` 최소 정보, 무인증/Origin 거절, QR 승낙 전 데이터 차단, header 인증, hello timeout, heartbeat·rate/size 제한·느린 수신자를 검증한다. 테스트 coroutine은 `asyncio.run`으로 실행해 새 pytest 플러그인을 추가하지 않는다.
 - [ ] `python -m pytest tests/test_companion_gateway.py tests/test_companion_session.py tests/test_companion_adapter.py tests/test_companion_dialog.py -q`를 실행해 실패를 확인한다.
-- [ ] adapter의 Qt `queued` signal에 불변 요청과 서버가 만든 correlation ID를 전달하고, 결과는 `loop.call_soon_threadsafe`로 돌려준다. GUI 스레드에서 Future 결과를 기다리지 않는다. controller는 Qt에서 서버 세대의 유효성을 확정한다. 승인 교체는 Qt 구등록 신규 수락 일시 차단→서버 저장 성공→Qt 등록 세대 확정→구연결 폐기→새 토큰 전송의 순서다. 저장 실패는 이전 등록을 다시 활성화하고 신규 승인을 실패 처리한다.
+- [ ] adapter의 Qt `queued` signal에 불변 요청과 서버가 만든 correlation ID를 전달하고, 결과는 `loop.call_soon_threadsafe`로 돌려준다. GUI 스레드에서 Future 결과를 기다리지 않는다. controller는 Qt에서 서버 세대의 유효성을 확정한다. 승인 교체는 Qt 구등록 신규 수락 일시 차단→서버 저장 성공→Qt 등록 세대 확정→구연결 폐기→새 토큰 전송의 순서다. 저장 실패 시 파일이 이전 상태 그대로임을 확인한 경우에만 이전 등록을 다시 활성화한다. `storage_uncertain`이면 Qt 접수 차단을 유지하고 모든 모바일 연결을 종료하며 서버 재시작·등록 상태 재확인을 요구한다.
 - [ ] session은 수신 작업·한 개의 순서 있는 writer·heartbeat timer를 분리한다. snapshot을 부분 단위로 보내 제어 메시지를 처리할 기회를 보장하고, 수정 가능한 Qt 목록을 직접 순회하지 않는다. 종료는 Qt 차단 확인 후 서버 task cancel/await→소켓/runner 종료→스레드 정리다. 종료 중 controller를 먼저 파괴하지 않는다.
 - [ ] §4.1의 스냅샷 한 개 제한을 구현한다. 중복 sync는 병합하고 무효화 요청은 최신 한 건만 보관한다. 취소된 Qt 캡처/직렬화 결과를 세대로 거르고 이전 버퍼·구독을 해제한 뒤 교체한다. 큰 스냅샷을 보내는 동안 반복 sync·편집·reset을 주입해 동시 캡처/직렬화/송신 작업이 각각 한 개를 넘지 않는지, 해제되지 않은 버퍼가 요청 수에 비례해 쌓이지 않는지, 변경이 멈춘 뒤 최종 대화로 수렴하는지 검증한다.
 - [ ] 같은 등록의 새 일반 소켓은 토큰과 hello 검증을 모두 통과한 뒤 현재 소켓을 교체한다. 서버가 만든 연결 세대를 바꾸고 구소켓의 신규 명령·늦은 callback·heartbeat·writer·구독을 무효화한다. Qt에 아직 수락되지 않은 구연결 요청도 재검증해 거절하지만 이미 예약/수락한 작업과 원장은 유지하고 결과는 현재 연결에서 복구한다. 구소켓 정리를 완료하기 전 교체 요청은 제한하여 종료 대기 소켓이 누적되지 않게 한다. 두 연결 경합·잘못된 토큰·hello timeout·구소켓의 늦은 종료 이벤트로 정상 연결이 끊기지 않는 테스트를 추가한다.
