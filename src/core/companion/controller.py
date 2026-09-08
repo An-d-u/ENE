@@ -1,6 +1,7 @@
 """Qt는 수락 권한을 소유하고 별도 스레드는 서버 루프만 실행한다."""
 
 import asyncio
+from contextlib import ExitStack
 from dataclasses import replace
 import threading
 from uuid import uuid4
@@ -12,6 +13,9 @@ from .gateway import CompanionGateway, GatewayState
 from .network import discover_endpoints
 from .pairing import PairingError, PairingService
 from .storage import RegistrationStore, StorageError
+from .private_files import PrivateFileError
+from .tls_identity import TlsError, TrustAnchor, utc_now
+from .tls_storage import TlsIdentityStore
 
 
 class CompanionController(QObject):
@@ -106,10 +110,25 @@ class CompanionController(QObject):
         self._stop_event = asyncio.Event()
         failure = None
         registered = False
+        resources = ExitStack()
+
+        def gateway_state(state):
+            nonlocal failure
+            if not state.running and state.code:
+                failure = state.code
+                self._stop_event.set()
+            self._network_state.emit(state)
+
         try:
             if self._stop_requested.is_set():
                 return
-            pairing = PairingService(self._store_factory())
+            store = self._store_factory()
+            tls_store = resources.enter_context(TlsIdentityStore(store))
+            identity = tls_store.load_or_create()
+            anchor = TrustAnchor.parse(
+                identity.ca_certificate, identity.server_id, utc_now()
+            )
+            pairing = PairingService(store, trust_anchor=anchor)
             registered = pairing.registration.token_hash is not None
             context = AdmissionContext(
                 self._generation, pairing.registration.registration_generation
@@ -122,12 +141,13 @@ class CompanionController(QObject):
                 pairing,
                 self.adapter,
                 self._generation,
-                on_state=self._network_state.emit,
+                tls_store=tls_store,
+                on_state=gateway_state,
             )
             await self._gateway.start(host, port)
             if not self._stop_requested.is_set():
                 await self._stop_event.wait()
-        except StorageError as error:
+        except (StorageError, PrivateFileError, TlsError, PairingError) as error:
             failure = error.code
         except AdapterError:
             failure = None if self._stop_requested.is_set() else "adapter_unavailable"
@@ -140,6 +160,7 @@ class CompanionController(QObject):
                 registered = self._gateway.pairing.registration.token_hash is not None
                 await self._gateway.stop()
                 self._gateway = None
+            resources.close()
             self._stop_event = None
             self._network_state.emit(
                 GatewayState(False, None, registered, None, None, failure)
@@ -239,3 +260,34 @@ class CompanionController(QObject):
 
     def revoke(self):
         self._schedule("revoke")
+
+    def reset_tls(self):
+        """확인창을 거친 PC 호출 전용이다. 네트워크 실행 중에는 초기화하지 않는다."""
+        if self.has_thread:
+            self.operation_failed.emit("tls_stop_first")
+            return
+        self.adapter.disable()
+        self._stop_requested.clear()
+        self._generation = str(uuid4())
+        self._receive_state(
+            GatewayState(
+                False, None, self.state.registered, None, None, "tls_resetting"
+            )
+        )
+        self._thread = threading.Thread(
+            target=self._reset_tls_main, name="ene-companion-tls-reset", daemon=True
+        )
+        self._thread.start()
+
+    def _reset_tls_main(self):
+        code = "tls_reset_complete"
+        try:
+            with TlsIdentityStore(self._store_factory()) as store:
+                store.reset()
+        except (StorageError, PrivateFileError, TlsError) as error:
+            code = error.code
+        except Exception:
+            code = "tls_reset_failed"
+        finally:
+            self._network_state.emit(GatewayState(False, None, False, None, None, code))
+            self._thread_done.emit()

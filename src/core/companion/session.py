@@ -294,10 +294,12 @@ class CompanionSession:
         context,
         ready,
         *,
+        validate_connection=None,
         heartbeat_interval=15,
         heartbeat_timeout=10,
     ):
         self.ws, self.adapter, self.context = ws, adapter, context
+        self._validate_connection = validate_connection or (lambda: None)
         self.server_epoch = ready["server_epoch"]
         self.conversation_id = ready["conversation_id"]
         # 재동기화 알림과 네이티브 pong의 전용 자리도 총 자원 상한에 포함한다.
@@ -371,6 +373,7 @@ class CompanionSession:
             self.queue(message, control=True)
 
     async def _capture(self, pending):
+        self._validate_connection()
         self._capture_version = self._sync_version
         return await self.adapter.call("capture", self.context, pending=pending)
 
@@ -400,6 +403,7 @@ class CompanionSession:
         self._wake.set()
 
     async def _send_raw(self, raw):
+        self._validate_connection()
         await asyncio.wait_for(self.ws.send_str(raw), 10)
 
     async def _writer(self):
@@ -438,6 +442,7 @@ class CompanionSession:
 
     async def _reader(self):
         async for item in self.ws:
+            self._validate_connection()
             if item.type in {WSMsgType.PING, WSMsgType.PONG}:
                 if not self._control_rate.take():
                     raise SessionError("rate_limited")
@@ -490,6 +495,7 @@ class CompanionSession:
     async def _command_worker(self):
         while True:
             message = await self._commands.get()
+            self._validate_connection()
             try:
                 result = await self.adapter.call("send", self.context, message=message)
                 if result is not None:

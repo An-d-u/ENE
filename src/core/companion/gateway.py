@@ -1,6 +1,7 @@
-"""개인 LAN 전용 HTTP/WS 진입점. PC 로컬 승인 API는 네트워크에 노출하지 않는다."""
+"""개인 LAN 전용 HTTPS/WSS 진입점. 로컬 승인 API는 네트워크에 노출하지 않는다."""
 
 import asyncio
+import time
 from dataclasses import dataclass
 from uuid import uuid4
 
@@ -17,6 +18,9 @@ from .protocol import (
 )
 from .session import CompanionSession, PreauthLimiter, SessionError
 from .storage import StorageError
+from .private_files import PrivateFileError
+from .tls_identity import TlsError, utc_now
+from .tls_listener import TlsListener
 
 
 # 기존 최소 의존성과 새 aiohttp의 타입 지정 요청 키를 모두 지원한다.
@@ -44,12 +48,23 @@ class CompanionGateway:
         adapter,
         gateway_generation,
         *,
+        tls_store,
+        tls_clock=utc_now,
+        renewal_clock=time.monotonic,
         on_state=None,
         hello_timeout=5,
         heartbeat_interval=15,
         heartbeat_timeout=10,
     ):
         self.pairing, self.adapter = pairing, adapter
+        self._tls_store = tls_store
+        self._tls_identity = None
+        self._tls_clock, self._renewal_clock = tls_clock, renewal_clock
+        self._tls_task = self._renew_task = None
+        self._renew_attempts = 0
+        self._renew_after = 0
+        self._tls_warning = None
+        self._host = None
         self.generation = gateway_generation
         self._on_state = on_state or (lambda state: None)
         self._hello_timeout = hello_timeout
@@ -89,7 +104,7 @@ class CompanionGateway:
                 self.pairing.registration.token_hash is not None,
                 self._last_qr,
                 self.pairing.pending,
-                self._failure,
+                self._failure or self._tls_warning,
             )
         )
 
@@ -103,12 +118,30 @@ class CompanionGateway:
     async def start(self, host="0.0.0.0", port=8765):
         if self._runner is not None:
             raise RuntimeError("gateway_already_started")
+        identity = self._tls_store.load_or_create()
+        if (
+            identity.ca_sha256 != self.pairing.registration.ca_sha256
+            or identity.server_id != self.pairing.registration.server_id
+        ):
+            raise TlsError("tls_repair_required")
+        if identity.renewal_due(self._tls_clock()):
+            identity = identity.renew(self._tls_clock())
+            context = self._tls_store.server_context(identity)
+            self._tls_store.save(identity)
+        else:
+            context = self._tls_store.server_context(identity)
+        self._tls_identity = identity
+        self._host = host
 
         @web.middleware
         async def guard(request, handler):
             if "Origin" in request.headers or request.query_string:
                 return self._response("forbidden", 403)
             if not self._running or self._failure:
+                return self._response("gateway_unavailable", 503)
+            try:
+                self._tls_identity.validate_connection(self._tls_clock())
+            except TlsError:
                 return self._response("gateway_unavailable", 503)
             try:
                 slot = self._limiter.acquire(request.remote or "unknown")
@@ -128,16 +161,22 @@ class CompanionGateway:
         self._runner = web.AppRunner(app, access_log=None, shutdown_timeout=2)
         try:
             await self._runner.setup()
-            self._site = web.TCPSite(self._runner, host, port)
-            await self._site.start()
-            self.port = self._runner.addresses[0][1]
+            self._site = await TlsListener.start(self._runner, host, port, context)
+            self.port = self._site.port
             self._running = True
             self._expiry_task = asyncio.create_task(
                 self._expiry_loop(), name="companion-pair-expiry"
             )
+            self._tls_task = asyncio.create_task(
+                self._tls_loop(), name="companion-tls-watch"
+            )
             self._notify()
         except BaseException:
+            if self._site is not None:
+                await self._site.stop()
             await self._runner.cleanup()
+            if self._site is not None:
+                await self._site.wait_closed()
             self._runner = self._site = None
             raise
 
@@ -270,6 +309,7 @@ class CompanionGateway:
                     self.adapter,
                     context,
                     ready,
+                    validate_connection=self._validate_session_tls,
                     heartbeat_interval=self._heartbeat_interval,
                     heartbeat_timeout=self._heartbeat_timeout,
                 )
@@ -348,6 +388,10 @@ class CompanionGateway:
     async def issue_qr(self, addresses):
         if not self._running or self._failure:
             raise PairingError("gateway_unavailable")
+        try:
+            self._tls_identity.validate_connection(self._tls_clock())
+        except TlsError as error:
+            raise PairingError(error.code) from None
         pending = self.pairing.pending
         ticket = self.pairing.issue_qr(addresses)
         if pending:
@@ -432,6 +476,10 @@ class CompanionGateway:
         self._failure = code
         self._running = False
         self.pairing.invalidate()
+        try:
+            await self.adapter.call("block", self._context())
+        except AdapterError:
+            pass
         if self._active is not None:
             self._active.stop(code)
             await self._active.finished.wait()
@@ -441,10 +489,132 @@ class CompanionGateway:
             await self._site.stop()
         self._notify()
 
+    def _validate_session_tls(self):
+        try:
+            self._tls_identity.validate_connection(self._tls_clock())
+        except TlsError as error:
+            raise SessionError(error.code) from None
+
+    async def _tls_loop(self):
+        while self._running:
+            await self.check_tls()
+            if not self._running:
+                return
+            remaining = (
+                min(self._tls_identity.ca_not_after, self._tls_identity.leaf_not_after)
+                - self._tls_clock()
+            ).total_seconds()
+            await asyncio.sleep(max(0.01, min(60, remaining)))
+
+    async def check_tls(self):
+        """갱신 준비와 별도로 만료를 감시해 느린 디스크가 차단을 늦추지 않게 한다."""
+        if not self._running:
+            return
+        now = self._tls_clock()
+        try:
+            self._tls_identity.validate_connection(now)
+        except TlsError:
+            async with self._transition:
+                # 대기 중 갱신된 인증서에 이전 인증서의 만료 판단을 적용하지 않는다.
+                if self._running:
+                    try:
+                        self._tls_identity.validate_connection(self._tls_clock())
+                    except TlsError as current_error:
+                        await self._fail_closed(current_error.code)
+            return
+        if self._tls_identity.ca_repair_due(now):
+            if self._tls_warning != "tls_repair_required":
+                self._tls_warning = "tls_repair_required"
+                self._notify()
+            return
+        if (
+            self._tls_identity.renewal_due(now)
+            and self._renew_attempts < 4
+            and self._renewal_clock() >= self._renew_after
+            and (self._renew_task is None or self._renew_task.done())
+        ):
+            self._renew_task = asyncio.create_task(
+                self._renew_tls(now), name="companion-tls-renew"
+            )
+
+    def _prepare_renewal(self, identity, now):
+        renewed = identity.renew(now)
+        context = self._tls_store.server_context(renewed)
+        self._tls_store.save(renewed)
+        return renewed, context
+
+    async def _renew_tls(self, now):
+        worker = asyncio.create_task(
+            asyncio.to_thread(self._prepare_renewal, self._tls_identity, now)
+        )
+        try:
+            try:
+                renewed, context = await asyncio.shield(worker)
+            except asyncio.CancelledError:
+                # 취소로 실제 파일 작업이 끝났다고 간주하지 않는다. 보관 잠금 해제 전 회수한다.
+                await asyncio.gather(worker, return_exceptions=True)
+                raise
+            if not self._running:
+                return
+            async with self._transition:
+                if not self._running:
+                    return
+                self._changing = True
+                try:
+                    await self.adapter.call("block", self._context())
+                    self.pairing.invalidate()
+                    await self._site.stop()
+                    if self._active is not None:
+                        self._active.stop("tls_renewed")
+                        await self._active.finished.wait()
+                    for ws in tuple(self._preauth_sockets):
+                        await self._close_ws(ws, "tls_renewed")
+                    self._runner.server.pre_shutdown()
+                    await self._runner.server.shutdown(2)
+                    await self._site.wait_closed()
+                    if not self._running:
+                        return
+                    self._site = await TlsListener.start(
+                        self._runner, self._host, self.port, context
+                    )
+                    self._tls_identity = renewed
+                    await self.adapter.call("restore", self._context())
+                    self._renew_attempts = 0
+                    self._tls_warning = None
+                finally:
+                    self._changing = False
+                    deferred, self._deferred_resync = self._deferred_resync, None
+                    if deferred is not None and self._failure is None:
+                        self.publish(deferred)
+                    self._notify()
+        except PrivateFileError as error:
+            if error.code == "tls_write_failed":
+                self._renew_attempts += 1
+                if self._renew_attempts < 4:
+                    self._renew_after = (
+                        self._renewal_clock() + (60, 120, 300)[self._renew_attempts - 1]
+                    )
+                self._tls_warning = "tls_renewal_failed"
+                self._notify()
+            else:
+                async with self._transition:
+                    await self._fail_closed(error.code)
+        except (TlsError, AdapterError, OSError):
+            async with self._transition:
+                await self._fail_closed("tls_renewal_failed")
+        except Exception:
+            async with self._transition:
+                await self._fail_closed("tls_renewal_failed")
+
     async def stop(self):
         """호출 전에 controller가 Qt의 신규 접수를 무효화해야 한다."""
         self._running = False
         self.pairing.invalidate()
+        for task in (self._tls_task, self._renew_task):
+            if task is not None:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+        self._tls_task = self._renew_task = None
         if self._expiry_task is not None:
             self._expiry_task.cancel()
             await asyncio.gather(self._expiry_task, return_exceptions=True)
@@ -455,7 +625,11 @@ class CompanionGateway:
         for ws in tuple(self._preauth_sockets):
             await self._close_ws(ws, "gateway_stopped")
         if self._runner is not None:
+            if self._site is not None:
+                await self._site.stop()
             await self._runner.cleanup()
+            if self._site is not None:
+                await self._site.wait_closed()
             self._runner = self._site = None
         self.port = None
         self._notify()

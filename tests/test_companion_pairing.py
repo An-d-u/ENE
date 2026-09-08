@@ -10,14 +10,23 @@ from tests.companion_helpers import FakeClock, id_factory
 def service(tmp_path, *, writer=None):
     from src.core.companion.pairing import PairingService
     from src.core.companion.storage import RegistrationStore
+    from src.core.companion.tls_storage import TlsIdentityStore
+    from src.core.companion.tls_identity import TrustAnchor
 
     clock = FakeClock()
     options = {"writer": writer} if writer else {}
     store = RegistrationStore(
         tmp_path / "companion_registration.json", id_factory=id_factory(), **options
     )
+    with TlsIdentityStore(store, clock=clock.utcnow) as tls_store:
+        identity = tls_store.load_or_create()
+    anchor = TrustAnchor.parse(
+        identity.ca_certificate, identity.server_id, clock.utcnow()
+    )
     return PairingService(
         store,
+        trust_anchor=anchor,
+        tls_now=clock.utcnow,
         monotonic=clock.monotonic,
         utcnow=clock.utcnow,
         id_factory=id_factory(200),
@@ -44,6 +53,7 @@ def test_qr_uses_random_secret_and_expires_on_monotonic_clock(tmp_path):
     assert len(qr.secret) == 43 and qr.secret not in repr(qr)
     payload = json.loads(qr.to_json())
     assert payload["server_id"] == pairing.registration.server_id
+    assert payload["transport"] == "tls_v1" and payload["ca_certificate"]
     assert payload["expires_at"] == "2026-01-01T00:02:00Z"
     clock.advance(120)
     with pytest.raises(PairingError, match="pairing_expired"):
@@ -134,6 +144,9 @@ def test_successful_replacement_and_revoke_invalidate_old_tokens(tmp_path):
     with pytest.raises(PairingError, match="unauthorized"):
         pairing.authorize(first.token)
     revoked = pairing.revoke()
+    assert (
+        revoked.ca_sha256 == first.registration.ca_sha256 == pairing.trust_anchor.sha256
+    )
     assert revoked.device_id is None
     assert (
         revoked.registration_generation
@@ -218,3 +231,27 @@ def test_approval_output_matches_the_shared_wire_contract(tmp_path):
     pairing, _ = service(tmp_path)
     grant = register(pairing)
     assert decode_message(encode_message(grant.to_wire())).to_dict() == grant.to_wire()
+
+
+def test_qr_with_eight_addresses_fits_limit_and_ninth_is_rejected(tmp_path):
+    from src.core.companion.network import Endpoint
+    from src.core.companion.pairing import PairingError
+
+    pairing, _clock = service(tmp_path)
+    addresses = tuple(Endpoint(f"192.0.2.{index}", 65535) for index in range(1, 10))
+    assert len(pairing.issue_qr(addresses[:8]).to_json().encode("utf-8")) <= 2048
+    with pytest.raises(PairingError, match="no_address"):
+        pairing.issue_qr(addresses)
+
+
+def test_legacy_registration_without_ca_cannot_restore_authentication(tmp_path):
+    from dataclasses import replace
+    from src.core.companion.pairing import PairingError, PairingService
+
+    pairing, clock = service(tmp_path)
+    register(pairing)
+    pairing.store.save(replace(pairing.registration, ca_sha256=None))
+    with pytest.raises(PairingError, match="tls_repair_required"):
+        PairingService(
+            pairing.store, trust_anchor=pairing.trust_anchor, tls_now=clock.utcnow
+        )

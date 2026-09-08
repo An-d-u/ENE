@@ -1,4 +1,4 @@
-"""외부 접속 없는 실제 루프백 HTTP/WS 시험. 데이터는 모두 합성한다."""
+"""외부 접속 없는 실제 루프백 HTTPS/WSS 시험. 데이터는 모두 합성한다."""
 
 import asyncio
 import base64
@@ -15,6 +15,8 @@ from src.core.companion.pairing import PairingService
 from src.core.companion.protocol import decode_message, encode_message
 from src.core.companion.session import SyncCapture
 from src.core.companion.storage import RegistrationStore
+from src.core.companion.tls_identity import TrustAnchor, utc_now
+from src.core.companion.tls_storage import TlsIdentityStore
 from src.core.companion.transcript import CurrentConversationTranscript
 from tests.companion_helpers import FakeClock, LoopbackClient, sample_id
 
@@ -52,36 +54,53 @@ class SyntheticPort:
 
 
 @asynccontextmanager
-async def harness(tmp_path, *, registered=True, **options):
+async def harness(tmp_path, *, registered=True, tls_clock=utc_now, **options):
     from src.core.companion.gateway import CompanionGateway
 
     clock = FakeClock()
-    pairing = PairingService(
-        RegistrationStore(tmp_path / "registration.json"),
-        monotonic=clock.monotonic,
-        utcnow=clock.utcnow,
-    )
-    token = None
-    if registered:
-        ticket = pairing.issue_qr((Endpoint("192.0.2.10", 8765),))
-        pairing.request(ticket.pairing_id, ticket.secret, sample_id(50), "가상 단말")
-        token = pairing.approve(ticket.pairing_id, sample_id(50)).token
-    port = SyntheticPort()
-    gateway = CompanionGateway(pairing, port, sample_id(500), **options)
-    await gateway.start("127.0.0.1", 0)
-    client = LoopbackClient()
-    try:
-        yield (
-            gateway,
-            client,
-            f"http://127.0.0.1:{gateway.port}/companion/v1",
-            token,
-            port,
-            clock,
+    registration = RegistrationStore(tmp_path / "registration.json")
+    with TlsIdentityStore(registration, clock=tls_clock) as tls_store:
+        identity = tls_store.load_or_create()
+        anchor = TrustAnchor.parse(
+            identity.ca_certificate, identity.server_id, tls_clock()
         )
-    finally:
-        await client.close()
-        await gateway.stop()
+        pairing = PairingService(
+            registration,
+            trust_anchor=anchor,
+            tls_now=tls_clock,
+            monotonic=clock.monotonic,
+            utcnow=clock.utcnow,
+        )
+        token = None
+        if registered:
+            ticket = pairing.issue_qr((Endpoint("192.0.2.10", 8765),))
+            pairing.request(
+                ticket.pairing_id, ticket.secret, sample_id(50), "가상 단말"
+            )
+            token = pairing.approve(ticket.pairing_id, sample_id(50)).token
+        port = SyntheticPort()
+        gateway = CompanionGateway(
+            pairing,
+            port,
+            sample_id(500),
+            tls_store=tls_store,
+            tls_clock=tls_clock,
+            **options,
+        )
+        await gateway.start("127.0.0.1", 0)
+        client = LoopbackClient(anchor)
+        try:
+            yield (
+                gateway,
+                client,
+                f"https://{identity.hostname}:{gateway.port}/companion/v1",
+                token,
+                port,
+                clock,
+            )
+        finally:
+            await client.close()
+            await gateway.stop()
 
 
 async def connect(client, base, token):
@@ -364,7 +383,12 @@ def test_server_start_failure_releases_runner_and_stop_is_idempotent(tmp_path):
 
     async def scenario():
         async with harness(tmp_path) as (gateway, client, base, token, port, clock):
-            other = CompanionGateway(gateway.pairing, SyntheticPort(), sample_id(501))
+            other = CompanionGateway(
+                gateway.pairing,
+                SyntheticPort(),
+                sample_id(501),
+                tls_store=gateway._tls_store,
+            )
             with pytest.raises(OSError):
                 await other.start("127.0.0.1", gateway.port)
             await other.stop()

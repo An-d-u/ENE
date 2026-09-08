@@ -1,6 +1,7 @@
 """서버 루프에서 직렬 실행하는 일회용 QR·등록 상태 기계."""
 
 from dataclasses import dataclass, field
+import base64
 from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
@@ -12,6 +13,7 @@ from uuid import uuid4
 from .network import Endpoint, normalize_endpoint, select_endpoints
 from .protocol import MAX_SAFE_INTEGER, ProtocolError, text_value
 from .storage import RegistrationRecord, RegistrationStore, StorageError
+from .tls_identity import TRANSPORT_PROFILE, TlsError, TrustAnchor, utc_now
 
 
 class PairingError(ValueError):
@@ -28,11 +30,14 @@ class PairingTicket:
     expires_at: str
     expires_monotonic: float = field(repr=False)
     addresses: tuple[Endpoint, ...]
+    ca_certificate: str = field(repr=False)
 
     def to_json(self):
         raw = json.dumps(
             {
                 "protocol_version": 1,
+                "transport": TRANSPORT_PROFILE,
+                "ca_certificate": self.ca_certificate,
                 "server_id": self.server_id,
                 "pairing_id": self.pairing_id,
                 "secret": self.secret,
@@ -79,12 +84,16 @@ class PairingService:
         self,
         store: RegistrationStore,
         *,
+        trust_anchor: TrustAnchor,
+        tls_now=utc_now,
         monotonic=time.monotonic,
         utcnow=None,
         id_factory=None,
         token_factory=None,
     ):
         self.store = store
+        self.trust_anchor = trust_anchor
+        self._tls_now = tls_now
         self._monotonic = monotonic
         self._utcnow = utcnow or (lambda: datetime.now(timezone.utc))
         self._id_factory = id_factory or (lambda: str(uuid4()))
@@ -93,6 +102,7 @@ class PairingService:
         self._trusted = True
         self._qr: PairingTicket | None = None
         self._pending: PendingPairing | None = None
+        self._ensure_trusted()
 
     @property
     def registration(self):
@@ -110,6 +120,21 @@ class PairingService:
     def _ensure_trusted(self):
         if not self._trusted:
             raise PairingError("storage_uncertain")
+        if (
+            not isinstance(self.trust_anchor, TrustAnchor)
+            or self._registration.ca_sha256 != self.trust_anchor.sha256
+            or self._registration.server_id != self.trust_anchor.server_id
+        ):
+            raise PairingError("tls_repair_required")
+        try:
+            TrustAnchor.parse(
+                self._ca_certificate(), self._registration.server_id, self._tls_now()
+            )
+        except TlsError as error:
+            raise PairingError(error.code) from None
+
+    def _ca_certificate(self):
+        return base64.b64encode(self.trust_anchor.der).decode("ascii")
 
     def invalidate(self):
         """QR 수명만 끝낸다. 저장된 등록과 이미 수락한 AI 작업은 변경하지 않는다."""
@@ -142,6 +167,7 @@ class PairingService:
             expiry.isoformat().replace("+00:00", "Z"),
             self._monotonic() + 120,
             normalized,
+            self._ca_certificate(),
         )
         ticket.to_json()
         self.invalidate()
@@ -205,6 +231,7 @@ class PairingService:
             self._next_generation(),
             self._id_factory(),
             hashlib.sha256(token.encode("ascii")).hexdigest(),
+            self._registration.ca_sha256,
         )
         self._save_registration(registration)
         return PairingGrant(connection_id, pairing_id, registration, token)
@@ -238,7 +265,9 @@ class PairingService:
         """로컬 PC 승인 경로에서만 호출하며 Qt 접수 차단 장벽이 선행해야 한다."""
         self._ensure_trusted()
         registration = RegistrationRecord(
-            self._registration.server_id, self._next_generation()
+            self._registration.server_id,
+            self._next_generation(),
+            ca_sha256=self._registration.ca_sha256,
         )
         self._save_registration(registration)
         return registration

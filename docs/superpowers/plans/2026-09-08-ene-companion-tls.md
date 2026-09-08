@@ -79,18 +79,28 @@ assert identity.leaf_not_after <= identity.ca_not_after
 - [x] 등록 레코드에 선택 `ca_sha256`을 추가한다. `TlsIdentityStore`는 등록 파일 옆의 `companion_tls/identity.json`에 버전·PC ID·CA/서버 인증서·키를 하나의 제한된 크기 레코드로 원자 보관한다. 등록이 없는 첫 실행만 자동 생성하며 기존 지문/등록에 키가 없거나 구형 토큰이면 `tls_repair_required`다. 새 페어링 지문 결합 및 구형 토큰 네트워크 거절은 T3에서 필수 적용한다.
 - [x] 로컬 초기화는 먼저 등록 세대를 증가시키고 토큰 폐기·CA 지문 비우기를 내구 확인한 뒤 새 신원을 저장하고 새 지문을 결합한다. 어느 단계에서 실패해도 기존 토큰을 새 CA에 결합하지 않는다. 초기화 함수는 네트워크 API가 아니며 T3의 로컬 UI만 호출한다.
 - [x] SSLContext는 `ssl.PROTOCOL_TLS_SERVER`, `minimum_version=TLSv1_2`로 생성한다. PEM 로딩용 파일은 보호 폴더에서만 생성하고 `finally`에 닫기·삭제, 재시작 시 소유한 임시 파일만 정리한다. raw 예외나 개인키를 로그에 쓰지 않는다.
-- [ ] 집중 시험을 통과시키고 보관 파일·키가 Git에서 제외되는지 확인한다. `feat: PC TLS 신원 보호 보관 추가`로 해당 파일만 커밋한다.
+- [x] 집중 시험을 통과시키고 보관 파일·키가 Git에서 제외되는지 확인했다. `7b080bbb feat: PC TLS 신원 보호 보관 추가`로 해당 파일만 커밋했다.
 
 ## 5. Task T3 — TLS 전용 서버·갱신·로컬 복구
 
-- [ ] `test_companion_tls_gateway.py`에 실제 TLS `/info`·QR·WSS, 평문 거절·잘못된 CA/이름·만료/미래 인증서·프로토콜 하한·무응답 협상 정리를 작성한다. 기존 gateway harness를 전용 신뢰 CA·고정 이름을 사용하는 aiohttp client로 바꾸고 정상 동작 실패를 확인한다.
-- [ ] `python -m pytest tests/test_companion_tls_gateway.py tests/test_companion_gateway.py -q`로 실패를 확인한다. 시험에서 `ssl=False`나 호스트 검증 해제를 사용하지 않는다.
-- [ ] `CompanionGateway`는 SSLContext 없이는 시작할 수 없게 한다. 공개 `runner.server`와 `loop.create_server(..., ssl=context, ssl_handshake_timeout=5)`로 TLS 전용 리스너를 소유한다. 리스너·WS·runner를 실패/종료에도 정리하고 HTTP 별도 포트는 만들지 않는다. 기존 HTTP 단계 8/2 연결 제한은 유지하되 TLS 협상 전 총 연결 수까지 제한한다고 주장하지 않는다.
-- [ ] PairingService의 QR 생성은 활성 CA를 요구한다. controller가 TLS 신원·등록 지문 확인→Qt 등록 장벽→TLS 리스너 성공 순으로 시작한다. TLS 실패는 모바일만 중단한다. 런타임 개인 파일을 읽지 않는 smoke 도구의 임시 store에도 TLS 신원을 사용한다.
-- [ ] 가상 시계로 정상 서버 인증서 갱신·실패·만료·CA 만료 직전 루프·stop 경합을 검증하는 테스트를 작성한다. 갱신 점검은 최대 60초 간격, 실패 재시도는 60/120/300초 이후 조치 필요로 멈추되 만료 감시는 계속한다. 실제 만료 시한에는 기존 소켓도 닫는다. clock 변경도 점검에 반영한다.
-- [ ] 갱신 준비는 서버 루프의 단일 작업에서 수행한다. 새 보호 저장/컨텍스트가 완성되면 등록 변경과 같은 lock·Qt 차단 장벽을 사용해 QR 취소·기존 소켓 종료·리스너 교체·접수 복구를 한다. 같은 CA/기기 등록/Qt 원장을 유지한다. 실패가 불명확하면 fail-closed, 유효한 옛 컨텍스트가 확실한 준비 단계 실패만 일시 유지한다.
-- [ ] controller/dialog 시험에 TLS 안내와 서버가 시작되지 않는 키 손실 복구를 추가한다. 로컬 초기화는 연결이 꺼진 상태에서 명시적 확인 후 수행하도록 하고, 실행 중이면 먼저 끄도록 안내한다. 별도 서버 루프에서 처리해 Qt를 막지 않고 실제 앱 설정·대화는 지우지 않는다.
-- [ ] `python -m pytest tests/test_companion_tls_gateway.py tests/test_companion_gateway.py tests/test_companion_adapter.py tests/test_companion_dialog.py tests/test_companion_pairing.py -q`를 통과시킨다. `PYTHONASYNCIODEBUG=1` 자원 경고 검사도 수행하되 기존 확인된 aiohttp 내부 경고 한 종류만 시험 명령에서 분리한다. `feat: 동반 앱 서버 TLS 전용 연결과 갱신 구현`으로 커밋한다.
+진행 기록: 실제 TLS gateway 전환의 필수 인자 부재 실패를 확인한 뒤 기본 통신·기존 gateway 25개 시험을 통과했다. Qt 경로의 필수 TLS 신뢰 및 안내 누락 실패→수정 후 pairing/dialog/adapter 29개 통과를 확인했다. 이후 갱신·재시도·만료·복구 시험을 추가했다. 최종 TLS gateway/gateway/pairing/dialog/adapter/session 집중 시험은 `PYTHONASYNCIODEBUG=1`·경고 오류화에서 **86개 통과**했다. 명시한 기존 aiohttp 내부 DeprecationWarning 한 종류 외에 자원 경고를 제외하지 않았다. 기본 Ruff 및 개인정보 후보·BOM 검사를 통과했다.
+
+집중 리뷰: Critical 없음, Important 1건은 갱신 전 인증서의 만료 판단을 전환 잠금 대기 후에도 적용하는 경합이었다. 별도 회귀 시험에서 유효한 새 인증서까지 종료되는 실패를 재현한 뒤 잠금 안에서 현재 실행 상태·현재 인증서·현재 시각을 재검사하도록 수정했다. 해당 수정 재검토는 Ready다. Minor 검증 잔여였던 실제 소켓의 TLS 1.0/1.1·만료/미래 leaf 거절도 4개 시험으로 추가 통과했다. 구형 TLS 허용은 거절 시험 클라이언트에만 적용하며 실제 앱의 서버·클라이언트 하한은 낮추지 않는다.
+
+실제 경합 보완: `asyncio.Server.close()`는 이미 진행 중인 TLS 협상을 즉시 끝내지 않는다. 리스너 교체 직후 늦게 TLS를 완료하고 HTTP keep-alive를 유지하면 이전 리스너의 종료가 지연되는 실패를 재현했다. `tls_listener.py`의 작은 공개 `asyncio.Protocol` 전달 래퍼가 닫힌 리스너의 늦은 `connection_made`를 즉시 닫도록 수정했고 재현 시험을 통과했다. 미완료 협상에는 5초 제한을 유지한다. HTTP 단계의 8개/주소당 2개 제한이 TLS 협상 이전 전체 소켓 수까지 제한한다는 뜻은 아니며, 공용/외부 네트워크 서비스의 자원 방어를 완료했다고 주장하지 않는다.
+
+갱신 수명: 만료 감시는 최대 60초 간격과 실제 만료 시한 중 빠른 시점에 진행한다. 갱신 준비는 별도의 단일 작업·작업 스레드에서 수행해 디스크 작업 중에도 만료 감시가 계속된다. 종료는 준비 스레드를 실제 회수한 뒤 보관 잠금을 해제한다. 안전하게 기존 파일을 보존한 저장 실패만 60/120/300초 재시도하며 총 4번 실패하면 수동 조치를 안내한다. 저장 결과 불명확·교체 단계 오류는 차단한다. 같은 CA·등록·Qt 원장을 유지하며 QR/기존 소켓만 무효화한다. 세션 송수신·명령 접수에도 유효기간 검사를 추가했다.
+
+로컬 복구: OFF 상태에서 확인창을 거친 인증서 초기화가 별도 PC 스레드에서 동작한다. 키 손실→시작 거절→로컬 초기화→재시작 성공과 대화/처리 상태 보존을 합성 데이터로 검증했다. 초기화는 가상 연결 도구에 연결했으며 아직 실제 ENE 화면 통합 및 Android 인수까지 완료한 것은 아니다.
+
+- [x] 실제 TLS `/info`·QR·WSS, 평문·다른 CA/이름·만료/미래 leaf·TLS 1.0/1.1 거절·무응답 협상 정리 시험을 작성하고 기존 gateway harness를 전용 CA·고정 이름으로 전환했다.
+- [x] 기능 부재 실패를 확인하고 구현했다. `ssl=False`나 호스트 검증 해제를 사용하지 않았다.
+- [x] Gateway에 열린 TLS 신원 보관을 필수 인자로 요구한다. 지문 확인 및 TLS 1.2+ SSLContext를 만든 후 공개 `runner.server`/`loop.create_server`로 전용 리스너를 소유한다. HTTP 별도 포트는 없으며 종료·실패 시 자원을 정리한다.
+- [x] PairingService는 활성 CA를 요구하며 새 등록·등록 해제에 같은 CA 지문을 보존한다. 구형 지문 없는 등록은 거절한다. controller는 신원 확인→Qt 장벽→TLS 시작 순서를 유지하며 TLS 오류는 모바일 서버만 종료한다.
+- [x] 가상 시계로 갱신·실패·제한된 재시도·만료·CA 임박·stop 경합을 검증했다. CA 임박 시 갱신을 반복하지 않으며 만료 감시 및 세션 유효기간 검사는 계속한다.
+- [x] 단일 갱신 준비와 등록 변경 공유 lock·Qt 장벽으로 QR/기존 소켓 종료 및 리스너 교체를 수행한다. 같은 등록·원장을 유지하며 불명확한 실패는 차단한다.
+- [x] TLS 안내와 키 손실 로컬 초기화를 추가했다. OFF·명시 확인 후 별도 작업 스레드에서 처리하며 실제 앱 설정·대화를 삭제하지 않는다.
+- [x] 관련 집중/비동기 강화 시험 86개 통과 후 `feat: 동반 앱 서버 TLS 전용 연결과 갱신 구현`으로 로컬 커밋한다. 최종 실제 ENE 및 Android 단말 인수는 후속 작업이다.
 
 ## 6. Task T4 — Android 신뢰와 실제 HTTPS/WSS
 

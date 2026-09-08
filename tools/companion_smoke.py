@@ -125,6 +125,7 @@ def main():
         dialog.approve_requested.connect(controller.approve)
         dialog.reject_requested.connect(controller.reject)
         dialog.revoke_requested.connect(controller.revoke)
+        dialog.tls_reset_requested.connect(controller.reset_tls)
         closing = False
 
         def close_requested(result):
