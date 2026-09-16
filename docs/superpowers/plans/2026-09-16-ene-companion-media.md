@@ -8,7 +8,7 @@
 
 **기술:** 기존 Python/PyQt6/aiohttp/pytest/Node VM, Kotlin 2.2.21/Compose/Coroutines/OkHttp 5.3.2, Android AudioTrack·AudioManager, AndroidX WebKit 1.15.0. 기존 Live2D 웹 라이브러리는 출처·버전·권리 확인 후 그대로 고정한다.
 
-**검토 상태:** 계획 문서 리뷰 승인. A0~A4, B1~B7, C1~C2 완료, C3부터 순차 진행 중. 실기기 시험은 보류한다.
+**검토 상태:** 계획 문서 리뷰 승인. A0~A4, B1~B7, C1~C3 완료, C4부터 순차 진행 중. 실기기 시험은 보류한다.
 
 ---
 
@@ -345,14 +345,20 @@ C2 검증: 신규 캐릭터 시험 45개와 내보내기 호환 회귀 1개를 �
 
 **파일:** APP `K/character/CharacterRepository.kt`, `CharacterCache.kt`, `CharacterBridge.kt`, `CharacterWebView.kt`, `T/CharacterCacheTest.kt`, `CharacterBridgeTest.kt`, `I/CharacterWebViewTest.kt`; §2의 APP 의존성·asset 파일 수정/생성.
 
-- [ ] 캐시 한도/임시 파일 합산/해시 mismatch/등록 교체/다운로드 중 모델 변경 테스트와 JS origin·iframe·초과 메시지·외부 경로 거절 테스트를 작성한다.
-- [ ] `./gradlew.bat :app:testDebugUnitTest --tests "dev.ene.companion.CharacterCacheTest" --tests "dev.ene.companion.CharacterBridgeTest" --offline --dependency-verification strict --console=plain`로 실패를 확인한다.
-- [ ] WebKit 1.15.0을 Google Maven에서 고정 추가한다. minSdk 23 이상인 이 버전은 현재 앱 minSdk 26 안에 들며 필요한 API만 사용한다. 최신 버전이라는 주장은 하지 않는다. 기존 lock/hash를 보존하고 신규 항목의 출처와 SHA를 확인한다. [공식 WebKit 변경 이력](https://developer.android.com/jetpack/androidx/releases/webkit#1.15.0)
-- [ ] noBackupFilesDir 아래 서버 신원별 cache에 `.part`를 만들고 모든 자산 검증 뒤 manifest를 원자적으로 활성화한다. 취소 시 part만 정리한다. 부족 공간이면 미사용 버전을 먼저 제거하고 불가능하면 실패한다. 등록 삭제/교체 후 남은 캐시를 다음 시작에서 표시하지 않는다.
-- [ ] C1의 명시 목록을 검증한 다음 `tools/export_companion_character.py --android-root <APP의 검증된 절대 경로>`로 복사한다. APP에 import manifest를 함께 커밋하여 단독 checkout에서도 빌드되게 한다. 라이브러리 고지 원문은 번역으로 대체하지 않는다.
-- [ ] 내부 출처는 `https://appassets.androidplatform.net` 하나, 문서는 `/character/index.html`, 자산은 `/models/{model_version}/assets/{asset_id}`로 고정한다. 허용 목록 밖 요청은 403으로 반환하고 네트워크로 통과시키지 않는다. file/content 접근·mixed content·외부 navigation·window open·다운로드·웹 저장소·서비스 worker를 금지한다.
-- [ ] WebMessageListener의 지원 여부와 sourceOrigin/isMainFrame을 확인한다. 지원하지 않으면 캐릭터를 비활성화하며 안전하지 않은 addJavascriptInterface로 대체하지 않는다. 입력은 유형/세대/크기를 검사한 JSON만 허용한다. onRenderProcessGone는 정리 후 상태 복구 버튼을 보이며 무한 자동 재시작하지 않는다. [공식 WebView 메시지 API](https://developer.android.com/reference/androidx/webkit/WebViewCompat#addWebMessageListener(android.webkit.WebView,java.lang.String,java.util.Set,androidx.webkit.WebViewCompat.WebMessageListener))
-- [ ] 같은 JVM 시험과 offline strict lint/debug/instrumentation 빌드를 실행한다. 계측은 미실시로 남기고 `feat: 검증된 캐릭터 캐시와 제한된 WebView 추가`로 커밋한다.
+- [x] 캐시 한도/임시 파일 합산/해시 mismatch/등록 교체/다운로드 중 모델 변경 테스트와 JS origin·iframe·초과 메시지·외부 경로 거절 테스트를 작성한다.
+- [x] `./gradlew.bat :app:testDebugUnitTest --tests "dev.ene.companion.CharacterCacheTest" --tests "dev.ene.companion.CharacterBridgeTest" --offline --dependency-verification strict --console=plain`로 실패를 확인한다.
+- [x] WebKit 1.15.0을 Google Maven에서 고정 추가한다. minSdk 23 이상인 이 버전은 현재 앱 minSdk 26 안에 들며 필요한 API만 사용한다. 최신 버전이라는 주장은 하지 않는다. 기존 lock/hash를 보존하고 신규 항목의 출처와 SHA를 확인한다. [공식 WebKit 변경 이력](https://developer.android.com/jetpack/androidx/releases/webkit#1.15.0)
+- [x] noBackupFilesDir 아래 서버 신원별 cache에 `.part`를 만들고 모든 자산 검증 뒤 manifest를 원자적으로 활성화한다. 취소 시 part만 정리한다. 부족 공간이면 미사용 버전을 먼저 제거하고 불가능하면 실패한다. 등록 삭제/교체 후 남은 캐시를 다음 시작에서 표시하지 않는다.
+- [x] C1의 명시 목록을 검증한 다음 `tools/export_companion_character.py --android-root <APP의 검증된 절대 경로>`로 복사한다. APP에 import manifest를 함께 커밋하여 단독 checkout에서도 빌드되게 한다. 라이브러리 고지 원문은 번역으로 대체하지 않는다.
+- [x] 내부 출처는 `https://appassets.androidplatform.net` 하나, 문서는 `/character/index.html`, 자산은 `/models/{model_version}/assets/{asset_id}`로 고정한다. 허용 목록 밖 요청은 403으로 반환하고 네트워크로 통과시키지 않는다. file/content 접근·mixed content·외부 navigation·window open·다운로드·웹 저장소·서비스 worker를 금지한다.
+- [x] WebMessageListener의 지원 여부와 sourceOrigin/isMainFrame을 확인한다. 지원하지 않으면 캐릭터를 비활성화하며 안전하지 않은 addJavascriptInterface로 대체하지 않는다. 입력은 유형/세대/크기를 검사한 JSON만 허용한다. onRenderProcessGone는 정리 후 실패를 알리며 무한 자동 재시작하지 않는다. 상태 복구 버튼은 아래 C4 화면의 재시도 UI에서 연결한다. [공식 WebView 메시지 API](https://developer.android.com/reference/androidx/webkit/WebViewCompat#addWebMessageListener(android.webkit.WebView,java.lang.String,java.util.Set,androidx.webkit.WebViewCompat.WebMessageListener))
+- [x] 같은 JVM 시험과 offline strict lint/debug/instrumentation 빌드를 실행한다. 계측은 미실시로 남기고 `feat: 검증된 캐릭터 캐시와 제한된 WebView 추가`로 커밋한다.
+
+C3 검증 기록(2026-09-17): APP 전체 JVM **34개 클래스/188개 시험 통과**, 실패·오류·제외 0. 새 캐릭터 시험은 31개다. offline strict Lint/debug APK/계측 APK 빌드 성공, 계측 2개는 컴파일만 확인했다. PC 진입점·공유 실행부·내보내기 집중 회귀 **20개 통과**. 문서 세대 교환을 Node VM에서 검증했으며 실제 SDK 렌더링 시험은 아니다.
+
+캐시 신원은 서버/CA/기기/등록 세대의 해시이고, 새 연결 manifest 없이는 캐시를 표시하지 않는다. 임시 파일도 예산에 예약하며 뷰와 스트림의 핀은 별개다. 단일 순차 자산 요청으로 한도를 지키고 모델 변경/취소 시 해당 HTTP를 회수한다. WebView API 미지원·초기화 무응답·렌더러 종료는 캐릭터 실패로 보고하며 C4에서 화면에 연결한다. Android 기능 광고는 아직 음성만 유지한다.
+
+WebKit 신규 AAR/메타데이터 3개의 SHA-256을 공식 Google Maven 원본과 독립 대조했고 기존 잠금·해시는 보존했다. 가져온 실행부 20개의 스테이징 Git 바이트까지 해시 일치를 확인했다. 원본 Pixi 공백 4곳은 공급 원문을 유지하고 자체 코드 공백 검사와 BOM/민감정보 후보 검사를 수행했다. APP `docs/character-runtime.md`에 출처·상한·검증·미검증 항목을 기록했다. 마지막 경계 검토에서 manifest 256KiB와 내부 메시지 봉투의 상한을 분리했고 실패 시험 뒤 통과를 확인했다.
 
 ### C4. 캐릭터 화면과 기기별 립싱크
 

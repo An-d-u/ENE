@@ -109,7 +109,7 @@
     {
       "source": "assets/web/character/entry.js",
       "target": "entry.js",
-      "sha256": "988771804e12f907aabc9da5a5dc936310aa5de85f3f5716a3c197d8d1084ec5"
+      "sha256": "8f046c21729f15d65866c8c035b43d46537914a86773cdbf9c082106beca5d4b"
     },
     {
       "source": "assets/web/character/style.css",

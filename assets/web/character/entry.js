@@ -5,6 +5,7 @@
     let snapshot = null;
     let expressions = new Map();
     let generation = 0;
+    let documentGeneration = null;
     let disposed = false;
     let request = null;
     const assetId = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
@@ -14,14 +15,22 @@
         return `${origin}/models/${snapshot.model_version}/assets/${resolved}`;
     }
     function emitInput(value) {
-        window.eneCharacterNative?.postMessage(JSON.stringify(value));
+        if (!disposed && documentGeneration) window.eneCharacterNative?.postMessage(JSON.stringify({...value, generation: documentGeneration}));
     }
     const character = window.createCharacter({assetUrl, emitInput}, document.getElementById('live2d-canvas'));
     async function receive(event) {
-        if (disposed || event.origin !== origin || typeof event.data !== 'string' || event.data.length > 262144) return;
+        if (disposed || event.origin !== origin || typeof event.data !== 'string' || event.data.length > 262400) return;
         let expected = generation;
         try {
             const command = JSON.parse(event.data);
+            if (command.type === 'initialize') {
+                if (!documentGeneration && typeof command.generation === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(command.generation)) {
+                    documentGeneration = command.generation;
+                    emitInput({type: 'document_ready'});
+                }
+                return;
+            }
+            if (!documentGeneration || command.generation !== documentGeneration) return;
             if (command.type === 'snapshot') {
                 const current = ++generation;
                 expected = current;
@@ -57,5 +66,4 @@
     }
     window.addEventListener('message', receive);
     window.addEventListener('pagehide', dispose);
-    emitInput({type: 'document_ready'});
 })();
