@@ -9,6 +9,13 @@ from .extension_protocol import EXPRESSION_SETTINGS, normalize_settings
 from .protocol import MAX_SAFE_INTEGER, ProtocolError, text_value, uuid_value
 
 
+# 기존 PC 장식 파라미터 창과 같은 읽기 전용 경계다.
+READ_ONLY_PARAMETER_PREFIXES = (
+    "ParamEye", "ParamMouth", "ParamJaw", "ParamTongue", "ParamBrow", "ParamAngle",
+    "ParamBody", "ParamBreath", "ParamArm", "ParamHand", "ParamShoulder", "ParamLeg",
+)
+
+
 def normalize_parameters(values, catalog=None):
     """저장 경계에서도 형태를 검사하고 원격 경계에서는 SDK 카탈로그 범위를 검사한다."""
     if not isinstance(values, dict) or len(values) > 256:
@@ -19,7 +26,7 @@ def normalize_parameters(values, catalog=None):
         text_value(key, max_bytes=128, nonblank=True)
         if key in {"__proto__", "constructor", "prototype"} or any(ord(c) < 32 for c in key):
             raise ValueError("invalid_parameters")
-        if bounds is not None and key not in bounds:
+        if bounds is not None and (key not in bounds or key.startswith(READ_ONLY_PARAMETER_PREFIXES)):
             raise ValueError("invalid_parameters")
         if value is not None:
             try:

@@ -46,7 +46,10 @@ function readLive2DParameterFavorites(parameterOverrides) {
 window.onLive2DParameterModelChanged = function onLive2DParameterModelChanged(config = {}) {
     syncLive2DParameterVisibilityForAvatarMode();
     const nextModelKey = String(config.modelKey || '');
-    const modelKeyChanged = live2dParameterState.modelKey !== nextModelKey;
+    const nextGeneration = String(config.companionModelGeneration || '');
+    const modelKeyChanged = live2dParameterState.modelKey !== nextModelKey || live2dParameterEdit.generation !== nextGeneration;
+    if (modelKeyChanged) resetLive2DParameterEdit();
+    live2dParameterEdit.generation = nextGeneration;
     const parameterOverrides = config.parameterOverrides || {};
     live2dParameterState.modelKey = nextModelKey;
     live2dParameterState.parameterDisplayInfo = normalizeLive2DParameterDisplayInfo(config.parameterDisplayInfo);

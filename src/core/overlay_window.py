@@ -688,7 +688,7 @@ class OverlayWindow(QWidget):
         background = self._hex_to_rgba_css(base_color, 0.64)
         self.drag_bar.apply_theme(background, text_color, border_color)
 
-    def _apply_model_settings(self):
+    def _apply_model_settings(self, *, reuse_companion=False):
         model_config = self._resolve_model_config_payload()
         prepare = getattr(self.__dict__.get("bridge"), "_companion_prepare_character", None)
         if callable(prepare):
@@ -701,6 +701,7 @@ class OverlayWindow(QWidget):
                 path, model_config["availableEmotions"],
                 {key: self.settings.get(key) for key in SETTING_KEYS},
                 model_config["parameterOverrides"].get("values", {}),
+                reuse=reuse_companion,
             )
         scale = model_config["scale"]
         x_percent = model_config["xPercent"]
@@ -744,12 +745,15 @@ class OverlayWindow(QWidget):
         self._apply_drag_bar_theme()
 
     def apply_new_settings(self, new_settings: dict):
+        confirmed = getattr(self.__dict__.get("bridge"), "_companion_confirmed_settings", None)
+        if callable(confirmed):
+            new_settings = confirmed(new_settings)
         old_tracking = self.settings.get("mouse_tracking_enabled", True)
         new_tracking = new_settings.get("mouse_tracking_enabled", True)
 
         self.settings.update(new_settings)
         self._apply_settings()
-        self._apply_model_settings()
+        self._apply_model_settings(reuse_companion=True)
         self._sync_theme_to_js()
         self._sync_ui_strings_to_js(new_settings)
         self._apply_drag_bar_theme()
@@ -822,9 +826,14 @@ class OverlayWindow(QWidget):
             self._sync_thought_feature_settings_to_js(new_settings)
             self._sync_chat_panel_height_to_js(new_settings)
 
+    def apply_companion_character_settings(self):
+        """원격 확정값은 캐릭터 표시만 갱신한다. 창 배치·TTS·비밀 설정은 건드리지 않는다."""
+        self._apply_model_settings(reuse_companion=True)
+        self._sync_idle_motion_settings_to_js()
+
     def restore_settings(self):
         self._apply_settings()
-        self._apply_model_settings()
+        self._apply_model_settings(reuse_companion=True)
         self._sync_theme_to_js()
         self._sync_ui_strings_to_js()
         self._apply_drag_bar_theme()

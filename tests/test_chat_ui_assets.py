@@ -2197,10 +2197,10 @@ def test_live2d_parameter_runtime_renders_inspector_controls():
     assert "function buildLive2DParameterSavePayload()" in script
     assert "function resetLive2DParameterOverride(paramId)" in script
     assert "live2dParameterState.removedValues.add(paramId);" in script
-    assert "live2dParametersSaveButton.disabled = live2dParameterState.metadataStatus !== 'ready';" in script
+    assert "live2dParametersSaveButton.disabled = !ready || !live2dParameterEdit.baseline" in script
     assert "live2dParametersSearch.addEventListener('input'" in script
     assert "live2dParametersSaveButton.addEventListener('click'" in script
-    assert "window.pyBridge.save_live2d_parameter_overrides" in script
+    assert "window.pyBridge.commit_live2d_parameter_overrides" in script
 
 
 def test_live2d_model_notifies_parameter_runtime_after_model_load():

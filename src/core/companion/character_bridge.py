@@ -9,7 +9,10 @@ from uuid import uuid4
 from PyQt6.QtCore import QObject, QTimer
 
 from .character_assets import build_bundle
-from .character_state import CharacterState, CharacterStateError
+from .character_controls import CharacterControls
+from .character_state import CharacterState, CharacterStateError, SETTING_KEYS, _settings
+from .extension_protocol import EXPRESSION_SETTINGS, normalize_settings
+from ..settings import Settings
 
 
 @dataclass(frozen=True)
@@ -31,6 +34,9 @@ class CompanionCharacterBridge(QObject):
         self._active = self._preview = False
         self._selection = self._pending = self._thread = self._cancel = None
         self._result = None
+        self._confirmed_settings = {}
+        self._confirmed_parameters = {}
+        self._controls = None
         self.timer = QTimer(self)
         self.timer.setInterval(20)
         self.timer.timeout.connect(self._poll)
@@ -45,7 +51,13 @@ class CompanionCharacterBridge(QObject):
         # 스레드 종료뿐 아니라 Qt의 결과 회수까지 포함한다.
         return self._thread is not None
 
-    def select(self, path, emotions, settings, parameters):
+    def select(self, path, emotions, settings, parameters, *, reuse=False):
+        if reuse and self._selection is not None and (
+            self._selection.path == (Path(path) if path else None)
+            and self._selection.emotions == tuple(emotions)
+        ):
+            self._preview = False
+            return self._selection.generation
         selection = _Selection(
             str(uuid4()),
             Path(path) if path else None,
@@ -54,6 +66,7 @@ class CompanionCharacterBridge(QObject):
             dict(parameters),
         )
         self._selection = selection
+        self._confirmed_settings, self._confirmed_parameters = dict(settings), dict(parameters)
         self._preview = False
         self._invalidate("loading" if path else "unsupported")
         if self._active:
@@ -85,6 +98,90 @@ class CompanionCharacterBridge(QObject):
 
     def preview(self, active):
         self._preview = bool(active)
+
+    def settings_baseline(self):
+        """PC 창 전용 기준이다. 로컬 모델 키는 네트워크 메시지에 넣지 않는다."""
+        store = self.owner.settings
+        return {
+            "model_key": str(store.get("model_json_path", Settings.DEFAULT_CONFIG["model_json_path"]) or "").replace("\\", "/"),
+            "generation": self._selection.generation if self._selection else self.state.generation,
+            "settings_revision": self.state.settings_revision,
+            "settings": _settings({key: store.get(key, Settings.DEFAULT_CONFIG[key]) for key in SETTING_KEYS}),
+        }
+
+    def save_local_settings(self, values, baseline=None):
+        current = self.settings_baseline()
+        baseline = current if baseline is None else baseline
+        if not isinstance(baseline, dict) or not isinstance(baseline.get("settings"), dict):
+            return {"status": "rejected", "reason": "invalid_baseline"}
+        if (baseline.get("model_key"), baseline.get("generation")) != (current["model_key"], current["generation"]):
+            return {"status": "conflict", "reason": "model_changed", "baseline": current, "conflicts": {}}
+        try:
+            requested = normalize_settings({key: value for key, value in values.items() if key in SETTING_KEYS})
+        except (ValueError, TypeError, OverflowError):
+            return {"status": "rejected", "reason": "invalid_settings"}
+        dirty = {key: value for key, value in requested.items() if value != baseline["settings"].get(key)}
+        same_model = str(values.get("model_json_path", current["model_key"])).replace("\\", "/") == current["model_key"]
+        if same_model and self.state.status == "ready" and any(
+            dirty[key] and dirty[key] not in self.state.expressions for key in EXPRESSION_SETTINGS & dirty.keys()
+        ):
+            return {"status": "rejected", "reason": "invalid_expression"}
+        conflicts = {key: current["settings"][key] for key, value in dirty.items()
+                     if current["settings"][key] != baseline["settings"].get(key) and current["settings"][key] != value}
+        if conflicts:
+            return {"status": "conflict", "reason": "revision_conflict", "baseline": current, "conflicts": conflicts}
+        if dirty:
+            confirmed = {**current["settings"], **dirty}
+            try:
+                self.owner.settings.commit_character_settings(dirty)
+            except Exception:
+                return {"status": "rejected", "reason": "storage_failed"}
+            self.state.commit_settings(confirmed, self.state.parameters)
+            self._confirmed_settings = dict(confirmed)
+            self.changed("settings_changed")
+        return {"status": "accepted", "settings": self.settings_baseline()["settings"]}
+
+    def _commit_remote_storage(self, changes, parameters):
+        self.owner.settings.commit_character_settings(
+            changes, model_key=self.settings_baseline()["model_key"], parameters=parameters,
+        )
+
+    def save_remote_settings(self, connection, fields):
+        if self._controls is None:
+            self._controls = CharacterControls(self.state, self._commit_remote_storage)
+        before = self.state.settings_revision
+        answer = self._controls.patch(connection, **{
+            key: fields[key] for key in ("command_id", "model_version", "expected_revision", "changes", "parameters")
+        })
+        if self.state.settings_revision != before:
+            self._confirmed_settings = dict(self.state.settings)
+            self._confirmed_parameters = dict(self.state.parameters)
+            self.changed("settings_changed")
+            if not self._preview:
+                self._apply_confirmed_to_pc()
+        return answer
+
+    def _apply_confirmed_to_pc(self):
+        apply = getattr(self.owner.parent(), "apply_companion_character_settings", None)
+        if callable(apply):
+            try:
+                apply()
+            except Exception:
+                # 저장 성공과 렌더링 실패는 구분한다. 공개 최신값은 manifest로 복구한다.
+                print("[Companion] character_settings_render_failed")
+
+    def disconnected(self):
+        if self._controls is not None:
+            self._controls.disconnected()
+
+    def parameters_committed(self, values):
+        self._confirmed_parameters = dict(values)
+        clean = {item["id"]: values[item["id"]] for item in self.state.catalog
+                 if item["id"] in values and item["min"] <= values[item["id"]] <= item["max"]}
+        self.state.commit_settings(self.state.settings, clean)
+        self.changed("settings_changed")
+        if not self._preview:
+            self._apply_confirmed_to_pc()
 
     def _start_pending(self):
         if self.is_running or not self._active or self._pending is None:
@@ -127,8 +224,8 @@ class CompanionCharacterBridge(QObject):
                     self.state.select(
                         selection.generation,
                         bundle,
-                        selection.settings,
-                        selection.parameters,
+                        self._confirmed_settings,
+                        self._confirmed_parameters,
                     )
                     self.request_catalog()
         self._start_pending()

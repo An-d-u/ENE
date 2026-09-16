@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from functools import partial
+from time import monotonic
 from typing import Any
 
 from PyQt6.QtCore import QPoint, QRect, QSize, Qt, QTimer
@@ -41,6 +42,13 @@ class Live2DParameterWindow(QWidget):
         self._parameter_update_timer.setInterval(16)
         self._parameter_update_timer.setSingleShot(True)
         self._parameter_update_timer.timeout.connect(self._flush_parameter_value_updates)
+        self._snapshot_serial = 0
+        self._snapshot_inflight = False
+        self._snapshot_deadline = 0.0
+        self._snapshot_timer = QTimer(self)
+        self._snapshot_timer.setInterval(150)
+        self._snapshot_timer.timeout.connect(self._poll_snapshot)
+        self._edit_busy = False
         self._dragging = False
         self._drag_offset = QPoint()
 
@@ -248,16 +256,65 @@ class Live2DParameterWindow(QWidget):
 
     def refresh(self) -> None:
         self.status_label.setText("파라미터 목록을 불러오는 중입니다.")
+        self._start_snapshot_poll()
+        self._fetch_snapshot(refresh_baseline=True)
+
+    def _start_snapshot_poll(self) -> None:
+        self._snapshot_serial += 1
+        self._snapshot_inflight = False
+        self._snapshot_deadline = monotonic() + 12
+        self._snapshot_timer.start()
+        self._edit_busy = True
+        self.save_button.setEnabled(False)
+        self.reset_button.setEnabled(False)
+        self.rows_container.setEnabled(False)
+
+    def _fetch_snapshot(self, *, refresh_baseline=False) -> None:
+        if self._snapshot_inflight:
+            return
+        self._snapshot_inflight = True
+        serial = self._snapshot_serial
+
+        def received(result):
+            if serial != self._snapshot_serial:
+                return
+            self._snapshot_inflight = False
+            self._apply_snapshot_result(result)
+
         self._run_live2d_js(
-            "window.getLive2DParameterInspectorSnapshot ? window.getLive2DParameterInspectorSnapshot() : ''",
-            self._apply_snapshot_result,
+            "window.getLive2DParameterInspectorSnapshot ? window.getLive2DParameterInspectorSnapshot("
+            + ("true" if refresh_baseline else "false") + ") : ''",
+            received,
         )
 
+    def _poll_snapshot(self) -> None:
+        if monotonic() >= self._snapshot_deadline:
+            self._snapshot_timer.stop()
+            self._snapshot_serial += 1
+            self._snapshot_inflight = False
+            self.status_label.setText("저장 상태를 확인하지 못했습니다. 새로고침 후 다시 시도해 주세요.")
+            self.save_button.setEnabled(False)
+            return
+        self._fetch_snapshot()
+
     def save(self) -> None:
+        if self._edit_busy:
+            return
+        self._parameter_update_timer.stop()
+        self._flush_parameter_value_updates()
+        self._start_snapshot_poll()
+        self.status_label.setText("저장 결과를 확인하는 중입니다.")
         self._run_live2d_js(
             "window.saveLive2DParameterInspectorOverrides ? window.saveLive2DParameterInspectorOverrides() : false",
-            lambda _result: self.refresh(),
         )
+
+    def hideEvent(self, event) -> None:
+        self._snapshot_timer.stop()
+        self._snapshot_serial += 1
+        self._snapshot_inflight = False
+        self._parameter_update_timer.stop()
+        self._flush_parameter_value_updates()
+        super().hideEvent(event)
 
     def closeEvent(self, event) -> None:
         event.ignore()
@@ -343,10 +400,30 @@ class Live2DParameterWindow(QWidget):
         ]
         raw_favorites = payload.get("favorites", payload.get("pinned", []))
         self._favorites = {str(item) for item in raw_favorites if item}
-        self.save_button.setEnabled(status == "ready")
-        self.reset_button.setEnabled(status == "ready")
+        save_status = str(payload.get("saveStatus") or "idle")
+        self._edit_busy = save_status in ("loading", "saving")
+        editable = status == "ready" and bool(payload.get("editReady")) and not self._edit_busy
+        self.save_button.setEnabled(editable and save_status not in ("unknown", "model_changed"))
+        self.reset_button.setEnabled(editable)
+        self.rows_container.setEnabled(editable)
+        if not self._edit_busy:
+            self._snapshot_timer.stop()
 
-        if status == "ready":
+        messages = {
+            "loading": "저장 기준을 불러오는 중입니다.",
+            "saving": "저장 결과를 확인하는 중입니다.",
+            "saved": "Live2D 파라미터를 저장했습니다.",
+            "conflict": "다른 곳에서 같은 항목을 변경했습니다. 다시 저장하면 남아 있는 편집값을 적용합니다.",
+            "model_changed": "모델이 변경되었습니다. 새로고침 후 다시 편집해 주세요.",
+            "error": "저장하지 못했습니다. 편집값은 남아 있습니다. 다시 시도해 주세요.",
+            "unknown": "저장 결과를 확인하지 못했습니다. 새로고침으로 현재 저장값을 확인해 주세요.",
+            "baseline_error": "저장 기준을 읽지 못했습니다. 새로고침 후 다시 시도해 주세요.",
+        }
+        if save_status == "conflict" and isinstance(payload.get("saveMessage"), str):
+            messages["conflict"] = payload["saveMessage"][:2000]
+        if save_status in messages:
+            self.status_label.setText(messages[save_status])
+        elif status == "ready":
             self.status_label.setText(f"읽은 파라미터: {len(self._items)}개")
         elif status == "unavailable":
             self.status_label.setText("현재 Live2D 모델에서 파라미터 목록을 읽을 수 없습니다.")

@@ -1,4 +1,83 @@
 // Live2D 장식 파라미터 UI 런타임.
+// PC 전용 편집 기준이다. 로컬 경로와 Qt 저장 API는 모바일 실행부에 포함하지 않는다.
+const live2dParameterEdit = { baseline: null, status: 'idle', message: '', nonce: 0, timer: null, generation: '' };
+
+function resetLive2DParameterEdit() {
+    live2dParameterEdit.nonce += 1;
+    if (live2dParameterEdit.timer !== null) window.clearTimeout(live2dParameterEdit.timer);
+    Object.assign(live2dParameterEdit, { baseline: null, status: 'idle', message: '', timer: null });
+}
+
+function parseLive2DParameterReply(raw) {
+    if (typeof raw !== 'string' || raw.length > 65536) throw new Error('invalid_reply');
+    const reply = JSON.parse(raw);
+    if (!reply || typeof reply !== 'object' || Array.isArray(reply)) throw new Error('invalid_reply');
+    return reply;
+}
+
+function validLive2DParameterBaseline(value) {
+    return value && value.model_key === live2dParameterState.modelKey
+        && typeof value.generation === 'string'
+        && Number.isSafeInteger(value.settings_revision) && value.settings_revision >= 0
+        && value.payload && value.payload.values && typeof value.payload.values === 'object'
+        && !Array.isArray(value.payload.values) && Array.isArray(value.payload.favorites);
+}
+
+function parameterEditBusy() {
+    return ['loading', 'saving'].includes(live2dParameterEdit.status);
+}
+
+function requestLive2DParameterEdit(invoke, receive, saving) {
+    const nonce = ++live2dParameterEdit.nonce;
+    live2dParameterEdit.status = saving ? 'saving' : 'loading';
+    const fail = (unknown) => {
+        live2dParameterEdit.status = unknown ? 'unknown' : 'baseline_error';
+        live2dParameterEdit.message = unknown
+            ? '저장 결과를 확인하지 못했습니다. 새로고침으로 현재 저장값을 확인해 주세요.'
+            : '저장 기준을 읽지 못했습니다. 새로고침 후 다시 시도해 주세요.';
+        if (saving) showLive2DParameterToast(live2dParameterEdit.message, 'error');
+        renderLive2DParameterInspector();
+    };
+    live2dParameterEdit.timer = window.setTimeout(() => {
+        if (nonce !== live2dParameterEdit.nonce) return;
+        live2dParameterEdit.nonce += 1;
+        window.clearTimeout(live2dParameterEdit.timer);
+        live2dParameterEdit.timer = null;
+        fail(saving);
+    }, 10000);
+    try {
+        invoke((raw) => {
+            if (nonce !== live2dParameterEdit.nonce) return;
+            live2dParameterEdit.nonce += 1;
+            window.clearTimeout(live2dParameterEdit.timer);
+            live2dParameterEdit.timer = null;
+            try { receive(parseLive2DParameterReply(raw)); } catch (_error) { fail(saving); }
+            renderLive2DParameterInspector();
+        });
+    } catch (_error) {
+        if (nonce === live2dParameterEdit.nonce) {
+            live2dParameterEdit.nonce += 1;
+            window.clearTimeout(live2dParameterEdit.timer);
+            live2dParameterEdit.timer = null;
+            fail(saving);
+        }
+    }
+}
+
+function ensureLive2DParameterEdit() {
+    if (live2dParameterEdit.baseline || live2dParameterEdit.status !== 'idle'
+        || !live2dParameterState.modelKey || !window.pyBridge
+        || typeof window.pyBridge.get_live2d_parameter_edit_snapshot !== 'function') return;
+    requestLive2DParameterEdit((done) => window.pyBridge.get_live2d_parameter_edit_snapshot(live2dParameterState.modelKey, done), (value) => {
+        if (!validLive2DParameterBaseline(value)) throw new Error('invalid_baseline');
+        live2dParameterEdit.baseline = value;
+        live2dParameterEdit.status = 'idle';
+        live2dParameterState.values = { ...value.payload.values };
+    }, false);
+}
+
+if (typeof window.addEventListener === 'function') window.addEventListener('pagehide', resetLive2DParameterEdit);
+
 function getVisibleLive2DParameterMetadata() {
     const searchQuery = live2dParameterState.searchQuery.trim().toLowerCase();
     return live2dParameterState.metadata.filter((item) => {
@@ -59,7 +138,7 @@ function createLive2DParameterRow(item) {
     range.step = '0.001';
     range.value = String(item.current);
     range.setAttribute('aria-label', `${item.id} 슬라이더`);
-    range.disabled = !isLive2DParameterOverrideAllowed(item.id);
+    range.disabled = !isLive2DParameterOverrideAllowed(item.id) || parameterEditBusy();
 
     const number = document.createElement('input');
     number.type = 'number';
@@ -68,13 +147,14 @@ function createLive2DParameterRow(item) {
     number.step = '0.001';
     number.value = formatLive2DParameterValue(item.current);
     number.setAttribute('aria-label', `${item.id} 값`);
-    number.disabled = !isLive2DParameterOverrideAllowed(item.id);
+    number.disabled = !isLive2DParameterOverrideAllowed(item.id) || parameterEditBusy();
 
     const resetButton = document.createElement('button');
     resetButton.type = 'button';
     resetButton.className = 'live2d-parameter-reset';
     resetButton.textContent = '초기화';
-    resetButton.disabled = !isLive2DParameterOverrideAllowed(item.id);
+    resetButton.disabled = !isLive2DParameterOverrideAllowed(item.id) || parameterEditBusy();
+    favoriteButton.disabled = parameterEditBusy();
     resetButton.addEventListener('click', () => resetLive2DParameterOverride(item.id));
 
     const syncValue = (nextValue) => {
@@ -108,7 +188,8 @@ function renderLive2DParameterInspector() {
         live2dParametersResetButton.disabled = !ready;
     }
     if (live2dParametersSaveButton) {
-        live2dParametersSaveButton.disabled = live2dParameterState.metadataStatus !== 'ready';
+        live2dParametersSaveButton.disabled = !ready || !live2dParameterEdit.baseline
+            || parameterEditBusy() || ['unknown', 'model_changed'].includes(live2dParameterEdit.status);
     }
     if (!live2dParametersList) {
         return;
@@ -163,6 +244,8 @@ function setLive2DParameterActiveTab(tabName) {
 }
 
 function refreshLive2DParameterInspector() {
+    if (['unknown', 'baseline_error', 'model_changed'].includes(live2dParameterEdit.status)) resetLive2DParameterEdit();
+    ensureLive2DParameterEdit();
     setLive2DParameterMetadataStatus('loading');
     renderLive2DParameterInspector();
     try {
@@ -301,7 +384,9 @@ function onLive2DParameterPanelDragStart(event) {
 }
 
 function buildLive2DParameterSavePayload() {
-    const values = { ...live2dParameterState.values, ...live2dParameterState.dirtyValues };
+    // 미편집 키가 나중에 들어온 원격 값으로 바뀌어도 로컬 수정으로 간주하지 않는다.
+    const original = live2dParameterEdit.baseline ? live2dParameterEdit.baseline.payload.values : live2dParameterState.values;
+    const values = { ...original, ...live2dParameterState.dirtyValues };
     live2dParameterState.removedValues.forEach((paramId) => {
         delete values[paramId];
     });
@@ -331,27 +416,64 @@ function saveLive2DParameterOverrides() {
     }
     if (
         !window.pyBridge
-        || typeof window.pyBridge.save_live2d_parameter_overrides !== 'function'
+        || typeof window.pyBridge.commit_live2d_parameter_overrides !== 'function'
     ) {
         showLive2DParameterToast(getLive2DParameterUiString('toastMissingBridge', '저장 브리지를 사용할 수 없습니다.'), 'error');
         return;
     }
+    if (!live2dParameterEdit.baseline || parameterEditBusy()
+        || ['unknown', 'model_changed'].includes(live2dParameterEdit.status)) return false;
     const payload = buildLive2DParameterSavePayload();
-    try {
-        window.pyBridge.save_live2d_parameter_overrides(modelKey, JSON.stringify(payload));
-        live2dParameterState.values = { ...payload.values };
-        live2dParameterState.dirtyValues = {};
-        live2dParameterState.removedValues = new Set();
-        live2dParameterState.favorites = new Set(payload.favorites);
-        showLive2DParameterToast(getLive2DParameterUiString('toastSaveSuccess', 'Live2D 파라미터를 저장했습니다.'), 'success');
-        renderLive2DParameterInspector();
-    } catch (error) {
-        console.warn('Failed to save Live2D parameter overrides:', error);
-        showLive2DParameterToast(getLive2DParameterUiString('toastSaveError', 'Live2D 파라미터 저장에 실패했습니다.'), 'error');
-    }
+    const baseline = live2dParameterEdit.baseline;
+    requestLive2DParameterEdit((done) => window.pyBridge.commit_live2d_parameter_overrides(
+        modelKey, JSON.stringify(payload), JSON.stringify(baseline), done,
+    ), (answer) => {
+        const fresh = answer.baseline;
+        if (answer.status === 'accepted') {
+            if (!validLive2DParameterBaseline(fresh) || fresh.generation !== baseline.generation
+                || fresh.settings_revision < baseline.settings_revision) throw new Error('invalid_baseline');
+            live2dParameterEdit.baseline = fresh;
+            live2dParameterState.values = { ...fresh.payload.values };
+            live2dParameterState.dirtyValues = {};
+            live2dParameterState.removedValues = new Set();
+            live2dParameterState.favorites = new Set(fresh.payload.favorites);
+            live2dParameterEdit.status = 'saved';
+            live2dParameterEdit.message = getLive2DParameterUiString('toastSaveSuccess', 'Live2D 파라미터를 저장했습니다.');
+            applyLive2DParameterOverrides();
+            showLive2DParameterToast(live2dParameterEdit.message, 'success');
+            return;
+        }
+        if (answer.status === 'conflict' && answer.reason === 'revision_conflict') {
+            if (!validLive2DParameterBaseline(fresh) || fresh.generation !== baseline.generation
+                || !answer.conflicts || typeof answer.conflicts !== 'object') throw new Error('invalid_conflict');
+            // 충돌한 키만 확인 처리한다. 미편집 원격 키는 기존 편집 기준을 유지한다.
+            const values = { ...baseline.payload.values };
+            let favorites = baseline.payload.favorites;
+            Object.keys(answer.conflicts).forEach((key) => {
+                if (key === '__favorites__') favorites = fresh.payload.favorites;
+                else if (Object.prototype.hasOwnProperty.call(fresh.payload.values, key)) values[key] = fresh.payload.values[key];
+                else delete values[key];
+            });
+            live2dParameterEdit.baseline = { ...fresh, payload: { values, favorites } };
+            live2dParameterEdit.status = 'conflict';
+            const conflicts = Object.entries(answer.conflicts);
+            const detail = conflicts.slice(0, 3).map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join(', ');
+            live2dParameterEdit.message = `다른 곳에서 같은 항목을 변경했습니다. 현재 값: ${detail}${conflicts.length > 3 ? ' 외' : ''}. 편집값은 남아 있습니다. 다시 저장하면 이 편집값을 적용합니다.`;
+        } else if (answer.reason === 'model_changed') {
+            live2dParameterEdit.status = 'model_changed';
+            live2dParameterEdit.message = '모델이 변경되었습니다. 새로고침 후 다시 편집해 주세요.';
+        } else if (answer.status === 'rejected') {
+            live2dParameterEdit.status = 'error';
+            live2dParameterEdit.message = getLive2DParameterUiString('toastSaveError', 'Live2D 파라미터 저장에 실패했습니다.');
+        } else throw new Error('invalid_reply');
+        showLive2DParameterToast(live2dParameterEdit.message, 'error');
+    }, true);
+    renderLive2DParameterInspector();
+    return true;
 }
 
 function resetVisibleLive2DParameterOverrides() {
+    if (parameterEditBusy()) return;
     live2dParameterState.metadata.forEach((item) => {
         if (
             Object.prototype.hasOwnProperty.call(live2dParameterState.values, item.id)
@@ -372,6 +494,9 @@ function buildLive2DParameterInspectorSnapshot() {
         modelKey: live2dParameterState.modelKey,
         metadataStatus: live2dParameterState.metadataStatus,
         metadataError: live2dParameterState.metadataError,
+        saveStatus: live2dParameterEdit.status,
+        saveMessage: live2dParameterEdit.message,
+        editReady: Boolean(live2dParameterEdit.baseline),
         activeTab: live2dParameterState.activeTab,
         searchQuery: live2dParameterState.searchQuery,
         favorites: Array.from(live2dParameterState.favorites),
@@ -390,7 +515,9 @@ function buildLive2DParameterInspectorSnapshot() {
     };
 }
 
-function getLive2DParameterInspectorSnapshot() {
+function getLive2DParameterInspectorSnapshot(refreshBaseline = false) {
+    if (refreshBaseline && ['unknown', 'baseline_error', 'model_changed'].includes(live2dParameterEdit.status)) resetLive2DParameterEdit();
+    ensureLive2DParameterEdit();
     if (live2dParameterState.metadataStatus !== 'ready') {
         refreshLive2DParameterInspector();
     }
@@ -398,6 +525,7 @@ function getLive2DParameterInspectorSnapshot() {
 }
 
 function setLive2DParameterInspectorValue(paramId, value) {
+    if (parameterEditBusy()) return false;
     const item = getLive2DParameterMetadata(paramId);
     if (!item || !isLive2DParameterOverrideAllowed(paramId)) {
         return false;
@@ -413,6 +541,7 @@ function setLive2DParameterInspectorValue(paramId, value) {
 }
 
 function setLive2DParameterInspectorFavorite(paramId, favorites) {
+    if (parameterEditBusy()) return false;
     if (!paramId) {
         return false;
     }
@@ -426,6 +555,7 @@ function setLive2DParameterInspectorFavorite(paramId, favorites) {
 }
 
 function resetLive2DParameterInspectorValue(paramId) {
+    if (parameterEditBusy()) return false;
     if (!getLive2DParameterMetadata(paramId)) {
         return false;
     }
@@ -434,6 +564,7 @@ function resetLive2DParameterInspectorValue(paramId) {
 }
 
 function resetLive2DParameterInspectorValues(paramIds) {
+    if (parameterEditBusy()) return false;
     if (!Array.isArray(paramIds)) {
         return false;
     }
@@ -450,8 +581,7 @@ function resetLive2DParameterInspectorValues(paramIds) {
 }
 
 function saveLive2DParameterInspectorOverrides() {
-    saveLive2DParameterOverrides();
-    return true;
+    return Boolean(saveLive2DParameterOverrides());
 }
 
 function syncLive2DParameterVisibilityForAvatarMode() {

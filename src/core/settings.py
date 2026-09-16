@@ -621,6 +621,30 @@ class Settings:
         save_json_data_atomic(self.config_path, candidate)
         self.config = candidate
 
+    def commit_live2d_parameter_overrides(self, model_key, payload):
+        """PC 전용 모델별 값/즐겨찾기를 원자 저장하며 다른 모델과 비밀값은 보존한다."""
+        from .live2d_parameter_overrides import (
+            empty_live2d_parameter_payload, normalize_live2d_model_key,
+            normalize_live2d_parameter_override_payload,
+        )
+
+        key = normalize_live2d_model_key(model_key)
+        clean = normalize_live2d_parameter_override_payload(payload)
+        if not key or clean is None:
+            raise ValueError("invalid_parameters")
+        candidate = deepcopy(self.config)
+        models = candidate.get("live2d_parameter_overrides", {})
+        if not isinstance(models, dict):
+            raise ValueError("invalid_parameter_store")
+        models = dict(models)
+        if clean == empty_live2d_parameter_payload():
+            models.pop(key, None)
+        else:
+            models[key] = clean
+        candidate["live2d_parameter_overrides"] = models
+        save_json_data_atomic(self.config_path, candidate)
+        self.config = candidate
+
     def get(self, key: str, default=None):
         if key in self.SECRET_KEYS:
             return self.secret_config.get(key, default)

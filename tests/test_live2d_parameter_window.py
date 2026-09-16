@@ -321,3 +321,50 @@ def test_overlay_shutdown_disposes_live2d_parameter_window():
     assert parameter_window.hidden is True
     assert parameter_window.deleted is True
     assert overlay._live2d_parameter_window is None
+
+
+def test_parameter_save_waits_and_flushes_last_slider_value():
+    _get_qapp()
+    calls = []
+    window = Live2DParameterWindow(_FakeOverlay())
+    window._run_live2d_js = lambda script, callback=None: calls.append(script)
+    window._queue_parameter_value("ParamRibbon", .4)
+    window.save()
+    assert "setLive2DParameterInspectorValue" in calls[0]
+    assert "saveLive2DParameterInspectorOverrides" in calls[1]
+    assert not window.save_button.isEnabled()
+    assert "저장" in window.status_label.text() and "중" in window.status_label.text()
+    assert window._snapshot_timer.isActive()
+    window._apply_snapshot_result({"metadataStatus": "ready", "metadata": [], "editReady": True,
+                                   "saveStatus": "conflict"})
+    assert "다시 저장" in window.status_label.text()
+    assert window.save_button.isEnabled() and not window._snapshot_timer.isActive()
+    window.deleteLater()
+
+
+def test_parameter_window_stops_polling_when_hidden_and_ignores_old_callback():
+    _get_qapp()
+    callbacks = []
+    window = Live2DParameterWindow(_FakeOverlay())
+    window._run_live2d_js = lambda script, callback=None: callbacks.append(callback)
+    window.show()
+    window.refresh()
+    pending = callbacks[-1]
+    window.hide()
+    pending({"metadataStatus": "ready", "metadata": [], "editReady": True, "saveStatus": "saved"})
+    assert not window._snapshot_timer.isActive()
+    assert "저장했습니다" not in window.status_label.text()
+    window.deleteLater()
+
+
+def test_parameter_window_snapshot_timeout_is_bounded(monkeypatch):
+    _get_qapp()
+    window = Live2DParameterWindow(_FakeOverlay())
+    window._run_live2d_js = lambda script, callback=None: None
+    window.refresh()
+    window._snapshot_deadline = 0
+    window._poll_snapshot()
+    assert not window._snapshot_timer.isActive()
+    assert not window.save_button.isEnabled()
+    assert "확인하지 못" in window.status_label.text()
+    window.deleteLater()

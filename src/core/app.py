@@ -729,7 +729,11 @@ class ENEApplication(QObject):
         self._settings_dialog = dialog
         
         # 시그널 연결
-        dialog.settings_changed.connect(self._on_settings_changed)
+        save_handler = getattr(dialog, "set_save_handler", None)
+        if callable(save_handler):
+            save_handler(self._on_settings_changed)
+        else:
+            dialog.settings_changed.connect(self._on_settings_changed)
         dialog.settings_preview.connect(self._on_settings_preview)
         dialog.settings_cancelled.connect(self._on_settings_cancelled)
         
@@ -825,8 +829,15 @@ class ENEApplication(QObject):
         dialog = CalendarDialog(self.calendar_manager)
         dialog.exec()
     
-    def _on_settings_changed(self, new_settings: dict):
+    def _on_settings_changed(self, new_settings: dict, baseline=None):
         """설정 변경 시 (저장)"""
+        bridge = getattr(self.overlay_window, "bridge", None)
+        commit_shared = getattr(bridge, "_companion_save_local_settings", None)
+        if callable(commit_shared):
+            decision = commit_shared(new_settings, baseline)
+            if decision.get("status") != "accepted":
+                return decision
+            new_settings = {**new_settings, **decision["settings"]}
         old_ui_language = str(self.settings.get("ui_language", "auto")).strip() or "auto"
         old_embedding_provider = str(self.settings.get("embedding_provider", "voyage")).strip().lower()
         old_embedding_model = str(self.settings.get("embedding_model", "voyage-3")).strip() or "voyage-3"
@@ -933,6 +944,7 @@ class ENEApplication(QObject):
         )
         if old_tts_config != new_tts_config:
             self._refresh_tts_runtime_bindings()
+        return {"status": "accepted", "values": new_settings}
 
     def _show_embedding_rebuild_prompt(self, provider: str, model: str) -> None:
         """임베딩 설정 변경 후 기존 메모리 재생성을 안내한다."""

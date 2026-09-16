@@ -47,8 +47,22 @@ class CompanionBridgeMixin:
             self._companion_character = CompanionCharacterBridge(self)
         return self._companion_character
 
-    def _companion_prepare_character(self, path, emotions, settings, parameters):
-        return self._ensure_companion_character().select(path, emotions, settings, parameters)
+    def _companion_prepare_character(self, path, emotions, settings, parameters, *, reuse=False):
+        return self._ensure_companion_character().select(path, emotions, settings, parameters, reuse=reuse)
+
+    def _companion_settings_baseline(self):
+        return self._ensure_companion_character().settings_baseline()
+
+    def _companion_save_local_settings(self, values, baseline=None):
+        return self._ensure_companion_character().save_local_settings(values, baseline)
+
+    def _companion_confirmed_settings(self, values):
+        from copy import deepcopy
+
+        result = {**values, **self._companion_settings_baseline()["settings"]}
+        if "live2d_parameter_overrides" in values:
+            result["live2d_parameter_overrides"] = deepcopy(self.settings.get("live2d_parameter_overrides", {}))
+        return result
 
     @pyqtSlot(str)
     def report_companion_character_catalog(self, value):
@@ -80,7 +94,7 @@ class CompanionBridgeMixin:
                 context.connection_generation,
                 head.conversation_id,
             ),
-            ("audio_pcm_v1", "character_v1"),
+            ("audio_pcm_v1", "character_v1", "character_controls_v1"),
             direction="from_phone",
         )
         if message.type == "character_snapshot_request":
@@ -88,12 +102,26 @@ class CompanionBridgeMixin:
             if character is not None:
                 character.changed("requested")
             return None
+        if message.type == "character_settings_patch":
+            from ..companion.protocol import decode_message, encode_message
+
+            answer = self._ensure_companion_character().save_remote_settings(
+                context.connection_generation, message.to_dict(),
+            )
+            return decode_message(encode_message({
+                **answer, "type": "character_settings_result", "protocol_version": 1,
+                "registration_generation": context.registration_generation,
+                "server_epoch": head.server_epoch, "connection_generation": context.connection_generation,
+            }))
         return self._companion_audio.receive(context, message)
 
     def _companion_connection_closed(self):
         audio = getattr(self, "_companion_audio", None)
         if audio is not None:
             audio.disconnected()
+        character = getattr(self, "_companion_character", None)
+        if character is not None:
+            character.disconnected()
 
     def _companion_tts_settings_changed(self):
         audio = getattr(self, "_companion_audio", None)

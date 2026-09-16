@@ -144,3 +144,21 @@ def test_maximum_catalog_with_multibyte_identifiers_does_not_exceed_command_budg
     result = patch(control, state, parameters={item["id"]: 0.5 for item in catalog})
     assert result["status"] == "accepted"
     assert len(state.parameters) == 256
+
+
+@pytest.mark.parametrize("key", ["ParamEyeLOpen", "ParamMouthOpenY", "ParamBodyAngleX", "ParamJawOpen"])
+def test_existing_pc_expression_parameters_remain_read_only_remotely(controls, key):
+    control, state, saved = controls
+    state.catalog.append({"id": key, "min": 0, "max": 1, "default": 0})
+    assert patch(control, state, parameters={key: .5})["status"] == "rejected"
+    assert saved == []
+
+
+def test_parameter_read_only_prefixes_match_existing_pc_runtime():
+    from pathlib import Path
+    import re
+    from src.core.companion.character_controls import READ_ONLY_PARAMETER_PREFIXES
+
+    script = (Path(__file__).resolve().parents[1] / "assets/web/runtime_live2d_parameter_core.js").read_text(encoding="utf-8")
+    match = re.search(r"LIVE2D_PARAMETER_RECOMMENDED_EXCLUDE_KEYWORDS\s*=\s*\[([^]]+)\]", script)
+    assert match and tuple(re.findall(r"'(Param[^']+)'", match.group(1))) == READ_ONLY_PARAMETER_PREFIXES

@@ -1217,8 +1217,32 @@ class SettingsDialogValuesMixin:
             )
             self._theme_color_edits[invalid_key].setFocus()
             return
+        values = self._get_current_values()
+        handler = getattr(self, "_settings_save_handler", None)
+        try:
+            result = handler(values, getattr(self, "_character_baseline", None)) if callable(handler) else None
+        except Exception:
+            result = None
+        if not isinstance(result, dict) or result.get("status") != "accepted":
+            if isinstance(result, dict) and result.get("status") == "conflict":
+                conflicts = result.get("conflicts", {})
+                if result.get("reason") != "model_changed" and isinstance(result.get("baseline"), dict):
+                    previous = self._character_baseline or {}
+                    # 사용자가 건드리지 않은 키의 기준은 바꾸지 않아 재시도 시 새 dirty가 되지 않는다.
+                    self._character_baseline = {**result["baseline"], "settings": {**previous.get("settings", {}), **conflicts}}
+                latest = "\n".join(f"{key}: {value}" for key, value in sorted(conflicts.items()))
+                if result.get("reason") == "model_changed":
+                    message = self._translated_text("settings.character.model_changed", "현재 모델이 바뀌어 저장하지 않았습니다. 이 창을 닫고 다시 열어 현재 모델의 설정을 확인해 주세요.")
+                else:
+                    message = self._translated_text(
+                        "settings.character.conflict", "다른 화면에서 캐릭터 설정이 변경되어 저장하지 않았습니다. 아래 현재값을 확인해 주세요. 편집값은 유지됩니다. 다시 저장하면 이 현재값을 기준으로 적용합니다."
+                    ) + ("\n\n" + latest if latest else "")
+            else:
+                message = self._translated_text("settings.character.save_failed", "설정을 저장하지 못했습니다. 변경값을 유지했으니 저장 위치를 확인한 뒤 다시 시도해 주세요.")
+            QMessageBox.warning(self, self._translated_text("settings.character.save_title", "설정 저장 확인"), message)
+            return
         self._saved = True
-        self.settings_changed.emit(self._get_current_values())
+        self.settings_changed.emit(result.get("values", values))
         self.close()
 
     def _cancel_settings(self):

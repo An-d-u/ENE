@@ -78,6 +78,9 @@ class SettingsDialog(
         self._original_settings = current_settings.copy()
         self._memory_manager = memory_manager
         self._bridge = bridge
+        self._settings_save_handler = None
+        baseline = getattr(bridge, "_companion_settings_baseline", None)
+        self._character_baseline = baseline() if callable(baseline) else None
         self._browser_tts_voices: list[dict[str, object]] = []
         self._browser_voice_request_inflight = False
         self._browser_voice_refresh_attempts = 0
@@ -636,6 +639,10 @@ class SettingsDialog(
     def _write_text_file(self, path: Path, text: str) -> None:
         normalized = text.replace("\r\n", "\n")
         write_text_data(path, normalized, encoding="utf-8")
+
+    def set_save_handler(self, handler):
+        """앱의 동기 저장 결과를 받은 뒤에만 창을 닫는다."""
+        self._settings_save_handler = handler
 
     def closeEvent(self, event):
         self._stop_ptt_hotkey_capture()

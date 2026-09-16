@@ -8,7 +8,7 @@
 
 **기술:** 기존 Python/PyQt6/aiohttp/pytest/Node VM, Kotlin 2.2.21/Compose/Coroutines/OkHttp 5.3.2, Android AudioTrack·AudioManager, AndroidX WebKit 1.15.0. 기존 Live2D 웹 라이브러리는 출처·버전·권리 확인 후 그대로 고정한다.
 
-**검토 상태:** 계획 문서 리뷰 승인. A0~A4, B1~B7, C1~C4, D1 완료, D2부터 순차 진행 중. 실기기 시험은 보류한다.
+**검토 상태:** 계획 문서 리뷰 승인. A0~A4, B1~B7, C1~C4, D1~D2 완료, D3부터 순차 진행 중. 실기기 시험은 보류한다.
 
 ---
 
@@ -409,12 +409,18 @@ PC 새 표시 시험 10개와 음성 경계 집중 43개, 기존 TTS/응답·Nod
 
 **파일:** PC `tests/test_companion_settings_conflict_ui.py`; 기존 `src/core/app.py`, `overlay_window.py`, `bridge_mixins/live2d_parameters.py`, `src/ui/settings_dialog.py`, `settings_dialog_values.py`, `live2d_parameter_window.py`, `assets/web/runtime_live2d_parameters.js`, `runtime_live2d_parameter_ui.js` 수정.
 
-- [ ] PC 창을 연 뒤 폰이 같은/다른 키를 바꾼 사례, preview 뒤 외부 수정·취소, 저장 실패인데 성공 토스트가 뜨는 사례를 테스트한다.
-- [ ] `python -m pytest tests/test_companion_settings_conflict_ui.py -q`로 실패를 확인한다.
-- [ ] PC settings dialog의 baseline/dirty 공유 키와 settings_revision을 전달한다. `_saved=True`와 창 닫기는 커밋 성공 응답 이후로 이동한다. 겹친 키 충돌이면 창을 유지하고 최신 값을 알린다.
-- [ ] `app._on_settings_changed`와 `overlay_window.apply_new_settings`의 전체 dict 저장 전에 공유 키를 분리한다. 공유 값은 D1 조정기에서 확정한 최신 값으로만 병합한다. preview는 PC 로컬 표시만 바꾸고 원격 상태/revision을 바꾸지 않는다. 취소 시 창을 열었던 옛 사본이 아니라 현재 확정값을 적용한다.
-- [ ] 기존 parameter get/save 슬롯의 로컬 호출을 보존하되 결과를 돌려주는 검증 경계로 연결한다. 원격 parameter 변경은 현재 모델의 values만 병합하고 PC favorites/다른 모델 override를 지우지 않는다. 오래된 parameter 창도 같은 충돌 정책을 적용한다.
-- [ ] 위 명령과 `tests/test_bridge_live2d_parameters.py`, `test_live2d_parameter_window.py`, `test_settings.py`, `test_fish_audio_settings_ui.py`를 통과시킨다. `fix: PC와 모바일 캐릭터 설정 충돌 차단`으로 커밋한다.
+- [x] PC 창을 연 뒤 폰이 같은/다른 키를 바꾼 사례, preview 뒤 외부 수정·취소, 저장 실패인데 성공 토스트가 뜨는 사례를 테스트한다.
+- [x] `python -m pytest tests/test_companion_settings_conflict_ui.py -q`로 실패를 확인한다.
+- [x] PC settings dialog의 baseline/dirty 공유 키와 settings_revision을 전달한다. `_saved=True`와 창 닫기는 커밋 성공 응답 이후로 이동한다. 겹친 키 충돌이면 창을 유지하고 최신 값을 알린다.
+- [x] `app._on_settings_changed`와 `overlay_window.apply_new_settings`의 전체 dict 저장 전에 공유 키를 분리한다. 공유 값은 D1 조정기에서 확정한 최신 값으로만 병합한다. preview는 PC 로컬 표시만 바꾸고 원격 상태/revision을 바꾸지 않는다. 취소 시 창을 열었던 옛 사본이 아니라 현재 확정값을 적용한다.
+- [x] 기존 parameter get/save 슬롯의 로컬 호출을 보존하되 결과를 돌려주는 검증 경계로 연결한다. 원격 parameter 변경은 현재 모델의 values만 병합하고 PC favorites/다른 모델 override를 지우지 않는다. 오래된 parameter 창도 같은 충돌 정책을 적용한다.
+- [x] 위 명령과 `tests/test_bridge_live2d_parameters.py`, `test_live2d_parameter_window.py`, `test_settings.py`, `test_fish_audio_settings_ui.py`를 통과시킨다. `fix: PC와 모바일 캐릭터 설정 충돌 차단`으로 커밋한다.
+
+**D2 검증 기록(2026-09-17):** 실제 Qt admission을 거친 현재 연결만 공유 값을 저장한다. 구연결·구등록·차단 상태는 저장 전 거절하고, 같은 명령의 중복 응답은 저장/표시를 반복하지 않는다. PC 창은 편집 기준과 변경 키를 유지한다. 충돌 확인 뒤 다시 저장할 때에도 충돌한 키만 기준을 갱신하여 미편집 원격 값을 덮어쓰지 않는다. 저장 확인용 JS 콜백은 10초, 네이티브 창의 조회는 12초로 제한하고 늦은 응답·모델 교체·창 숨김을 구분한다. 파라미터 저장 전에 마지막 슬라이더 변경을 전달한다. PC 전용 Qt 저장 UI 파일만 수정했으므로 공유 실행부 해시는 바뀌지 않는다.
+
+기존 PC의 보호 정책을 확인하여 PC/APP 모두 눈·입·표정·몸 움직임용 `ParamEye`, `ParamMouth`, `ParamJaw`, `ParamTongue`, `ParamBrow`, `ParamAngle`, `ParamBody`, `ParamBreath`, `ParamArm`, `ParamHand`, `ParamShoulder`, `ParamLeg` 접두사는 읽기 전용으로 맞췄다. 장식 보정만 수정하며 자동 눈깜빡임·움직임 강도 등의 공통 설정은 별도 허용 키로 유지한다. 모델 교체에 따른 로컬 옛 보정 삭제와 PC 즐겨찾기는 별도 저장 경계를 사용한다. 기존 일반 설정/비밀값 저장 전체를 다중 파일 원자 트랜잭션으로 바꾸지는 않았다.
+
+PC 설정/파라미터/실제 Qt/캐릭터/기존 UI 집중 회귀 **430개 통과(19.22초)**, 전체 Ruff 기본 오류 검사와 새 경계 Ruff 및 diff 공백 검사 통과. Android `CharacterControlsTest` 8개와 `ExtensionCodecTest` 4개, 총 **12개 통과**(offline strict). 새 테스트 파일은 `tests/test_companion_parameter_save_runtime.py`도 포함한다. `character_controls_v1` 광고와 모바일 편집 화면은 D3/D4 연결이 끝날 때 켠다. 전체 테스트·APK 빌드는 D4/E 체크포인트에 남기며 단말 시험은 여전히 미실시다.
 
 ### D3. 권위 있는 쓰다듬기 세션
 
