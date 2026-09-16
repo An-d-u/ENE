@@ -65,6 +65,21 @@ class QtGatewayAdapter(QObject):
         self._lock = threading.Lock()
         self._pending = {}
         self.requested.connect(self._dispatch, Qt.ConnectionType.QueuedConnection)
+        bind = getattr(owner, "bind_companion_adapter", None)
+        if callable(bind):
+            bind(self)
+
+    def validate_admission(self, context):
+        """소유 브리지에서도 같은 Qt 권한 원본을 검사한다."""
+        self._require_qt()
+        if not self._enabled or context.gateway_generation != self._gateway:
+            raise AdapterError("stale_gateway")
+        if context.registration_generation != self._registration:
+            raise AdapterError("stale_registration")
+        if self._blocked:
+            raise AdapterError("admission_blocked")
+        if self._connection is None or context.connection_generation != self._connection:
+            raise AdapterError("stale_connection")
 
     def _require_qt(self):
         if QThread.currentThread() != self.thread():

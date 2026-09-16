@@ -8,7 +8,7 @@ import json
 from typing import Any, Literal
 
 from .attachment_session import AttachmentSession
-from .companion.requests import RequestKey, RequestLedger
+from .companion.requests import RequestKey, RequestLedger, RequestRef
 from .companion.transcript import CurrentConversationTranscript
 from .tts_sync_controller import TTSSyncController
 
@@ -89,6 +89,7 @@ class ChatBridgeState:
     request_ledger: RequestLedger = field(default_factory=RequestLedger)
     public_user_ids: dict[RequestKey, str] = field(default_factory=dict)
     public_assistant_ids: dict[RequestKey, str] = field(default_factory=dict)
+    operation_requests: dict[int, RequestRef] = field(default_factory=dict)
 
 
 @dataclass

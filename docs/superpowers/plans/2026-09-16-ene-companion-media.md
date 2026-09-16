@@ -8,7 +8,7 @@
 
 **기술:** 기존 Python/PyQt6/aiohttp/pytest/Node VM, Kotlin 2.2.21/Compose/Coroutines/OkHttp 5.3.2, Android AudioTrack·AudioManager, AndroidX WebKit 1.15.0. 기존 Live2D 웹 라이브러리는 출처·버전·권리 확인 후 그대로 고정한다.
 
-**검토 상태:** 계획 문서 리뷰 승인. A0/A1 완료, A2부터 순차 진행 중. 실기기 시험은 보류한다.
+**검토 상태:** 계획 문서 리뷰 승인. A0/A1/A2 완료, A3부터 순차 진행 중. 실기기 시험은 보류한다.
 
 ---
 
@@ -151,10 +151,12 @@ A1에서 `PreparedChatRequest`에 선택적 불변 참조를 추가하기 위해
 
 **파일:** PC `tests/test_companion_admission.py`, `test_companion_request_lifecycle.py`; 나머지는 기존 계획 Task 8의 생성/수정 파일이다.
 
-- [ ] 같은 request ID 재전송·PC와 폰 동시 입력·준비 중 취소의 worker/기억/기분 처리 횟수 테스트를 추가한다.
-- [ ] `python -m pytest tests/test_companion_admission.py tests/test_companion_request_lifecycle.py -q`의 의도한 실패를 확인한다.
-- [ ] 기존 Task 8의 단일 gate와 원장 수락 규칙을 구현한다. 음성 확장을 위한 별도 AI queue를 만들지 않는다.
-- [ ] 위 명령과 기존 Task 8 회귀를 통과시킨다. `feat: PC 모바일 공통 접수와 중복 방지 연결`로 커밋한다.
+- [x] 같은 request ID 재전송·PC와 폰 동시 입력·준비 중 취소의 worker/기억/기분 처리 횟수 테스트를 추가한다.
+- [x] `python -m pytest tests/test_companion_admission.py tests/test_companion_request_lifecycle.py -q`의 의도한 실패를 확인한다. 접수 API 부재 19개 실패 후, 준비 예외·취소·완료/실패 알림 재진입·종료 중 TTS 표시의 단언 실패를 확인했다.
+- [x] 기존 Task 8의 단일 gate와 원장 수락 규칙을 구현한다. 음성 확장을 위한 별도 AI queue를 만들지 않는다.
+- [x] 위 명령과 기존 Task 8 회귀를 통과시킨다. `feat: PC 모바일 공통 접수와 중복 방지 연결`로 커밋한다.
+
+A2 검증: 신규 접수·수명 33개, A1·Qt adapter·기존 프로토콜/원장/공개 기록·생활 기록·첨부·기분·TTS·파일 명령을 합쳐 321개 통과. 변경 핵심 파일의 `ruff --select E9,F63,F7,F82` 검사도 통과했다. 예약 상태에서는 사용자 기록/일반 AI 작업을 시작하지 않고, 준비 성공·실패 후 한 번만 commit한다. 명시적인 준비 취소·종료는 실패로 마감한다. 완료/실패 신호 안에서 다음 요청이 들어와도 새 worker와 처리 표시를 보존한다. 네트워크 연결 해제/서버 재시작 자체는 이미 예약한 요청을 취소하지 않는다. 공통 Qt 시험 앱은 후속 UI 시험과 충돌하지 않도록 화면 없는 QApplication을 사용한다. PC의 기존 화면 입력 확인 방식은 A3에서 변경한다.
 
 ### A3. PC 표시·편집·리롤 경계
 

@@ -41,6 +41,31 @@ class RequestRecord:
     is_new: bool = False
 
 
+@dataclass(frozen=True)
+class AdmissionResult:
+    """본문 없이 PC 표시와 네트워크에 전달할 수락 결과."""
+
+    request_ref: RequestRef
+    state: str
+    message_id: str | None = None
+    code: str | None = None
+
+    def to_wire(self):
+        from .protocol import decode_message, encode_message
+
+        payload = {
+            "protocol_version": 1, "type": "request_status",
+            "server_epoch": self.request_ref.server_epoch,
+            "conversation_id": self.request_ref.conversation_id,
+            "request_id": self.request_ref.request_id, "state": self.state,
+        }
+        if self.message_id is not None:
+            payload["message_id"] = self.message_id
+        if self.code is not None:
+            payload["code"] = self.code
+        return decode_message(encode_message(payload))
+
+
 class RequestLedger:
     def __init__(self):
         self._records: dict[RequestKey, RequestRecord] = {}

@@ -189,6 +189,12 @@ class AttachmentBridgeMixin:
             attachments_data = []
 
         effective_message = (message or "").strip() or "첨부한 자료를 확인해 줘."
+        submit = getattr(self, "submit_chat_request", None)
+        if callable(submit):
+            return submit(
+                effective_message, received_at=received_at,
+                request_type="attachments", attachments=attachments_data,
+            )
         head_pat_count_before_message = 0
         if hasattr(self, "calendar_manager") and self.calendar_manager:
             getter = getattr(self.calendar_manager, "get_pending_head_pat_count", None)

@@ -346,8 +346,12 @@ class ChatFlowBridgeMixin:
             ):
                 self._normal_operation_drain_pending = None
             self.worker = None
+        finish_companion = getattr(self, "_companion_finish_operation", None)
+        if callable(finish_companion):
+            finish_companion(operation_id)
         try:
-            ChatFlowBridgeMixin._emit_request_pending_changed(self, False)
+            if state.phase == "idle":
+                ChatFlowBridgeMixin._emit_request_pending_changed(self, False)
         finally:
             if not worker_running:
                 ChatFlowBridgeMixin._invoke_worker_finished_queue_drain(self)
@@ -359,6 +363,11 @@ class ChatFlowBridgeMixin:
         if state is not None:
             state.finish_operation(operation_id)
         self.worker = None
+        finish_companion = getattr(self, "_companion_finish_operation", None)
+        if callable(finish_companion):
+            finish_companion(operation_id, code="worker_start_failed")
+        if state is not None and state.phase != "idle":
+            return
         reset_pending = getattr(self, "_reset_pending_ui_state", None)
         if callable(reset_pending):
             reset_pending()
@@ -782,6 +791,10 @@ class ChatFlowBridgeMixin:
 
         if self._handle_diary_command(message):
             return
+
+        submit = getattr(self, "submit_chat_request", None)
+        if callable(submit):
+            return submit(message, received_at=received_at)
 
         head_pat_count_before_message = 0
         if hasattr(self, 'calendar_manager') and self.calendar_manager:

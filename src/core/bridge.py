@@ -64,6 +64,7 @@ class WebBridge(
     # Python -> JavaScript 시그널
     message_received = pyqtSignal(str, str, str)  # (텍스트, 감정, 생각)
     companion_event = pyqtSignal(object)  # 비공개 메타데이터 없는 불변 공개 이벤트
+    companion_admission_result = pyqtSignal(object)  # 준비 후 확정 수락·완료 결과
     gesture_requested = pyqtSignal(str)  # 합성 Live2D 제스처 키
     request_pending_changed = pyqtSignal(bool)  # LLM 응답 생성 진행 상태
     request_pending_stage_changed = pyqtSignal(str)  # thinking/searching

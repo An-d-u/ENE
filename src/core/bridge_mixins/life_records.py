@@ -175,6 +175,9 @@ class LifeRecordBridgeMixin:
 
     def begin_shutdown(self) -> int:
         """모든 bridge 요청을 차단하고 현재 생활 기록 작업을 무효화한다."""
+        shutdown = getattr(self, "_companion_begin_shutdown", None)
+        if callable(shutdown):
+            shutdown()
         return self._get_life_record_state().begin_shutdown()
 
     def _life_operation_accepts_input(self) -> bool:
@@ -302,6 +305,9 @@ class LifeRecordBridgeMixin:
             )
             if operation_id is None:
                 return False
+            begin_companion = getattr(self, "_companion_begin_request", None)
+            if callable(begin_companion):
+                begin_companion(prepared_request, operation_id, "responding")
             accept_user_request()
             state.take_pending(operation_id)
             try:
@@ -352,6 +358,9 @@ class LifeRecordBridgeMixin:
         )
         if operation_id is None:
             return False
+        begin_companion = getattr(self, "_companion_begin_request", None)
+        if callable(begin_companion):
+            begin_companion(prepared_request, operation_id, "preparing")
         accept_user_request()
         state.pending_world_markdown = world
         state.prior_token_usage = prepared_request.prior_token_usage
@@ -836,6 +845,14 @@ class LifeRecordBridgeMixin:
         state = self._get_life_record_state()
         if not state.matches_operation(operation_id, "auto_generating"):
             return
+        request_ref = getattr(state.pending_request, "request_ref", None)
+        is_current = getattr(self, "_companion_request_is_current", None)
+        if request_ref is not None and callable(is_current) and not is_current(request_ref):
+            self._finish_life_record_without_reply(operation_id)
+            return
+        if state.worker_error == "cancelled":
+            self._finish_life_record_without_reply(operation_id)
+            return
         result = state.worker_result
         error = state.worker_error
         state.worker_result = None
@@ -993,8 +1010,12 @@ class LifeRecordBridgeMixin:
     def _finish_life_record_without_reply(self, operation_id: int) -> None:
         state = self._get_life_record_state()
         if state.finish_operation(operation_id):
+            finish_companion = getattr(self, "_companion_finish_operation", None)
+            if callable(finish_companion):
+                finish_companion(operation_id)
             try:
-                self._emit_life_record_pending(False)
+                if state.phase == "idle":
+                    self._emit_life_record_pending(False)
             except Exception:
                 pass
             drain = getattr(self, "_drain_queues_after_worker_finished", None)

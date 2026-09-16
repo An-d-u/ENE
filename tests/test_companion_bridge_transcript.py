@@ -7,7 +7,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 import asyncio
 
-from PyQt6.QtCore import QCoreApplication, QObject, pyqtSignal
+from PyQt6.QtCore import QObject, pyqtSignal
+from PyQt6.QtWidgets import QApplication
 import pytest
 
 from src.ai.response_protocol import ResponseDeliveryMetadata
@@ -40,7 +41,8 @@ class FakeWorker(QObject):
 
 @pytest.fixture
 def bridge(tmp_path, monkeypatch):
-    app = QCoreApplication.instance() or QCoreApplication([])
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    app = QApplication.instance() or QApplication([])
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(chat_flow, "AIWorker", FakeWorker)
     result = WebBridge(settings={"enable_life_records": False})

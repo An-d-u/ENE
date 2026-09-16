@@ -1,13 +1,235 @@
 """내부 AI 문맥과 분리된 현재 대화의 공개 경계를 관리한다."""
 
 from dataclasses import replace
+from hashlib import sha256
+import json
 from uuid import uuid4
 
-from ..companion.requests import RequestRef
+from PyQt6.QtCore import QThread
+
+from ...ai.chat_commands import (
+    parse_diary_command,
+    parse_note_command,
+    parse_obs_command,
+)
+from ..companion.adapter import AdapterError, ConversationHead
+from ..companion.protocol import (
+    MAX_PUBLIC_TEXT_BYTES,
+    MAX_TEXT_BYTES,
+    ProtocolError,
+    text_value,
+    uuid_value,
+)
+from ..companion.requests import AdmissionResult, RequestRef
+from ..companion.session import SyncCapture
 
 
 class CompanionBridgeMixin:
     """Qt 스레드에서 요청 소유권과 공개 메시지 식별자를 유지한다."""
+
+    def head(self):
+        transcript = self.chat_state.public_transcript
+        return ConversationHead(transcript.server_epoch, transcript.conversation_id)
+
+    def bind_companion_adapter(self, adapter):
+        self._companion_adapter = adapter
+
+    def capture(self, registration_generation, pending=()):
+        transcript = self.chat_state.public_transcript
+        statuses = []
+        for request_id in pending:
+            ref = RequestRef(
+                registration_generation,
+                transcript.server_epoch,
+                transcript.conversation_id,
+                uuid_value(request_id),
+                "mobile",
+            )
+            statuses.append(self._companion_request_status(ref).to_wire())
+        return SyncCapture(transcript.capture(), tuple(statuses))
+
+    def submit(self, context, message):
+        return self.submit_mobile_text(context, message).to_wire()
+
+    def submit_mobile_text(self, context, message):
+        fields = message.fields
+        ref = RequestRef(
+            context.registration_generation,
+            fields["server_epoch"],
+            fields["conversation_id"],
+            fields["request_id"],
+            "mobile",
+        )
+        return self.submit_chat_request(
+            fields["text"], request_ref=ref, context=context
+        )
+
+    def submit_chat_request(
+        self,
+        message,
+        *,
+        request_ref=None,
+        context=None,
+        received_at=None,
+        request_type="text",
+        attachments=(),
+        head_pat_count_before_message=None,
+    ):
+        """중복 확인과 기존 생활 기록 gate 진입을 같은 Qt 호출에서 수행한다."""
+        if QThread.currentThread() != self.thread():
+            raise RuntimeError("qt_thread_required")
+        ref = request_ref or self._new_companion_request_ref()
+
+        def reject(code):
+            return AdmissionResult(ref, "rejected", code=code)
+
+        if ref.source == "mobile":
+            adapter = getattr(self, "_companion_adapter", None)
+            if adapter is None or context is None:
+                return reject("admission_blocked")
+            try:
+                adapter.validate_admission(context)
+            except AdapterError as error:
+                return reject(error.code)
+            if ref.registration_generation != context.registration_generation:
+                return reject("stale_registration")
+        if not self._companion_request_is_current(ref):
+            return reject("stale_session")
+        try:
+            uuid_value(ref.request_id)
+            message = text_value(
+                message,
+                max_bytes=MAX_TEXT_BYTES
+                if ref.source == "mobile"
+                else MAX_PUBLIC_TEXT_BYTES,
+                nonblank=True,
+                limit_code="text_too_large",
+            ).strip()
+        except ProtocolError as error:
+            return reject(error.code)
+        if request_type not in {"text", "attachments"}:
+            return reject("unsupported_command")
+        if ref.source == "mobile" and (
+            request_type != "text"
+            or attachments
+            or any(
+                parser(message)[0]
+                for parser in (
+                    parse_note_command,
+                    parse_diary_command,
+                    parse_obs_command,
+                )
+            )
+        ):
+            return reject("unsupported_command")
+        body_hash = sha256(
+            json.dumps(
+                [request_type, message, attachments],
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        ledger = self.chat_state.request_ledger
+        existing = ledger.lookup(ref.key)
+        if existing is not None:
+            return (
+                reject("request_conflict")
+                if existing.body_hash != body_hash
+                else self._companion_request_status(ref)
+            )
+        if self.life_record_state.phase != "idle" or (
+            self.worker and self.worker.isRunning()
+        ):
+            return reject("busy")
+        if not self.llm_client:
+            return reject("ai_unavailable")
+        ledger.reserve(ref.key, body_hash)
+        try:
+            if head_pat_count_before_message is None:
+                getter = getattr(
+                    getattr(self, "calendar_manager", None),
+                    "get_pending_head_pat_count",
+                    None,
+                )
+                head_pat_count_before_message = int(getter()) if callable(getter) else 0
+            prepared = self._prepare_chat_request(
+                received_at=received_at or self._capture_life_received_at(),
+                request_type=request_type,
+                message=message,
+                attachments=attachments,
+                head_pat_count_before_message=head_pat_count_before_message,
+                request_ref=ref,
+            )
+            if not self._dispatch_general_request(prepared):
+                ledger.discard_reservation(ref.key)
+                return reject("busy")
+        except Exception:
+            state = self.life_record_state
+            owned_operation = next(
+                (
+                    operation_id
+                    for operation_id, owned in self.chat_state.operation_requests.items()
+                    if owned.key == ref.key
+                ),
+                None,
+            )
+            running = any(
+                callable(getattr(worker, "isRunning", None)) and worker.isRunning()
+                for worker in (self.worker, state.worker)
+            )
+            if owned_operation is not None and not running:
+                state.finish_operation(owned_operation)
+                self._companion_finish_operation(owned_operation, code="request_failed")
+                if state.phase == "idle":
+                    self._reset_pending_ui_state()
+            else:
+                self._companion_finish_request(ref, succeeded=False)
+        return self._companion_request_status(ref)
+
+    def _companion_request_status(self, ref):
+        record = self.chat_state.request_ledger.lookup(ref.key)
+        if record is None:
+            return AdmissionResult(ref, "unknown")
+        return AdmissionResult(ref, record.state, record.message_id, record.code)
+
+    def _emit_companion_request_status(self, ref):
+        result = self._companion_request_status(ref)
+        self.companion_admission_result.emit(result)
+        self.companion_event.emit(result.to_wire())
+
+    def _companion_begin_request(self, request, operation_id, phase):
+        ref = request.request_ref
+        if not self._companion_request_is_current(ref):
+            return
+        self.chat_state.operation_requests[operation_id] = replace(
+            ref, operation_id=str(operation_id)
+        )
+        event = self.chat_state.public_transcript.set_processing(phase, ref.request_id)
+        if event is not None:
+            self.companion_event.emit(event)
+
+    def _companion_finish_request(self, ref, *, succeeded, code=None):
+        ledger = self.chat_state.request_ledger
+        record = ledger.lookup(ref.key)
+        if record is None or record.state not in {"reserved", "accepted"}:
+            return
+        ledger.finish(ref.key, succeeded=succeeded, code=code)
+        self._emit_companion_request_status(ref)
+
+    def _companion_finish_operation(self, operation_id, *, code=None):
+        ref = self.chat_state.operation_requests.pop(operation_id, None)
+        if ref is None or not self._companion_request_is_current(ref):
+            return
+        succeeded = code is None and ref.key in self.chat_state.public_assistant_ids
+        event = self.chat_state.public_transcript.set_processing("idle")
+        if event is not None:
+            self.companion_event.emit(event)
+        self._companion_finish_request(ref, succeeded=succeeded, code=code)
+
+    def _companion_begin_shutdown(self):
+        for operation_id in tuple(self.chat_state.operation_requests):
+            self._companion_finish_operation(operation_id, code="shutdown")
 
     def _new_companion_request_ref(self, source="pc") -> RequestRef:
         transcript = self.chat_state.public_transcript
@@ -24,9 +246,12 @@ class CompanionBridgeMixin:
         return isinstance(request_ref, RequestRef) and (
             request_ref.server_epoch == transcript.server_epoch
             and request_ref.conversation_id == transcript.conversation_id
+            and self.life_record_state.phase != "shutting_down"
         )
 
-    def _bind_companion_worker(self, worker, operation_id, request_ref=None, *, file_result=False):
+    def _bind_companion_worker(
+        self, worker, operation_id, request_ref=None, *, file_result=False
+    ):
         """완료 콜백이 이미 캡처한 worker에 불변 요청 사본을 귀속시킨다."""
         request_ref = request_ref or self._new_companion_request_ref(
             "pc" if file_result else "automatic"
@@ -35,6 +260,12 @@ class CompanionBridgeMixin:
             request_ref, operation_id=str(operation_id)
         )
         worker.companion_file_result = file_result
+        self.chat_state.operation_requests[operation_id] = worker.companion_request_ref
+        event = self.chat_state.public_transcript.set_processing(
+            "responding", request_ref.request_id
+        )
+        if event is not None:
+            self.companion_event.emit(event)
 
     def _publish_companion_user(self, request):
         request_ref = request.request_ref
@@ -50,6 +281,9 @@ class CompanionBridgeMixin:
         )
         state.public_user_ids[request_ref.key] = event.message.id
         self.companion_event.emit(event)
+        if state.request_ledger.lookup(request_ref.key) is not None:
+            state.request_ledger.mark_accepted(request_ref.key, event.message.id)
+            self._emit_companion_request_status(request_ref)
         return event.message.id
 
     def _display_companion_response(
@@ -60,7 +294,9 @@ class CompanionBridgeMixin:
             if not self._companion_request_is_current(request_ref):
                 return False
             event = self.chat_state.public_transcript.publish_assistant(
-                "PC 전용 파일 작업 결과입니다. PC에서 확인해 주세요." if file_result else text,
+                "PC 전용 파일 작업 결과입니다. PC에서 확인해 주세요."
+                if file_result
+                else text,
                 request_id=request_ref.request_id,
             )
             if event is None:
@@ -72,7 +308,10 @@ class CompanionBridgeMixin:
 
     def _display_companion_file_result(self, text, emotion):
         self._display_companion_response(
-            text, emotion, "", request_ref=self._new_companion_request_ref(),
+            text,
+            emotion,
+            "",
+            request_ref=self._new_companion_request_ref(),
             file_result=True,
         )
 
@@ -83,3 +322,4 @@ class CompanionBridgeMixin:
         state.request_ledger.reset()
         state.public_user_ids.clear()
         state.public_assistant_ids.clear()
+        state.operation_requests.clear()
