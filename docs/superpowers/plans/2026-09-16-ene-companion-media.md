@@ -8,7 +8,7 @@
 
 **기술:** 기존 Python/PyQt6/aiohttp/pytest/Node VM, Kotlin 2.2.21/Compose/Coroutines/OkHttp 5.3.2, Android AudioTrack·AudioManager, AndroidX WebKit 1.15.0. 기존 Live2D 웹 라이브러리는 출처·버전·권리 확인 후 그대로 고정한다.
 
-**검토 상태:** 계획 문서 리뷰 승인. A0~A4와 B1~B2 완료, B3부터 순차 진행 중. 실기기 시험은 보류한다.
+**검토 상태:** 계획 문서 리뷰 승인. A0~A4와 B1~B3 완료, B4부터 순차 진행 중. 실기기 시험은 보류한다.
 
 ---
 
@@ -240,12 +240,14 @@ B2 검증: PC 15개, Android 11개 통과. 순수 상태와 가상 sink로 허�
 
 **파일:** PC `src/core/companion/audio_buffer.py`, `tests/test_companion_audio_buffer.py`; APP `K/audio/PcmBuffer.kt`, `PlaybackClock.kt`, `T/PcmBufferTest.kt`, `PlaybackClockTest.kt` 생성.
 
-- [ ] 메모리 WAV의 헤더/알 수 없는 chunk/홀수 padding/잘린 프레임, 8/48kHz·모노/스테레오, PCM 이외 형식 거절, 4초 상한, 재생 위치 역전·reset을 테스트한다.
-- [ ] PC `python -m pytest tests/test_companion_audio_buffer.py -q`, APP `./gradlew.bat :app:testDebugUnitTest --tests "dev.ene.companion.PcmBufferTest" --tests "dev.ene.companion.PlaybackClockTest" --offline --dependency-verification strict --console=plain`의 실패를 확인한다.
-- [ ] PC 완성 WAV는 stdlib `wave`로 무압축 PCM16만 수락하고 원본 bytes 참조+cursor로 제공한다. 스트림은 프레임 정렬된 bounded deque, prefix 보관과 전송 대기를 중복 복제하지 않는다. 반환은 `accepted/full/invalid/closed`로 명확히 구분한다.
-- [ ] APP은 50ms PCM 구간의 RMS를 계산해 `mouth_open=min(1, rms×3)`로 사용한다. 실제 소비한 frame 구간만 적용하고 stereo는 전체 sample RMS를 사용한다. 구간별 값은 재생/입모양 적용 후 버린다.
-- [ ] AudioTrack 누적 위치는 음성별로 초기화하고 unsigned 32비트 playback head를 Long으로 확장한다. 실제 쓰기보다 큰 위치·이전 player의 callback을 거절한다.
-- [ ] 같은 명령 통과 후 양쪽 `feat: 제한된 PCM 버퍼와 재생 시계 추가`로 커밋한다.
+- [x] 메모리 WAV의 헤더/알 수 없는 chunk/홀수 padding/잘린 프레임, 8/48kHz·모노/스테레오, PCM 이외 형식 거절, 4초 상한, 재생 위치 역전·reset을 테스트한다.
+- [x] PC `python -m pytest tests/test_companion_audio_buffer.py -q`, APP `./gradlew.bat :app:testDebugUnitTest --tests "dev.ene.companion.PcmBufferTest" --tests "dev.ene.companion.PlaybackClockTest" --offline --dependency-verification strict --console=plain`의 실패를 확인한다.
+- [x] PC 완성 WAV는 stdlib `wave`로 무압축 PCM16만 수락하고 원본 bytes 참조+cursor로 제공한다. 스트림은 프레임 정렬된 bounded deque, prefix 보관과 전송 대기를 중복 복제하지 않는다. 반환은 `accepted/full/invalid/closed`로 명확히 구분한다.
+- [x] APP은 50ms PCM 구간의 RMS를 계산해 `mouth_open=min(1, rms×3)`로 사용한다. 실제 소비한 frame 구간만 적용하고 stereo는 전체 sample RMS를 사용한다. 구간별 값은 재생/입모양 적용 후 버린다.
+- [x] AudioTrack 누적 위치는 음성별로 초기화하고 unsigned 32비트 playback head를 Long으로 확장한다. 실제 쓰기보다 큰 위치·이전 player의 callback을 거절한다.
+- [x] 같은 명령 통과 후 양쪽 `feat: 제한된 PCM 버퍼와 재생 시계 추가`로 커밋한다.
+
+B3 검증: PC 버퍼 21개와 B2 15개, Android 버퍼 6개/시계 3개/B2 11개 통과. 완성 WAV의 원본 참조 유지, 10초 음성 분할, 잘못된 PCM 헤더 필드, prefix 포함 용량·조각 개수·누적 길이, 부분 소비 시 실제 보관 메모리, RMS의 실제 소비 후 적용을 확인했다. Android buffer 예약량에는 이후 B6에서 native buffer와 HTTP scratch를 포함한다. 실제 장치 출력은 아직 연결하지 않았다. 형식/시계 확인에 [Python wave 문서](https://docs.python.org/3.12/library/wave.html)와 [Android AudioTrack 문서](https://developer.android.com/reference/android/media/AudioTrack#getPlaybackHeadPosition())를 참고했다.
 
 ### B4. 인증된 음성 전송과 연결 자원
 
