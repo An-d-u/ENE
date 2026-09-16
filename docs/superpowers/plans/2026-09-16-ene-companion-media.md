@@ -8,7 +8,7 @@
 
 **기술:** 기존 Python/PyQt6/aiohttp/pytest/Node VM, Kotlin 2.2.21/Compose/Coroutines/OkHttp 5.3.2, Android AudioTrack·AudioManager, AndroidX WebKit 1.15.0. 기존 Live2D 웹 라이브러리는 출처·버전·권리 확인 후 그대로 고정한다.
 
-**검토 상태:** 계획 문서 리뷰 승인. A0~A4와 B1 완료, B2부터 순차 진행 중. 실기기 시험은 보류한다.
+**검토 상태:** 계획 문서 리뷰 승인. A0~A4와 B1~B2 완료, B3부터 순차 진행 중. 실기기 시험은 보류한다.
 
 ---
 
@@ -203,7 +203,7 @@ B1 검증: 공통 사례 97개, PC 확장 110개 포함 기본 프로토콜·세
 
 **파일:** PC `src/core/companion/audio_route.py`, `tests/test_companion_audio_route.py`; APP `K/audio/AudioSession.kt`, `T/AudioSessionTest.kt` 생성.
 
-- [ ] 가상 시계로 허가 전 시간 초과, 준비 이후 focus 상실, 허가 전송 실패, 중복 ACK, 구세대 종료, 5초 무진행을 테스트한다. 아래 핵심 불변식을 실행 사례로 만든다.
+- [x] 가상 시계로 허가 전 시간 초과, 준비 이후 focus 상실, 허가 전송 실패, 중복 ACK, 구세대 종료, 5초 무진행을 테스트한다. 아래 핵심 불변식을 실행 사례로 만든다.
 
 ```python
 def test_start_delivery_uncertainty_never_falls_back_to_pc():
@@ -217,8 +217,8 @@ def test_start_delivery_uncertainty_never_falls_back_to_pc():
     assert route.finish() == "ignore"
 ```
 
-- [ ] PC `python -m pytest tests/test_companion_audio_route.py -q`, APP `./gradlew.bat :app:testDebugUnitTest --tests "dev.ene.companion.AudioSessionTest" --offline --dependency-verification strict --console=plain`로 실패를 확인한다.
-- [ ] `AudioRoute`는 출력 명령 문자열을 반환하는 순수 상태 기계로 구현하고 Qt/socket을 직접 호출하지 않는다. 전이의 핵심은 다음과 같다.
+- [x] PC `python -m pytest tests/test_companion_audio_route.py -q`, APP `./gradlew.bat :app:testDebugUnitTest --tests "dev.ene.companion.AudioSessionTest" --offline --dependency-verification strict --console=plain`로 실패를 확인한다.
+- [x] `AudioRoute`는 출력 명령 문자열을 반환하는 순수 상태 기계로 구현하고 Qt/socket을 직접 호출하지 않는다. 전이의 핵심은 다음과 같다.
 
 ```python
 def prepared(self, now_ms):
@@ -231,8 +231,10 @@ def prepared(self, now_ms):
     return "send_start"
 ```
 
-- [ ] APP은 `PREPARING/WAITING_START/PLAYING/DONE`과 세대·AudioRef를 검사한다. 허가 만료/중복 허가가 `player.play()`를 추가 호출하지 않음을 fake sink로 확인한다.
-- [ ] 두 집중 명령을 통과시키고 양쪽 `feat: 음성별 자동 출력과 중복 재생 차단`으로 커밋한다.
+- [x] APP은 `PREPARING/WAITING_START/PLAYING/DONE`과 세대·AudioRef를 검사한다. 허가 만료/중복 허가가 `player.play()`를 추가 호출하지 않음을 fake sink로 확인한다.
+- [x] 두 집중 명령을 통과시키고 양쪽 `feat: 음성별 자동 출력과 중복 재생 차단`으로 커밋한다.
+
+B2 검증: PC 15개, Android 11개 통과. 순수 상태와 가상 sink로 허가 전 PC 전환/허가 후 재생 취소, 중복 시작 차단, 세대와 발화 참조, 실제 진행 정지와 진행 ACK 단절, 지연 응답의 만료 복구 금지를 확인했다. 실제 네트워크·AudioTrack 연결은 B4~B7에서 수행한다.
 
 ### B3. PCM 검사와 제한된 버퍼
 
