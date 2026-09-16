@@ -8,7 +8,7 @@
 
 **기술:** 기존 Python/PyQt6/aiohttp/pytest/Node VM, Kotlin 2.2.21/Compose/Coroutines/OkHttp 5.3.2, Android AudioTrack·AudioManager, AndroidX WebKit 1.15.0. 기존 Live2D 웹 라이브러리는 출처·버전·권리 확인 후 그대로 고정한다.
 
-**검토 상태:** 계획 문서 리뷰 승인. A0~A4와 B1~B5 완료, B6부터 순차 진행 중. 실기기 시험은 보류한다.
+**검토 상태:** 계획 문서 리뷰 승인. A0~A4와 B1~B6 완료, B7부터 순차 진행 중. 실기기 시험은 보류한다.
 
 ---
 
@@ -280,15 +280,17 @@ B5 검증: 실제 WebBridge와 가상 TTS 출력, 실제 QThread의 합성 PCM, 
 
 ### B6. Android 네이티브 출력
 
-**파일:** APP `K/audio/PcmPlayer.kt`, `AudioFocusController.kt`, `T/PcmPlayerTest.kt`, `AudioFocusControllerTest.kt`, `I/AudioPlaybackTest.kt` 생성.
+**파일:** APP `K/audio/PcmPlayer.kt`, `AudioFocusController.kt`, `T/PcmPlayerTest.kt`, `AudioFocusControllerTest.kt`, `I/AudioPlaybackTest.kt` 생성. 기존 `K/audio/PcmBuffer.kt`, `T/PcmBufferTest.kt`에 HTTP scratch 구간의 단일 복사와 PCM 로그 노출 차단을 추가한다.
 
-- [ ] AudioTrack/AudioManager를 얇은 interface로 감싸 가상 쓰기·부분 쓰기·초기화 실패·포커스 거절/지연/상실·이어폰 분리·5초 정지 테스트를 만든다.
-- [ ] `./gradlew.bat :app:testDebugUnitTest --tests "dev.ene.companion.PcmPlayerTest" --tests "dev.ene.companion.AudioFocusControllerTest" --offline --dependency-verification strict --console=plain`로 실패를 확인한다.
-- [ ] AudioTrack MODE_STREAM/PCM16LE/검사된 rate·channel을 사용한다. 플레이어 buffer와 앱 deque 합계가 4초 한도 안에 들게 한다. native buffer는 최소 `getMinBufferSize`와 200ms 중 큰 값으로 만들고 한도 초과면 미지원으로 거절한다. 시작 전 write는 비차단으로 하며 native/앱 큐를 합쳐 200ms(또는 EOF의 짧은 전체 음성)를 준비하면 된다. native buffer가 빌 때까지 기다리는 준비 코드를 만들지 않는다.
-- [ ] AudioFocusRequest는 USAGE_MEDIA/CONTENT_TYPE_SPEECH, GAIN_TRANSIENT, delayed gain 불허, willPauseWhenDucked=true로 구성한다. focus GRANTED 이후 prepared를 보내고 실제 play는 start를 받은 뒤에만 호출한다. 상실/분리/중단은 pause-resume이 아니라 stop/flush/release다.
-- [ ] blocking write를 Main에서 하지 않는다. 중단 시 coroutine 취소뿐 아니라 native stop으로 write를 깨우고 reader/job을 회수한 뒤 release한다. 한 음성당 sink/receiver/focus listener는 하나다.
-- [ ] EOF와 source_end frame 수가 일치하고 AudioTrack이 모든 frame을 소비한 뒤 audio_finished를 보낸다. 위치를 50ms마다 읽되 네트워크 보고는 100~500ms 간격으로 합친다.
-- [ ] 위 JVM 시험과 `./gradlew.bat :app:assembleDebugAndroidTest --offline --dependency-verification strict --console=plain`를 실행한다. 계측은 컴파일만 됐다고 기록하고 `feat: Android PCM 재생과 오디오 포커스 연결`로 커밋한다.
+- [x] AudioTrack/AudioManager를 얇은 interface로 감싸 가상 쓰기·부분 쓰기·초기화 실패·포커스 거절/지연/상실·이어폰 분리·5초 정지 테스트를 만든다.
+- [x] `./gradlew.bat :app:testDebugUnitTest --tests "dev.ene.companion.PcmPlayerTest" --tests "dev.ene.companion.AudioFocusControllerTest" --offline --dependency-verification strict --console=plain`로 실패를 확인한다.
+- [x] AudioTrack MODE_STREAM/PCM16LE/검사된 rate·channel을 사용한다. 플레이어 buffer와 앱 deque 합계가 4초 한도 안에 들게 한다. native buffer는 최소 `getMinBufferSize`와 200ms 중 큰 값으로 만들고 한도 초과면 미지원으로 거절한다. 시작 전 write는 비차단으로 하며 native/앱 큐를 합쳐 200ms(또는 EOF의 짧은 전체 음성)를 준비하면 된다. native buffer가 빌 때까지 기다리는 준비 코드를 만들지 않는다.
+- [x] AudioFocusRequest는 USAGE_MEDIA/CONTENT_TYPE_SPEECH, GAIN_TRANSIENT, delayed gain 불허, willPauseWhenDucked=true로 구성한다. focus GRANTED 이후 prepared를 보내고 실제 play는 start를 받은 뒤에만 호출한다. 상실/분리/중단은 pause-resume이 아니라 즉시 pause/flush한 뒤 stop/release다. start 권한과 네트워크 송신은 B7의 단일 세션에서 연결한다.
+- [x] blocking write를 Main에서 하지 않는다. 모든 write를 비차단으로 하고 한 번에 최대 8회만 처리한다. 중단 시 즉시 native pause/flush/stop하고 reader/job을 회수한 뒤 release한다. 한 음성당 sink/receiver/focus listener는 하나다. HTTP와 job 회수는 B7 소유자가 stop과 close 사이에 수행한다.
+- [x] EOF와 source_end frame 수가 일치하고 AudioTrack이 모든 frame을 소비한 뒤에만 완료로 판단한다. 50ms 위치 조회/pump 경계와 100~500ms 보고 상태를 제공한다. 실제 호출·송신 타이머는 B7의 ExtensionSession에서 소유한다.
+- [x] 위 JVM 시험과 `./gradlew.bat :app:assembleDebugAndroidTest --offline --dependency-verification strict --console=plain`를 실행한다. 계측은 컴파일만 됐다고 기록하고 `feat: Android PCM 재생과 오디오 포커스 연결`로 커밋한다.
+
+B6 검증: Android PcmPlayer 8개/AudioFocusController 4개/PcmBuffer 7개/AudioSession 11개/PlaybackClock 3개, 총 33개 통과. lintDebug 및 assembleDebugAndroidTest 성공. native buffer·HTTP scratch 32KiB·HTTP 내부 여유 8KiB·무음 보충 scratch 1KiB·앱 deque를 같은 4초 예산으로 제한한다. Android 31 이상은 시작 임계값을 낮추고, 이전 버전의 짧은 EOF/언더런은 한정된 무음으로 장치 시작 조건을 채운다. 무음 frame은 공개 음성 길이·진행·립싱크에 포함하지 않으며 원본 소비 후 즉시 정지한다. 실제 재생 위치, 부분 쓰기, 5초 무진행 취소, 요청 중 포커스 상실 경합과 등록 실패 회수를 검증했다. [AudioTrack 공식 문서](https://developer.android.com/reference/android/media/AudioTrack)의 비차단 쓰기·시작 임계값·즉시 정지 조건과 [Android 오디오 포커스 문서](https://developer.android.com/media/optimize/audio-focus)의 전경 제한을 확인했다. 계측은 컴파일만 수행했으며 실기기 출력·블루투스·연결 수명 통합 시험은 아직 하지 않았다.
 
 ### B7. 앱 수명·확장 수신 분기와 음성 체크포인트
 
