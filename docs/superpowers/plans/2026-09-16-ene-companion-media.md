@@ -8,7 +8,7 @@
 
 **기술:** 기존 Python/PyQt6/aiohttp/pytest/Node VM, Kotlin 2.2.21/Compose/Coroutines/OkHttp 5.3.2, Android AudioTrack·AudioManager, AndroidX WebKit 1.15.0. 기존 Live2D 웹 라이브러리는 출처·버전·권리 확인 후 그대로 고정한다.
 
-**검토 상태:** 계획 문서 리뷰 승인. A0~A4 완료, B1부터 순차 진행 중. 실기기 시험은 보류한다.
+**검토 상태:** 계획 문서 리뷰 승인. A0~A4와 B1 완료, B2부터 순차 진행 중. 실기기 시험은 보류한다.
 
 ---
 
@@ -191,11 +191,13 @@ A4/A 통합 검증: 전체 PC 3,585개 통과·1개 건너뜀, `ruff --select E9
 
 **파일:** §2 확장 계약 파일; PC `tests/test_companion_extension_protocol.py`, APP `T/ExtensionCodecTest.kt` 생성. 기존 양쪽 `protocol.md`에 확장 링크만 추가한다.
 
-- [ ] §3 봉투/메시지/한도별 합성 사례를 양쪽 동일한 `media_cases.json`에 작성한다. 미협상, 구세대, boolean 정수, NaN/무한대, 잘못된 참조와 text event_seq 보존 사례를 포함한다.
-- [ ] PC `python -m pytest tests/test_companion_extension_protocol.py -q`, APP `./gradlew.bat :app:testDebugUnitTest --tests "dev.ene.companion.ExtensionCodecTest" --offline --dependency-verification strict --console=plain`의 실패를 확인한다.
-- [ ] PC `extension_protocol.py`와 APP `ExtensionCodec.kt`를 기본 해석기에 연결한다. Android 직렬화 하위 메시지는 `ExtensionMessage.kt`에 둔다. 새 예외는 원문을 보관하지 않는다.
-- [ ] 기존 `cases.json`을 수정하지 않고 신규·기존 ProtocolCodec/companion_protocol 테스트를 함께 통과시킨다. 양쪽 계약 파일 SHA-256 일치를 확인한다.
-- [ ] 각 저장소의 계약/해석기/테스트만 `feat: 동반 앱 미디어 확장 계약 추가`로 커밋한다.
+- [x] §3 봉투/메시지/한도별 합성 사례를 양쪽 동일한 `media_cases.json`에 작성한다. 미협상, 구세대, boolean 정수, NaN/무한대, 잘못된 참조와 text event_seq 보존 사례를 포함한다.
+- [x] PC `python -m pytest tests/test_companion_extension_protocol.py -q`, APP `./gradlew.bat :app:testDebugUnitTest --tests "dev.ene.companion.ExtensionCodecTest" --offline --dependency-verification strict --console=plain`의 실패를 확인한다.
+- [x] PC `extension_protocol.py`와 APP `ExtensionCodec.kt`를 기본 해석기에 연결한다. Android 직렬화 하위 메시지는 `ExtensionMessage.kt`에 둔다. 새 예외는 원문을 보관하지 않는다.
+- [x] 기존 `cases.json`을 수정하지 않고 신규·기존 ProtocolCodec/companion_protocol 테스트를 함께 통과시킨다. 양쪽 계약 파일 SHA-256 일치를 확인한다.
+- [x] 각 저장소의 계약/해석기/테스트만 `feat: 동반 앱 미디어 확장 계약 추가`로 커밋한다.
+
+B1 검증: 공통 사례 97개, PC 확장 110개 포함 기본 프로토콜·세션·gateway 194개 통과. Android 확장 4개/기존 계약 4개/ConnectionRepository 24개 통과(각 테스트 내 공통 사례 반복 포함). Kotlin 직렬화 증분 컴파일의 내부 오류는 증분을 끈 재컴파일 후 정상 옵션에서도 해소됐으며 의존성 버전을 바꾸지 않았다. 모델 없음의 필수 null 유지와 Python 큰 정수 변환의 안전한 오류를 추가 검증했다. media.md/media_cases.json/protocol.md의 양쪽 SHA-256 일치, 기존 cases.json 변경 없음, PC 정적 검사 통과. 해석기와 순수 권한 검사만 연결한 단계로, 실제 세션의 능력 광고는 아직 빈 목록이다. 음성·캐릭터 조정기가 준비된 뒤 B7/C/D에서 수신 실행 경계를 연결한다.
 
 ### B2. 순수 출력 상태 기계
 

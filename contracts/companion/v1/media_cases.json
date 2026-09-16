@@ -1,0 +1,1874 @@
+{
+  "cases": [
+    {
+      "name": "extensions_ready_정상",
+      "message": {
+        "type": "extensions_ready",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "capabilities": [
+          "audio_pcm_v1",
+          "character_v1",
+          "character_controls_v1"
+        ]
+      },
+      "expected": {
+        "type": "extensions_ready",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "capabilities": [
+          "audio_pcm_v1",
+          "character_v1",
+          "character_controls_v1"
+        ]
+      }
+    },
+    {
+      "name": "audio_availability_정상",
+      "message": {
+        "type": "audio_availability",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "available": true,
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "reason": "foreground"
+      },
+      "expected": {
+        "type": "audio_availability",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "available": true,
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "reason": "foreground"
+      }
+    },
+    {
+      "name": "audio_status_정상",
+      "message": {
+        "type": "audio_status",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "mode": "auto",
+        "reason": "ready"
+      },
+      "expected": {
+        "type": "audio_status",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "mode": "auto",
+        "reason": "ready"
+      }
+    },
+    {
+      "name": "audio_offer_정상",
+      "message": {
+        "type": "audio_offer",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "sample_rate": 24000,
+        "channels": 1,
+        "sample_width": 2,
+        "prepare_timeout_ms": 2000
+      },
+      "expected": {
+        "type": "audio_offer",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "sample_rate": 24000,
+        "channels": 1,
+        "sample_width": 2,
+        "prepare_timeout_ms": 2000
+      }
+    },
+    {
+      "name": "audio_prepared_정상",
+      "message": {
+        "type": "audio_prepared",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "buffered_frames": 4800
+      },
+      "expected": {
+        "type": "audio_prepared",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "buffered_frames": 4800
+      }
+    },
+    {
+      "name": "audio_rejected_정상",
+      "message": {
+        "type": "audio_rejected",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "reason": "focus_denied"
+      },
+      "expected": {
+        "type": "audio_rejected",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "reason": "focus_denied"
+      }
+    },
+    {
+      "name": "audio_start_정상",
+      "message": {
+        "type": "audio_start",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006"
+      },
+      "expected": {
+        "type": "audio_start",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006"
+      }
+    },
+    {
+      "name": "audio_started_정상",
+      "message": {
+        "type": "audio_started",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "played_frames": 0
+      },
+      "expected": {
+        "type": "audio_started",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "played_frames": 0
+      }
+    },
+    {
+      "name": "audio_source_end_정상",
+      "message": {
+        "type": "audio_source_end",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "total_frames": 9600
+      },
+      "expected": {
+        "type": "audio_source_end",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "total_frames": 9600
+      }
+    },
+    {
+      "name": "audio_progress_정상",
+      "message": {
+        "type": "audio_progress",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "played_frames": 1000,
+        "mouth_open": 0.4
+      },
+      "expected": {
+        "type": "audio_progress",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "played_frames": 1000,
+        "mouth_open": 0.4
+      }
+    },
+    {
+      "name": "audio_progress_ack_정상",
+      "message": {
+        "type": "audio_progress_ack",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "played_frames": 1000
+      },
+      "expected": {
+        "type": "audio_progress_ack",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "played_frames": 1000
+      }
+    },
+    {
+      "name": "audio_finished_정상",
+      "message": {
+        "type": "audio_finished",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "played_frames": 9600
+      },
+      "expected": {
+        "type": "audio_finished",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "played_frames": 9600
+      }
+    },
+    {
+      "name": "audio_cancel_정상",
+      "message": {
+        "type": "audio_cancel",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "reason": "interrupted"
+      },
+      "expected": {
+        "type": "audio_cancel",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "reason": "interrupted"
+      }
+    },
+    {
+      "name": "character_changed_정상",
+      "message": {
+        "type": "character_changed",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "state_revision": 1,
+        "model_version": null,
+        "reason": "no_model"
+      },
+      "expected": {
+        "type": "character_changed",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "state_revision": 1,
+        "model_version": null,
+        "reason": "no_model"
+      }
+    },
+    {
+      "name": "character_snapshot_request_정상",
+      "message": {
+        "type": "character_snapshot_request",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002"
+      },
+      "expected": {
+        "type": "character_snapshot_request",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002"
+      }
+    },
+    {
+      "name": "character_action_정상",
+      "message": {
+        "type": "character_action",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "model_version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "action_seq": 1,
+        "kind": "gesture",
+        "action_id": "nod",
+        "duration_ms": 500
+      },
+      "expected": {
+        "type": "character_action",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "model_version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "action_seq": 1,
+        "kind": "gesture",
+        "action_id": "nod",
+        "duration_ms": 500
+      }
+    },
+    {
+      "name": "character_playback_정상",
+      "message": {
+        "type": "character_playback",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "output": "phone",
+        "played_ms": 100,
+        "mouth_open": 0.3,
+        "active": true
+      },
+      "expected": {
+        "type": "character_playback",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "output": "phone",
+        "played_ms": 100,
+        "mouth_open": 0.3,
+        "active": true
+      }
+    },
+    {
+      "name": "head_pat_정상",
+      "message": {
+        "type": "head_pat",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "model_version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "interaction_id": "00000000-0000-4000-8000-000000000007",
+        "interaction_no": 1,
+        "seq": 0,
+        "phase": "start",
+        "intensity": 0.5
+      },
+      "expected": {
+        "type": "head_pat",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "model_version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "interaction_id": "00000000-0000-4000-8000-000000000007",
+        "interaction_no": 1,
+        "seq": 0,
+        "phase": "start",
+        "intensity": 0.5
+      }
+    },
+    {
+      "name": "head_pat_state_정상",
+      "message": {
+        "type": "head_pat_state",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "model_version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "interaction_id": "00000000-0000-4000-8000-000000000007",
+        "interaction_no": 1,
+        "seq": 0,
+        "source": "phone",
+        "phase": "accepted",
+        "intensity": 0.5,
+        "reason": "accepted"
+      },
+      "expected": {
+        "type": "head_pat_state",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "model_version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "interaction_id": "00000000-0000-4000-8000-000000000007",
+        "interaction_no": 1,
+        "seq": 0,
+        "source": "phone",
+        "phase": "accepted",
+        "intensity": 0.5,
+        "reason": "accepted"
+      }
+    },
+    {
+      "name": "character_settings_patch_정상",
+      "message": {
+        "type": "character_settings_patch",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "model_version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "command_id": "00000000-0000-4000-8000-000000000008",
+        "expected_revision": 0,
+        "changes": {
+          "enable_head_pat": true,
+          "idle_motion_speed": 1
+        },
+        "parameters": {
+          "ParamAngleX": 0,
+          "ParamAngleY": null
+        }
+      },
+      "expected": {
+        "type": "character_settings_patch",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "model_version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "command_id": "00000000-0000-4000-8000-000000000008",
+        "expected_revision": 0,
+        "changes": {
+          "enable_head_pat": true,
+          "idle_motion_speed": 1
+        },
+        "parameters": {
+          "ParamAngleX": 0,
+          "ParamAngleY": null
+        }
+      }
+    },
+    {
+      "name": "character_settings_result_정상",
+      "message": {
+        "type": "character_settings_result",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "command_id": "00000000-0000-4000-8000-000000000008",
+        "status": "accepted",
+        "settings_revision": 1,
+        "reason": "saved"
+      },
+      "expected": {
+        "type": "character_settings_result",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "command_id": "00000000-0000-4000-8000-000000000008",
+        "status": "accepted",
+        "settings_revision": 1,
+        "reason": "saved"
+      }
+    },
+    {
+      "name": "extension_error_정상",
+      "message": {
+        "type": "extension_error",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "feature": "audio_pcm_v1",
+        "code": "unsupported_format",
+        "command_id": "00000000-0000-4000-8000-000000000008"
+      },
+      "expected": {
+        "type": "extension_error",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "feature": "audio_pcm_v1",
+        "code": "unsupported_format",
+        "command_id": "00000000-0000-4000-8000-000000000008"
+      }
+    },
+    {
+      "name": "extensions_ready_불리언_정수_22",
+      "message": {
+        "type": "extensions_ready",
+        "protocol_version": 1,
+        "registration_generation": true,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "capabilities": [
+          "audio_pcm_v1",
+          "character_v1",
+          "character_controls_v1"
+        ]
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "extensions_ready_잘못된_연결_23",
+      "message": {
+        "type": "extensions_ready",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "invalid",
+        "capabilities": [
+          "audio_pcm_v1",
+          "character_v1",
+          "character_controls_v1"
+        ]
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_availability_불리언_정수_24",
+      "message": {
+        "type": "audio_availability",
+        "protocol_version": 1,
+        "registration_generation": true,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "available": true,
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "reason": "foreground"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_availability_잘못된_연결_25",
+      "message": {
+        "type": "audio_availability",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "invalid",
+        "available": true,
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "reason": "foreground"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_status_불리언_정수_26",
+      "message": {
+        "type": "audio_status",
+        "protocol_version": 1,
+        "registration_generation": true,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "mode": "auto",
+        "reason": "ready"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_status_잘못된_연결_27",
+      "message": {
+        "type": "audio_status",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "invalid",
+        "mode": "auto",
+        "reason": "ready"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_offer_불리언_정수_28",
+      "message": {
+        "type": "audio_offer",
+        "protocol_version": 1,
+        "registration_generation": true,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "sample_rate": 24000,
+        "channels": 1,
+        "sample_width": 2,
+        "prepare_timeout_ms": 2000
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_offer_잘못된_연결_29",
+      "message": {
+        "type": "audio_offer",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "invalid",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "sample_rate": 24000,
+        "channels": 1,
+        "sample_width": 2,
+        "prepare_timeout_ms": 2000
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_prepared_불리언_정수_30",
+      "message": {
+        "type": "audio_prepared",
+        "protocol_version": 1,
+        "registration_generation": true,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "buffered_frames": 4800
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_prepared_잘못된_연결_31",
+      "message": {
+        "type": "audio_prepared",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "invalid",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "buffered_frames": 4800
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_rejected_불리언_정수_32",
+      "message": {
+        "type": "audio_rejected",
+        "protocol_version": 1,
+        "registration_generation": true,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "reason": "focus_denied"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_rejected_잘못된_연결_33",
+      "message": {
+        "type": "audio_rejected",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "invalid",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "reason": "focus_denied"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_start_불리언_정수_34",
+      "message": {
+        "type": "audio_start",
+        "protocol_version": 1,
+        "registration_generation": true,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_start_잘못된_연결_35",
+      "message": {
+        "type": "audio_start",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "invalid",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_started_불리언_정수_36",
+      "message": {
+        "type": "audio_started",
+        "protocol_version": 1,
+        "registration_generation": true,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "played_frames": 0
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_started_잘못된_연결_37",
+      "message": {
+        "type": "audio_started",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "invalid",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "played_frames": 0
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_source_end_불리언_정수_38",
+      "message": {
+        "type": "audio_source_end",
+        "protocol_version": 1,
+        "registration_generation": true,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "total_frames": 9600
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_source_end_잘못된_연결_39",
+      "message": {
+        "type": "audio_source_end",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "invalid",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "total_frames": 9600
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_progress_불리언_정수_40",
+      "message": {
+        "type": "audio_progress",
+        "protocol_version": 1,
+        "registration_generation": true,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "played_frames": 1000,
+        "mouth_open": 0.4
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_progress_잘못된_연결_41",
+      "message": {
+        "type": "audio_progress",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "invalid",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "played_frames": 1000,
+        "mouth_open": 0.4
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_progress_ack_불리언_정수_42",
+      "message": {
+        "type": "audio_progress_ack",
+        "protocol_version": 1,
+        "registration_generation": true,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "played_frames": 1000
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_progress_ack_잘못된_연결_43",
+      "message": {
+        "type": "audio_progress_ack",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "invalid",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "played_frames": 1000
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_finished_불리언_정수_44",
+      "message": {
+        "type": "audio_finished",
+        "protocol_version": 1,
+        "registration_generation": true,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "played_frames": 9600
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_finished_잘못된_연결_45",
+      "message": {
+        "type": "audio_finished",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "invalid",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "played_frames": 9600
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_cancel_불리언_정수_46",
+      "message": {
+        "type": "audio_cancel",
+        "protocol_version": 1,
+        "registration_generation": true,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "reason": "interrupted"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_cancel_잘못된_연결_47",
+      "message": {
+        "type": "audio_cancel",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "invalid",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "reason": "interrupted"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "character_changed_불리언_정수_48",
+      "message": {
+        "type": "character_changed",
+        "protocol_version": 1,
+        "registration_generation": true,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "state_revision": 1,
+        "model_version": null,
+        "reason": "no_model"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "character_changed_잘못된_연결_49",
+      "message": {
+        "type": "character_changed",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "invalid",
+        "state_revision": 1,
+        "model_version": null,
+        "reason": "no_model"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "character_snapshot_request_불리언_정수_50",
+      "message": {
+        "type": "character_snapshot_request",
+        "protocol_version": 1,
+        "registration_generation": true,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "character_snapshot_request_잘못된_연결_51",
+      "message": {
+        "type": "character_snapshot_request",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "invalid"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "character_action_불리언_정수_52",
+      "message": {
+        "type": "character_action",
+        "protocol_version": 1,
+        "registration_generation": true,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "model_version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "action_seq": 1,
+        "kind": "gesture",
+        "action_id": "nod",
+        "duration_ms": 500
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "character_action_잘못된_연결_53",
+      "message": {
+        "type": "character_action",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "invalid",
+        "model_version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "action_seq": 1,
+        "kind": "gesture",
+        "action_id": "nod",
+        "duration_ms": 500
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "character_playback_불리언_정수_54",
+      "message": {
+        "type": "character_playback",
+        "protocol_version": 1,
+        "registration_generation": true,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "output": "phone",
+        "played_ms": 100,
+        "mouth_open": 0.3,
+        "active": true
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "character_playback_잘못된_연결_55",
+      "message": {
+        "type": "character_playback",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "invalid",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "output": "phone",
+        "played_ms": 100,
+        "mouth_open": 0.3,
+        "active": true
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "head_pat_불리언_정수_56",
+      "message": {
+        "type": "head_pat",
+        "protocol_version": 1,
+        "registration_generation": true,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "model_version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "interaction_id": "00000000-0000-4000-8000-000000000007",
+        "interaction_no": 1,
+        "seq": 0,
+        "phase": "start",
+        "intensity": 0.5
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "head_pat_잘못된_연결_57",
+      "message": {
+        "type": "head_pat",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "invalid",
+        "model_version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "interaction_id": "00000000-0000-4000-8000-000000000007",
+        "interaction_no": 1,
+        "seq": 0,
+        "phase": "start",
+        "intensity": 0.5
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "head_pat_state_불리언_정수_58",
+      "message": {
+        "type": "head_pat_state",
+        "protocol_version": 1,
+        "registration_generation": true,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "model_version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "interaction_id": "00000000-0000-4000-8000-000000000007",
+        "interaction_no": 1,
+        "seq": 0,
+        "source": "phone",
+        "phase": "accepted",
+        "intensity": 0.5,
+        "reason": "accepted"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "head_pat_state_잘못된_연결_59",
+      "message": {
+        "type": "head_pat_state",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "invalid",
+        "model_version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "interaction_id": "00000000-0000-4000-8000-000000000007",
+        "interaction_no": 1,
+        "seq": 0,
+        "source": "phone",
+        "phase": "accepted",
+        "intensity": 0.5,
+        "reason": "accepted"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "character_settings_patch_불리언_정수_60",
+      "message": {
+        "type": "character_settings_patch",
+        "protocol_version": 1,
+        "registration_generation": true,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "model_version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "command_id": "00000000-0000-4000-8000-000000000008",
+        "expected_revision": 0,
+        "changes": {
+          "enable_head_pat": true,
+          "idle_motion_speed": 1
+        },
+        "parameters": {
+          "ParamAngleX": 0,
+          "ParamAngleY": null
+        }
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "character_settings_patch_잘못된_연결_61",
+      "message": {
+        "type": "character_settings_patch",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "invalid",
+        "model_version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "command_id": "00000000-0000-4000-8000-000000000008",
+        "expected_revision": 0,
+        "changes": {
+          "enable_head_pat": true,
+          "idle_motion_speed": 1
+        },
+        "parameters": {
+          "ParamAngleX": 0,
+          "ParamAngleY": null
+        }
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "character_settings_result_불리언_정수_62",
+      "message": {
+        "type": "character_settings_result",
+        "protocol_version": 1,
+        "registration_generation": true,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "command_id": "00000000-0000-4000-8000-000000000008",
+        "status": "accepted",
+        "settings_revision": 1,
+        "reason": "saved"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "character_settings_result_잘못된_연결_63",
+      "message": {
+        "type": "character_settings_result",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "invalid",
+        "command_id": "00000000-0000-4000-8000-000000000008",
+        "status": "accepted",
+        "settings_revision": 1,
+        "reason": "saved"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "extension_error_불리언_정수_64",
+      "message": {
+        "type": "extension_error",
+        "protocol_version": 1,
+        "registration_generation": true,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "feature": "audio_pcm_v1",
+        "code": "unsupported_format",
+        "command_id": "00000000-0000-4000-8000-000000000008"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "extension_error_잘못된_연결_65",
+      "message": {
+        "type": "extension_error",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "invalid",
+        "feature": "audio_pcm_v1",
+        "code": "unsupported_format",
+        "command_id": "00000000-0000-4000-8000-000000000008"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_offer_참조_66",
+      "message": {
+        "type": "audio_offer",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "invalid",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "sample_rate": 24000,
+        "channels": 1,
+        "sample_width": 2,
+        "prepare_timeout_ms": 2000
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_offer_참조_67",
+      "message": {
+        "type": "audio_offer",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "invalid",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "sample_rate": 24000,
+        "channels": 1,
+        "sample_width": 2,
+        "prepare_timeout_ms": 2000
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_offer_참조_68",
+      "message": {
+        "type": "audio_offer",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "invalid",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "sample_rate": 24000,
+        "channels": 1,
+        "sample_width": 2,
+        "prepare_timeout_ms": 2000
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_offer_참조_69",
+      "message": {
+        "type": "audio_offer",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "invalid",
+        "sample_rate": 24000,
+        "channels": 1,
+        "sample_width": 2,
+        "prepare_timeout_ms": 2000
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_offer_거절_70",
+      "message": {
+        "type": "audio_offer",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "sample_rate": 24000,
+        "channels": 3,
+        "sample_width": 2,
+        "prepare_timeout_ms": 2000
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_offer_거절_71",
+      "message": {
+        "type": "audio_offer",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "sample_rate": 7999,
+        "channels": 1,
+        "sample_width": 2,
+        "prepare_timeout_ms": 2000
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_offer_거절_72",
+      "message": {
+        "type": "audio_offer",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "sample_rate": 48001,
+        "channels": 1,
+        "sample_width": 2,
+        "prepare_timeout_ms": 2000
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_offer_거절_73",
+      "message": {
+        "type": "audio_offer",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "sample_rate": 24000,
+        "channels": 1,
+        "sample_width": 4,
+        "prepare_timeout_ms": 2000
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_offer_거절_74",
+      "message": {
+        "type": "audio_offer",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "sample_rate": 24000,
+        "channels": 1,
+        "sample_width": 2,
+        "prepare_timeout_ms": 1999
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_offer_거절_75",
+      "message": {
+        "type": "audio_offer",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "sample_rate": 24000.5,
+        "channels": 1,
+        "sample_width": 2,
+        "prepare_timeout_ms": 2000
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_started_거절_76",
+      "message": {
+        "type": "audio_started",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "played_frames": 1
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_progress_거절_77",
+      "message": {
+        "type": "audio_progress",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "played_frames": 1000,
+        "mouth_open": true
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_progress_거절_78",
+      "message": {
+        "type": "audio_progress",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "played_frames": 1000,
+        "mouth_open": 1.01
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_progress_거절_79",
+      "message": {
+        "type": "audio_progress",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "played_frames": 8640001,
+        "mouth_open": 0.4
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_prepared_거절_80",
+      "message": {
+        "type": "audio_prepared",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "buffered_frames": 192001
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_source_end_거절_81",
+      "message": {
+        "type": "audio_source_end",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "total_frames": 8640001
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "character_action_거절_82",
+      "message": {
+        "type": "character_action",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "model_version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "action_seq": 1,
+        "kind": "gesture",
+        "action_id": "nod",
+        "duration_ms": 30001
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "character_action_거절_83",
+      "message": {
+        "type": "character_action",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "model_version": null,
+        "action_seq": 1,
+        "kind": "gesture",
+        "action_id": "nod",
+        "duration_ms": 500
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "character_changed_거절_84",
+      "message": {
+        "type": "character_changed",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "state_revision": 0,
+        "model_version": null,
+        "reason": "no_model"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "character_playback_거절_85",
+      "message": {
+        "type": "character_playback",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "output": "phone",
+        "played_ms": 100,
+        "mouth_open": 0.3,
+        "active": 1
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "head_pat_거절_86",
+      "message": {
+        "type": "head_pat",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "model_version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "interaction_id": "00000000-0000-4000-8000-000000000007",
+        "interaction_no": 0,
+        "seq": 0,
+        "phase": "start",
+        "intensity": 0.5
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "head_pat_거절_87",
+      "message": {
+        "type": "head_pat",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "model_version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "interaction_id": "00000000-0000-4000-8000-000000000007",
+        "interaction_no": 1,
+        "seq": 0,
+        "phase": "start",
+        "intensity": -0.1
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "head_pat_state_거절_88",
+      "message": {
+        "type": "head_pat_state",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "model_version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "interaction_id": "00000000-0000-4000-8000-000000000007",
+        "interaction_no": 1,
+        "seq": 0,
+        "source": "phone",
+        "phase": "end",
+        "intensity": 0.5,
+        "reason": "accepted"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "character_settings_patch_거절_89",
+      "message": {
+        "type": "character_settings_patch",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "model_version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "command_id": "00000000-0000-4000-8000-000000000008",
+        "expected_revision": 0,
+        "changes": {
+          "api_key": "합성 금지 값"
+        },
+        "parameters": {
+          "ParamAngleX": 0,
+          "ParamAngleY": null
+        }
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "character_settings_patch_거절_90",
+      "message": {
+        "type": "character_settings_patch",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "model_version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "command_id": "00000000-0000-4000-8000-000000000008",
+        "expected_revision": 0,
+        "changes": {
+          "idle_motion_speed": 0.4
+        },
+        "parameters": {
+          "ParamAngleX": 0,
+          "ParamAngleY": null
+        }
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "character_settings_patch_거절_91",
+      "message": {
+        "type": "character_settings_patch",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "model_version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "command_id": "00000000-0000-4000-8000-000000000008",
+        "expected_revision": 0,
+        "changes": {
+          "head_pat_fade_in_ms": 50.5
+        },
+        "parameters": {
+          "ParamAngleX": 0,
+          "ParamAngleY": null
+        }
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "character_settings_patch_거절_92",
+      "message": {
+        "type": "character_settings_patch",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "model_version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "command_id": "00000000-0000-4000-8000-000000000008",
+        "expected_revision": 0,
+        "changes": {
+          "enable_head_pat": true,
+          "idle_motion_speed": 1
+        },
+        "parameters": [
+          0,
+          0
+        ]
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "character_settings_patch_거절_93",
+      "message": {
+        "type": "character_settings_patch",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "model_version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "command_id": "00000000-0000-4000-8000-000000000008",
+        "expected_revision": 0,
+        "changes": {
+          "enable_head_pat": true,
+          "idle_motion_speed": 1
+        },
+        "parameters": {
+          "ParamAngleX": "0"
+        }
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "extensions_ready_거절_94",
+      "message": {
+        "type": "extensions_ready",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "capabilities": [
+          "character_controls_v1"
+        ]
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "extensions_ready_거절_95",
+      "message": {
+        "type": "extensions_ready",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "capabilities": [
+          "audio_pcm_v1",
+          "audio_pcm_v1"
+        ]
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "선택_필드와_대화_순서_제거",
+      "message": {
+        "type": "audio_progress",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "played_frames": 1000,
+        "mouth_open": 0.4,
+        "private_extra": "합성 비공개 값",
+        "event_seq": 30
+      },
+      "expected": {
+        "type": "audio_progress",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "message_id": "00000000-0000-4000-8000-000000000004",
+        "operation_id": "00000000-0000-4000-8000-000000000005",
+        "utterance_id": "00000000-0000-4000-8000-000000000006",
+        "played_frames": 1000,
+        "mouth_open": 0.4
+      }
+    }
+  ]
+}

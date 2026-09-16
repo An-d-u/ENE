@@ -217,6 +217,9 @@ def _normalize(body):
     if version != PROTOCOL_VERSION:
         raise ProtocolError("unsupported_version")
     kind = text_value(body.get("type"))
+    from .extension_protocol import EXTENSION_TYPES, normalize_extension
+    if kind in EXTENSION_TYPES:
+        return WireMessage(kind, _freeze(normalize_extension(kind, body)))
     result = {}
     if kind == "hello":
         result["capabilities"] = _capabilities(body.get("capabilities", []))
@@ -361,6 +364,8 @@ def decode_message(raw, *, allowed_types=None, max_bytes=MAX_WIRE_BYTES):
         raw = text_value(raw, max_bytes=max_bytes, limit_code="message_too_large")
         _check_depth(raw)
         message = _normalize(json.loads(raw, parse_constant=_invalid_constant))
+        from .extension_protocol import wire_limit
+        text_value(raw, max_bytes=wire_limit(message.type), limit_code="message_too_large")
         if allowed_types is not None and message.type not in allowed_types:
             raise ProtocolError("unsupported_command")
         return message
@@ -376,4 +381,5 @@ def encode_message(message):
     raw = json.dumps(
         normalized.to_dict(), ensure_ascii=False, separators=(",", ":"), allow_nan=False
     )
-    return text_value(raw, max_bytes=MAX_WIRE_BYTES, limit_code="message_too_large")
+    from .extension_protocol import wire_limit
+    return text_value(raw, max_bytes=wire_limit(normalized.type), limit_code="message_too_large")
