@@ -92,6 +92,27 @@ class CharacterState:
         self.expressions = []
         self.gestures = []
         self.default_expression = "normal"
+        self._head_pat_defaults = {"active": "normal", "end": "normal"}
+
+    def set_head_pat_defaults(self, values):
+        """PC의 기존 우선순위는 유지하되 실제 공개 카탈로그 ID만 내보낸다."""
+        before = self.head_pat_defaults()
+        for phase in ("active", "end"):
+            resolved = values.get(f"head_pat_{phase}_emotion", "")
+            default = values.get(f"head_pat_{phase}_emotion_default", "normal")
+            self._head_pat_defaults[phase] = next(
+                (value.strip() for value in (resolved, default) if isinstance(value, str) and value.strip()), "normal"
+            )
+        changed = before != self.head_pat_defaults()
+        if changed:
+            self.settings_revision += 1
+            self.state_revision += 1
+        return changed
+
+    def head_pat_defaults(self):
+        if self.status != "ready":
+            return {}
+        return {key: value if value in self.expressions else "normal" for key, value in self._head_pat_defaults.items()}
 
     def unavailable(self, status="unavailable"):
         if status not in {"unavailable", "unsupported", "loading"}:
@@ -109,6 +130,7 @@ class CharacterState:
         self.generation, self.bundle = generation, bundle
         self.settings = _settings(settings)
         self.parameters = dict(parameters)
+        self.set_head_pat_defaults(settings)
         self.settings_revision += 1
 
     def accept_catalog(self, generation, version, catalog, expressions, gestures):
@@ -171,6 +193,7 @@ class CharacterState:
                 "settings_revision": self.settings_revision,
                 "action_seq": self.action_seq,
                 "settings": self.settings,
+                "head_pat_defaults": self.head_pat_defaults(),
                 "parameters": self.parameters if ready else {},
                 "parameter_catalog": self.catalog if ready else [],
                 "expression_ids": self.expressions if ready else [],

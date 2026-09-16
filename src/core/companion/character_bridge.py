@@ -57,6 +57,8 @@ class CompanionCharacterBridge(QObject):
             and self._selection.emotions == tuple(emotions)
         ):
             self._preview = False
+            if self._sync_head_pat_defaults():
+                self.changed("settings_changed")
             self._sync_head_pat()
             return self._selection.generation
         selection = _Selection(
@@ -278,6 +280,7 @@ class CompanionCharacterBridge(QObject):
         return accepted
 
     def changed(self, reason):
+        self._sync_head_pat_defaults()
         self._sync_head_pat()
         self._publish(
             "character_changed",
@@ -289,6 +292,13 @@ class CompanionCharacterBridge(QObject):
                 "reason": reason,
             },
         )
+
+    def _sync_head_pat_defaults(self):
+        store = getattr(self.owner, "settings", self._confirmed_settings)
+        return self.state.set_head_pat_defaults({
+            f"head_pat_{phase}_emotion{suffix}": store.get(f"head_pat_{phase}_emotion{suffix}", "")
+            for phase in ("active", "end") for suffix in ("", "_default")
+        })
 
     def _publish(self, kind, fields):
         adapter = getattr(self.owner, "_companion_adapter", None)

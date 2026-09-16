@@ -13,6 +13,15 @@ from tests.companion_helpers import sample_id
 CATALOG = [{"id": "ParamAccent", "min": -1.0, "max": 1.0, "default": 0.0}]
 
 
+def test_head_pat_defaults_only_publish_current_catalog_expression_ids(tmp_path):
+    state, bundle = state_with_bundle(tmp_path)
+    state.set_head_pat_defaults({"head_pat_active_emotion": "bright", "head_pat_end_emotion_default": "synthetic-missing"})
+    state.accept_catalog(sample_id(41), bundle.model_version, CATALOG, ["normal", "bright"], ["nod"])
+    assert state.snapshot()["head_pat_defaults"] == {"active": "bright", "end": "normal"}
+    state.unavailable()
+    assert state.snapshot()["head_pat_defaults"] == {}
+
+
 def state_with_bundle(tmp_path):
     state = CharacterState()
     bundle = build_bundle(synthetic_model(tmp_path))

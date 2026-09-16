@@ -443,12 +443,16 @@ PC 쓰다듬기/실제 Qt/공유 실행부/기분·생활 기록 집중 회귀 *
 
 **파일:** APP `K/ui/CharacterSettingsSheet.kt`, `T/CharacterSettingsStateTest.kt`, `I/CharacterSettingsScreenTest.kt`; 기존 `K/ui/ConnectionScreen.kt`, `K/character/CharacterControls.kt` 수정. PC/APP 표시 문자열은 기존 언어 리소스 구조를 따른다.
 
-- [ ] 허용 키만 노출, 값 범위·작업 중 버튼, slider release 시 한 번 전송, conflict 뒤 최신값, 키보드·접근성 라벨 테스트를 추가한다.
-- [ ] `./gradlew.bat :app:testDebugUnitTest --tests "dev.ene.companion.CharacterSettingsStateTest" --offline --dependency-verification strict --console=plain`로 실패를 확인한다.
-- [ ] 캐릭터 영역의 설정 버튼으로 작은 bottom sheet를 연다. D1 키만 switch/slider/선택 목록으로 표시하고 parameter catalog의 유효 항목만 제공한다. 연결/모델 준비 전에는 비활성화하며 수동 음성 출력 항목은 만들지 않는다.
-- [ ] 미리보기는 로컬 캐릭터에만 적용하고 확정/충돌/취소 시 현재 snapshot으로 복원한다. 48dp 터치 영역·설명 라벨·글자 확대를 적용하고 대화 초안/스크롤 상태를 보존한다.
-- [ ] PC 전체 pytest+Ruff, APP 전체 unit/lint/debug/instrumentation 빌드를 실행한다. 공유 설정 저장·수명·상호작용 변경을 통합 리뷰하고 Important 이상을 수정한다.
-- [ ] `feat: 모바일 캐릭터 공통 설정 화면 추가`로 커밋한다. 계측 실행/실제 손가락 입력/기기 음성은 미검증으로 남긴다.
+- [x] 허용 키만 노출, 값 범위·작업 중 버튼, slider release 시 한 번 전송, conflict 뒤 최신값, 키보드·접근성 라벨 테스트를 추가한다.
+- [x] `./gradlew.bat :app:testDebugUnitTest --tests "dev.ene.companion.CharacterSettingsStateTest" --offline --dependency-verification strict --console=plain`로 실패를 확인한다.
+- [x] 캐릭터 영역의 설정 버튼으로 작은 bottom sheet를 연다. D1 키만 switch/slider/선택 목록으로 표시하고 parameter catalog의 유효 항목만 제공한다. 연결/모델 준비 전에는 비활성화하며 수동 음성 출력 항목은 만들지 않는다.
+- [x] 미리보기는 로컬 캐릭터에만 적용하고 확정/충돌/취소 시 현재 snapshot으로 복원한다. 48dp 터치 영역·설명 라벨·글자 확대를 적용하고 대화 초안/스크롤 상태를 보존한다.
+- [x] PC 전체 pytest+Ruff, APP 전체 unit/lint/debug/instrumentation 빌드를 실행한다. 공유 설정 저장·수명·상호작용 변경을 통합 리뷰하고 Important 이상을 수정한다.
+- [x] `feat: 모바일 캐릭터 공통 설정 화면 추가`로 커밋한다. 계측 실행/실제 손가락 입력/기기 음성은 미검증으로 남긴다.
+
+**D4 검증 기록(2026-09-17):** 허용 공통 설정 20개와 보호 접두어를 제외한 장식 파라미터만 표시한다. 설정 화면은 부분 펼침/확장을 지원하며 큰 글자나 키보드로 캐릭터가 접혀도 확인된 모델의 설정은 사용할 수 있다. 미리보기 명령은 자산을 다시 읽거나 표정을 재생하지 않고, 제거된 장식은 카탈로그 기본값으로 돌린다. 저장 응답 확인 중에는 추가 입력을 막고 10초 유실 판정 뒤에도 재전송하지 않는다. 닫기·회전·동기화·최신 revision 도착에 따른 미리보기와 저장 결과 수명을 분리했다. 실제 연결의 `character_controls_v1` 광고를 활성화했다.
+
+순차 자체 명세/품질 검토에서 기본 표정 누락, 장식 제거 뒤 이전 표시값 잔류, 회전 중 저장 유실의 무한 대기, 접힌 캐릭터의 설정 접근 차단을 실패 테스트로 재현해 수정했다. 읽기 전용 `head_pat_defaults`는 카탈로그 ID만 보내고 PC 기본값 변경도 revision에 반영한다. 기존 manifest 호환과 쓰기 허용 범위는 유지했다. PC 전체 **3970개 통과·1개 제외(102.29초)**, 이후 추가 기본값 변경 시험을 포함한 집중 **32개 통과**, 전체 기본 Ruff·변경 경계 Ruff 통과. APP 최종 전체 **42개 클래스·242개 시험 통과**, 실패·오류·제외 0; offline strict unit/lint/debug/instrumentation APK 빌드 통과(50초). Lint 오류 0·기존 경고 27개이며 C4의 화면 높이 경고는 해소했다. 공유 호스트·진입점 2개 해시를 갱신해 exporter로 반영했다. 실제 설치·계측 실행·렌더링·터치·기기 음성은 수행하지 않았다.
 
 ## 9. E — 통합 검증과 인계
 

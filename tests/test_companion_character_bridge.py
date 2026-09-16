@@ -78,6 +78,26 @@ def test_disabled_does_not_read_files_and_ready_requires_matching_catalog(tmp_pa
     assert bridge.state.capture().bundle is None
 
 
+def test_pc_default_expression_change_reuses_model_but_invalidates_settings_revision(tmp_path):
+    app = QApplication.instance() or QApplication([])
+    owner = Owner()
+    owner.settings = {"head_pat_active_emotion_default": "normal"}
+    bridge = CompanionCharacterBridge(owner)
+    path = synthetic_model(tmp_path)
+    generation = bridge.select(path, (), owner.settings, {})
+    bridge.activate()
+    wait_until(app, lambda: not bridge.is_running)
+    assert bridge.catalog({"generation": generation, "model_version": bridge.state.bundle.model_version,
+                           "parameters": CATALOG, "expressions": ["normal", "bright"], "gestures": ["nod"]})
+    revision = bridge.state.settings_revision
+    owner.settings["head_pat_active_emotion_default"] = "bright"
+    assert bridge.select(path, (), owner.settings, {}, reuse=True) == generation
+    assert bridge.state.settings_revision == revision + 1
+    assert bridge.state.snapshot()["head_pat_defaults"]["active"] == "bright"
+    assert not bridge.is_running
+    bridge.deactivate()
+
+
 def test_replacement_has_one_worker_and_discards_late_result(tmp_path):
     app = QApplication.instance() or QApplication([])
     owner = Owner()

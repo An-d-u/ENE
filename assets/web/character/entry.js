@@ -54,6 +54,8 @@
                 character.applyPlayback(command.value);
             } else if (command.type === 'head_pat') {
                 character.applyHeadPat(command.value);
+            } else if (command.type === 'preview') {
+                character.applyPreview(command.value);
             }
         } catch (_) {
             if (!disposed && expected === generation) emitInput({type: 'error', code: 'character_render_failed'});

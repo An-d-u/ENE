@@ -15,7 +15,7 @@ const generation = '00000000-0000-4000-8000-000000000001';
 const listeners = {}, calls = [], replies = [];
 let host;
 const character = {applySnapshot:async x=>{calls.push(x);return false;},
-    applyAction:async x=>calls.push(x),applyPlayback:x=>calls.push(x),applyHeadPat:x=>calls.push(x),
+    applyAction:async x=>calls.push(x),applyPlayback:x=>calls.push(x),applyHeadPat:x=>calls.push(x),applyPreview:x=>calls.push(x),
     dispose:()=>{calls.push('disposed');host.emitInput({type:'head_pat_input',phase:'cancel'});}};
 const context = {AbortController, document:{getElementById:()=>({})},window:{
     location:{origin},createCharacter:value=>{host=value;return character;},
@@ -41,10 +41,12 @@ async function send(data, from=origin) { await listeners.message({origin:from,da
     assert.equal(replies[1].generation,generation);
     await send({type:'head_pat',generation,value:{phase:'accepted'}});
     assert.equal(calls[1].phase,'accepted');
+    await send({type:'preview',generation,value:{settings:{enable_head_pat:false}}});
+    assert.equal(calls[2].settings.enable_head_pat,false);
     listeners.pagehide();
     assert.equal(replies[2].phase,'cancel');assert.equal(replies[2].generation,generation);
     await send({type:'action',generation,value:{kind:'gesture'}});
-    assert.equal(calls.length,3);
+    assert.equal(calls.length,4);
 })().catch(error=>{console.error(error);process.exitCode=1;});
 """
     result = subprocess.run(

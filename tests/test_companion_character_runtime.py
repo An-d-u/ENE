@@ -100,7 +100,7 @@ def test_shared_runtime_without_chat_and_dispose_clears_callbacks(kind):
         f"host.kind={json.dumps(kind)};"
         + r"""
 const character=context.createCharacter(host,canvas);
-assert.deepEqual(Object.keys(character).sort(),['applyAction','applyHeadPat','applyPlayback','applySnapshot','dispose']);
+assert.deepEqual(Object.keys(character).sort(),['applyAction','applyHeadPat','applyPlayback','applyPreview','applySnapshot','dispose']);
 assert.equal(calls.filter(x=>x==='createApp').length,1);
 await character.applySnapshot(snapshot);
 assert.ok(calls.some(x=>x.endsWith(snapshot.entry_asset_id)));
@@ -117,6 +117,24 @@ assert.equal(calls.filter(x=>x==='destroyApp').length,1);
 assert.equal(await character.applySnapshot(snapshot),false);
 """
     )
+
+
+def test_preview_does_not_reload_assets_or_reset_expression_and_uses_pc_pat_defaults():
+    run_character(r"""
+const character=context.createCharacter(host,canvas);
+snapshot.head_pat_defaults={active:'bright',end:'normal'};
+snapshot.parameter_catalog=[{id:'ParamAccent',min:-1,max:1,default:0}];
+await character.applySnapshot(snapshot);
+const before=calls.length;
+const states=[];context.setHeadPatConfig=(...args)=>states.push(args);
+assert.equal(character.applyPreview({...snapshot,settings:{...snapshot.settings,head_pat_strength:2},parameters:{ParamAccent:0.8}}),true);
+assert.equal(calls.length,before);assert.equal(states[0][4],'bright');
+listeners.get('model:beforeModelUpdate')();assert.equal(values.get('ParamAccent'),0.8);
+assert.equal(character.applyPreview({...snapshot,model_version:'c'.repeat(64)}),false);
+character.applyPreview(snapshot);listeners.get('model:beforeModelUpdate')();assert.equal(values.get('ParamAccent'),0.2);
+character.applyPreview({...snapshot,parameters:{}});assert.equal(values.get('ParamAccent'),0);
+character.dispose();assert.equal(character.applyPreview(snapshot),false);
+""")
 
 
 def test_dispose_and_model_reset_discard_late_load_and_expression():

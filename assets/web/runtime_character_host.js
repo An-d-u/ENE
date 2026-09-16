@@ -43,7 +43,7 @@ window.createCharacter = function createCharacter(host, canvas) {
         currentModelPath = ''; currentEmotionsBasePath = '';
         currentEmotionTag = 'normal'; baseEmotionTag = 'normal';
     }
-    function applySettings(settings) {
+    function applySettings(settings, defaults) {
         const s = settings || {};
         window.setBuiltinIdleMotionEnabled(s.enable_builtin_idle_motion ?? true);
         window.setAutoEyeBlinkEnabled(s.enable_auto_eye_blink ?? true);
@@ -54,8 +54,20 @@ window.createCharacter = function createCharacter(host, canvas) {
         window.setSyntheticGestureScale(s.synthetic_gesture_scale ?? 1);
         window.setIdleSyntheticGestureConfig(s.enable_idle_synthetic_gestures ?? false, s.idle_synthetic_gesture_frequency ?? 'normal');
         window.setHeadPatConfig(s.enable_head_pat ?? true, s.head_pat_strength ?? 1, s.head_pat_fade_in_ms ?? 180,
-            s.head_pat_fade_out_ms ?? 220, s.head_pat_active_emotion_custom || 'normal', s.head_pat_end_emotion_custom || 'normal',
+            s.head_pat_fade_out_ms ?? 220, s.head_pat_active_emotion_custom || defaults?.active || 'normal', s.head_pat_end_emotion_custom || defaults?.end || 'normal',
             s.head_pat_end_emotion_duration_sec ?? 5);
+    }
+    function applyParameters(next) {
+        const values = next.parameters || {};
+        const defaults = new Map((next.parameter_catalog || []).map(item => [item.id, item.default]));
+        for (const id of Object.keys(getLive2DParameterOverrideValues())) {
+            if (!Object.prototype.hasOwnProperty.call(values, id) && Number.isFinite(defaults.get(id))) {
+                setLive2DParameterModelValue(id, defaults.get(id));
+            }
+        }
+        live2dParameterState.values = {...values};
+        live2dParameterState.dirtyValues = {};
+        live2dParameterState.removedValues.clear();
     }
     async function applySnapshot(next) {
         if (disposed) return false;
@@ -67,10 +79,8 @@ window.createCharacter = function createCharacter(host, canvas) {
         if (version !== next.model_version) reset();
         version = next.model_version;
         snapshot = next;
-        live2dParameterState.values = {...(next.parameters || {})};
-        live2dParameterState.dirtyValues = {};
-        live2dParameterState.removedValues.clear();
-        applySettings(next.settings);
+        applyParameters(next);
+        applySettings(next.settings, next.head_pat_defaults);
         const loading = loadingModel || (loadingModel = window.applyENEModelSettings({modelPath: host.assetUrl('model', next.entry_asset_id),
             emotionsBasePath: '', availableEmotions: next.expression_ids || ['normal'], scale: 1, xPercent: 50, yPercent: 50}));
         await loading;
@@ -85,6 +95,12 @@ window.createCharacter = function createCharacter(host, canvas) {
         }
         await changeExpression(next.default_expression || 'normal', {durationMs: 0});
         return !disposed && generation === snapshotGeneration && Boolean(window.live2dModel);
+    }
+    function applyPreview(next) {
+        if (disposed || !snapshot || next?.status !== 'ready' || next.model_version !== version) return false;
+        applyParameters(next);
+        applySettings(next.settings, next.head_pat_defaults);
+        return true;
     }
     async function applyAction(action) {
         if (disposed || !snapshot || action?.model_version !== version) return false;
@@ -119,5 +135,5 @@ window.createCharacter = function createCharacter(host, canvas) {
     window.addEventListener('pagehide', dispose);
     ensureHeadPatEventBindings();
     characterTrackingFrame = requestAnimationFrame(updateMouseTracking);
-    return Object.freeze({applySnapshot, applyAction, applyPlayback, applyHeadPat:applyHeadPatState, dispose});
+    return Object.freeze({applySnapshot, applyAction, applyPreview, applyPlayback, applyHeadPat:applyHeadPatState, dispose});
 };
