@@ -8,7 +8,7 @@
 
 **기술:** 기존 Python/PyQt6/aiohttp/pytest/Node VM, Kotlin 2.2.21/Compose/Coroutines/OkHttp 5.3.2, Android AudioTrack·AudioManager, AndroidX WebKit 1.15.0. 기존 Live2D 웹 라이브러리는 출처·버전·권리 확인 후 그대로 고정한다.
 
-**검토 상태:** 계획 문서 리뷰 승인. A0~A4, B1~B7, C1~C4 완료, D1부터 순차 진행 중. 실기기 시험은 보류한다.
+**검토 상태:** 계획 문서 리뷰 승인. A0~A4, B1~B7, C1~C4, D1 완료, D2부터 순차 진행 중. 실기기 시험은 보류한다.
 
 ---
 
@@ -394,12 +394,16 @@ PC 새 표시 시험 10개와 음성 경계 집중 43개, 기존 TTS/응답·Nod
 | `head_pat_end_emotion_duration_sec` | 정수 1~30 |
 | `parameters` | 현재 카탈로그 ID→해당 min/max 내 유한 수치 또는 null; 최대 256개 |
 
-- [ ] 경계값/알 수 없는 키/NaN/없는 param/구모델/구 revision/중복 command/저장 실패 테스트를 먼저 만든다. 저장 실패 시 메모리·파일·revision이 바뀌지 않음을 검사한다.
-- [ ] PC `python -m pytest tests/test_companion_character_controls.py tests/test_companion_character_settings_storage.py -q`, APP `./gradlew.bat :app:testDebugUnitTest --tests "dev.ene.companion.CharacterControlsTest" --offline --dependency-verification strict --console=plain`로 실패를 확인한다.
-- [ ] 기존 Settings.save()는 실패를 출력하고 삼키므로 원격 성공 판단에 사용하지 않는다. `commit_character_settings(candidate)`는 현재 config 사본에 검증된 변경을 병합하고 config 파일만 atomic replace한 뒤 메모리에 반영한다. 예외를 호출자에게 전달하며 secret 파일은 읽거나 쓰지 않는다. 기존 다른 설정 save 의미는 바꾸지 않는다.
-- [ ] command_id 처리 결과를 연결별 최대 256개 보관한다. revision 확인 전에 같은 명령/같은 본문은 결과만 반환하고 다른 본문은 conflict다. 응답 유실 후 자동 재전송은 하지 않는다. 캐시에서 사라진 구명령도 이전 expected_revision 때문에 재적용되지 않아야 한다.
-- [ ] APP은 수정 중 모델/revision을 고정하고 성공/충돌 이후 manifest를 받아 확정한다. parameter favorites와 화면 확대는 변경에 넣지 않는다.
-- [ ] 같은 명령 통과 후 `feat: 캐릭터 설정 검증과 원자적 저장 추가`로 각 저장소에 커밋한다.
+- [x] 경계값/알 수 없는 키/NaN/없는 param/구모델/구 revision/중복 command/저장 실패 테스트를 먼저 만든다. 저장 실패 시 메모리·파일·revision이 바뀌지 않음을 검사한다.
+- [x] PC `python -m pytest tests/test_companion_character_controls.py tests/test_companion_character_settings_storage.py -q`, APP `./gradlew.bat :app:testDebugUnitTest --tests "dev.ene.companion.CharacterControlsTest" --offline --dependency-verification strict --console=plain`로 실패를 확인한다.
+- [x] 기존 Settings.save()는 실패를 출력하고 삼키므로 원격 성공 판단에 사용하지 않는다. `commit_character_settings(changes, model_key=..., parameters=...)`는 현재 config 사본에 검증된 변경을 병합하고 config 파일만 atomic replace한 뒤 메모리에 반영한다. 예외를 호출자에게 전달하며 secret 파일은 읽거나 쓰지 않는다. 기존 다른 설정 save 의미는 바꾸지 않는다.
+- [x] command_id 처리 결과를 연결별 최대 256개 보관한다. revision 확인 전에 같은 명령/같은 본문은 결과만 반환하고 다른 본문은 conflict다. 응답 유실 후 자동 재전송은 하지 않는다. 캐시에서 사라진 구명령도 이전 expected_revision 때문에 재적용되지 않아야 한다.
+- [x] APP은 수정 중 모델/revision을 고정하고 성공/충돌 이후 manifest를 받아 확정한다. parameter favorites와 화면 확대는 변경에 넣지 않는다.
+- [x] 같은 명령 통과 후 `feat: 캐릭터 설정 검증과 원자적 저장 추가`로 각 저장소에 커밋한다.
+
+**D1 검증 기록(2026-09-17):** PC의 설정 조정기는 현재 모델 카탈로그와 허용 키를 검증한 뒤 저장 콜백 성공 시에만 메모리·두 revision을 변경한다. 현재 연결 하나의 결과 256개만 보관하며 빈 변경도 revision을 전진시켜 축출된 성공 명령의 재적용을 막는다. 현재 연결 admission 확인과 실제 PC UI 반영은 D2에서 연결한다. 저장 API는 전체 config를 받지 않고 공유 키 변경과 PC가 선택한 로컬 모델 키/값 변경만 받도록 좁혔다. 기존 config의 다른 키, 다른 모델, 현재 모델 favorites를 보존한다. 임시 파일 fsync 및 atomic replace 실패를 주입해 파일·메모리·revision 보존과 임시 파일 정리를 확인했다.
+
+새 PC 시험 46개와 기존 캐릭터 상태·Settings를 합쳐 **104개 통과**. 신규 경계 Ruff 및 전체 기본 오류 검사 통과. Android 편집 경계 **7개 시험 통과**, `ExtensionCodecTest`도 함께 실행했다. 전송 중 새 제출을 막고 결과를 받은 뒤 해당 revision 이상의 새 manifest만 확정하며 전송 불명 상태에도 자동 재전송하지 않는다. D1은 순수 설정 경계만 추가했으며 아직 `character_controls_v1` 광고나 설정 화면을 켜지 않는다. 전체 빌드·장치 인수는 각각 D4/E, 보류된 단말 단계에 남아 있다.
 
 ### D2. PC 설정 창·매개변수 경계 통합
 

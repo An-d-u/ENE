@@ -3,6 +3,7 @@ ENE settings manager.
 Loads and saves user settings to JSON.
 """
 import json
+from copy import deepcopy
 from pathlib import Path
 
 from .app_paths import (
@@ -585,6 +586,40 @@ class Settings:
             return False
         self.config = candidate
         return True
+
+    def commit_character_settings(self, changes, *, model_key=None, parameters=None):
+        """공유 키와 현재 모델의 값만 원자 저장한다. 비밀 저장소는 접근하지 않는다."""
+        from .companion.character_controls import normalize_parameters
+        from .companion.extension_protocol import normalize_settings
+        from .live2d_parameter_overrides import normalize_live2d_model_key
+
+        clean = normalize_settings(changes)
+        values = normalize_parameters({} if parameters is None else parameters)
+        candidate = deepcopy(self.config)
+        candidate.update(clean)
+        if values:
+            key = normalize_live2d_model_key(model_key)
+            if not key:
+                raise ValueError("invalid_model_key")
+            overrides = candidate.get("live2d_parameter_overrides", {})
+            if not isinstance(overrides, dict):
+                raise ValueError("invalid_parameter_store")
+            selected = overrides.get(key, {"values": {}, "favorites": []})
+            if not isinstance(selected, dict) or not isinstance(selected.get("values", {}), dict):
+                raise ValueError("invalid_parameter_store")
+            merged = dict(selected.get("values", {}))
+            for parameter, value in values.items():
+                if value is None:
+                    merged.pop(parameter, None)
+                else:
+                    merged[parameter] = value
+            if len(merged) > 256:
+                raise ValueError("parameter_limit")
+            candidate["live2d_parameter_overrides"] = {
+                **overrides, key: {**selected, "values": merged},
+            }
+        save_json_data_atomic(self.config_path, candidate)
+        self.config = candidate
 
     def get(self, key: str, default=None):
         if key in self.SECRET_KEYS:

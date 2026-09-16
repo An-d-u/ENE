@@ -182,6 +182,12 @@ class CharacterState:
             }
         )
 
+    def commit_settings(self, settings, parameters):
+        """검증·영속 저장이 끝난 사본만 적용한다. Qt 조정기 외부에서 호출하지 않는다."""
+        self.settings, self.parameters = settings, parameters
+        self.settings_revision += 1
+        self.state_revision += 1
+
     def capture(self):
         body = json.dumps(
             self.snapshot(),
