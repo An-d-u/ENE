@@ -61,6 +61,7 @@ class QtGatewayAdapter(QObject):
         self._enabled = False
         self._blocked = True
         self._loop = self._event_sink = None
+        self._media_sink = self._media_wake = None
         # 잠금은 전송표 조회/취소에만 사용한다. Qt 작업이나 await 동안 잡지 않는다.
         self._lock = threading.Lock()
         self._closing = True
@@ -102,6 +103,7 @@ class QtGatewayAdapter(QObject):
         self._require_qt()
         self._enabled, self._blocked = False, True
         self._connection = None
+        self._notify_owner_disconnect()
         with self._lock:
             self._closing = True
             for call in self._pending.values():
@@ -118,11 +120,50 @@ class QtGatewayAdapter(QObject):
                 except RuntimeError:
                     break
 
-    def attach(self, loop, event_sink):
+    def attach(self, loop, event_sink, *, media_sink=None):
         self._require_qt()
         if self._loop is not None:
             raise RuntimeError("adapter_already_attached")
         self._loop, self._event_sink = loop, event_sink
+        self._media_sink = media_sink
+
+    def publish_audio(self, command):
+        """PCM은 공유 버퍼가 보관한다. 읽기 깨우기는 최대 한 개만 대기한다."""
+        self._require_qt()
+        loop = self._loop
+        if (
+            not self._enabled
+            or self._closing
+            or loop is None
+            or self._media_sink is None
+        ):
+            return False
+        with self._lock:
+            if command.kind == "notify":
+                already_pending = self._media_wake is not None
+                self._media_wake = command
+                if already_pending:
+                    return True
+        try:
+            if command.kind == "notify":
+                loop.call_soon_threadsafe(self._deliver_audio_wake)
+            else:
+                loop.call_soon_threadsafe(self._deliver_audio, command)
+            return True
+        except RuntimeError:
+            with self._lock:
+                self._media_wake = None
+            return False
+
+    def _deliver_audio_wake(self):
+        with self._lock:
+            command, self._media_wake = self._media_wake, None
+        if command is not None:
+            self._deliver_audio(command)
+
+    def _deliver_audio(self, command):
+        if self._enabled and not self._closing and self._media_sink is not None:
+            self._media_sink(command)
 
     def detach(self):
         """소유 루프와 스레드가 끝난 뒤 Qt에서 호출한다."""
@@ -130,8 +171,10 @@ class QtGatewayAdapter(QObject):
         if self._loop is not None and self._loop.is_running():
             raise RuntimeError("adapter_loop_running")
         self._loop = self._event_sink = None
+        self._media_sink = None
         with self._lock:
             self._pending.clear()
+            self._media_wake = None
 
     @property
     def pending_count(self):
@@ -236,6 +279,7 @@ class QtGatewayAdapter(QObject):
         operation, context = command.operation, command.context
         if operation == "block":
             self._blocked = True
+            self._notify_owner_disconnect()
             return None
         if operation == "register":
             if not self._blocked:
@@ -252,6 +296,7 @@ class QtGatewayAdapter(QObject):
         if operation == "disconnect":
             if context.connection_generation == self._connection:
                 self._connection = None
+                self._notify_owner_disconnect()
             return None
         if self._blocked:
             raise AdapterError("admission_blocked")
@@ -300,6 +345,15 @@ class QtGatewayAdapter(QObject):
         ):
             return self._owner.submit(context, command.message)
         raise AdapterError("unsupported_command")
+
+    def _notify_owner_disconnect(self):
+        handler = getattr(self._owner, "_companion_connection_closed", None)
+        if callable(handler):
+            try:
+                handler()
+            except Exception:
+                # PC 재생 복구가 실패해도 연결 차단과 대기 호출 회수는 계속한다.
+                print("[Companion] audio_disconnect_cleanup_failed")
 
     def publish(self, event):
         self._require_qt()

@@ -398,6 +398,14 @@ class CompanionGateway:
         elif self._active is not None and self._running:
             self._active.publish(message)
 
+    def publish_audio(self, command):
+        if self._active is not None and self._running and not self._changing:
+            try:
+                self._validate_session_tls()
+                self._active.publish_audio(command)
+            except (SessionError, MediaError, ProtocolError):
+                pass
+
     async def _fail_pair(self, connection, pairing_id, code):
         ws = self._pair_sockets.pop(connection, None)
         if ws is None:

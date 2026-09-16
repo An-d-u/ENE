@@ -1012,10 +1012,25 @@ class StreamingTTSWorker(QThread):
         self.tts_client = tts_client
         self.text = text
         self._stop_requested = False
+        self._delivery = None
+
+    def enable_bounded_delivery(self):
+        """Qt 소유자가 시작 전에 요청한 경우에만 제한된 전달 큐를 사용한다."""
+        from .companion.audio_mailbox import BoundedTtsMailbox
+
+        if self._delivery is None:
+            self._delivery = BoundedTtsMailbox(
+                self.stream_chunk_ready.emit,
+                self.stream_finished.emit,
+                self.error_occurred.emit,
+                self,
+            )
 
     def request_stop(self):
         """다음 청크 경계에서 안전하게 스트림 처리를 중단한다."""
         self._stop_requested = True
+        if self._delivery is not None:
+            self._delivery.cancel()
 
     def run(self):
         loop = None
@@ -1031,6 +1046,7 @@ class StreamingTTSWorker(QThread):
                 decoder = StreamingWavDecoder()
                 analyzer = None
                 format_emitted = False
+                frame = 1
 
                 async for chunk in self.tts_client.stream_speech(self.text):
                     if self._stop_requested:
@@ -1039,6 +1055,13 @@ class StreamingTTSWorker(QThread):
 
                     audio_format, pcm_bytes = decoder.push(chunk)
                     if audio_format is not None and not format_emitted:
+                        frame = audio_format.channels * audio_format.sample_width
+                        if self._delivery is not None:
+                            self._delivery.configure(
+                                audio_format.sample_rate,
+                                audio_format.channels,
+                                audio_format.sample_width,
+                            )
                         self.stream_format_ready.emit(
                             audio_format.sample_rate,
                             audio_format.channels,
@@ -1053,21 +1076,37 @@ class StreamingTTSWorker(QThread):
                         format_emitted = True
 
                     if pcm_bytes and analyzer is not None:
-                        mouth_values = analyzer.push_pcm(pcm_bytes)
-                        self.stream_chunk_ready.emit(pcm_bytes, mouth_values)
+                        if self._delivery is None:
+                            mouth_values = analyzer.push_pcm(pcm_bytes)
+                            self.stream_chunk_ready.emit(pcm_bytes, mouth_values)
+                        else:
+                            size = min(32768, self._delivery.capacity) // frame * frame
+                            for offset in range(0, len(pcm_bytes), size):
+                                part = pcm_bytes[offset : offset + size]
+                                if not self._delivery.push(part, analyzer.push_pcm(part)):
+                                    return
 
                 if analyzer is not None and not self._stop_requested:
                     tail_values = analyzer.finalize()
                     if tail_values:
-                        self.stream_chunk_ready.emit(b"", tail_values)
+                        if self._delivery is None:
+                            self.stream_chunk_ready.emit(b"", tail_values)
+                        else:
+                            self._delivery.push(b"", tail_values)
 
             loop.run_until_complete(_consume_stream())
-            self.stream_finished.emit()
+            if self._delivery is None:
+                self.stream_finished.emit()
+            else:
+                self._delivery.finish()
         except Exception as e:
             print(
                 f"[StreamingTTSWorker] stream_failed category=tts_stream_error exception_class={type(e).__name__}"
             )
-            self.error_occurred.emit("tts_stream_error")
+            if self._delivery is None:
+                self.error_occurred.emit("tts_stream_error")
+            else:
+                self._delivery.fail()
         finally:
             if loop is not None:
                 loop.close()

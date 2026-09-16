@@ -18,6 +18,17 @@ def test_normalize_volume_clamps_to_valid_range():
     assert AudioPlayer.normalize_volume(3.0) == 1.0
 
 
+def test_position_uses_native_consumed_time_without_wall_clock():
+    from types import SimpleNamespace
+
+    player = SimpleNamespace(stream_sink=None, player=SimpleNamespace(position=lambda: 1234))
+    assert AudioPlayer.position_ms(player) == 1234
+    player.stream_sink = SimpleNamespace(processedUSecs=lambda: 2468500)
+    assert AudioPlayer.position_ms(player) == 2468
+    player.stream_sink = SimpleNamespace(processedUSecs=lambda: -1)
+    assert AudioPlayer.position_ms(player) == 0
+
+
 def test_resolve_output_device_matches_serialized_id():
     class FakeDevice:
         def __init__(self, raw_id, name):

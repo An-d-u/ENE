@@ -158,12 +158,16 @@ class WavSource:
     def close(self):
         self.closed = True
 
+    def cancel_transfer(self):
+        self.close()
+
 
 class PcmStream:
     """Qt 생산자/HTTP 소비자가 공유한다. write가 끝난 뒤 consume해야 한다."""
 
-    def __init__(self, format):
+    def __init__(self, format, *, buffer_limit=None):
         self.format = format
+        self.buffer_limit = min(format.buffer_limit, buffer_limit or format.buffer_limit)
         self._lock = threading.RLock()
         self._chunks = deque()
         self._accepted = self._read = self._retained = 0
@@ -192,7 +196,7 @@ class PcmStream:
             ):
                 return "invalid"
             if (
-                self._retained + len(data) > self.format.buffer_limit
+                self._retained + len(data) > self.buffer_limit
                 or len(self._chunks) >= 256
             ):
                 return "full"
@@ -237,7 +241,7 @@ class PcmStream:
 
     def take_for_pc(self):
         with self._lock:
-            if not self._prefix or self.closed:
+            if not self._prefix:
                 return ()
             result = tuple(data for _, data in self._chunks)
             self.close()
@@ -246,6 +250,14 @@ class PcmStream:
     def finish(self):
         with self._lock:
             self.source_ended = True
+
+    def cancel_transfer(self):
+        """HTTP는 닫되 아직 허가하지 않은 prefix는 Qt의 출력 결정까지 보관한다."""
+        with self._lock:
+            self.closed = True
+            if not self._prefix:
+                self._chunks.clear()
+                self._retained = 0
 
     def close(self):
         with self._lock:

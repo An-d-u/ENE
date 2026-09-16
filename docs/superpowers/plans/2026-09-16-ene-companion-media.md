@@ -8,7 +8,7 @@
 
 **기술:** 기존 Python/PyQt6/aiohttp/pytest/Node VM, Kotlin 2.2.21/Compose/Coroutines/OkHttp 5.3.2, Android AudioTrack·AudioManager, AndroidX WebKit 1.15.0. 기존 Live2D 웹 라이브러리는 출처·버전·권리 확인 후 그대로 고정한다.
 
-**검토 상태:** 계획 문서 리뷰 승인. A0~A4와 B1~B4 완료, B5부터 순차 진행 중. 실기기 시험은 보류한다.
+**검토 상태:** 계획 문서 리뷰 승인. A0~A4와 B1~B5 완료, B6부터 순차 진행 중. 실기기 시험은 보류한다.
 
 ---
 
@@ -265,16 +265,18 @@ B4 검증: 새 PC HTTP 13개/확장 세션 5개를 포함한 gateway·session·a
 
 ### B5. PC TTS 경계 연결
 
-**파일:** PC `src/core/companion/audio_coordinator.py`, `tests/test_companion_audio_coordinator.py`, `test_companion_tts_routing.py`; 기존 `src/core/bridge_mixins/tts.py`, `companion.py`, `src/core/audio_player.py`, `companion/controller.py` 수정.
+**파일:** PC `src/core/companion/audio_coordinator.py`, `audio_bridge.py`, `audio_mailbox.py`, `tests/test_companion_audio_coordinator.py`, `test_companion_audio_mailbox.py`, `test_companion_tts_routing.py`; 기존 `src/core/bridge_mixins/tts.py`, `companion.py`, `chat_flow.py`, `src/core/bridge_workers.py`, `audio_player.py`, `companion/controller.py`, `adapter.py`, `gateway.py`, `session.py`, `audio_buffer.py`, `connection_resources.py`, `media_http.py`, `tests/test_audio_player.py` 수정. 추가 연결 파일은 생성기 변경이 아닌 Qt 전달·완료 게이트·인증 세션의 실제 연결 경계다.
 
-- [ ] 기존 가상 TTS worker와 PC/phone sink 계수를 사용해 “생성 1회, 한 출력만 시작”을 테스트한다. 완성 WAV 10초가 4초 큐 포화로 취소되지 않는 사례, 비스트림/스트림/브라우저/미지원형식/음성꺼짐을 포함한다. 포맷 통지 후 첫 PCM이 늦게 도착해도 준비 제한이 먼저 시작되지 않고 첫 유효 PCM/완성 음성부터 2초가 시작되는지 가상 시계로 확인한다.
-- [ ] `python -m pytest tests/test_companion_audio_coordinator.py tests/test_companion_tts_routing.py -q`로 실패를 확인한다.
-- [ ] `begin(AudioRef, format)`, `offer_pcm(ref, bytes)`, `source_end(ref)`, `cancel(ref, reason)` 경계를 기존 `_process_tts_stream_format`, `_process_tts_stream_chunk`, `_complete_tts_ready`에 연결한다. provider 생성 코드와 Fish Audio 설정을 변경하지 않는다.
-- [ ] 음성 첫 출력 경계에서 공개 메시지가 확정되지 않은 기존 PC 표시 방식은 해당 음성을 PC로 고정한다. 폰 출력을 위해 PC 메시지 공개 시점 설정을 바꾸지 않는다. 공개된 메시지·동기화된 연결만 phone offer 대상으로 삼는다.
-- [ ] start 허가 뒤 PC sink는 생성/재생하지 않는다. 준비 거절은 보존된 같은 bytes/prefix를 PC에 한 번 전달한다. 늦은 worker와 모든 종료 경로는 AudioRef 검사를 통과해야 한다.
-- [ ] phone 재생에는 source 완료와 재생 완료가 둘 다 필요하다. 공급자 완료만으로 기존 reply gate를 풀지 않고 정상 finish/취소/watchdog의 단일 논리 완료에서 해제한다. PC 재생은 기존 completion을 그대로 사용한다.
-- [ ] PC `AudioPlayer`에 현재 위치 조회만 추가한다. 완성 재생은 QMediaPlayer.position(), 스트림은 QAudioSink.processedUSecs()를 사용해 과거 타이머 기반 추측 대신 보고한다. 기존 PC 임시 재생 파일의 생성/정리 정책은 유지하며 확장 전송용 파일은 만들지 않는다.
-- [ ] 위 집중 시험과 `tests/test_bridge_tts_streaming.py`, `test_bridge_reply_lifecycle.py`, `test_app_tts_bootstrap.py`, `test_fish_audio_tts.py`를 통과시킨다. `feat: PC TTS를 자동 출력 조정기에 연결`로 커밋한다.
+- [x] 기존 가상 TTS worker와 PC/phone sink 계수를 사용해 “생성 1회, 한 출력만 시작”을 테스트한다. 완성 WAV 10초가 4초 큐 포화로 취소되지 않는 사례, 비스트림/스트림/브라우저/미지원형식/음성꺼짐을 포함한다. 포맷 통지 후 첫 PCM이 늦게 도착해도 준비 제한이 먼저 시작되지 않고 첫 유효 PCM/완성 음성부터 2초가 시작되는지 가상 시계로 확인한다.
+- [x] `python -m pytest tests/test_companion_audio_coordinator.py tests/test_companion_tts_routing.py -q`로 실패를 확인한다.
+- [x] `begin(AudioRef, format)`, `offer_pcm(ref, bytes)`, `source_end(ref)`, `cancel(ref, reason)` 경계를 기존 `_process_tts_stream_format`, `_process_tts_stream_chunk`, `_complete_tts_ready`에 연결한다. provider 생성 코드와 Fish Audio 설정을 변경하지 않는다.
+- [x] 음성 첫 출력 경계에서 공개 메시지가 확정되지 않은 기존 PC 표시 방식은 해당 음성을 PC로 고정한다. 폰 출력을 위해 PC 메시지 공개 시점 설정을 바꾸지 않는다. 공개된 메시지·동기화된 연결만 phone offer 대상으로 삼는다.
+- [x] start 허가 뒤 PC sink는 생성/재생하지 않는다. 준비 거절은 보존된 같은 bytes/prefix를 PC에 한 번 전달한다. 늦은 worker와 모든 종료 경로는 AudioRef 검사를 통과해야 한다.
+- [x] phone 재생에는 source 완료와 재생 완료가 둘 다 필요하다. 공급자 완료만으로 기존 reply gate를 풀지 않고 정상 finish/취소/watchdog의 단일 논리 완료에서 해제한다. PC 재생은 기존 completion을 그대로 사용한다.
+- [x] PC `AudioPlayer`에 현재 위치 조회만 추가한다. 완성 재생은 QMediaPlayer.position(), 스트림은 QAudioSink.processedUSecs()를 사용해 과거 타이머 기반 추측 대신 보고한다. 기존 PC 임시 재생 파일의 생성/정리 정책은 유지하며 확장 전송용 파일은 만들지 않는다.
+- [x] 위 집중 시험과 `tests/test_bridge_tts_streaming.py`, `test_bridge_reply_lifecycle.py`, `test_app_tts_bootstrap.py`, `test_fish_audio_tts.py`를 통과시킨다. `feat: PC TTS를 자동 출력 조정기에 연결`로 커밋한다.
+
+B5 검증: 실제 WebBridge와 가상 TTS 출력, 실제 QThread의 합성 PCM, 실제 루프백 TLS의 메시지→offer→source_end 순서를 확인했다. 워커 전달 큐와 전송 prefix는 각각 2초로 나누고 하나의 Qt 깨우기로 전달한다. 가득 찬 큐의 생산자 대기·취소 해제·EOF 순서, 준비 거절 후 같은 PCM과 기존 PC 립싱크 복구, 허가 후 PC 재생 금지, 취소된 start 전송 폐기, 공급자 종료와 휴대폰 소비 완료의 분리, 타이머 복구 오류의 게이트 해제를 검사했다. PC 전체 3,783개 통과/1개 건너뜀 뒤 최종 경계 보완을 포함한 집중 59개 통과, 변경 확장 코드·새 시험의 Ruff 통과. PC는 연결된 음성 경계만 `audio_pcm_v1`으로 광고하며 Android의 실제 능력 광고와 재생은 B7에서 연결한다. 기본 완성 WAV는 기존 공개 직후 출력 경계에서 분기한다. 공개가 첫 PCM보다 늦은 기존 스트리밍 설정은 PC 출력으로 유지한다. 실제 휴대폰 설치·재생 또는 두 프로그램 간 왕복 시험으로 기록하지 않는다.
 
 ### B6. Android 네이티브 출력
 
@@ -297,6 +299,7 @@ B4 검증: 새 PC HTTP 13개/확장 세션 5개를 포함한 gateway·session·a
 - [ ] 확장 메시지는 ConversationSession.consume에 넣기 전에 ExtensionSession으로 분기한다. 이 분기는 전체 snapshot 해석/다운로드/AudioTrack drain을 await하지 않고 bounded job을 시작한다. base message의 error/seq 규칙은 그대로 둔다.
 - [ ] ProcessLifecycleOwner의 지연된 onStop만 믿지 않고 실제 Activity의 resumed 상태를 별도로 보고한다. onPause 즉시 준비 허가를 차단한다. 회전(`isChangingConfigurations`)은 연결/음성 소유자를 재생성하지 않고 새 Activity의 활성 상태를 재결합한다. 회전 동안 새 start는 허용하지 않는다.
 - [ ] ExtensionSession은 주 연결 finally/forget/revoke/close에서 자식들을 회수한다. 대화 resync 중 availability=false, 대화 ID가 바뀌면 현재 음성 취소, 동일 대화의 재동기화는 새 offer만 막는다. UI에는 PC 출력/폰 출력/음성 미지원 상태만 표시하고 수동 선택은 추가하지 않는다.
+- [ ] 연결 중 PC TTS 활성/비활성·브라우저 방식 설정이 바뀔 때 availability와 출력 상태도 갱신한다. 새 발화에서 최신 설정을 확인하고, 음성 비활성화 시 이미 허가한 폰 음성은 취소하며 PC에서 재생하지 않는다.
 - [ ] 가상 bridge+실제 TLS gateway+synthetic PCM으로 PC 통합을 확인한다. APP은 MockWebServer에서 같은 계약/인증/단절을 확인한다. 이를 두 프로그램 간 실제 왕복이라고 기록하지 않는다.
 - [ ] PC 전체 pytest+Ruff와 APP `./gradlew.bat :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest --offline --dependency-verification strict --console=plain`를 실행한다. 예상: 새 실패 없음. 양쪽 관련 변경만 `feat: 전경 수명과 자동 음성 출력 통합`으로 커밋한다.
 

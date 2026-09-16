@@ -311,8 +311,10 @@ class CompanionSession:
         self.conversation_id = ready["conversation_id"]
         self.capabilities = tuple(ready.get("capabilities", ()))
         self.resources = ConnectionResources()
-        # 재동기화 알림과 네이티브 pong의 전용 자리도 총 자원 상한에 포함한다.
-        self.outbox = Outbox(max_items=254, max_bytes=4194304 - 65536 - 125)
+        # 재동기화·pong·대기 음성 제안/EOF의 전용 자리도 총 상한에 포함한다.
+        self.outbox = Outbox(max_items=252, max_bytes=4194304 - 3 * 65536 - 125)
+        self._audio_offer = self._audio_source_end = None
+        self._audio_offer_sent_id = None
         self.outbox.put(ready, control=True)
         if self.capabilities:
             self.outbox.put(
@@ -357,6 +359,7 @@ class CompanionSession:
         self.synced = False
         self.adapter.cancel_connection(self.context)
         self.resources.cancel()
+        self._audio_offer = self._audio_source_end = None
         self._stopped.set()
         self._wake.set()
 
@@ -409,6 +412,76 @@ class CompanionSession:
                 self.queue(message)
         elif message.type == "request_status":
             self.queue(message, control=True)
+
+    def publish_audio(self, command):
+        if self._stopped.is_set():
+            return
+        ref = command.ref
+        context = self.extension_context
+        if (
+            ref.registration_generation,
+            ref.server_epoch,
+            ref.connection_generation,
+            ref.conversation_id,
+        ) != (
+            context.registration_generation,
+            context.server_epoch,
+            context.connection_generation,
+            context.conversation_id,
+        ) or "audio_pcm_v1" not in self.capabilities:
+            return
+        if command.kind == "offer":
+            if (
+                not self.synced
+                or self._audio_offer is not None
+                or command.message.type != "audio_offer"
+            ):
+                return
+            validate_extension(
+                command.message, context, self.capabilities, direction="from_pc"
+            )
+            if any(
+                command.message.fields.get(key) != value
+                for key, value in ref.to_fields().items()
+            ):
+                return
+            source = command.source
+            if (
+                source is None
+                or source.closed
+                or (
+                    command.message.fields["sample_rate"],
+                    command.message.fields["channels"],
+                )
+                != (source.format.sample_rate, source.format.channels)
+            ):
+                return
+            self.resources.add_audio(ref.utterance_id, source)
+            self._audio_offer = command.message
+            self._audio_source_end = self._audio_offer_sent_id = None
+        elif ref.utterance_id == self.resources.audio_id:
+            if command.kind == "notify":
+                self.resources.audio_ready.set()
+            elif command.kind == "cancel":
+                self.resources.cancel_audio()
+                self._audio_offer = self._audio_source_end = None
+            elif command.kind == "control":
+                validate_extension(
+                    command.message, context, self.capabilities, direction="from_pc"
+                )
+                if any(
+                    command.message.fields.get(key) != value
+                    for key, value in ref.to_fields().items()
+                ):
+                    return
+                if (
+                    command.message.type == "audio_source_end"
+                    and self._audio_offer_sent_id != ref.utterance_id
+                ):
+                    self._audio_source_end = command.message
+                else:
+                    self.publish(command.message)
+        self._wake.set()
 
     async def _capture(self, pending):
         self._validate_connection()
@@ -469,6 +542,11 @@ class CompanionSession:
                         )
                     except ProtocolError:
                         continue
+                    if message.type in {"audio_start", "audio_source_end"} and (
+                        self.resources.audio_cancelled
+                        or message.fields["utterance_id"] != self.resources.audio_id
+                    ):
+                        continue
                 await self._send_raw(raw)
                 continue
             if self._native_pong is not None:
@@ -495,6 +573,27 @@ class CompanionSession:
                 raw = self.outbox.pop_event()
                 if raw is not None:
                     await self._send_raw(raw)
+                    continue
+                if self._audio_offer is not None:
+                    message, self._audio_offer = self._audio_offer, None
+                    if self.resources.audio_cancelled:
+                        self._audio_source_end = None
+                        continue
+                    try:
+                        validate_extension(
+                            message,
+                            self.extension_context,
+                            self.capabilities,
+                            direction="from_pc",
+                        )
+                    except ProtocolError:
+                        self._audio_source_end = None
+                        continue
+                    self._audio_offer_sent_id = message.fields["utterance_id"]
+                    await self._send_raw(encode_message(message))
+                    if self._audio_source_end is not None:
+                        end, self._audio_source_end = self._audio_source_end, None
+                        self.publish(end)
                     continue
             await self._wake.wait()
 

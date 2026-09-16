@@ -67,7 +67,7 @@ class ConnectionResources:
     def cancel_audio(self):
         self.audio_cancelled = True
         if self.audio_source is not None:
-            self.audio_source.close()
+            self.audio_source.cancel_transfer()
         for task, kind in tuple(self._tasks.items()):
             if kind == "audio":
                 task.cancel()

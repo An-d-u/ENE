@@ -33,6 +33,33 @@ class CompanionBridgeMixin:
 
     def bind_companion_adapter(self, adapter):
         self._companion_adapter = adapter
+        if not hasattr(self, "_companion_audio"):
+            from ..companion.audio_bridge import CompanionAudioBridge
+
+            self._companion_audio = CompanionAudioBridge(self)
+
+    def submit_extension(self, context, message):
+        from ..companion.extension_protocol import ExtensionContext, validate_extension
+
+        self._companion_adapter.validate_admission(context)
+        head = self.head()
+        validate_extension(
+            message,
+            ExtensionContext(
+                context.registration_generation,
+                head.server_epoch,
+                context.connection_generation,
+                head.conversation_id,
+            ),
+            ("audio_pcm_v1",),
+            direction="from_phone",
+        )
+        return self._companion_audio.receive(context, message)
+
+    def _companion_connection_closed(self):
+        audio = getattr(self, "_companion_audio", None)
+        if audio is not None:
+            audio.disconnected()
 
     def capture(self, registration_generation, pending=()):
         transcript = self.chat_state.public_transcript
@@ -232,6 +259,9 @@ class CompanionBridgeMixin:
         self._companion_finish_request(ref, succeeded=succeeded, code=code)
 
     def _companion_begin_shutdown(self):
+        audio = getattr(self, "_companion_audio", None)
+        if audio is not None:
+            audio.cancel("shutdown", release=False)
         for operation_id in tuple(self.chat_state.operation_requests):
             self._companion_finish_operation(operation_id, code="shutdown")
 
@@ -333,6 +363,9 @@ class CompanionBridgeMixin:
 
     def _reset_companion_conversation(self):
         """명시적인 초기화만 공개 기록과 요청 식별자를 폐기한다."""
+        audio = getattr(self, "_companion_audio", None)
+        if audio is not None:
+            audio.cancel("conversation_reset", release=False)
         state = self.chat_state
         state.public_transcript.reset()
         state.request_ledger.reset()

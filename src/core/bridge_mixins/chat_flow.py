@@ -1673,6 +1673,9 @@ class ChatFlowBridgeMixin:
     def _finalize_pending_response_completion_if_any(self):
         """TTS 보류 응답이 실제로 표시된 뒤 예약 완료 처리를 수행한다."""
         payload = getattr(self, "_pending_response_completion", None)
+        audio_bridge = getattr(self, "_companion_audio", None)
+        if audio_bridge is not None and audio_bridge.holds_completion(payload):
+            return
         self._pending_response_completion = None
         if not isinstance(payload, dict):
             return

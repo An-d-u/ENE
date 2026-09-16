@@ -84,7 +84,7 @@ class MediaHttp:
         finally:
             resources.release(task)
             if not complete:
-                source.close()
+                source.cancel_transfer()
                 resources.audio_cancelled = True
                 # 정상 EOF로 오인하지 않도록 중단된 본문은 transport까지 닫는다.
                 if request.transport is not None:

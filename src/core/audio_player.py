@@ -82,6 +82,12 @@ class AudioPlayer(QObject):
         """Qt 오디오 출력용 볼륨 범위(0.0 ~ 1.0)로 정규화한다."""
         return max(0.0, min(1.0, float(volume)))
 
+    def position_ms(self) -> int:
+        """벽시계가 아닌 현재 출력 장치가 소비한 재생 위치를 조회한다."""
+        if self.stream_sink is not None:
+            return max(0, int(self.stream_sink.processedUSecs()) // 1000)
+        return max(0, int(self.player.position()))
+
     @classmethod
     def list_output_devices(cls) -> list[dict]:
         """사용 가능한 오디오 출력 장치 목록을 반환한다."""

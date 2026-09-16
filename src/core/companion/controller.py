@@ -36,6 +36,10 @@ class CompanionController(QObject):
     ):
         super().__init__(parent)
         self.adapter = QtGatewayAdapter(owner, self)
+        # Qt에서 확정한 불변 값만 서버 스레드로 전달한다.
+        self._capabilities = tuple(
+            getattr(getattr(owner, "_companion_audio", None), "capabilities", ())
+        )
         self.state = GatewayState(False, None, False, None, None)
         self._store_factory, self._endpoint_provider = store_factory, endpoint_provider
         self._thread = self._loop = None
@@ -98,7 +102,7 @@ class CompanionController(QObject):
         self._generation = str(uuid4())
         self.adapter.configure(self._generation, 0)
         self._loop = asyncio.new_event_loop()
-        self.adapter.attach(self._loop, self._route_event)
+        self.adapter.attach(self._loop, self._route_event, media_sink=self._route_audio)
         self._receive_state(
             GatewayState(False, None, self.state.registered, None, None, "starting")
         )
@@ -114,6 +118,10 @@ class CompanionController(QObject):
         """서버 루프에서만 호출하며 Qt 객체나 화면에 접근하지 않는다."""
         if self._gateway is not None:
             self._gateway.publish(event)
+
+    def _route_audio(self, command):
+        if self._gateway is not None:
+            self._gateway.publish_audio(command)
 
     def _thread_main(self, host, port):
         loop = self._loop
@@ -163,6 +171,7 @@ class CompanionController(QObject):
                 self._generation,
                 tls_store=tls_store,
                 on_state=gateway_state,
+                capabilities=self._capabilities,
             )
             await self._gateway.start(host, port)
             if not self._stop_requested.is_set():
