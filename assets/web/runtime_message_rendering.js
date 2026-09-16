@@ -120,6 +120,8 @@ function openInlineEdit(messageDiv) {
     }
 
     const currentText = getMessageLogicalText(messageDiv);
+    const companionTarget = window.eneCompanionChat
+        ? window.eneCompanionChat.captureTarget(messageDiv.dataset.messageId) : null;
     stack.classList.add('is-editing');
 
     const wrap = document.createElement('div');
@@ -127,7 +129,7 @@ function openInlineEdit(messageDiv) {
 
     const input = document.createElement('textarea');
     input.className = 'inline-edit-input';
-    input.value = currentText || '';
+    input.value = messageDiv._companionEditDraft ?? currentText ?? '';
     input.rows = 2;
 
     const actions = document.createElement('div');
@@ -149,6 +151,16 @@ function openInlineEdit(messageDiv) {
         if (!window.pyBridge || !window.pyBridge.edit_last_user_message) return;
         if (isRequestPending) return;
 
+        if (window.eneCompanionChat) {
+            messageDiv._companionEditDraft = trimmed;
+            window.eneCompanionChat.submitMutation('edit', companionTarget, trimmed, result => {
+                if (result.state === 'accepted' || result.state === 'completed') closeInlineEdit(messageDiv, true);
+                if (result.state === 'completed') delete messageDiv._companionEditDraft;
+                if (result.state === 'failed') openInlineEdit(messageDiv);
+            });
+            return;
+        }
+
         closeInlineEdit(messageDiv, false);
         renderMessageBubbleSegments(messageDiv, trimmed, {
             attachments: getMessageVisualAttachments(messageDiv),
@@ -166,7 +178,10 @@ function openInlineEdit(messageDiv) {
         });
     };
 
-    cancelBtn.addEventListener('click', () => closeInlineEdit(messageDiv, true));
+    cancelBtn.addEventListener('click', () => {
+        delete messageDiv._companionEditDraft;
+        closeInlineEdit(messageDiv, true);
+    });
     saveBtn.addEventListener('click', commit);
     input.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {

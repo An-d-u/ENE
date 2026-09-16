@@ -255,7 +255,7 @@ def test_attachment_commit_publishes_only_user_text_and_unsupported_flag(bridge)
 @pytest.mark.parametrize("kind", ["note", "diary", "obs"])
 def test_file_ai_result_keeps_pc_text_but_publishes_neutral_marker(bridge, kind):
     displayed = []
-    bridge.message_received.connect(lambda *args: displayed.append(args))
+    bridge.chat_display_event.connect(lambda raw: displayed.append(json.loads(raw)))
     if kind == "note":
         bridge._start_note_worker("합성 내부 노트 지시", "합성 내부 파일 문맥")
     elif kind == "diary":
@@ -265,7 +265,7 @@ def test_file_ai_result_keeps_pc_text_but_publishes_neutral_marker(bridge, kind)
         bridge._build_obsidian_context_block = lambda **kwargs: "합성 내부 파일 문맥"
         bridge._handle_obs_command("/obs 가상 도형 분류")
     bridge.worker.reply("합성 비공개 파일 결과")
-    assert displayed[0][0] == "합성 비공개 파일 결과"
+    assert next(event["message"]["text"] for event in displayed if event["op"] == "append") == "합성 비공개 파일 결과"
     messages = capture(bridge).messages
     assert len(messages) == 1
     assert messages[0].role == "assistant"
@@ -285,7 +285,7 @@ def test_direct_file_result_excludes_paths_and_preview(bridge, command):
         replace_in_file=lambda *args: SimpleNamespace(ok=True, path="synthetic-private/shape.md"),
     )
     displayed = []
-    bridge.message_received.connect(lambda *args: displayed.append(args))
+    bridge.chat_display_event.connect(lambda raw: displayed.append(json.loads(raw)))
     assert bridge._handle_obs_command("/obs 합성 파일 명령")
     assert displayed
     messages = capture(bridge).messages

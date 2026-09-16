@@ -19,6 +19,7 @@ from .bridge_mixins.attachments import AttachmentBridgeMixin
 from .bridge_mixins.away import AwayNudgeBridgeMixin
 from .bridge_mixins.chat_flow import ChatFlowBridgeMixin
 from .bridge_mixins.companion import CompanionBridgeMixin
+from .bridge_mixins.companion_pc import CompanionPCBridgeMixin
 from .bridge_mixins.goals import GoalBridgeMixin
 from .bridge_mixins.live2d_parameters import Live2DParameterBridgeMixin
 from .bridge_mixins.life_records import LifeRecordBridgeMixin
@@ -42,6 +43,7 @@ def _prompt_time_header(timestamp: str, language: str) -> str:
 
 
 class WebBridge(
+    CompanionPCBridgeMixin,
     CompanionBridgeMixin,
     AwayNudgeBridgeMixin,
     AttachmentBridgeMixin,
@@ -65,6 +67,8 @@ class WebBridge(
     message_received = pyqtSignal(str, str, str)  # (텍스트, 감정, 생각)
     companion_event = pyqtSignal(object)  # 비공개 메타데이터 없는 불변 공개 이벤트
     companion_admission_result = pyqtSignal(object)  # 준비 후 확정 수락·완료 결과
+    chat_display_event = pyqtSignal(str)  # 공개 ID와 PC 전용 표시 정보
+    chat_admission_result = pyqtSignal(str)  # PC 초안 정리를 위한 JSON 결과
     gesture_requested = pyqtSignal(str)  # 합성 Live2D 제스처 키
     request_pending_changed = pyqtSignal(bool)  # LLM 응답 생성 진행 상태
     request_pending_stage_changed = pyqtSignal(str)  # thinking/searching
@@ -102,6 +106,7 @@ class WebBridge(
         self.obsidian_manager = ObsidianManager(settings=self.settings, obs_settings=self.obs_settings)
         self._settings_dialog_opener = None
         self._init_bridge_states(checked_files=self.obs_settings.get_checked_files())
+        self.companion_event.connect(self._emit_pc_processing)
         self.obs_tree_retry_timer = QTimer(self)
         self.obs_tree_retry_timer.setSingleShot(True)
         self.obs_tree_retry_timer.timeout.connect(self._retry_obs_tree_refresh)

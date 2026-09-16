@@ -196,6 +196,7 @@ class CompanionBridgeMixin:
     def _emit_companion_request_status(self, ref):
         result = self._companion_request_status(ref)
         self.companion_admission_result.emit(result)
+        self.chat_admission_result.emit(json.dumps(result.to_wire().to_dict()))
         self.companion_event.emit(result.to_wire())
 
     def _companion_begin_request(self, request, operation_id, phase):
@@ -218,6 +219,9 @@ class CompanionBridgeMixin:
         self._emit_companion_request_status(ref)
 
     def _companion_finish_operation(self, operation_id, *, code=None):
+        finish_retry = getattr(self, "_finish_companion_retry", None)
+        if callable(finish_retry):
+            finish_retry(operation_id)
         ref = self.chat_state.operation_requests.pop(operation_id, None)
         if ref is None or not self._companion_request_is_current(ref):
             return
@@ -253,6 +257,8 @@ class CompanionBridgeMixin:
         self, worker, operation_id, request_ref=None, *, file_result=False
     ):
         """완료 콜백이 이미 캡처한 worker에 불변 요청 사본을 귀속시킨다."""
+        if request_ref is None and file_result:
+            request_ref = self.chat_state.operation_requests.get(operation_id)
         request_ref = request_ref or self._new_companion_request_ref(
             "pc" if file_result else "automatic"
         )
@@ -260,6 +266,7 @@ class CompanionBridgeMixin:
             request_ref, operation_id=str(operation_id)
         )
         worker.companion_file_result = file_result
+        self.chat_state.last_request_ref = worker.companion_request_ref
         self.chat_state.operation_requests[operation_id] = worker.companion_request_ref
         event = self.chat_state.public_transcript.set_processing(
             "responding", request_ref.request_id
@@ -280,6 +287,7 @@ class CompanionBridgeMixin:
             attachment_unsupported=bool(request.attachments),
         )
         state.public_user_ids[request_ref.key] = event.message.id
+        self._emit_pc_message(event, attachments=request.attachment_copies())
         self.companion_event.emit(event)
         if state.request_ledger.lookup(request_ref.key) is not None:
             state.request_ledger.mark_accepted(request_ref.key, event.message.id)
@@ -293,6 +301,9 @@ class CompanionBridgeMixin:
         if request_ref is not None:
             if not self._companion_request_is_current(request_ref):
                 return False
+            publish_retry = getattr(self, "_publish_companion_retry_reply", None)
+            if callable(publish_retry) and publish_retry(request_ref, text, emotion, thought):
+                return True
             event = self.chat_state.public_transcript.publish_assistant(
                 "PC 전용 파일 작업 결과입니다. PC에서 확인해 주세요."
                 if file_result
@@ -302,16 +313,21 @@ class CompanionBridgeMixin:
             if event is None:
                 return False
             self.chat_state.public_assistant_ids[request_ref.key] = event.message.id
+            self._emit_pc_message(event, text=text, emotion=emotion, thought=thought, local_only=file_result)
             self.companion_event.emit(event)
-        self.message_received.emit(text, emotion, thought)
+        else:
+            self.message_received.emit(text, emotion, thought)
         return True
 
     def _display_companion_file_result(self, text, emotion):
+        request_ref = self.chat_state.operation_requests.get(self.life_record_state.operation_id)
+        if self.life_record_state.phase != "normal_reply":
+            request_ref = None
         self._display_companion_response(
             text,
             emotion,
             "",
-            request_ref=self._new_companion_request_ref(),
+            request_ref=request_ref or self._new_companion_request_ref(),
             file_result=True,
         )
 
@@ -323,3 +339,12 @@ class CompanionBridgeMixin:
         state.public_user_ids.clear()
         state.public_assistant_ids.clear()
         state.operation_requests.clear()
+        state.pc_messages.clear()
+        state.last_request_ref = None
+        state.retry_operations.clear()
+        self.chat_display_event.emit(json.dumps({**self._pc_chat_head(), "op": "reset", "messages": []}))
+        self.companion_event.emit({
+            "type": "resync_required", "protocol_version": 1,
+            "server_epoch": state.public_transcript.server_epoch,
+            "conversation_id": state.public_transcript.conversation_id, "reason": "reset",
+        })

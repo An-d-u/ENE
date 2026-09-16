@@ -319,7 +319,9 @@ class AttachmentBridgeMixin:
         self._append_conversation("user", history_message, timestamp)
         publish_user = getattr(self, "_publish_companion_user", None)
         if callable(publish_user):
-            publish_user(request)
+            public_message_id = publish_user(request)
+            if public_message_id:
+                message_id = public_message_id
         record = {
             "message": effective_message,
             "timestamp": timestamp,

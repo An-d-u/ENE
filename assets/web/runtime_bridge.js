@@ -5,6 +5,7 @@
 if (typeof QWebChannel !== 'undefined') {
     new QWebChannel(qt.webChannelTransport, function (channel) {
         window.pyBridge = channel.objects.bridge;
+        if (typeof connectCompanionChatBridge === 'function') connectCompanionChatBridge(window.pyBridge);
         console.log("QWebChannel bridge connected");
         updateRerollButtonState();
         if (window.pyBridge.attachment_preview_ready) {
@@ -62,7 +63,8 @@ if (typeof QWebChannel !== 'undefined') {
         }
         if (window.pyBridge.request_pending_changed) {
             window.pyBridge.request_pending_changed.connect(function (active) {
-                setRequestPending(Boolean(active));
+                if (window.eneCompanionChat) window.eneCompanionChat.setBackendPending(active);
+                else setRequestPending(Boolean(active));
             });
         }
         if (window.pyBridge.request_pending_stage_changed) {
@@ -82,7 +84,9 @@ if (typeof QWebChannel !== 'undefined') {
         window.pyBridge.message_received.connect(function (text, emotion, thought) {
             console.log(`Received from Python: chars=${String(text || '').length} emotion=${emotion} thought=${Boolean(thought)}`);
             const receivedAt = new Date();
-            if (shouldReplaceNextAssistant) {
+            if (window.eneCompanionChat) {
+                addMessage(text, 'assistant', [], receivedAt, { thought: thought || '', excludeFromReroll: true });
+            } else if (shouldReplaceNextAssistant) {
                 const replaced = replaceLastAssistantMessage(text, receivedAt, thought || '');
                 if (!replaced) {
                     addMessage(text, 'assistant', [], receivedAt, { thought: thought || '' });
@@ -128,6 +132,7 @@ if (typeof QWebChannel !== 'undefined') {
 
         if (window.pyBridge.reroll_state_changed) {
             window.pyBridge.reroll_state_changed.connect(function (active) {
+                if (window.eneCompanionChat) return;
                 shouldReplaceNextAssistant = Boolean(active);
                 setRequestPending(Boolean(active));
             });

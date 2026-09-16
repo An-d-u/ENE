@@ -8,7 +8,7 @@
 
 **기술:** 기존 Python/PyQt6/aiohttp/pytest/Node VM, Kotlin 2.2.21/Compose/Coroutines/OkHttp 5.3.2, Android AudioTrack·AudioManager, AndroidX WebKit 1.15.0. 기존 Live2D 웹 라이브러리는 출처·버전·권리 확인 후 그대로 고정한다.
 
-**검토 상태:** 계획 문서 리뷰 승인. A0/A1/A2 완료, A3부터 순차 진행 중. 실기기 시험은 보류한다.
+**검토 상태:** 계획 문서 리뷰 승인. A0/A1/A2/A3 완료, A4부터 순차 진행 중. 실기기 시험은 보류한다.
 
 ---
 
@@ -162,10 +162,14 @@ A2 검증: 신규 접수·수명 33개, A1·Qt adapter·기존 프로토콜/원�
 
 **파일:** PC `assets/web/runtime_companion_chat.js`, `tests/test_companion_pc_ui.py`, `test_companion_edit_reroll.py`; 기존 Task 9의 수정 파일.
 
-- [ ] 초안 보존, 표시보다 늦은 수락, 폰 입력의 PC 렌더링, stale 편집/리롤 대상 테스트를 만든다.
-- [ ] `python -m pytest tests/test_companion_pc_ui.py tests/test_companion_edit_reroll.py -q`로 실패를 확인한다.
-- [ ] Task 9의 단일 공개 표시 이벤트와 ID 기반 갱신을 구현하고 같은 명령 및 그 작업의 UI 집중 회귀를 통과시킨다.
-- [ ] `fix: 공유 대화의 입력 보존과 편집 대상 검증`으로 커밋한다. 전체 테스트는 바로 다음 A4와 묶어 한 번만 실행한다.
+- [x] 초안 보존, 표시보다 늦은 수락, 폰 입력의 PC 렌더링, stale 편집/리롤 대상 테스트를 만든다.
+- [x] `python -m pytest tests/test_companion_pc_ui.py tests/test_companion_edit_reroll.py -q`로 실패를 확인한다.
+- [x] Task 9의 단일 공개 표시 이벤트와 ID 기반 갱신을 구현하고 같은 명령 및 그 작업의 UI 집중 회귀를 통과시킨다.
+- [x] `fix: 공유 대화의 입력 보존과 편집 대상 검증`으로 커밋한다. 전체 테스트는 바로 다음 A4와 묶어 한 번만 실행한다.
+
+A3 검증: PC UI 12개와 표시/편집 경계 21개를 포함한 UI·공개 기록·접수 회귀 270개 통과. 변경 Python 파일의 `ruff --select E9,F63,F7,F82` 통과. 실제 전송/PTT/편집 진입 함수를 Node VM에서 실행했다. 첨부 삭제 뒤 PC 상태 재적용, 동기 완료 순서, 실패한 재생성의 원래 ID/기록/PC 메타데이터 복원, 생성 실패 전 예약 항목 보존, 초기화 뒤 늦은 결과 폐기를 추가 검증했다.
+
+PC 전용 정보는 새 `bridge_mixins/companion_pc.py`에 분리했다. 기존 `attachments.py`의 메시지 ID를 공개 ID와 일치시키고, 예약/선제 항목 삭제 helper는 수락된 재생성의 원본 payload를 받을 수 있도록 최소 수정했다. 편집·리롤 명령은 응답과 UI 초안을 정확히 연결할 선택적 요청 UUID를 추가한다. V1 편집/리롤 대상은 현재 마지막 일반 사용자/답변 쌍이다. 기존 PC 파일 명령의 새 전송은 유지하지만, 공개 일반 메시지를 파일 명령으로 바꾸는 편집은 원문 공개를 방지하기 위해 부작용 없이 거절한다. 파일 명령은 새 입력으로 실행한다. 실기기/UI 수동 인수는 아직 수행하지 않았다.
 
 ### A4. 실제 앱 수명과 선행 통합 체크포인트
 

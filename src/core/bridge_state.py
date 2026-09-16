@@ -90,6 +90,9 @@ class ChatBridgeState:
     public_user_ids: dict[RequestKey, str] = field(default_factory=dict)
     public_assistant_ids: dict[RequestKey, str] = field(default_factory=dict)
     operation_requests: dict[int, RequestRef] = field(default_factory=dict)
+    pc_messages: dict[str, dict[str, Any]] = field(default_factory=dict)
+    last_request_ref: RequestRef | None = None
+    retry_operations: dict[int, Any] = field(default_factory=dict)
 
 
 @dataclass

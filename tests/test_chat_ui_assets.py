@@ -26,6 +26,7 @@ EXPECTED_RUNTIME_SCRIPTS = [
     "runtime_message_helpers.js",
     "runtime_mood_obsidian.js",
     "runtime_message_rendering.js",
+    "runtime_companion_chat.js",
     "runtime_chat_flow.js",
     "runtime_bridge.js",
     "runtime_lipsync.js",

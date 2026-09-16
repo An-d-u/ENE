@@ -75,6 +75,7 @@ imageInput.addEventListener('change', async (e) => {
  */
 // 첨부한 이미지/문서 프리뷰 목록을 다시 그린다.
 function updateAttachmentPreview() {
+    if (window.eneCompanionChat) window.eneCompanionChat.markDraftChanged();
     console.log("[Preview] Updating preview, attachments:", attachedAttachments.length);
 
     if (!imagePreviewContainer) {
@@ -166,6 +167,11 @@ function sendMessage() {
         messageId: clientMessageId
     }));
 
+    if (window.eneCompanionChat) {
+        window.eneCompanionChat.submit({ text: message, attachments: pendingAttachments });
+        return;
+    }
+
     const hasBridge = !!window.pyBridge;
     const canSendWithAttachments = hasBridge && typeof window.pyBridge.send_to_ai_with_attachments === 'function';
     const canSendText = hasBridge && typeof window.pyBridge.send_to_ai === 'function';
@@ -203,6 +209,11 @@ function sendMessage() {
 
 // Python 전역 PTT가 호출하는 텍스트 전송 진입점.
 function submitVoiceText(text) {
+    if (window.eneCompanionChat) {
+        const message = (text || '').trim();
+        if (message) window.eneCompanionChat.submit({ text: message, attachments: [], voice: true });
+        return;
+    }
     if (isRequestPending) return;
 
     const message = (text || '').trim();

@@ -301,9 +301,10 @@ class PromiseBridgeMixin:
                 unique_ids.append(normalized)
         self._last_request_payload["promise_ids"] = unique_ids
 
-    def _delete_tracked_promises_for_retry(self) -> list[str]:
+    def _delete_tracked_promises_for_retry(self, *, payload=None) -> list[str]:
         """리롤/수정 전에 직전 턴에서 생성한 약속만 제거한다."""
-        payload = self._last_request_payload if isinstance(self._last_request_payload, dict) else None
+        if payload is None:
+            payload = self._last_request_payload if isinstance(self._last_request_payload, dict) else None
         if payload is None:
             return []
 

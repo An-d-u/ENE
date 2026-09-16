@@ -935,10 +935,10 @@ class ChatFlowBridgeMixin:
         print("[Bridge] Worker thread started")
 
     @pyqtSlot()
-    def reroll_last_response(self):
+    def reroll_last_response(self, *, _companion_ref=None):
         """마지막 사용자 요청을 다시 실행해 최근 assistant 응답만 교체."""
         accepts_input = getattr(self, "_life_operation_accepts_input", None)
-        if callable(accepts_input) and not accepts_input():
+        if _companion_ref is None and callable(accepts_input) and not accepts_input():
             print("[Bridge] request_rejected category=busy request_type=reroll")
             return
         if not self.llm_client:
@@ -965,10 +965,11 @@ class ChatFlowBridgeMixin:
             self._reset_pending_ui_state("리롤 준비 중 문제가 생겼어요.")
             return
 
-        self._delete_tracked_promises_for_retry()
-        delete_proactive = getattr(self, "_delete_tracked_proactive_for_retry", None)
-        if callable(delete_proactive):
-            delete_proactive()
+        if _companion_ref is None:
+            self._delete_tracked_promises_for_retry()
+            delete_proactive = getattr(self, "_delete_tracked_proactive_for_retry", None)
+            if callable(delete_proactive):
+                delete_proactive()
 
         # 교체 의미를 지키기 위해 최근 assistant 응답 하나를 버퍼에서 제거
         if self.conversation_buffer and self.conversation_buffer[-1][0] == "assistant":
@@ -1001,6 +1002,7 @@ class ChatFlowBridgeMixin:
             ),
             mood_event_id=str(payload.get("mood_event_id", "") or ""),
             mood_occurred_at=str(payload.get("mood_occurred_at", "") or ""),
+            **({"request_ref": _companion_ref} if _companion_ref is not None else {}),
         )
         print("[Bridge] Reroll started")
 
@@ -1032,10 +1034,10 @@ class ChatFlowBridgeMixin:
         return True
 
     @pyqtSlot(str)
-    def edit_last_user_message(self, edited_message: str):
+    def edit_last_user_message(self, edited_message: str, *, _companion_ref=None):
         """최근 user 메시지를 수정하고 같은 턴을 다시 생성한다."""
         accepts_input = getattr(self, "_life_operation_accepts_input", None)
-        if callable(accepts_input) and not accepts_input():
+        if _companion_ref is None and callable(accepts_input) and not accepts_input():
             print("[Bridge] request_rejected category=busy request_type=edit")
             return
         edited_message = (edited_message or "").strip()
@@ -1069,10 +1071,11 @@ class ChatFlowBridgeMixin:
             self._reset_pending_ui_state("수정 재요청 준비 중 문제가 생겼어요.")
             return
 
-        self._delete_tracked_promises_for_retry()
-        delete_proactive = getattr(self, "_delete_tracked_proactive_for_retry", None)
-        if callable(delete_proactive):
-            delete_proactive()
+        if _companion_ref is None:
+            self._delete_tracked_promises_for_retry()
+            delete_proactive = getattr(self, "_delete_tracked_proactive_for_retry", None)
+            if callable(delete_proactive):
+                delete_proactive()
 
         # 대화 버퍼의 최근 assistant/user 턴 제거
         if self.conversation_buffer and self.conversation_buffer[-1][0] == "assistant":
@@ -1173,6 +1176,7 @@ class ChatFlowBridgeMixin:
             include_life_record_context=include_life_record_context,
             mood_event_id=mood_event_id,
             mood_occurred_at=mood_occurred_at,
+            **({"request_ref": _companion_ref} if _companion_ref is not None else {}),
         )
         print("[Bridge] Edit last user message started")
 
@@ -1419,6 +1423,9 @@ class ChatFlowBridgeMixin:
                         ChatFlowBridgeMixin._invoke_worker_finished_queue_drain(self)
             return
         text = self._sanitize_visible_response_text(text)
+        prepare_retry = getattr(self, "_prepare_companion_retry_response", None)
+        if callable(prepare_retry):
+            prepare_retry(request_ref)
         gesture = ChatFlowBridgeMixin._normalize_response_gesture(self, gesture)
         sanitize_thought = getattr(self, "_sanitize_visible_thought_text", None)
         thought = sanitize_thought(thought) if callable(sanitize_thought) else str(thought or "").strip()

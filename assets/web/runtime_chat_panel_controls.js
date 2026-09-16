@@ -166,7 +166,7 @@ function syncLastAssistantMessageRef() {
 
 // 최근 user 메시지 DOM 참조를 재동기화한다.
 function syncLastUserMessageRef() {
-    const nodes = chatMessages.querySelectorAll('.message.user');
+    const nodes = chatMessages.querySelectorAll('.message.user:not([data-edit-excluded="true"])');
     if (!nodes || nodes.length === 0) {
         lastUserMessageEl = null;
         hasUserMessage = false;
@@ -290,6 +290,7 @@ function updateRerollButtonState() {
     oldEditButtons.forEach(btn => btn.remove());
 
     if (rerollButtonVisibleBySetting && hasAssistantMessage && lastAssistantMessageEl) {
+        const assistantTarget = lastAssistantMessageEl;
         const btn = document.createElement('button');
         btn.className = 'message-reroll-btn';
         btn.type = 'button';
@@ -300,6 +301,11 @@ function updateRerollButtonState() {
         btn.addEventListener('click', () => {
             if (!window.pyBridge || !window.pyBridge.reroll_last_response) return;
             if (isRequestPending) return;
+            if (window.eneCompanionChat) {
+                const target = window.eneCompanionChat.captureTarget(assistantTarget.dataset.messageId);
+                window.eneCompanionChat.submitMutation('reroll', target, null, () => {});
+                return;
+            }
             setRequestPending(true);
             dispatchBridgeCall(() => {
                 window.pyBridge.reroll_last_response();
