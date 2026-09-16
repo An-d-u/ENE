@@ -1,0 +1,140 @@
+{
+  "schema": 1,
+  "runtime_version": 1,
+  "source_verified_on": "2026-09-16",
+  "release_review": "required_before_publication",
+  "libraries": [
+    {
+      "file": "lib/pixi.min.js",
+      "version": "7.3.0",
+      "source": "https://cdn.jsdelivr.net/npm/pixi.js@7.3.0/dist/pixi.min.js",
+      "notices": [
+        "notices/Pixi-MIT.txt"
+      ],
+      "sha256": "cda32420e2d05eeeaa91d91b74ce7a2b3f31db148cadcbc5d8d104bd981b4ec7"
+    },
+    {
+      "file": "lib/live2dcubismcore.min.js",
+      "version": "csmGetVersion:83951616",
+      "source": "https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js",
+      "notices": [
+        "notices/THIRD-PARTY.md",
+        "notices/CubismWebFramework-LICENSE.md"
+      ],
+      "sha256": "25ae938cb4fe282ce189b357bcc97e603d1e1f7ec78bf04150d401c23cdc792f"
+    },
+    {
+      "file": "lib/pixi-live2d-display.min.js",
+      "version": "0.4.0-cubism4",
+      "source": "https://cdn.jsdelivr.net/npm/pixi-live2d-display@0.4.0/dist/cubism4.min.js",
+      "framework_commit": "1f9cdfd140e87ba0ae68a356bb5ec339a0e65f99",
+      "notices": [
+        "notices/pixi-live2d-display-MIT.txt",
+        "notices/CubismWebFramework-LICENSE.md"
+      ],
+      "sha256": "af1267e6d52759b245766c578d905bfa025b532d5c3cc727c370957c4409e21b"
+    }
+  ],
+  "files": [
+    {
+      "source": "assets/web/runtime_character_state.js",
+      "target": "runtime_character_state.js",
+      "sha256": "ec05c520bb73912ed2db030e985aba0179e35a7b8ae398fa54ba0357e478d0c9"
+    },
+    {
+      "source": "assets/web/runtime_live2d_model.js",
+      "target": "runtime_live2d_model.js",
+      "sha256": "b9eb0a08f6f03622fbe680dff8a6391b75e67c5251ed33e5cc30c38fb7c30c0a"
+    },
+    {
+      "source": "assets/web/runtime_motion_state.js",
+      "target": "runtime_motion_state.js",
+      "sha256": "628f1e746e3ecd12a0310b1c84b51836b3ba20c503bedfb358ee91ca4215a3cc"
+    },
+    {
+      "source": "assets/web/runtime_gesture_engine.js",
+      "target": "runtime_gesture_engine.js",
+      "sha256": "e9e98284cbb5bbde0ef71380d7a696850e8c21d76a3c683c30a4d10d84cb0cdb"
+    },
+    {
+      "source": "assets/web/runtime_head_pat.js",
+      "target": "runtime_head_pat.js",
+      "sha256": "6db97e1d013a7dc9a734f03fc154c3497fee530164f781220d884cda7c13c36b"
+    },
+    {
+      "source": "assets/web/runtime_auto_blink_tracking.js",
+      "target": "runtime_auto_blink_tracking.js",
+      "sha256": "ae4f9a560287b681c0758f8d44c06ff75599295e6c0a8c158c5629d884a37e87"
+    },
+    {
+      "source": "assets/web/runtime_expression.js",
+      "target": "runtime_expression.js",
+      "sha256": "7d91c741f7a8b312122893e4675f88e9a1c1d67b7f99c8b07a84514871066c7a"
+    },
+    {
+      "source": "assets/web/runtime_lipsync.js",
+      "target": "runtime_lipsync.js",
+      "sha256": "98e8f1c8b8458e419443b3ae1d36e6c50b63669a2817fa5fe822e3b784bf829f"
+    },
+    {
+      "source": "assets/web/runtime_live2d_parameter_core.js",
+      "target": "runtime_live2d_parameter_core.js",
+      "sha256": "59d0ea522f6de132798746063d36ddd52222a0aceae2ef8235df25d80c9b10e7"
+    },
+    {
+      "source": "assets/web/runtime_character_host.js",
+      "target": "runtime_character_host.js",
+      "sha256": "ad0dde9d52dbfc3ba353b30b60ab5bb621945e3e60022dff42e1adaa1bbdac6d"
+    },
+    {
+      "source": "assets/web/lib/pixi.min.js",
+      "target": "lib/pixi.min.js",
+      "sha256": "cda32420e2d05eeeaa91d91b74ce7a2b3f31db148cadcbc5d8d104bd981b4ec7"
+    },
+    {
+      "source": "assets/web/lib/live2dcubismcore.min.js",
+      "target": "lib/live2dcubismcore.min.js",
+      "sha256": "25ae938cb4fe282ce189b357bcc97e603d1e1f7ec78bf04150d401c23cdc792f"
+    },
+    {
+      "source": "assets/web/lib/pixi-live2d-display.min.js",
+      "target": "lib/pixi-live2d-display.min.js",
+      "sha256": "af1267e6d52759b245766c578d905bfa025b532d5c3cc727c370957c4409e21b"
+    },
+    {
+      "source": "assets/web/character/index.html",
+      "target": "index.html",
+      "sha256": "d60a855a97361bc504d6c74809ef0b82e87b091161e2289891b5e5dc440eba44"
+    },
+    {
+      "source": "assets/web/character/entry.js",
+      "target": "entry.js",
+      "sha256": "988771804e12f907aabc9da5a5dc936310aa5de85f3f5716a3c197d8d1084ec5"
+    },
+    {
+      "source": "assets/web/character/style.css",
+      "target": "style.css",
+      "sha256": "dd5b7b49aa5a82bb04943c4be16cde3794cc27d3c5d3fcc6a8dc7101783462db"
+    },
+    {
+      "source": "assets/web/character/notices/Pixi-MIT.txt",
+      "target": "notices/Pixi-MIT.txt",
+      "sha256": "5ce7447bc57f7349ffc48338782fbcabe613696e00712b20d66bc58e780f9473"
+    },
+    {
+      "source": "assets/web/character/notices/pixi-live2d-display-MIT.txt",
+      "target": "notices/pixi-live2d-display-MIT.txt",
+      "sha256": "8ccace668a041e78ed525d091b0b5daf8b623ff447f912616de535415e4f302f"
+    },
+    {
+      "source": "assets/web/character/notices/CubismWebFramework-LICENSE.md",
+      "target": "notices/CubismWebFramework-LICENSE.md",
+      "sha256": "7ed849bff1e6499aa7cd882e47d246ddbbe06817c1e84cb974df949488302614"
+    },
+    {
+      "source": "assets/web/character/notices/THIRD-PARTY.md",
+      "target": "notices/THIRD-PARTY.md",
+      "sha256": "c160afc375c01f004a96602d5978d8ff860729919adaaa15389975b44bd12d2d"
+    }
+  ]
+}

@@ -24,11 +24,10 @@ window.setLive2DRootMotionOffsets = function (offsets = {}) {
 function removeCurrentModelArtifacts() {
     detachExpressionUpdateHook();
     if (window.live2dModel) {
-        app.stage.removeChild(window.live2dModel);
-        if (typeof window.live2dModel.destroy === 'function') {
-            window.live2dModel.destroy();
-        }
+        const removedModel = window.live2dModel;
         window.live2dModel = null;
+        try { app.stage.removeChild(removedModel); } catch (_) { /* 이미 잃은 컨텍스트도 회수한다. */ }
+        try { removedModel.destroy?.(); } catch (_) { /* 다른 자원 정리는 계속한다. */ }
     }
     if (currentModelErrorText) {
         app.stage.removeChild(currentModelErrorText);
@@ -282,7 +281,7 @@ window.applyENEModelSettings = async function applyENEModelSettings(config) {
     const nextEmotionsBasePath = resolveEmotionsBasePathFromConfig();
     syncAvailableEmotionsFromConfig();
 
-    if (isImageAvatarMode()) {
+    if ((typeof isImageAvatarMode === 'function' && isImageAvatarMode())) {
         currentModelLoadToken++;
         removeCurrentModelArtifacts();
         currentModelPath = '';
@@ -294,7 +293,7 @@ window.applyENEModelSettings = async function applyENEModelSettings(config) {
         return;
     }
 
-    removeImageAvatarArtifacts();
+    if (typeof removeImageAvatarArtifacts === 'function') removeImageAvatarArtifacts();
     if (typeof syncLive2DParameterVisibilityForAvatarMode === 'function') {
         syncLive2DParameterVisibilityForAvatarMode();
     }
@@ -317,13 +316,15 @@ window.applyENEModelSettings = async function applyENEModelSettings(config) {
 async function loadModel() {
     const requestToken = ++currentModelLoadToken;
     const modelPath = resolveModelPathFromConfig();
+    if (!modelPath || characterDisposed) return;
+
     const absoluteModelPath = new URL(modelPath, window.location.href).href;
 
     try {
         console.log(`\n=== Loading model ===`);
         console.log(`Path: ${modelPath}`);
         console.log(`Absolute path: ${absoluteModelPath}`);
-        if (isImageAvatarMode()) {
+        if ((typeof isImageAvatarMode === 'function' && isImageAvatarMode())) {
             removeCurrentModelArtifacts();
             currentModelPath = '';
             currentEmotionsBasePath = '';
@@ -333,18 +334,18 @@ async function loadModel() {
             }
             return;
         }
-        removeImageAvatarArtifacts();
+        if (typeof removeImageAvatarArtifacts === 'function') removeImageAvatarArtifacts();
         removeCurrentModelArtifacts();
         console.log("Calling PIXI.live2d.Live2DModel.from()...");
         const model = await PIXI.live2d.Live2DModel.from(modelPath);
-        if (isImageAvatarMode()) {
+        if ((typeof isImageAvatarMode === 'function' && isImageAvatarMode())) {
             if (typeof model.destroy === 'function') {
                 model.destroy();
             }
             return;
         }
 
-        if (requestToken !== currentModelLoadToken) {
+        if (characterDisposed || requestToken !== currentModelLoadToken) {
             if (typeof model.destroy === 'function') {
                 model.destroy();
             }
@@ -387,7 +388,7 @@ async function loadModel() {
         }
 
     } catch (error) {
-        if (requestToken !== currentModelLoadToken || isImageAvatarMode()) {
+        if (characterDisposed || requestToken !== currentModelLoadToken || (typeof isImageAvatarMode === 'function' && isImageAvatarMode())) {
             return;
         }
         console.error("Failed to load Live2D model");
@@ -418,25 +419,3 @@ async function loadModel() {
         app.stage.addChild(currentModelErrorText);
     }
 }
-// 창 크기가 바뀌면 모델의 스케일/중심 좌표를 다시 맞춘다.
-window.addEventListener('resize', () => {
-    if (window.live2dModel) {
-        applyCurrentModelPlacement();
-        console.log("Window resized, model repositioned");
-    }
-    if (isImageAvatarMode()) {
-        applyImageAvatarPlacement();
-    }
-    if (chatPanelHeightPx !== null) {
-        applyChatPanelHeight(chatPanelHeightPx);
-    }
-});
-window.addEventListener('load', () => {
-    if (window.live2dModel || currentModelLoadToken > 0) {
-        return;
-    }
-    console.log("\n=== Starting model load ===");
-    currentModelPath = resolveModelPathFromConfig();
-    currentEmotionsBasePath = resolveEmotionsBasePathFromConfig();
-    loadModel();
-});

@@ -8,6 +8,7 @@ WEB_DIR = Path(__file__).resolve().parents[1] / "assets" / "web"
 STYLE_PATH = WEB_DIR / "style.css"
 SCRIPT_PATH = WEB_DIR / "script.js"
 EXPECTED_RUNTIME_SCRIPTS = [
+    "runtime_character_state.js",
     "runtime_bootstrap.js",
     "runtime_live2d_model.js",
     "runtime_image_avatar.js",
@@ -31,6 +32,7 @@ EXPECTED_RUNTIME_SCRIPTS = [
     "runtime_bridge.js",
     "runtime_lipsync.js",
     "runtime_live2d_parameter_core.js",
+    "runtime_character_host.js",
     "runtime_live2d_parameter_ui.js",
     "runtime_live2d_parameters.js",
     "script.js",
@@ -506,6 +508,7 @@ const changeCalls = [];
 const timeoutCallbacks = [];
 let headPatCount = 0;
 const context = {{
+    characterHost: {{ emitInput(value) {{ if (value.type === 'head_pat_completed') headPatCount += 1; }} }},
     window: {{
         live2dModel: null,
         pyBridge: {{
@@ -1457,13 +1460,13 @@ def test_image_avatar_mode_invalidates_pending_live2d_model_loads():
 
     assert "currentModelLoadToken++;\n        removeCurrentModelArtifacts();" in script
     assert (
-        "if (isImageAvatarMode()) {\n"
+        "if ((typeof isImageAvatarMode === 'function' && isImageAvatarMode())) {\n"
         "            if (typeof model.destroy === 'function') {\n"
         "                model.destroy();\n"
         "            }\n"
         "            return;\n"
         "        }\n\n"
-        "        if (requestToken !== currentModelLoadToken)"
+        "        if (characterDisposed || requestToken !== currentModelLoadToken)"
     ) in script
 
 
@@ -1472,7 +1475,7 @@ def test_stale_live2d_load_failure_does_not_show_error_in_image_avatar_mode():
 
     assert (
         "} catch (error) {\n"
-        "        if (requestToken !== currentModelLoadToken || isImageAvatarMode()) {\n"
+        "        if (characterDisposed || requestToken !== currentModelLoadToken || (typeof isImageAvatarMode === 'function' && isImageAvatarMode())) {\n"
         "            return;\n"
         "        }\n"
         "        console.error(\"Failed to load Live2D model\");"
@@ -1502,7 +1505,7 @@ def test_apply_mouth_pose_routes_image_avatar_before_live2d_mouth_state():
         "    if (typeof window.updateExpressiveSpeechMotionEnergy === 'function') {\n"
         "        window.updateExpressiveSpeechMotionEnergy(open);\n"
         "    }\n\n"
-        "    if (isImageAvatarMode()) {\n"
+        "    if (typeof isImageAvatarMode === 'function' && isImageAvatarMode()) {\n"
         "        applyImageAvatarMouthValue(open);\n"
         "        return;\n"
         "    }\n\n"

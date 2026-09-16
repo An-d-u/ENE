@@ -22,16 +22,6 @@ if (typeof PIXI.live2d === 'undefined') {
 }
 
 console.log("All libraries loaded successfully");
-const app = new PIXI.Application({
-    view: document.getElementById('live2d-canvas'),
-    transparent: true,
-    backgroundAlpha: 0,
-    resizeTo: window,
-    antialias: true
-});
-
-console.log("Pixi app initialized");
-console.log("Canvas size:", window.innerWidth, "x", window.innerHeight);
 const DEFAULT_MODEL_PATH = '../live2d_models/hiyori/runtime/hiyori_pro_t11.model3.json';
 const DEFAULT_THEME = {
     accentColor: '#0071E3',
@@ -155,77 +145,7 @@ const ATTACHMENT_DELETE_CONFIRM_BODY = '지운 사진은 컨텍스트에 포함�
 window.eneModelConfig = window.eneModelConfig || {};
 window.eneThemeConfig = window.eneThemeConfig || {};
 window.eneUiStrings = window.eneUiStrings || {};
-let currentModelPath = '';
-let currentEmotionsBasePath = '';
-let currentAvailableEmotions = new Set(['normal']);
-let currentModelLoadToken = 0;
-let currentModelErrorText = null;
 let currentThemeAccent = DEFAULT_THEME.accentColor;
-const BUILTIN_IDLE_GROUP_DISABLED = '__ENE_DISABLED_BUILTIN_IDLE__';
-const builtinAutoMotionState = {
-    enabled: true,
-    running: false,
-    idleGroupName: 'Idle',
-    breath: null,
-    physics: null
-};
-const autoEyeBlinkState = {
-    enabled: true,
-    builtinInstance: null,
-    runtime: null
-};
-
-function createAutoEyeBlinkRuntimeState() {
-    return {
-        phase: 'idle',
-        phaseStartedAtMs: 0,
-        nextBlinkAtMs: 0,
-        closeDurationMs: 90,
-        closedDurationMs: 45,
-        openDurationMs: 140,
-        minIntervalMs: 2600,
-        maxIntervalMs: 5200
-    };
-}
-
-function resolveModelPathFromConfig() {
-    return window.eneModelConfig.modelPath || DEFAULT_MODEL_PATH;
-}
-
-function resolveEmotionsBasePathFromConfig() {
-    if (window.eneModelConfig.emotionsBasePath) {
-        return window.eneModelConfig.emotionsBasePath;
-    }
-    const absoluteModelUrl = new URL(resolveModelPathFromConfig(), window.location.href);
-    return new URL('./emotions/', absoluteModelUrl).href;
-}
-
-function resolveAvailableEmotionsFromConfig() {
-    const raw = window.eneModelConfig.availableEmotions;
-    if (!Array.isArray(raw)) {
-        return ['normal'];
-    }
-
-    const unique = [];
-    const seen = new Set();
-    for (const item of raw) {
-        const emotion = String(item || '').trim().toLowerCase();
-        if (!emotion || seen.has(emotion)) {
-            continue;
-        }
-        seen.add(emotion);
-        unique.push(emotion);
-    }
-
-    if (unique.length === 0) {
-        unique.push('normal');
-    }
-    return unique;
-}
-
-function syncAvailableEmotionsFromConfig() {
-    currentAvailableEmotions = new Set(resolveAvailableEmotionsFromConfig());
-}
 
 function normalizeThemeHex(value) {
     const raw = typeof value === 'string' ? value.trim() : '';

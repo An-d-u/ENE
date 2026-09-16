@@ -1,4 +1,4 @@
-﻿
+
 // ==========================================
 // 립싱크 제어
 // ==========================================
@@ -32,7 +32,7 @@ function setModelParameterValue(paramId, value) {
 
 // 립싱크 시 ParamMouthOpenY 값을 업데이트한다.
 function setMouthOpen(value) {
-    if (isImageAvatarMode()) {
+    if (typeof isImageAvatarMode === 'function' && isImageAvatarMode()) {
         applyImageAvatarMouthValue(value);
         return;
     }
@@ -80,7 +80,7 @@ function applyMouthPose(pose) {
         window.updateExpressiveSpeechMotionEnergy(open);
     }
 
-    if (isImageAvatarMode()) {
+    if (typeof isImageAvatarMode === 'function' && isImageAvatarMode()) {
         applyImageAvatarMouthValue(open);
         return;
     }

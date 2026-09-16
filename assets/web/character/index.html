@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' blob:; connect-src 'self'; worker-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+    <title>ENE 캐릭터</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <canvas id="live2d-canvas" aria-label="ENE 캐릭터"></canvas>
+    <script src="lib/pixi.min.js"></script>
+    <script src="lib/live2dcubismcore.min.js"></script>
+    <script src="lib/pixi-live2d-display.min.js"></script>
+    <script src="runtime_character_state.js"></script>
+    <script src="runtime_live2d_model.js"></script>
+    <script src="runtime_motion_state.js"></script>
+    <script src="runtime_gesture_engine.js"></script>
+    <script src="runtime_head_pat.js"></script>
+    <script src="runtime_auto_blink_tracking.js"></script>
+    <script src="runtime_expression.js"></script>
+    <script src="runtime_lipsync.js"></script>
+    <script src="runtime_live2d_parameter_core.js"></script>
+    <script src="runtime_character_host.js"></script>
+    <script src="entry.js"></script>
+</body>
+</html>

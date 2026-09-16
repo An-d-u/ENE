@@ -8,7 +8,7 @@
 
 **기술:** 기존 Python/PyQt6/aiohttp/pytest/Node VM, Kotlin 2.2.21/Compose/Coroutines/OkHttp 5.3.2, Android AudioTrack·AudioManager, AndroidX WebKit 1.15.0. 기존 Live2D 웹 라이브러리는 출처·버전·권리 확인 후 그대로 고정한다.
 
-**검토 상태:** 계획 문서 리뷰 승인. A0~A4와 B1~B7 완료, C1부터 순차 진행 중. 실기기 시험은 보류한다.
+**검토 상태:** 계획 문서 리뷰 승인. A0~A4, B1~B7, C1 완료, C2부터 순차 진행 중. 실기기 시험은 보류한다.
 
 ---
 
@@ -311,14 +311,18 @@ B7 검증: PC 전체 3,790개 통과/1개 건너뜀(106.73초), `ruff check . --
 
 ### C1. 캐릭터 실행부 분리와 고정된 묶음
 
-**파일:** §2 공유 렌더러 파일; PC `tests/test_companion_character_runtime.py`, `test_companion_character_export.py` 생성. 기존 `runtime_bootstrap.js`, `runtime_live2d_model.js`, `runtime_motion_state.js`, `runtime_gesture_engine.js`, `runtime_head_pat.js`, `runtime_auto_blink_tracking.js`, `runtime_expression.js`, `runtime_lipsync.js`, `runtime_live2d_parameter_core.js`, `runtime_bridge.js`, `script.js`, `index.html`에서 실제 의존 지점만 수정한다.
+**파일:** §2 공유 렌더러 파일과 `assets/web/runtime_character_state.js`, `assets/web/character/notices/`의 원문 고지; PC `tests/test_companion_character_runtime.py`, `test_companion_character_export.py` 생성. 기존 `runtime_bootstrap.js`, `runtime_live2d_model.js`, `runtime_head_pat.js`, `runtime_auto_blink_tracking.js`, `runtime_expression.js`, `runtime_lipsync.js`, `script.js`, `index.html`, `tests/test_chat_ui_assets.py`의 의존 지점만 수정했다. 움직임·제스처·매개변수 계산 모듈 본문과 Qt 채팅 브리지는 재작성하지 않았다.
 
-- [ ] Node VM으로 PC 호스트/가상 Android 호스트에서 같은 캐릭터 scripts를 실행한다. 모델 로드, 표정·립싱크·제스처·reset, DOM에 채팅 패널이 없는 경우, dispose 후 timer/ticker/리스너 0개를 먼저 실패 테스트로 만든다.
-- [ ] `python -m pytest tests/test_companion_character_runtime.py tests/test_companion_character_export.py -q`로 실패를 확인한다.
-- [ ] 캐릭터 전용 진입점은 `createCharacter(host, canvas)`가 `applySnapshot`, `applyAction`, `applyPlayback`, `dispose`를 반환하도록 한다. 호스트는 `emitInput`과 안전한 모델 asset URL 생성만 제공한다. 대화/개인 설정 조회·임의 runJavaScript RPC를 노출하지 않는다.
-- [ ] 기존 runtime 함수 본문을 재작성하지 않고 PC DOM/Qt 의존만 어댑터로 이동한다. PC 기본 모델 경로는 PC 호스트로 옮기며 Android entry에는 기본 개인 모델 경로가 없다. 전체 PC script 복사로 숨은 전역 의존을 해결하지 않는다.
-- [ ] `contracts/companion/character-runtime.json`에 schema=1, runtime_version=1, 명시적 파일 목록·SHA-256·라이브러리 버전/출처/고지 파일을 기록한다. SDK 고지가 불충분하면 배포 파일 추가를 보류한다. `tools/export_companion_character.py --check`는 목록 누락·비허용 파일·hash 차이를 실패 처리한다.
-- [ ] 위 명령과 `python -m pytest tests/test_chat_ui_assets.py tests/test_model_emotions.py -q`를 통과시킨다. `refactor: 캐릭터 실행부와 PC 호스트 분리`로 커밋한다.
+- [x] Node VM으로 PC 호스트/가상 Android 호스트에서 같은 캐릭터 scripts를 실행한다. 모델 로드, 표정·립싱크·제스처·reset, DOM에 채팅 패널이 없는 경우, dispose 후 타이머/RAF/리스너 회수와 PIXI Application destroy 호출을 먼저 실패 테스트로 만든다.
+- [x] `python -m pytest tests/test_companion_character_runtime.py tests/test_companion_character_export.py -q`로 실패를 확인한다. 최초 실행부 4개 실패, 내보내기 모듈 누락과 추가 동시 로드·컨텍스트 손실의 동작 실패를 확인한 뒤 수정했다.
+- [x] 캐릭터 전용 진입점은 `createCharacter(host, canvas)`가 `applySnapshot`, `applyAction`, `applyPlayback`, `dispose`를 반환하도록 한다. 호스트는 `emitInput`과 안전한 모델 asset URL 생성만 제공한다. 대화/개인 설정 조회·임의 runJavaScript RPC를 노출하지 않는다.
+- [x] 기존 runtime 함수 본문을 재작성하지 않고 PC DOM/Qt 의존만 어댑터로 이동한다. PC 기본 모델 경로는 PC 호스트로 옮기며 Android entry에는 기본 개인 모델 경로가 없다. 전체 PC script 복사로 숨은 전역 의존을 해결하지 않는다.
+- [x] `contracts/companion/character-runtime.json`에 schema=1, runtime_version=1, 명시적 파일 목록·SHA-256·라이브러리 버전/출처/고지 파일을 기록한다. `tools/export_companion_character.py --check`는 목록 누락·비허용 파일·hash 차이를 실패 처리한다. SDK 원본 바이트와 고지를 확인했으며 공개 배포 허가 검토는 별도로 남긴다.
+- [x] 위 명령과 `python -m pytest tests/test_chat_ui_assets.py tests/test_model_emotions.py -q`를 통과시킨다. `refactor: 캐릭터 실행부와 PC 호스트 분리`로 커밋한다.
+
+C1 검증: 공유 실행부 8개, 내보내기 10개, 기존 PC 채팅/모델 회귀 187개로 총 205개 통과(4.98초). 신규 Python Ruff, `export_companion_character.py --check`, diff/BOM 검사 통과. 종료 후 모델·표정 다운로드 완료, 같은 모델 로드 중 최신 설정, 그래픽 정리 예외를 검증했다. 20개 명시 파일만 묶고 기존 대상의 사용자 수정·추가 파일·링크를 거절한다. Android 저장소로 실제 복사는 C3에서 수행한다. 원래 PC 전용 두 파일의 BOM도 수정 시 제거했다.
+
+라이브러리 검증: `scripts/setup_web_libs.py`에 기록된 주소의 원본 바이트와 기존 Pixi 7.3.0/표시 라이브러리 0.4.0/Core의 SHA-256이 모두 일치한다. Core의 공개 버전 API 반환값은 83951616이다. 고정 태그의 MIT 원문 및 표시 라이브러리가 고정한 Framework 커밋의 LICENSE 원문을 보존했다. 표시 라이브러리의 peer dependency는 Pixi 6 계열이므로 기존 PC의 Pixi 7.3.0 조합을 실제 WebView 호환성 검증 완료로 간주하지 않는다. 가상 PIXI 시험은 WebGL·SDK 내부 자원·실제 모델 외형을 검증하지 않는다. [공식 SDK 배포 정책](https://www.live2d.com/en/sdk/license/)에 따른 공개 배포 검토, 실제 모델 권리 확인, 단말 시험은 여전히 미실시다.
 
 ### C2. PC 안전한 모델 목록과 공개 상태
 

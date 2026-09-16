@@ -105,21 +105,25 @@ async function loadExpressionDefinition(emotion) {
         return createEmptyExpressionDefinition('normal');
     }
 
-    const expressionPath = new URL(`${resolvedEmotion}.exp3.json`, currentEmotionsBasePath).href;
+    const expressionPath = characterHost?.assetUrl
+        ? characterHost.assetUrl('expression', resolvedEmotion)
+        : new URL(`${resolvedEmotion}.exp3.json`, currentEmotionsBasePath).href;
     const cached = expressionRuntimeState.definitionCache.get(expressionPath);
     if (cached) {
         return cached;
     }
 
-    const response = await fetch(expressionPath);
-    if (!response.ok) {
-        throw new Error(`Expression HTTP ${response.status}: ${expressionPath}`);
-    }
-
-    const expressionData = await response.json();
-    const normalizedExpression = normalizeExpressionDefinition(resolvedEmotion, expressionData);
-    expressionRuntimeState.definitionCache.set(expressionPath, normalizedExpression);
-    return normalizedExpression;
+    const controller = new AbortController();
+    const generation = characterExpressionGeneration;
+    characterExpressionReads.add(controller);
+    try {
+        const response = await fetch(expressionPath, {signal: controller.signal});
+        if (!response.ok) throw new Error('표정 자산을 읽지 못했습니다.');
+        const expressionData = await response.json();
+        const normalizedExpression = normalizeExpressionDefinition(resolvedEmotion, expressionData);
+        if (generation === characterExpressionGeneration) expressionRuntimeState.definitionCache.set(expressionPath, normalizedExpression);
+        return normalizedExpression;
+    } finally { characterExpressionReads.delete(controller); }
 }
 
 function getCurrentExpressionTransition() {
@@ -234,7 +238,7 @@ function applyCurrentExpressionState() {
 
 // 감정 태그에 맞는 exp3 표정 파일을 로드/보간 적용한다.
 async function changeExpression(emotion, options = {}) {
-    if (isImageAvatarMode()) {
+    if ((typeof isImageAvatarMode === 'function' && isImageAvatarMode())) {
         changeImageAvatarEmotion(emotion);
         currentEmotionTag = normalizeImageAvatarEmotion(emotion);
         return;
@@ -256,7 +260,9 @@ async function changeExpression(emotion, options = {}) {
         const durationMs = Number.isFinite(options.durationMs)
             ? Math.max(0, Number(options.durationMs))
             : null;
+        const generation = ++characterExpressionGeneration;
         const nextExpression = await loadExpressionDefinition(resolvedEmotion);
+        if (characterDisposed || model !== window.live2dModel || generation !== characterExpressionGeneration) return;
         const transitionDurationMs = resolveExpressionTransitionDuration(resolvedEmotion, durationMs);
         setExpressionTransition(nextExpression, transitionDurationMs);
         if (transitionDurationMs <= 0) {

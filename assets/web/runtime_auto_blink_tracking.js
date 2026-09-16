@@ -1,4 +1,4 @@
-﻿
+
 function isEyeCloseExpressionActive(sample) {
     if (!sample) {
         return false;
@@ -193,12 +193,13 @@ window.setMouseTrackingEnabled = function (enabled) {
 };
 // 매 프레임 마우스/idle/쓰다듬기 상태를 합성해 파라미터를 적용한다.
 function updateMouseTracking(nowMs) {
+    if (characterDisposed) return;
     ensureHeadPatEventBindings();
 
     const coreModel = getTrackingCoreModel();
     if (!coreModel) {
         lastMouseUpdateAt = nowMs;
-        requestAnimationFrame(updateMouseTracking);
+        characterTrackingFrame = requestAnimationFrame(updateMouseTracking);
         return;
     }
 
@@ -287,7 +288,6 @@ function updateMouseTracking(nowMs) {
     } catch (_) {
     }
 
-    requestAnimationFrame(updateMouseTracking);
+    characterTrackingFrame = requestAnimationFrame(updateMouseTracking);
 }
-requestAnimationFrame(updateMouseTracking);
 console.log("Mouse tracking initialized");

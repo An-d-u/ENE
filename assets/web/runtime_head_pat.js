@@ -237,14 +237,8 @@ function onHeadPatPointerUp(event) {
 
 // 쓰다듬기 세션 카운트를 Python 브리지로 보고한다.
 function notifyHeadPatSessionCount() {
-    if (!window.pyBridge || typeof window.pyBridge.increment_head_pat_count_from_js !== 'function') {
-        return;
-    }
-    try {
-        window.pyBridge.increment_head_pat_count_from_js();
-    } catch (e) {
-        console.warn("Failed to sync head pat count:", e);
-    }
+    try { characterHost?.emitInput({type: 'head_pat_completed'}); }
+    catch (_) { console.warn('쓰다듬기 입력을 전달하지 못했습니다.'); }
 }
 
 // 예약된 표정 복구 타이머를 취소한다.
@@ -290,7 +284,7 @@ function triggerPatStartEmotion() {
 function ensureHeadPatEventBindings() {
     if (headPatEventsBound) return;
 
-    const canvas = document.getElementById('live2d-canvas');
+    const canvas = characterCanvas;
     if (!canvas) return;
 
     canvas.style.touchAction = 'none';
@@ -299,6 +293,15 @@ function ensureHeadPatEventBindings() {
     window.addEventListener('pointerup', onHeadPatPointerUp, { passive: true });
     window.addEventListener('pointercancel', onHeadPatPointerUp, { passive: true });
     headPatEventsBound = true;
+}
+
+function removeHeadPatEventBindings() {
+    if (!headPatEventsBound) return;
+    characterCanvas?.removeEventListener('pointerdown', onHeadPatPointerDown);
+    window.removeEventListener('pointermove', onHeadPatPointerMove);
+    window.removeEventListener('pointerup', onHeadPatPointerUp);
+    window.removeEventListener('pointercancel', onHeadPatPointerUp);
+    headPatEventsBound = false;
 }
 
 // 프레임 단위로 쓰다듬기 상태를 감쇠/보간해 갱신한다.
