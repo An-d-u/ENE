@@ -8,7 +8,7 @@
 
 **기술:** 기존 Python/PyQt6/aiohttp/pytest/Node VM, Kotlin 2.2.21/Compose/Coroutines/OkHttp 5.3.2, Android AudioTrack·AudioManager, AndroidX WebKit 1.15.0. 기존 Live2D 웹 라이브러리는 출처·버전·권리 확인 후 그대로 고정한다.
 
-**검토 상태:** 계획 문서 리뷰 승인. A0~A4와 B1~B3 완료, B4부터 순차 진행 중. 실기기 시험은 보류한다.
+**검토 상태:** 계획 문서 리뷰 승인. A0~A4와 B1~B4 완료, B5부터 순차 진행 중. 실기기 시험은 보류한다.
 
 ---
 
@@ -253,13 +253,15 @@ B3 검증: PC 버퍼 21개와 B2 15개, Android 버퍼 6개/시계 3개/B2 11개
 
 **파일:** PC `src/core/companion/media_http.py`, `connection_resources.py`, `tests/test_companion_media_http.py`, `test_companion_extension_session.py`; 기존 `gateway.py`, `session.py`, `adapter.py` 수정. APP `K/connection/MediaTransport.kt`, `T/MediaTransportTest.kt` 생성.
 
-- [ ] 주 WSS 없는 토큰, 구연결, 소비자 중복, Range/Origin/query/redirect, CA 오류, 구등록, TLS 만료, 취소 중 write, 무응답 반쪽 연결 사례를 추가한다.
-- [ ] PC `python -m pytest tests/test_companion_media_http.py tests/test_companion_extension_session.py -q`, APP `./gradlew.bat :app:testDebugUnitTest --tests "dev.ene.companion.MediaTransportTest" --offline --dependency-verification strict --console=plain`로 실패를 확인한다.
-- [ ] gateway가 hello 결과를 버리지 않고 capabilities 교집합을 보관하게 한다. `ConnectionResources`는 현재 연결의 하위 HTTP task/취소 토큰과 bounded buffer만 소유한다. Qt 상태에는 불변 명령으로 접근한다.
-- [ ] `media_http.py`는 §3.2 정책으로 인증·자원 예약을 먼저 처리한다. 주 WSS 취소는 HTTP를 먼저 취소하고 다음 연결을 받는다. headers/바이트를 읽을 때 기존 TLS identity 유효성 검사와 폐기 신호를 사용한다.
-- [ ] B1에서 정의한 `audio_progress_ack`를 PC 수락 직후 응답한다. APP은 자신의 progress에 맞는 ACK가 5초 없으면 오디오를 중단한다. 진짜 오래된 ACK의 반복이 생존 시간을 연장하지 않도록 최근 보낸 진행 위치와 대응시키고, 재생 위치 정지 watchdog도 별도로 검사한다. 기본 15초 heartbeat nonce나 주기를 변형하지 않는다.
-- [ ] APP MediaTransport는 같은 TrustedServer/검증된 Endpoint의 TLS client를 재사용한다. 웹 주소 문자열을 외부에서 받지 않고 고정 경로+검사된 ID로 요청을 구성한다. `ResponseBody`는 cancellation/finally에서 닫고 파일에 저장하지 않는다.
-- [ ] 위 명령과 기존 양쪽 TLS 테스트를 통과시키고 `feat: 연결에 종속된 인증 미디어 전송 추가`로 각각 커밋한다.
+- [x] 주 WSS 없는 토큰, 구연결, 소비자 중복, Range/Origin/query/redirect, CA 오류, 구등록, TLS 만료, 취소 중 write, 무응답 반쪽 연결 사례를 추가한다.
+- [x] PC `python -m pytest tests/test_companion_media_http.py tests/test_companion_extension_session.py -q`, APP `./gradlew.bat :app:testDebugUnitTest --tests "dev.ene.companion.MediaTransportTest" --offline --dependency-verification strict --console=plain`로 실패를 확인한다.
+- [x] gateway가 hello 결과를 버리지 않고 capabilities 교집합을 보관하게 한다. `ConnectionResources`는 현재 연결의 하위 HTTP task/취소 토큰과 bounded buffer만 소유한다. Qt 상태에는 불변 명령으로 접근한다.
+- [x] `media_http.py`는 §3.2 정책으로 인증·자원 예약을 먼저 처리한다. 주 WSS 취소는 HTTP를 먼저 취소하고 다음 연결을 받는다. headers/바이트를 읽을 때 기존 TLS identity 유효성 검사와 폐기 신호를 사용한다.
+- [x] B1에서 정의한 `audio_progress_ack`를 PC 수락 직후 응답한다. APP은 자신의 progress에 맞는 ACK가 5초 없으면 오디오를 중단한다. 진짜 오래된 ACK의 반복이 생존 시간을 연장하지 않도록 최근 보낸 진행 위치와 대응시키고, 재생 위치 정지 watchdog도 별도로 검사한다. 기본 15초 heartbeat nonce나 주기를 변형하지 않는다.
+- [x] APP MediaTransport는 같은 TrustedServer/검증된 Endpoint의 TLS client를 재사용한다. 웹 주소 문자열을 외부에서 받지 않고 고정 경로+검사된 ID로 요청을 구성한다. `ResponseBody`는 cancellation/finally에서 닫고 파일에 저장하지 않는다.
+- [x] 위 명령과 기존 양쪽 TLS 테스트를 통과시키고 `feat: 연결에 종속된 인증 미디어 전송 추가`로 각각 커밋한다.
+
+B4 검증: 새 PC HTTP 13개/확장 세션 5개를 포함한 gateway·session·adapter·TLS·등록 해제 81개 통과. Android MediaTransport 8개/TlsClient 6개/TlsTransport 9개/AudioSession 11개 통과. 실제 루프백 TLS에서 토큰만 있는 요청, 구연결, 중복 소비, Origin/Range/query와 별도 rate 제한, 정지된 write 도중 소켓 종료·등록 해제·연결 교체·TLS 만료 시 자원 회수를 확인했다. Qt 진입점의 확장 명령 허용과 수신 방향, 전송 대기 중 대화 초기화 시 옛 start 폐기를 추가 검증했다. Android 시험 서버를 PC와 같은 HTTP/1.1로 고정해 chunked 본문을 확인했다. 진행 ACK는 실제 소유자가 수락한 응답만 전달하며 가상 소유자로 검증했다. B5/B7에서 TTS·재생기를 연결하기 전이므로 기본 광고 능력은 여전히 비어 있다. 실제 PC↔Android 프로그램 왕복이나 실기기 재생으로 기록하지 않는다.
 
 ### B5. PC TTS 경계 연결
 

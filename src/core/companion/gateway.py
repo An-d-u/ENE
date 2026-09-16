@@ -21,6 +21,9 @@ from .storage import StorageError
 from .private_files import PrivateFileError
 from .tls_identity import TlsError, utc_now
 from .tls_listener import TlsListener
+from .connection_resources import MediaError
+from .extension_protocol import CAPABILITIES, negotiate
+from .media_http import MediaHttp
 
 
 # 기존 최소 의존성과 새 aiohttp의 타입 지정 요청 키를 모두 지원한다.
@@ -55,8 +58,11 @@ class CompanionGateway:
         hello_timeout=5,
         heartbeat_interval=15,
         heartbeat_timeout=10,
+        capabilities=(),
     ):
         self.pairing, self.adapter = pairing, adapter
+        self.capabilities = negotiate(capabilities, CAPABILITIES)
+        self._media = MediaHttp(self._authorize_media, self._validate_session_tls)
         self._tls_store = tls_store
         self._tls_identity = None
         self._tls_clock, self._renewal_clock = tls_clock, renewal_clock
@@ -135,7 +141,10 @@ class CompanionGateway:
 
         @web.middleware
         async def guard(request, handler):
-            if "Origin" in request.headers or request.query_string:
+            media = request.path.startswith(
+                ("/companion/v1/audio/", "/companion/v1/character/")
+            )
+            if not media and ("Origin" in request.headers or request.query_string):
                 return self._response("forbidden", 403)
             if not self._running or self._failure:
                 return self._response("gateway_unavailable", 503)
@@ -143,6 +152,8 @@ class CompanionGateway:
                 self._tls_identity.validate_connection(self._tls_clock())
             except TlsError:
                 return self._response("gateway_unavailable", 503)
+            if media:
+                return await handler(request)
             try:
                 slot = self._limiter.acquire(request.remote or "unknown")
             except SessionError:
@@ -157,6 +168,9 @@ class CompanionGateway:
         app.router.add_get("/companion/v1/info", self._info)
         app.router.add_get("/companion/v1/pair", self._pair)
         app.router.add_get("/companion/v1/ws", self._normal)
+        app.router.add_get(
+            "/companion/v1/audio/{utterance_id}", self._media.audio, allow_head=False
+        )
         # 자격증명이 URL/헤더/예외에 포함될 수 있으므로 액세스 로그를 만들지 않는다.
         self._runner = web.AppRunner(app, access_log=None, shutdown_timeout=2)
         try:
@@ -280,7 +294,7 @@ class CompanionGateway:
         self._preauth_sockets.add(ws)
         session = None
         try:
-            await self._first_message(ws, "hello")
+            hello = await self._first_message(ws, "hello")
             # hello를 기다리는 동안 바뀐 등록이나 이미 진행 중인 교체를 다시 검사한다.
             current = self.pairing.authorize(token)
             token = None
@@ -290,11 +304,9 @@ class CompanionGateway:
                 context = self._context(connection=str(uuid4()))
                 old = self._active
                 if old is not None:
-                    self.adapter.cancel_connection(old.context)
-                head = await self.adapter.call("connect", context)
-                if old is not None:
                     old.stop("connection_replaced")
                     await old.finished.wait()
+                head = await self.adapter.call("connect", context)
                 ready = {
                     "type": "ready",
                     "protocol_version": 1,
@@ -302,7 +314,9 @@ class CompanionGateway:
                     "server_epoch": head.server_epoch,
                     "conversation_id": head.conversation_id,
                     "registration_generation": registration.registration_generation,
-                    "capabilities": [],
+                    "capabilities": list(
+                        negotiate(hello.fields["capabilities"], self.capabilities)
+                    ),
                 }
                 session = CompanionSession(
                     ws,
@@ -334,6 +348,39 @@ class CompanionGateway:
                     pass
             await self._close_ws(ws)
         return ws
+
+    def _authorize_media(self, request):
+        header = request.headers.getall("Authorization", [])
+        token = (
+            header[0][7:]
+            if len(header) == 1 and header[0].startswith("Bearer ")
+            else None
+        )
+        try:
+            registration = self.pairing.authorize(token)
+        except PairingError:
+            try:
+                self._limiter.release(
+                    self._limiter.acquire(request.remote or "unknown")
+                )
+            except SessionError:
+                raise MediaError("rate_limited", 429) from None
+            raise MediaError("unauthorized", 401) from None
+        finally:
+            token = None
+        session = self._active
+        connection = request.headers.getall("X-ENE-Connection", [])
+        if (
+            self._changing
+            or self._transition.locked()
+            or session is None
+            or session.resources.closed
+            or registration.registration_generation
+            != session.context.registration_generation
+            or connection != [session.context.connection_generation]
+        ):
+            raise MediaError("not_found", 404)
+        return session
 
     def publish(self, message):
         if self._changing and message.type in {"event", "resync_required"}:

@@ -11,6 +11,13 @@ from aiohttp import WSMsgType
 
 from .protocol import ProtocolError, WireMessage, decode_message, encode_message
 from .transcript import CapturedTranscript, TranscriptError
+from .connection_resources import ConnectionResources
+from .extension_protocol import (
+    EXTENSION_TYPES,
+    ExtensionContext,
+    validate_extension,
+    feature_for,
+)
 
 
 class SessionError(ValueError):
@@ -302,15 +309,31 @@ class CompanionSession:
         self._validate_connection = validate_connection or (lambda: None)
         self.server_epoch = ready["server_epoch"]
         self.conversation_id = ready["conversation_id"]
+        self.capabilities = tuple(ready.get("capabilities", ()))
+        self.resources = ConnectionResources()
         # 재동기화 알림과 네이티브 pong의 전용 자리도 총 자원 상한에 포함한다.
         self.outbox = Outbox(max_items=254, max_bytes=4194304 - 65536 - 125)
         self.outbox.put(ready, control=True)
+        if self.capabilities:
+            self.outbox.put(
+                {
+                    "type": "extensions_ready",
+                    "protocol_version": 1,
+                    "registration_generation": context.registration_generation,
+                    "server_epoch": self.server_epoch,
+                    "connection_generation": context.connection_generation,
+                    "capabilities": list(self.capabilities),
+                },
+                control=True,
+            )
         self._heartbeat = Heartbeat(
             interval=heartbeat_interval, timeout=heartbeat_timeout
         )
         self._rate = TokenBucket(10, 20)
         self._control_rate = TokenBucket(20, 40)
         self._commands = asyncio.Queue(maxsize=20)
+        self._extension_rate = TokenBucket(30, 60)
+        self._extensions = asyncio.Queue(maxsize=60)
         self._wake = asyncio.Event()
         self._stopped = asyncio.Event()
         self.finished = asyncio.Event()
@@ -333,6 +356,7 @@ class CompanionSession:
         self.code = code
         self.synced = False
         self.adapter.cancel_connection(self.context)
+        self.resources.cancel()
         self._stopped.set()
         self._wake.set()
 
@@ -349,7 +373,21 @@ class CompanionSession:
         if self._stopped.is_set():
             return
         value = message.to_dict()
+        if message.type in EXTENSION_TYPES:
+            try:
+                validate_extension(
+                    message,
+                    self.extension_context,
+                    self.capabilities,
+                    direction="from_pc",
+                )
+            except ProtocolError:
+                return
+            self.queue(message, control=True)
+            return
         if message.type == "resync_required":
+            if value["conversation_id"] != self.conversation_id:
+                self.resources.cancel_audio()
             self.server_epoch, self.conversation_id = (
                 value["server_epoch"],
                 value["conversation_id"],
@@ -376,6 +414,15 @@ class CompanionSession:
         self._validate_connection()
         self._capture_version = self._sync_version
         return await self.adapter.call("capture", self.context, pending=pending)
+
+    @property
+    def extension_context(self):
+        return ExtensionContext(
+            self.context.registration_generation,
+            self.server_epoch,
+            self.context.connection_generation,
+            self.conversation_id,
+        )
 
     async def _emit_frame(self, frame):
         if self._stopped.is_set():
@@ -411,6 +458,17 @@ class CompanionSession:
             self._wake.clear()
             raw = self.outbox.pop_control()
             if raw is not None:
+                message = decode_message(raw)
+                if message.type in EXTENSION_TYPES:
+                    try:
+                        validate_extension(
+                            message,
+                            self.extension_context,
+                            self.capabilities,
+                            direction="from_pc",
+                        )
+                    except ProtocolError:
+                        continue
                 await self._send_raw(raw)
                 continue
             if self._native_pong is not None:
@@ -453,8 +511,27 @@ class CompanionSession:
             if item.type != WSMsgType.TEXT:
                 raise SessionError("invalid_message")
             message = decode_message(
-                item.data, allowed_types={"sync_request", "send_text", "ping", "pong"}
+                item.data,
+                allowed_types={"sync_request", "send_text", "ping", "pong"}
+                | EXTENSION_TYPES,
             )
+            if message.type in EXTENSION_TYPES:
+                if not self._extension_rate.take():
+                    raise SessionError("rate_limited")
+                try:
+                    validate_extension(
+                        message,
+                        self.extension_context,
+                        self.capabilities,
+                        direction="from_phone",
+                    )
+                except ProtocolError:
+                    continue
+                try:
+                    self._extensions.put_nowait(message)
+                except asyncio.QueueFull:
+                    raise SessionError("rate_limited") from None
+                continue
             if message.type in {"ping", "pong"}:
                 if not self._control_rate.take():
                     raise SessionError("rate_limited")
@@ -519,6 +596,38 @@ class CompanionSession:
                     control=True,
                 )
 
+    async def _extension_worker(self):
+        while True:
+            message = await self._extensions.get()
+            self._validate_connection()
+            try:
+                validate_extension(
+                    message,
+                    self.extension_context,
+                    self.capabilities,
+                    direction="from_phone",
+                )
+                result = await self.adapter.call(
+                    "extension", self.context, message=message
+                )
+                if result is not None:
+                    self.publish(result)
+            except ProtocolError:
+                continue
+            except Exception:
+                self.queue(
+                    {
+                        "type": "extension_error",
+                        "protocol_version": 1,
+                        "registration_generation": self.context.registration_generation,
+                        "server_epoch": self.server_epoch,
+                        "connection_generation": self.context.connection_generation,
+                        "feature": feature_for(message.type, message.fields),
+                        "code": "extension_failed",
+                    },
+                    control=True,
+                )
+
     async def _timer(self):
         while True:
             await asyncio.sleep(0.02)
@@ -535,6 +644,7 @@ class CompanionSession:
                 ("receiver", self._reader),
                 ("writer", self._writer),
                 ("commands", self._command_worker),
+                ("extensions", self._extension_worker),
                 ("heartbeat", self._timer),
                 ("stop", self._stopped.wait),
             )
@@ -549,6 +659,7 @@ class CompanionSession:
                     self.stop("connection_failed")
         finally:
             self.stop()
+            await self.resources.wait_closed()
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
@@ -564,6 +675,8 @@ class CompanionSession:
             self.outbox.clear()
             while not self._commands.empty():
                 self._commands.get_nowait()
+            while not self._extensions.empty():
+                self._extensions.get_nowait()
             try:
                 await asyncio.wait_for(
                     self.ws.close(

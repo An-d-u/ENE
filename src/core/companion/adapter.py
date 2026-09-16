@@ -79,7 +79,10 @@ class QtGatewayAdapter(QObject):
             raise AdapterError("stale_registration")
         if self._blocked:
             raise AdapterError("admission_blocked")
-        if self._connection is None or context.connection_generation != self._connection:
+        if (
+            self._connection is None
+            or context.connection_generation != self._connection
+        ):
             raise AdapterError("stale_connection")
 
     def _require_qt(self):
@@ -109,7 +112,9 @@ class QtGatewayAdapter(QObject):
         if loop is not None and not loop.is_closed():
             for correlation_id in cancelled:
                 try:
-                    loop.call_soon_threadsafe(self._complete, correlation_id, None, "stale_gateway")
+                    loop.call_soon_threadsafe(
+                        self._complete, correlation_id, None, "stale_gateway"
+                    )
                 except RuntimeError:
                     break
 
@@ -142,6 +147,7 @@ class QtGatewayAdapter(QObject):
             "disconnect",
             "capture",
             "send",
+            "extension",
             "block",
             "restore",
             "register",
@@ -262,6 +268,31 @@ class QtGatewayAdapter(QObject):
             raise AdapterError("stale_connection")
         if operation == "capture":
             return self._owner.capture(context.registration_generation, command.pending)
+        if operation == "extension" and isinstance(command.message, WireMessage):
+            from .extension_protocol import (
+                CAPABILITIES,
+                ExtensionContext,
+                validate_extension,
+            )
+
+            head = self._owner.head()
+            current = ExtensionContext(
+                context.registration_generation,
+                head.server_epoch,
+                context.connection_generation,
+                head.conversation_id,
+            )
+            try:
+                # 실제 협상은 세션에서 검사한다. Qt 경계에서는 현재 소유권과 수신 방향을 재검사한다.
+                validate_extension(
+                    command.message, current, CAPABILITIES, direction="from_phone"
+                )
+            except ProtocolError as error:
+                raise AdapterError(error.code) from None
+            handler = getattr(self._owner, "submit_extension", None)
+            if not callable(handler):
+                raise AdapterError("unsupported_command")
+            return handler(context, command.message)
         if (
             operation == "send"
             and isinstance(command.message, WireMessage)
