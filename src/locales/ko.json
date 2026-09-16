@@ -1,4 +1,7 @@
 {
+  "tray.companion": "모바일 연결",
+  "companion.error.invalid_port": "연결 포트는 1~65535 사이의 정수여야 합니다.",
+  "companion.error.settings_write_failed": "연결 설정을 저장하지 못했습니다. 끄기를 선택했다면 현재 연결은 차단되지만 다음 실행의 설정은 유지될 수 있습니다. 저장 공간과 권한을 확인하세요.",
   "settings.tts.provider.fish_audio.label": "Fish Audio",
   "settings.tts.provider.fish_audio.hint": "API 키와 음성 ID를 사용하는 Fish Audio 공식 음성 합성 API입니다.",
   "settings.tts.fish.connection.title": "Fish Audio 연결",

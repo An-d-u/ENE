@@ -39,6 +39,9 @@ class _DummyBridge:
         self.goal_manager = None
         self.proactive_manager = None
         self.llm_client = None
+        self.companion_event = SimpleNamespace(
+            connect=lambda callback: setattr(self, "companion_publisher", callback)
+        )
         self.life_record_state = SimpleNamespace()
         self.obs_settings = type(
             "ObsSettings",

@@ -1,5 +1,6 @@
 import asyncio
 import builtins
+import json
 from pathlib import Path
 import sys
 
@@ -731,12 +732,12 @@ def test_bridge_obs_append_command_emits_success():
     bridge.obsidian_manager = DummyObsManager()
 
     received = []
-    bridge.message_received.connect(lambda text, emotion, thought: received.append((text, emotion, thought)))
+    bridge.chat_display_event.connect(lambda raw: received.append(json.loads(raw)))
 
     handled = bridge._handle_obs_command("/obs append test.md :: 추가 텍스트")
     assert handled is True
     assert received
-    assert "추가 완료" in received[-1][0]
+    assert "추가 완료" in received[-1]["message"]["text"]
 
 
 def test_bridge_obs_summarize_command_starts_ai_worker(monkeypatch):

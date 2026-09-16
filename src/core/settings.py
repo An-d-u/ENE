@@ -10,6 +10,7 @@ from .app_paths import (
     load_json_data,
     resolve_user_storage_path,
     save_json_data,
+    save_json_data_atomic,
     sync_visible_store_python_file_to_runtime,
 )
 
@@ -33,6 +34,8 @@ class Settings:
     """Application settings manager."""
 
     DEFAULT_CONFIG = {
+        "companion_enabled": False,
+        "companion_port": 8765,
         "window_x": 100,
         "window_y": 100,
         "window_width": 400,
@@ -570,6 +573,18 @@ class Settings:
             )
         except Exception as e:
             print(f"Secret settings save failed: {e}")
+
+    def set_companion_options(self, enabled: bool, port: int) -> bool:
+        """비밀 저장소를 건드리지 않고 연결 설정의 저장 성공을 확인한다."""
+        if type(enabled) is not bool or type(port) is not int or not 1 <= port <= 65535:
+            return False
+        candidate = {**self.config, "companion_enabled": enabled, "companion_port": port}
+        try:
+            save_json_data_atomic(self.config_path, candidate)
+        except Exception:
+            return False
+        self.config = candidate
+        return True
 
     def get(self, key: str, default=None):
         if key in self.SECRET_KEYS:

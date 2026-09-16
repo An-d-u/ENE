@@ -17,6 +17,7 @@ class TrayIcon(QObject):
     settings_requested = pyqtSignal()
     ene_profile_requested = pyqtSignal()
     calendar_requested = pyqtSignal()  # 캘린더
+    companion_requested = pyqtSignal()
     toggle_drag_bar_requested = pyqtSignal()
     toggle_mouse_tracking_requested = pyqtSignal()
     quit_requested = pyqtSignal()
@@ -79,6 +80,10 @@ class TrayIcon(QObject):
         self.calendar_action = QAction("", self)
         self.calendar_action.triggered.connect(self.calendar_requested.emit)
         menu.addAction(self.calendar_action)
+
+        self.companion_action = QAction("", self)
+        self.companion_action.triggered.connect(self.companion_requested.emit)
+        menu.addAction(self.companion_action)
         
         menu.addSeparator()
         
@@ -117,6 +122,7 @@ class TrayIcon(QObject):
         self.settings_action.setText(tr("tray.settings"))
         self.ene_profile_action.setText(tr("tray.ene_profile"))
         self.calendar_action.setText(tr("tray.calendar"))
+        self.companion_action.setText(tr("tray.companion"))
         self.toggle_bar_action.setText(self._drag_bar_label())
         self.toggle_mouse_tracking_action.setText(self._mouse_tracking_label())
         self.quit_action.setText(tr("tray.quit"))

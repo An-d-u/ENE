@@ -57,6 +57,26 @@ class CompanionController(QObject):
     def has_thread(self):
         return self._thread is not None
 
+    def isRunning(self):
+        """앱의 기존 비차단 worker drain에 참여한다. Qt 정리까지 기다린다."""
+        return self.has_thread
+
+    @property
+    def finished(self):
+        return self.stopped
+
+    def request_stop(self):
+        self.stop()
+
+    def emergency_stop(self):
+        """이벤트 루프가 끝나는 비상 경로에서만 최대 200ms를 기다린다."""
+        self.stop()
+        thread = self._thread
+        if thread is not None:
+            thread.join(timeout=0.2)
+            if not thread.is_alive():
+                self._finish_thread()
+
     @pyqtSlot(object)
     def _receive_state(self, state):
         if self._stop_requested.is_set() and state.running:
@@ -168,8 +188,11 @@ class CompanionController(QObject):
 
     def stop(self):
         # Qt에서 즉시 차단하므로 그 뒤 처리되는 서버 신호는 신규 작업을 수락할 수 없다.
+        already_stopping = self._stop_requested.is_set()
         self._stop_requested.set()
         self.adapter.disable()
+        if already_stopping:
+            return
         if self._loop is not None and not self._loop.is_closed():
             self._receive_state(
                 replace(

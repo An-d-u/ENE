@@ -1,4 +1,7 @@
 {
+  "tray.companion": "モバイル接続",
+  "companion.error.invalid_port": "接続ポートは1～65535の整数で指定してください。",
+  "companion.error.settings_write_failed": "接続設定を保存できませんでした。オフにした場合、現在の接続は遮断されますが、次回起動時の設定は変更されていない可能性があります。空き容量と権限を確認してください。",
   "settings.tts.provider.fish_audio.label": "Fish Audio",
   "settings.tts.provider.fish_audio.hint": "APIキーと音声IDを使用するFish Audio公式の音声合成APIです。",
   "settings.tts.fish.connection.title": "Fish Audio接続",

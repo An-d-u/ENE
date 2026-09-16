@@ -29,6 +29,8 @@ from .system_theme import get_theme_preset, get_windows_theme_mode
 from .overlay_window import OverlayWindow
 from .global_ptt import GlobalPTTController
 from .tray_icon import TrayIcon
+from .companion.controller import CompanionController
+from ..ui.companion_dialog import CompanionDialog
 from ..ui.obsidian_panel_window import ObsidianPanelWindow
 from ..ui.settings_dialog import SettingsDialog
 from ..ai.mood_manager import MoodManager
@@ -83,8 +85,10 @@ class ENEApplication(QObject):
         shutdown_drain_scheduler_factory=None,
         shutdown_drain_poll_interval_ms: int = 25,
         shutdown_drain_timeout_ms: int = 2_000,
+        companion_controller_factory=None,
     ):
         super().__init__()
+        self._companion_controller_factory = companion_controller_factory or CompanionController
         self._life_time_resolver = life_time_resolver or resolve_local_time_context
         self._life_session_tracker_factory = life_session_tracker_factory or AppSessionTracker
         self._life_record_manager_factory = life_record_manager_factory or LifeRecordManager
@@ -171,11 +175,81 @@ class ENEApplication(QObject):
         
         # 시그널 연결
         self._connect_signals()
+        self._init_companion_runtime()
 
         # 전역 PTT 초기화
         self._init_global_ptt()
         self._init_system_theme_sync()
         self._start_life_session_heartbeat()
+
+    def _init_companion_runtime(self):
+        """실제 bridge의 공개 기록과 접수 원장을 한 controller에 연결한다."""
+        self._companion_dialog = None
+        self._companion_error_code = None
+        factory = getattr(self, "_companion_controller_factory", CompanionController)
+        self.companion_controller = factory(self.overlay_window.bridge, self)
+        self.overlay_window.bridge.companion_event.connect(self.companion_controller.adapter.publish)
+        self.companion_controller.state_changed.connect(self._on_companion_state)
+        self.companion_controller.operation_failed.connect(self._on_companion_error)
+        if self.settings.get("companion_enabled", False) is True:
+            port = self.settings.get("companion_port", 8765)
+            if type(port) is int and 1 <= port <= 65535:
+                self.companion_controller.start(port)
+            else:
+                self._on_companion_error("invalid_port")
+
+    def _show_companion_dialog(self):
+        if getattr(self, "_quit_in_progress", False):
+            return
+        dialog = self._companion_dialog
+        controller = self.companion_controller
+        if dialog is None:
+            dialog = self._companion_dialog = CompanionDialog()
+            port = self.settings.get("companion_port", 8765)
+            dialog.port_spin.setValue(port if type(port) is int and 1 <= port <= 65535 else 8765)
+            dialog.enabled_requested.connect(self._set_companion_enabled)
+            dialog.qr_requested.connect(controller.request_qr)
+            dialog.approve_requested.connect(controller.approve)
+            dialog.reject_requested.connect(controller.reject)
+            dialog.revoke_requested.connect(controller.revoke)
+            dialog.tls_reset_requested.connect(controller.reset_tls)
+        dialog.set_state(controller.state)
+        if self._companion_error_code:
+            dialog.show_error(self._companion_error_code)
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+
+    def _set_companion_enabled(self, enabled, port):
+        if getattr(self, "_quit_in_progress", False):
+            return
+        controller = self.companion_controller
+        if type(enabled) is not bool or type(port) is not int or not 1 <= port <= 65535:
+            self._on_companion_error("invalid_port")
+            return
+        # 끄기 요청은 저장 실패와 관계없이 즉시 새 접수를 차단한다.
+        if not enabled:
+            controller.stop()
+        if not self.settings.set_companion_options(enabled, port):
+            self._on_companion_error("settings_write_failed")
+            return
+        self._companion_error_code = None
+        if enabled:
+            controller.start(port)
+
+    def _on_companion_state(self, state):
+        dialog = getattr(self, "_companion_dialog", None)
+        if dialog is not None:
+            dialog.set_state(state)
+            if self._companion_error_code:
+                dialog.show_error(self._companion_error_code)
+
+    def _on_companion_error(self, code):
+        self._companion_error_code = code
+        dialog = getattr(self, "_companion_dialog", None)
+        if dialog is not None:
+            dialog.set_state(self.companion_controller.state)
+            dialog.show_error(code)
 
     def _init_life_record_runtime(self) -> None:
         """생활 기록 시작 상태를 실패 폐쇄 방식으로 준비한다."""
@@ -525,6 +599,7 @@ class ENEApplication(QObject):
         self.tray_icon.settings_requested.connect(self._show_settings_dialog)
         self.tray_icon.ene_profile_requested.connect(self._show_ene_profile_dialog)
         self.tray_icon.calendar_requested.connect(self._show_calendar_dialog)
+        self.tray_icon.companion_requested.connect(self._show_companion_dialog)
         self.tray_icon.toggle_drag_bar_requested.connect(self._toggle_drag_bar)
         self.tray_icon.toggle_mouse_tracking_requested.connect(self._toggle_mouse_tracking)
         self.tray_icon.quit_requested.connect(self._quit_application)
@@ -1062,6 +1137,7 @@ class ENEApplication(QObject):
     def _collect_shutdown_workers(self, bridge) -> list:
         """종료 barrier가 소유해야 할 실행 중 worker를 중복 없이 모은다."""
         candidates = [
+            self._shutdown_safe_getattr(self, "companion_controller"),
             self._shutdown_safe_getattr(bridge, "worker"),
             self._shutdown_safe_getattr(bridge, "tts_worker"),
             self._shutdown_safe_getattr(bridge, "_summary_review_worker"),
@@ -1205,6 +1281,9 @@ class ENEApplication(QObject):
         if getattr(self, "_shutdown_completed", False):
             return
         self._shutdown_completed = True
+        controller = getattr(self, "companion_controller", None)
+        if not workers_drained and self._shutdown_worker_is_running(controller):
+            print("WARNING: companion_shutdown_failed code=shutdown_timeout")
         overlay = getattr(self, "overlay_window", None)
         bridge = getattr(overlay, "bridge", None)
         self._stop_shutdown_timers(bridge)
@@ -1232,6 +1311,9 @@ class ENEApplication(QObject):
                     dialog.close()
             except Exception:
                 pass
+        companion_dialog = getattr(self, "_companion_dialog", None)
+        if companion_dialog is not None:
+            companion_dialog.close()
         if overlay is not None:
             for method_name in ("shutdown", "close"):
                 method = getattr(overlay, method_name, None)
@@ -1278,6 +1360,12 @@ class ENEApplication(QObject):
         """모든 종료 진입점이 공유하는 비차단 멱등 finalizer다."""
         if getattr(self, "_shutdown_completed", False):
             return
+        controller = getattr(self, "companion_controller", None)
+        if controller is not None:
+            if _about_to_quit:
+                controller.emergency_stop()
+            else:
+                controller.stop()
         if getattr(self, "_quit_in_progress", False):
             if _about_to_quit:
                 overlay = self._shutdown_safe_getattr(self, "overlay_window")

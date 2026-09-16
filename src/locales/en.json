@@ -1,4 +1,7 @@
 {
+  "tray.companion": "Mobile connection",
+  "companion.error.invalid_port": "The connection port must be an integer from 1 to 65535.",
+  "companion.error.settings_write_failed": "Connection settings could not be saved. If you turned the connection off, access is blocked now, but the previous startup setting may remain. Check storage and permissions.",
   "settings.tts.provider.fish_audio.label": "Fish Audio",
   "settings.tts.provider.fish_audio.hint": "Official Fish Audio text-to-speech API using an API key and voice ID.",
   "settings.tts.fish.connection.title": "Fish Audio connection",

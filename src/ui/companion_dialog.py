@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
 
 from src.core.companion.gateway import GatewayState
 from src.core.companion.network import qr_matrix
+from src.core.i18n import tr
 
 
 _ERRORS = {
@@ -140,6 +141,9 @@ class CompanionDialog(QDialog):
             self.tls_reset_requested.emit()
 
     def show_error(self, code):
+        if code in {"invalid_port", "settings_write_failed"}:
+            self.status_label.setText(tr("companion.error." + code))
+            return
         self.status_label.setText(
             _ERRORS.get(
                 code,

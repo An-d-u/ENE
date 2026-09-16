@@ -63,6 +63,7 @@ class QtGatewayAdapter(QObject):
         self._loop = self._event_sink = None
         # 잠금은 전송표 조회/취소에만 사용한다. Qt 작업이나 await 동안 잡지 않는다.
         self._lock = threading.Lock()
+        self._closing = True
         self._pending = {}
         self.requested.connect(self._dispatch, Qt.ConnectionType.QueuedConnection)
         bind = getattr(owner, "bind_companion_adapter", None)
@@ -91,14 +92,26 @@ class QtGatewayAdapter(QObject):
         self._registration = registration_generation
         self._connection = None
         self._enabled, self._blocked = True, False
+        with self._lock:
+            self._closing = False
 
     def disable(self):
         self._require_qt()
         self._enabled, self._blocked = False, True
         self._connection = None
         with self._lock:
+            self._closing = True
             for call in self._pending.values():
                 call.cancelled.set()
+            cancelled = tuple(self._pending)
+        # aboutToQuit 이후에는 Qt queued ACK가 오지 않아도 네트워크 await를 해제한다.
+        loop = self._loop
+        if loop is not None and not loop.is_closed():
+            for correlation_id in cancelled:
+                try:
+                    loop.call_soon_threadsafe(self._complete, correlation_id, None, "stale_gateway")
+                except RuntimeError:
+                    break
 
     def attach(self, loop, event_sink):
         self._require_qt()
@@ -144,6 +157,8 @@ class QtGatewayAdapter(QObject):
         )
         call = _PendingCall(command, loop.create_future())
         with self._lock:
+            if self._closing:
+                raise AdapterError("stale_gateway")
             if len(self._pending) >= 32 or (
                 operation == "capture"
                 and any(

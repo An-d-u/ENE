@@ -8,7 +8,7 @@
 
 **기술:** 기존 Python/PyQt6/aiohttp/pytest/Node VM, Kotlin 2.2.21/Compose/Coroutines/OkHttp 5.3.2, Android AudioTrack·AudioManager, AndroidX WebKit 1.15.0. 기존 Live2D 웹 라이브러리는 출처·버전·권리 확인 후 그대로 고정한다.
 
-**검토 상태:** 계획 문서 리뷰 승인. A0/A1/A2/A3 완료, A4부터 순차 진행 중. 실기기 시험은 보류한다.
+**검토 상태:** 계획 문서 리뷰 승인. A0~A4 완료, B1부터 순차 진행 중. 실기기 시험은 보류한다.
 
 ---
 
@@ -175,11 +175,15 @@ PC 전용 정보는 새 `bridge_mixins/companion_pc.py`에 분리했다. 기존 
 
 **파일:** PC `tests/test_companion_app_lifecycle.py`, `test_companion_revocation.py`; 기존 Task 10의 수정 파일. APP 신규 구현 없음.
 
-- [ ] 기본 비활성, 리슨 성공 뒤 QR, gateway 재시작, queued 구등록 명령 차단, 20회 시작/종료 테스트를 추가한다.
-- [ ] `python -m pytest tests/test_companion_app_lifecycle.py tests/test_companion_revocation.py -q`로 실패를 확인한다.
-- [ ] Task 10을 구현하되 기존 TLS controller/identity를 재사용한다. 실제 앱이 smoke 가상 어댑터를 가져오지 않도록 한다.
-- [ ] 위 명령, 기존 Task 10의 집중 회귀, `python -m pytest -q`, `python -m ruff check . --select E9,F63,F7,F82`를 실행한다. 예상: 새 실패/스레드·socket 누수 없음.
-- [ ] `feat: ENE 모바일 연결 설정과 서버 수명 통합`으로 커밋한다. 실제 단말 왕복은 미검증으로 기록한다.
+- [x] 기본 비활성, 리슨 성공 뒤 QR, gateway 재시작, queued 구등록 명령 차단, 20회 시작/종료 테스트를 추가한다.
+- [x] `python -m pytest tests/test_companion_app_lifecycle.py tests/test_companion_revocation.py -q`로 실패를 확인한다.
+- [x] Task 10을 구현하되 기존 TLS controller/identity를 재사용한다. 실제 앱이 smoke 가상 어댑터를 가져오지 않도록 한다.
+- [x] 위 명령, 기존 Task 10의 집중 회귀, `python -m pytest -q`, `python -m ruff check . --select E9,F63,F7,F82`를 실행한다. 예상: 새 실패/스레드·socket 누수 없음.
+- [x] `feat: ENE 모바일 연결 설정과 서버 수명 통합`으로 커밋한다. 실제 단말 왕복은 미검증으로 기록한다.
+
+A4/A 통합 검증: 전체 PC 3,585개 통과·1개 건너뜀, `ruff --select E9,F63,F7,F82` 통과. A4 신규 19개에는 실제 TLS 서버 20회 반복, 포트 반환, 설정 저장 실패, 실제 WebBridge+가상 provider+TLS 소켓의 QR 승인/대화/중복 전송, 비상 종료 시 Qt ACK 없는 해제를 포함한다. 기존 서버·등록·앱 종료·설정·번역 집중 회귀 253개도 통과했다. 첫 전체 실행의 실패 3개는 옛 표시 신호/앱 대역의 계약을 갱신하여 해소한 뒤 전체를 재실행했다.
+
+통합 명세·품질 검토는 요청대로 단일 에이전트가 변경 범위와 검토 체크리스트를 대조했다. 종료 시 Qt 수락 권한을 먼저 폐기하고, 차단 뒤 새로 생성된 네트워크 호출도 즉시 거절하도록 보완했다. 일반 종료는 기존 비차단 drain에 참여하며, aboutToQuit 비상 경로에만 최대 200ms join을 허용한다. 제한 시간 초과는 고정 경고 코드로 남기고 정상 세션 종료로 기록하지 않는다. 연결 설정 저장은 기존 실패를 삼키는 Settings.save 대신 비밀 파일을 건드리지 않는 원자 저장 경계를 추가했다. 기존 TLS 등록 저장·실패 복원 구현은 그대로 재사용했다. 트레이의 새 표시 키와 새 오류 두 종류는 ko/en/ja에 함께 추가했고, 기존 연결 dialog의 한국어 설명은 유지했다. 원본 main·Android 소스는 A 단계에서 수정하지 않았고, 실기기 설치·왕복·오디오·캐릭터 시험은 미실시다.
 
 ## 6. B — PC 생성 음성과 자동 출력
 
