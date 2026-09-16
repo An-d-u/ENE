@@ -7,6 +7,7 @@ from PyQt6.QtCore import QObject, QTimer
 
 from .audio_buffer import AudioBufferError, PcmFormat, WavSource
 from .audio_coordinator import AudioCoordinator, AudioRef, CallbackAudioTransport
+from .character_playback import CharacterPlayback
 from .extension_protocol import ExtensionContext
 from .protocol import decode_message, encode_message
 from .requests import RequestRef
@@ -41,10 +42,13 @@ class CompanionAudioBridge(QObject):
         self._pc_analyzer = None
         self._wave_lips = None
         self._phone_available = False
+        self._pc_pending = None
+        self.playback = CharacterPlayback(owner)
         self.coordinator = AudioCoordinator(
             CallbackAudioTransport(self._publish),
             self,
             self._completed,
+            playback=self._phone_playback,
             stream_buffer_seconds=2,
         )
         self.timer = QTimer(self)
@@ -54,6 +58,9 @@ class CompanionAudioBridge(QObject):
     def _tick(self):
         try:
             self.coordinator.tick()
+            self.playback.tick()
+            if self.coordinator.active_ref is None and not self.playback.active:
+                self.timer.stop()
         except Exception as exc:
             self.owner._recover_tts_callback_exception(
                 "companion_audio_tick_failed", exc
@@ -64,6 +71,8 @@ class CompanionAudioBridge(QObject):
         return adapter is not None and adapter.publish_audio(command)
 
     def bind_worker(self, worker, completion):
+        self.playback.finish()
+        self._pc_pending = None
         self._stream_claim = None
         self._pc_analyzer = None
         bounded = getattr(worker, "enable_bounded_delivery", None)
@@ -99,6 +108,35 @@ class CompanionAudioBridge(QObject):
             if self.owner._companion_request_is_current(intent.request_ref)
             else None
         )
+
+    def pc_intent(self):
+        """텍스트 완료가 operation을 해제하기 전에 발화 소유권을 캡처한다."""
+        return self._playing[1] if self._pc_bypass and self._playing else self._intent()
+
+    def prepare_pc_stream(self):
+        self._pc_pending = self.pc_intent()
+
+    def pc_started(self, intent=None):
+        intent = intent or self._pc_pending
+        if intent is None or intent.pc_only or not self.owner._companion_request_is_current(intent.request_ref):
+            return
+        message = self.owner.chat_state.public_assistant_ids.get(intent.request_ref.key)
+        if message is None:
+            return
+        self.playback.begin({
+            "server_epoch": intent.request_ref.server_epoch,
+            "conversation_id": intent.request_ref.conversation_id,
+            "message_id": message, "utterance_id": intent.utterance_id,
+        }, "pc", self.owner.audio_player)
+        self.timer.start()
+
+    def _phone_playback(self, ref, frames, mouth):
+        rate = self.coordinator.active_sample_rate
+        if not rate or self._playing is None or self._playing[0] != ref:
+            return
+        self.playback.phone({
+            key: getattr(ref, key) for key in ("server_epoch", "conversation_id", "message_id", "utterance_id")
+        }, frames * 1000 // rate, mouth)
 
     def receive(self, context, message):
         if message.type == "audio_availability":
@@ -216,6 +254,7 @@ class CompanionAudioBridge(QObject):
     def play(self, raw):
         """준비 실패 때만 기존 PC 재생기를 호출한다."""
         self.owner.lip_sync_data = self._wave_lips
+        self.pc_started(self._playing[1] if self._playing else None)
         self.owner.audio_player.play(raw)
         if self.owner.lip_sync_data:
             self.owner._start_lip_sync()
@@ -312,7 +351,10 @@ class CompanionAudioBridge(QObject):
             return
         self._playing = None
         self._wave_lips = None
-        self.timer.stop()
+        if reason != "pc_fallback":
+            self.playback.finish()
+        if not self.playback.active:
+            self.timer.stop()
         if self._stream_claim == playing:
             if reason == "pc_fallback":
                 self._stream_claim = None
@@ -332,6 +374,8 @@ class CompanionAudioBridge(QObject):
         self._phone_available = False
         self.coordinator.disconnected()
         self.coordinator.context = None
+        self.playback.finish()
+        self.timer.stop()
 
     def cancel(self, reason, *, release=True):
         self._release_allowed = release
@@ -342,4 +386,6 @@ class CompanionAudioBridge(QObject):
                 self._release(self._held)
         finally:
             self._release_allowed = True
+            self._pc_pending = None
+            self.playback.finish()
             self.timer.stop()

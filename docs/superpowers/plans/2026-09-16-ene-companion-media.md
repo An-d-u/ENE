@@ -8,7 +8,7 @@
 
 **기술:** 기존 Python/PyQt6/aiohttp/pytest/Node VM, Kotlin 2.2.21/Compose/Coroutines/OkHttp 5.3.2, Android AudioTrack·AudioManager, AndroidX WebKit 1.15.0. 기존 Live2D 웹 라이브러리는 출처·버전·권리 확인 후 그대로 고정한다.
 
-**검토 상태:** 계획 문서 리뷰 승인. A0~A4, B1~B7, C1~C3 완료, C4부터 순차 진행 중. 실기기 시험은 보류한다.
+**검토 상태:** 계획 문서 리뷰 승인. A0~A4, B1~B7, C1~C4 완료, D1부터 순차 진행 중. 실기기 시험은 보류한다.
 
 ---
 
@@ -364,12 +364,16 @@ WebKit 신규 AAR/메타데이터 3개의 SHA-256을 공식 Google Maven 원본�
 
 **파일:** APP `T/CharacterRepositoryTest.kt`, `CharacterPlaybackTest.kt`, `I/CharacterScreenTest.kt`; 기존 `K/ui/ConnectionScreen.kt`, `K/character/CharacterRepository.kt`, `CharacterWebView.kt`, `K/connection/ExtensionSession.kt`, `K/MainActivity.kt` 수정. PC `tests/test_companion_character_playback.py`, 기존 `audio_coordinator.py`, `character_state.py` 수정.
 
-- [ ] snapshot/action 순서 공백, 같은 이벤트 중복, manifest 다운로드 도중 action, 새 모델 전 옛 action, 폰/PC 출력별 입 벌림, 750ms 무갱신, 화면 회전 후 state 재주입을 테스트한다.
-- [ ] APP `./gradlew.bat :app:testDebugUnitTest --tests "dev.ene.companion.CharacterRepositoryTest" --tests "dev.ene.companion.CharacterPlaybackTest" --offline --dependency-verification strict --console=plain`, PC `python -m pytest tests/test_companion_character_playback.py -q`로 실패를 확인한다.
-- [ ] 기존 Compose 채팅 상단에 AndroidView 캐릭터 영역을 추가하고 목록/입력 상태를 유지한다. 작은 화면/가로 화면에서는 캐릭터 높이를 제한하고 입력창을 가리지 않는다. 모델 받기/미지원/재시도 상태를 텍스트로 표시한다.
-- [ ] 음성 출력 기기의 실제 위치를 기준으로 입을 움직인다. 폰 로컬 PCM RMS와 반대편 `character_playback` 중 현재 출력 소유자 하나만 적용한다. 회전은 새 WebView에 현재 상태/위치를 주입하고 TTS 시작 메시지를 재전송하지 않는다.
-- [ ] manifest/모델을 받거나 화면을 재생성하는 동안의 일회성 action은 재생 대기열에 쌓지 않고 번호만 관찰한다. snapshot 적용 시 마지막 관찰 번호와 snapshot.action_seq 중 큰 값을 기준으로 삼고 이전 action을 모두 폐기한다. 기본 표정·설정은 최신 snapshot으로 복원하며 다운로드 때문에 지나간 제스처를 나중에 몰아서 재생하지 않는다.
-- [ ] 위 집중 시험, PC 캐릭터 Node VM 회귀, APP lint/build를 통과시킨다. `feat: 채팅 화면에 동기화된 캐릭터와 립싱크 연결`로 각각 커밋한다.
+- [x] snapshot/action 순서 공백, 같은 이벤트 중복, manifest 다운로드 도중 action, 새 모델 전 옛 action, 폰/PC 출력별 입 벌림, 750ms 무갱신, 화면 회전 후 state 재주입을 테스트한다.
+- [x] APP `./gradlew.bat :app:testDebugUnitTest --tests "dev.ene.companion.CharacterRepositoryTest" --tests "dev.ene.companion.CharacterPlaybackTest" --offline --dependency-verification strict --console=plain`, PC `python -m pytest tests/test_companion_character_playback.py -q`로 실패를 확인한다.
+- [x] 기존 Compose 채팅 상단에 AndroidView 캐릭터 영역을 추가하고 목록/입력 상태를 유지한다. 작은 화면/가로 화면에서는 캐릭터 높이를 제한하고 입력창을 가리지 않는다. 모델 받기/미지원/재시도 상태를 텍스트로 표시한다.
+- [x] 음성 출력 기기의 실제 위치를 기준으로 입을 움직인다. 폰 로컬 PCM RMS와 반대편 `character_playback` 중 현재 출력 소유자 하나만 적용한다. 회전은 새 WebView에 현재 상태/위치를 주입하고 TTS 시작 메시지를 재전송하지 않는다.
+- [x] manifest/모델을 받거나 화면을 재생성하는 동안의 일회성 action은 재생 대기열에 쌓지 않고 번호만 관찰한다. snapshot 적용 시 마지막 관찰 번호와 snapshot.action_seq 중 큰 값을 기준으로 삼고 이전 action을 모두 폐기한다. 기본 표정·설정은 최신 snapshot으로 복원하며 다운로드 때문에 지나간 제스처를 나중에 몰아서 재생하지 않는다.
+- [x] 위 집중 시험, PC 캐릭터 Node VM 회귀, APP lint/build를 통과시킨다. `feat: 채팅 화면에 동기화된 캐릭터와 립싱크 연결`로 각각 커밋한다.
+
+**C4 검증 기록(2026-09-17):** Android가 안전한 WebView API 지원 시 `character_v1`을 협상한다. 연결별 단일 다운로드를 취소·회수한 후 최신 요청 하나만 실행하며, 렌더러 예외는 채팅/음성으로 전파하지 않는다. 캐릭터 상태 흐름은 채팅 목록과 분리했다. 음성 echo 대신 로컬 PCM 위치를 사용하며 이전 발화 종료는 새 발화를 닫지 못한다. PC는 실제 장치 위치를 사용하고 반대편 상태를 최대 10Hz로 보낸다. 750ms 갱신 중단 시 입을 닫고, 장치 종료/오류/연결 종료는 콜백·타이머를 회수한다. 신호가 오지 않는 PC 표시 세션도 180.75초에 종료한다. 비공개 파일 응답은 표시 발화로 내보내지 않는다.
+
+PC 새 표시 시험 10개와 음성 경계 집중 43개, 기존 TTS/응답·Node VM 집중 72개 통과. 전체 `python -m pytest -q`: **3,865 통과·기존 제외 1개, 80.56초**. 전체 Ruff 기본 오류 검사 및 신규 경계 파일 Ruff 통과. APP 전체 JVM **39개 클래스/210개 시험, 실패·오류·제외 0**, offline strict Lint/debug/계측 APK 빌드 성공(52초). Lint 오류 0/경고 28개이며 추가 경고 1개는 보수적 화면 높이 계산의 `ConfigurationScreenWidthHeight` 사용 제안이다. 실제 화면/회전/SDK/오디오 계측 실행은 하지 않았다. 이 UI 경고는 D4 통합 UI 검토 때 다시 판단한다.
 
 ## 8. D — 공통 설정과 쓰다듬기
 

@@ -196,6 +196,9 @@ class TTSBridgeMixin:
         self._sync_controller.mark_started(self._get_stream_sync_elapsed_ms())
         self._ensure_stream_audio_output_started()
         self._flush_pending_response_if_any()
+        audio_bridge = getattr(self, "_companion_audio", None)
+        if audio_bridge is not None:
+            audio_bridge.pc_started()
 
         if self._stream_pending_pcm_chunks and self.audio_player:
             for chunk in self._stream_pending_pcm_chunks:
@@ -583,6 +586,11 @@ class TTSBridgeMixin:
 
     def _emit_mouth_signals(self, mouth_value: float, *, timestamp_sec: float | None = None) -> None:
         """기존 mouth open 시그널과 새 mouth pose 시그널을 함께 보낸다."""
+        audio_bridge = getattr(self, "_companion_audio", None)
+        if audio_bridge is not None:
+            if audio_bridge.playback.phone_active:
+                return
+            audio_bridge.playback.pc_mouth(float(mouth_value))
         self.lip_sync_update.emit(float(mouth_value))
 
         viseme = None
@@ -628,6 +636,8 @@ class TTSBridgeMixin:
             sample_rate, channels, sample_width
         ):
             return
+        if audio_bridge is not None:
+            audio_bridge.prepare_pc_stream()
         self._stream_audio_format = (int(sample_rate), int(channels), int(sample_width))
         self._stream_viseme_analyzer = VisemeStreamAnalyzer(
             sample_rate=sample_rate,
@@ -899,6 +909,7 @@ class TTSBridgeMixin:
         print(f"[Bridge] TTS 준비 완료: {audio_bytes} bytes, {frame_count} 프레임")
         audio_bridge = getattr(self, "_companion_audio", None)
         candidate = audio_bridge.wave_candidate(audio_data) if audio_bridge is not None else None
+        pc_intent = audio_bridge.pc_intent() if audio_bridge is not None else None
         try:
             self._stop_streaming_lip_sync(reset_mouth=False)
 
@@ -919,6 +930,8 @@ class TTSBridgeMixin:
         # 오디오 재생
         if audio_bridge is not None and audio_bridge.play_wave(candidate):
             return
+        if audio_bridge is not None:
+            audio_bridge.pc_started(pc_intent)
         self.audio_player.play(audio_data)
         
         # 립싱크 시작
@@ -980,6 +993,8 @@ class TTSBridgeMixin:
         # 시작 시간 기록
         self.lip_sync_start_time = QTime.currentTime()
         self.lip_sync_index = 0
+        self._lip_actual_position = None
+        self._lip_position_advanced_at = time.monotonic()
         
         # 타이머 생성 (10ms 간격으로 체크)
         self.lip_sync_timer = QTimer(self)
@@ -995,8 +1010,18 @@ class TTSBridgeMixin:
         
         from PyQt6.QtCore import QTime
         
-        # 경과 시간 계산 (초)
-        elapsed_ms = self.lip_sync_start_time.msecsTo(QTime.currentTime())
+        # 실제 출력 장치 위치를 우선 사용한다. 구형 로컬 재생기는 기존 경로를 보존한다.
+        position = getattr(self.audio_player, "position_ms", None)
+        stalled = False
+        if callable(position):
+            elapsed_ms = max(0, int(position()))
+            now = time.monotonic()
+            if self._lip_actual_position is None or elapsed_ms > self._lip_actual_position:
+                self._lip_actual_position = elapsed_ms
+                self._lip_position_advanced_at = now
+            stalled = now - self._lip_position_advanced_at >= 0.75
+        else:
+            elapsed_ms = self.lip_sync_start_time.msecsTo(QTime.currentTime())
         elapsed_sec = elapsed_ms / 1000.0
         
         # 현재 시간에 해당하는 립싱크 값 찾기
@@ -1015,7 +1040,10 @@ class TTSBridgeMixin:
         
         # 값 전송
         if found:
-            self._emit_mouth_signals(mouth_value, timestamp_sec=elapsed_sec)
+            self._emit_mouth_signals(
+                0.0 if stalled else mouth_value,
+                timestamp_sec=None if stalled else elapsed_sec,
+            )
         
         # 모든 데이터 처리 완료 시 타이머 종료
         if self.lip_sync_index >= len(self.lip_sync_data) - 1:

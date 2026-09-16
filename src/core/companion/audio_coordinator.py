@@ -93,6 +93,10 @@ class AudioCoordinator:
     def target(self):
         return self._active.route.target if self._active else "none"
 
+    @property
+    def active_sample_rate(self):
+        return self._active.source.format.sample_rate if self._active else None
+
     def availability(self, context, available):
         if self.context != context and self._active is not None:
             self.disconnected()
@@ -256,8 +260,11 @@ class AudioCoordinator:
         elif kind == "audio_cancel":
             self.cancel(entry.ref, values["reason"])
         elif kind == "audio_started":
-            if entry.route.started(now_ms=self._now_ms()) == "cancel":
+            action = entry.route.started(now_ms=self._now_ms())
+            if action == "cancel":
                 self.cancel(entry.ref, "playback_timeout")
+            elif action == "playing":
+                self._playback(entry.ref, 0, 0.0)
         elif kind == "audio_progress":
             action = entry.route.progress(
                 now_ms=self._now_ms(), played_frames=values["played_frames"]
