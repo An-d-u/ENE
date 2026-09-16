@@ -298,6 +298,8 @@ def test_gateway_recreation_does_not_reexecute_reserved_request():
 
 ## 10. Task 5 — Android QR·토큰 보관·재연결
 
+2026-09-16 후속 구현: Android `ConnectionRepository`·전경 수명·전체 스냅샷/이벤트·초안과 접수 원장 복구·CameraX/번들 ML Kit QR·최소 연결/채팅 화면을 추가했다. APK 경로는 별도 `ENE_APP` 저장소의 `app/build/outputs/apk/debug/app-debug.apk`다. 동기 저장 중 취소, 구연결 해석 폐기, 제어 응답/큐 상한, PC reset 전송 경합, 조회 완료 후 idle 대기, 정상 종료 직전 프레임 및 heartbeat 취소를 집중 검증한다. 인계 문서는 Android `docs/android-connection-validation.md`, 설치 절차는 `docs/build-and-install.md`다. 실기기 OS 권한·카메라·Keystore·회전·LAN 왕복은 아직 미검증이므로 Task 5의 단말 검증과 Task 6 수용 체크는 완료 처리하지 않는다. 원래 ENE `main`은 변경하지 않았다.
+
 **생성:** Android §3의 `connection/`, `pairing/`, `storage/`, `ui/ConnectionScreen.kt`, `ui/EneApp.kt`, `ui/Theme.kt`, 세 XML 정책 파일; 단위 테스트 `ConnectionRepositoryTest.kt`, `PairingQrTest.kt`, `HeartbeatTest.kt`; 계측 테스트 `TokenStoreTest.kt`, `PairingPermissionTest.kt`.
 
 진행 기록(미완료): `ENE_APP/`에 QR·주소 검증, 단조 생존 확인/재시도 간격, 실제 OkHttp 전송과 상한 있는 수신 큐, Keystore AES-GCM 보관, 주소 별도 보관 및 백업 제외 정책을 작성했다. 추가 집중 파일 `EndpointResolverTest.kt`, `CompanionSocketTest.kt`, `StoragePolicyTest.kt`를 사용한다. 정상 WS close가 최종 승인 프레임을 지우는 문제를 실패 시험으로 재현하고 정상 종료의 잔여 프레임 소비와 오류 종료의 폐기를 구분했다. 구현된 범위의 선택 단위 시험 **31개 통과**, 엄격 잠금/해시 검증 오프라인 debug 빌드 성공, Keystore 계측 코드 컴파일 성공. Keystore 실기기 실행은 하지 않았으며 앱 화면·연결 Repository·카메라 분석·전경 수명은 아직 작성하지 않았다. 현재 APK는 개발 기반 화면이며 사용 가능한 동반 앱 완성본이 아니다.
