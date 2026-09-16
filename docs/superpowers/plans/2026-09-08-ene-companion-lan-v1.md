@@ -325,6 +325,8 @@ val transport = OkHttpTransport(trust)
 
 ## 11. Task 6 — 조기 실제 휴대폰 연결 체크포인트
 
+2026-09-16 진행 순서 변경: 사용자의 결정으로 설치·실기기 시험은 보류한다. Task 6은 미완료/미검증으로 유지한 채 Task 7~10의 실제 ENE 통합과 자동 검증을 먼저 진행할 수 있다. 음성·캐릭터의 추가 범위는 [확장 설계](../specs/2026-09-16-ene-companion-media-design.md)를 기준으로 별도 계획을 작성한다. 이 결정은 단말 설치·방화벽 변경·배포 승인이 아니다.
+
 **생성:** PC `docs/companion-lan-v1-acceptance.md` 초기 결과표; Android `docs/build-and-install.md` 초기 설치 안내.
 
 - [ ] Android에서 `.\gradlew.bat :app:assembleDebug`를 실행한다. 개발 APK임을 표시하고 사용자 단말 선택·설치 동의를 확인한다. 단말 하나를 명확히 선택한 뒤 `adb devices -l`, `adb install -r app/build/outputs/apk/debug/app-debug.apk`로 설치한다. 실제 단말 serial은 문서/커밋에 넣지 않는다.
@@ -476,4 +478,4 @@ Task 2 이후의 핵심 검증 추적표:
 
 완료는 두 저장소의 소스·테스트·설치 문서가 독립적으로 관리되고, 승인 명세의 필수 시험이 실제 단말에서 확인되며, 서명된 설치 APK와 검증 기록을 인계한 상태다. 단순 APK 빌드나 계획 리뷰 승인으로 완료를 선언하지 않는다.
 
-V1 다음의 TTS·Live2D·쓰다듬기·기분 표시·공통 설정은 승인 설계 §12를 기준으로 별도 계획을 작성한다. 현재 계획에서는 capabilities 기본값과 텍스트 계약 보존만 준비한다. 모델 다운로드·WebView 렌더러·음성 재생·설정 원격 수정·화면 스트리밍·Tailscale 구현은 추가하지 않는다.
+2026-09-16 결정에 따른 TTS·Live2D·쓰다듬기·공통 설정은 확장 설계와 별도 구현 계획에서 다룬다. 이 텍스트 계획의 선행 작업과 계약 보존 요구는 유지한다. 설치 시험은 보류되었으며 기분 전용 화면·화면 스트리밍·Tailscale은 여전히 추가하지 않는다.
