@@ -45,6 +45,19 @@ class ExportError(ValueError):
     """민감한 경로 원문을 포함하지 않는 내보내기 오류."""
 
 
+def unsafe_link(path: Path) -> bool:
+    if path.is_symlink():
+        return True
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return False
+    # Python 3.11에서도 정션·기타 재분석 지점을 우회하지 못하게 한다.
+    return bool(getattr(info, "st_file_attributes", 0) & 0x400) or (
+        path.is_file() and info.st_nlink != 1
+    )
+
+
 def safe_path(root: Path, relative: str) -> Path:
     if (
         not isinstance(relative, str)
@@ -63,7 +76,7 @@ def safe_path(root: Path, relative: str) -> Path:
     path = root
     for part in parts:
         path = path / part
-        if path.is_symlink() or path.is_junction():
+        if unsafe_link(path):
             raise ExportError("링크 경로는 내보낼 수 없음")
     if not path.resolve().is_relative_to(root.resolve()):
         raise ExportError("기준 디렉터리 이탈")
@@ -141,8 +154,7 @@ def export(root: Path, android_root: Path) -> None:
     if (
         not android_root.is_absolute()
         or not android_root.is_dir()
-        or android_root.is_symlink()
-        or android_root.is_junction()
+        or unsafe_link(android_root)
     ):
         raise ExportError("기존 Android 프로젝트의 절대 경로가 필요함")
     if android_root.resolve().is_relative_to(root.resolve()):

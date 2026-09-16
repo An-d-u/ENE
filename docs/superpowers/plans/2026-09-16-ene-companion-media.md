@@ -8,7 +8,7 @@
 
 **기술:** 기존 Python/PyQt6/aiohttp/pytest/Node VM, Kotlin 2.2.21/Compose/Coroutines/OkHttp 5.3.2, Android AudioTrack·AudioManager, AndroidX WebKit 1.15.0. 기존 Live2D 웹 라이브러리는 출처·버전·권리 확인 후 그대로 고정한다.
 
-**검토 상태:** 계획 문서 리뷰 승인. A0~A4, B1~B7, C1 완료, C2부터 순차 진행 중. 실기기 시험은 보류한다.
+**검토 상태:** 계획 문서 리뷰 승인. A0~A4, B1~B7, C1~C2 완료, C3부터 순차 진행 중. 실기기 시험은 보류한다.
 
 ---
 
@@ -326,14 +326,20 @@ C1 검증: 공유 실행부 8개, 내보내기 10개, 기존 PC 채팅/모델 �
 
 ### C2. PC 안전한 모델 목록과 공개 상태
 
-**파일:** PC `src/core/companion/character_assets.py`, `character_state.py`, `tests/test_companion_character_assets.py`, `test_companion_character_state.py`; 기존 `media_http.py`, `overlay_window.py`, `bridge.py`, `bridge_mixins/companion.py` 수정.
+**파일:** PC `src/core/companion/character_assets.py`, `character_state.py`, `character_bridge.py`, `assets/web/runtime_companion_character.js`; 신규 `tests/test_companion_character_assets.py`, `test_companion_character_state.py`, `test_companion_character_bridge.py`, `test_companion_character_catalog.py`, `test_companion_character_http.py`. 기존 HTTP·세션·Qt 어댑터/컨트롤러·overlay/bridge·PC 공개 표정 경계 및 공유 실행부의 준비 알림만 수정했다. 내보내기 도구의 Python 3.11 호환 검사와 공통 Qt 시험 수명도 보완했다.
 
-- [ ] 임시 디렉터리에 직접 만든 model3 참조 JSON으로 경로 이탈, percent/이중 인코딩, 정션/링크, 외부 URL, Sound 제거, 변경 중 읽기, 해시·개수·크기·이미지 크기 제한을 시험한다. 바이너리 moc3 파싱을 가짜 JSON으로 성공 처리하지 않는다.
-- [ ] `python -m pytest tests/test_companion_character_assets.py tests/test_companion_character_state.py -q`로 실패를 확인한다.
-- [ ] 모델 루트는 PC 로컬 설정에서 선택된 것만 받는다. 참조 목록을 따라 허용 파일을 열고 §3.2로 변환한다. HTTP 핸들러에 임의 로컬 path 인자를 받는 API를 추가하지 않는다. hash/크기 제한은 읽는 동안에도 확인한다.
-- [ ] Qt 캐릭터 렌더러가 현재 모델의 parameter min/max와 실제 사용 가능한 표정/제스처 ID를 준비 완료 시 보고하게 한다. 모델 버전과 로컬 실행 세대를 대조한다. 이 카탈로그를 앱이 제출한 데이터로 대체하지 않는다.
-- [ ] PC expression/gesture 신호에서 공개 의미만 추출하고 순서 번호를 붙인다. 재연결 snapshot은 현재 기본 상태만 주고 지난 action을 재생하지 않는다. 모델 미지원은 캐릭터만 해제한다.
-- [ ] 같은 집중 시험과 `tests/test_companion_media_http.py`, `test_bridge_live2d_parameters.py`를 통과시키고 `feat: 인증된 모델 자산과 캐릭터 상태 제공`으로 커밋한다.
+- [x] 임시 디렉터리에 직접 만든 model3 참조 JSON으로 경로 이탈, percent/이중 인코딩, 정션/링크, 외부 URL, Sound 제거, 변경 중 읽기, 해시·개수·크기·이미지 크기 제한을 시험한다. Windows 실제 정션과 하드링크도 거절한다. 바이너리 moc3 파싱을 가짜 JSON으로 성공 처리하지 않는다.
+- [x] `python -m pytest tests/test_companion_character_assets.py tests/test_companion_character_state.py -q`로 실패를 확인한다. 상태/작업자 모듈 누락, HTTP 미구현 7개, PC 카탈로그 미구현 3개 및 Python 3.11 호환 실패 2개를 각각 확인한 뒤 구현했다.
+- [x] 모델 루트는 PC 로컬 설정에서 선택된 것만 받는다. 참조 목록을 따라 허용 파일을 열고 §3.2로 변환한다. HTTP 핸들러에 임의 로컬 path 인자를 받는 API를 추가하지 않는다. hash/크기 제한은 읽는 동안에도 확인한다.
+- [x] Qt 캐릭터 렌더러가 현재 모델의 parameter min/max와 실제 사용 가능한 표정/제스처 ID를 준비 완료 시 보고하게 한다. 모델 버전과 로컬 실행 세대를 대조한다. 이 카탈로그를 앱이 제출한 데이터로 대체하지 않는다.
+- [x] PC expression/gesture 신호에서 공개 의미만 추출하고 순서 번호를 붙인다. 재연결 snapshot은 현재 기본 상태만 주고 지난 action을 재생하지 않는다. 모델 미지원은 캐릭터만 해제한다.
+- [x] 같은 집중 시험과 `tests/test_companion_media_http.py`, `test_bridge_live2d_parameters.py`를 통과시키고 `feat: 인증된 모델 자산과 캐릭터 상태 제공`으로 커밋한다.
+
+C2 검증: 신규 캐릭터 시험 45개와 내보내기 호환 회귀 1개를 추가했다. 집중·기존 미디어 회귀 통과 후 `python -m pytest -q -x -o faulthandler_timeout=30 --tb=short` 전체 3,854개 통과/1개 기존 건너뛰기(81.07초), 기본 Ruff·신규 파일 Ruff·실행부 해시·BOM/diff 검사 통과. 실제 Python 3.11에서도 내보내기 `--check`를 통과했다. 로컬 3.11에는 pytest가 없어 전체 시험은 설치된 3.12에서 실행했으며, CI의 3.11 실행 완료를 주장하지 않는다.
+
+자산 읽기는 취소 가능한 작업자 한 개와 최신 대기 선택 한 개로 제한한다. 비활성 상태에서는 모델 파일을 읽지 않고, 종료 시 파일 작업자까지 회수하기 전에는 컨트롤러 종료를 알리지 않는다. 파일 해시 검사와 PC SDK 준비/카탈로그 확인이 모두 끝나야 `ready`다. 프리뷰는 원격 확정 상태를 바꾸지 않는다. HTTP는 불변 바이트만 받아 전송하며 현재 WSS·기능 협상·TLS·모델 revision을 확인하고, 모델 변경/단절은 지연된 전송도 취소한다. 일반 설정 JSON, 표시 정보, 사용자 데이터 및 선택적 Sound 파일은 전달하지 않는다.
+
+검증 중 두 호환 문제를 수정했다. Windows의 stat/fstat 시각 의미 차이는 명시적 생성 시각과 열린 핸들의 변경 시각을 분리해 검사한다. 3.11에서는 기존 ctime 의미를 사용하며 정션은 파일의 재분석 속성으로 검사한다. 또한 전체 회귀에서만 기존 Qt 중첩 이벤트 루프가 정체됐다. 관련 검사와 분할 실행은 통과했고, Qt 앱 객체를 전체 시험 동안 하나로 유지하자 전체 실행도 통과했다. 공통 시험 fixture가 앱 객체의 수명을 세션 단위로 유지하도록 고쳤으며 제품 코드를 우회하거나 시험을 생략하지 않았다. 실제 WebGL/SDK 모델·Android 단말 시험은 여전히 미실시다.
 
 ### C3. Android 모델 캐시와 WebView 보안
 

@@ -67,6 +67,7 @@ class WebBridge(
     message_received = pyqtSignal(str, str, str)  # (텍스트, 감정, 생각)
     companion_event = pyqtSignal(object)  # 비공개 메타데이터 없는 불변 공개 이벤트
     companion_admission_result = pyqtSignal(object)  # 준비 후 확정 수락·완료 결과
+    character_catalog_requested = pyqtSignal(str)  # 로컬 렌더러 세대·자산 버전 확인
     chat_display_event = pyqtSignal(str)  # 공개 ID와 PC 전용 표시 정보
     chat_admission_result = pyqtSignal(str)  # PC 초안 정리를 위한 JSON 결과
     gesture_requested = pyqtSignal(str)  # 합성 Live2D 제스처 키

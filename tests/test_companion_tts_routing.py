@@ -308,12 +308,14 @@ def test_ptt_cancels_phone_without_pc_replay_and_finishes_gate(routed_bridge):
     assert bridge._companion_audio.coordinator.active_ref is None
 
 
-def test_controller_only_advertises_installed_audio_boundary(routed_bridge):
+def test_controller_only_advertises_installed_media_boundaries(routed_bridge):
     from src.core.companion.controller import CompanionController
 
     bridge, _, _, _, _ = routed_bridge
     controller = CompanionController(bridge)
-    assert controller._capabilities == ("audio_pcm_v1",)
+    assert controller._capabilities == ("audio_pcm_v1", "character_v1")
+    assert controller._character is bridge._companion_character
+    assert "character_controls_v1" not in controller._capabilities
 
 
 def test_settings_disable_cancels_phone_and_reenable_reuses_current_availability(

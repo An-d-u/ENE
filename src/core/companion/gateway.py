@@ -171,6 +171,12 @@ class CompanionGateway:
         app.router.add_get(
             "/companion/v1/audio/{utterance_id}", self._media.audio, allow_head=False
         )
+        app.router.add_get(
+            "/companion/v1/character/manifest", self._media.character_manifest, allow_head=False
+        )
+        app.router.add_get(
+            "/companion/v1/character/assets/{asset_id}", self._media.character_asset, allow_head=False
+        )
         # 자격증명이 URL/헤더/예외에 포함될 수 있으므로 액세스 로그를 만들지 않는다.
         self._runner = web.AppRunner(app, access_log=None, shutdown_timeout=2)
         try:

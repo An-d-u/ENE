@@ -22,6 +22,8 @@ window.setLive2DRootMotionOffsets = function (offsets = {}) {
     applyCurrentModelPlacement();
 };
 function removeCurrentModelArtifacts() {
+    currentModelReadyToken = 0;
+    currentModelFailedToken = 0;
     detachExpressionUpdateHook();
     if (window.live2dModel) {
         const removedModel = window.live2dModel;
@@ -310,6 +312,7 @@ window.applyENEModelSettings = async function applyENEModelSettings(config) {
     if (typeof window.onLive2DParameterModelChanged === 'function') {
         window.onLive2DParameterModelChanged(window.eneModelConfig);
     }
+    window.notifyCompanionCharacterReady?.();
 };
 
 // Live2D 모델 파일을 로드하고 초기 배치/초기 모션을 적용한다.
@@ -386,11 +389,15 @@ async function loadModel() {
         if (typeof window.onLive2DParameterModelChanged === 'function') {
             window.onLive2DParameterModelChanged(window.eneModelConfig);
         }
+        currentModelReadyToken = requestToken;
+        window.notifyCompanionCharacterReady?.();
 
     } catch (error) {
         if (characterDisposed || requestToken !== currentModelLoadToken || (typeof isImageAvatarMode === 'function' && isImageAvatarMode())) {
             return;
         }
+        currentModelFailedToken = requestToken;
+        window.notifyCompanionCharacterReady?.();
         console.error("Failed to load Live2D model");
         console.error("Error:", error);
         console.error("Error type:", error.constructor.name);

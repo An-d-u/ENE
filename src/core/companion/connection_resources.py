@@ -21,6 +21,8 @@ class ConnectionResources:
         self.audio_id = self.audio_source = None
         self.audio_consumed = self.audio_cancelled = False
         self.audio_ready = asyncio.Event()
+        self.character_revision = 0
+        self.character_version = None
 
     @property
     def active_count(self):
@@ -63,6 +65,18 @@ class ConnectionResources:
 
     def release(self, task):
         self._tasks.pop(task, None)
+
+    def observe_character(self, revision, version, *, exclude=None):
+        """늦은 Qt 캡처가 최신 모델 무효화를 되돌리지 못하게 한다."""
+        if revision < self.character_revision:
+            return False
+        changed = version != self.character_version
+        self.character_revision, self.character_version = revision, version
+        if changed:
+            for task, kind in tuple(self._tasks.items()):
+                if kind in {"asset", "manifest"} and task is not exclude:
+                    task.cancel()
+        return True
 
     def cancel_audio(self):
         self.audio_cancelled = True

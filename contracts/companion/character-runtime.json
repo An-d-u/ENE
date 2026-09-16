@@ -39,12 +39,12 @@
     {
       "source": "assets/web/runtime_character_state.js",
       "target": "runtime_character_state.js",
-      "sha256": "ec05c520bb73912ed2db030e985aba0179e35a7b8ae398fa54ba0357e478d0c9"
+      "sha256": "52ba597bc916fbf6c2d2aa74be8f80958d274b45ec22388723dbc739c8e0a6e1"
     },
     {
       "source": "assets/web/runtime_live2d_model.js",
       "target": "runtime_live2d_model.js",
-      "sha256": "b9eb0a08f6f03622fbe680dff8a6391b75e67c5251ed33e5cc30c38fb7c30c0a"
+      "sha256": "2b8791d2289267304ece83f314e3f336bd6ed0b090edc6a67ec33a7a4ff7c686"
     },
     {
       "source": "assets/web/runtime_motion_state.js",

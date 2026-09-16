@@ -1,10 +1,14 @@
-"""고정 음성 경로만 제공한다. 인증 후 정책 검사와 자원 예약을 마친 뒤 전송한다."""
+"""인증된 현재 연결에 고정 미디어 경로만 제공한다. HTTP에서 로컬 파일을 열지 않는다."""
 
 import asyncio
+import json
+import re
 
 from aiohttp import web
 
 from .connection_resources import MediaError
+from .adapter import AdapterError
+from .character_assets import AssetError
 from .protocol import ProtocolError, uuid_value
 
 
@@ -32,6 +36,76 @@ class MediaHttp:
     def __init__(self, authorize, validate_connection):
         self._authorize = authorize
         self._validate_connection = validate_connection
+
+    async def character_manifest(self, request):
+        return await self._character(request, "manifest")
+
+    async def character_asset(self, request):
+        return await self._character(request, "asset")
+
+    async def _character(self, request, kind):
+        task = resources = None
+        try:
+            session = self._authorize(request)
+            resources = session.resources
+            if not resources.rate.take():
+                raise MediaError("rate_limited", 429)
+            validate_policy(request)
+            if "character_v1" not in session.capabilities:
+                raise MediaError("not_found", 404)
+            key = request.match_info.get("asset_id", "")
+            if kind == "asset" and re.fullmatch("[a-f0-9]{64}", key) is None:
+                raise MediaError("invalid_request", 400)
+            task = resources.acquire(kind)
+            self._validate_connection()
+            capture = await session.adapter.call("character_capture", session.context)
+            self._validate_connection()
+            snapshot = json.loads(capture.body)
+            version = snapshot["model_version"]
+            fresh = resources.observe_character(snapshot["state_revision"], version, exclude=task)
+            if resources.closed or (not fresh and (kind == "manifest" or version != resources.character_version)):
+                raise MediaError("not_found", 404)
+            if kind == "manifest":
+                body, mime = capture.body, "application/json"
+            else:
+                if capture.bundle is None:
+                    raise MediaError("not_found", 404)
+                asset = capture.bundle.asset(key)
+                body, mime = asset.body, asset.mime
+        except (AdapterError, AssetError):
+            if resources is not None:
+                resources.release(task)
+            return media_response("not_found", 404)
+        except MediaError as error:
+            if resources is not None:
+                resources.release(task)
+            return media_response(error.code, error.status)
+        except BaseException:
+            if resources is not None:
+                resources.release(task)
+            raise
+        response = web.StreamResponse(headers={
+            "Cache-Control": "no-store", "Content-Type": mime,
+            "Content-Length": str(len(body)), "X-Content-Type-Options": "nosniff",
+        })
+        complete = False
+        try:
+            async with asyncio.timeout(60):
+                await asyncio.wait_for(response.prepare(request), 10)
+                view = memoryview(body)
+                for offset in range(0, len(body), 65536):
+                    self._validate_connection()
+                    if resources.closed or version != resources.character_version:
+                        raise MediaError("not_found", 404)
+                    await asyncio.wait_for(response.write(view[offset:offset + 65536]), 10)
+                self._validate_connection()
+                await asyncio.wait_for(response.write_eof(), 10)
+                complete = True
+            return response
+        finally:
+            resources.release(task)
+            if not complete and request.transport is not None:
+                request.transport.close()
 
     async def audio(self, request):
         try:

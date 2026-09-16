@@ -7,6 +7,7 @@ import shutil
 
 import pytest
 
+
 from tools.export_companion_character import (
     ExportError,
     export,
@@ -16,6 +17,13 @@ from tools.export_companion_character import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_export_path_validation_supports_python311(tmp_path, monkeypatch):
+    from tools.export_companion_character import safe_path
+
+    monkeypatch.delattr(Path, "is_junction", raising=False)
+    assert safe_path(tmp_path, "synthetic.js") == tmp_path / "synthetic.js"
 
 
 def test_repository_bundle_has_only_pinned_runtime_and_notices():

@@ -331,6 +331,7 @@ class OverlayWindow(QWidget):
             f"                xPercent: {json.dumps(payload['xPercent'])},\n"
             f"                yPercent: {json.dumps(payload['yPercent'])},\n"
             f"                avatarMode: {json.dumps(payload['avatarMode'])},\n"
+            f"                companionModelGeneration: {json.dumps(payload.get('companionModelGeneration', ''))},\n"
             f"                modelPath: {json.dumps(payload['modelPath'])},\n"
             f"                emotionsBasePath: {json.dumps(payload['emotionsBasePath'])},\n"
             f"                availableEmotions: {json.dumps(payload['availableEmotions'])},\n"
@@ -689,6 +690,18 @@ class OverlayWindow(QWidget):
 
     def _apply_model_settings(self):
         model_config = self._resolve_model_config_payload()
+        prepare = getattr(self.__dict__.get("bridge"), "_companion_prepare_character", None)
+        if callable(prepare):
+            from .companion.character_state import SETTING_KEYS
+
+            path = None if model_config["avatarMode"] == "image" else resolve_model_json_path(
+                settings_source=self.settings, base_path=self._get_base_path(),
+            )
+            model_config["companionModelGeneration"] = prepare(
+                path, model_config["availableEmotions"],
+                {key: self.settings.get(key) for key in SETTING_KEYS},
+                model_config["parameterOverrides"].get("values", {}),
+            )
         scale = model_config["scale"]
         x_percent = model_config["xPercent"]
         y_percent = model_config["yPercent"]
@@ -762,6 +775,9 @@ class OverlayWindow(QWidget):
         self.settings.save()
 
     def preview_settings(self, new_settings: dict):
+        character = getattr(self.__dict__.get("bridge"), "_companion_character", None)
+        if character is not None:
+            character.preview(True)
         self.move(new_settings.get("window_x", self.settings.get("window_x", 100)),
                   new_settings.get("window_y", self.settings.get("window_y", 100)))
         self.resize(

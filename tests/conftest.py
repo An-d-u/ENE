@@ -4,6 +4,21 @@ from google import genai as _google_genai  # noqa: F401
 import pytest
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _shared_qt_application():
+    """실제 앱처럼 Qt 앱 객체를 하나만 소유해 시험 사이의 파괴·재생성을 막는다."""
+    import os
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtWidgets import QApplication
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    application = QApplication.instance()
+    if application is None:
+        QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts, True)
+        application = QApplication([])
+    yield application
+
+
 _HTTP_LLM_TEST_MODULES = {
     "test_http_llm_clients_multimodal_history",
     "test_http_llm_clients_openai",

@@ -4,6 +4,7 @@ import asyncio
 from contextlib import ExitStack
 from dataclasses import replace
 import threading
+import time
 from uuid import uuid4
 
 from PyQt6.QtCore import QObject, QTimer, Qt, pyqtSignal, pyqtSlot
@@ -39,7 +40,8 @@ class CompanionController(QObject):
         # Qt에서 확정한 불변 값만 서버 스레드로 전달한다.
         self._capabilities = tuple(
             getattr(getattr(owner, "_companion_audio", None), "capabilities", ())
-        )
+        ) + tuple(getattr(getattr(owner, "_companion_character", None), "capabilities", ()))
+        self._character = getattr(owner, "_companion_character", None)
         self.state = GatewayState(False, None, False, None, None)
         self._store_factory, self._endpoint_provider = store_factory, endpoint_provider
         self._thread = self._loop = None
@@ -59,7 +61,7 @@ class CompanionController(QObject):
 
     @property
     def has_thread(self):
-        return self._thread is not None
+        return self._thread is not None or bool(self._character and self._character.is_running)
 
     def isRunning(self):
         """앱의 기존 비차단 worker drain에 참여한다. Qt 정리까지 기다린다."""
@@ -74,10 +76,13 @@ class CompanionController(QObject):
 
     def emergency_stop(self):
         """이벤트 루프가 끝나는 비상 경로에서만 최대 200ms를 기다린다."""
+        deadline = time.monotonic() + 0.2
         self.stop()
+        if self._character is not None:
+            self._character.emergency_join(max(0, deadline - time.monotonic()))
         thread = self._thread
         if thread is not None:
-            thread.join(timeout=0.2)
+            thread.join(timeout=max(0, deadline - time.monotonic()))
             if not thread.is_alive():
                 self._finish_thread()
 
@@ -233,6 +238,9 @@ class CompanionController(QObject):
             QTimer.singleShot(10, self._finish_thread)
             return
         self.adapter.disable()
+        if self._character is not None and self._character.is_running:
+            QTimer.singleShot(20, self._finish_thread)
+            return
         self.adapter.detach()
         self._thread = self._loop = None
         self._action_pending = False

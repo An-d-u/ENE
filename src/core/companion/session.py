@@ -386,6 +386,8 @@ class CompanionSession:
                 )
             except ProtocolError:
                 return
+            if message.type == "character_changed":
+                self.resources.observe_character(value["state_revision"], value["model_version"])
             self.queue(message, control=True)
             return
         if message.type == "resync_required":

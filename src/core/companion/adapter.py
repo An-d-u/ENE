@@ -98,12 +98,18 @@ class QtGatewayAdapter(QObject):
         self._enabled, self._blocked = True, False
         with self._lock:
             self._closing = False
+        character = getattr(self._owner, "_companion_character", None)
+        if character is not None:
+            character.activate()
 
     def disable(self):
         self._require_qt()
         self._enabled, self._blocked = False, True
         self._connection = None
         self._notify_owner_disconnect()
+        character = getattr(self._owner, "_companion_character", None)
+        if character is not None:
+            character.deactivate()
         with self._lock:
             self._closing = True
             for call in self._pending.values():
@@ -189,6 +195,7 @@ class QtGatewayAdapter(QObject):
             "connect",
             "disconnect",
             "capture",
+            "character_capture",
             "send",
             "extension",
             "block",
@@ -313,6 +320,11 @@ class QtGatewayAdapter(QObject):
             raise AdapterError("stale_connection")
         if operation == "capture":
             return self._owner.capture(context.registration_generation, command.pending)
+        if operation == "character_capture":
+            character = getattr(self._owner, "_companion_character", None)
+            if character is None:
+                raise AdapterError("unsupported_command")
+            return character.state.capture()
         if operation == "extension" and isinstance(command.message, WireMessage):
             from .extension_protocol import (
                 CAPABILITIES,
@@ -354,6 +366,18 @@ class QtGatewayAdapter(QObject):
             except Exception:
                 # PC 재생 복구가 실패해도 연결 차단과 대기 호출 회수는 계속한다.
                 print("[Companion] audio_disconnect_cleanup_failed")
+
+    def publish_extension(self, kind, fields):
+        """현재 Qt 연결 식별자를 붙인다. 협상 여부는 서버 세션에서 다시 검사한다."""
+        self._require_qt()
+        if not self._enabled or self._blocked or self._connection is None:
+            return
+        self.publish({
+            **fields, "type": kind, "protocol_version": 1,
+            "registration_generation": self._registration,
+            "server_epoch": self._owner.head().server_epoch,
+            "connection_generation": self._connection,
+        })
 
     def publish(self, event):
         self._require_qt()

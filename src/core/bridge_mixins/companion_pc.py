@@ -89,6 +89,9 @@ class CompanionPCBridgeMixin:
                 ensure_ascii=False,
             )
         )
+        character = getattr(self, "_companion_character", None)
+        if character is not None and emotion is not None and message.get("role") == "assistant":
+            character.expression(emotion)
 
     def _emit_pc_processing(self, event):
         if isinstance(event, TranscriptEvent) and event.op == "processing":

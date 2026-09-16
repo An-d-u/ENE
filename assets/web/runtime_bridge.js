@@ -5,6 +5,10 @@
 if (typeof QWebChannel !== 'undefined') {
     new QWebChannel(qt.webChannelTransport, function (channel) {
         window.pyBridge = channel.objects.bridge;
+        if (window.pyBridge.character_catalog_requested && typeof window.requestCompanionCharacterCatalog === 'function') {
+            window.pyBridge.character_catalog_requested.connect(window.requestCompanionCharacterCatalog);
+            window.pyBridge.request_companion_character_catalog?.();
+        }
         if (typeof connectCompanionChatBridge === 'function') connectCompanionChatBridge(window.pyBridge);
         console.log("QWebChannel bridge connected");
         updateRerollButtonState();

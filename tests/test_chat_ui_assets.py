@@ -32,6 +32,7 @@ EXPECTED_RUNTIME_SCRIPTS = [
     "runtime_bridge.js",
     "runtime_lipsync.js",
     "runtime_live2d_parameter_core.js",
+    "runtime_companion_character.js",
     "runtime_character_host.js",
     "runtime_live2d_parameter_ui.js",
     "runtime_live2d_parameters.js",
@@ -1478,6 +1479,8 @@ def test_stale_live2d_load_failure_does_not_show_error_in_image_avatar_mode():
         "        if (characterDisposed || requestToken !== currentModelLoadToken || (typeof isImageAvatarMode === 'function' && isImageAvatarMode())) {\n"
         "            return;\n"
         "        }\n"
+        "        currentModelFailedToken = requestToken;\n"
+        "        window.notifyCompanionCharacterReady?.();\n"
         "        console.error(\"Failed to load Live2D model\");"
     ) in script
 

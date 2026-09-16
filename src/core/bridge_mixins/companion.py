@@ -5,7 +5,7 @@ from hashlib import sha256
 import json
 from uuid import uuid4
 
-from PyQt6.QtCore import QThread
+from PyQt6.QtCore import QThread, pyqtSlot
 
 from ...ai.chat_commands import (
     parse_diary_command,
@@ -37,6 +37,35 @@ class CompanionBridgeMixin:
             from ..companion.audio_bridge import CompanionAudioBridge
 
             self._companion_audio = CompanionAudioBridge(self)
+        if hasattr(self, "character_catalog_requested"):
+            self._ensure_companion_character()
+
+    def _ensure_companion_character(self):
+        if not hasattr(self, "_companion_character"):
+            from ..companion.character_bridge import CompanionCharacterBridge
+
+            self._companion_character = CompanionCharacterBridge(self)
+        return self._companion_character
+
+    def _companion_prepare_character(self, path, emotions, settings, parameters):
+        return self._ensure_companion_character().select(path, emotions, settings, parameters)
+
+    @pyqtSlot(str)
+    def report_companion_character_catalog(self, value):
+        character = getattr(self, "_companion_character", None)
+        if character is None or not isinstance(value, str) or len(value) > 65536:
+            return
+        try:
+            if len(value.encode("utf-8")) <= 65536:
+                character.catalog(json.loads(value))
+        except (ValueError, UnicodeError, RecursionError):
+            pass
+
+    @pyqtSlot()
+    def request_companion_character_catalog(self):
+        character = getattr(self, "_companion_character", None)
+        if character is not None:
+            character.request_catalog()
 
     def submit_extension(self, context, message):
         from ..companion.extension_protocol import ExtensionContext, validate_extension
@@ -51,9 +80,14 @@ class CompanionBridgeMixin:
                 context.connection_generation,
                 head.conversation_id,
             ),
-            ("audio_pcm_v1",),
+            ("audio_pcm_v1", "character_v1"),
             direction="from_phone",
         )
+        if message.type == "character_snapshot_request":
+            character = getattr(self, "_companion_character", None)
+            if character is not None:
+                character.changed("requested")
+            return None
         return self._companion_audio.receive(context, message)
 
     def _companion_connection_closed(self):
