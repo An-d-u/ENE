@@ -78,7 +78,6 @@ let headPatFadeOutMs = 220;
 let headPatActiveEmotion = 'normal';
 let headPatEndEmotion = 'normal';
 let headPatEndEmotionDurationMs = 5000;
-let headPatSessionCounted = false;
 let headPatSavedEyeBlink = undefined;
 let headPatEyeBlinkDisabled = false;
 
@@ -641,6 +640,7 @@ function clearHeadPatGestureCarryover() {
 function resetHeadPatMotionState(options = {}) {
     const resetPointer = Boolean(options.resetPointer);
     if (resetPointer) {
+        if (typeof cancelHeadPatInteraction === 'function') cancelHeadPatInteraction();
         isHeadPatting = false;
         headPatPointerId = null;
     }

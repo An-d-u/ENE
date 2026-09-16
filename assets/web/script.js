@@ -9,11 +9,20 @@ console.log("=== ENE web runtime chunks loaded ===");
 // 개인 모델 경로와 Qt 호출은 PC 호스트에만 둔다. 모바일 묶음에는 이 파일을 넣지 않는다.
 window.eneCharacter = window.createCharacter({
     kind: 'pc', defaultModelPath: DEFAULT_MODEL_PATH,
+    currentModel() { return window.eneModelConfig?.companionModelGeneration || ''; },
     assetUrl(kind, id) {
         return kind === 'expression' ? new URL(`${id}.exp3.json`, currentEmotionsBasePath).href : id;
     },
     emitInput(value) {
-        if (value.type === 'head_pat_completed') window.pyBridge?.increment_head_pat_count_from_js?.();
+        if (value.type === 'head_pat_input') {
+            if (typeof window.pyBridge?.submit_head_pat_input !== 'function') return false;
+            window.pyBridge.submit_head_pat_input(JSON.stringify(value), raw => {
+                try {
+                    const answer = JSON.parse(raw);
+                    window.eneCharacter?.applyHeadPat({...value, source:'pc', ...answer});
+                } catch (_) { window.eneCharacter?.applyHeadPat({...value, source:'pc', phase:'cancelled'}); }
+            });
+        }
         if (value.type === 'resize' && chatPanelHeightPx !== null) applyChatPanelHeight(chatPanelHeightPx);
     }
 }, document.getElementById('live2d-canvas'));

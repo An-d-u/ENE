@@ -5,7 +5,7 @@ window.createCharacter = function createCharacter(host, canvas) {
         throw new Error('캐릭터 호스트가 올바르지 않습니다.');
     }
     app = new PIXI.Application({view: canvas, transparent: true, backgroundAlpha: 0, resizeTo: window, antialias: true});
-    characterHost = host;
+    characterHost = {...host, currentModel: host.currentModel || (() => version)};
     characterCanvas = canvas;
     characterDisposed = false;
     let disposed = false;
@@ -27,6 +27,7 @@ window.createCharacter = function createCharacter(host, canvas) {
         parameterModel = null; parameterHook = null;
     }
     function reset() {
+        cancelHeadPatInteraction();
         loadingModel = null;
         currentModelLoadToken++;
         characterExpressionGeneration++;
@@ -118,5 +119,5 @@ window.createCharacter = function createCharacter(host, canvas) {
     window.addEventListener('pagehide', dispose);
     ensureHeadPatEventBindings();
     characterTrackingFrame = requestAnimationFrame(updateMouseTracking);
-    return Object.freeze({applySnapshot, applyAction, applyPlayback, dispose});
+    return Object.freeze({applySnapshot, applyAction, applyPlayback, applyHeadPat:applyHeadPatState, dispose});
 };

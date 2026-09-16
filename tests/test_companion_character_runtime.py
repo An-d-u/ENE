@@ -49,6 +49,7 @@ const model = () => ({
     destroy() {calls.push('destroyModel');}, motion() {}, hitTest() {return ['Head'];}
 });
 const context = {
+    crypto: {randomUUID:()=> '00000000-0000-4000-8000-'+String(++id).padStart(12,'0')},
     console: {log(){}, warn(){}, error(){}}, URL, AbortController,
     location: {href:'https://appassets.androidplatform.net/character/index.html'},
     innerWidth:400, innerHeight:600, performance:{now:()=>now},
@@ -99,7 +100,7 @@ def test_shared_runtime_without_chat_and_dispose_clears_callbacks(kind):
         f"host.kind={json.dumps(kind)};"
         + r"""
 const character=context.createCharacter(host,canvas);
-assert.deepEqual(Object.keys(character).sort(),['applyAction','applyPlayback','applySnapshot','dispose']);
+assert.deepEqual(Object.keys(character).sort(),['applyAction','applyHeadPat','applyPlayback','applySnapshot','dispose']);
 assert.equal(calls.filter(x=>x==='createApp').length,1);
 await character.applySnapshot(snapshot);
 assert.ok(calls.some(x=>x.endsWith(snapshot.entry_asset_id)));
@@ -176,14 +177,14 @@ character.dispose();
 
 def test_actual_pc_adapter_retains_local_model_and_count_boundary():
     run_character(r"""
-let count=0;
-context.pyBridge={increment_head_pat_count_from_js(){count++;}};
+let count=0; const submitted=[];
+context.pyBridge={increment_head_pat_count_from_js(){count++;}, submit_head_pat_input(raw, done){submitted.push(JSON.parse(raw));done(JSON.stringify({phase:'rejected'}));}};
 vm.runInContext("const DEFAULT_MODEL_PATH='https://synthetic.invalid/model.model3.json'; let chatPanelHeightPx=null;",ctx);
 vm.runInContext(PC_ENTRY,ctx);
 await Promise.resolve(); await Promise.resolve();
 assert.ok(calls.includes('https://synthetic.invalid/model.model3.json'));
-vm.runInContext('notifyHeadPatSessionCount()',ctx);
-assert.equal(count,1);
+vm.runInContext("characterHost.emitInput({type:'head_pat_input', model_generation:'synthetic',interaction_id:'synthetic',phase:'start',seq:0,intensity:.3})",ctx);
+assert.equal(count,0);assert.equal(submitted.length,1);
 context.eneCharacter.dispose();
 assert.equal(frames.size,0);assert.equal(timers.size,0);assert.equal(listeners.size,0);
 """)
@@ -199,4 +200,62 @@ character.dispose();character.dispose();
 assert.equal(context.live2dModel,null);
 assert.equal(frames.size,0);assert.equal(timers.size,0);assert.equal(listeners.size,0);
 assert.equal(vm.runInContext('app',ctx),null);
+""")
+
+
+def test_head_pat_stationary_heartbeat_and_end_are_inputs_not_direct_counts():
+    run_character(r"""
+const character=context.createCharacter(host,canvas);await character.applySnapshot(snapshot);
+const event={pointerType:'touch',button:0,pointerId:1,clientX:50,clientY:50,target:canvas,preventDefault(){}};
+listeners.get('canvas:pointerdown')(event);
+assert.equal(inputs[0].type,'head_pat_input');assert.equal(inputs[0].phase,'start');
+now+=500;const pending=[...timers.values()];timers.clear();pending.forEach(fn=>fn());
+assert.equal(inputs[1].phase,'update');assert.equal(inputs[1].seq,1);
+listeners.get('window:pointerup')(event);listeners.get('window:pointerup')(event);
+assert.deepEqual(inputs.map(x=>x.phase),['start','update','end']);
+assert.equal(inputs[2].seq,2);assert.ok(inputs.every(x=>x.model_generation===snapshot.model_version));
+character.dispose();assert.equal(timers.size,0);
+""")
+
+
+@pytest.mark.parametrize("cause", ["pointercancel", "blur", "model", "dispose"])
+def test_head_pat_interrupted_input_cancels_without_normal_end(cause):
+    run_character(r"""
+const character=context.createCharacter(host,canvas);await character.applySnapshot(snapshot);
+const event={pointerType:'touch',button:0,pointerId:1,clientX:50,clientY:50,target:canvas,preventDefault(){}};
+listeners.get('canvas:pointerdown')(event);
+CAUSE
+assert.deepEqual(inputs.map(x=>x.phase),['start','cancel']);
+character.dispose();assert.equal(timers.size,0);assert.equal(listeners.size,0);
+""".replace("CAUSE", {
+        "pointercancel": "listeners.get('window:pointercancel')(event);",
+        "blur": "listeners.get('window:blur')();",
+        "model": "await character.applySnapshot({...snapshot,model_version:'c'.repeat(64)});",
+        "dispose": "character.dispose();",
+    }[cause]))
+
+
+def test_remote_pat_echo_never_emits_input_or_revives_old_session():
+    run_character(r"""
+const character=context.createCharacter(host,canvas);await character.applySnapshot(snapshot);
+const state={model_version:snapshot.model_version,source:'pc',connection_generation:'synthetic',
+    interaction_id:'00000000-0000-4000-8000-000000000001',interaction_no:1,seq:0,phase:'accepted',intensity:.5};
+character.applyHeadPat(state);assert.equal(vm.runInContext('isHeadPatting',ctx),true);
+character.applyHeadPat({...state,phase:'ended',seq:1});assert.equal(vm.runInContext('isHeadPatting',ctx),false);
+character.applyHeadPat(state);assert.equal(vm.runInContext('isHeadPatting',ctx),false);
+character.applyHeadPat({...state,interaction_no:2});
+character.applyHeadPat({...state,phase:'ended',seq:2});assert.equal(vm.runInContext('isHeadPatting',ctx),true);
+assert.equal(inputs.length,0);character.dispose();assert.equal(inputs.length,0);
+""")
+
+
+def test_own_rejected_prediction_stops_without_sending_an_echo_input():
+    run_character(r"""
+const character=context.createCharacter(host,canvas);await character.applySnapshot(snapshot);
+const event={pointerType:'touch',button:0,pointerId:1,clientX:50,clientY:50,target:canvas,preventDefault(){}};
+listeners.get('canvas:pointerdown')(event);
+character.applyHeadPat({...inputs[0],source:'phone',phase:'rejected',model_version:snapshot.model_version,interaction_no:1});
+assert.equal(vm.runInContext('isHeadPatting',ctx),false);
+listeners.get('window:pointerup')(event);assert.equal(inputs.length,1);
+character.dispose();assert.equal(timers.size,0);
 """)

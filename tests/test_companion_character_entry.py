@@ -13,10 +13,12 @@ const fs = require('fs'), vm = require('vm'), assert = require('assert');
 const origin = 'https://appassets.androidplatform.net';
 const generation = '00000000-0000-4000-8000-000000000001';
 const listeners = {}, calls = [], replies = [];
+let host;
 const character = {applySnapshot:async x=>{calls.push(x);return false;},
-    applyAction:async x=>calls.push(x),applyPlayback:x=>calls.push(x),dispose:()=>calls.push('disposed')};
+    applyAction:async x=>calls.push(x),applyPlayback:x=>calls.push(x),applyHeadPat:x=>calls.push(x),
+    dispose:()=>{calls.push('disposed');host.emitInput({type:'head_pat_input',phase:'cancel'});}};
 const context = {AbortController, document:{getElementById:()=>({})},window:{
-    location:{origin},createCharacter:()=>character,
+    location:{origin},createCharacter:value=>{host=value;return character;},
     eneCharacterNative:{postMessage:x=>replies.push(JSON.parse(x))},
     addEventListener:(name,fn)=>listeners[name]=fn, removeEventListener:()=>{}}};
 vm.runInNewContext(fs.readFileSync('assets/web/character/entry.js','utf8'),context);
@@ -37,9 +39,12 @@ async function send(data, from=origin) { await listeners.message({origin:from,da
     assert.equal(calls.length,1);
     assert.equal(replies[1].type,'unavailable');
     assert.equal(replies[1].generation,generation);
+    await send({type:'head_pat',generation,value:{phase:'accepted'}});
+    assert.equal(calls[1].phase,'accepted');
     listeners.pagehide();
+    assert.equal(replies[2].phase,'cancel');assert.equal(replies[2].generation,generation);
     await send({type:'action',generation,value:{kind:'gesture'}});
-    assert.equal(calls.length,2);
+    assert.equal(calls.length,3);
 })().catch(error=>{console.error(error);process.exitCode=1;});
 """
     result = subprocess.run(

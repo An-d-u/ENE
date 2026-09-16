@@ -50,6 +50,17 @@ class CompanionBridgeMixin:
     def _companion_prepare_character(self, path, emotions, settings, parameters, *, reuse=False):
         return self._ensure_companion_character().select(path, emotions, settings, parameters, reuse=reuse)
 
+    def _ensure_companion_head_pat(self):
+        if not hasattr(self, "_companion_head_pat"):
+            from ..companion.head_pat_bridge import CompanionHeadPatBridge
+
+            self._companion_head_pat = CompanionHeadPatBridge(self)
+        return self._companion_head_pat
+
+    @pyqtSlot(str, result=str)
+    def submit_head_pat_input(self, value):
+        return self._ensure_companion_head_pat().pc(value)
+
     def _companion_settings_baseline(self):
         return self._ensure_companion_character().settings_baseline()
 
@@ -102,20 +113,26 @@ class CompanionBridgeMixin:
             if character is not None:
                 character.changed("requested")
             return None
-        if message.type == "character_settings_patch":
+        if message.type in {"character_settings_patch", "head_pat"}:
             from ..companion.protocol import decode_message, encode_message
 
-            answer = self._ensure_companion_character().save_remote_settings(
-                context.connection_generation, message.to_dict(),
-            )
+            if message.type == "head_pat":
+                answer = self._ensure_companion_head_pat().phone(context.connection_generation, message.to_dict())
+                kind = "head_pat_state"
+            else:
+                answer = self._ensure_companion_character().save_remote_settings(context.connection_generation, message.to_dict())
+                kind = "character_settings_result"
             return decode_message(encode_message({
-                **answer, "type": "character_settings_result", "protocol_version": 1,
+                **answer, "type": kind, "protocol_version": 1,
                 "registration_generation": context.registration_generation,
                 "server_epoch": head.server_epoch, "connection_generation": context.connection_generation,
             }))
         return self._companion_audio.receive(context, message)
 
     def _companion_connection_closed(self):
+        pat = getattr(self, "_companion_head_pat", None)
+        if pat is not None:
+            pat.disconnected()
         audio = getattr(self, "_companion_audio", None)
         if audio is not None:
             audio.disconnected()
@@ -326,6 +343,9 @@ class CompanionBridgeMixin:
         self._companion_finish_request(ref, succeeded=succeeded, code=code)
 
     def _companion_begin_shutdown(self):
+        pat = getattr(self, "_companion_head_pat", None)
+        if pat is not None:
+            pat.close()
         audio = getattr(self, "_companion_audio", None)
         if audio is not None:
             audio.cancel("shutdown", release=False)

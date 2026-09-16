@@ -49,7 +49,7 @@
     {
       "source": "assets/web/runtime_motion_state.js",
       "target": "runtime_motion_state.js",
-      "sha256": "628f1e746e3ecd12a0310b1c84b51836b3ba20c503bedfb358ee91ca4215a3cc"
+      "sha256": "ea74d33afce662b7748b2cab354a8c27cb49cb787d304ef72e3a13dcf3e30eca"
     },
     {
       "source": "assets/web/runtime_gesture_engine.js",
@@ -59,7 +59,7 @@
     {
       "source": "assets/web/runtime_head_pat.js",
       "target": "runtime_head_pat.js",
-      "sha256": "6db97e1d013a7dc9a734f03fc154c3497fee530164f781220d884cda7c13c36b"
+      "sha256": "2921a1ba067a8c77f74c303a802ab01d592caef7e791013adb04e3035c321dbc"
     },
     {
       "source": "assets/web/runtime_auto_blink_tracking.js",
@@ -84,7 +84,7 @@
     {
       "source": "assets/web/runtime_character_host.js",
       "target": "runtime_character_host.js",
-      "sha256": "ad0dde9d52dbfc3ba353b30b60ab5bb621945e3e60022dff42e1adaa1bbdac6d"
+      "sha256": "974bc4a8b7ae1ae15362beaffbc63c6581acac4921b84c0e1139fe0b85f93bdd"
     },
     {
       "source": "assets/web/lib/pixi.min.js",
@@ -109,7 +109,7 @@
     {
       "source": "assets/web/character/entry.js",
       "target": "entry.js",
-      "sha256": "8f046c21729f15d65866c8c035b43d46537914a86773cdbf9c082106beca5d4b"
+      "sha256": "d97d163600cc09b01162a7f030058c89f4c68eb46fb408f80346ab1918a1a2e3"
     },
     {
       "source": "assets/web/character/style.css",

@@ -17,7 +17,7 @@
     function emitInput(value) {
         if (!disposed && documentGeneration) window.eneCharacterNative?.postMessage(JSON.stringify({...value, generation: documentGeneration}));
     }
-    const character = window.createCharacter({assetUrl, emitInput}, document.getElementById('live2d-canvas'));
+    const character = window.createCharacter({kind:'phone', assetUrl, emitInput, currentModel:()=>snapshot?.model_version}, document.getElementById('live2d-canvas'));
     async function receive(event) {
         if (disposed || event.origin !== origin || typeof event.data !== 'string' || event.data.length > 262400) return;
         let expected = generation;
@@ -52,6 +52,8 @@
                 await character.applyAction(command.value);
             } else if (command.type === 'playback') {
                 character.applyPlayback(command.value);
+            } else if (command.type === 'head_pat') {
+                character.applyHeadPat(command.value);
             }
         } catch (_) {
             if (!disposed && expected === generation) emitInput({type: 'error', code: 'character_render_failed'});
@@ -59,10 +61,12 @@
     }
     function dispose() {
         if (disposed) return;
-        disposed = true; generation++; request?.abort();
-        window.removeEventListener('message', receive);
-        window.removeEventListener('pagehide', dispose);
-        character.dispose();
+        try { character.dispose(); }
+        finally {
+            disposed = true; generation++; request?.abort();
+            window.removeEventListener('message', receive);
+            window.removeEventListener('pagehide', dispose);
+        }
     }
     window.addEventListener('message', receive);
     window.addEventListener('pagehide', dispose);

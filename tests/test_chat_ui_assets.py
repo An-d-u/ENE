@@ -509,9 +509,10 @@ const changeCalls = [];
 const timeoutCallbacks = [];
 let headPatCount = 0;
 const context = {{
-    characterHost: {{ emitInput(value) {{ if (value.type === 'head_pat_completed') headPatCount += 1; }} }},
+    characterHost: {{ currentModel:()=> 'synthetic', emitInput() {{}} }},
     window: {{
         live2dModel: null,
+        crypto: {{ randomUUID:()=> '00000000-0000-4000-8000-000000000001' }},
         pyBridge: {{
             increment_head_pat_count_from_js() {{
                 headPatCount += 1;
@@ -1977,8 +1978,8 @@ result = {
             {"emotion": "pat_start", "options": {"durationMs": 180}},
             {"emotion": "pat_end", "options": {"durationMs": 220}},
         ],
-        "headPatCount": 1,
-        "timeoutCount": 1,
+        "headPatCount": 0,  # 시각 실행부는 직접 횟수를 증가시키지 않는다.
+        "timeoutCount": 2,  # 정지 포인터 갱신 예약과 종료 표정 복원 예약.
     }
 
 

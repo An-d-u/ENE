@@ -5,6 +5,11 @@
 if (typeof QWebChannel !== 'undefined') {
     new QWebChannel(qt.webChannelTransport, function (channel) {
         window.pyBridge = channel.objects.bridge;
+        if (window.pyBridge.head_pat_state) {
+            window.pyBridge.head_pat_state.connect(raw => {
+                try { window.eneCharacter?.applyHeadPat(JSON.parse(raw)); } catch (_) { /* 오래된 문서의 상태는 폐기한다. */ }
+            });
+        }
         if (window.pyBridge.character_catalog_requested && typeof window.requestCompanionCharacterCatalog === 'function') {
             window.pyBridge.character_catalog_requested.connect(window.requestCompanionCharacterCatalog);
             window.pyBridge.request_companion_character_catalog?.();

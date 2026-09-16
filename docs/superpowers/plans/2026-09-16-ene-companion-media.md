@@ -8,7 +8,7 @@
 
 **기술:** 기존 Python/PyQt6/aiohttp/pytest/Node VM, Kotlin 2.2.21/Compose/Coroutines/OkHttp 5.3.2, Android AudioTrack·AudioManager, AndroidX WebKit 1.15.0. 기존 Live2D 웹 라이브러리는 출처·버전·권리 확인 후 그대로 고정한다.
 
-**검토 상태:** 계획 문서 리뷰 승인. A0~A4, B1~B7, C1~C4, D1~D2 완료, D3부터 순차 진행 중. 실기기 시험은 보류한다.
+**검토 상태:** 계획 문서 리뷰 승인. A0~A4, B1~B7, C1~C4, D1~D3 완료, D4부터 순차 진행 중. 실기기 시험은 보류한다.
 
 ---
 
@@ -426,12 +426,18 @@ PC 설정/파라미터/실제 Qt/캐릭터/기존 UI 집중 회귀 **430개 통�
 
 **파일:** PC `src/core/companion/head_pat.py`, `tests/test_companion_head_pat.py`; APP `T/HeadPatSessionTest.kt`; 기존 PC `bridge_mixins/mood.py`, `bridge_mixins/companion.py`, `character_state.py`, `runtime_head_pat.js`, `runtime_character_host.js`; APP `CharacterBridge.kt`, `CharacterControls.kt` 수정.
 
-- [ ] 첫 세션 수락, PC/폰 동시 시작, end 중복/역전, 종료 유실, 번호 재사용, ID 캐시 축출 이후 재전송, 모델 교체, disabled를 테스트한다. 종료 계수는 수락된 세션당 최대 1이다.
-- [ ] PC `python -m pytest tests/test_companion_head_pat.py -q`, APP `./gradlew.bat :app:testDebugUnitTest --tests "dev.ene.companion.HeadPatSessionTest" --offline --dependency-verification strict --console=plain`로 실패를 확인한다.
-- [ ] HeadPatCoordinator는 source별 현재 연결·최대 interaction_no와 활성 세션 1개를 관리한다. 새 start만 번호를 증가시키고 update/end는 같은 번호+증가 seq를 사용한다. 수락된 start 이후 정상 end에만 기존 계수 증가 함수를 호출한다.
-- [ ] JS의 직접 `increment_head_pat_count_from_js()` 호출을 호스트 입력 경계로 바꾼다. PC와 폰 모두 예측 시각 효과와 확정 계수를 분리한다. 원격 echo는 입력 콜백을 발생시키지 않는다. busy/취소를 받으면 예측 효과만 정리한다.
-- [ ] 움직임이 없는 활성 포인터도 최대 500ms마다 update를 보내 2초 lease가 끊기지 않게 한다. pointercancel/blur/modelchange/dispose를 cancel로 처리한다. 앱 Main에서 10Hz로 합치고 별도 무한 큐를 만들지 않는다.
-- [ ] 위 집중 시험과 PC 캐릭터 Node VM 회귀, 기존 기분/생활 기록 회귀를 통과시킨다. `feat: PC 권위의 쓰다듬기 연동 추가`로 각각 커밋한다.
+- [x] 첫 세션 수락, PC/폰 동시 시작, end 중복/역전, 종료 유실, 번호 재사용, ID 캐시 축출 이후 재전송, 모델 교체, disabled를 테스트한다. 종료 계수는 수락된 세션당 최대 1이다.
+- [x] PC `python -m pytest tests/test_companion_head_pat.py -q`, APP `./gradlew.bat :app:testDebugUnitTest --tests "dev.ene.companion.HeadPatSessionTest" --offline --dependency-verification strict --console=plain`로 실패를 확인한다.
+- [x] HeadPatCoordinator는 source별 현재 연결·최대 interaction_no와 활성 세션 1개를 관리한다. 새 start만 번호를 증가시키고 update/end는 같은 번호+증가 seq를 사용한다. 수락된 start 이후 정상 end에만 기존 계수 증가 함수를 호출한다.
+- [x] JS의 직접 `increment_head_pat_count_from_js()` 호출을 호스트 입력 경계로 바꾼다. PC와 폰 모두 예측 시각 효과와 확정 계수를 분리한다. 원격 echo는 입력 콜백을 발생시키지 않는다. busy/취소를 받으면 예측 효과만 정리한다.
+- [x] 움직임이 없는 활성 포인터도 최대 500ms마다 update를 보내 2초 lease가 끊기지 않게 한다. pointercancel/blur/modelchange/dispose를 cancel로 처리한다. 앱 Main에서 10Hz로 합치고 별도 무한 큐를 만들지 않는다.
+- [x] 위 집중 시험과 PC 캐릭터 Node VM 회귀, 기존 기분/생활 기록 회귀를 통과시킨다. `feat: PC 권위의 쓰다듬기 연동 추가`로 각각 커밋한다.
+
+**D3 검증 기록(2026-09-17):** 순수 PC 조정기와 별도 `head_pat_bridge.py`의 Qt 연결을 추가했다. 현재 연결별 번호 상한은 최근 기록 256개가 축출되어도 유지하며, 같은 시작/갱신의 재전송은 2초 만료를 연장하지 않는다. 정상 종료 전에 활성 상태를 해제하고 횟수 반영 실패도 종료 상태로 보관하여 부분 성공을 다시 시도하지 않는다. 기존 직접 계수 슬롯은 호환 이름만 남기고 실제 기록은 확정된 종료에서만 호출한다. PC 단독/이미지 표시의 로컬 쓰다듬기는 유지하며 사설 모델 세대를 원격으로 보내지 않는다.
+
+APP은 별도 `HeadPatSession.kt`에서 연결 수명 번호와 문서 입력 순서를 분리한다. 마지막 강도 갱신 하나만 100ms마다 전달하고 실제 JS 입력이 끊기면 취소한다. 회전/숨김/모델 교체/렌더러 실패/종료에서 세션을 취소하며, 숨김 중 사건 번호는 소비하지만 나중에 재생하지 않는다. 양쪽 표시부는 원격 상태로 새 입력을 만들지 않는다. 기기 교체 시 이전 폰의 취소 알림을 새 연결에 전달하지 않도록 실제 Qt 연결 확인도 추가했다.
+
+PC 쓰다듬기/실제 Qt/공유 실행부/기분·생활 기록 집중 회귀 **341개 통과(8.31초)**, 전체 Ruff 기본 오류와 새 경계 Ruff 통과. APP 캐릭터 계열/쓰다듬기/확장 계약 **15개 클래스 75개 시험 통과**, 실패·오류·제외 0(offline strict). 공유 실행부 20개 중 쓰다듬기·모션 상태·호스트·진입점 4개 해시를 갱신하고 명시적 exporter로 APP에 반영했다. 라이브러리·모델 자산은 변경하지 않았다. `character_controls_v1` 광고는 D4의 설정 화면 연결까지 보류한다. 실제 손가락 입력과 PC/폰 렌더링·기기 회전 시험은 미실시다.
 
 ### D4. Android 공통 설정 화면과 통합 체크포인트
 

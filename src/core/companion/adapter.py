@@ -71,6 +71,11 @@ class QtGatewayAdapter(QObject):
         if callable(bind):
             bind(self)
 
+    def is_current_connection(self, connection):
+        """구연결의 상태 알림을 새 연결에 전달하지 않도록 Qt에서 확인한다."""
+        self._require_qt()
+        return self._enabled and not self._blocked and connection is not None and connection == self._connection
+
     def validate_admission(self, context):
         """소유 브리지에서도 같은 Qt 권한 원본을 검사한다."""
         self._require_qt()

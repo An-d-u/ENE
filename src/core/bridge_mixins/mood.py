@@ -63,7 +63,11 @@ class MoodBridgeMixin:
 
     @pyqtSlot()
     def increment_head_pat_count_from_js(self):
-        """JavaScript에서 호출: 머리 쓰다듬기 횟수 증가."""
+        """구형 직접 계수 슬롯은 호환 이름만 남긴다. 수락된 세션 종료만 기록한다."""
+        return
+
+    def _record_confirmed_head_pat(self):
+        """쓰다듬기 조정기가 확정한 정상 종료에 한 번만 호출한다."""
         if hasattr(self, "calendar_manager") and self.calendar_manager:
             self.calendar_manager.increment_head_pat_count()
             print("[Bridge] 쓰다듬기 횟수 증가")

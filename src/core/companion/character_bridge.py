@@ -57,6 +57,7 @@ class CompanionCharacterBridge(QObject):
             and self._selection.emotions == tuple(emotions)
         ):
             self._preview = False
+            self._sync_head_pat()
             return self._selection.generation
         selection = _Selection(
             str(uuid4()),
@@ -98,6 +99,12 @@ class CompanionCharacterBridge(QObject):
 
     def preview(self, active):
         self._preview = bool(active)
+        self._sync_head_pat()
+
+    def _sync_head_pat(self):
+        pat = getattr(self.owner, "_companion_head_pat", None)
+        if pat is not None:
+            pat.sync()
 
     def settings_baseline(self):
         """PC 창 전용 기준이다. 로컬 모델 키는 네트워크 메시지에 넣지 않는다."""
@@ -271,6 +278,7 @@ class CompanionCharacterBridge(QObject):
         return accepted
 
     def changed(self, reason):
+        self._sync_head_pat()
         self._publish(
             "character_changed",
             {

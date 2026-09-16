@@ -1,3 +1,124 @@
+// 입력 예측과 원격 시각 상태를 분리한다. 원격 상태 적용은 입력 콜백을 호출하지 않는다.
+let headPatInput = null;
+let headPatInputTimer = null;
+let headPatRemote = null;
+let headPatObserved = null;
+
+function headPatModelGeneration() {
+    return String(characterHost?.currentModel?.() || '');
+}
+
+function headPatInteractionId() {
+    if (typeof window.crypto?.randomUUID === 'function') return window.crypto.randomUUID();
+    if (typeof window.crypto?.getRandomValues !== 'function') return null;
+    const bytes = window.crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 15) | 64; bytes[8] = (bytes[8] & 63) | 128;
+    const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+}
+
+function postHeadPatInput(input, phase) {
+    if (phase !== 'start') input.seq += 1;
+    input.sentAt = performance.now(); input.pending = false;
+    try {
+        return characterHost?.emitInput({type:'head_pat_input', model_generation:input.model,
+            interaction_id:input.id, seq:input.seq, phase, intensity:clamp01(patRawIntensity)}) !== false;
+    } catch (_) { return false; }
+}
+
+function armHeadPatInputTimer() {
+    if (!headPatInput || headPatInputTimer !== null) return;
+    headPatInputTimer = setTimeout(() => {
+        headPatInputTimer = null;
+        const input = headPatInput;
+        if (!input) return;
+        if (!headPatEnabled || input.model !== headPatModelGeneration()) {
+            cancelHeadPatInteraction(); return;
+        }
+        const elapsed = performance.now() - input.sentAt;
+        if ((input.pending && elapsed >= 100) || elapsed >= 500) {
+            if (!postHeadPatInput(input, 'update')) { cancelHeadPatInteraction(false); return; }
+        }
+        armHeadPatInputTimer();
+    }, 100);
+}
+
+function releaseHeadPatInput(sendPhase = null) {
+    const input = headPatInput;
+    headPatInput = null;
+    if (headPatInputTimer !== null) clearTimeout(headPatInputTimer);
+    headPatInputTimer = null;
+    if (!input) return;
+    if (sendPhase) postHeadPatInput(input, sendPhase);
+    try { input.target?.releasePointerCapture?.(input.pointerId); } catch (_) { /* 이미 해제된 포인터 */ }
+}
+
+function startHeadPatVisual() {
+    const restoreBaseEmotion = pendingPatRestoreEmotion || baseEmotionTag || currentEmotionTag || 'normal';
+    cancelPendingPatEmotionRestore();
+    previousEmotionBeforePat = restoreBaseEmotion;
+    if (typeof captureHeadPatGestureCarryover === 'function') captureHeadPatGestureCarryover();
+    triggerPatStartEmotion();
+    setHeadPatEyeBlinkEnabled(false);
+    isHeadPatting = true;
+    patRawIntensity = Math.max(patRawIntensity, 0.12);
+    patBlendMode = 'in'; patFadeElapsedMs = 0;
+}
+
+function finishHeadPatVisual(normal) {
+    isHeadPatting = false; headPatPointerId = null;
+    patBlendMode = 'out'; patFadeElapsedMs = 0;
+    if (normal) triggerPatEndEmotion();
+    else {
+        cancelPendingPatEmotionRestore();
+        changeExpression(previousEmotionBeforePat || baseEmotionTag || 'normal');
+        setHeadPatEyeBlinkEnabled(true);
+    }
+}
+
+function cancelHeadPatInteraction(send = true) {
+    releaseHeadPatInput(send ? 'cancel' : null);
+    headPatRemote = null;
+    if (isHeadPatting || patBlend > 0) finishHeadPatVisual(false);
+}
+
+function applyHeadPatState(value) {
+    const model = value?.model_generation || value?.model_version;
+    if (!headPatEnabled || !model || model !== headPatModelGeneration()) return false;
+    const own = value.source === (characterHost?.kind === 'pc' ? 'pc' : 'phone');
+    if (own) {
+        if (headPatInput?.id === value.interaction_id && ['rejected','cancelled','ended'].includes(value.phase)) {
+            releaseHeadPatInput(); finishHeadPatVisual(value.phase === 'ended');
+        }
+        return true;
+    }
+    if (!['accepted','update','ended','cancelled','rejected'].includes(value.phase)
+        || !Number.isSafeInteger(value.interaction_no) || value.interaction_no < 1
+        || !Number.isSafeInteger(value.seq) || value.seq < 0 || !Number.isFinite(value.intensity)) return false;
+    const previous = headPatObserved;
+    const connection = value.connection_generation || '';
+    if (previous && previous.connection === connection && previous.model === model
+        && (value.interaction_no < previous.number || (value.interaction_no === previous.number
+            && (value.interaction_id !== previous.id || value.seq <= previous.seq)))) return false;
+    headPatObserved = {connection, model, number:value.interaction_no, id:value.interaction_id, seq:value.seq};
+    if (value.phase === 'accepted') {
+        // 상대 입력이 권위를 얻었다. 로컬 예측만 지우고 새 입력을 만들어내지 않는다.
+        releaseHeadPatInput();
+        if (isHeadPatting) finishHeadPatVisual(false);
+        headPatRemote = {connection, model, number:value.interaction_no, id:value.interaction_id};
+        startHeadPatVisual();
+        patRawIntensity = clamp01(value.intensity);
+        return true;
+    }
+    if (!headPatRemote || headPatRemote.connection !== connection || headPatRemote.model !== model
+        || headPatRemote.number !== value.interaction_no || headPatRemote.id !== value.interaction_id) return false;
+    if (value.phase === 'update') patRawIntensity = clamp01(value.intensity);
+    else if (['ended','cancelled'].includes(value.phase)) {
+        headPatRemote = null; finishHeadPatVisual(value.phase === 'ended');
+    }
+    return true;
+}
+
 // 0~1 범위로 clamp.
 function clamp01(v) {
     return Math.max(0, Math.min(1, v));
@@ -152,7 +273,7 @@ function isHeadPatPoint(pointerX, pointerY) {
 
 // 쓰다듬기 시작 이벤트 처리.
 function onHeadPatPointerDown(event) {
-    if (!headPatEnabled) return;
+    if (!headPatEnabled || isHeadPatting) return;
     if (event.pointerType === 'mouse' && event.button !== 0) return;
 
     const chatContainer = document.getElementById('chat-container');
@@ -164,16 +285,11 @@ function onHeadPatPointerDown(event) {
         return;
     }
 
-    const restoreBaseEmotion = pendingPatRestoreEmotion || baseEmotionTag || currentEmotionTag || 'normal';
-    cancelPendingPatEmotionRestore();
-    previousEmotionBeforePat = restoreBaseEmotion;
-    if (typeof captureHeadPatGestureCarryover === 'function') {
-        captureHeadPatGestureCarryover();
-    }
-    triggerPatStartEmotion();
-    setHeadPatEyeBlinkEnabled(false);
-    isHeadPatting = true;
-    headPatSessionCounted = false;
+    const id = headPatInteractionId();
+    const model = headPatModelGeneration();
+    if (!id || !model) return;
+    headPatInput = {id, model, seq:0, sentAt:performance.now(), pending:false, target:event.target, pointerId:event.pointerId};
+    startHeadPatVisual();
     headPatPointerId = event.pointerId;
     headPatLastX = event.clientX;
     headPatLastY = event.clientY;
@@ -188,11 +304,13 @@ function onHeadPatPointerDown(event) {
         }
     }
     event.preventDefault();
+    if (!postHeadPatInput(headPatInput, 'start')) { cancelHeadPatInteraction(false); return; }
+    armHeadPatInputTimer();
 }
 
 // 쓰다듬기 중 포인터 이동량을 누적해 강도/방향을 계산한다.
 function onHeadPatPointerMove(event) {
-    if (!isHeadPatting || !headPatEnabled) return;
+    if (!isHeadPatting || !headPatEnabled || !headPatInput) return;
     if (event.pointerId !== headPatPointerId) return;
 
     const nowMs = performance.now();
@@ -211,35 +329,24 @@ function onHeadPatPointerMove(event) {
     headPatLastX = event.clientX;
     headPatLastY = event.clientY;
     headPatLastMoveAt = nowMs;
+    headPatInput.pending = true;
+    if (nowMs - headPatInput.sentAt >= 100 && !postHeadPatInput(headPatInput, 'update')) cancelHeadPatInteraction(false);
 }
 
 // 쓰다듬기 종료 이벤트 처리.
 function onHeadPatPointerUp(event) {
-    if (!isHeadPatting) return;
+    if (!isHeadPatting || !headPatInput) return;
     if (event.pointerId !== headPatPointerId) return;
 
-    isHeadPatting = false;
-    headPatPointerId = null;
-    patBlendMode = 'out';
-    patFadeElapsedMs = 0;
-    if (!headPatSessionCounted) {
-        notifyHeadPatSessionCount();
-        headPatSessionCounted = true;
-    }
-    if (event.target && typeof event.target.releasePointerCapture === 'function') {
-        try {
-            event.target.releasePointerCapture(event.pointerId);
-        } catch (_) {
-        }
-    }
-    triggerPatEndEmotion();
+    releaseHeadPatInput('end');
+    finishHeadPatVisual(true);
 }
 
-// 쓰다듬기 세션 카운트를 Python 브리지로 보고한다.
-function notifyHeadPatSessionCount() {
-    try { characterHost?.emitInput({type: 'head_pat_completed'}); }
-    catch (_) { console.warn('쓰다듬기 입력을 전달하지 못했습니다.'); }
+function onHeadPatPointerCancel(event) {
+    if (headPatInput && event.pointerId === headPatPointerId) cancelHeadPatInteraction();
 }
+
+function onHeadPatBlur() { cancelHeadPatInteraction(); }
 
 // 예약된 표정 복구 타이머를 취소한다.
 function cancelPendingPatEmotionRestore() {
@@ -291,16 +398,19 @@ function ensureHeadPatEventBindings() {
     canvas.addEventListener('pointerdown', onHeadPatPointerDown);
     window.addEventListener('pointermove', onHeadPatPointerMove, { passive: true });
     window.addEventListener('pointerup', onHeadPatPointerUp, { passive: true });
-    window.addEventListener('pointercancel', onHeadPatPointerUp, { passive: true });
+    window.addEventListener('pointercancel', onHeadPatPointerCancel, { passive: true });
+    window.addEventListener('blur', onHeadPatBlur);
     headPatEventsBound = true;
 }
 
 function removeHeadPatEventBindings() {
+    cancelHeadPatInteraction();
     if (!headPatEventsBound) return;
     characterCanvas?.removeEventListener('pointerdown', onHeadPatPointerDown);
     window.removeEventListener('pointermove', onHeadPatPointerMove);
     window.removeEventListener('pointerup', onHeadPatPointerUp);
-    window.removeEventListener('pointercancel', onHeadPatPointerUp);
+    window.removeEventListener('pointercancel', onHeadPatPointerCancel);
+    window.removeEventListener('blur', onHeadPatBlur);
     headPatEventsBound = false;
 }
 
