@@ -194,6 +194,7 @@ class WebBridge(
         """TTS 클라이언트 및 오디오 플레이어 설정"""
         self.tts_client = tts_client
         self.audio_player = audio_player
+        self._companion_tts_settings_changed()
         print(f"[Bridge] TTS client set: {tts_client is not None}")
         print(f"[Bridge] Audio player set: {audio_player is not None}")
 

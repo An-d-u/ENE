@@ -316,6 +316,44 @@ def test_controller_only_advertises_installed_audio_boundary(routed_bridge):
     assert controller._capabilities == ("audio_pcm_v1",)
 
 
+def test_settings_disable_cancels_phone_and_reenable_reuses_current_availability(
+    routed_bridge,
+):
+    bridge, context, jobs, transfers, played = routed_bridge
+    start_reply(bridge)
+    jobs[0].ready(wav())
+    offer = next(item for item in transfers if item.kind == "offer")
+    bridge.submit_extension(
+        context, wire(offer.ref, "audio_prepared", buffered_frames=100)
+    )
+    bridge.enable_tts = False
+    bridge._companion_tts_settings_changed()
+    assert played == [] and bridge.life_record_state.phase == "idle"
+    assert not bridge._companion_audio.coordinator.available
+    bridge.enable_tts = True
+    bridge._companion_tts_settings_changed()
+    assert bridge._companion_audio.coordinator.available
+    start_reply(bridge)
+    jobs[1].ready(wav())
+    assert len([item for item in transfers if item.kind == "offer"]) == 2
+    bridge._companion_audio.cancel("test_complete")
+
+
+def test_browser_provider_change_refreshes_status_and_disconnection_forgets_availability(
+    routed_bridge,
+):
+    from types import SimpleNamespace
+
+    bridge, _, _, _, _ = routed_bridge
+    bridge.set_tts(SimpleNamespace(uses_browser_playback=True), bridge.audio_player)
+    assert not bridge._companion_audio.coordinator.available
+    bridge.set_tts(SimpleNamespace(uses_browser_playback=False), bridge.audio_player)
+    assert bridge._companion_audio.coordinator.available
+    bridge._companion_connection_closed()
+    bridge._companion_tts_settings_changed()
+    assert not bridge._companion_audio.coordinator.available
+
+
 def test_stream_failure_after_permission_releases_gate_without_pc(routed_bridge):
     bridge, context, jobs, transfers, played = routed_bridge
     stream_reply(routed_bridge, published=True)

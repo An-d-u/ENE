@@ -1007,6 +1007,9 @@ class ENEApplication(QObject):
             self.global_ptt.apply_settings(new_settings)
         if hasattr(self, "overlay_window") and self.overlay_window and hasattr(self.overlay_window, "bridge"):
             self.overlay_window.bridge.enable_tts = bool(new_settings.get("enable_tts", self.settings.get("enable_tts", False)))
+            refresh_audio = getattr(self.overlay_window.bridge, "_companion_tts_settings_changed", None)
+            if callable(refresh_audio):
+                refresh_audio()
             self.overlay_window.bridge.tts_streaming_enabled = bool(
                 new_settings.get("tts_streaming_enabled", self.settings.get("tts_streaming_enabled", False))
             )
@@ -1025,6 +1028,9 @@ class ENEApplication(QObject):
             self.global_ptt.apply_settings(self.settings.config)
         if hasattr(self, "overlay_window") and self.overlay_window and hasattr(self.overlay_window, "bridge"):
             self.overlay_window.bridge.enable_tts = bool(self.settings.get("enable_tts", False))
+            refresh_audio = getattr(self.overlay_window.bridge, "_companion_tts_settings_changed", None)
+            if callable(refresh_audio):
+                refresh_audio()
             self.overlay_window.bridge.tts_streaming_enabled = bool(
                 self.settings.get("tts_streaming_enabled", False)
             )

@@ -61,6 +61,11 @@ class CompanionBridgeMixin:
         if audio is not None:
             audio.disconnected()
 
+    def _companion_tts_settings_changed(self):
+        audio = getattr(self, "_companion_audio", None)
+        if audio is not None:
+            audio.settings_changed()
+
     def capture(self, registration_generation, pending=()):
         transcript = self.chat_state.public_transcript
         statuses = []

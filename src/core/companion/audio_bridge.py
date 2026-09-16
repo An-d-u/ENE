@@ -40,6 +40,7 @@ class CompanionAudioBridge(QObject):
         self._pc_bypass = False
         self._pc_analyzer = None
         self._wave_lips = None
+        self._phone_available = False
         self.coordinator = AudioCoordinator(
             CallbackAudioTransport(self._publish),
             self,
@@ -108,28 +109,49 @@ class CompanionAudioBridge(QObject):
                 context.connection_generation,
                 head.conversation_id,
             )
-            mode, reason = "auto", "ready"
-            if not self.owner.enable_tts:
-                mode, reason = "disabled", "tts_disabled"
-            elif getattr(self.owner.tts_client, "uses_browser_playback", False):
-                mode, reason = "pc_only", "browser_tts"
+            self._phone_available = message.fields["available"]
             self.coordinator.availability(
-                extension, message.fields["available"] and mode == "auto"
+                extension, self._phone_available and self._mode()[0] == "auto"
             )
-            return decode_message(
-                encode_message(
-                    {
-                        "type": "audio_status",
-                        "protocol_version": 1,
-                        "registration_generation": extension.registration_generation,
-                        "server_epoch": extension.server_epoch,
-                        "connection_generation": extension.connection_generation,
-                        "mode": mode,
-                        "reason": reason,
-                    }
-                )
-            )
+            return self._refresh_status()
         return self.coordinator.receive(message)
+
+    def _mode(self):
+        if not self.owner.enable_tts:
+            return "disabled", "tts_disabled"
+        if getattr(self.owner.tts_client, "uses_browser_playback", False):
+            return "pc_only", "browser_tts"
+        return "auto", "ready"
+
+    def _refresh_status(self):
+        extension = self.coordinator.context
+        if extension is None:
+            return None
+        mode, reason = self._mode()
+        self.coordinator.availability(
+            extension, self._phone_available and mode == "auto"
+        )
+        if mode != "auto":
+            self.cancel("output_disabled")
+        return decode_message(
+            encode_message(
+                {
+                    "type": "audio_status",
+                    "protocol_version": 1,
+                    "registration_generation": extension.registration_generation,
+                    "server_epoch": extension.server_epoch,
+                    "connection_generation": extension.connection_generation,
+                    "mode": mode,
+                    "reason": reason,
+                }
+            )
+        )
+
+    def settings_changed(self):
+        status = self._refresh_status()
+        adapter = getattr(self.owner, "_companion_adapter", None)
+        if status is not None and adapter is not None:
+            adapter.publish(status.to_dict())
 
     def wave_candidate(self, raw):
         intent = self._intent()
@@ -307,7 +329,9 @@ class CompanionAudioBridge(QObject):
         self._release(playing[1])
 
     def disconnected(self):
+        self._phone_available = False
         self.coordinator.disconnected()
+        self.coordinator.context = None
 
     def cancel(self, reason, *, release=True):
         self._release_allowed = release

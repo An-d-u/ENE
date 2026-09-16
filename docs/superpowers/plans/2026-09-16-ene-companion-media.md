@@ -8,7 +8,7 @@
 
 **기술:** 기존 Python/PyQt6/aiohttp/pytest/Node VM, Kotlin 2.2.21/Compose/Coroutines/OkHttp 5.3.2, Android AudioTrack·AudioManager, AndroidX WebKit 1.15.0. 기존 Live2D 웹 라이브러리는 출처·버전·권리 확인 후 그대로 고정한다.
 
-**검토 상태:** 계획 문서 리뷰 승인. A0~A4와 B1~B6 완료, B7부터 순차 진행 중. 실기기 시험은 보류한다.
+**검토 상태:** 계획 문서 리뷰 승인. A0~A4와 B1~B7 완료, C1부터 순차 진행 중. 실기기 시험은 보류한다.
 
 ---
 
@@ -294,16 +294,18 @@ B6 검증: Android PcmPlayer 8개/AudioFocusController 4개/PcmBuffer 7개/Audio
 
 ### B7. 앱 수명·확장 수신 분기와 음성 체크포인트
 
-**파일:** APP `K/connection/ExtensionSession.kt`, `T/ExtensionSessionTest.kt`, `AudioLifecycleTest.kt`; 기존 `ConnectionRepository.kt`, `ConversationSession.kt`, `SessionExchange.kt`, `EneApplication.kt`, `MainActivity.kt`, `K/ui/ConnectionScreen.kt` 수정. PC `tests/test_companion_media_integration.py` 생성.
+**파일:** APP `K/connection/ExtensionSession.kt`, `K/audio/AudioPlatform.kt`, `T/ExtensionSessionTest.kt`, `AudioLifecycleTest.kt`, `AudioRepositoryTest.kt`, `AudioTlsSessionTest.kt` 생성. 기존 `ConnectionRepository.kt`, `ConnectionState.kt`, `CompanionSocket.kt`, `MediaTransport.kt`, `SessionExchange.kt`, `EneApplication.kt`, `MainActivity.kt`, `K/ui/ConnectionScreen.kt`, `T/SessionExchangeTest.kt`, `I/PairingPermissionTest.kt` 수정. ConversationSession의 기존 소비 규칙은 변경하지 않는다. PC `tests/test_companion_media_integration.py` 생성, `src/core/companion/audio_bridge.py`, `bridge_mixins/companion.py`, `bridge.py`, `app.py`, `tests/test_companion_tts_routing.py` 수정.
 
-- [ ] 큰 snapshot 중 확장 수신, 연결 변경 중 HTTP 완료, onPause와 focus callback 경합, 회전, 백그라운드 뒤 늦은 start, 기본 heartbeat와 progress ACK 동시 처리를 테스트한다.
-- [ ] APP `./gradlew.bat :app:testDebugUnitTest --tests "dev.ene.companion.ExtensionSessionTest" --tests "dev.ene.companion.AudioLifecycleTest" --offline --dependency-verification strict --console=plain`와 PC `python -m pytest tests/test_companion_media_integration.py -q`로 실패를 확인한다.
-- [ ] 확장 메시지는 ConversationSession.consume에 넣기 전에 ExtensionSession으로 분기한다. 이 분기는 전체 snapshot 해석/다운로드/AudioTrack drain을 await하지 않고 bounded job을 시작한다. base message의 error/seq 규칙은 그대로 둔다.
-- [ ] ProcessLifecycleOwner의 지연된 onStop만 믿지 않고 실제 Activity의 resumed 상태를 별도로 보고한다. onPause 즉시 준비 허가를 차단한다. 회전(`isChangingConfigurations`)은 연결/음성 소유자를 재생성하지 않고 새 Activity의 활성 상태를 재결합한다. 회전 동안 새 start는 허용하지 않는다.
-- [ ] ExtensionSession은 주 연결 finally/forget/revoke/close에서 자식들을 회수한다. 대화 resync 중 availability=false, 대화 ID가 바뀌면 현재 음성 취소, 동일 대화의 재동기화는 새 offer만 막는다. UI에는 PC 출력/폰 출력/음성 미지원 상태만 표시하고 수동 선택은 추가하지 않는다.
-- [ ] 연결 중 PC TTS 활성/비활성·브라우저 방식 설정이 바뀔 때 availability와 출력 상태도 갱신한다. 새 발화에서 최신 설정을 확인하고, 음성 비활성화 시 이미 허가한 폰 음성은 취소하며 PC에서 재생하지 않는다.
-- [ ] 가상 bridge+실제 TLS gateway+synthetic PCM으로 PC 통합을 확인한다. APP은 MockWebServer에서 같은 계약/인증/단절을 확인한다. 이를 두 프로그램 간 실제 왕복이라고 기록하지 않는다.
-- [ ] PC 전체 pytest+Ruff와 APP `./gradlew.bat :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest --offline --dependency-verification strict --console=plain`를 실행한다. 예상: 새 실패 없음. 양쪽 관련 변경만 `feat: 전경 수명과 자동 음성 출력 통합`으로 커밋한다.
+- [x] 큰 snapshot 중 확장 수신, 연결 변경 중 HTTP 완료, onPause와 focus callback 경합, 회전, 백그라운드 뒤 늦은 start, 기본 heartbeat와 progress ACK 동시 처리를 테스트한다.
+- [x] APP `./gradlew.bat :app:testDebugUnitTest --tests "dev.ene.companion.ExtensionSessionTest" --tests "dev.ene.companion.AudioLifecycleTest" --offline --dependency-verification strict --console=plain`와 PC `python -m pytest tests/test_companion_media_integration.py -q`로 실패를 확인한다. 세션/연결 경계의 최초 실패를 확인하고 구현했으며, 마지막 실제 TLS 합성 통합 2개도 통과했다.
+- [x] 확장 메시지는 ConversationSession.consume에 넣기 전에 ExtensionSession으로 분기한다. 이 분기는 전체 snapshot 해석/다운로드/AudioTrack drain을 await하지 않고 bounded job을 시작한다. base message의 error/seq 규칙은 그대로 둔다.
+- [x] ProcessLifecycleOwner의 지연된 onStop만 믿지 않고 실제 Activity의 resumed 상태를 별도로 보고한다. onPause 즉시 준비 허가를 차단한다. 회전(`isChangingConfigurations`)은 연결/음성 소유자를 재생성하지 않고 새 Activity의 활성 상태를 재결합한다. 회전 동안 새 start는 허용하지 않는다.
+- [x] ExtensionSession은 주 연결 finally/forget/revoke/close에서 자식들을 회수한다. 대화 resync 중 availability=false, 대화 ID가 바뀌면 현재 음성 취소, 동일 대화의 재동기화는 새 offer만 막는다. UI에는 PC 출력/폰 출력/음성 미지원 상태만 표시하고 수동 선택은 추가하지 않는다.
+- [x] 연결 중 PC TTS 활성/비활성·브라우저 방식 설정이 바뀔 때 availability와 출력 상태도 갱신한다. 새 발화에서 최신 설정을 확인하고, 음성 비활성화 시 이미 허가한 폰 음성은 취소하며 PC에서 재생하지 않는다.
+- [x] 가상 bridge+실제 TLS gateway+synthetic PCM으로 PC 통합을 확인한다. APP은 MockWebServer에서 같은 계약/인증/단절을 확인한다. 이를 두 프로그램 간 실제 왕복이라고 기록하지 않는다.
+- [x] PC 전체 pytest+Ruff와 APP `./gradlew.bat :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest --offline --dependency-verification strict --console=plain`를 실행한다. 새 실패 없음. 양쪽 관련 변경만 `feat: 전경 수명과 자동 음성 출력 통합`으로 커밋한다.
+
+B7 검증: PC 전체 3,790개 통과/1개 건너뜀(106.73초), `ruff check . --select E9,F63,F7,F82` 통과. APP 전체 27개 클래스/157개 테스트 통과, lintDebug·assembleDebug·assembleDebugAndroidTest 성공. 수신 순서상 공개 assistant 표시가 늦으면 offer 한 개만 최대 2초 보류하며, resync 헤더의 최신 대화 ID를 유지해 옛 snapshot 완료가 준비 상태를 되돌리지 못하게 했다. 재생기 정지는 즉시 수행하되 HTTP reader 회수가 끝난 뒤 native 자원을 해제하고, 그 사이 새 재생기를 만들지 않는다. 전송/close 예외, 중복 EOF, 늦은 start, 포커스 거절, 회전 표식, ACK 유실을 합성 시험으로 확인했다. PC 통합은 실제 Qt/TLS와 가상 TTS·휴대폰을 사용했고 APP TLS 통합은 MockWebServer와 가상 AudioTrack을 사용했다. 실제 두 프로그램 왕복·기기 오디오·회전·포커스·계측 실행은 미실시다. UI/UX 지침은 출력 상태를 텍스트와 기존 접근성 알림 영역에 표시하는 데만 적용했다.
 
 ## 7. C — 공유 Live2D와 캐릭터 표시
 
