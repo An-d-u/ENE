@@ -272,6 +272,13 @@ class ObsidianBridgeMixin:
         self._last_request_payload = None
         self._is_rerolling = False
 
+        def display_result(text, emotion):
+            display = getattr(self, "_display_companion_file_result", None)
+            if callable(display):
+                display(text, emotion)
+            else:
+                self.message_received.emit(text, emotion, "")
+
         # 명령형: read/append/replace는 로컬에서 즉시 처리
         if command == "read":
             try:
@@ -279,9 +286,9 @@ class ObsidianBridgeMixin:
                 preview = text[:4000]
                 if len(text) > len(preview):
                     preview += "\n...(생략)"
-                self.message_received.emit(preview, "normal", "")
+                display_result(preview, "normal")
             except Exception:
-                self.message_received.emit("파일을 읽는 중 오류가 발생했어요.", "confused", "")
+                display_result("파일을 읽는 중 오류가 발생했어요.", "confused")
             return True
 
         if command == "append":
@@ -293,9 +300,9 @@ class ObsidianBridgeMixin:
                 except Exception:
                     safe_path = ""
                 message = f"추가 완료: {safe_path}" if safe_path else "추가 완료"
-                self.message_received.emit(message, "smile", "")
+                display_result(message, "smile")
             else:
-                self.message_received.emit("추가 실패", "confused", "")
+                display_result("추가 실패", "confused")
             return True
 
         if command == "replace":
@@ -307,9 +314,9 @@ class ObsidianBridgeMixin:
                 except Exception:
                     safe_path = ""
                 message = f"교체 완료: {safe_path}" if safe_path else "교체 완료"
-                self.message_received.emit(message, "smile", "")
+                display_result(message, "smile")
             else:
-                self.message_received.emit("교체 실패", "confused", "")
+                display_result("교체 실패", "confused")
             return True
 
         # summarize/ask: Obsidian 컨텍스트 포함하여 LLM 질의
@@ -320,7 +327,7 @@ class ObsidianBridgeMixin:
             try:
                 target = self.obsidian_manager.read_file(payload["path"])
             except Exception:
-                self.message_received.emit("요약할 파일을 읽는 중 오류가 발생했어요.", "confused", "")
+                display_result("요약할 파일을 읽는 중 오류가 발생했어요.", "confused")
                 return True
             if language == "en":
                 prompt = (
@@ -349,7 +356,10 @@ class ObsidianBridgeMixin:
             prompt = f"{obs_context}\n\n{instruction_label}\n{payload.get('instruction', obs_body)}"
 
         message_with_time = self._with_prompt_time(timestamp, prompt)
-        self._start_ai_worker(message_with_time)
+        if callable(getattr(self, "_bind_companion_worker", None)):
+            self._start_ai_worker(message_with_time, companion_file_result=True)
+        else:
+            self._start_ai_worker(message_with_time)
         print("[Bridge] /obs AI worker thread started")
         return True
 

@@ -388,6 +388,8 @@ class ChatFlowBridgeMixin:
         emit_pending_state: bool = True,
         mood_event_id: str = "",
         mood_occurred_at: str = "",
+        request_ref=None,
+        companion_file_result: bool = False,
     ):
         """현재 요청 페이로드로 AI 워커를 시작한다."""
         if self.worker and self.worker.isRunning():
@@ -443,6 +445,12 @@ class ChatFlowBridgeMixin:
                 )
             )
             connect_finished = getattr(self, "_connect_worker_finished_drain", None)
+            bind_companion = getattr(self, "_bind_companion_worker", None)
+            if callable(bind_companion):
+                bind_companion(
+                    self.worker, operation_id, request_ref,
+                    file_result=companion_file_result,
+                )
             if callable(connect_finished):
                 connect_finished(operation_id) if operation_id else connect_finished()
             if emit_pending_state:
@@ -479,6 +487,9 @@ class ChatFlowBridgeMixin:
                 diary_service=self.diary_service,
                 use_obsidian_priority=use_obsidian_priority,
             )
+            bind_companion = getattr(self, "_bind_companion_worker", None)
+            if callable(bind_companion):
+                bind_companion(self.worker, operation_id, file_result=True)
             self.worker.response_ready.connect(
                 partial(
                     self._on_response_ready,
@@ -530,6 +541,9 @@ class ChatFlowBridgeMixin:
                 note_service=self.note_service,
                 obsidian_manager=self.obsidian_manager,
             )
+            bind_companion = getattr(self, "_bind_companion_worker", None)
+            if callable(bind_companion):
+                bind_companion(self.worker, operation_id, file_result=True)
             self.worker.response_ready.connect(
                 partial(
                     self._on_response_ready,
@@ -807,6 +821,10 @@ class ChatFlowBridgeMixin:
         emit_pending_state: bool = True,
     ) -> None:
         """보류 가능 요청의 일반 대화 부수효과를 정확히 한 번 적용한다."""
+        is_current = getattr(self, "_companion_request_is_current", None)
+        if request.request_ref is not None and callable(is_current):
+            if not is_current(request.request_ref):
+                return
         if request.request_type == "attachments":
             commit_attachments = getattr(self, "_commit_prepared_attachment_request", None)
             if not callable(commit_attachments):
@@ -859,6 +877,9 @@ class ChatFlowBridgeMixin:
         print(f"[Bridge] prompt_built prompt_chars={_safe_text_length(message_with_time)}")
 
         self._append_conversation("user", request.message, timestamp)
+        publish_user = getattr(self, "_publish_companion_user", None)
+        if callable(publish_user):
+            publish_user(request)
         mood_context = ChatFlowBridgeMixin._new_mood_event_context()
         mood_event_id = str(mood_context.get("event_id", ""))
         mood_occurred_at = str(mood_context.get("occurred_at_utc", ""))
@@ -895,6 +916,8 @@ class ChatFlowBridgeMixin:
         }
         if not emit_pending_state:
             worker_kwargs["emit_pending_state"] = False
+        if request.request_ref is not None:
+            worker_kwargs["request_ref"] = request.request_ref
         self._start_ai_worker(message_with_time, **worker_kwargs)
         print("[Bridge] Worker thread started")
 
@@ -1161,6 +1184,13 @@ class ChatFlowBridgeMixin:
             if worker is not None:
                 worker.response_metadata = ResponseDeliveryMetadata.empty()
             return None
+        request_ref = getattr(worker, "companion_request_ref", None)
+        is_current = getattr(self, "_companion_request_is_current", None)
+        if request_ref is not None and callable(is_current) and not is_current(request_ref):
+            if matched_operation_id is not None:
+                self._finish_normal_operation(matched_operation_id)
+            worker.response_metadata = ResponseDeliveryMetadata.empty()
+            return None
         consumed = getattr(self, "_consumed_normal_response", None)
         if matched_operation_id is not None and consumed == (
             matched_operation_id,
@@ -1178,6 +1208,8 @@ class ChatFlowBridgeMixin:
                 *args,
                 response_metadata=response_metadata,
                 normal_operation_id=matched_operation_id,
+                request_ref=request_ref,
+                companion_file_result=getattr(worker, "companion_file_result", False),
                 expected_mood_event_id=expected_mood_event_id,
                 expected_mood_occurred_at=expected_mood_occurred_at,
                 **kwargs,
@@ -1328,6 +1360,8 @@ class ChatFlowBridgeMixin:
         *,
         response_metadata: ResponseDeliveryMetadata | None = None,
         normal_operation_id: int | None = None,
+        request_ref=None,
+        companion_file_result: bool = False,
         expected_mood_event_id: str = "",
         expected_mood_occurred_at: str = "",
     ):
@@ -1496,13 +1530,22 @@ class ChatFlowBridgeMixin:
                 "promise_id": completed_promise_id,
                 "proactive_id": completed_proactive_id,
                 "normal_operation_id": normal_operation_id,
+                "request_ref": request_ref,
+                "companion_file_result": companion_file_result,
             }
             deferred_completion = True
             self._play_tts(tts_text)
         else:
             # TTS 비활성화 또는 읽어줄 텍스트 없음 - 즉시 텍스트 전송
             print(f"[Bridge] TTS 비활성화 - 텍스트 즉시 전송")
-            self.message_received.emit(text, emotion, thought)
+            display = getattr(self, "_display_companion_response", None)
+            if callable(display):
+                display(
+                    text, emotion, thought, request_ref=request_ref,
+                    file_result=companion_file_result,
+                )
+            else:
+                self.message_received.emit(text, emotion, thought)
             ChatFlowBridgeMixin._emit_gesture_requested(self, gesture)
             self.token_usage_ready.emit(resolved_token_usage_payload)
             if normal_operation_id is None:
@@ -1615,6 +1658,10 @@ class ChatFlowBridgeMixin:
             return
         operation_id = payload.get("normal_operation_id")
         try:
+            request_ref = payload.get("request_ref")
+            is_current = getattr(self, "_companion_request_is_current", None)
+            if request_ref is not None and callable(is_current) and not is_current(request_ref):
+                return
             ChatFlowBridgeMixin._finalize_completed_runtime_items(
                 self,
                 str(payload.get("promise_id", "") or "").strip(),
@@ -1642,6 +1689,12 @@ class ChatFlowBridgeMixin:
             operation_id,
         )
         if operation_id is not _UNSET_OPERATION and matched_operation_id is None:
+            return
+        request_ref = getattr(worker, "companion_request_ref", None)
+        is_current = getattr(self, "_companion_request_is_current", None)
+        if request_ref is not None and callable(is_current) and not is_current(request_ref):
+            if matched_operation_id is not None:
+                self._finish_normal_operation(matched_operation_id)
             return
         if matched_operation_id is not None and getattr(
             self,

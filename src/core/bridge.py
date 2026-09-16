@@ -18,6 +18,7 @@ from .bridge_workers import AIWorker  # noqa: F401  # 기존 import 경로 호�
 from .bridge_mixins.attachments import AttachmentBridgeMixin
 from .bridge_mixins.away import AwayNudgeBridgeMixin
 from .bridge_mixins.chat_flow import ChatFlowBridgeMixin
+from .bridge_mixins.companion import CompanionBridgeMixin
 from .bridge_mixins.goals import GoalBridgeMixin
 from .bridge_mixins.live2d_parameters import Live2DParameterBridgeMixin
 from .bridge_mixins.life_records import LifeRecordBridgeMixin
@@ -41,6 +42,7 @@ def _prompt_time_header(timestamp: str, language: str) -> str:
 
 
 class WebBridge(
+    CompanionBridgeMixin,
     AwayNudgeBridgeMixin,
     AttachmentBridgeMixin,
     Live2DParameterBridgeMixin,
@@ -61,6 +63,7 @@ class WebBridge(
     
     # Python -> JavaScript 시그널
     message_received = pyqtSignal(str, str, str)  # (텍스트, 감정, 생각)
+    companion_event = pyqtSignal(object)  # 비공개 메타데이터 없는 불변 공개 이벤트
     gesture_requested = pyqtSignal(str)  # 합성 Live2D 제스처 키
     request_pending_changed = pyqtSignal(bool)  # LLM 응답 생성 진행 상태
     request_pending_stage_changed = pyqtSignal(str)  # thinking/searching

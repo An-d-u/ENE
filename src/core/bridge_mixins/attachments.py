@@ -238,6 +238,10 @@ class AttachmentBridgeMixin:
         emit_pending_state: bool = True,
     ) -> None:
         """gate를 통과한 첨부 요청의 세션·대화·worker 변경을 한 번 적용한다."""
+        request_ref = getattr(request, "request_ref", None)
+        is_current = getattr(self, "_companion_request_is_current", None)
+        if request_ref is not None and callable(is_current) and not is_current(request_ref):
+            return
         legacy_direct_mixin = not hasattr(self, "life_record_state")
         attachments_data = request.attachment_copies()
         prepared_attachments = self._resolve_prepared_attachments(attachments_data)
@@ -307,6 +311,9 @@ class AttachmentBridgeMixin:
                 language=request.language,
             )
         self._append_conversation("user", history_message, timestamp)
+        publish_user = getattr(self, "_publish_companion_user", None)
+        if callable(publish_user):
+            publish_user(request)
         record = {
             "message": effective_message,
             "timestamp": timestamp,
@@ -361,6 +368,8 @@ class AttachmentBridgeMixin:
         }
         if not emit_pending_state:
             worker_kwargs["emit_pending_state"] = False
+        if request_ref is not None:
+            worker_kwargs["request_ref"] = request_ref
         self._start_ai_worker(
             message_with_time,
             image_attachments,

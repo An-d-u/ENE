@@ -501,6 +501,7 @@ def test_bridge_general_chat_includes_checked_obsidian_context(monkeypatch):
         prior_token_usage=None,
         mood_event_id: str = "",
         mood_occurred_at: str = "",
+        request_ref=None,
     ):
         captured["message_with_time"] = message_with_time
 
@@ -545,6 +546,7 @@ def test_bridge_general_chat_skips_obsidian_context_when_disconnected(monkeypatc
         prior_token_usage=None,
         mood_event_id: str = "",
         mood_occurred_at: str = "",
+        request_ref=None,
     ):
         captured["message_with_time"] = message_with_time
 
@@ -582,6 +584,7 @@ def test_bridge_general_chat_cache_miss_before_obsidian_activation_skips_backgro
         prior_token_usage=None,
         mood_event_id: str = "",
         mood_occurred_at: str = "",
+        request_ref=None,
     ):
         captured["message_with_time"] = message_with_time
 
@@ -621,6 +624,7 @@ def test_bridge_general_chat_cache_miss_after_obsidian_activation_schedules_back
         prior_token_usage=None,
         mood_event_id: str = "",
         mood_occurred_at: str = "",
+        request_ref=None,
     ):
         captured["message_with_time"] = message_with_time
 
@@ -755,7 +759,8 @@ def test_bridge_obs_summarize_command_starts_ai_worker(monkeypatch):
 
     captured = {}
 
-    def fake_start(message_with_time: str, images_data=None):
+    def fake_start(message_with_time: str, images_data=None, *, companion_file_result=False):
+        assert companion_file_result is True
         captured["message_with_time"] = message_with_time
 
     monkeypatch.setattr(bridge, "_start_ai_worker", fake_start)
@@ -820,7 +825,7 @@ def test_bridge_obs_command_activates_obsidian_lazy_connection(monkeypatch):
         lambda: captured.__setitem__("activated", captured["activated"] + 1),
         raising=False,
     )
-    monkeypatch.setattr(bridge, "_start_ai_worker", lambda message_with_time, images_data=None: None)
+    monkeypatch.setattr(bridge, "_start_ai_worker", lambda message_with_time, images_data=None, companion_file_result=False: None)
 
     handled = bridge._handle_obs_command("/obs summarize test.md")
 
@@ -858,7 +863,7 @@ def test_bridge_obs_summarize_command_uses_configured_checked_file_limits(monkey
 
     bridge.obsidian_manager = DummyObsManager()
 
-    monkeypatch.setattr(bridge, "_start_ai_worker", lambda message_with_time, images_data=None: None)
+    monkeypatch.setattr(bridge, "_start_ai_worker", lambda message_with_time, images_data=None, companion_file_result=False: None)
 
     handled = bridge._handle_obs_command("/obs summarize test.md")
 

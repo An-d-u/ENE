@@ -429,9 +429,20 @@ class TTSBridgeMixin:
         self.pending_token_usage_payload = ""
         finalize_pending = getattr(self, "_finalize_pending_response_completion_if_any", None)
         try:
+            request_ref = completion.get("request_ref") if isinstance(completion, dict) else None
+            is_current = getattr(self, "_companion_request_is_current", None)
+            if request_ref is not None and callable(is_current) and not is_current(request_ref):
+                return
             if callable(emit_pending) and not has_normal_operation:
                 emit_pending(False)
-            self.message_received.emit(text, emotion, thought)
+            display = getattr(self, "_display_companion_response", None)
+            if callable(display):
+                display(
+                    text, emotion, thought, request_ref=request_ref,
+                    file_result=bool(completion.get("companion_file_result")) if isinstance(completion, dict) else False,
+                )
+            else:
+                self.message_received.emit(text, emotion, thought)
             emit_gesture = getattr(self, "_emit_gesture_requested", None)
             if callable(emit_gesture):
                 emit_gesture(gesture)

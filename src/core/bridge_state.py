@@ -8,6 +8,8 @@ import json
 from typing import Any, Literal
 
 from .attachment_session import AttachmentSession
+from .companion.requests import RequestKey, RequestLedger
+from .companion.transcript import CurrentConversationTranscript
 from .tts_sync_controller import TTSSyncController
 
 
@@ -83,6 +85,10 @@ class ChatBridgeState:
     last_request_payload: dict[str, Any] | None = None
     last_assistant_response: dict[str, Any] | None = None
     is_rerolling: bool = False
+    public_transcript: CurrentConversationTranscript = field(default_factory=CurrentConversationTranscript)
+    request_ledger: RequestLedger = field(default_factory=RequestLedger)
+    public_user_ids: dict[RequestKey, str] = field(default_factory=dict)
+    public_assistant_ids: dict[RequestKey, str] = field(default_factory=dict)
 
 
 @dataclass

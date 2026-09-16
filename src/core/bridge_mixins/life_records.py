@@ -34,6 +34,7 @@ from ..bridge_workers import (
     LifeRecordWorkerResult,
 )
 from ..bridge_state import LifeRecordBridgeState
+from ..companion.requests import RequestRef
 from ..life_session_tracker import InactiveStartCandidate
 from ..local_time import resolve_local_time_context
 
@@ -95,6 +96,7 @@ class PreparedChatRequest:
     attachments: tuple[Mapping[str, Any], ...] = ()
     head_pat_count_before_message: int = 0
     prior_token_usage: Mapping[str, Any] | None = None
+    request_ref: RequestRef | None = None
 
     def __post_init__(self) -> None:
         if self.received_at.tzinfo is None or self.received_at.utcoffset() is None:
@@ -214,8 +216,12 @@ class LifeRecordBridgeMixin:
         attachments: list[dict] | tuple[dict, ...] = (),
         head_pat_count_before_message: int = 0,
         prior_token_usage: Mapping[str, Any] | None = None,
+        request_ref: RequestRef | None = None,
     ) -> PreparedChatRequest:
         language = self._resolve_life_prompt_language()
+        create_ref = getattr(self, "_new_companion_request_ref", None)
+        if request_ref is None and callable(create_ref):
+            request_ref = create_ref()
         return PreparedChatRequest(
             received_at=received_at,
             language=language,
@@ -225,6 +231,7 @@ class LifeRecordBridgeMixin:
             attachments=tuple(attachments),
             head_pat_count_before_message=head_pat_count_before_message,
             prior_token_usage=prior_token_usage,
+            request_ref=request_ref,
         )
 
     def _life_setting(self, key: str, default: Any) -> Any:

@@ -8,7 +8,7 @@
 
 **기술:** 기존 Python/PyQt6/aiohttp/pytest/Node VM, Kotlin 2.2.21/Compose/Coroutines/OkHttp 5.3.2, Android AudioTrack·AudioManager, AndroidX WebKit 1.15.0. 기존 Live2D 웹 라이브러리는 출처·버전·권리 확인 후 그대로 고정한다.
 
-**검토 상태:** 계획 문서 리뷰 승인. 아래 구현·테스트 체크박스는 아직 수행하지 않았다.
+**검토 상태:** 계획 문서 리뷰 승인. A0/A1 완료, A2부터 순차 진행 중. 실기기 시험은 보류한다.
 
 ---
 
@@ -128,20 +128,24 @@ PC 집중 명령은 PC 루트, Gradle은 APP 루트에서 실행한다. Android 
 
 **파일:** 수정 없음. 기존 계획과 두 저장소 상태만 확인한다.
 
-- [ ] 양쪽 `git status --short`, `git log -1 --oneline`을 읽고 관련 사용자 변경이 있으면 보존한다. 새 worktree/저장소를 만들지 않는다.
-- [ ] PC `python -m pytest tests/test_companion_protocol.py tests/test_companion_adapter.py tests/test_companion_gateway.py tests/test_companion_tls_gateway.py -q`를 실행한다. 예상: 기존 사례 통과.
-- [ ] APP `./gradlew.bat :app:testDebugUnitTest --tests "dev.ene.companion.ConnectionRepositoryTest" --tests "dev.ene.companion.TlsTransportTest" --offline --dependency-verification strict --console=plain`를 실행한다. 예상: BUILD SUCCESSFUL, 기존 실패 없음.
-- [ ] Task 6과 계측 시험은 미완료로 유지한다. 결과만 구현 기록에 적는다.
+- [x] 양쪽 `git status --short`, `git log -1 --oneline`을 읽고 관련 사용자 변경이 있으면 보존한다. 새 worktree/저장소를 만들지 않는다.
+- [x] PC `python -m pytest tests/test_companion_protocol.py tests/test_companion_adapter.py tests/test_companion_gateway.py tests/test_companion_tls_gateway.py -q`를 실행한다. 결과: 96개 통과.
+- [x] APP `./gradlew.bat :app:testDebugUnitTest --tests "dev.ene.companion.ConnectionRepositoryTest" --tests "dev.ene.companion.TlsTransportTest" --offline --dependency-verification strict --console=plain`를 실행한다. 결과: 기존 연결 24개, TLS 9개 통과.
+- [x] Task 6과 계측 시험은 미완료로 유지한다. 설치·방화벽 변경 없이 자동 검증만 실행했다.
+
+PC의 최초 기준 실행은 임시 폴더 생성 권한 때문에 58개 통과/38개 준비 오류였다. 신규 전용 basetemp와 권한 조정 후 같은 기준 시험 96개가 통과했다. 기능 코드 수정으로 해결한 오류는 아니다. 기준 HEAD는 PC `2916ccef`, APP `d6671e8`, 원본 PC `main`은 `c620a057`이다.
 
 ### A1. 공개 대화와 요청 소유권
 
 **파일:** PC `src/core/bridge_mixins/companion.py`, `tests/test_companion_bridge_transcript.py` 생성. 기존 계획 Task 7의 정확한 수정 파일을 사용한다.
 
-- [ ] 기존 계획 Task 7의 체크리스트를 실행한다. 특히 공개 전 TTS 대기·실패·자동 요약·초기화 후 전체 기록의 일치와 늦은 콜백 폐기를 먼저 실패 테스트로 만든다.
-- [ ] `python -m pytest tests/test_companion_bridge_transcript.py -q`로 실패를 확인한다.
-- [ ] 내부 operation에서 불변 RequestRef와 공개 message_id를 운반하고 공개 전/후 상태를 조회할 수 있게 한다. 모바일 비활성 상태에서도 공개 기록은 유지한다.
-- [ ] 같은 명령과 기존 계획 Task 7의 명시된 회귀 명령을 실행한다. 예상: 통과, 가상 답변이 한 번만 공개됨.
-- [ ] 해당 파일만 `feat: 현재 대화의 공개 기록 경계 추가`로 커밋한다.
+- [x] 기존 계획 Task 7의 체크리스트를 실행한다. 특히 공개 전 TTS 대기·실패·자동 요약·초기화 후 전체 기록의 일치와 늦은 콜백 폐기를 먼저 실패 테스트로 만든다.
+- [x] `python -m pytest tests/test_companion_bridge_transcript.py -q`로 실패를 확인한다. 최초 12개 실패, 추가 파일/첨부 분류 8개 실패를 확인했다.
+- [x] 내부 operation에서 불변 RequestRef와 공개 message_id를 운반하고 공개 전/후 상태를 조회할 수 있게 한다. 모바일 비활성 상태에서도 공개 기록은 유지한다.
+- [x] 같은 명령과 기존 계획 Task 7의 명시된 회귀 명령을 실행한다. 결과: 신규 22개 포함 196개 통과. 생활 기록·첨부·파일 명령·pending 회귀까지 합쳐 314개 통과.
+- [x] 해당 파일만 `feat: 현재 대화의 공개 기록 경계 추가`로 커밋한다.
+
+A1에서 `PreparedChatRequest`에 선택적 불변 참조를 추가하기 위해 `bridge_mixins/life_records.py`도 수정했다. 자동 발화 세 경로는 공통 `_start_ai_worker`에서 소유권을 받으므로 개별 파일은 바꾸지 않았다. 기존 파일 명령 테스트 대역은 새 인자에 맞춰 수정했다. 공개 이벤트와 PC 전용 표시를 분리했으며 PC의 ID 기반 렌더링 전환은 A3에서 수행한다. 공개 메시지 ID 대응을 추가했지만 편집·리롤의 수락 검사는 아직 A3 범위다.
 
 ### A2. 공통 수락과 중복 방지
 

@@ -773,6 +773,9 @@ class MemorySummaryBridgeMixin:
 
     def clear_conversation(self):
         """대화 내역 초기화"""
+        reset_public = getattr(self, "_reset_companion_conversation", None)
+        if callable(reset_public):
+            reset_public()
         # 남은 대화가 있으면 요약
         if self.memory_manager and len(self.conversation_buffer) >= 2:  # 최소 2개 이상
             print(f"[Bridge] 대화 클리어 전 남은 {len(self.conversation_buffer)}개 메시지 요약")
