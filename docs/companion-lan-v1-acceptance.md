@@ -2,7 +2,7 @@
 
 2026-09-17: 현재 대화·실제 ENE 접수/종료·Live2D·자동 음성 출력·쓰다듬기·공통 설정의 소스 구현과 자동 검증을 마쳤다. 실제 단말 선택/설치 확인은 보류되어 있다. 이 문서는 단말 인수 기준표이며 LAN 연결 성공 기록이 아니다.
 
-PC는 `codex/companion-lan-v1`, Android는 별도 ENE_APP 저장소의 `codex/companion-tls-v1`에서 유지한다. 최신 검증 커밋·시험 수·APK 해시는 [미디어 검증 기록](companion-media-validation.md)에 기록했다. Android의 `docs/media-support.md`와 `docs/build-and-install.md`도 함께 따른다. 원래 ENE main에 병합하거나 원격 저장소에 게시하지 않았다.
+PC와 별도 ENE_APP 저장소 모두 사용자 승인으로 작업 브랜치를 로컬 `main`에 병합했다. 최신 검증 커밋·시험 수·APK 해시는 [미디어 검증 기록](companion-media-validation.md)에 기록했다. Android의 `docs/media-support.md`와 `docs/build-and-install.md`도 함께 따른다. 원격 저장소에 게시하거나 APK를 설치하지 않았다.
 
 | 항목 | 현재 결과 |
 | --- | --- |

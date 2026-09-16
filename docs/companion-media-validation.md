@@ -4,9 +4,9 @@
 
 ## 기준과 저장소
 
-- PC: `codex/companion-lan-v1`, 구현·검증 커밋 `a66b9239`.
-- Android: 별도 ENE_APP 저장소 `codex/companion-tls-v1`, 구현·검증 커밋 `03c1a56`.
-- 원본 PC `main`(`c620a057`)에는 병합하지 않았다. GitHub 게시·태그·릴리스도 하지 않았다.
+- PC: 로컬 `main`, 구현·검증 커밋 `a66b9239`. 작업 브랜치의 문서 포함 최종 커밋 `802f2874`를 병합했다.
+- Android: 별도 ENE_APP 저장소의 로컬 `main`, 구현·검증 커밋 `03c1a56`. 문서 포함 최종 커밋 `dff9f44`를 병합했다.
+- 2026-09-17 사용자 승인으로 두 저장소를 각각 fast-forward 병합했다. GitHub 게시·태그·릴리스·설치는 하지 않았다.
 - 세부 실행 기록: [미디어 계획](superpowers/plans/2026-09-16-ene-companion-media.md), [설계](superpowers/specs/2026-09-16-ene-companion-media-design.md). 기존 V1 단말 인수는 [LAN 수용표](companion-lan-v1-acceptance.md)로 별도 관리한다.
 
 ## 구현된 동작
@@ -38,10 +38,10 @@ Live2D는 화면 동영상이 아니라 같은 캐릭터 실행부·현재 모�
 
 | 항목 | 결과 |
 | --- | --- |
-| PC 전체 pytest | 3976개 통과, 1개 제외, 84.02초 |
+| PC 전체 pytest | 병합 후 3976개 통과, 1개 제외, 83.91초 |
 | PC Ruff | 전체 `E9,F63,F7,F82` 및 변경 경계 기본 검사 통과 |
 | Android 전체 JVM | 44개 클래스·254개 시험, 실패·오류·제외 0 |
-| Android Lint / 빌드 | 오류 0·기존 경고 27개; offline strict 단위/Lint/개발·계측 APK 빌드 성공, 52초 |
+| Android Lint / 빌드 | 오류 0·기존 경고 27개; offline strict 단위 재실행 51초, Lint/개발·계측 APK 빌드 15초 |
 | 실제 Qt/TLS + 합성 상대편 | 설정 저장→중복 쓰다듬기 종료→공개 응답→음성 준비/시작/PCM/완료, 시작 후 단절 시 PC 중복 출력 방지 |
 | 반복 수명 | PC 혼합 자원·중단 전송·JS 수명 각 20회, Android 모델/설정/음성/쓰다듬기/실패·교체 20회 |
 | APK 파일 정책 | 557항목 중 캐릭터 21항목; 허용 실행부/고지 20개 해시 일치; 금지 경로 후보 0 |
@@ -55,12 +55,13 @@ python tools/export_companion_character.py --check
 Android 저장소에서:
 
 ```powershell
-.\gradlew.bat :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest --offline --dependency-verification strict --console=plain
+.\gradlew.bat :app:testDebugUnitTest --rerun-tasks --offline --dependency-verification strict --console=plain
+.\gradlew.bat :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest --offline --dependency-verification strict --console=plain
 ```
 
-최종 개발 APK: ENE_APP의 `app/build/outputs/apk/debug/app-debug.apk`, 37,696,722바이트. SHA-256:
+병합 후 다시 빌드한 개발 APK: ENE_APP의 `app/build/outputs/apk/debug/app-debug.apk`, 37,696,650바이트. SHA-256:
 
-`71c626aa665fb757f2d072c5b62bf391d28b662aee58d9840a095a1e742639ed`
+`8aea6d200aa38d86f2dd6917134731de84b5ae724e287530a7a078de418d74a7`
 
 두 저장소 미디어 계약 사례 SHA-256:
 
@@ -69,6 +70,8 @@ Android 저장소에서:
 통합 시험에서 PC 제어 기능 협상 누락과 Android TLS 종료 시 연결 목록 복사 경합을 재현·수정한 뒤 위 전체 명령으로 재검증했다. 포화 시험의 접속 간격은 시험용 가상 시간으로 전진시켰으며 제품의 접속 제한은 완화하지 않았다. JavaScript 수명 시험과 네이티브 경계 대역을 실제 Android WebView 실행으로 간주하지 않는다.
 
 인계 문서 대조 중 등록 변경 시 캐시 삭제 누락과 현재 상태의 디스크 보관을 발견했다. 상태 비보관·구캐시 제거·최신 상태 재사용·핀/다운로드 해제 순서·등록 실패 보존 등 합성 시험 8개를 추가하고 Android 전체 검증 및 APK 파일/해시 검사를 다시 실행했다. PC 소스는 이 후속 보완에서 변경하지 않았다.
+
+로컬 병합 뒤 위 명령으로 다시 검증했다. PC의 개인 설정이 있는 기본 폴더 대신 동일한 main 커밋의 격리 작업 폴더에서 pytest를 실행했고, Android 단위 시험은 이전 결과를 재사용하지 않고 전부 실행했다. 격리 폴더의 Git 미포함 실행 기록은 삭제하지 않았으며, 원격 동기화나 설치는 수행하지 않았다.
 
 ## 남은 인수와 배포 경계
 
