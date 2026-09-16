@@ -25,7 +25,7 @@ class _Selection:
 
 
 class CompanionCharacterBridge(QObject):
-    capabilities = ("character_v1",)
+    capabilities = ("character_v1", "character_controls_v1")
 
     def __init__(self, owner, *, builder=build_bundle):
         super().__init__(owner)

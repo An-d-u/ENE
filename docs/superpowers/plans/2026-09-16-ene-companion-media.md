@@ -460,12 +460,16 @@ PC 쓰다듬기/실제 Qt/공유 실행부/기분·생활 기록 집중 회귀 *
 
 **파일:** PC `tests/test_companion_media_integration.py`, `test_companion_media_resources.py`; APP `T/MediaIntegrationTest.kt`, `MediaPrivacyPolicyTest.kt`; 양쪽 `media_cases.json` 보완.
 
-- [ ] 실제 bridge 수락→가상 worker→공개 메시지→음성 offer→prepared/start→PCM→완료의 합성 흐름을 실행한다. 실제 gateway TLS는 사용하고 provider 호출은 fake로 고정한다.
-- [ ] 20회 연결 교체/모델 변경/재생/취소에서 worker/socket/HTTP/body/WebView listener가 남지 않는지 확인한다. 포화·예외·반쪽 연결도 반복한다. PC-only/browser/disabled/구형 text client는 PC 기존 기능을 보존한다.
-- [ ] PC `python -m pytest tests/test_companion_media_integration.py tests/test_companion_media_resources.py -q`, APP `./gradlew.bat :app:testDebugUnitTest --tests "dev.ene.companion.MediaIntegrationTest" --tests "dev.ene.companion.MediaPrivacyPolicyTest" --offline --dependency-verification strict --console=plain`를 실행한다. 새 실패가 있으면 원인별 집중 테스트로 먼저 수정한다.
-- [ ] 전체 체크포인트: PC `python -m pytest -q`와 `python -m ruff check . --select E9,F63,F7,F82`; APP `./gradlew.bat :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest --offline --dependency-verification strict --console=plain`. 예상: 모든 신규/기존 자동 시험 통과 또는 기존 환경 실패를 분리한 명확한 미완료 기록.
-- [ ] APK ZIP 항목을 검사해 private runtime 파일·인증 토큰·시험 CA/private key·개인 모델이 없는지 확인한다. 재배포 허용된 런타임 파일/고지와 대응 hash를 점검한다. instrumentation APK의 합성 시험 자산은 앱 APK와 구분한다.
-- [ ] 결과를 남기고 `test: 캐릭터 음성 연동과 자원 정리 회귀 검증`으로 해당 파일만 커밋한다. 빌드 산출물은 커밋하지 않는다.
+- [x] 실제 bridge 수락→가상 worker→공개 메시지→음성 offer→prepared/start→PCM→완료의 합성 흐름을 실행한다. 실제 gateway TLS는 사용하고 provider 호출은 fake로 고정한다.
+- [x] 20회 연결 교체/모델 변경/재생/취소에서 worker/socket/HTTP/body/WebView listener가 남지 않는지 확인한다. 포화·예외·반쪽 연결도 반복한다. PC-only/browser/disabled/구형 text client는 PC 기존 기능을 보존한다.
+- [x] PC `python -m pytest tests/test_companion_media_integration.py tests/test_companion_media_resources.py -q`, APP `./gradlew.bat :app:testDebugUnitTest --tests "dev.ene.companion.MediaIntegrationTest" --tests "dev.ene.companion.MediaPrivacyPolicyTest" --offline --dependency-verification strict --console=plain`를 실행한다. 새 실패가 있으면 원인별 집중 테스트로 먼저 수정한다.
+- [x] 전체 체크포인트: PC `python -m pytest -q`와 `python -m ruff check . --select E9,F63,F7,F82`; APP `./gradlew.bat :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest --offline --dependency-verification strict --console=plain`. 예상: 모든 신규/기존 자동 시험 통과 또는 기존 환경 실패를 분리한 명확한 미완료 기록.
+- [x] APK ZIP 항목을 검사해 private runtime 파일·인증 토큰·시험 CA/private key·개인 모델이 없는지 확인한다. 재배포 허용된 런타임 파일/고지와 대응 hash를 점검한다. instrumentation APK의 합성 시험 자산은 앱 APK와 구분한다.
+- [x] 결과를 남기고 `test: 캐릭터 음성 연동과 자원 정리 회귀 검증`으로 해당 파일만 커밋한다. 빌드 산출물은 커밋하지 않는다.
+
+**E1 검증 기록(2026-09-17):** 실제 Qt/TLS 시험에 모델 manifest·설정 원자 저장·쓰다듬기 중복 종료를 결합했고, 폰 음성 시작 후 단절해도 PC 중복 출력이 없는지 확인했다. PC 지원 목록에서 빠져 있던 `character_controls_v1`을 이 시험의 협상 실패로 재현해 활성화했다. 20회 혼합 자원 포화/모델 세대/종료, 실제 TLS의 중단된 PCM 연결 교체, Node VM 표시부 생성·해제, Android 캐시 2개 제한 하의 모델/설정/음성/쓰다듬기/실패·취소를 검증했다. 실제 WebView는 계측 컴파일까지만 확인했으며 20회 JS/네이티브 경계 대역 검증을 실제 기기 그래픽 시험으로 간주하지 않는다. 접속 제한은 가상 시간으로만 전진시켰고 제품의 제한을 낮추지 않았다.
+
+전체 검증 중 TLS 만료 종료에서 마지막 소켓 삭제와 `toList()`의 단일 항목 최적화가 경합하는 예외를 확인했다. 같은 삭제 순간을 결정적으로 재현하고 동시 제거에 안전한 순회로 교체했다. 관련 TLS·미디어 집중 회귀 후 PC 전체 **3976개 통과·1개 제외(84.02초)**, APP 전체 **44개 클래스·246개 시험 통과**, 실패·오류·제외 0을 확인했다. PC 전체 기본 Ruff·변경 경계 Ruff, APP offline strict unit/lint/debug/instrumentation APK 빌드 통과(52초). Lint 오류 0·기존 경고 27개. 공유 미디어 사례 두 사본의 SHA-256은 `9bd12f98ca5166c2a65b134c931f303a29bad1ae9e34eb65b2267eab313ee78d`로 일치한다. 개발 APK 557개 항목 중 캐릭터 21개(실행부/고지 20개+해시 목록), 각 허용 파일 해시 일치·금지 경로 후보 0을 확인했다. 이는 파일 정책 검사이며 출시 권리 확인이나 실기기 개인정보 검사를 대체하지 않는다. Cubism·모델 권리와 공개 게시 전 히스토리 검사는 여전히 남아 있다.
 
 ### E2. 문서·완료 표시
 

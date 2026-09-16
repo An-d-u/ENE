@@ -313,9 +313,8 @@ def test_controller_only_advertises_installed_media_boundaries(routed_bridge):
 
     bridge, _, _, _, _ = routed_bridge
     controller = CompanionController(bridge)
-    assert controller._capabilities == ("audio_pcm_v1", "character_v1")
+    assert controller._capabilities == ("audio_pcm_v1", "character_v1", "character_controls_v1")
     assert controller._character is bridge._companion_character
-    assert "character_controls_v1" not in controller._capabilities
 
 
 def test_settings_disable_cancels_phone_and_reenable_reuses_current_availability(

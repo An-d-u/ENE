@@ -11,16 +11,16 @@ from tests.test_companion_audio_buffer import wav
 from tests.test_companion_gateway import harness, synchronize
 
 
-async def media_connection(client, base, token):
+async def media_connection(client, base, token, capabilities=("audio_pcm_v1",)):
     ws = await client.ws_connect(
         base + "/ws", headers={"Authorization": f"Bearer {token}"}
     )
     await ws.send_json(
-        {"type": "hello", "protocol_version": 1, "capabilities": ["audio_pcm_v1"]}
+        {"type": "hello", "protocol_version": 1, "capabilities": list(capabilities)}
     )
     ready = await ws.receive_json(timeout=3)
     extension = await ws.receive_json(timeout=2)
-    assert ready["capabilities"] == extension["capabilities"] == ["audio_pcm_v1"]
+    assert ready["capabilities"] == extension["capabilities"] == list(capabilities)
     await synchronize(ws)
     return (
         ws,
