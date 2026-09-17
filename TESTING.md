@@ -6,7 +6,9 @@
 python -m pip install --upgrade pip
 pip install -r requirements-dev.txt
 python -m coverage run --source=src --omit="src/core/app.py,src/core/audio_player.py,src/core/global_ptt.py,src/core/overlay_window.py,src/core/bridge_workers.py,src/core/bridge_mixins/attachments.py,src/core/bridge_mixins/away.py,src/core/bridge_mixins/memory_summary.py,src/core/bridge_mixins/mood.py,src/core/bridge_mixins/obsidian.py,src/ui/drag_bar.py,src/ui/settings_dialog_hotkeys.py,src/ui/settings_dialog_profile.py,src/ui/settings_dialog_prompt.py,src/ui/settings_dialog_theme.py,src/ui/settings_dialog_tts.py,src/ui/settings_dialog_widgets.py,src/ai/http_llm_clients.py,src/ai/http_llm_common.py,src/ai/http_llm_openai.py,src/ai/http_llm_custom_providers.py,src/ai/http_llm_anthropic.py,src/ai/http_llm_ollama.py,src/ai/llm_client.py" -m pytest -q
+if ($LASTEXITCODE -ne 0) { throw "테스트 실패: $LASTEXITCODE" }
 python -m coverage report --show-missing --skip-empty --fail-under=80
+if ($LASTEXITCODE -ne 0) { throw "커버리지 기준 미달: $LASTEXITCODE" }
 ```
 
 이 커버리지 게이트는 GUI, 오디오 장치, 외부 HTTP 런타임처럼 CI에서 안정적으로 재현하기 어려운 표면을 제외한 선별 대상 기준이다.
@@ -69,7 +71,10 @@ python -m pytest tests/test_settings.py tests/test_ui_i18n_smoke.py tests/test_b
 - 실행 항목:
   1. 의존성 설치
   2. `ruff` 검사
-  3. `pytest + coverage` 실행 (`선별 대상 최소 80% 미만이면 실패`)
+  3. `pytest + coverage` 실행 (테스트 실패 시 다음 단계로 진행하지 않음)
+  4. 별도 단계에서 커버리지 판정 (`선별 대상 최소 80% 미만이면 실패`)
+
+TLS 종료 회귀 검사는 지원 하한인 Python 3.11과 로컬 Python 3.12에서 확인한다. 3.11은 서버를 닫기 전에 종료 대기를 등록해야 진행 중인 TLS 협상까지 기다린다. Windows ACL 검사는 PowerShell 7에서 상속된 `PSModulePath`만 자식 프로세스 환경에서 제외하며, 현재 사용자/SYSTEM만 허용하고 상속을 차단하는 기존 권한 기준은 유지한다.
 
 ## 생활 기록 회귀 테스트
 

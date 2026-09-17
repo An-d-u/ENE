@@ -8,7 +8,10 @@ import subprocess
 import pytest
 
 
-def test_new_directory_and_written_file_have_private_os_permissions(tmp_path):
+@pytest.mark.parametrize("isolated_module_path", [False, True] if os.name == "nt" else [False])
+def test_new_directory_and_written_file_have_private_os_permissions(
+    tmp_path, monkeypatch, isolated_module_path
+):
     from src.core.companion.private_files import PrivateDirectory
 
     folder = PrivateDirectory(tmp_path / "tls")
@@ -16,8 +19,21 @@ def test_new_directory_and_written_file_have_private_os_permissions(tmp_path):
     assert folder.read("identity.json") == b"synthetic-key-material"
     folder.verify()
     if os.name == "nt":
+        if isolated_module_path:
+            # 다른 PowerShell의 동명 모듈이 시스템 모듈보다 먼저 발견되는 환경이다.
+            modules = tmp_path / "foreign_modules"
+            manifest = modules / "Microsoft.PowerShell.Security/7.0.0/Microsoft.PowerShell.Security.psd1"
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text(
+                "@{ModuleVersion='7.0.0'; PowerShellVersion='7.0'; "
+                "GUID='6cab4630-3ee9-4693-8f30-427e028f2dd4'; "
+                "CmdletsToExport=@('Get-Acl'); RootModule='unavailable.dll'}",
+                encoding="utf-8",
+            )
+            monkeypatch.setenv("PSModulePath", str(modules) + os.pathsep + os.environ.get("PSModulePath", ""))
         environment = {
-            **os.environ,
+            # PowerShell 7 → Python → Windows PowerShell의 동명 모듈 충돌을 막는다.
+            **{key: value for key, value in os.environ.items() if key.upper() != "PSMODULEPATH"},
             "ENE_TLS_TEST_PATH": str(folder.path / "identity.json"),
         }
         result = subprocess.run(
@@ -26,6 +42,7 @@ def test_new_directory_and_written_file_have_private_os_permissions(tmp_path):
                 "-NoProfile",
                 "-NonInteractive",
                 "-Command",
+                "$ErrorActionPreference='Stop'; "
                 "$a=Get-Acl -LiteralPath $env:ENE_TLS_TEST_PATH; "
                 "[pscustomobject]@{Protected=$a.AreAccessRulesProtected; "
                 "Count=@($a.Access).Count; Inherited=@($a.Access | Where-Object IsInherited).Count} | ConvertTo-Json -Compress",
@@ -36,6 +53,7 @@ def test_new_directory_and_written_file_have_private_os_permissions(tmp_path):
             timeout=10,
             check=True,
         )
+        assert not result.stderr, result.stderr
         assert json.loads(result.stdout) == {
             "Protected": True,
             "Count": 2,

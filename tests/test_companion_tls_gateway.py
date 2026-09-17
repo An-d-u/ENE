@@ -185,6 +185,35 @@ def test_stop_waits_for_stalled_handshakes_without_leaving_a_listener(tmp_path):
     asyncio.run(scenario())
 
 
+def test_repeated_listener_stop_and_cancelled_waiter_still_drain_handshake(tmp_path):
+    async def scenario():
+        async with harness(tmp_path) as (gateway, _client, _base, _token, _port, _clock):
+            site = gateway._site
+            reader, writer = await asyncio.open_connection("127.0.0.1", gateway.port)
+            try:
+                await site.stop()
+                await site.stop()
+                waiting = asyncio.create_task(site.wait_closed())
+                await asyncio.sleep(0)
+                assert not waiting.done()
+                waiting.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await waiting
+                await asyncio.wait_for(site.wait_closed(), 7)
+                try:
+                    assert await asyncio.wait_for(reader.read(1), 1) == b""
+                except ConnectionResetError:
+                    pass
+            finally:
+                writer.close()
+                try:
+                    await writer.wait_closed()
+                except ConnectionResetError:
+                    pass
+
+    asyncio.run(scenario())
+
+
 def test_handshake_completed_during_renewal_cannot_keep_old_listener_alive(tmp_path):
     from cryptography.hazmat.primitives import serialization
 

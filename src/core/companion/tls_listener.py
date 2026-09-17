@@ -45,6 +45,7 @@ class TlsListener:
     def __init__(self):
         self._closed = False
         self._server = None
+        self._close_waiter = None
         self.port = None
 
     @classmethod
@@ -73,8 +74,19 @@ class TlsListener:
 
     async def stop(self):
         # 접수부터 닫고, HTTP/WS를 종료한 다음 wait_closed를 호출한다.
+        if self._closed:
+            return
         self._closed = True
-        self._server.close()
+        # Python 3.11은 close 뒤의 wait_closed가 진행 중인 TLS 협상을 기다리지 않는다.
+        # 먼저 대기를 등록한다. 0초 양보는 고정 시간 대기가 아니라 등록 순서 보장이다.
+        self._close_waiter = asyncio.create_task(self._server.wait_closed())
+        try:
+            await asyncio.sleep(0)
+        finally:
+            self._server.close()
 
     async def wait_closed(self):
+        if self._close_waiter is not None:
+            # 한 호출자의 취소가 다른 종료 대기까지 취소하지 않게 한다.
+            await asyncio.shield(self._close_waiter)
         await self._server.wait_closed()

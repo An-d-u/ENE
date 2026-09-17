@@ -74,10 +74,10 @@ def test_ci_coverage_steps_keep_linux_and_windows_commands_in_sync():
     ci_config = (root / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8-sig")
     linux_step = _extract_ci_step(ci_config, "Run tests with coverage (Linux)")
     windows_step = _extract_ci_step(ci_config, "Run tests with coverage (Windows)")
+    coverage_step = _extract_ci_step(ci_config, "Check coverage threshold")
 
     expected_fragments = [
         "coverage run --source=src --omit=",
-        "coverage report --show-missing --skip-empty --fail-under=80",
         "src/core/app.py",
         "src/ai/http_llm_clients.py",
         "src/ai/http_llm_openai.py",
@@ -87,6 +87,12 @@ def test_ci_coverage_steps_keep_linux_and_windows_commands_in_sync():
     for fragment in expected_fragments:
         assert fragment in linux_step
         assert fragment in windows_step
+
+    report = "coverage report --show-missing --skip-empty --fail-under=80"
+    assert report in coverage_step
+    assert report not in linux_step and report not in windows_step
+    commands = lambda step: [line.strip() for line in step.splitlines() if line.strip().startswith("python ")]
+    assert commands(linux_step) == commands(windows_step)
 
 
 def test_http_llm_clients_is_compatibility_facade():
