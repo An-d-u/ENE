@@ -152,15 +152,23 @@ def test_resolve_model_json_path_falls_back_to_bundle_root_when_user_copy_is_mis
     assert resolved == model_path.resolve()
 
 
-def test_default_model_json_path_points_to_bundled_hiyori_model():
+def test_legacy_default_model_path_supports_manual_installation(tmp_path, monkeypatch):
     from src.core.model_emotions import DEFAULT_MODEL_JSON_PATH, get_available_model_emotions
 
     assert DEFAULT_MODEL_JSON_PATH == "assets/live2d_models/hiyori/runtime/hiyori_pro_t11.model3.json"
-    root = __import__("pathlib").Path(__file__).resolve().parents[1]
-    assert (root / DEFAULT_MODEL_JSON_PATH).exists()
+    monkeypatch.setenv("ENE_USER_DATA_DIR", str(tmp_path / "profile"))
+    assert get_available_model_emotions(
+        settings_source={},
+        base_path=tmp_path,
+        fallback_emotions=["normal", "eyeclose", "shy"],
+    ) == ["normal", "eyeclose", "shy"]
+    # 실제 Hiyori 데이터 대신 합성 파일로 사용자의 수동 설치를 검사한다.
+    model = tmp_path / DEFAULT_MODEL_JSON_PATH
+    model.parent.mkdir(parents=True)
+    model.write_text("{}", encoding="utf-8")
     assert get_available_model_emotions(
         settings_source={"model_json_path": DEFAULT_MODEL_JSON_PATH},
-        base_path=root,
+        base_path=tmp_path,
         fallback_emotions=["normal", "eyeclose", "shy"],
     ) == ["normal"]
 
