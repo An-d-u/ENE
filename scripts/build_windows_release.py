@@ -11,6 +11,11 @@ import sys
 import zipfile
 from pathlib import Path
 
+if __package__:
+    from .setup_web_libs import check_local_core
+else:
+    from setup_web_libs import check_local_core
+
 
 APP_NAME = "ENE"
 PLATFORM_SUFFIX = "win64"
@@ -38,7 +43,6 @@ def collect_data_mappings(project_root: Path) -> list[tuple[Path, str]]:
     return [
         (project_root / "assets" / "icons", "assets/icons"),
         (project_root / "assets" / "web", "assets/web"),
-        (project_root / "assets" / "live2d_models" / "hiyori", "assets/live2d_models/hiyori"),
         (project_root / "src" / "locales", "src/locales"),
         (project_root / "prompts" / "defaults", "prompts/defaults"),
     ]
@@ -107,6 +111,8 @@ def create_portable_archive(dist_dir: Path, release_dir: Path, archive_name: str
 
 
 def build_release(project_root: Path, version: str | None) -> Path:
+    if not check_local_core(project_root):
+        raise RuntimeError("Core를 공식 SDK에서 직접 설치한 뒤 로컬 빌드를 다시 실행하세요.")
     _clean_previous_outputs(project_root)
     command = build_pyinstaller_command(project_root)
     subprocess.run(command, check=True, cwd=project_root)

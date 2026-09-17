@@ -4,6 +4,21 @@ def test_build_archive_name_uses_tag_and_platform_suffix():
     assert build_archive_name("v1.2.3") == "ENE-v1.2.3-win64.zip"
 
 
+def test_missing_core_stops_before_removing_previous_local_outputs(tmp_path, monkeypatch):
+    import pytest
+    from scripts import build_windows_release
+
+    output = tmp_path / "dist/ENE/keep.txt"
+    output.parent.mkdir(parents=True)
+    output.write_text("합성 기존 산출물", encoding="utf-8")
+    def unexpected_build(*args, **kwargs):
+        pytest.fail("Core가 없으면 패키징을 시작하면 안 됨")
+    monkeypatch.setattr(build_windows_release.subprocess, "run", unexpected_build)
+    with pytest.raises(RuntimeError, match="Core"):
+        build_windows_release.build_release(tmp_path, "local-test")
+    assert output.read_text(encoding="utf-8") == "합성 기존 산출물"
+
+
 def test_build_pyinstaller_command_includes_required_resource_directories(tmp_path):
     from scripts.build_windows_release import build_pyinstaller_command
 
@@ -26,7 +41,7 @@ def test_build_pyinstaller_command_includes_required_resource_directories(tmp_pa
     assert "ENE" in command
     assert "assets/icons" in command_text.replace("\\", "/")
     assert "assets/web" in command_text.replace("\\", "/")
-    assert "assets/live2d_models/hiyori" in command_text.replace("\\", "/")
+    assert "assets/live2d_models/hiyori" not in command_text.replace("\\", "/")
     assert "assets/live2d_models/jksalt" not in command_text.replace("\\", "/")
     assert "assets/ref_audio" not in command_text.replace("\\", "/")
     assert "src/locales" in command_text.replace("\\", "/")
@@ -43,7 +58,7 @@ def test_collect_data_mappings_returns_only_release_safe_bundle_targets(tmp_path
 
     assert (project_root / "assets" / "icons", "assets/icons") in mappings
     assert (project_root / "assets" / "web", "assets/web") in mappings
-    assert (project_root / "assets" / "live2d_models" / "hiyori", "assets/live2d_models/hiyori") in mappings
+    assert (project_root / "assets" / "live2d_models" / "hiyori", "assets/live2d_models/hiyori") not in mappings
     assert (project_root / "src" / "locales", "src/locales") in mappings
     assert (project_root / "prompts" / "defaults", "prompts/defaults") in mappings
     assert (project_root / "assets", "assets") not in mappings

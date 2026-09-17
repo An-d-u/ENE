@@ -1,6 +1,15 @@
 assets/live2d_models/
 assets/ref_audio/
 
+# Core와 공식 SDK는 약관 확인 후 로컬에만 설치한다.
+assets/web/lib/live2dcubismcore.min.js
+assets/web/libs/live2dCubismCore.min.js
+local-sdk/
+CubismSdkFor*/
+CubismSdkFor*.zip
+*.apk
+*.aab
+
 # Python
 __pycache__/
 *.py[cod]

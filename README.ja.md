@@ -2,6 +2,8 @@
 
 <h1 align="center">ENE</h1>
 
+> 소스 공개 안내: 완성 APK·Windows ZIP·Core·모델은 제공하지 않습니다. 실행·빌드 전에 [Core 직접 설치 및 로컬 빌드 안내](docs/source-only-build.md)를 따르세요. Core 분리만으로 확장성 앱의 출시 허가 문제가 해결되지는 않습니다.
+
 <p align="center">
   Live2D の存在感を持つ、長期記憶対応の AI デスクトップコンパニオン。
 </p>
@@ -61,7 +63,7 @@ ENE は作業環境の上に常駐するデスクトップ AI パートナーで
 
 ENE は実用的なローカル開発フローを持つアクティブな開発プロジェクトです。
 
-- 同梱のデフォルト Live2D モデルは `hiyori` です。
+- 모델 데이터는 포함하지 않습니다. 사용 권한이 있는 모델을 직접 준비하세요.
 - ユーザーが選択したモデルパスは再起動後も保持されます。
 - Live2D モードに加えて画像アバターモードも利用でき、感情ごとの画像切り替えや画像ごとの配置調整が可能です。
 - `ene_goals.json` によって ENE の目標状態を保持でき、短期・長期の目標文脈をコンパニオンの振る舞いに反映できます。
@@ -127,7 +129,7 @@ ENE はユーザーが編集できるランタイムファイルをユーザー�
 1. `python main.py` で ENE を起動します。
 2. トレイアイコンから設定画面を開きます。
 3. LLM プロバイダー、モデル、API キーを設定します。
-4. 同梱の `hiyori` モデルを使うか、任意の `.model3.json` ファイルを選びます。
+4. 직접 준비한 모델의 `.model3.json` 파일을 선택합니다.
 5. 選択した Live2D モデルの表情名を確認します。
 6. ユーザープロフィールと ENE プロフィールを入力します。
 7. 安定したメモリを使いたい場合は Voyage embedding を設定します。
@@ -262,7 +264,7 @@ src/core/bridge_mixins/     bridge の機能領域
 src/ai/                     LLM、メモリ、プロンプト、プロフィール、目標、気分
 src/ui/                     設定画面とデスクトップ UI ヘルパー
 assets/web/                 Live2D Web ランタイム
-assets/live2d_models/       同梱可能なモデル素材
+assets/live2d_models/       로컬 전용 모델 경로(데이터 제외)
 scripts/                    setup と release スクリプト
 tests/                      回帰テストとユニットテスト
 ```
@@ -294,7 +296,7 @@ python -m coverage report --show-missing --skip-empty --fail-under=80
 
 ## Web ランタイム素材
 
-リポジトリにはデスクトップオーバーレイに必要な Live2D Web ランタイム素材が含まれています。生成された Web ライブラリを更新する場合は次を実行します。
+Core를 제외한 웹 실행부 소스와 라이브러리를 포함합니다. Core는 공식 SDK에서 직접 설치해야 합니다. 아래 명령은 두 공개 라이브러리만 준비하며 Core를 다운로드하지 않습니다.
 
 ```powershell
 python scripts/setup_web_libs.py
@@ -312,13 +314,12 @@ python scripts/build_windows_release.py --version v0.1.0
 
 ビルドは `release/` 以下に `ENE.exe` と同梱ランタイムファイルを含む zip を作成します。
 
-公開リリースに含める安全な基本素材:
+로컬 빌드에 포함하는 자산(공개 배포 허가를 의미하지 않음):
 
 - `assets/icons`
 - `assets/web`
-- `assets/live2d_models/hiyori`
 
-個人の Live2D 購入素材、非公開の参照音声、プロバイダーキー、メモリファイル、プロフィールデータは公開リリースバンドルの外に置いてください。
+결과 ZIP은 로컬 전용입니다. Core·SDK·모델·개인 음성·키·대화·설정·완성 바이너리를 공개 저장소나 릴리스에 올리지 않습니다.
 
 ## ロードマップ
 

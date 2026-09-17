@@ -1,6 +1,7 @@
 {
   "schema": 1,
   "runtime_version": 1,
+  "local_only_files": ["lib/live2dcubismcore.min.js"],
   "source_verified_on": "2026-09-16",
   "release_review": "required_before_publication",
   "libraries": [
@@ -16,7 +17,7 @@
     {
       "file": "lib/live2dcubismcore.min.js",
       "version": "csmGetVersion:83951616",
-      "source": "https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js",
+      "source": "https://www.live2d.com/en/sdk/download/web/",
       "notices": [
         "notices/THIRD-PARTY.md",
         "notices/CubismWebFramework-LICENSE.md"
@@ -134,7 +135,7 @@
     {
       "source": "assets/web/character/notices/THIRD-PARTY.md",
       "target": "notices/THIRD-PARTY.md",
-      "sha256": "c160afc375c01f004a96602d5978d8ff860729919adaaa15389975b44bd12d2d"
+      "sha256": "04ca97ee0e0685ca99672a46fe22c740c576006ea35df4f211a95395e1f558ed"
     }
   ]
 }

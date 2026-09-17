@@ -22,6 +22,7 @@ RUNTIME = (
     "runtime_character_host.js",
 )
 LIBRARIES = ("pixi.min.js", "live2dcubismcore.min.js", "pixi-live2d-display.min.js")
+CORE_TARGET = "lib/live2dcubismcore.min.js"
 NOTICES = (
     "Pixi-MIT.txt",
     "pixi-live2d-display-MIT.txt",
@@ -94,7 +95,7 @@ def load_manifest(root: Path) -> dict:
         raise ExportError("실행부 계약을 읽지 못함") from error
 
 
-def validate(root: Path, manifest: dict) -> dict[str, bytes]:
+def validate(root: Path, manifest: dict, *, require_core: bool = False) -> dict[str, bytes]:
     if (
         not isinstance(manifest, dict)
         or manifest.get("schema") != 1
@@ -106,6 +107,8 @@ def validate(root: Path, manifest: dict) -> dict[str, bytes]:
         raise ExportError("실행부 목록 누락 또는 초과")
     content = {}
     seen = set()
+    if manifest.get("local_only_files") != [CORE_TARGET]:
+        raise ExportError("수동 Core 설치 계약 불일치")
     for entry in entries:
         if not isinstance(entry, dict) or set(entry) != {"source", "target", "sha256"}:
             raise ExportError("실행부 목록 형식 불일치")
@@ -119,13 +122,20 @@ def validate(root: Path, manifest: dict) -> dict[str, bytes]:
         seen.add(source)
         if not isinstance(expected, str) or not re.fullmatch(r"[a-f0-9]{64}", expected):
             raise ExportError("실행부 해시 형식 불일치")
+        path = safe_path(root, source)
+        if target == CORE_TARGET and not path.exists():
+            if require_core:
+                raise ExportError("Core를 공식 사이트에서 직접 받아 배치하세요: docs/source-only-build.md")
+            continue
         try:
-            data = safe_path(root, source).read_bytes()
+            data = path.read_bytes()
         except OSError as error:
             raise ExportError("실행부 파일 누락") from error
         if len(data) > 2 * 1024 * 1024 or digest(data) != expected:
             raise ExportError("실행부 해시 또는 크기 불일치")
-        content[target] = data
+        # Core는 로컬에서 검증하더라도 공개 소스 내보내기에 넣지 않는다.
+        if target != CORE_TARGET:
+            content[target] = data
     libraries = manifest.get("libraries", [])
     if len(libraries) != 3 or {item.get("file") for item in libraries} != {
         f"lib/{name}" for name in LIBRARIES
@@ -136,7 +146,8 @@ def validate(root: Path, manifest: dict) -> dict[str, bytes]:
             "https://"
         ):
             raise ExportError("라이브러리 출처 누락")
-        if item.get("sha256") != digest(content[item["file"]]) or not item.get(
+        expected_hash = next(entry["sha256"] for entry in entries if entry["target"] == item["file"])
+        if item.get("sha256") != expected_hash or not item.get(
             "notices"
         ):
             raise ExportError("라이브러리 해시 또는 고지 누락")
@@ -174,12 +185,16 @@ def export(root: Path, android_root: Path) -> None:
         except (OSError, ValueError, KeyError, TypeError) as error:
             raise ExportError("이전 가져오기 계약 확인 실패") from error
     if target.exists():
-        allowed = set(content) | {"import-manifest.json"}
+        allowed = set(content) | {"import-manifest.json", CORE_TARGET}
         for path in target.rglob("*"):
             relative = path.relative_to(target).as_posix()
             safe_path(target, relative)
             if path.is_file() and relative not in allowed:
                 raise ExportError("알 수 없는 대상 파일을 보존하기 위해 중단")
+        core = safe_path(target, CORE_TARGET)
+        expected_core = next(entry["sha256"] for entry in manifest["files"] if entry["target"] == CORE_TARGET)
+        if core.exists() and digest(core.read_bytes()) != expected_core:
+            raise ExportError("대상 Core 해시 불일치: 로컬 파일을 보존하기 위해 중단")
         for relative, data in content.items():
             path = safe_path(target, relative)
             if path.exists() and digest(path.read_bytes()) not in (
@@ -202,14 +217,17 @@ def main() -> int:
     parser.add_argument(
         "--check", action="store_true", help="실행부 목록·고지·해시만 검사"
     )
+    parser.add_argument("--require-core", action="store_true", help="수동 설치한 로컬 Core도 필수 검사")
     parser.add_argument(
         "--android-root", type=Path, help="독립 Android 프로젝트의 절대 경로"
     )
     args = parser.parse_args()
     try:
+        if args.require_core:
+            validate(ROOT, load_manifest(ROOT), require_core=True)
         if args.android_root is not None:
             export(ROOT, args.android_root)
-            print("캐릭터 실행부 복사 완료. 공개 배포·실기기 호환성 검증은 별도입니다.")
+            print("소스 실행부 복사 완료. Core는 복사하지 않았습니다. 배포 허가·실기기 검증은 별도입니다.")
         else:
             validate(ROOT, load_manifest(ROOT))
             print("캐릭터 실행부 목록·고지·해시 검사 통과")

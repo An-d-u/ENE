@@ -19,6 +19,40 @@ from tools.export_companion_character import (
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_source_export_does_not_copy_core_and_preserves_local_android_core(tmp_path):
+    app = tmp_path / "ENE_APP"
+    (app / "app/src/main/assets").mkdir(parents=True)
+    (app / "settings.gradle.kts").touch()
+    (app / "app/build.gradle.kts").touch()
+    export(ROOT, app)
+    core = app / "app/src/main/assets/character/lib/live2dcubismcore.min.js"
+    assert not core.exists(), "Core는 사용자가 공식 사이트에서 직접 받아야 함"
+    local_source = ROOT / "assets/web/lib/live2dcubismcore.min.js"
+    if local_source.exists():
+        shutil.copyfile(local_source, core)
+        previous = core.read_bytes()
+        export(ROOT, app)
+        assert core.read_bytes() == previous
+    core.write_bytes(b"synthetic unrecognized local core")
+    with pytest.raises(ExportError, match="Core"):
+        export(ROOT, app)
+    assert core.read_bytes() == b"synthetic unrecognized local core"
+
+
+def test_source_validation_succeeds_without_core_but_local_validation_requires_it(tmp_path):
+    manifest = load_manifest(ROOT)
+    source = tmp_path / "source"
+    for item in manifest["files"]:
+        if item["target"] == "lib/live2dcubismcore.min.js":
+            continue
+        target = source / item["source"]
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ROOT / item["source"], target)
+    assert "lib/live2dcubismcore.min.js" not in validate(source, manifest)
+    with pytest.raises(ExportError, match="Core"):
+        validate(source, manifest, require_core=True)
+
+
 def test_export_path_validation_supports_python311(tmp_path, monkeypatch):
     from tools.export_companion_character import safe_path
 
@@ -67,6 +101,9 @@ def test_export_is_standalone_repeatable_and_refuses_unowned_target(tmp_path):
     imported = json.loads((target / "import-manifest.json").read_text(encoding="utf-8"))
     assert imported == load_manifest(ROOT)
     for item in imported["files"]:
+        if item["target"] in imported["local_only_files"]:
+            assert not (target / item["target"]).exists()
+            continue
         assert (target / item["target"]).read_bytes() == (
             ROOT / item["source"]
         ).read_bytes()
@@ -93,6 +130,8 @@ def test_source_change_fails_before_any_destination_write(tmp_path):
     source = tmp_path / "PC"
     manifest = load_manifest(ROOT)
     for item in manifest["files"]:
+        if item["target"] in manifest["local_only_files"]:
+            continue
         file = source / item["source"]
         file.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / item["source"], file)

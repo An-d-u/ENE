@@ -2,6 +2,8 @@
 
 <h1 align="center">ENE</h1>
 
+> 소스 공개 안내: 완성 APK·Windows ZIP·Core·모델은 제공하지 않습니다. 실행·빌드 전에 [Core 직접 설치 및 로컬 빌드 안내](docs/source-only-build.md)를 따르세요. Core 분리만으로 확장성 앱의 출시 허가 문제가 해결되지는 않습니다.
+
 <p align="center">
   A memory-aware AI desktop companion with a Live2D presence.
 </p>
@@ -61,7 +63,7 @@ It is not meant to be a generic chat window. ENE is built around presence: a cha
 
 ENE is in active development with a practical local workflow:
 
-- The bundled default Live2D model is `hiyori`.
+- 모델 데이터는 포함하지 않습니다. 사용 권한이 있는 모델을 직접 준비하세요.
 - User-selected model paths are preserved after restart.
 - Image avatar mode is now available alongside Live2D mode, including emotion-based image switching and per-image placement controls.
 - ENE can keep goal state through `ene_goals.json`, so companion behavior can reflect short-term and long-term goal context.
@@ -127,7 +129,7 @@ Common files:
 1. Launch ENE with `python main.py`.
 2. Open the settings window from the tray icon.
 3. Select your LLM provider, model, and API key.
-4. Keep the bundled `hiyori` model or choose your own `.model3.json` file.
+4. 직접 준비한 모델의 `.model3.json` 파일을 선택합니다.
 5. Check expression names for your selected Live2D model.
 6. Fill in user profile and ENE profile settings.
 7. Configure Voyage embeddings if you want the most reliable memory setup.
@@ -262,7 +264,7 @@ src/core/bridge_mixins/     bridge feature areas
 src/ai/                     LLM clients, memory, prompts, profiles, goals, mood
 src/ui/                     settings dialogs and desktop UI helpers
 assets/web/                 Live2D web runtime
-assets/live2d_models/       bundled release-safe model assets
+assets/live2d_models/       로컬 전용 모델 경로(데이터 제외)
 scripts/                    setup and release scripts
 tests/                      regression and unit tests
 ```
@@ -294,7 +296,7 @@ See [TESTING.md](TESTING.md) for the maintained test guide and focused regressio
 
 ## Web Runtime Assets
 
-The repository includes the Live2D web runtime assets needed by the desktop overlay. If you need to refresh generated web libraries:
+Core를 제외한 웹 실행부 소스와 라이브러리를 포함합니다. Core는 공식 SDK에서 직접 설치해야 합니다. 아래 명령은 두 공개 라이브러리만 준비하며 Core를 다운로드하지 않습니다.
 
 ```powershell
 python scripts/setup_web_libs.py
@@ -312,13 +314,12 @@ python scripts/build_windows_release.py --version v0.1.0
 
 The build creates a zip under `release/` containing `ENE.exe` and bundled runtime files.
 
-Release-safe built-in assets include:
+로컬 빌드에 포함하는 자산(공개 배포 허가를 의미하지 않음):
 
 - `assets/icons`
 - `assets/web`
-- `assets/live2d_models/hiyori`
 
-Personal Live2D purchases, private reference audio, provider keys, memory files, and profile data should stay outside the public release bundle.
+결과 ZIP은 로컬 전용입니다. Core·SDK·모델·개인 음성·키·대화·설정·완성 바이너리를 공개 저장소나 릴리스에 올리지 않습니다.
 
 ## Roadmap
 
