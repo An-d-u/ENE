@@ -2,7 +2,7 @@
 
 <h1 align="center">ENE</h1>
 
-> 소스 공개 안내: 완성 APK·Windows ZIP·Core·모델은 제공하지 않습니다. 실행·빌드 전에 [Core 직접 설치 및 로컬 빌드 안내](docs/source-only-build.md)를 따르세요. Core 분리만으로 확장성 앱의 출시 허가 문제가 해결되지는 않습니다.
+> 소스 공개 안내: 완성 APK·Windows ZIP·Core·모델은 제공하지 않습니다. 실행·빌드 전에 [Core 직접 설치 및 로컬 빌드 안내](docs/source-only-build.md)를 따르세요.
 
 <p align="center">
   Live2D 존재감을 가진 장기기억 기반 AI 데스크톱 동반자.
@@ -314,7 +314,7 @@ python scripts/build_windows_release.py --version v0.1.0
 
 빌드는 `release/` 아래에 `ENE.exe`와 번들 런타임 파일을 포함한 zip을 만듭니다.
 
-로컬 빌드에 포함하는 자산(공개 배포 허가를 의미하지 않음):
+로컬 빌드에 포함하는 자산:
 
 - `assets/icons`
 - `assets/web`
