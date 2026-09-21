@@ -109,7 +109,7 @@ function showLoadingIndicator(show) {
     if (loadingIndicator) {
         if (show) {
             updateLoadingIndicatorText();
-            if (loadingIndicator.parentElement !== chatMessages) {
+            if (chatMessages.lastElementChild !== loadingIndicator) {
                 chatMessages.appendChild(loadingIndicator);
             }
             loadingIndicator.style.display = 'inline-flex';

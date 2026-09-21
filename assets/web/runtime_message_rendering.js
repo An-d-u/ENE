@@ -374,7 +374,10 @@ function addMessage(text, role, attachments = [], timestamp = new Date(), option
             messageDiv.appendChild(metaRail);
         }
     }
-    chatMessages.appendChild(messageDiv);
+    // 생성 중 들어온 메시지도 대기 표시보다 위에 놓는다.
+    const pendingIndicator = loadingIndicator && loadingIndicator.parentElement === chatMessages
+        ? loadingIndicator : null;
+    chatMessages.insertBefore(messageDiv, pendingIndicator);
     chatMessages.scrollTop = chatMessages.scrollHeight;
     if (role === 'assistant') {
         hasAssistantMessage = true;

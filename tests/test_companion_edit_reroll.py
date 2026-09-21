@@ -253,6 +253,54 @@ def test_retry_status_keeps_client_correlation_id(admission):
     assert result["request_id"] == sample_id(70)
 
 
+@pytest.mark.parametrize("deferred_tts", [False, True])
+def test_reroll_display_events_keep_frontend_button_available(admission, deferred_tts):
+    from tests.test_chat_dom_runtime import run_dom_case
+
+    bridge, _, _ = completed_pair(admission)
+    if deferred_tts:
+        bridge.enable_tts = True
+        bridge.tts_client = SimpleNamespace()
+        bridge.audio_player = SimpleNamespace()
+        bridge._play_tts = lambda _: None
+    snapshot = json.loads(bridge.get_companion_chat_state())
+    events = []
+    bridge.chat_display_event.connect(
+        lambda raw: events.append(["display", json.loads(raw)])
+    )
+    bridge.request_pending_changed.connect(
+        lambda active: events.append(["pending", active])
+    )
+    bridge.chat_admission_result.connect(
+        lambda raw: events.append(["admission", json.loads(raw)])
+    )
+    response = json.loads(
+        bridge.reroll_companion_message(
+            command(bridge, "assistant", request_id=sample_id(70))
+        )
+    )
+    assert response["state"] == "accepted"
+    bridge.worker.reply("가상 원뿔의 새 배치를 완료했습니다.", spoken="가상 음성 안내")
+    if deferred_tts:
+        bridge._flush_pending_response_if_any()
+    assert [message.id for message in state(bridge).messages] == [
+        message["id"] for message in snapshot["messages"]
+    ]
+    result = run_dom_case(f"""
+window.eneCompanionChat.applySnapshot({json.dumps(snapshot)});
+window.eneCompanionChat.trackMutation({json.dumps(sample_id(70))}, () => {{}});
+for (const [kind, value] of {json.dumps(events)}) {{
+    if (kind === 'display') window.eneCompanionChat.applyEvent(value);
+    if (kind === 'pending') window.eneCompanionChat.setBackendPending(value);
+    if (kind === 'admission') window.eneCompanionChat.receiveAdmission(value);
+}}
+await new Promise(resolve => setTimeout(resolve, 0));
+const buttons = chatMessages.querySelectorAll('.message-reroll-btn');
+result = {{count: buttons.length, disabled: buttons[0]?.disabled, pending: isRequestPending}};
+""")
+    assert result == {"count": 1, "disabled": False, "pending": False}
+
+
 def test_deleted_attachment_stays_deleted_in_pc_reconnection_snapshot(admission):
     bridge, _, _, _ = admission
     bridge._resolve_prepared_attachments = lambda values: values
