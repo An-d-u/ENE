@@ -20,8 +20,8 @@
         <div id="chat-resize-handle" role="separator" aria-label="채팅창 높이 조절" aria-orientation="horizontal"></div>
         <div id="chat-messages"></div>
 
-        <!-- 로딩 인디케이터 -->
-        <div id="loading-indicator" class="message assistant" style="display: none;" aria-live="polite">
+        <!-- 대기 표시는 실제 답변이 아니므로 리롤 대상에서 제외한다. -->
+        <div id="loading-indicator" class="message assistant" data-reroll-excluded="true" style="display: none;" aria-live="polite">
             <span class="typing-dot"></span>
             <span class="typing-dot"></span>
             <span class="typing-dot"></span>

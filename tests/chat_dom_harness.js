@@ -38,7 +38,14 @@ class Element {
     contains(child) { return child === this || this.children.some(node => node.contains(child)); }
     set innerHTML(value) { this.children.slice().forEach(child => child.remove()); this._html = value; }
     get innerHTML() { return this._html || ''; }
-    setAttribute(name, value) { this.attributes[name] = String(value); }
+    setAttribute(name, value) {
+        this.attributes[name] = String(value);
+        if (name === 'id') this.id = String(value);
+        if (name === 'class') this.className = String(value);
+        if (name.startsWith('data-')) {
+            this.dataset[name.slice(5).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase())] = String(value);
+        }
+    }
     addEventListener(name, callback) { this.listeners[name] = callback; }
     click() { if (!this.disabled) this.listeners.click?.(); }
     matches(selector) {
@@ -61,8 +68,17 @@ class Element {
 
 const body = new Element('body');
 const elements = {};
+const web = path.join(__dirname, '..', 'assets', 'web');
+const html = fs.readFileSync(path.join(web, 'index.html'), 'utf8');
 for (const id of ['chat-container', 'chat-messages', 'chat-input', 'send-button', 'attach-button', 'image-input', 'loading-indicator', 'image-preview-container']) {
-    const node = elements[id] = new Element(); node.id = id; body.appendChild(node);
+    // 선택 조건에 영향을 주는 분류와 data 속성을 실제 HTML에서 가져온다.
+    const openingTag = html.match(new RegExp(`<([a-z][\\w-]*)\\b[^>]*\\bid="${id}"[^>]*>`, 'i'));
+    if (!openingTag) throw Error(`채팅 HTML 요소를 찾을 수 없음: ${id}`);
+    const node = elements[id] = new Element(openingTag[1]);
+    for (const [, name, value] of openingTag[0].matchAll(/([\w-]+)="([^"]*)"/g)) {
+        node.setAttribute(name, value);
+    }
+    body.appendChild(node);
 }
 for (const id of ['chat-messages', 'loading-indicator', 'image-preview-container']) elements['chat-container'].appendChild(elements[id]);
 const label = new Element('span'); label.className = 'typing-text'; elements['loading-indicator'].appendChild(label);
@@ -79,18 +95,20 @@ let nextId = 1;
 const context = {
     console, document: {body, getElementById: id => elements[id] || null, querySelector: selector => body.querySelector(selector), createElement: tag => new Element(tag)},
     window: {pyBridge: bridge, crypto: {randomUUID: () => `request-${nextId++}`}, setTimeout, clearTimeout},
-    currentUiStrings: {loading: '합성 대기 표시', thoughts: {show: '보기', hide: '숨기기'}},
     DEFAULT_UI_STRINGS: {loading: '합성 대기 표시'},
     cancelPendingPatEmotionRestore() {}, changeExpression() {}, autoResizeTextarea() {}, updateAttachmentPreview() {},
     dispatchBridgeCall(task, failure) { try { task(); } catch (error) { if (failure) failure(error); else throw error; } },
     createAttachmentId: () => `attachment-${nextId++}`, setTimeout, clearTimeout, result: null, calls, bridge,
 };
 vm.createContext(context);
-const web = path.join(__dirname, '..', 'assets', 'web');
 for (const name of ['runtime_chat_state.js', 'runtime_message_helpers.js', 'runtime_chat_panel_controls.js', 'runtime_message_rendering.js', 'runtime_companion_chat.js']) {
     vm.runInContext(fs.readFileSync(path.join(web, name), 'utf8'), context, {filename: name});
 }
-vm.runInContext("typingEffectEnabled = false; connectCompanionChatBridge(window.pyBridge);", context);
+vm.runInContext(`
+    currentUiStrings = {loading: '합성 대기 표시', thoughts: {show: '보기', hide: '숨기기'}};
+    typingEffectEnabled = false;
+    connectCompanionChatBridge(window.pyBridge);
+`, context);
 const source = fs.readFileSync(0, 'utf8');
 vm.runInContext(`(async () => { ${source} })()`, context).then(() => {
     process.stdout.write(JSON.stringify(context.result));
