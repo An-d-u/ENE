@@ -6,6 +6,7 @@ import pytest
 from PyQt6.QtWidgets import QApplication
 
 from src.core.companion.audio_mailbox import BoundedTtsMailbox
+from tests.test_companion_audio_coordinator import setup as audio_setup  # noqa: F401
 
 
 @pytest.fixture
@@ -123,3 +124,64 @@ def test_real_stream_worker_delivers_bounded_chunks_before_finished(app):
     finally:
         worker.request_stop()
         assert worker.wait(1000)
+
+
+@pytest.mark.parametrize("truncated", [False, True])
+def test_real_worker_keeps_split_frames_valid_through_phone_route(app, request, truncated):
+    import time
+    from src.core.bridge_workers import StreamingTTSWorker
+    from src.core.companion.audio_buffer import PcmFormat
+    from tests.test_companion_audio_buffer import wav
+    from tests.test_companion_audio_coordinator import command, prepare
+
+    coordinator, ref, transport, sink, completed, _ = request.getfixturevalue("audio_setup")
+    pcm = b"\x01\x23" * 24000
+    raw = wav(pcm)
+    if truncated:
+        raw = raw[:-1]
+
+    class Provider:
+        async def stream_speech(self, text):
+            for offset in range(0, len(raw), 4095):
+                yield raw[offset:offset + 4095]
+
+    received, errors, ends = [], [], []
+    worker = StreamingTTSWorker(Provider(), "구의 회전 방향을 안내합니다.")
+    worker.enable_bounded_delivery()
+    worker.stream_format_ready.connect(lambda rate, channels, width: coordinator.begin_stream(
+        ref, PcmFormat(rate, channels, width), allow_pc_fallback=False))
+
+    def chunk(data, mouth):
+        coordinator.offer_pcm(ref, data)
+        source = transport.source
+        if coordinator.active_ref and source.total_frames >= 4800 and coordinator.target != "phone":
+            prepare(coordinator, ref)
+        if coordinator.target == "phone":
+            while part := source.peek():
+                received.append(bytes(part))
+                source.consume(len(part))
+
+    def finished():
+        ends.append(True)
+        coordinator.source_end(ref)
+        coordinator.receive(command(ref, "audio_finished", played_frames=24000))
+
+    worker.stream_chunk_ready.connect(chunk)
+    worker.stream_finished.connect(finished)
+    worker.error_occurred.connect(errors.append)
+    worker.start()
+    try:
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline and not ends and not errors:
+            app.processEvents()
+        if truncated:
+            assert errors == ["tts_stream_error"] and not ends
+        else:
+            assert not errors and ends == [True]
+            assert completed == [(ref, "finished")]
+            assert b"".join(received) == pcm
+        assert sink.waves == sink.formats == sink.chunks == []
+    finally:
+        worker.request_stop()
+        assert worker.wait(1000)
+        coordinator.cancel(ref, "interrupted")

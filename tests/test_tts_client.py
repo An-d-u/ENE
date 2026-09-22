@@ -307,6 +307,41 @@ def test_realtime_lip_sync_analyzer_generates_values_from_pcm_frames():
     assert 0.1 < values[1] <= 1.0
 
 
+@pytest.mark.parametrize("channels", [1, 2])
+@pytest.mark.parametrize("chunk_size", [1, 3, 4095, 4096])
+def test_streaming_wav_decoder_preserves_frames_across_http_boundaries(channels, chunk_size):
+    from tests.test_companion_audio_buffer import wav
+
+    pcm = b"\x01\x23\x45\x67" * 5000
+    raw = wav(pcm, channels=channels)
+    decoder = StreamingWavDecoder()
+    received = []
+    for offset in range(0, len(raw), chunk_size):
+        _, data = decoder.push(raw[offset:offset + chunk_size])
+        assert len(data) % (channels * 2) == 0
+        received.append(data)
+    decoder.finish()
+    assert b"".join(received) == pcm
+
+
+@pytest.mark.parametrize("raw", [b"", b"RIFF", b"RIFF\x00\x00\x00\x00WAVE"])
+def test_streaming_wav_decoder_rejects_incomplete_header_at_eof(raw):
+    decoder = StreamingWavDecoder()
+    decoder.push(raw)
+    with pytest.raises(ValueError):
+        decoder.finish()
+
+
+@pytest.mark.parametrize("channels,missing", [(1, 1), (2, 1), (2, 2), (2, 3)])
+def test_streaming_wav_decoder_rejects_partial_frame_at_eof(channels, missing):
+    from tests.test_companion_audio_buffer import wav
+
+    decoder = StreamingWavDecoder()
+    decoder.push(wav(b"\x01\x23" * channels * 5, channels=channels)[:-missing])
+    with pytest.raises(ValueError):
+        decoder.finish()
+
+
 def test_gpt_sovits_client_stream_speech_yields_http_chunks(tmp_path, monkeypatch):
     ref_audio = tmp_path / "ref.wav"
     ref_audio.write_bytes(b"fake")

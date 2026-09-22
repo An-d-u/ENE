@@ -124,7 +124,7 @@
     {
       "source": "assets/web/character/entry.js",
       "target": "entry.js",
-      "sha256": "99cdd1436ea21da42d71be67e90a7908ccb73722919d8ccedfb7663260c2ebf7"
+      "sha256": "29e1891ca741407ef9dddd008d4df347731e2e609e0fe15d8fbf9334fb9635fd"
     },
     {
       "source": "assets/web/character/style.css",

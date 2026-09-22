@@ -24,6 +24,7 @@ class StreamingWavDecoder:
     def __init__(self):
         self._header_buffer = bytearray()
         self._header_parsed = False
+        self._pending_frame = b""
         self.audio_format: StreamingAudioFormat | None = None
 
     def push(self, chunk: bytes) -> tuple[StreamingAudioFormat | None, bytes]:
@@ -31,7 +32,7 @@ class StreamingWavDecoder:
             return self.audio_format, b""
 
         if self._header_parsed:
-            return self.audio_format, bytes(chunk)
+            return self.audio_format, self._aligned_pcm(bytes(chunk))
 
         self._header_buffer.extend(chunk)
         parsed = self._try_parse_header(bytes(self._header_buffer))
@@ -43,7 +44,22 @@ class StreamingWavDecoder:
         self._header_parsed = True
         pcm_bytes = bytes(self._header_buffer[data_offset:])
         self._header_buffer.clear()
-        return audio_format, pcm_bytes
+        return audio_format, self._aligned_pcm(pcm_bytes)
+
+    def _aligned_pcm(self, data: bytes) -> bytes:
+        """HTTP 조각 경계는 오디오 프레임 경계와 다르므로 작은 잔여분만 보관한다."""
+        frame_bytes = self.audio_format.channels * self.audio_format.sample_width
+        if frame_bytes <= 0:
+            raise ValueError("WAV 프레임 크기가 올바르지 않습니다.")
+        data = self._pending_frame + data
+        aligned = len(data) - len(data) % frame_bytes
+        self._pending_frame = data[aligned:]
+        return data[:aligned]
+
+    def finish(self) -> None:
+        """전송 종료 뒤 남은 불완전한 헤더나 프레임을 정상 음성으로 버리지 않는다."""
+        if not self._header_parsed or self._pending_frame:
+            raise ValueError("WAV 스트림이 완전한 프레임으로 끝나지 않았습니다.")
 
     def _try_parse_header(self, data: bytes) -> tuple[StreamingAudioFormat, int] | None:
         if len(data) < 12:

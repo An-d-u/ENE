@@ -3,6 +3,8 @@
 from pathlib import Path
 import subprocess
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -22,12 +24,15 @@ const context = {AbortController, document:{getElementById:()=>({})},window:{
     eneCharacterNative:{postMessage:x=>replies.push(JSON.parse(x))},
     addEventListener:(name,fn)=>listeners[name]=fn, removeEventListener:()=>{}}};
 vm.runInNewContext(fs.readFileSync('assets/web/character/entry.js','utf8'),context);
-async function send(data, from=origin) { await listeners.message({origin:from,data:JSON.stringify(data)}); }
+async function send(data) { await context.window.eneCharacterNative.onmessage({data:JSON.stringify(data)}); }
 (async()=>{
-    assert.equal(replies.length,0);
+    assert.deepEqual(replies,[{type:'bridge_ready'}]);
+    assert.equal(listeners.message,undefined);
+    assert.equal(host,undefined);
+    replies.length=0;
     await send({type:'snapshot',value:{status:'unavailable'}});
     assert.equal(calls.length,0);
-    await send({type:'initialize',generation},'https://example.invalid');
+    await send({type:'initialize',generation:'invalid'});
     assert.equal(replies.length,0);
     await send({type:'initialize',generation});
     assert.equal(replies[0].type,'document_ready');
@@ -43,13 +48,66 @@ async function send(data, from=origin) { await listeners.message({origin:from,da
     assert.equal(calls[1].phase,'accepted');
     await send({type:'preview',generation,value:{settings:{enable_head_pat:false}}});
     assert.equal(calls[2].settings.enable_head_pat,false);
+    const lateReceive = context.window.eneCharacterNative.onmessage;
     listeners.pagehide();
     assert.equal(replies[2].phase,'cancel');assert.equal(replies[2].generation,generation);
-    await send({type:'action',generation,value:{kind:'gesture'}});
+    assert.equal(context.window.eneCharacterNative.onmessage,null);
+    await lateReceive({data:JSON.stringify({type:'action',generation,value:{kind:'gesture'}})});
     assert.equal(calls.length,4);
 })().catch(error=>{console.error(error);process.exitCode=1;});
 """
     result = subprocess.run(
         ["node", "-e", script], cwd=ROOT, capture_output=True, text=True, timeout=10
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_character_initialization_failure_is_reported_without_raw_error():
+    script = r"""
+const fs = require('fs'), vm = require('vm'), assert = require('assert');
+const replies = [], listeners = {};
+const generation = '00000000-0000-4000-8000-000000000001';
+const native = {postMessage:raw=>replies.push(JSON.parse(raw))};
+const context = {AbortController,document:{getElementById:()=>({})},window:{
+    location:{origin:'https://appassets.androidplatform.net'},eneCharacterNative:native,
+    createCharacter:()=>{throw new Error('synthetic private renderer detail');},
+    addEventListener:(name,fn)=>listeners[name]=fn,removeEventListener:()=>{}}};
+vm.runInNewContext(fs.readFileSync('assets/web/character/entry.js','utf8'),context);
+(async()=>{
+    await native.onmessage({data:JSON.stringify({type:'initialize',generation})});
+    assert.deepEqual(replies,[{type:'bridge_ready'},
+        {type:'error',code:'character_initialization_failed',generation}]);
+    listeners.pagehide();
+    assert.equal(native.onmessage,null);
+})().catch(error=>{console.error(error);process.exitCode=1;});
+"""
+    result = subprocess.run(
+        ["node", "-e", script], cwd=ROOT, capture_output=True, text=True, timeout=10
+    )
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("failure", ["asset", "render"])
+def test_character_snapshot_failure_reports_only_its_safe_stage(failure):
+    script = r"""
+const fs = require('fs'), vm = require('vm'), assert = require('assert');
+const failure = process.argv[1], replies = [];
+const generation = '00000000-0000-4000-8000-000000000001';
+const native = {postMessage:raw=>replies.push(JSON.parse(raw))};
+const context = {AbortController,document:{getElementById:()=>({})},
+    fetch:async()=>({ok:failure !== 'asset',json:async()=>({})}),window:{
+    location:{origin:'https://appassets.androidplatform.net'},eneCharacterNative:native,
+    createCharacter:()=>({applySnapshot:async()=>{throw new Error('synthetic renderer detail');}}),
+    addEventListener:()=>{},removeEventListener:()=>{}}};
+vm.runInNewContext(fs.readFileSync('assets/web/character/entry.js','utf8'),context);
+(async()=>{
+    await native.onmessage({data:JSON.stringify({type:'initialize',generation})});
+    await native.onmessage({data:JSON.stringify({type:'snapshot',generation,value:{
+        status:'ready',model_version:'a'.repeat(64),entry_asset_id:'b'.repeat(64)}})});
+    assert.deepEqual(replies.at(-1),{type:'error',code:`character_${failure}_failed`,generation});
+})().catch(error=>{console.error(error);process.exitCode=1;});
+"""
+    result = subprocess.run(
+        ["node", "-e", script, failure], cwd=ROOT, capture_output=True, text=True, timeout=10
     )
     assert result.returncode == 0, result.stderr

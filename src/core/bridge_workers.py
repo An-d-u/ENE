@@ -1086,6 +1086,8 @@ class StreamingTTSWorker(QThread):
                                 if not self._delivery.push(part, analyzer.push_pcm(part)):
                                     return
 
+                if not self._stop_requested:
+                    decoder.finish()
                 if analyzer is not None and not self._stop_requested:
                     tail_values = analyzer.finalize()
                     if tail_values:
