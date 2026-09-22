@@ -5,6 +5,28 @@ from PyQt6.QtWidgets import QMessageBox
 from src.ai.response_protocol import LLMRequestKind
 
 
+def test_organizer_preserves_unchanged_profile_fact_metadata():
+    from src.ui.settings_tabs.profile_memory_tab import apply_profile_memory_proposal
+    old = {"id": "fact-example", "category": "goal", "content": "가상 전시 계획 보류", "state": "paused", "effective_at": "2026-02-01", "source_memory_id": "memory-example", "history": [{"content": "가상 전시 준비"}]}
+    dialog = SimpleNamespace(_fact_items=[old])
+    apply_profile_memory_proposal(dialog, {"user_profile": {"facts": [{"category": "goal", "content": old["content"]}]}})
+    assert dialog._fact_items[0]["id"] == "fact-example"
+    assert dialog._fact_items[0]["state"] == "paused"
+    assert dialog._fact_items[0]["history"] == old["history"]
+
+
+def test_organizer_keeps_identity_and_history_when_rewording_fact():
+    from src.ui.settings_tabs.profile_memory_tab import apply_profile_memory_proposal
+    old = {"id": "fact-example", "subject": "가상 전시", "category": "goal", "content": "가상 전시 계획 보류", "state": "paused", "source_memory_id": "memory-example", "effective_at": "2026-02-01", "history": []}
+    dialog = SimpleNamespace(_fact_items=[old])
+    apply_profile_memory_proposal(dialog, {"user_profile": {"facts": [{"id": "fact-example", "category": "goal", "content": "가상 전시 준비는 잠시 보류"}]}})
+    saved = dialog._fact_items[0]
+    assert saved["id"] == old["id"]
+    assert saved["state"] == "paused"
+    assert saved["history"] == [{key: value for key, value in old.items() if key != "history"}]
+    assert saved["source_memory_id"] == ""
+
+
 class _FakeListItem:
     def __init__(self, text):
         self._text = text

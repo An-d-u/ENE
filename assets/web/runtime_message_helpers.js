@@ -69,14 +69,34 @@ function appendSummaryReviewFact(container, fact, groupName) {
     checkbox.type = 'checkbox';
     checkbox.checked = true;
     checkbox.name = groupName;
+    checkbox.value = '-1';
     const text = document.createElement('textarea');
     text.className = 'summary-review-fact-input';
     text.rows = 2;
     text.value = String(fact || '');
     row.appendChild(checkbox);
     row.appendChild(text);
+    if (groupName === 'summary-user-fact') appendSummaryReviewFactState(row, fact);
     container.appendChild(row);
     text.focus();
+}
+
+function appendSummaryReviewFactState(row, fact) {
+    const meta = currentSummaryReviewPayload && currentSummaryReviewPayload.memory_meta;
+    const updates = meta && Array.isArray(meta.profile_updates) ? meta.profile_updates : [];
+    const previous = updates.find((item) => `[${item.category}] ${item.content}` === fact);
+    const select = document.createElement('select');
+    select.className = 'summary-review-fact-state';
+    select.title = '기억 상태';
+    select.ariaLabel = '기억 상태';
+    [['active', '진행 중'], ['completed', '완료'], ['cancelled', '취소'], ['paused', '보류']].forEach(([value, label]) => {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = label;
+        select.appendChild(option);
+    });
+    select.value = previous ? previous.state : 'active';
+    row.appendChild(select);
 }
 
 function renderSummaryReviewFacts(container, facts, groupName) {
@@ -104,6 +124,7 @@ function renderSummaryReviewFacts(container, facts, groupName) {
         text.value = fact;
         row.appendChild(checkbox);
         row.appendChild(text);
+        if (groupName === 'summary-user-fact') appendSummaryReviewFactState(row, fact);
         container.appendChild(row);
     });
 }
@@ -283,6 +304,33 @@ function collectCheckedSummaryFacts(container) {
         .filter(Boolean);
 }
 
+function collectSummaryProfileUpdates(container, previousMeta) {
+    if (!container) return [];
+    const updates = Array.isArray(previousMeta.profile_updates) ? previousMeta.profile_updates : [];
+    return Array.from(container.querySelectorAll('.summary-review-fact')).flatMap((row) => {
+        const checkbox = row.querySelector('input[type="checkbox"]');
+        const input = row.querySelector('.summary-review-fact-input');
+        if (!checkbox || !checkbox.checked || !input) return [];
+        const content = String(input.value || '').trim();
+        const match = content.match(/^\[(basic|preference|goal|habit)\]\s*(.+)$/s);
+        if (!match) return [];
+        const index = Number(checkbox.value);
+        const original = Number.isInteger(index) && currentSummaryReviewPayload
+            ? (currentSummaryReviewPayload.user_facts[index] || '') : '';
+        const previous = updates.find((item) => `[${item.category}] ${item.content}` === original);
+        const stateInput = row.querySelector('.summary-review-fact-state');
+        const state = stateInput ? stateInput.value : (previous ? previous.state : 'active');
+        if (content === original && state === (previous ? previous.state : 'active')) return previous ? [previous] : [];
+        return [Object.assign({}, previous || {}, {
+            category: match[1], content: match[2].trim(),
+            subject: previous ? previous.subject : match[2].trim(),
+            replaces: previous ? previous.replaces : '',
+            state,
+            assertion: 'current', effective_at: '', manual_edit: true
+        })];
+    });
+}
+
 function collectSummaryReviewPayload() {
     const confidenceValue = Number(summaryReviewConfidence ? summaryReviewConfidence.value : 0.5);
     const confidence = Number.isFinite(confidenceValue) ? Math.max(0, Math.min(1, confidenceValue)) : 0.5;
@@ -297,7 +345,9 @@ function collectSummaryReviewPayload() {
         summary: String(summaryReviewTextarea ? summaryReviewTextarea.value : '').trim(),
         user_facts: collectCheckedSummaryFacts(summaryReviewUserFacts),
         ene_facts: collectCheckedSummaryFacts(summaryReviewEneFacts),
-        memory_meta: Object.assign({}, previousMeta, {
+        memory_meta: Object.assign({}, previousMeta, Array.isArray(previousMeta.profile_updates) ? {
+            profile_updates: collectSummaryProfileUpdates(summaryReviewUserFacts, previousMeta)
+        } : {}, {
             memory_type: String(summaryReviewMemoryType ? summaryReviewMemoryType.value : 'general'),
             importance_reason: String(summaryReviewImportanceReason ? summaryReviewImportanceReason.value : 'none'),
             confidence,

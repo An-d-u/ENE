@@ -497,6 +497,8 @@ def build_profile_memory_prompt(snapshot: dict[str, Any]) -> str:
         "다음 user_profile와 ene_profile 데이터를 중복 없이 간결하게 정리해 주세요.\n"
         "실제 인물 정보나 새 사실을 추측하지 말고, 입력에 있는 정보만 병합/정리하세요.\n"
         "facts의 source는 기존 항목에서 이어진 정보라면 원래 source를 그대로 유지하세요.\n"
+        "사용자 사실은 문장을 다듬어도 기존 id와 state를 유지하세요. 신규 항목만 id를 비우세요.\n"
+        "보류·취소·완료 상태를 임의로 진행 중으로 바꾸거나 과거 이력을 현재 사실로 합치지 마세요.\n"
         f"여러 항목을 병합했거나 새로 정리한 항목이면 source를 \"{cleanup_source}\"로 쓰세요.\n"
         "반드시 아래 JSON 스키마만 반환하세요. 설명 문장이나 Markdown 코드는 넣지 마세요.\n"
         "{\n"
@@ -504,8 +506,10 @@ def build_profile_memory_prompt(snapshot: dict[str, Any]) -> str:
         '    "basic_info": {"key": "value"},\n'
         '    "preferences": {"likes": ["..."], "dislikes": ["..."]},\n'
         '    "facts": [{\n'
+        '      "id": "기존 id 또는 빈 문자열",\n'
         '      "content": "...",\n'
         '      "category": "basic|preference|goal|habit",\n'
+        '      "state": "active|completed|cancelled|paused",\n'
         f'      "source": "기존 source 또는 {cleanup_source}"\n'
         "    }]\n"
         "  },\n"
@@ -575,6 +579,26 @@ def _format_core_profile(core_profile: dict[str, list[str]]) -> list[str]:
 def apply_profile_memory_proposal(dialog, proposal: dict[str, Any]) -> None:
     normalized = _normalize_profile_memory_proposal(proposal)
     user_profile = normalized["user_profile"]
+    previous_facts = list(getattr(dialog, "_fact_items", []) or [])
+    for index, fact in enumerate(user_profile["facts"]):
+        previous = next((item for item in previous_facts if (
+            fact.get("id") and item.get("id") == fact["id"]
+        ) or (
+            not fact.get("id") and item.get("content") == fact["content"] and item.get("category") == fact["category"]
+        )), None)
+        if previous is None:
+            fact.pop("id", None)
+            continue
+        state = fact.get("state", previous.get("state", "active"))
+        if fact["content"] == previous.get("content") and fact["category"] == previous.get("category") and state == previous.get("state", "active"):
+            user_profile["facts"][index] = {**fact, **previous}
+        else:
+            timestamp = datetime.now().astimezone().isoformat()
+            user_profile["facts"][index] = {
+                **previous, **fact, "state": state,
+                "timestamp": timestamp, "effective_at": timestamp, "source_memory_id": "",
+                "history": [*previous.get("history", []), {key: value for key, value in previous.items() if key != "history"}],
+            }
     dialog._basic_info_items = list(user_profile["basic_info"].items())
     dialog._fact_items = user_profile["facts"]
     _clear_widget(getattr(dialog, "basic_info_list", None))
@@ -658,6 +682,8 @@ def _normalize_profile_memory_proposal(raw: dict[str, Any]) -> dict[str, Any]:
             },
             "facts": [
                 {
+                    **({"id": item["id"]} if item.get("id") else {}),
+                    **({"state": item["state"]} if item.get("state") else {}),
                     "content": item["content"],
                     "category": item.get("category") or "basic",
                     "timestamp": item.get("timestamp") or now,
@@ -708,6 +734,8 @@ def _normalize_fact_items(value, now: str) -> list[dict[str, Any]]:
             continue
         items.append(
             {
+                "id": str(raw_item.get("id") or "").strip(),
+                "state": str(raw_item.get("state") or "") if str(raw_item.get("state") or "") in {"active", "completed", "cancelled", "paused"} else "",
                 "content": content,
                 "category": str(raw_item.get("category", "basic") or "basic").strip(),
                 "timestamp": str(raw_item.get("timestamp", "") or "").strip() or now,

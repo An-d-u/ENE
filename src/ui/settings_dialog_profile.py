@@ -10,6 +10,8 @@ from datetime import datetime
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QListView, QListWidget, QMessageBox
 
+from ..ai.user_profile import UserProfile
+
 
 class SettingsDialogProfileMixin:
     def _refresh_basic_info_list(self):
@@ -134,6 +136,8 @@ class SettingsDialogProfileMixin:
         default_index = self.fact_category_combo.findData("basic")
         self.fact_category_combo.setCurrentIndex(default_index if default_index >= 0 else 0)
         self.fact_source_input.clear()
+        if hasattr(self, "fact_state_combo"):
+            self.fact_state_combo.setCurrentIndex(0)
         self._set_fact_timestamp("settings.profile.facts.timestamp.new", "신규 항목")
         self.fact_content_edit.setFocus()
 
@@ -145,6 +149,9 @@ class SettingsDialogProfileMixin:
             fact_index = self.fact_category_combo.findData(fact["category"])
             self.fact_category_combo.setCurrentIndex(fact_index if fact_index >= 0 else 0)
             self.fact_source_input.setText(fact["source"])
+            if hasattr(self, "fact_state_combo"):
+                state_index = self.fact_state_combo.findData(fact.get("state", "active"))
+                self.fact_state_combo.setCurrentIndex(max(0, state_index))
             self._set_fact_timestamp(
                 "settings.profile.facts.timestamp.saved",
                 "기록 시각: {timestamp}",
@@ -173,23 +180,59 @@ class SettingsDialogProfileMixin:
             "source": source,
             "timestamp": datetime.now().isoformat(),
         }
+        if hasattr(self, "fact_state_combo"):
+            payload["state"] = self.fact_state_combo.currentData() or "active"
 
+        previous = {}
         if 0 <= self._fact_current_index < len(self._fact_items):
-            payload["timestamp"] = self._fact_items[self._fact_current_index].get("timestamp") or payload["timestamp"]
+            previous = dict(self._fact_items[self._fact_current_index])
+            history = list(previous.get("history") or [])
+            if previous.get("content") != content or previous.get("category") != category or previous.get("state", "active") != payload.get("state", previous.get("state", "active")):
+                history.append({key: value for key, value in previous.items() if key != "history"})
+                payload["effective_at"] = payload["timestamp"]
+                payload["source_memory_id"] = ""
+            else:
+                payload["timestamp"] = previous.get("timestamp") or payload["timestamp"]
+            payload = {**previous, **payload, "history": history}
             self._fact_items[self._fact_current_index] = payload
             target_index = self._fact_current_index
         else:
             self._fact_items.append(payload)
             target_index = len(self._fact_items) - 1
 
+        self._sync_fact_fields(previous, payload)
         self._refresh_fact_list()
         self.fact_list.setCurrentRow(target_index)
+
+    def _sync_fact_fields(self, previous: dict, updated: dict | None = None):
+        """수정한 사실과 연결된 값만 정리하고 별도 수동 입력은 보존한다."""
+        updated = updated or {}
+        preferences = {}
+        for kind in ("likes", "dislikes"):
+            widget = getattr(self, f"{kind}_list")
+            preferences[kind] = [widget.item(i).text() for i in range(widget.count())
+                                 if widget.item(i).text() != previous.get("content")]
+        if updated.get("category") == "preference":
+            content = updated["content"]
+            kind = UserProfile.preference_kind(content)
+            if kind and content not in preferences[kind]:
+                preferences[kind].append(content)
+        self._refresh_preference_lists(preferences)
+
+        old_values = UserProfile.basic_values(previous.get("content", "")) if previous.get("category") == "basic" else {}
+        new_values = UserProfile.basic_values(updated.get("content", "")) if updated.get("category") == "basic" else {}
+        current = {key: value for key, value in self._basic_info_items if old_values.get(key) != value}
+        for key, value in new_values.items():
+            current.setdefault(key, value)
+        self._basic_info_items = list(current.items())
+        self._refresh_basic_info_list()
 
     def _delete_fact_item(self):
         row = self.fact_list.currentRow()
         if row < 0:
             return
-        del self._fact_items[row]
+        previous = self._fact_items.pop(row)
+        self._sync_fact_fields(previous)
         self._refresh_fact_list()
         self._new_fact_item()
 
@@ -200,10 +243,13 @@ class SettingsDialogProfileMixin:
             else:
                 raw = {}
 
+            self._user_profile_extra_data = dict(raw)
+
             self._basic_info_items = list((raw.get("basic_info") or {}).items())
             preferences = raw.get("preferences") or {}
             self._fact_items = [
                 {
+                    **item,
                     "content": str(item.get("content", "")).strip(),
                     "category": str(item.get("category", "basic")).strip() or "basic",
                     "timestamp": str(item.get("timestamp", "")).strip(),
@@ -253,6 +299,7 @@ class SettingsDialogProfileMixin:
             ]
 
             profile_data = {
+                **getattr(self, "_user_profile_extra_data", {}),
                 "facts": self._fact_items,
                 "basic_info": {key: value for key, value in self._basic_info_items if key},
                 "preferences": {

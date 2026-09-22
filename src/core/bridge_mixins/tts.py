@@ -103,14 +103,15 @@ class TTSBridgeMixin:
         return f"{reminder}\n\n{message}"
 
     def _refresh_llm_history_from_visible_conversation(self):
-        """현재 보이는 대화 버퍼만 남도록 LLM 히스토리를 재구성한다."""
+        """요약 직전의 최근 대화와 현재 버퍼로 LLM 히스토리를 재구성한다."""
         if not self.llm_client:
             return
         rebuild = getattr(self.llm_client, "rebuild_context_from_conversation", None)
         if not callable(rebuild):
             return
         try:
-            ok = bool(rebuild(self.conversation_buffer))
+            recent = list(getattr(self, "_summarized_recent_context", []) or [])
+            ok = bool(rebuild(recent + list(self.conversation_buffer)))
             if not ok:
                 print("[Bridge] LLM 히스토리 재구성 실패")
         except Exception as e:

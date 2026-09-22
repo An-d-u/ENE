@@ -1427,6 +1427,17 @@ body.thought-feature-disabled .message-thought {
     outline: none;
 }
 
+.summary-review-fact-state {
+    flex-shrink: 0;
+    max-width: 90px;
+    padding: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 4px;
+    background: var(--ene-floating-panel-bg);
+    color: var(--ene-floating-panel-text);
+    font: inherit;
+}
+
 .summary-review-topic-hint {
     padding: 10px;
     border: 1px solid rgba(255, 255, 255, 0.08);

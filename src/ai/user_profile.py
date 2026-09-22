@@ -2,12 +2,14 @@
 User profile manager.
 Stores durable user facts extracted from conversations.
 """
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field, fields
 from typing import List, Dict, Optional
 from datetime import datetime
 from pathlib import Path
-import difflib
 import re
+from uuid import NAMESPACE_URL, uuid5
+
+from .profile_updates import is_current_update, parse_memory_time
 
 from ..core.app_paths import load_json_data, resolve_user_storage_path, save_json_data
 
@@ -19,6 +21,22 @@ class ProfileFact:
     category: str  # basic, preference, goal, habit
     timestamp: str
     source: str = ""
+    id: str = ""
+    subject: str = ""
+    state: str = "active"
+    effective_at: str = ""
+    source_memory_id: str = ""
+    history: list[dict] = field(default_factory=list)
+
+    def __post_init__(self):
+        if not self.id:
+            self.id = str(uuid5(NAMESPACE_URL, f"{self.category}|{self.timestamp}|{self.content}"))
+
+    @classmethod
+    def from_dict(cls, data):
+        """구형 저장 파일과 추가 필드가 있는 파일을 함께 읽는다."""
+        names = {item.name for item in fields(cls)}
+        return cls(**{key: value for key, value in data.items() if key in names})
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -29,7 +47,6 @@ class UserProfile:
 
     ALLOWED_CATEGORIES = {"basic", "preference", "goal", "habit"}
     MIN_CONFIDENCE = 0.65
-    SIMILARITY_THRESHOLD = 0.80
 
     def __init__(self, profile_file: str | Path | None = None):
         target_file = profile_file if profile_file is not None else "user_profile.json"
@@ -49,7 +66,7 @@ class UserProfile:
         try:
             data = load_json_data(self.profile_file, encoding="utf-8-sig")
 
-            self.facts = [ProfileFact(**fact) for fact in data.get("facts", [])]
+            self.facts = [ProfileFact.from_dict(fact) for fact in data.get("facts", [])]
             self.basic_info = data.get("basic_info", {})
             self.preferences = data.get("preferences", {"likes": [], "dislikes": []})
 
@@ -118,18 +135,6 @@ class UserProfile:
                 print(f"[Profile] Fact already exists: {content}")
                 return
 
-        similar_index = self._find_similar_fact_index(content, inferred_category)
-        if similar_index is not None:
-            existing = self.facts[similar_index]
-            if len(content) > len(existing.content):
-                existing.content = content
-            existing.timestamp = datetime.now().isoformat()
-            if source:
-                existing.source = source
-            self.save()
-            print(f"[Profile] Updated similar fact: [{inferred_category}] {existing.content}")
-            return
-
         fact = ProfileFact(
             content=content,
             category=inferred_category,
@@ -146,8 +151,94 @@ class UserProfile:
         self.save()
         print(f"[Profile] Added fact: [{inferred_category}] {content}")
 
+    def apply_summary_facts(self, facts, updates, *, original_messages, source="", source_memory_id="", observed_at="", reviewed=False):
+        """선택된 내용과 검증된 변경안만 반영하며 원래 값을 이력으로 남긴다."""
+        if updates is None:
+            # 구형 응답은 원문 요약만 보존한다. 명시적으로 검토한 사실만 추가한다.
+            if reviewed:
+                for content in facts:
+                    self.add_fact(content, source=source)
+            return
+        selected = {self._normalize_fact(value) for value in facts if isinstance(value, str)}
+        timestamp = observed_at or datetime.now().astimezone().isoformat()
+        for update in updates if isinstance(updates, list) else []:
+            manual_edit = reviewed and isinstance(update, dict) and update.get("manual_edit") is True
+            if not manual_edit and not is_current_update(update, original_messages):
+                continue
+            category = str(update.get("category", "")).strip()
+            content = self._normalize_fact(update.get("content", ""))
+            state = str(update.get("state", "active"))
+            if category not in self.ALLOWED_CATEGORIES or state not in {"active", "completed", "cancelled", "paused"}:
+                continue
+            if f"[{category}] {content}" not in selected or not content:
+                continue
+            recorded_at = datetime.now().astimezone().isoformat() if manual_edit else timestamp
+            effective_at = str(update.get("effective_at") or recorded_at)
+            effective_time = parse_memory_time(effective_at)
+            observed_time = parse_memory_time(recorded_at)
+            if effective_time is None or observed_time is None or effective_time > observed_time:
+                continue
+            target_id = str(update.get("replaces") or "")
+            existing = next((fact for fact in self.facts if fact.id == target_id), None)
+            if target_id and existing is None:
+                continue
+            subject = str(update.get("subject") or "").strip()
+            if not subject:
+                continue
+            if existing is None:
+                matches = [fact for fact in self.facts if fact.category == category and fact.subject == subject]
+                if len(matches) > 1:
+                    continue
+                existing = matches[0] if matches else None
+            if existing:
+                previous_time = parse_memory_time(existing.effective_at or existing.timestamp)
+                if (existing.category != category and not manual_edit) or (previous_time and effective_time < previous_time):
+                    continue
+                if existing.content == content and existing.state == state and existing.category == category:
+                    if previous_time is None or effective_time > previous_time:
+                        existing.effective_at = effective_at
+                        existing.timestamp = recorded_at
+                        existing.source = source
+                        existing.source_memory_id = "" if manual_edit else source_memory_id
+                    continue
+                # 같은 출처의 재시도나 뒤늦은 결과가 이미 반영된 값을 다시 바꾸지 않는다.
+                if source_memory_id and existing.source_memory_id == source_memory_id:
+                    continue
+                self._remove_derived_fact(existing)
+                previous = existing.to_dict()
+                previous.pop("history", None)
+                existing.history.append(previous)
+                existing.content = content
+                existing.category = category
+                existing.timestamp = recorded_at
+                existing.source = source
+            else:
+                if any(fact.content == content and fact.category == category for fact in self.facts):
+                    continue
+                existing = ProfileFact(content, category, recorded_at, source)
+                self.facts.append(existing)
+            existing.subject = subject
+            existing.state = state
+            existing.effective_at = effective_at
+            existing.source_memory_id = "" if manual_edit else source_memory_id
+            if manual_edit:
+                existing.source = f"수동 검토 ({recorded_at})"
+            if category == "basic":
+                self._update_basic_info(content)
+            elif category == "preference":
+                self._update_preferences(content)
+        self.save()
+
+    def _remove_derived_fact(self, fact):
+        """해당 사실에서 만들어진 값만 제거해 무관한 수동 값은 보존한다."""
+        for kind in ("likes", "dislikes"):
+            self.preferences[kind] = [value for value in self.preferences.get(kind, []) if value != fact.content]
+        if fact.category == "basic":
+            derived = self.basic_values(fact.content)
+            self.basic_info = {key: value for key, value in self.basic_info.items() if derived.get(key) != value}
+
     def _normalize_fact(self, content: str) -> str:
-        text = (content or "").strip()
+        text = content.strip() if isinstance(content, str) else ""
         text = text.replace("마스터는", "").replace("마스터가", "").strip()
         text = re.sub(r"\s+", " ", text).strip()
         return text
@@ -212,61 +303,51 @@ class UserProfile:
 
         return max(0.0, min(1.0, score))
 
-    def _find_similar_fact_index(self, content: str, category: str) -> Optional[int]:
-        normalized = content.lower()
-        best_idx = None
-        best_ratio = 0.0
-
-        for idx, fact in enumerate(self.facts):
-            if fact.category not in {category, "fact"}:
-                continue
-            ratio = difflib.SequenceMatcher(a=normalized, b=fact.content.lower()).ratio()
-            if ratio > best_ratio:
-                best_ratio = ratio
-                best_idx = idx
-
-        if best_idx is not None and best_ratio >= self.SIMILARITY_THRESHOLD:
-            return best_idx
-        return None
-
     def _update_basic_info(self, content: str):
-        """Best-effort parser for basic profile fields."""
+        self.basic_info.update(self.basic_values(content))
+
+    @classmethod
+    def basic_values(cls, content: str) -> dict[str, str]:
+        """기억 문장에서 추출 가능한 기본 정보만 반환한다."""
         text = content.strip()
+        values = {}
 
         if "이름" in text:
-            value = self._extract_korean_field(
+            value = cls._extract_korean_field(
                 text,
                 "이름",
                 stop_words=("전공", "성별", "생일", "직업"),
             )
             if value:
-                self.basic_info["name"] = value
+                values["name"] = value
 
         if "성별" in text:
             value = text.split(":", 1)[-1].strip() if ":" in text else text
             if value:
-                self.basic_info["gender"] = value
+                values["gender"] = value
 
         if "생일" in text:
             m = re.search(r"\d{4}[-/.]\d{1,2}[-/.]\d{1,2}", text)
             if m:
-                self.basic_info["birthday"] = m.group(0).replace("/", "-").replace(".", "-")
+                values["birthday"] = m.group(0).replace("/", "-").replace(".", "-")
 
         if "직업" in text:
             value = text.split(":", 1)[-1].strip() if ":" in text else text
             if value:
-                self.basic_info["occupation"] = value
+                values["occupation"] = value
 
         if "전공" in text:
-            value = self._extract_korean_field(
+            value = cls._extract_korean_field(
                 text,
                 "전공",
                 stop_words=("이름", "성별", "생일", "직업"),
             )
             if value:
-                self.basic_info["major"] = value
+                values["major"] = value
+        return values
 
-    def _extract_korean_field(self, text: str, label: str, stop_words: tuple[str, ...] = ()) -> str:
+    @staticmethod
+    def _extract_korean_field(text: str, label: str, stop_words: tuple[str, ...] = ()) -> str:
         """한 문장에 여러 기본 정보가 섞인 경우 특정 필드 값만 잘라낸다."""
         pattern = rf"{re.escape(label)}\s*(?:[:：]|은|는)?\s*(.+)"
         match = re.search(pattern, text)
@@ -280,14 +361,20 @@ class UserProfile:
         return value
 
     def _update_preferences(self, content: str):
-        """Keep likes/dislikes arrays in sync."""
+        """선호 목록에 같은 기억이 중복되지 않게 반영한다."""
+        kind = self.preference_kind(content)
+        if kind and content not in self.preferences[kind]:
+            self.preferences[kind].append(content)
+
+    @staticmethod
+    def preference_kind(content: str) -> str:
+        """부정 표현부터 판정하여 선호와 비선호를 구분한다."""
         lowered = content.lower()
+        if any(k in lowered for k in ["싫어", "dislike", "좋아하지", "선호하지", "do not like", "don't like"]):
+            return "dislikes"
         if any(k in lowered for k in ["좋아", "선호", "like", "prefer", "favorite"]):
-            if content not in self.preferences["likes"]:
-                self.preferences["likes"].append(content)
-        elif any(k in lowered for k in ["싫어", "dislike"]):
-            if content not in self.preferences["dislikes"]:
-                self.preferences["dislikes"].append(content)
+            return "likes"
+        return ""
 
     def get_facts_by_category(self, category: str) -> List[ProfileFact]:
         """Return facts by category."""
@@ -301,6 +388,7 @@ class UserProfile:
         """Delete one fact by list index."""
         if 0 <= index < len(self.facts):
             deleted = self.facts.pop(index)
+            self._remove_derived_fact(deleted)
             self.save()
             print(f"[Profile] Deleted fact: {deleted.content}")
 
@@ -312,6 +400,7 @@ class UserProfile:
         lines = ["[Known user profile]"]
         recent_facts = sorted(self.facts, key=lambda f: f.timestamp, reverse=True)[:10]
         for fact in recent_facts:
-            lines.append(f"- [{fact.category}] {fact.content}")
+            label = fact.category if fact.state == "active" else f"{fact.category}/{fact.state}"
+            lines.append(f"- [{label}] {fact.content}")
 
         return "\n".join(lines)

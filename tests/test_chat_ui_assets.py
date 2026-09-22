@@ -7,6 +7,49 @@ import subprocess
 WEB_DIR = Path(__file__).resolve().parents[1] / "assets" / "web"
 STYLE_PATH = WEB_DIR / "style.css"
 SCRIPT_PATH = WEB_DIR / "script.js"
+
+
+def test_summary_profile_updates_follow_selected_and_edited_rows():
+    result = _run_message_helpers_runtime_case("""
+currentSummaryReviewPayload = {user_facts: ['[goal] 가상 계획 진행', '[habit] 가상 습관']};
+const updates = [{category: 'goal', content: '가상 계획 진행', subject: '가상 계획', replaces: 'fact-example', state: 'active'}];
+const rows = [
+    {checked: true, index: '0', text: '[goal] 가상 계획 수정'},
+    {checked: false, index: '1', text: '[habit] 가상 습관'}
+];
+const container = {querySelectorAll: () => rows.map((row) => ({
+    querySelector: (selector) => selector === 'input[type="checkbox"]'
+        ? {checked: row.checked, value: row.index}
+        : selector === '.summary-review-fact-input' ? {value: row.text} : null
+}))};
+result = {updates: collectSummaryProfileUpdates(container, {profile_updates: updates})};
+""")
+    assert len(result["updates"]) == 1
+    assert result["updates"][0]["content"] == "가상 계획 수정"
+    assert result["updates"][0]["replaces"] == "fact-example"
+    assert result["updates"][0]["manual_edit"] is True
+
+
+def test_summary_fact_state_can_be_changed_without_rewriting_content():
+    result = _run_message_helpers_runtime_case("""
+const original = '[goal] 가상 행사 계획';
+const previous = {category: 'goal', content: '가상 행사 계획', subject: '가상 행사', replaces: 'fact-example', state: 'cancelled'};
+currentSummaryReviewPayload = {user_facts: [original], memory_meta: {profile_updates: [previous]}};
+const container = document.createElement('div');
+renderSummaryReviewFacts(container, [original], 'summary-user-fact');
+const stateInput = container.querySelector('.summary-review-fact-state');
+const initialState = stateInput ? stateInput.value : null;
+if (stateInput) stateInput.value = 'active';
+const row = container.children[0];
+row.querySelector = (selector) => selector === 'input[type="checkbox"]' ? row.children[0]
+    : selector === '.summary-review-fact-input' ? row.children[1] : stateInput;
+result = {initialState, updates: collectSummaryProfileUpdates(container, {profile_updates: [previous]})};
+""")
+    assert result["initialState"] == "cancelled"
+    assert result["updates"][0]["state"] == "active"
+    assert result["updates"][0]["manual_edit"] is True
+
+
 EXPECTED_RUNTIME_SCRIPTS = [
     "runtime_character_state.js",
     "runtime_bootstrap.js",

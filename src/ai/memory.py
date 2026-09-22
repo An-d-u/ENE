@@ -885,7 +885,7 @@ class MemoryManager:
         """후보 memory 안에서 최신 사용자 메시지 중심 raw chunk를 선별한다."""
         normalized_query = str(latest_query or "").strip()
         normalized_recent = str(recent_context or "").strip()
-        if not candidate_memories or not (normalized_query or normalized_recent):
+        if not (normalized_query or normalized_recent):
             return []
 
         max_chunks = max(0, int(top_k or 0))
@@ -896,6 +896,20 @@ class MemoryManager:
         for memory, memory_score in candidate_memories:
             for chunk in self.build_raw_chunks(memory, chunk_turns=chunk_turns):
                 all_chunks.append((chunk, float(memory_score)))
+
+        # 첫 검색에서 누락된 대화는 강한 원문 단서로만 보완한다.
+        # 전체 원문을 외부 임베딩에 보내지 않도록 후보 구간 수를 먼저 제한한다.
+        candidate_ids = {memory.id for memory, _ in candidate_memories}
+        fallback_chunks = []
+        for memory in self.memories:
+            if memory.id in candidate_ids:
+                continue
+            for chunk in self.build_raw_chunks(memory, chunk_turns=chunk_turns):
+                lexical_score = self._raw_recall_overlap(normalized_query, chunk.text)
+                if lexical_score >= 0.35:
+                    fallback_chunks.append((chunk, lexical_score))
+        fallback_chunks.sort(key=lambda item: item[1], reverse=True)
+        all_chunks.extend(fallback_chunks[:max_chunks * 3])
 
         if not all_chunks:
             return []
@@ -919,12 +933,15 @@ class MemoryManager:
         for chunk, memory_score in all_chunks:
             primary_similarity = self._cosine_if_available(query_embedding, chunk.embedding)
             support_similarity = self._cosine_if_available(recent_embedding, chunk.embedding)
-            keyword_score = self._keyword_overlap_score(normalized_query, chunk.text)
+            keyword_score = self._raw_recall_overlap(normalized_query, chunk.text)
             support_keyword_score = self._keyword_overlap_score(normalized_recent, chunk.text)
             temporal_score = self._temporal_overlap_score(normalized_query, chunk.text)
             memory_bonus = self._memory_score_bonus(memory_score)
             recency_bonus = self._chunk_recency_bonus(chunk)
             user_bonus = self._chunk_user_bonus(chunk)
+
+            if primary_similarity < 0.35 and keyword_score < 0.2:
+                continue
 
             final_score = (
                 (primary_similarity * 0.52)
@@ -964,6 +981,27 @@ class MemoryManager:
                 break
 
         return selected
+
+    def _raw_recall_overlap(self, query: str, text: str) -> float:
+        """조사가 붙은 고유 단서를 찾되 흔한 회상 표현만으로는 회수하지 않는다."""
+        stop_words = {"전에", "그때", "기억", "알려줘", "뭐였지", "말했던", "했어", "하는", "the", "what", "remember", "about"}
+        tokens = {
+            re.sub(r"(?<=.{2})(?:에서는|으로는|에게는|에서|으로|에게|은|는|이|가|을|를|의|에|와|과)$", "", token)
+            for token in self._tokenize_overlap_text(query)
+        } - stop_words
+        if not tokens:
+            return 0.0
+        normalized = text.lower()
+        matches = []
+        for token in tokens:
+            pattern = rf"(?<![a-z0-9가-힣]){re.escape(token)}(?![a-z0-9])"
+            if re.search(pattern, normalized):
+                matches.append(token)
+        if len(matches) == 1 and len(matches[0]) < 3:
+            return 0.0
+        if any(re.fullmatch(r"(?=.*[a-z])(?=.*\d)[a-z0-9]{3,}", token) for token in matches):
+            return max(0.7, len(matches) / len(tokens))
+        return len(matches) / len(tokens)
 
     async def _ensure_chunk_embeddings(self, chunks: List[MemoryChunk]):
         """아직 임베딩이 없는 raw chunk만 lazy 생성해서 캐시에 저장한다."""

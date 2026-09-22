@@ -199,6 +199,10 @@ def build_user_profile_tab(dialog, embedded: bool = False):
     fact_meta_row.setSpacing(10)
 
     self.fact_category_combo = QComboBox()
+    self.fact_state_combo = QComboBox()
+    for state, label in (("active", "진행 중"), ("completed", "완료"), ("cancelled", "취소"), ("paused", "보류")):
+        self.fact_state_combo.addItem(label, state)
+    fact_meta_row.addWidget(self.fact_state_combo)
     for category in ("basic", "preference", "goal", "habit"):
         self.fact_category_combo.addItem(self._fact_category_label(category), category)
     fact_meta_row.addWidget(self.fact_category_combo)

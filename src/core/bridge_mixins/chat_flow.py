@@ -1010,7 +1010,7 @@ class ChatFlowBridgeMixin:
         """리롤/수정 재요청 전에 직전 user+assistant 턴을 되돌린다."""
         # 리롤 직전 기준 컨텍스트(..., user C, assistant D)에서
         # D와 C를 제외한 상태(..., B)를 폴백 재구성용으로 준비한다.
-        fallback_context = list(self.conversation_buffer)
+        fallback_context = list(getattr(self, "_summarized_recent_context", []) or []) + list(self.conversation_buffer)
         if fallback_context and fallback_context[-1][0] == "assistant":
             fallback_context.pop()
         if fallback_context and fallback_context[-1][0] == "user":

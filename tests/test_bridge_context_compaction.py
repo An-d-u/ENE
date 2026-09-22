@@ -1923,7 +1923,7 @@ def test_build_memory_context_falls_back_to_similarity_when_activation_raises():
     assert "[회상된 원문 조각]" in context
 
 
-def test_build_memory_context_does_not_fallback_when_activation_returns_empty():
+def test_build_memory_context_can_recall_raw_when_activation_returns_empty():
     memory_manager = _EmptyActivatedMemoryManager()
     dummy = type("ClientDummy", (), {})()
     dummy.memory_manager = memory_manager
@@ -1949,7 +1949,8 @@ def test_build_memory_context_does_not_fallback_when_activation_returns_empty():
 
     assert len(memory_manager.find_activated_calls) == 1
     assert memory_manager.find_similar_calls == []
-    assert memory_manager.find_relevant_raw_chunks_calls == []
+    assert len(memory_manager.find_relevant_raw_chunks_calls) == 1
+    assert memory_manager.find_relevant_raw_chunks_calls[0]["candidate_memories"] == []
     assert "[관련된 과거 기억]" not in context
 
 

@@ -60,6 +60,64 @@ class SummaryReviewWorker(QThread):
 
 
 class MemorySummaryBridgeMixin:
+    def _persist_user_profile_facts(self, facts, memory_meta, saved_memory, original_messages, source_timestamp, *, reviewed=False):
+        """자동·수동 요약의 사용자 프로필 변경에 같은 검증 규칙을 적용한다."""
+        profile = getattr(self, "user_profile", None)
+        if not profile:
+            return
+        apply_updates = getattr(profile, "apply_summary_facts", None)
+        source = f"대화 요약 ({source_timestamp})"
+        if callable(apply_updates):
+            apply_updates(
+                facts, memory_meta.get("profile_updates"),
+                original_messages=original_messages, source=source,
+                source_memory_id=str(getattr(saved_memory, "id", "") or ""),
+                observed_at=source_timestamp,
+                reviewed=reviewed,
+            )
+        else:
+            for fact in facts:
+                profile.add_fact(content=fact, category="fact", source=source)
+
+    async def _persist_topic_state(self, hints, saved_memory, messages, source_timestamp, *, reviewed=False):
+        """자동 변경은 사용자 근거를 요구하고, 수동 검토 내용도 시각을 검증한다."""
+        from src.ai.profile_updates import is_current_update, parse_memory_time
+
+        observed_time = parse_memory_time(source_timestamp)
+        accepted = []
+        for hint in MemorySummaryBridgeMixin._normalize_topic_hints(self, hints):
+            if hint.get("assertion") in {"historical", "uncertain"}:
+                continue
+            if not reviewed and not is_current_update(hint, messages):
+                continue
+            effective_at = str(hint.get("effective_at") or source_timestamp)
+            effective_time = parse_memory_time(effective_at)
+            if effective_time is None or observed_time is None or effective_time > observed_time:
+                continue
+            accepted.append({**hint, "effective_at": effective_at})
+        if accepted:
+            await MemorySummaryBridgeMixin._persist_reviewed_topic_hints(
+                self, accepted, saved_memory, {"original_messages": messages}, source_timestamp,
+            )
+
+    def _complete_summary_context(self, messages):
+        """저장 버퍼를 비우되 최근 대화와 처리 중 들어온 새 메시지는 유지한다."""
+        current = list(getattr(self, "conversation_buffer", []) or [])
+        if current[:len(messages)] != list(messages):
+            return
+        recent = list(getattr(self, "_summarized_recent_context", []) or []) + list(messages)
+        recent = recent[-6:]
+        while recent and recent[0][0] != "user":
+            recent.pop(0)
+        self._summarized_recent_context = recent
+        MemorySummaryBridgeMixin._drop_reviewed_messages_from_buffer(self, messages)
+        clear = getattr(self.llm_client, "clear_context", None)
+        if callable(clear):
+            clear()
+        rebuild = getattr(self.llm_client, "rebuild_context_from_conversation", None)
+        if callable(rebuild):
+            rebuild(recent + list(self.conversation_buffer))
+
     @staticmethod
     def _summary_bridge_is_shutting_down(bridge) -> bool:
         state = getattr(bridge, "life_record_state", None)
@@ -160,6 +218,9 @@ class MemorySummaryBridgeMixin:
         """요약 후보 생성을 별도 스레드에서 시작한다."""
         if MemorySummaryBridgeMixin._summary_bridge_is_shutting_down(self):
             return None
+        if getattr(self, "_summary_in_progress", False):
+            self.summary_notice.emit("자동 요약이 끝난 뒤 다시 시도해 주세요.", "info")
+            return
         current_worker = getattr(self, "_summary_review_worker", None)
         if current_worker is not None and current_worker.isRunning():
             print("[Bridge] Summary review ignored: worker is still running")
@@ -192,6 +253,10 @@ class MemorySummaryBridgeMixin:
             self.summary_notice.emit("요약할 대화가 없어요.", "info")
             return
 
+        messages = pending.get("messages", []) if isinstance(pending, dict) else []
+        current = getattr(self, "conversation_buffer", None)
+        if messages and current is not None and list(current)[:len(messages)] != messages:
+            return
         self._pending_summary_review = pending
         self._emit_summary_review()
         notice = getattr(self, "_summary_review_success_notice", "요약을 확인해 주세요.")
@@ -252,6 +317,9 @@ class MemorySummaryBridgeMixin:
             return normalized
 
         allowed_keys = {
+            "effective_at",
+            "assertion",
+            "evidence",
             "keyword",
             "subject",
             "type",
@@ -530,6 +598,9 @@ class MemorySummaryBridgeMixin:
 
         source_timestamp = str(pending.get("source_timestamp") or datetime.now().strftime('%Y-%m-%d %H:%M'))
         original_messages = list(pending.get("original_messages") or [])
+        reviewed_messages = list(pending.get("messages") or [])
+        if reviewed_messages and list(self.conversation_buffer)[:len(reviewed_messages)] != reviewed_messages:
+            raise ValueError("검토 대상 대화가 변경되었습니다. 요약을 다시 생성해 주세요.")
 
         saved_memory = await self.memory_manager.add_summary(
             summary=str(summary or "").strip(),
@@ -544,14 +615,9 @@ class MemorySummaryBridgeMixin:
             trigger_terms=memory_meta.get("trigger_terms") or [],
         )
 
-        if user_facts and hasattr(self, 'user_profile') and self.user_profile:
-            print(f"[Bridge] 마스터 정보 {len(user_facts)}개 저장")
-            for fact in user_facts:
-                self.user_profile.add_fact(
-                    content=fact,
-                    category="fact",
-                    source=f"대화 요약 ({source_timestamp})"
-                )
+        MemorySummaryBridgeMixin._persist_user_profile_facts(
+            self, user_facts, memory_meta, saved_memory, original_messages, source_timestamp, reviewed=True,
+        )
 
         if ene_facts and hasattr(self, 'ene_profile') and self.ene_profile:
             print(f"[Bridge] 에네 정보 {len(ene_facts)}개 저장")
@@ -564,23 +630,10 @@ class MemorySummaryBridgeMixin:
                     auto_update=True,
                 )
 
-        topic_persister = getattr(self, "_persist_reviewed_topic_hints", None)
-        if not callable(topic_persister):
-            topic_persister = lambda hints, memory, review, timestamp: MemorySummaryBridgeMixin._persist_reviewed_topic_hints(
-                self,
-                hints,
-                memory,
-                review,
-                timestamp,
-            )
-        await topic_persister(topic_hints, saved_memory, pending, source_timestamp)
-
-        clear_context = getattr(self.llm_client, "clear_context", None)
-        if callable(clear_context):
-            clear_context()
-            print("[Bridge] 대화 요약 후 LLM 세션 컨텍스트 초기화")
-
-        self._drop_reviewed_messages_from_buffer(pending.get("messages") or [])
+        await MemorySummaryBridgeMixin._persist_topic_state(
+            self, topic_hints, saved_memory, original_messages, source_timestamp, reviewed=True,
+        )
+        MemorySummaryBridgeMixin._complete_summary_context(self, reviewed_messages)
         self._pending_summary_review = None
 
     @pyqtSlot(str)
@@ -688,6 +741,13 @@ class MemorySummaryBridgeMixin:
         """대화 자동 요약 및 사용자 정보 추출"""
         if not self.conversation_buffer or not self.memory_manager or not self.llm_client:
             return
+        if (
+            getattr(self, "_summary_in_progress", False)
+            or getattr(self, "_summary_review_worker", None) is not None
+            or isinstance(getattr(self, "_pending_summary_review", None), dict)
+        ):
+            return
+        self._summary_in_progress = True
         
         try:
             print(f"[Bridge] 대화 요약 시작 ({len(self.conversation_buffer)}개 메시지)")
@@ -710,13 +770,15 @@ class MemorySummaryBridgeMixin:
             if not callable(storage_builder):
                 storage_builder = lambda value: MemorySummaryBridgeMixin._build_summary_storage_payload(self, value)
 
-            summary, user_facts, ene_facts, memory_meta, _topic_hints = normalizer(summary_result)
+            summary, user_facts, ene_facts, memory_meta, topic_hints = normalizer(summary_result)
             storage_payload = storage_builder(messages)
             source_timestamp = storage_payload["source_timestamp"]
             original_messages = storage_payload["original_messages"]
+            if list(self.conversation_buffer)[:len(messages)] != messages:
+                return
             
             # 메모리에 요약 저장
-            await self.memory_manager.add_summary(
+            saved_memory = await self.memory_manager.add_summary(
                 summary=summary,
                 original_messages=original_messages,
                 is_important=False,
@@ -730,14 +792,9 @@ class MemorySummaryBridgeMixin:
             )
             
             # 사용자 정보 저장
-            if user_facts and hasattr(self, 'user_profile') and self.user_profile:
-                print(f"[Bridge] 마스터 정보 {len(user_facts)}개 저장")
-                for fact in user_facts:
-                    self.user_profile.add_fact(
-                        content=fact,
-                        category="fact",
-                        source=f"대화 요약 ({source_timestamp})"
-                    )
+            MemorySummaryBridgeMixin._persist_user_profile_facts(
+                self, user_facts, memory_meta, saved_memory, original_messages, source_timestamp,
+            )
 
             if ene_facts and hasattr(self, 'ene_profile') and self.ene_profile:
                 print(f"[Bridge] 에네 정보 {len(ene_facts)}개 저장")
@@ -750,15 +807,10 @@ class MemorySummaryBridgeMixin:
                         auto_update=True,
                     )
 
-            clear_context = getattr(self.llm_client, "clear_context", None)
-            if callable(clear_context):
-                clear_context()
-                print("[Bridge] 대화 요약 후 LLM 세션 컨텍스트 초기화")
-            
-            # 버퍼 클리어
-            self.conversation_buffer = []
-            self._ene_thought_context_buffer = []
-            self._loaded_topic_memory_context_buffer = []
+            await MemorySummaryBridgeMixin._persist_topic_state(
+                self, topic_hints, saved_memory, original_messages, source_timestamp,
+            )
+            MemorySummaryBridgeMixin._complete_summary_context(self, messages)
             
             print(f"[Bridge] 대화 요약 완료: {summary}")
             if user_facts:
@@ -770,6 +822,8 @@ class MemorySummaryBridgeMixin:
             print(f"[Bridge] 자동 요약 실패: {e}")
             import traceback
             traceback.print_exc()
+        finally:
+            self._summary_in_progress = False
 
     def clear_conversation(self):
         """대화 내역 초기화"""
@@ -792,6 +846,8 @@ class MemorySummaryBridgeMixin:
         
         # 대화 버퍼 클리어
         self.conversation_buffer = []
+        self._summarized_recent_context = []
+        self._pending_summary_review = None
         self._ene_thought_context_buffer = []
         self._loaded_topic_memory_context_buffer = []
         self._last_request_payload = None

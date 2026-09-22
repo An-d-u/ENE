@@ -15,6 +15,7 @@ from src.ai.knowledge_map_types import (
     TopicMemoryTopic,
 )
 from src.core.app_paths import load_json_data, resolve_user_storage_path, save_json_data
+from src.ai.profile_updates import parse_memory_time
 
 
 SCHEMA_VERSION = 1
@@ -258,6 +259,8 @@ class KnowledgeMapManager:
             hint = _coerce_hint(raw_hint)
             if hint is None:
                 continue
+            if hint.assertion in {"historical", "uncertain"}:
+                continue
             if not hint.keyword or not hint.subject or not hint.text:
                 continue
 
@@ -279,10 +282,14 @@ class KnowledgeMapManager:
             hint = _coerce_hint(raw_hint)
             if hint is None:
                 continue
+            if hint.assertion in {"historical", "uncertain"}:
+                continue
             if not hint.keyword or not hint.subject or not hint.text:
                 continue
 
             clue = self._merge_coerced_hint(hint, source_memory_id=source_memory_id)
+            if clue.text != hint.text or clue.state != hint.state:
+                continue
             clue.embedding = None
             clue.embedding_provider = None
             clue.embedding_model = None
@@ -428,6 +435,10 @@ class KnowledgeMapManager:
             lines.append(f"  type: {clue.type}")
             lines.append(f"  state: {clue.state}")
             lines.append(f"  text: {clue.text}")
+            if clue.effective_at:
+                lines.append(f"  effective_at: {clue.effective_at}")
+            if clue.source_memory_id:
+                lines.append(f"  source_memory_id: {clue.source_memory_id}")
         return "\n".join(lines)
 
     def _current_embedding_source(self) -> tuple[str | None, str | None]:
@@ -562,10 +573,21 @@ class KnowledgeMapManager:
                 text=hint.text,
                 confidence=hint.confidence,
                 source_memory_id=_visible_text(source_memory_id) or None,
+                effective_at=hint.effective_at,
             )
             topic.clues.append(clue)
             return clue
 
+        incoming_time = parse_memory_time(hint.effective_at)
+        previous_time = parse_memory_time(existing.effective_at)
+        if previous_time and (incoming_time is None or incoming_time < previous_time):
+            return existing
+        if existing.text == hint.text and existing.state == hint.state:
+            if incoming_time and (previous_time is None or incoming_time > previous_time):
+                existing.effective_at = hint.effective_at
+                existing.source_memory_id = _visible_text(source_memory_id) or None
+                existing.confidence = hint.confidence
+            return existing
         existing.history.insert(
             0,
             TopicMemoryHistoryItem(
@@ -574,12 +596,17 @@ class KnowledgeMapManager:
                 timestamp=timestamp,
                 confidence=existing.confidence,
                 source_memory_id=existing.source_memory_id,
+                effective_at=existing.effective_at,
             ),
         )
         existing.state = hint.state
         existing.text = hint.text
         existing.confidence = hint.confidence
         existing.source_memory_id = _visible_text(source_memory_id) or None
+        existing.effective_at = hint.effective_at
+        existing.embedding = None
+        existing.embedding_provider = None
+        existing.embedding_model = None
         return existing
 
     def _keyword_score(self, topic: TopicMemoryTopic, query: str) -> tuple[float, list[str]]:

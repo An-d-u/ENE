@@ -79,6 +79,9 @@ class TopicMemoryHint:
     aliases: list[str] = field(default_factory=list)
     retrieval_terms: list[str] = field(default_factory=list)
     confidence: float = 0.5
+    effective_at: str = ""
+    assertion: str = ""
+    evidence: str = ""
 
     def __post_init__(self) -> None:
         self.keyword = _normalize_str(self.keyword)
@@ -100,6 +103,7 @@ class TopicMemoryHint:
             "aliases": list(self.aliases),
             "retrieval_terms": list(self.retrieval_terms),
             "confidence": self.confidence,
+            **{key: getattr(self, key) for key in ("effective_at", "assertion", "evidence") if getattr(self, key)},
         }
 
     @classmethod
@@ -116,6 +120,7 @@ class TopicMemoryHistoryItem:
     timestamp: str | None = None
     confidence: float | None = None
     source_memory_id: str | None = None
+    effective_at: str = ""
 
     def __post_init__(self) -> None:
         self.state = _normalize_str(self.state)
@@ -132,6 +137,7 @@ class TopicMemoryHistoryItem:
             "timestamp": self.timestamp,
             "confidence": self.confidence,
             "source_memory_id": self.source_memory_id,
+            **({"effective_at": self.effective_at} if self.effective_at else {}),
         }
 
     @classmethod
@@ -154,6 +160,7 @@ class TopicMemoryClue:
     embedding_provider: str | None = None
     embedding_model: str | None = None
     history: list[TopicMemoryHistoryItem] = field(default_factory=list)
+    effective_at: str = ""
 
     def __post_init__(self) -> None:
         self.id = _normalize_str(self.id)
@@ -180,6 +187,7 @@ class TopicMemoryClue:
             "embedding_provider": self.embedding_provider,
             "embedding_model": self.embedding_model,
             "history": [item.to_dict() for item in self.history],
+            **({"effective_at": self.effective_at} if self.effective_at else {}),
         }
 
     @classmethod

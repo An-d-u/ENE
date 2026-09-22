@@ -16,6 +16,12 @@ def test_profile_fact_to_dict_preserves_fields():
         "category": "habit",
         "timestamp": "2026-05-25T10:00:00",
         "source": "chat",
+        "id": fact.id,
+        "subject": "",
+        "state": "active",
+        "effective_at": "",
+        "source_memory_id": "",
+        "history": [],
     }
 
 
@@ -99,16 +105,16 @@ def test_add_fact_skips_temporary_uncertain_and_unknown_items(tmp_path):
     assert profile.facts == []
 
 
-def test_similar_fact_updates_existing_fact_instead_of_duplicating(tmp_path):
+def test_legacy_similar_fact_does_not_overwrite_without_explicit_update(tmp_path):
     profile = UserProfile(tmp_path / "profile.json")
 
     profile.add_fact("매일 아침 영어 공부를 하는 습관이 있어요", source="first")
     profile.add_fact("매일 아침 영어 공부를 하는 습관이 있고 단어 암기도 해요", source="second")
     profile.add_fact("매일 아침 영어 공부를 하는 습관이 있고 단어 암기도 해요", source="duplicate")
 
-    assert len(profile.facts) == 1
-    assert profile.facts[0].content == "매일 아침 영어 공부를 하는 습관이 있고 단어 암기도 해요"
-    assert profile.facts[0].source == "second"
+    assert len(profile.facts) == 2
+    assert profile.facts[1].content == "매일 아침 영어 공부를 하는 습관이 있고 단어 암기도 해요"
+    assert profile.facts[1].source == "second"
 
 
 def test_delete_fact_filters_by_category_and_builds_recent_context(tmp_path):

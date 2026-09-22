@@ -142,7 +142,12 @@ def build_current_profile_snapshot(user_profile, language: str = "ko") -> str:
         sorted_facts = sorted(facts, key=lambda x: x.timestamp, reverse=True)[:20]
         if sorted_facts:
             profile_lines.append("[facts]")
-            profile_lines.extend([f"- [{f.category}] {f.content}" for f in sorted_facts])
+            for fact in sorted_facts:
+                profile_lines.append(f"- [{fact.category}] {fact.content}")
+                profile_lines.append(
+                    f"  id: {getattr(fact, 'id', '')}; subject: {getattr(fact, 'subject', '')}; "
+                    f"state: {getattr(fact, 'state', 'active')}; effective_at: {getattr(fact, 'effective_at', '') or fact.timestamp}"
+                )
 
     if len(profile_lines) <= 1:
         return ""
@@ -530,5 +535,30 @@ def build_summary_prompt_from_text(
 - 너무 길지 않게 간결하게 작성하세요.
 - 출력 형식을 정확히 지키세요.
 - "**"와 같은 강조표시의 사용은 금지합니다.
+"""
+    prompt += """
+
+[STATE_UPDATE_RULES]
+- 현재 사실, 과거 회상, 추측을 구분하세요. 과거를 오늘 언급한 것은 현재 상태 변경이 아닙니다.
+- 사용자 정보는 사용자 발언을 근거로만 추출하세요. 조수의 제안·추측을 사용자 사실로 저장하지 마세요.
+- 일정 날짜가 지났다는 이유만으로 완료·실행·귀환을 추론하지 마세요.
+- 같은 대상의 여러 변경은 이번 대화에서 확인된 마지막 상태 하나만 출력하세요.
+- 표현이 달라도 같은 대상이면 CURRENT_PROFILE의 기존 id와 subject를 유지하세요.
+- 기존 프로필과 같은 사실은 반복하지 말고, 명시적 정정·완료·취소·보류는 짧아도 반영하세요.
+- 이번 대화에 근거가 없는 기존 내용은 새 사실로 복사하지 마세요.
+- TOPIC_MEMORY 각 항목에도 assertion, evidence, effective_at을 추가하세요. 아래 사용자 프로필 변경안과 같은 판정 규칙을 적용합니다.
+- 기존 주제와 같은 대상이면 LOADED_TOPIC_MEMORY의 keyword, subject, type을 유지하세요.
+
+[PROFILE_UPDATES]
+- 출력 끝에 이 섹션을 추가하고 JSON 배열만 쓰세요. 변경이 없으면 []입니다.
+- MASTER_INFO의 각 사실에 대해 category와 content를 정확히 일치시켜 변경안을 작성하세요.
+- 각 항목의 필드: category, content, subject, replaces, state, assertion, effective_at, evidence.
+- subject: 같은 사실을 이후에도 식별할 짧고 안정적인 대상명.
+- replaces: 수정하는 기존 CURRENT_PROFILE의 id. 신규 사실이면 빈 문자열.
+- state: active | completed | cancelled | paused. 완료·취소·보류는 명시적 발언이 필요합니다.
+- assertion: current | historical | uncertain. 현재 상태로 확정 가능한 진술만 current입니다.
+- effective_at: 사용자가 명시한 효력 발생 시각의 ISO 형식. 불명확하면 빈 문자열이며 임의 추정하지 마세요.
+- evidence: 이번 CONVERSATION의 사용자 발언에서 짧은 근거 구절을 정확히 복사하세요. 조수 발언은 금지합니다.
+- content와 subject는 대화의 출력 언어를 따릅니다.
 """
     return SummaryPrompt(prompt=prompt, time_range=resolved_time_range)

@@ -5,6 +5,7 @@ LLM 요약 응답 파싱 유틸리티.
 from __future__ import annotations
 
 import re
+import json
 
 from .knowledge_map_types import TopicMemoryHint
 
@@ -26,6 +27,9 @@ SUMMARY_MEMORY_META_KEYS = {
 }
 
 TOPIC_MEMORY_HINT_KEYS = {
+    "effective_at",
+    "assertion",
+    "evidence",
     "keyword",
     "subject",
     "type",
@@ -42,6 +46,8 @@ TOPIC_MEMORY_NONE_VALUES = {"none", "none.", "없음", "?놁쓬"}
 
 def _summary_section_for_line(line: str) -> str | None:
     upper = line.upper()
+    if upper == "[PROFILE_UPDATES]":
+        return "profile_updates"
     if upper in {"[SUMMARY]", "SUMMARY"} or "[요약]" in line or "[?붿빟]" in line:
         return "summary"
     if (
@@ -280,6 +286,8 @@ def parse_summary_response(response_text: str) -> tuple[str, list[str], list[str
     user_facts: list[str] = []
     ene_facts: list[str] = []
     memory_meta_lines: list[str] = []
+    profile_update_lines: list[str] = []
+    has_profile_updates = False
 
     try:
         lines = response_text.split("\n")
@@ -291,6 +299,13 @@ def parse_summary_response(response_text: str) -> tuple[str, list[str], list[str
                 continue
 
             upper = line.upper()
+            if upper == "[PROFILE_UPDATES]":
+                current_section = "profile_updates"
+                has_profile_updates = True
+                continue
+            if current_section == "profile_updates" and _summary_section_for_line(line) is None:
+                profile_update_lines.append(line)
+                continue
             if upper in {"[SUMMARY]", "SUMMARY"} or "[요약]" in line:
                 current_section = "summary"
                 continue
@@ -375,6 +390,13 @@ def parse_summary_response(response_text: str) -> tuple[str, list[str], list[str
             non_empty = [ln.strip() for ln in response_text.split("\n") if ln.strip()]
             summary = " ".join(non_empty[:2]).strip()
         memory_meta = parse_summary_memory_meta(memory_meta_lines)
+        if has_profile_updates:
+            payload = "\n".join(line for line in profile_update_lines if not line.startswith("```"))
+            try:
+                updates = json.loads(payload)
+            except (ValueError, TypeError):
+                updates = []
+            memory_meta["profile_updates"] = [item for item in updates if isinstance(item, dict)] if isinstance(updates, list) else []
 
     except Exception as e:
         print(f"[LLM] 요약 파싱 실패: {e}")

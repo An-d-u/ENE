@@ -660,6 +660,14 @@ async def build_memory_context(
         return "\n".join(context_parts)
 
     context_parts = [life_record_block] if life_record_block else []
+    memory_rules = (
+        "[기억 사용 규칙]\n"
+        "사용자의 현재 명시적 정정과 검증된 최신 프로필·주제 상태를 우선한다. "
+        "과거 요약과 원문은 당시의 기록이며 현재 사실로 덮어쓰지 않는다. "
+        "과거를 묻는 질문에는 당시 기록과 시점을 사용한다. "
+        "근거가 충돌하거나 완료 여부가 불명확하면 확정하지 않는다. "
+        "날짜가 지났다는 이유만으로 계획을 완료 처리하지 않는다."
+    )
     labels = memory_context_labels(client)
     max_profile_facts = settings_config.get("max_profile_facts_in_context", 10)
     try:
@@ -707,6 +715,10 @@ async def build_memory_context(
                 fact_lines = [f"[{labels['master_facts']}]"]
                 for fact in facts:
                     fact_lines.append(f"- [{fact.category}] : {fact.content}")
+                    state = getattr(fact, "state", "active")
+                    effective_at = getattr(fact, "effective_at", "")
+                    if state != "active" or effective_at:
+                        fact_lines.append(f"  state: {state}; effective_at: {effective_at}")
                 context_parts.append("\n".join(fact_lines))
                 print(f"[LLM] facts 포함: {len(facts)}개 항목")
 
@@ -804,11 +816,22 @@ async def build_memory_context(
         max_value=12,
     )
 
-    important_memories = memory_manager.get_important()
+    included_memory_ids = set()
+
+    def unique_summaries(memories):
+        selected = []
+        for memory in memories:
+            memory_id = getattr(memory, "id", None) or id(memory)
+            if memory_id not in included_memory_ids:
+                included_memory_ids.add(memory_id)
+                selected.append(memory)
+        return selected
+
+    important_memories = unique_summaries(memory_manager.get_important()[:max_important])
     if important_memories:
         print(f"[LLM] 중요 기억 {len(important_memories)}개 발견")
         context_parts.append(f"\n[{labels['important']}]")
-        for memory in important_memories[:max_important]:
+        for memory in important_memories:
             context_parts.append(f"- {memory.summary}")
             print("[LLM] important_memory_selected")
     else:
@@ -844,8 +867,10 @@ async def build_memory_context(
         if similar_memories:
             related_memories_reported = True
             print(f"[LLM] 유사 기억 {len(similar_memories)}개 발견")
-            context_parts.append(f"\n[{labels['related']}]")
-            for memory, _similarity in similar_memories:
+            related_summaries = unique_summaries(memory for memory, _similarity in similar_memories)
+            if related_summaries:
+                context_parts.append(f"\n[{labels['related']}]")
+            for memory in related_summaries:
                 context_parts.append(f"- {memory.summary}")
                 print("[LLM] similar_memory_selected")
         else:
@@ -868,14 +893,16 @@ async def build_memory_context(
     if not related_memories_reported:
         if similar_memories:
             print(f"[LLM] 유사 기억 {len(similar_memories)}개 발견")
-            context_parts.append(f"\n[{labels['related']}]")
-            for memory, _similarity in similar_memories:
+            related_summaries = unique_summaries(memory for memory, _similarity in similar_memories)
+            if related_summaries:
+                context_parts.append(f"\n[{labels['related']}]")
+            for memory in related_summaries:
                 context_parts.append(f"- {memory.summary}")
                 print("[LLM] similar_memory_selected")
         else:
             print("[LLM] 유사 기억 없음")
 
-    if max_raw_chunks > 0 and similar_memories and hasattr(memory_manager, "find_relevant_raw_chunks"):
+    if max_raw_chunks > 0 and hasattr(memory_manager, "find_relevant_raw_chunks"):
         try:
             raw_chunks = await memory_manager.find_relevant_raw_chunks(
                 normalized_query,
@@ -888,8 +915,11 @@ async def build_memory_context(
                 print(f"[LLM] raw chunk {len(raw_chunks)}개 선택")
                 context_parts.append(f"\n[{labels['raw_chunks']}]")
                 for index, (chunk, _score, _score_meta) in enumerate(raw_chunks, start=1):
+                    chunk_messages = getattr(chunk, "messages", []) or []
+                    chunk_time = getattr(chunk_messages[0], "timestamp", "") if chunk_messages else ""
                     context_parts.append(
-                        f"- {labels['chunk']} {index} (turn {chunk.start_turn_index}-{chunk.end_turn_index})"
+                        f"- {labels['chunk']} {index} (turn {chunk.start_turn_index}-{chunk.end_turn_index}) "
+                        f"[source: {getattr(chunk, 'memory_id', '')}; time: {chunk_time}]"
                     )
                     for line in str(chunk.text or "").splitlines():
                         context_parts.append(f"  {line}")
@@ -900,7 +930,7 @@ async def build_memory_context(
         except Exception as e:
             print(f"[LLM] raw_chunk_search category=raw_chunk_error exception_class={type(e).__name__}")
 
-    recent_memories = memory_manager.get_recent(count=max_recent)
+    recent_memories = unique_summaries(memory_manager.get_recent(count=max_recent))
     if recent_memories:
         print(f"[LLM] 최근 기억 {len(recent_memories)}개 사용")
         context_parts.append(f"[{labels['recent']}]")
@@ -959,7 +989,7 @@ async def build_memory_context(
         context_parts.append(f"- {labels['head_pat_before']}: {head_pat_count}{labels['times']}")
 
     if context_parts:
-        result = "\n".join(context_parts)
+        result = "\n".join([memory_rules, *context_parts])
         print(f"[LLM] 총 메모리 컨텍스트: {len(result)}자")
         return result
 
