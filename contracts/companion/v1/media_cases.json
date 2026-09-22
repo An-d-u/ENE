@@ -1897,6 +1897,366 @@
         "played_frames": 1000,
         "mouth_open": 0.4
       }
+    },
+    {
+      "name": "audio_status_auto_상세",
+      "message": {
+        "type": "audio_status",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "mode": "auto",
+        "reason": "prepare_timeout",
+        "preference": "auto",
+        "output": "none",
+        "state": "stopped"
+      },
+      "expected": {
+        "type": "audio_status",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "mode": "auto",
+        "reason": "prepare_timeout",
+        "preference": "auto",
+        "output": "none",
+        "state": "stopped"
+      }
+    },
+    {
+      "name": "audio_status_pc_상세",
+      "message": {
+        "type": "audio_status",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "mode": "auto",
+        "reason": "prepare_timeout",
+        "preference": "pc",
+        "output": "none",
+        "state": "stopped"
+      },
+      "expected": {
+        "type": "audio_status",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "mode": "auto",
+        "reason": "prepare_timeout",
+        "preference": "pc",
+        "output": "none",
+        "state": "stopped"
+      }
+    },
+    {
+      "name": "audio_status_phone_상세",
+      "message": {
+        "type": "audio_status",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "mode": "auto",
+        "reason": "prepare_timeout",
+        "preference": "phone",
+        "output": "none",
+        "state": "stopped"
+      },
+      "expected": {
+        "type": "audio_status",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "mode": "auto",
+        "reason": "prepare_timeout",
+        "preference": "phone",
+        "output": "none",
+        "state": "stopped"
+      }
+    },
+    {
+      "name": "audio_status_preference_부분",
+      "message": {
+        "type": "audio_status",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "mode": "auto",
+        "reason": "ready",
+        "preference": "phone"
+      },
+      "expected": {
+        "type": "audio_status",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "mode": "auto",
+        "reason": "ready",
+        "preference": "phone"
+      }
+    },
+    {
+      "name": "audio_status_preference_오류_0",
+      "message": {
+        "type": "audio_status",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "mode": "auto",
+        "reason": "ready",
+        "preference": null
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_status_preference_오류_1",
+      "message": {
+        "type": "audio_status",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "mode": "auto",
+        "reason": "ready",
+        "preference": true
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_status_preference_오류_2",
+      "message": {
+        "type": "audio_status",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "mode": "auto",
+        "reason": "ready",
+        "preference": []
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_status_preference_오류_3",
+      "message": {
+        "type": "audio_status",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "mode": "auto",
+        "reason": "ready",
+        "preference": 23
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_status_preference_오류_4",
+      "message": {
+        "type": "audio_status",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "mode": "auto",
+        "reason": "ready",
+        "preference": "unknown"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_status_output_부분",
+      "message": {
+        "type": "audio_status",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "mode": "auto",
+        "reason": "ready",
+        "output": "phone"
+      },
+      "expected": {
+        "type": "audio_status",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "mode": "auto",
+        "reason": "ready",
+        "output": "phone"
+      }
+    },
+    {
+      "name": "audio_status_output_오류_0",
+      "message": {
+        "type": "audio_status",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "mode": "auto",
+        "reason": "ready",
+        "output": null
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_status_output_오류_1",
+      "message": {
+        "type": "audio_status",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "mode": "auto",
+        "reason": "ready",
+        "output": true
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_status_output_오류_2",
+      "message": {
+        "type": "audio_status",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "mode": "auto",
+        "reason": "ready",
+        "output": []
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_status_output_오류_3",
+      "message": {
+        "type": "audio_status",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "mode": "auto",
+        "reason": "ready",
+        "output": 23
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_status_output_오류_4",
+      "message": {
+        "type": "audio_status",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "mode": "auto",
+        "reason": "ready",
+        "output": "unknown"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_status_state_부분",
+      "message": {
+        "type": "audio_status",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "mode": "auto",
+        "reason": "ready",
+        "state": "playing"
+      },
+      "expected": {
+        "type": "audio_status",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "mode": "auto",
+        "reason": "ready",
+        "state": "playing"
+      }
+    },
+    {
+      "name": "audio_status_state_오류_0",
+      "message": {
+        "type": "audio_status",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "mode": "auto",
+        "reason": "ready",
+        "state": null
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_status_state_오류_1",
+      "message": {
+        "type": "audio_status",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "mode": "auto",
+        "reason": "ready",
+        "state": true
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_status_state_오류_2",
+      "message": {
+        "type": "audio_status",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "mode": "auto",
+        "reason": "ready",
+        "state": []
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_status_state_오류_3",
+      "message": {
+        "type": "audio_status",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "mode": "auto",
+        "reason": "ready",
+        "state": 23
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "audio_status_state_오류_4",
+      "message": {
+        "type": "audio_status",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "mode": "auto",
+        "reason": "ready",
+        "state": "unknown"
+      },
+      "error": "invalid_message"
     }
   ]
 }

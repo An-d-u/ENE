@@ -192,6 +192,66 @@ def test_manual_phone_browser_never_builds_or_plays_request(routed_bridge, monke
     assert bridge.life_record_state.phase == "idle"
 
 
+def test_local_diagnostics_work_without_phone_and_report_blocked_browser(routed_bridge):
+    bridge, _, _, _, _ = routed_bridge
+    bridge._companion_audio.disconnected()
+    bridge.tts_output_target = "phone"
+    bridge._companion_tts_settings_changed()
+    assert bridge.companion_audio_status()["reason"] == "phone_not_connected"
+    bridge.tts_client.uses_browser_playback = True
+    start_reply(bridge)
+    assert bridge.companion_audio_status() == {
+        "preference": "phone", "output": "none", "state": "stopped", "reason": "browser_tts"
+    }
+
+
+def test_rejection_reason_survives_unchanged_availability(routed_bridge):
+    bridge, context, jobs, transfers, _ = routed_bridge
+    bridge.tts_output_target = "phone"
+    start_reply(bridge)
+    jobs[0].ready(wav())
+    offer = next(item for item in transfers if item.kind == "offer")
+    bridge.submit_extension(context, wire(offer.ref, "audio_rejected", reason="focus_denied"))
+    before = bridge.companion_audio_status()
+    assert before["reason"] == "focus_denied" and before["state"] == "stopped"
+    availability = {key: value for key, value in offer.ref.to_fields().items()
+                    if key in {"registration_generation", "server_epoch", "connection_generation", "conversation_id"}}
+    status = bridge.submit_extension(context, decode_message(encode_message({
+        **availability, "type": "audio_availability", "protocol_version": 1, "available": True, "reason": "ready"
+    })))
+    assert bridge.companion_audio_status() == before
+    assert status.fields["reason"] == "focus_denied"
+
+
+def test_next_pc_choice_keeps_legacy_auto_until_phone_finishes(routed_bridge):
+    bridge, context, jobs, transfers, _ = routed_bridge
+    bridge.tts_output_target = "phone"
+    start_reply(bridge)
+    bridge.tts_output_target = "pc"
+    bridge._companion_tts_settings_changed()
+    assert bridge._companion_audio._refresh_status().fields["mode"] == "auto"
+    jobs[0].ready(wav())
+    offer = next(item for item in transfers if item.kind == "offer")
+    bridge.submit_extension(context, wire(offer.ref, "audio_prepared", buffered_frames=100))
+    status = bridge._companion_audio._refresh_status().fields
+    assert (status["mode"], status["preference"], status["output"]) == ("auto", "pc", "phone")
+    bridge.submit_extension(context, wire(offer.ref, "audio_finished", played_frames=100))
+    assert bridge._companion_audio._refresh_status().fields["mode"] == "pc_only"
+
+
+def test_auto_fallback_reports_original_reason_and_stale_event_is_ignored(routed_bridge):
+    from dataclasses import replace
+    bridge, context, jobs, transfers, _ = routed_bridge
+    start_reply(bridge)
+    jobs[0].ready(wav())
+    offer = next(item for item in transfers if item.kind == "offer")
+    bridge.submit_extension(context, wire(offer.ref, "audio_rejected", reason="audio_download_failed"))
+    status = bridge.companion_audio_status()
+    assert (status["output"], status["reason"]) == ("pc", "audio_download_failed")
+    bridge._companion_audio._route_status(replace(offer.ref, utterance_id=sample_id(991)), "none", "stopped", "focus_denied")
+    assert bridge.companion_audio_status() == status
+
+
 def test_actual_tts_generates_once_and_phone_completion_owns_reply_gate(routed_bridge):
     bridge, context, jobs, transfers, played = routed_bridge
     result = start_reply(bridge)

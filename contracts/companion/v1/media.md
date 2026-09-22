@@ -47,6 +47,15 @@ UUID는 기존 계약 검사기를 재사용하고 숫자는 boolean과 구분�
 
 ### 3.2 HTTPS와 캐릭터 스냅샷
 
+음성 상태의 선택 필드: `audio_status.preference=auto/pc/phone`은 저장된 다음 발화 선택,
+`output=none/pc/phone`과 `state=idle/preparing/playing/stopped`는 현재 출력 수명이다.
+각 필드는 독립적으로 생략 가능하지만 명시적 null·잘못된 타입·열거값은 거절한다.
+구형 PC의 누락 필드는 미제공으로 남기며 실제 재생을 추측하지 않는다.
+`mode`와 프로토콜 버전은 유지한다. 진행 중인 휴대폰 발화는 다음 선택이 PC여도
+`mode=auto`를 유지하고, 발화가 끝난 뒤 새 선택의 허용 모드로 바꾼다.
+수동 휴대폰에서는 준비 실패도 PC로 대체하지 않는다. 모든 선택에서 휴대폰 시작 확정 뒤 PC 재생은 금지한다.
+진단 사유는 고정 코드만 사용하며 대화·경로·토큰·예외 원문을 보내지 않는다.
+
 모든 경로는 `Authorization: Bearer ...`, `X-ENE-Connection`에 현재 연결 UUID를 요구한다. 기존 TLS 검증을 재사용하고 `Cache-Control: no-store`, 압축 없음, query/Origin/Range/redirect 거절을 적용한다. 인증 401, 구연결/없는 자산 404, 정책 위반 400, 제한 429, 취소된 음성 410을 사용하고 고정 코드만 반환한다.
 
 - `GET /companion/v1/audio/{utterance_id}`: `Content-Type: application/octet-stream`, `X-ENE-Audio-Format: pcm_s16le`, `X-ENE-Sample-Rate`, `X-ENE-Channels`. 프레임 정렬된 PCM만 읽고 offer와 헤더 일치를 검사한다. HTTP 종료와 `audio_source_end.total_frames`가 모두 일치해야 정상 종료다. 동시 1개·음성 ID당 최초 소비 1회; 재접속·Range 재생 없음.

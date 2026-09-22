@@ -235,6 +235,13 @@ def normalize_extension(kind, body):
         )
     elif kind == "audio_status":
         result["mode"] = _choice(get("mode"), {"disabled", "pc_only", "auto"})
+        for key, choices in {
+            "preference": {"auto", "pc", "phone"},
+            "output": {"none", "pc", "phone"},
+            "state": {"idle", "preparing", "playing", "stopped"},
+        }.items():
+            if key in body:
+                result[key] = _choice(body[key], choices)
     elif kind == "audio_offer":
         result.update(
             sample_rate=integer_value(get("sample_rate"), 8000, 48000),

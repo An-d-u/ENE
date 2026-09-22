@@ -74,12 +74,14 @@ class AudioCoordinator:
         *,
         now_ms=None,
         playback=None,
+        status=None,
         stream_buffer_seconds=4,
     ):
         self.transport, self.pc = transport, pc_sink
         self.completed = completed
         self._now_ms = now_ms or (lambda: int(time.monotonic() * 1000))
         self._playback = playback or (lambda ref, frames, mouth: None)
+        self._status = status or (lambda ref, output, state, reason: None)
         self.context = None
         self.available = False
         self._active = None
@@ -178,6 +180,7 @@ class AudioCoordinator:
         format = entry.source.format
         entry.route.offer(now_ms=self._now_ms(), phone_eligible=True)
         entry.offered = True
+        self._report(entry, "none", "preparing", "preparing")
         message = self._message(
             entry,
             "audio_offer",
@@ -253,6 +256,7 @@ class AudioCoordinator:
             elif action == "cancel":
                 self.cancel(entry.ref, "prepare_timeout")
             elif action == "send_start":
+                self._report(entry, "phone", "preparing", "starting")
                 if entry.streaming:
                     entry.source.commit()
                 if not self._attempt(
@@ -272,6 +276,7 @@ class AudioCoordinator:
             if action == "cancel":
                 self.cancel(entry.ref, "playback_timeout")
             elif action == "playing":
+                self._report(entry, "phone", "playing", "playing")
                 self._playback(entry.ref, 0, 0.0)
         elif kind == "audio_progress":
             action = entry.route.progress(
@@ -280,6 +285,7 @@ class AudioCoordinator:
             if action == "cancel":
                 self.cancel(entry.ref, "playback_timeout")
             elif action == "ack_progress":
+                self._report(entry, "phone", "playing", "playing")
                 self._playback(entry.ref, values["played_frames"], values["mouth_open"])
                 return self._message(
                     entry, "audio_progress_ack", played_frames=values["played_frames"]
@@ -327,6 +333,7 @@ class AudioCoordinator:
             self.cancel(entry.ref, reason)
             return
         self._active = None
+        self._report(entry, "pc", "playing", reason)
         if entry.offered:
             self._attempt(
                 lambda: self.transport.send(
@@ -370,4 +377,9 @@ class AudioCoordinator:
         self._attempt(lambda: self.transport.cancel(entry.ref))
         entry.source.close()
         entry.route.finish()
+        self._report(entry, "none", "idle" if reason == "finished" else "stopped", reason)
         self.completed(entry.ref, reason)
+
+    def _report(self, entry, output, state, reason):
+        # 진단 표시가 실패해도 출력 소유권과 정리는 진행한다.
+        self._attempt(lambda: self._status(entry.ref, output, state, reason))

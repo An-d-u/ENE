@@ -79,6 +79,7 @@ class WebBridge(
     expression_changed = pyqtSignal(str)     # 표정 변경
     lip_sync_update = pyqtSignal(float)      # 립싱크 업데이트 (mouth_value)
     mouth_pose_update = pyqtSignal(str)      # 모델 적응형 입모양 JSON
+    companion_audio_status_changed = pyqtSignal(object)  # 원문 없는 출력 상태
     reroll_state_changed = pyqtSignal(bool)  # 리롤 응답 교체 모드 on/off
     summary_notice = pyqtSignal(str, str)    # (메시지, 레벨)
     summary_review_ready = pyqtSignal(str)   # 요약 검토 payload JSON

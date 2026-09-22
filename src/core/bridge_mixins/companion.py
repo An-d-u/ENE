@@ -145,6 +145,14 @@ class CompanionBridgeMixin:
         if audio is not None:
             audio.settings_changed()
 
+    def companion_audio_status(self):
+        audio = getattr(self, "_companion_audio", None)
+        if audio is None:
+            from ..companion.audio_route import normalize_output_target
+            return {"preference": normalize_output_target(getattr(self, "tts_output_target", "auto")),
+                    "output": "none", "state": "idle", "reason": "phone_not_connected"}
+        return audio.snapshot()
+
     def capture(self, registration_generation, pending=()):
         transcript = self.chat_state.public_transcript
         statuses = []

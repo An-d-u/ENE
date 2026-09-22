@@ -53,6 +53,11 @@ class CompanionAudioBridge(QObject):
         self._pc_analyzer = None
         self._wave_lips = None
         self._phone_available = False
+        self._phone_reason = "phone_not_connected"
+        self._diagnostic = None
+        self._last_snapshot = None
+        self._last_wire = None
+        self._settings_key = None
         self._pc_pending = None
         self.playback = CharacterPlayback(owner)
         self.coordinator = AudioCoordinator(
@@ -60,6 +65,7 @@ class CompanionAudioBridge(QObject):
             self,
             self._completed,
             playback=self._phone_playback,
+            status=self._route_status,
             stream_buffer_seconds=2,
         )
         self.timer = QTimer(self)
@@ -70,6 +76,8 @@ class CompanionAudioBridge(QObject):
         try:
             self.coordinator.tick()
             self.playback.tick()
+            if not self.playback.active and self.coordinator.active_ref is None and self._diagnostic and self._diagnostic["state"] == "playing":
+                self._set_status("none", "idle", "finished")
             if self.coordinator.active_ref is None and not self.playback.active:
                 self.timer.stop()
         except Exception as exc:
@@ -106,6 +114,8 @@ class CompanionAudioBridge(QObject):
             bool(completion.get("companion_file_result")),
             normalize_output_target(getattr(self.owner, "tts_output_target", "auto")),
         )
+        self._set_status("none", "preparing", "generating")
+        self._refresh_status()
 
     def _intent(self):
         active = getattr(self.owner, "_active_tts_operation", None)
@@ -133,12 +143,14 @@ class CompanionAudioBridge(QObject):
         )
         return target != "phone"
 
-    def _block_stream(self, intent):
+    def _block_stream(self, intent, reason="phone_unavailable"):
         self._stream_terminal = True
+        self._set_status("none", "stopped", reason)
         if intent is not None:
             self._stop_worker(intent)
             self._release(intent)
         self.owner._flush_pending_response_if_any()
+        self._refresh_status()
         return True
 
     def prepare_pc_stream(self):
@@ -146,6 +158,9 @@ class CompanionAudioBridge(QObject):
 
     def pc_started(self, intent=None):
         intent = intent or self._pc_pending
+        if intent is not None:
+            reason = self._diagnostic["reason"] if self._diagnostic else "manual_pc"
+            self._set_status("pc", "playing", reason)
         if intent is None or intent.pc_only or not self.owner._companion_request_is_current(intent.request_ref):
             return
         message = self.owner.chat_state.public_assistant_ids.get(intent.request_ref.key)
@@ -175,7 +190,13 @@ class CompanionAudioBridge(QObject):
                 context.connection_generation,
                 head.conversation_id,
             )
+            changed = (self.coordinator.context, self._phone_available, self._phone_reason) != (
+                extension, message.fields["available"], message.fields["reason"]
+            )
             self._phone_available = message.fields["available"]
+            self._phone_reason = message.fields["reason"]
+            if changed and self._diagnostic and self._diagnostic["state"] in {"stopped", "idle"}:
+                self._diagnostic = None
             self.coordinator.availability(
                 extension, self._phone_available and self._mode()[0] == "auto"
             )
@@ -185,42 +206,82 @@ class CompanionAudioBridge(QObject):
     def _mode(self):
         if not self.owner.enable_tts:
             return "disabled", "tts_disabled"
+        intent = self._playing[1] if self._playing else self._intent()
+        target = intent.output_target if intent else normalize_output_target(getattr(self.owner, "tts_output_target", "auto"))
         if getattr(self.owner.tts_client, "uses_browser_playback", False):
-            return "pc_only", "browser_tts"
+            return ("disabled" if target == "phone" else "pc_only"), "browser_tts"
+        if target == "pc":
+            return "pc_only", "manual_pc"
         return "auto", "ready"
 
-    def _refresh_status(self):
+    def _idle_reason(self):
+        mode, reason = self._mode()
+        if mode != "auto":
+            return reason
+        return self._phone_reason if self.coordinator.context is not None else "phone_not_connected"
+
+    def snapshot(self):
+        return {"preference": normalize_output_target(getattr(self.owner, "tts_output_target", "auto")),
+                **(self._diagnostic or {"output": "none", "state": "idle", "reason": self._idle_reason()})}
+
+    def _set_status(self, output, state, reason):
+        self._diagnostic = {"output": output, "state": state, "reason": reason}
+        self._publish_status()
+
+    def _route_status(self, ref, output, state, reason):
+        if self._playing is not None and self._playing[0] == ref:
+            self._set_status(output, state, reason)
+
+    def browser_output(self):
+        allowed = self.allows_pc()
+        self._set_status("pc" if allowed else "none", "idle" if allowed else "stopped", "browser_tts")
+        return allowed
+
+    def _publish_status(self):
+        snapshot = self.snapshot()
+        if snapshot != self._last_snapshot:
+            self._last_snapshot = dict(snapshot)
+            self.owner.companion_audio_status_changed.emit(snapshot)
         extension = self.coordinator.context
         if extension is None:
             return None
+        status = decode_message(encode_message({
+            "type": "audio_status", "protocol_version": 1,
+            "registration_generation": extension.registration_generation,
+            "server_epoch": extension.server_epoch, "connection_generation": extension.connection_generation,
+            "mode": self._mode()[0], **snapshot,
+        }))
+        adapter = getattr(self.owner, "_companion_adapter", None)
+        payload = status.to_dict()
+        if adapter is not None and payload != self._last_wire:
+            self._last_wire = payload
+            adapter.publish(payload)
+        return status
+
+    def _refresh_status(self):
+        extension = self.coordinator.context
         mode, reason = self._mode()
-        self.coordinator.availability(
-            extension, self._phone_available and mode == "auto"
-        )
-        if mode != "auto":
+        if extension is not None:
+            self.coordinator.availability(extension, self._phone_available and mode == "auto")
+        if mode == "disabled" or (mode == "pc_only" and reason == "browser_tts"):
             self.cancel("output_disabled")
-        return decode_message(
-            encode_message(
-                {
-                    "type": "audio_status",
-                    "protocol_version": 1,
-                    "registration_generation": extension.registration_generation,
-                    "server_epoch": extension.server_epoch,
-                    "connection_generation": extension.connection_generation,
-                    "mode": mode,
-                    "reason": reason,
-                }
-            )
-        )
+        return self._publish_status()
 
     def settings_changed(self):
-        status = self._refresh_status()
-        adapter = getattr(self.owner, "_companion_adapter", None)
-        if status is not None and adapter is not None:
-            adapter.publish(status.to_dict())
+        key = (normalize_output_target(getattr(self.owner, "tts_output_target", "auto")),
+               self.owner.enable_tts, bool(getattr(self.owner.tts_client, "uses_browser_playback", False)))
+        if key != self._settings_key and (not self._diagnostic or self._diagnostic["state"] in {"idle", "stopped"}):
+            self._diagnostic = None
+        self._settings_key = key
+        self._refresh_status()
 
     def wave_candidate(self, raw):
         intent = self._intent()
+        reason = self._ineligible_reason(intent)
+        if reason is not None:
+            if intent is not None:
+                self._set_status("none", "stopped" if not self.allows_pc(intent) else "preparing", reason)
+            return None
         if (
             intent is None
             or intent.pc_only
@@ -233,9 +294,27 @@ class CompanionAudioBridge(QObject):
         try:
             source = WavSource(raw)
         except AudioBufferError:
+            self._set_status("none", "stopped" if not self.allows_pc(intent) else "preparing", "unsupported_format")
             return None
         self._held = intent
         return _WaveCandidate(intent, self.coordinator.context, source)
+
+    def _ineligible_reason(self, intent):
+        if intent is None:
+            return "stale_operation"
+        if intent.output_target == "pc":
+            return "manual_pc"
+        if intent.pc_only:
+            return "private_result"
+        if not self.owner.enable_tts:
+            return "tts_disabled"
+        if self.owner._tts_interrupted_for_ptt:
+            return "interrupted"
+        if self.coordinator.context is None:
+            return "phone_not_connected"
+        if not self.coordinator.available:
+            return self._phone_reason if self._phone_reason != "ready" else "phone_unavailable"
+        return None
 
     def holds_completion(self, payload):
         return (
@@ -280,6 +359,7 @@ class CompanionAudioBridge(QObject):
             self._playing = None
             self.owner.lip_sync_data, self._wave_lips = self._wave_lips, None
         candidate.source.close()
+        self._set_status("none", "stopped" if not self.allows_pc(candidate.intent) else "preparing", "phone_unavailable")
         self._release(candidate.intent)
         return False
 
@@ -297,21 +377,19 @@ class CompanionAudioBridge(QObject):
         if self._stream_claim is not None or self._pending_stream is not None or self._stream_terminal:
             return True
         intent = self._intent()
-        if intent is not None and intent.output_target == "pc":
+        reason = self._ineligible_reason(intent)
+        if reason is not None:
+            if not self.allows_pc(intent):
+                return self._block_stream(intent, reason)
+            self._set_status("none", "preparing", reason)
             return False
-        if (
-            intent is None
-            or intent.pc_only
-            or not self.owner.enable_tts
-            or self.owner._tts_interrupted_for_ptt
-        ):
-            return False if self.allows_pc(intent) else self._block_stream(intent)
-        if self.coordinator.context is None or not self.coordinator.available:
-            return False if self.allows_pc(intent) else self._block_stream(intent)
         try:
             format = PcmFormat(sample_rate, channels, sample_width)
         except AudioBufferError:
-            return False if self.allows_pc(intent) else self._block_stream(intent)
+            if not self.allows_pc(intent):
+                return self._block_stream(intent, "unsupported_format")
+            self._set_status("none", "preparing", "unsupported_format")
+            return False
         self._held = intent
         self._pending_stream = _StreamCandidate(intent, self.coordinator.context, format)
         return True
@@ -360,6 +438,7 @@ class CompanionAudioBridge(QObject):
             candidate, self._pending_stream = self._pending_stream, None
             self._stream_terminal = True
             self._release(candidate.intent)
+            self._set_status("none", "stopped", "empty_audio")
             return True
         if self._stream_claim is None:
             return False
@@ -429,6 +508,7 @@ class CompanionAudioBridge(QObject):
             elif reason != "finished":
                 self._stop_worker(playing[1])
         self._release(playing[1])
+        self._refresh_status()
 
     def _stop_worker(self, intent):
         active = getattr(self.owner, "_active_tts_operation", None)
@@ -442,10 +522,14 @@ class CompanionAudioBridge(QObject):
         self._phone_available = False
         self.coordinator.disconnected()
         self.coordinator.context = None
+        self._last_wire = None
+        self._phone_reason = "phone_not_connected"
         self.playback.finish()
         self.timer.stop()
+        self._set_status("none", "stopped", "connection_closed")
 
     def cancel(self, reason, *, release=True):
+        had_audio = self._held is not None or self._playing is not None or self.playback.active
         self._release_allowed = release
         try:
             if self._pending_stream is not None:
@@ -461,3 +545,5 @@ class CompanionAudioBridge(QObject):
             self._pc_pending = None
             self.playback.finish()
             self.timer.stop()
+            if had_audio:
+                self._set_status("none", "stopped", reason)

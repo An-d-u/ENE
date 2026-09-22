@@ -275,7 +275,7 @@ class TTSBridgeMixin:
         self._tts_interrupted_for_ptt = False
         if getattr(self.tts_client, "uses_browser_playback", False):
             audio_bridge = getattr(self, "_companion_audio", None)
-            allow_pc = audio_bridge is None or audio_bridge.allows_pc()
+            allow_pc = audio_bridge is None or audio_bridge.browser_output()
             self._flush_pending_response_if_any()
             if allow_pc:
                 self._play_browser_tts(text)
