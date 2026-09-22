@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from PyQt6.QtCore import QObject, QTimer
 
-from .audio_buffer import AudioBufferError, PcmFormat, WavSource
+from .audio_buffer import AudioBufferError, MAX_CHUNK, PcmFormat, WavSource
 from .audio_coordinator import AudioCoordinator, AudioRef, CallbackAudioTransport
 from .character_playback import CharacterPlayback
 from .extension_protocol import ExtensionContext
@@ -29,6 +29,13 @@ class _WaveCandidate:
     source: WavSource
 
 
+@dataclass(frozen=True)
+class _StreamCandidate:
+    intent: _Intent
+    context: ExtensionContext
+    format: PcmFormat
+
+
 class CompanionAudioBridge(QObject):
     capabilities = ("audio_pcm_v1",)
 
@@ -38,6 +45,8 @@ class CompanionAudioBridge(QObject):
         self._held = self._playing = None
         self._release_allowed = True
         self._stream_claim = None
+        self._pending_stream = None
+        self._stream_terminal = False
         self._pc_bypass = False
         self._pc_analyzer = None
         self._wave_lips = None
@@ -74,6 +83,8 @@ class CompanionAudioBridge(QObject):
         self.playback.finish()
         self._pc_pending = None
         self._stream_claim = None
+        self._pending_stream = None
+        self._stream_terminal = False
         self._pc_analyzer = None
         bounded = getattr(worker, "enable_bounded_delivery", None)
         if callable(bounded):
@@ -262,7 +273,7 @@ class CompanionAudioBridge(QObject):
     def stream_format(self, sample_rate, channels, sample_width):
         if self._pc_bypass:
             return False
-        if self._stream_claim is not None:
+        if self._stream_claim is not None or self._pending_stream is not None or self._stream_terminal:
             return True
         intent = self._intent()
         if (
@@ -272,28 +283,58 @@ class CompanionAudioBridge(QObject):
             or self.owner._tts_interrupted_for_ptt
         ):
             return False
-        ref = self._reference(intent, self.coordinator.context)
-        if ref is None or not self.coordinator.eligible(ref):
+        if self.coordinator.context is None or not self.coordinator.available:
             return False
         try:
             format = PcmFormat(sample_rate, channels, sample_width)
         except AudioBufferError:
             return False
-        if not self.coordinator.begin_stream(ref, format):
-            return False
         self._held = intent
-        self._playing = self._stream_claim = (ref, intent)
-        self.timer.start()
+        self._pending_stream = _StreamCandidate(intent, self.coordinator.context, format)
         return True
 
     def stream_chunk(self, data):
-        if self._pc_bypass or self._stream_claim is None:
+        if self._pc_bypass:
+            return False
+        if self._stream_terminal:
+            return True
+        candidate = self._pending_stream
+        if candidate is not None:
+            if not data:
+                return True
+            if self._intent() is not candidate.intent or self.owner._tts_interrupted_for_ptt:
+                self.cancel("stale_operation")
+                return True
+            if type(data) is not bytes or len(data) > MAX_CHUNK or len(data) % candidate.format.frame_bytes:
+                self.cancel("invalid_pcm")
+                self.owner._flush_pending_response_if_any()
+                return True
+            # 공개 처리 중 완료가 먼저 풀리지 않도록 형식 수신 때 확보한 소유권을 유지한다.
+            self.owner._flush_pending_response_if_any()
+            self._pending_stream = None
+            ref = self._reference(candidate.intent, candidate.context)
+            if ref is None or not self.coordinator.begin_stream(ref, candidate.format):
+                self.start(candidate.format)
+                self._release(candidate.intent)
+                return False
+            self._playing = self._stream_claim = (ref, candidate.intent)
+            self.timer.start()
+        if self._stream_claim is None:
             return False
         self.coordinator.offer_pcm(self._stream_claim[0], data)
         return True
 
     def stream_finished(self):
-        if self._pc_bypass or self._stream_claim is None:
+        if self._pc_bypass:
+            return False
+        if self._stream_terminal:
+            return True
+        if self._pending_stream is not None:
+            candidate, self._pending_stream = self._pending_stream, None
+            self._stream_terminal = True
+            self._release(candidate.intent)
+            return True
+        if self._stream_claim is None:
             return False
         self.coordinator.source_end(self._stream_claim[0])
         return True
@@ -359,16 +400,16 @@ class CompanionAudioBridge(QObject):
             if reason == "pc_fallback":
                 self._stream_claim = None
             elif reason != "finished":
-                active = getattr(self.owner, "_active_tts_operation", None)
-                if (
-                    isinstance(active, tuple)
-                    and getattr(active[1], "companion_audio_intent", None) is playing[1]
-                ):
-                    try:
-                        active[1].request_stop()
-                    except Exception:
-                        pass
+                self._stop_worker(playing[1])
         self._release(playing[1])
+
+    def _stop_worker(self, intent):
+        active = getattr(self.owner, "_active_tts_operation", None)
+        if isinstance(active, tuple) and getattr(active[1], "companion_audio_intent", None) is intent:
+            try:
+                active[1].request_stop()
+            except Exception:
+                pass
 
     def disconnected(self):
         self._phone_available = False
@@ -380,6 +421,10 @@ class CompanionAudioBridge(QObject):
     def cancel(self, reason, *, release=True):
         self._release_allowed = release
         try:
+            if self._pending_stream is not None:
+                self._stop_worker(self._pending_stream.intent)
+                self._pending_stream = None
+                self._stream_terminal = True
             if self.coordinator.active_ref is not None:
                 self.coordinator.cancel(self.coordinator.active_ref, reason)
             elif self._held is not None:

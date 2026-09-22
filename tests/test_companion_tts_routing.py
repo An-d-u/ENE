@@ -174,13 +174,81 @@ def stream_reply(routed_bridge, *, published):
     return result
 
 
-def test_hidden_stream_stays_pc_even_after_message_becomes_public(routed_bridge):
+def test_pending_stream_publishes_before_offer_and_waits_for_phone(routed_bridge, monkeypatch):
+    bridge, context, jobs, transfers, played = routed_bridge
+    events = []
+    bridge.companion_event.connect(lambda event: events.append("message"))
+    original_publish = bridge._companion_adapter.publish_audio
+    monkeypatch.setattr(bridge._companion_adapter, "publish_audio", lambda command: (
+        events.append(command.kind), original_publish(command)
+    )[1])
+    result = stream_reply(routed_bridge, published=False)
+    assert played == [] and transfers == []
+    assert result.request_ref.key not in bridge.chat_state.public_assistant_ids
+    events.clear()
+    jobs[0].stream_chunk_ready.emit(b"\0\0" * 2400, [])
+    offer = next(item for item in transfers if item.kind == "offer")
+    assert events.index("message") < events.index("offer")
+    assert offer.ref.message_id == bridge.chat_state.public_assistant_ids[result.request_ref.key]
+    assert offer.source.total_frames == 2400
+    assert bridge.life_record_state.phase == "normal_reply"
+    bridge.submit_extension(context, wire(offer.ref, "audio_prepared", buffered_frames=2400))
+    jobs[0].stream_finished.emit()
+    assert bridge.life_record_state.phase == "normal_reply" and played == []
+    bridge.submit_extension(context, wire(offer.ref, "audio_finished", played_frames=2400))
+    assert bridge.life_record_state.phase == "idle" and played == []
+
+
+def test_format_without_pcm_finishes_text_without_starting_audio(routed_bridge):
     bridge, _, jobs, transfers, played = routed_bridge
     stream_reply(routed_bridge, published=False)
+    jobs[0].stream_chunk_ready.emit(b"", [])
+    jobs[0].stream_finished.emit()
+    assert played == [] and transfers == []
+    assert bridge.life_record_state.phase == "idle"
+    assert len(bridge.chat_state.public_transcript.capture().messages) == 2
+
+
+def test_cancel_before_first_pcm_drops_late_data(routed_bridge):
+    bridge, _, jobs, transfers, played = routed_bridge
+    stream_reply(routed_bridge, published=False)
+    bridge.interrupt_tts_for_ptt()
     jobs[0].stream_chunk_ready.emit(b"\0\0" * 2400, [])
     jobs[0].stream_finished.emit()
-    assert played[0][0] == "format" and played[-1] == "end"
-    assert not any(item.kind == "offer" for item in transfers)
+    assert played == [] and transfers == []
+    assert bridge.life_record_state.phase == "idle"
+
+
+def test_invalid_first_pcm_does_not_start_either_sink(routed_bridge):
+    bridge, _, jobs, transfers, played = routed_bridge
+    stream_reply(routed_bridge, published=False)
+    jobs[0].stream_chunk_ready.emit(b"\0", [])
+    assert not jobs[0].isRunning()
+    jobs[0].stream_finished.emit()
+    assert played == [] and transfers == []
+    assert bridge.life_record_state.phase == "idle"
+
+
+def test_pending_stream_disconnect_uses_same_pcm_on_pc(routed_bridge):
+    bridge, _, jobs, transfers, played = routed_bridge
+    stream_reply(routed_bridge, published=False)
+    bridge._companion_audio.disconnected()
+    pcm = b"\0\0" * 2400
+    jobs[0].stream_chunk_ready.emit(pcm, [])
+    jobs[0].stream_finished.emit()
+    assert [item for item in played if isinstance(item, bytes)] == [pcm]
+    assert sum(isinstance(item, tuple) for item in played) == 1
+    assert played[-1] == "end" and transfers == []
+    assert bridge.life_record_state.phase == "idle"
+
+
+def test_pending_stream_generation_failure_releases_without_audio(routed_bridge):
+    bridge, _, jobs, transfers, played = routed_bridge
+    stream_reply(routed_bridge, published=False)
+    jobs[0].error_occurred.emit("synthetic_failure")
+    jobs[0].stream_chunk_ready.emit(b"\0\0" * 2400, [])
+    jobs[0].stream_finished.emit()
+    assert played == [] and transfers == []
     assert bridge.life_record_state.phase == "idle"
 
 
