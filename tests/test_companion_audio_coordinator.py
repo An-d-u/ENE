@@ -121,6 +121,18 @@ def test_invalid_pcm_before_commit_is_not_replayed_on_pc(setup):
     assert completed == [(ref, "invalid_pcm")]
 
 
+def test_fallback_status_is_sent_after_phone_cancel(setup):
+    coordinator, ref, transport, _, _, _ = setup
+    coordinator._status = lambda ref, output, state, reason: transport.events.append({
+        "type": "audio_status", "output": output, "state": state, "reason": reason})
+    coordinator.begin_wave(ref, WavSource(wav()))
+    coordinator.receive(command(ref, "audio_rejected", reason="focus_denied"))
+    types = [item["type"] for item in transport.events]
+    assert max(i for i, kind in enumerate(types) if kind == "audio_cancel") < max(
+        i for i, kind in enumerate(types) if kind == "audio_status")
+    assert transport.events[-1]["reason"] == "focus_denied"
+
+
 def test_complete_ten_second_wave_is_not_pushed_into_four_second_queue(setup):
     coordinator, ref, transport, sink, completed, _ = setup
     raw = wav(b"\x00\x00" * 24000 * 10)

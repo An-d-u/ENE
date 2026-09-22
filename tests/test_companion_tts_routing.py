@@ -205,6 +205,64 @@ def test_local_diagnostics_work_without_phone_and_report_blocked_browser(routed_
     }
 
 
+def test_connection_without_audio_capability_has_local_reason_only(routed_bridge, monkeypatch):
+    from src.core.companion.adapter import AdapterCommand
+    bridge, context, _, _, _ = routed_bridge
+    audio = bridge._companion_audio
+    audio.disconnected()
+    published = []
+    monkeypatch.setattr(bridge._companion_adapter, "publish", published.append)
+    message = decode_message(encode_message({"type": "hello", "protocol_version": 1, "capabilities": []}))
+    bridge._companion_adapter._execute(AdapterCommand(sample_id(811), "connect", context, float("inf"), message))
+    assert bridge.companion_audio_status()["reason"] == "audio_not_negotiated"
+    assert audio.coordinator.context is None
+    assert published == []
+
+
+def test_generation_error_before_format_or_wave_does_not_leave_preparing(routed_bridge):
+    bridge, _, jobs, _, played = routed_bridge
+    start_reply(bridge)
+    assert bridge.companion_audio_status()["state"] == "preparing"
+    jobs[0].error_occurred.emit("synthetic_failure")
+    assert bridge.companion_audio_status()["state"] == "stopped"
+    assert bridge.companion_audio_status()["reason"] == "tts_failed"
+    assert bridge.life_record_state.phase == "idle" and played == []
+
+
+def test_disable_during_generation_blocks_late_wave_and_stream(routed_bridge):
+    bridge, _, jobs, transfers, played = routed_bridge
+    start_reply(bridge)
+    bridge.enable_tts = False
+    bridge._companion_tts_settings_changed()
+    jobs[0].ready(wav())
+    assert played == [] and not any(item.kind == "offer" for item in transfers)
+    assert bridge.life_record_state.phase == "idle"
+
+
+@pytest.mark.parametrize("initial,next_target", [("auto", "pc"), ("phone", "pc"), ("pc", "phone")])
+def test_stream_format_captures_output_before_preference_change(routed_bridge, initial, next_target):
+    bridge, context, jobs, transfers, played = routed_bridge
+    bridge.tts_output_target = initial
+    stream_reply(routed_bridge, published=False)
+    bridge.tts_output_target = next_target
+    bridge._companion_tts_settings_changed()
+    pcm = b"\0\0" * 2400
+    jobs[0].stream_chunk_ready.emit(pcm, [])
+    offers = [item for item in transfers if item.kind == "offer"]
+    if initial != "pc":
+        assert len(offers) == 1 and played == []
+        bridge.submit_extension(context, wire(offers[0].ref, "audio_prepared", buffered_frames=2400))
+    else:
+        assert offers == []
+    jobs[0].stream_finished.emit()
+    if initial != "pc":
+        bridge.submit_extension(context, wire(offers[0].ref, "audio_finished", played_frames=2400))
+        assert played == []
+    else:
+        assert [item for item in played if isinstance(item, bytes)] == [pcm]
+    assert bridge.life_record_state.phase == "idle"
+
+
 def test_rejection_reason_survives_unchanged_availability(routed_bridge):
     bridge, context, jobs, transfers, _ = routed_bridge
     bridge.tts_output_target = "phone"

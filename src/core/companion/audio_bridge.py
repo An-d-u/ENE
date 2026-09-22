@@ -49,6 +49,7 @@ class CompanionAudioBridge(QObject):
         self._stream_claim = None
         self._pending_stream = None
         self._stream_terminal = False
+        self._cancelled_intent = None
         self._pc_bypass = False
         self._pc_analyzer = None
         self._wave_lips = None
@@ -95,6 +96,7 @@ class CompanionAudioBridge(QObject):
         self._stream_claim = None
         self._pending_stream = None
         self._stream_terminal = False
+        self._cancelled_intent = None
         self._pc_analyzer = None
         bounded = getattr(worker, "enable_bounded_delivery", None)
         if callable(bounded):
@@ -138,6 +140,8 @@ class CompanionAudioBridge(QObject):
         return self._playing[1] if self._pc_bypass and self._playing else self._intent()
 
     def allows_pc(self, intent=None):
+        if intent is not None and intent is self._cancelled_intent:
+            return False
         target = intent.output_target if intent else normalize_output_target(
             getattr(self.owner, "tts_output_target", "auto")
         )
@@ -203,6 +207,16 @@ class CompanionAudioBridge(QObject):
             return self._refresh_status()
         return self.coordinator.receive(message)
 
+    def connected(self, context, head, capabilities):
+        self._phone_available = False
+        supported = "audio_pcm_v1" in capabilities
+        self._phone_reason = "phone_unavailable" if supported else "audio_not_negotiated"
+        self._diagnostic = None
+        self._last_wire = None
+        self.coordinator.availability(ExtensionContext(context.registration_generation, head.server_epoch,
+            context.connection_generation, head.conversation_id) if supported else None, False)
+        self._publish_status()
+
     def _mode(self):
         if not self.owner.enable_tts:
             return "disabled", "tts_disabled"
@@ -218,7 +232,7 @@ class CompanionAudioBridge(QObject):
         mode, reason = self._mode()
         if mode != "auto":
             return reason
-        return self._phone_reason if self.coordinator.context is not None else "phone_not_connected"
+        return self._phone_reason
 
     def snapshot(self):
         return {"preference": normalize_output_target(getattr(self.owner, "tts_output_target", "auto")),
@@ -277,6 +291,8 @@ class CompanionAudioBridge(QObject):
 
     def wave_candidate(self, raw):
         intent = self._intent()
+        if intent is not None and intent is self._cancelled_intent:
+            return None
         reason = self._ineligible_reason(intent)
         if reason is not None:
             if intent is not None:
@@ -311,7 +327,7 @@ class CompanionAudioBridge(QObject):
         if self.owner._tts_interrupted_for_ptt:
             return "interrupted"
         if self.coordinator.context is None:
-            return "phone_not_connected"
+            return self._phone_reason
         if not self.coordinator.available:
             return self._phone_reason if self._phone_reason != "ready" else "phone_unavailable"
         return None
@@ -529,7 +545,12 @@ class CompanionAudioBridge(QObject):
         self._set_status("none", "stopped", "connection_closed")
 
     def cancel(self, reason, *, release=True):
-        had_audio = self._held is not None or self._playing is not None or self.playback.active
+        intent = self._intent()
+        had_audio = intent is not None or self._held is not None or self._playing is not None or self.playback.active
+        if intent is not None:
+            self._cancelled_intent = intent
+            self._stream_terminal = True
+            self._stop_worker(intent)
         self._release_allowed = release
         try:
             if self._pending_stream is not None:

@@ -858,6 +858,15 @@ class ENEApplication(QObject):
             sort_keys=True,
         )
 
+        if "tts_output_target" in new_settings:
+            from .companion.audio_route import normalize_output_target
+            target = normalize_output_target(new_settings["tts_output_target"])
+            commit_target = getattr(self.settings, "commit_tts_output_target", None)
+            if callable(commit_target) and target != self.settings.get("tts_output_target", "auto"):
+                try:
+                    commit_target(target)
+                except Exception:
+                    return {"status": "rejected", "reason": "storage_failed"}
         self.overlay_window.apply_new_settings(new_settings)
         if hasattr(self.overlay_window, "bridge") and self.overlay_window.bridge:
             refresh_proactive_settings = getattr(self.overlay_window.bridge, "refresh_proactive_settings", None)

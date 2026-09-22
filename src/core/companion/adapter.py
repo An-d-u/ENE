@@ -317,6 +317,9 @@ class QtGatewayAdapter(QObject):
                 raise AdapterError("stale_connection")
             result = self._owner.head()
             self._connection = context.connection_generation
+            audio = getattr(self._owner, "_companion_audio", None)
+            if audio is not None and isinstance(command.message, WireMessage) and command.message.type == "hello":
+                audio.connected(context, result, command.message.fields["capabilities"])
             return result
         if (
             self._connection is None

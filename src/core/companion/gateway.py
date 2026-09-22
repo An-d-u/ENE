@@ -312,7 +312,12 @@ class CompanionGateway:
                 if old is not None:
                     old.stop("connection_replaced")
                     await old.finished.wait()
-                head = await self.adapter.call("connect", context)
+                negotiated = negotiate(hello.fields["capabilities"], self.capabilities)
+                # PC 진단에는 클라이언트 주장 대신 서버와 실제 합의한 능력만 넘긴다.
+                negotiated_hello = decode_message(encode_message({
+                    "type": "hello", "protocol_version": 1, "capabilities": list(negotiated),
+                }))
+                head = await self.adapter.call("connect", context, message=negotiated_hello)
                 ready = {
                     "type": "ready",
                     "protocol_version": 1,
@@ -320,9 +325,7 @@ class CompanionGateway:
                     "server_epoch": head.server_epoch,
                     "conversation_id": head.conversation_id,
                     "registration_generation": registration.registration_generation,
-                    "capabilities": list(
-                        negotiate(hello.fields["capabilities"], self.capabilities)
-                    ),
+                    "capabilities": list(negotiated),
                 }
                 session = CompanionSession(
                     ws,

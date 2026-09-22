@@ -1,4 +1,6 @@
 {
+  "settings.tts.output.reason.audio_focus_lost": "Phone audio focus was lost",
+  "settings.tts.output.reason.audio_route_changed": "Stopped after phone audio device changed",
   "settings.tts.output.target.label": "Playback device:",
   "settings.tts.output.target.auto": "Automatic",
   "settings.tts.output.target.pc": "PC",

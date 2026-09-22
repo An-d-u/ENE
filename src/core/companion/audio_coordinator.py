@@ -333,7 +333,6 @@ class AudioCoordinator:
             self.cancel(entry.ref, reason)
             return
         self._active = None
-        self._report(entry, "pc", "playing", reason)
         if entry.offered:
             self._attempt(
                 lambda: self.transport.send(
@@ -341,6 +340,7 @@ class AudioCoordinator:
                 )
             )
         self._attempt(lambda: self.transport.cancel(entry.ref))
+        self._report(entry, "pc", "playing", reason)
         try:
             if entry.streaming:
                 chunks = entry.source.take_for_pc()

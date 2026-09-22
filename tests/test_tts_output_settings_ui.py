@@ -79,3 +79,18 @@ def test_new_audio_labels_exist_in_all_languages():
     for language in ("en", "ja"):
         assert keys <= messages[language].keys()
         assert all(not re.search("[가-힣]", messages[language][key]) for key in keys)
+
+
+def test_failed_target_save_does_not_change_runtime_or_saved_choice(tmp_path, monkeypatch):
+    application = _load_app_class()
+    settings = Settings(config_path=str(tmp_path / "synthetic.json"), secret_path=str(tmp_path / "secrets.json"))
+    app = application.__new__(application)
+    app.settings = settings
+    applied = []
+    bridge = SimpleNamespace(tts_output_target="auto")
+    app.overlay_window = SimpleNamespace(bridge=bridge, apply_new_settings=applied.append)
+    monkeypatch.setattr("src.core.settings.save_json_data_atomic", lambda *a, **kw: (_ for _ in ()).throw(OSError("synthetic")))
+    result = application._on_settings_changed(app, {"tts_output_target": "phone"})
+    assert result["status"] == "rejected"
+    assert bridge.tts_output_target == settings.get("tts_output_target") == "auto"
+    assert applied == []

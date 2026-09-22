@@ -1,4 +1,6 @@
 {
+  "settings.tts.output.reason.audio_focus_lost": "휴대폰 오디오 포커스를 잃음",
+  "settings.tts.output.reason.audio_route_changed": "휴대폰 오디오 장치 변경으로 중단",
   "settings.tts.output.target.label": "재생 기기:",
   "settings.tts.output.target.auto": "자동",
   "settings.tts.output.target.pc": "PC",

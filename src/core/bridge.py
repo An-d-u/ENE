@@ -102,8 +102,9 @@ class WebBridge(
         self.worker = None
         self.settings = settings
         from .companion.audio_route import normalize_output_target
+        output_config = getattr(settings, "config", settings if isinstance(settings, dict) else {})
         self.tts_output_target = normalize_output_target(
-            settings.get("tts_output_target", "auto") if settings else "auto"
+            output_config.get("tts_output_target", "auto")
         )
         self.mood_manager = None
         self.goal_manager = None

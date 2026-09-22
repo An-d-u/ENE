@@ -1,4 +1,6 @@
 {
+  "settings.tts.output.reason.audio_focus_lost": "スマートフォンの音声フォーカスを失いました",
+  "settings.tts.output.reason.audio_route_changed": "スマートフォンの音声デバイス変更により停止",
   "settings.tts.output.target.label": "再生先:",
   "settings.tts.output.target.auto": "自動",
   "settings.tts.output.target.pc": "PC",

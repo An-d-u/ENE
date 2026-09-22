@@ -81,16 +81,21 @@ def test_pc_route_needs_no_audio_availability_or_audio_capability(playback):
 
 def test_unpublished_stream_starts_character_only_after_public_text(playback):
     routed, now, position, events, _ = playback
-    bridge, _, jobs, _, _ = routed
-    stream_reply(routed, published=False)
+    bridge, context, jobs, transfers, played = routed
+    result = stream_reply(routed, published=False)
     assert not events
     jobs[0].stream_chunk_ready.emit(b"\0\0" * 2400, [])
+    assert not events and not played
+    offer = next(item for item in transfers if item.kind == "offer")
+    assert offer.ref.message_id == bridge.chat_state.public_assistant_ids[result.request_ref.key]
+    bridge.submit_extension(context, wire(offer.ref, "audio_prepared", buffered_frames=2400))
+    bridge.submit_extension(context, wire(offer.ref, "audio_started", played_frames=0))
     jobs[0].stream_finished.emit()
     position[0] = 44
     now[0] = 100
     bridge._companion_audio._tick()
-    assert events[-1][1]["output"] == "pc"
-    assert events[-1][1]["played_ms"] == 44
+    assert events[-1][1]["output"] == "phone"
+    assert events[-1][1]["played_ms"] == 0
 
 
 def test_private_file_and_cancelled_reply_never_publish_playback(playback):
@@ -105,7 +110,7 @@ def test_private_file_and_cancelled_reply_never_publish_playback(playback):
 
 def test_disconnection_and_new_output_do_not_replay_old_mouth(playback):
     (bridge, _, jobs, _, _), _, _, events, mouths = playback
-    bridge._companion_audio.coordinator.available = False
+    bridge.tts_output_target = "pc"
     start_reply(bridge)
     jobs[0].ready(wav())
     assert bridge._companion_audio.playback.active
@@ -116,7 +121,7 @@ def test_disconnection_and_new_output_do_not_replay_old_mouth(playback):
 
 def test_character_publish_exception_does_not_interrupt_audio(playback, monkeypatch):
     (bridge, _, jobs, _, played), _, _, _, _ = playback
-    bridge._companion_audio.coordinator.available = False
+    bridge.tts_output_target = "pc"
     monkeypatch.setattr(bridge._companion_adapter, "publish_extension",
                         lambda *args: (_ for _ in ()).throw(RuntimeError("합성 표시 오류")))
     start_reply(bridge)
@@ -126,7 +131,7 @@ def test_character_publish_exception_does_not_interrupt_audio(playback, monkeypa
 
 def test_pc_lips_use_position_not_wall_clock_and_close_when_stalled(playback, monkeypatch):
     (bridge, _, jobs, _, _), _, position, _, mouths = playback
-    bridge._companion_audio.coordinator.available = False
+    bridge.tts_output_target = "pc"
     clock = [0.0]
     monkeypatch.setattr("src.core.bridge_mixins.tts.time.monotonic", lambda: clock[0])
     start_reply(bridge)
@@ -158,7 +163,7 @@ def test_pc_status_is_at_most_ten_per_second_and_finishes_on_player_signal(playb
             return now[0]
 
     (bridge, _, jobs, _, _), now, _, events, _ = playback
-    bridge._companion_audio.coordinator.available = False
+    bridge.tts_output_target = "pc"
     bridge.audio_player = Player()
     start_reply(bridge)
     jobs[0].ready(wav())
@@ -175,7 +180,7 @@ def test_pc_status_is_at_most_ten_per_second_and_finishes_on_player_signal(playb
 
 def test_unresponsive_pc_player_cannot_keep_character_timer_forever(playback):
     (bridge, _, jobs, _, _), now, _, events, _ = playback
-    bridge._companion_audio.coordinator.available = False
+    bridge.tts_output_target = "pc"
     start_reply(bridge)
     jobs[0].ready(wav())
     now[0] = 180751

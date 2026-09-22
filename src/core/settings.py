@@ -590,6 +590,12 @@ class Settings:
         self.config = candidate
         return True
 
+    def commit_tts_output_target(self, value):
+        """다음 발화 선택은 디스크 저장이 성공한 뒤에만 확정한다."""
+        candidate = {**self.config, "tts_output_target": normalize_output_target(value)}
+        save_json_data_atomic(self.config_path, candidate)
+        self.config = candidate
+
     def commit_character_settings(self, changes, *, model_key=None, parameters=None):
         """공유 키와 현재 모델의 값만 원자 저장한다. 비밀 저장소는 접근하지 않는다."""
         from .companion.character_controls import normalize_parameters
