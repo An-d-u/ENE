@@ -100,6 +100,10 @@ class WebBridge(
         self.knowledge_map_manager = None
         self.worker = None
         self.settings = settings
+        from .companion.audio_route import normalize_output_target
+        self.tts_output_target = normalize_output_target(
+            settings.get("tts_output_target", "auto") if settings else "auto"
+        )
         self.mood_manager = None
         self.goal_manager = None
         self.diary_service = DiaryService("diary", settings=settings)

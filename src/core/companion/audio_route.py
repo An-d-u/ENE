@@ -1,12 +1,17 @@
 """Qt 소유의 발화별 출력 결정. 반환 명령은 호출자가 한 번만 실행한다."""
 
 
+def normalize_output_target(value):
+    return value if isinstance(value, str) and value in {"auto", "pc", "phone"} else "auto"
+
+
 class AudioRoute:
     PREPARE_MS = 2000
     WATCHDOG_MS = 5000
 
-    def __init__(self):
-        self.state, self.target = "PC", "pc"
+    def __init__(self, *, allow_pc_fallback=True):
+        self.allow_pc_fallback = allow_pc_fallback
+        self.state, self.target = "PC", "pc" if allow_pc_fallback else "none"
         self.deadline_ms = None
         self._begun = self._completed = False
         self._clock = -1
@@ -25,7 +30,7 @@ class AudioRoute:
             return "ignore"
         self._begun = True
         if not phone_eligible:
-            return "play_pc"
+            return "play_pc" if self.allow_pc_fallback else self.cancel()
         self.state = "OFFERED"
         self.deadline_ms = now_ms + self.PREPARE_MS
         return "offer_phone"
@@ -33,6 +38,8 @@ class AudioRoute:
     def _fallback(self):
         if self.state != "OFFERED":
             return "ignore"
+        if not self.allow_pc_fallback:
+            return self.cancel()
         self.state, self.target = "PC", "pc"
         return "play_pc"
 

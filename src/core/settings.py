@@ -5,6 +5,7 @@ Loads and saves user settings to JSON.
 import json
 from copy import deepcopy
 from pathlib import Path
+from .companion.audio_route import normalize_output_target
 
 from .app_paths import (
     get_user_file,
@@ -184,6 +185,7 @@ class Settings:
         "tts_streaming_enabled": False,
         "tts_streaming_emit_message_on_first_chunk": True,
         "tts_output_device_id": "",
+        "tts_output_target": "auto",
         "tts_output_volume": 0.8,
         "tts_language": "ja",
         "tts_provider": "gpt_sovits_http",
@@ -347,6 +349,7 @@ class Settings:
             merged = {**self.DEFAULT_CONFIG, **loaded_config}
             if merged.get("structured_response_mode") not in {"auto", "legacy"}:
                 merged["structured_response_mode"] = "auto"
+            merged["tts_output_target"] = normalize_output_target(merged.get("tts_output_target"))
             merged["mood_personality_profile"] = _normalize_mood_profile(
                 merged.get("mood_personality_profile")
             )

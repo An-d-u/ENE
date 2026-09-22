@@ -7,6 +7,7 @@ from PyQt6.QtCore import QObject, QTimer
 
 from .audio_buffer import AudioBufferError, MAX_CHUNK, PcmFormat, WavSource
 from .audio_coordinator import AudioCoordinator, AudioRef, CallbackAudioTransport
+from .audio_route import normalize_output_target
 from .character_playback import CharacterPlayback
 from .extension_protocol import ExtensionContext
 from .protocol import decode_message, encode_message
@@ -20,6 +21,7 @@ class _Intent:
     operation_id: str
     utterance_id: str
     pc_only: bool
+    output_target: str
 
 
 @dataclass(frozen=True)
@@ -102,6 +104,7 @@ class CompanionAudioBridge(QObject):
             str(uuid4()),
             str(uuid4()),
             bool(completion.get("companion_file_result")),
+            normalize_output_target(getattr(self.owner, "tts_output_target", "auto")),
         )
 
     def _intent(self):
@@ -123,6 +126,20 @@ class CompanionAudioBridge(QObject):
     def pc_intent(self):
         """텍스트 완료가 operation을 해제하기 전에 발화 소유권을 캡처한다."""
         return self._playing[1] if self._pc_bypass and self._playing else self._intent()
+
+    def allows_pc(self, intent=None):
+        target = intent.output_target if intent else normalize_output_target(
+            getattr(self.owner, "tts_output_target", "auto")
+        )
+        return target != "phone"
+
+    def _block_stream(self, intent):
+        self._stream_terminal = True
+        if intent is not None:
+            self._stop_worker(intent)
+            self._release(intent)
+        self.owner._flush_pending_response_if_any()
+        return True
 
     def prepare_pc_stream(self):
         self._pc_pending = self.pc_intent()
@@ -207,6 +224,7 @@ class CompanionAudioBridge(QObject):
         if (
             intent is None
             or intent.pc_only
+            or intent.output_target == "pc"
             or not self.coordinator.available
             or not self.owner.enable_tts
             or self.owner._tts_interrupted_for_ptt
@@ -253,12 +271,15 @@ class CompanionAudioBridge(QObject):
             self._playing = (ref, candidate.intent)
             self._wave_lips = self.owner.lip_sync_data
             self.owner.lip_sync_data = None
-            if self.coordinator.begin_wave(ref, candidate.source):
+            if self.coordinator.begin_wave(
+                ref, candidate.source, allow_pc_fallback=self.allows_pc(candidate.intent)
+            ):
                 if self.coordinator.active_ref is not None:
                     self.timer.start()
                 return True
             self._playing = None
             self.owner.lip_sync_data, self._wave_lips = self._wave_lips, None
+        candidate.source.close()
         self._release(candidate.intent)
         return False
 
@@ -276,19 +297,21 @@ class CompanionAudioBridge(QObject):
         if self._stream_claim is not None or self._pending_stream is not None or self._stream_terminal:
             return True
         intent = self._intent()
+        if intent is not None and intent.output_target == "pc":
+            return False
         if (
             intent is None
             or intent.pc_only
             or not self.owner.enable_tts
             or self.owner._tts_interrupted_for_ptt
         ):
-            return False
+            return False if self.allows_pc(intent) else self._block_stream(intent)
         if self.coordinator.context is None or not self.coordinator.available:
-            return False
+            return False if self.allows_pc(intent) else self._block_stream(intent)
         try:
             format = PcmFormat(sample_rate, channels, sample_width)
         except AudioBufferError:
-            return False
+            return False if self.allows_pc(intent) else self._block_stream(intent)
         self._held = intent
         self._pending_stream = _StreamCandidate(intent, self.coordinator.context, format)
         return True
@@ -313,7 +336,11 @@ class CompanionAudioBridge(QObject):
             self.owner._flush_pending_response_if_any()
             self._pending_stream = None
             ref = self._reference(candidate.intent, candidate.context)
-            if ref is None or not self.coordinator.begin_stream(ref, candidate.format):
+            if ref is None or not self.coordinator.begin_stream(
+                ref, candidate.format, allow_pc_fallback=self.allows_pc(candidate.intent)
+            ):
+                if not self.allows_pc(candidate.intent):
+                    return self._block_stream(candidate.intent)
                 self.start(candidate.format)
                 self._release(candidate.intent)
                 return False

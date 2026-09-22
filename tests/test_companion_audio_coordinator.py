@@ -87,6 +87,40 @@ def prepare(coordinator, ref):
     return coordinator.receive(command(ref, "audio_prepared", buffered_frames=4800))
 
 
+@pytest.mark.parametrize("failure", ["rejected", "timeout", "late_prepared", "disconnect", "overflow", "send"])
+def test_phone_only_failure_never_calls_pc(setup, failure):
+    coordinator, ref, transport, sink, completed, now = setup
+    if failure == "send":
+        transport.succeed = False
+    assert coordinator.begin_stream(ref, PcmFormat(8000, 1), allow_pc_fallback=False)
+    coordinator.offer_pcm(ref, b"\0\0" * 16000)
+    if failure == "rejected":
+        coordinator.receive(command(ref, "audio_rejected", reason="focus_denied"))
+    elif failure in {"timeout", "late_prepared"}:
+        now[0] = 2000
+        if failure == "timeout":
+            coordinator.tick()
+        else:
+            prepare(coordinator, ref)
+    elif failure == "disconnect":
+        coordinator.disconnected()
+    elif failure == "overflow":
+        coordinator.offer_pcm(ref, b"\0\0" * 16000)
+        coordinator.offer_pcm(ref, b"\0\0")
+    assert sink.waves == sink.formats == sink.chunks == []
+    assert len(completed) == 1 and completed[0][1] != "pc_fallback"
+    assert coordinator.active_ref is None
+
+
+def test_invalid_pcm_before_commit_is_not_replayed_on_pc(setup):
+    coordinator, ref, _, sink, completed, _ = setup
+    coordinator.begin_stream(ref, PcmFormat(24000, 1))
+    coordinator.offer_pcm(ref, b"\0\0" * 2400)
+    coordinator.offer_pcm(ref, b"\0")
+    assert sink.formats == sink.chunks == []
+    assert completed == [(ref, "invalid_pcm")]
+
+
 def test_complete_ten_second_wave_is_not_pushed_into_four_second_queue(setup):
     coordinator, ref, transport, sink, completed, _ = setup
     raw = wav(b"\x00\x00" * 24000 * 10)

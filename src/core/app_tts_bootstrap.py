@@ -77,6 +77,8 @@ def build_tts_runtime(
 def apply_tts_runtime_to_bridge(bridge, settings, runtime: TTSRuntime) -> None:
     """현재 TTS 설정과 런타임 객체를 브리지에 반영한다."""
     bridge.enable_tts = bool(settings.get("enable_tts", False))
+    from .companion.audio_route import normalize_output_target
+    bridge.tts_output_target = normalize_output_target(settings.get("tts_output_target", "auto"))
     bridge.tts_streaming_enabled = bool(settings.get("tts_streaming_enabled", False))
     bridge.tts_streaming_emit_message_on_first_chunk = bool(
         settings.get("tts_streaming_emit_message_on_first_chunk", True)

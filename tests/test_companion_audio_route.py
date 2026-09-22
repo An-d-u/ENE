@@ -5,6 +5,25 @@ import pytest
 from src.core.companion.audio_route import AudioRoute
 
 
+@pytest.mark.parametrize("value", [None, "", "PHONE", True, {}, [], "unknown"])
+def test_invalid_preference_defaults_to_auto(value):
+    from src.core.companion.audio_route import normalize_output_target
+    assert normalize_output_target(value) == "auto"
+
+
+@pytest.mark.parametrize("failure", ["unavailable", "rejected", "delivery_failed", "tick", "prepared"])
+def test_phone_only_route_never_returns_pc(failure):
+    route = AudioRoute(allow_pc_fallback=False)
+    if failure == "unavailable":
+        action = route.offer(now_ms=0, phone_eligible=False)
+    else:
+        assert route.offer(now_ms=0, phone_eligible=True) == "offer_phone"
+        action = getattr(route, failure)(**({"now_ms": 2000} if failure in {"tick", "prepared"} else {}))
+    assert action == "cancel"
+    assert route.target != "pc"
+    assert route.finish() == "complete_once"
+
+
 def offered():
     route = AudioRoute()
     assert route.offer(now_ms=0, phone_eligible=True) == "offer_phone"

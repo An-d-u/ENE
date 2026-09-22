@@ -113,6 +113,7 @@ def test_apply_tts_runtime_to_bridge_updates_flags_and_client_binding():
             "enable_tts": True,
             "tts_streaming_enabled": True,
             "tts_streaming_emit_message_on_first_chunk": False,
+            "tts_output_target": "phone",
         }
     )
     runtime = TTSRuntime(tts_client="client", audio_player="audio")
@@ -122,6 +123,7 @@ def test_apply_tts_runtime_to_bridge_updates_flags_and_client_binding():
     assert bridge.enable_tts is True
     assert bridge.tts_streaming_enabled is True
     assert bridge.tts_streaming_emit_message_on_first_chunk is False
+    assert bridge.tts_output_target == "phone"
     assert calls == [("client", "audio")]
 
 

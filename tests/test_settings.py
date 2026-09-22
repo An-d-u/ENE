@@ -28,6 +28,7 @@ def test_load_missing_file_uses_default_config(tmp_path):
     assert settings.get("obsidian_checked_max_chars_per_file") == 3000
     assert settings.get("obsidian_checked_total_max_chars") == 12000
     assert settings.get("tts_output_device_id") == ""
+    assert settings.get("tts_output_target") == "auto"
     assert settings.get("tts_output_volume") == 0.8
     assert settings.get("tts_language") == "ja"
     assert settings.get("typing_effect_enabled") is True
@@ -65,6 +66,14 @@ def test_load_missing_file_uses_default_config(tmp_path):
     assert gpt_sovits["top_p"] == 1.0
     assert gpt_sovits["temperature"] == 1.0
     assert gpt_sovits["text_split_method"] == "cut5"
+
+
+@pytest.mark.parametrize("value,expected", [("auto", "auto"), ("pc", "pc"), ("phone", "phone"), (None, "auto"), ([], "auto"), ("invalid", "auto")])
+def test_output_target_load_normalization(tmp_path, value, expected):
+    config = tmp_path / "synthetic.json"
+    config.write_text(json.dumps({"tts_output_target": value}), encoding="utf-8")
+    settings = Settings(config_path=str(config), secret_path=str(tmp_path / "secrets.json"))
+    assert settings.get("tts_output_target") == expected
 
 
 def test_load_missing_file_uses_web_search_defaults(tmp_path):

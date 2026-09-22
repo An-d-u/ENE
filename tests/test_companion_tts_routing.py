@@ -101,6 +101,97 @@ def start_reply(bridge):
     return result
 
 
+@pytest.mark.parametrize("failure", ["unavailable", "unsupported", "private", "rejected"])
+def test_manual_phone_wave_failure_stays_silent(routed_bridge, failure):
+    bridge, context, jobs, transfers, played = routed_bridge
+    bridge.tts_output_target = "phone"
+    if failure == "unavailable":
+        bridge._companion_audio.disconnected()
+    start_reply(bridge)
+    if failure == "private":
+        bridge._companion_audio.bind_worker(jobs[0], dict(bridge._pending_response_completion, companion_file_result=True))
+    jobs[0].ready(b"synthetic-unsupported-audio" if failure == "unsupported" else wav())
+    if failure == "rejected":
+        offer = next(item for item in transfers if item.kind == "offer")
+        bridge.submit_extension(context, wire(offer.ref, "audio_rejected", reason="focus_denied"))
+    else:
+        assert not any(item.kind == "offer" for item in transfers)
+    assert played == [] and bridge.life_record_state.phase == "idle"
+
+
+def test_manual_pc_skips_phone_and_policy_is_captured_before_generation(routed_bridge):
+    bridge, _, jobs, transfers, played = routed_bridge
+    bridge.tts_output_target = "pc"
+    start_reply(bridge)
+    bridge.tts_output_target = "phone"
+    bridge._companion_tts_settings_changed()
+    raw = wav()
+    jobs[0].ready(raw)
+    assert played == [raw] and not any(item.kind == "offer" for item in transfers)
+
+
+@pytest.mark.parametrize("change_at", ["generation", "preparing", "playing"])
+def test_phone_choice_change_applies_only_to_next_utterance(routed_bridge, change_at):
+    bridge, context, jobs, transfers, played = routed_bridge
+    bridge.tts_output_target = "phone"
+    start_reply(bridge)
+    if change_at == "generation":
+        bridge.tts_output_target = "pc"
+        bridge._companion_tts_settings_changed()
+    jobs[0].ready(wav())
+    offer = next(item for item in transfers if item.kind == "offer")
+    if change_at == "preparing":
+        bridge.tts_output_target = "pc"
+        bridge._companion_tts_settings_changed()
+    bridge.submit_extension(context, wire(offer.ref, "audio_prepared", buffered_frames=100))
+    if change_at == "playing":
+        bridge.tts_output_target = "pc"
+        bridge._companion_tts_settings_changed()
+    bridge.submit_extension(context, wire(offer.ref, "audio_finished", played_frames=100))
+    assert played == [] and bridge.life_record_state.phase == "idle"
+    start_reply(bridge)
+    raw = wav()
+    jobs[1].ready(raw)
+    assert played == [raw]
+    assert len([item for item in transfers if item.kind == "offer"]) == 1
+
+
+@pytest.mark.parametrize("failure", ["unavailable", "pending_disconnect", "unsupported", "rejected"])
+def test_manual_phone_stream_failure_stays_silent(routed_bridge, failure):
+    bridge, context, jobs, transfers, played = routed_bridge
+    bridge.tts_output_target = "phone"
+    if failure == "unavailable":
+        bridge._companion_audio.disconnected()
+    if failure == "unsupported":
+        bridge.tts_streaming_enabled = True
+        bridge.audio_player.start_stream = lambda *args: played.append(args)
+        bridge.audio_player.append_stream_pcm = played.append
+        bridge.audio_player.finish_stream = lambda: played.append("end")
+        start_reply(bridge)
+        jobs[0].stream_format_ready.emit(96000, 1, 2)
+    else:
+        stream_reply(routed_bridge, published=False)
+    if failure == "pending_disconnect":
+        bridge._companion_audio.disconnected()
+    jobs[0].stream_chunk_ready.emit(b"\0\0" * 2400, [])
+    if failure == "rejected":
+        offer = next(item for item in transfers if item.kind == "offer")
+        bridge.submit_extension(context, wire(offer.ref, "audio_rejected", reason="focus_denied"))
+    jobs[0].stream_finished.emit()
+    assert played == [] and bridge.life_record_state.phase == "idle"
+
+
+def test_manual_phone_browser_never_builds_or_plays_request(routed_bridge, monkeypatch):
+    bridge, _, jobs, transfers, played = routed_bridge
+    bridge.tts_output_target = "phone"
+    bridge.tts_client.uses_browser_playback = True
+    browser = []
+    monkeypatch.setattr(bridge, "_play_browser_tts", browser.append)
+    start_reply(bridge)
+    assert browser == jobs == transfers == played == []
+    assert bridge.life_record_state.phase == "idle"
+
+
 def test_actual_tts_generates_once_and_phone_completion_owns_reply_gate(routed_bridge):
     bridge, context, jobs, transfers, played = routed_bridge
     result = start_reply(bridge)

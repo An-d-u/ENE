@@ -122,17 +122,17 @@ class AudioCoordinator:
             )
         )
 
-    def _begin(self, ref, source, streaming, visible):
+    def _begin(self, ref, source, streaming, visible, allow_pc_fallback):
         if not self.eligible(ref, visible=visible):
             return None
         if self._active is not None:
             self.cancel(self._active.ref, "replaced")
-        entry = _Utterance(ref, source, AudioRoute(), streaming)
+        entry = _Utterance(ref, source, AudioRoute(allow_pc_fallback=allow_pc_fallback), streaming)
         self._active = entry
         return entry
 
-    def begin_wave(self, ref, source, *, visible=True):
-        entry = self._begin(ref, source, False, visible)
+    def begin_wave(self, ref, source, *, visible=True, allow_pc_fallback=True):
+        entry = self._begin(ref, source, False, visible, allow_pc_fallback)
         if entry is None:
             return False
         self._offer(entry)
@@ -140,14 +140,17 @@ class AudioCoordinator:
             self.source_end(ref)
         return True
 
-    def begin_stream(self, ref, format, *, visible=True):
+    def begin_stream(self, ref, format, *, visible=True, allow_pc_fallback=True):
         source = PcmStream(
             format,
             buffer_limit=format.sample_rate
             * format.frame_bytes
             * self._stream_buffer_seconds,
         )
-        return self._begin(ref, source, True, visible) is not None
+        entry = self._begin(ref, source, True, visible, allow_pc_fallback)
+        if entry is None:
+            source.close()
+        return entry is not None
 
     def _message(self, entry, kind, **extra):
         return decode_message(
@@ -170,7 +173,7 @@ class AudioCoordinator:
 
     def _offer(self, entry):
         if not self.eligible(entry.ref):
-            self._fallback(entry)
+            self._fallback(entry, reason="phone_unavailable")
             return
         format = entry.source.format
         entry.route.offer(now_ms=self._now_ms(), phone_eligible=True)
@@ -184,7 +187,7 @@ class AudioCoordinator:
             prepare_timeout_ms=2000,
         )
         if not self._attempt(lambda: self.transport.offer(message, entry.source)):
-            self._fallback(entry)
+            self._fallback(entry, reason="delivery_failed")
 
     def offer_pcm(self, ref, data):
         entry = self._active
@@ -192,8 +195,8 @@ class AudioCoordinator:
             return
         result = entry.source.offer(data)
         if result != "accepted":
-            if entry.route.target != "phone":
-                self._fallback(entry, extra=data)
+            if result == "full" and entry.route.target != "phone":
+                self._fallback(entry, extra=data, reason="buffer_full")
             else:
                 self.cancel(ref, "buffer_full" if result == "full" else "invalid_pcm")
             return
@@ -209,7 +212,7 @@ class AudioCoordinator:
         if entry.streaming:
             entry.source.finish()
         if not entry.offered:
-            self._fallback(entry)
+            self.cancel(ref, "empty_audio")
             return
         action = entry.route.source_end(total_frames=entry.source.total_frames)
         if action == "cancel":
@@ -246,7 +249,9 @@ class AudioCoordinator:
         if kind == "audio_prepared":
             action = entry.route.prepared(now_ms=self._now_ms())
             if action == "play_pc":
-                self._fallback(entry)
+                self._fallback(entry, reason="prepare_timeout")
+            elif action == "cancel":
+                self.cancel(entry.ref, "prepare_timeout")
             elif action == "send_start":
                 if entry.streaming:
                     entry.source.commit()
@@ -255,8 +260,11 @@ class AudioCoordinator:
                 ):
                     self._delivery_failed(entry)
         elif kind == "audio_rejected":
-            if entry.route.rejected() == "play_pc":
-                self._fallback(entry)
+            action = entry.route.rejected()
+            if action == "play_pc":
+                self._fallback(entry, reason=values["reason"])
+            elif action == "cancel":
+                self.cancel(entry.ref, values["reason"])
         elif kind == "audio_cancel":
             self.cancel(entry.ref, values["reason"])
         elif kind == "audio_started":
@@ -288,16 +296,17 @@ class AudioCoordinator:
         entry = self._active
         if entry is None or not entry.offered:
             return
+        preparing = entry.route.state == "OFFERED"
         action = entry.route.tick(now_ms=self._now_ms())
         if action == "play_pc":
-            self._fallback(entry)
+            self._fallback(entry, reason="prepare_timeout")
         elif action == "cancel":
-            self.cancel(entry.ref, "playback_timeout")
+            self.cancel(entry.ref, "prepare_timeout" if preparing else "playback_timeout")
 
     def _delivery_failed(self, entry):
         action = entry.route.delivery_failed()
         if action == "play_pc":
-            self._fallback(entry)
+            self._fallback(entry, reason="delivery_failed")
         elif action == "cancel":
             self.cancel(entry.ref, "delivery_failed")
 
@@ -307,12 +316,15 @@ class AudioCoordinator:
         if entry is None:
             return
         if entry.route.target != "phone":
-            self._fallback(entry)
+            self._fallback(entry, reason="connection_closed")
         else:
             self.cancel(entry.ref, "connection_closed")
 
-    def _fallback(self, entry, extra=None):
+    def _fallback(self, entry, extra=None, *, reason="phone_unavailable"):
         if self._active is not entry:
+            return
+        if not entry.route.allow_pc_fallback or entry.route.target == "phone":
+            self.cancel(entry.ref, reason)
             return
         self._active = None
         if entry.offered:

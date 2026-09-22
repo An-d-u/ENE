@@ -274,8 +274,11 @@ class TTSBridgeMixin:
         """립싱크를 포함한 TTS 재생 (비동기 스레드)"""
         self._tts_interrupted_for_ptt = False
         if getattr(self.tts_client, "uses_browser_playback", False):
+            audio_bridge = getattr(self, "_companion_audio", None)
+            allow_pc = audio_bridge is None or audio_bridge.allows_pc()
             self._flush_pending_response_if_any()
-            self._play_browser_tts(text)
+            if allow_pc:
+                self._play_browser_tts(text)
             return
 
         # 기존 TTS 워커 종료
@@ -931,6 +934,10 @@ class TTSBridgeMixin:
         if audio_bridge is not None and audio_bridge.play_wave(candidate):
             return
         if audio_bridge is not None:
+            if not audio_bridge.allows_pc(pc_intent):
+                self.lip_sync_data = None
+                self._emit_mouth_signals(0.0)
+                return
             audio_bridge.pc_started(pc_intent)
         self.audio_player.play(audio_data)
         
