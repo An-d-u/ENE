@@ -8,9 +8,45 @@ from PyQt6.QtWidgets import QFileDialog
 
 from ..ai.tts_client import get_tts_provider_defaults
 from ..core.audio_player import AudioPlayer
+from ..core.companion.audio_route import normalize_output_target
 
 
 class SettingsDialogTtsMixin:
+    def _connect_tts_audio_bridge(self):
+        bridge = getattr(self, "_bridge", None)
+        signal = getattr(bridge, "companion_audio_status_changed", None)
+        if signal is not None and getattr(self, "_tts_audio_signal", None) is None:
+            signal.connect(self._refresh_tts_output_status)
+            self._tts_audio_signal = signal
+        snapshot = getattr(bridge, "companion_audio_status", None)
+        self._refresh_tts_output_status(snapshot() if callable(snapshot) else {
+            "preference": normalize_output_target(self._original_settings.get("tts_output_target")),
+            "output": "none", "state": "idle", "reason": "phone_not_connected",
+        })
+
+    def _disconnect_tts_audio_bridge(self):
+        signal = getattr(self, "_tts_audio_signal", None)
+        if signal is not None:
+            try:
+                signal.disconnect(self._refresh_tts_output_status)
+            except (RuntimeError, TypeError):
+                pass
+        self._tts_audio_signal = None
+
+    def _refresh_tts_output_status(self, status=None):
+        if isinstance(status, dict):
+            self._tts_audio_snapshot = dict(status)
+        status = getattr(self, "_tts_audio_snapshot", {})
+        unknown = self._translated_text("settings.tts.output.unknown", "상태 정보 없음")
+        def label(group, value):
+            return self._translated_text(f"settings.tts.output.{group}.{value}", unknown)
+        self.tts_output_status_label.setText(self._translated_text_format(
+            "settings.tts.output.status", "적용된 선택: {preference} · 현재 출력: {output}\n{state} · {reason}",
+            preference=label("target", status.get("preference")),
+            output=label("destination", status.get("output")),
+            state=label("state", status.get("state")), reason=label("reason", status.get("reason")),
+        ))
+
     def _browse_tts_audio_path_into(self, target_edit, title_key: str, title_fallback: str):
         start_dir = self._bundle_root / "assets" / "ref_audio"
         if not start_dir.exists():
@@ -433,6 +469,8 @@ class SettingsDialogTtsMixin:
         }
 
     def _load_tts_values(self):
+        self.tts_output_target_combo.setCurrentIndex(self.tts_output_target_combo.findData(
+            normalize_output_target(self._original_settings.get("tts_output_target"))))
         configs = self._tts_provider_configs
         gpt_sovits = {**get_tts_provider_defaults("gpt_sovits_http"), **configs.get("gpt_sovits_http", {})}
         genie = {**get_tts_provider_defaults("genie_tts_http"), **configs.get("genie_tts_http", {})}

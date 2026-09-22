@@ -944,6 +944,14 @@ class ENEApplication(QObject):
         )
         if old_tts_config != new_tts_config:
             self._refresh_tts_runtime_bindings()
+        if bridge is not None:
+            from .companion.audio_route import normalize_output_target
+            bridge.tts_output_target = normalize_output_target(new_settings.get(
+                "tts_output_target", self.settings.get("tts_output_target", "auto")
+            ))
+            refresh_audio = getattr(bridge, "_companion_tts_settings_changed", None)
+            if callable(refresh_audio):
+                refresh_audio()
         return {"status": "accepted", "values": new_settings}
 
     def _show_embedding_rebuild_prompt(self, provider: str, model: str) -> None:

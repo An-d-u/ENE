@@ -264,6 +264,7 @@ class SettingsDialog(
         self._setup_ui()
         self._install_no_wheel_handlers()
         self._load_values()
+        self._connect_tts_audio_bridge()
         self._connect_goal_bridge()
         self._request_goal_items()
         if hasattr(self, "ui_language_combo"):
@@ -577,6 +578,7 @@ class SettingsDialog(
         timestamp_key, timestamp_fallback, timestamp_kwargs = self._fact_timestamp_state
         self._set_fact_timestamp(timestamp_key, timestamp_fallback, **timestamp_kwargs)
         self._refresh_browser_voice_status_label()
+        self._refresh_tts_output_status()
 
     def _create_window_tab(self):
         from .settings_tabs import window_tab
@@ -645,12 +647,17 @@ class SettingsDialog(
         self._settings_save_handler = handler
 
     def closeEvent(self, event):
+        self._disconnect_tts_audio_bridge()
         self._stop_ptt_hotkey_capture()
         if not getattr(self, "_saved", False):
             self._restore_original_ui_language()
         if not hasattr(self, "_saved"):
             self.settings_cancelled.emit()
         event.accept()
+
+    def showEvent(self, event):
+        self._connect_tts_audio_bridge()
+        super().showEvent(event)
 
     def _hit_test_resize_edge(self, pos: QPoint) -> str:
         margin = self._resize_margin

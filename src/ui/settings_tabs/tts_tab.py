@@ -92,6 +92,21 @@ def build_tts_tab(dialog):
     playback_form.setSpacing(8)
     playback_form.setContentsMargins(10, 15, 10, 10)
 
+    self.tts_output_target_combo = QComboBox()
+    for value, fallback in (("auto", "자동"), ("pc", "PC"), ("phone", "휴대폰")):
+        self.tts_output_target_combo.addItem(fallback, value)
+        self._bind_combo_item(self.tts_output_target_combo, self.tts_output_target_combo.count() - 1,
+                              "settings.tts.output.target." + value, fallback)
+    self.tts_output_target_combo.currentIndexChanged.connect(self._on_setting_changed)
+    self._add_form_row(playback_form, "settings.tts.output.target.label", "재생 기기:", self.tts_output_target_combo)
+    self._register_text_binding(self.tts_output_target_combo.setAccessibleName, "settings.tts.output.target.label", "재생 기기")
+    playback_form.addRow(self._build_hint_label(
+        "저장한 선택은 다음 음성부터 적용됩니다. 휴대폰 선택 시 연결·재생에 실패해도 PC로 대체하지 않습니다.",
+        key="settings.tts.output.target.hint"))
+    self.tts_output_status_label = QLabel()
+    self.tts_output_status_label.setWordWrap(True)
+    playback_form.addRow(self.tts_output_status_label)
+
     output_device_row = QHBoxLayout()
     output_device_row.setSpacing(8)
     self.tts_output_device_combo = QComboBox()
@@ -101,7 +116,7 @@ def build_tts_tab(dialog):
     self._bind_widget_text(self.tts_output_device_refresh_button, "settings.common.refresh", "새로고침")
     self.tts_output_device_refresh_button.clicked.connect(self._on_tts_output_device_refresh_clicked)
     output_device_row.addWidget(self.tts_output_device_refresh_button)
-    self._add_form_row(playback_form, "settings.tts.playback.output_device.label", "출력 장치:", output_device_row)
+    self._add_form_row(playback_form, "settings.tts.output.pc_device", "PC 출력 장치:", output_device_row)
 
     self.tts_output_volume_spin = QSpinBox()
     self.tts_output_volume_spin.setRange(0, 100)

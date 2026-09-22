@@ -1115,6 +1115,7 @@ class SettingsDialogValuesMixin:
                 self._original_settings.get("tts_streaming_emit_message_on_first_chunk", True)
             ),
             "tts_output_device_id": str(self.tts_output_device_combo.currentData() or "").strip(),
+            "tts_output_target": self.tts_output_target_combo.currentData(),
             "tts_output_volume": round(self.tts_output_volume_spin.value() / 100.0, 2),
             "tts_provider": str(self.tts_provider_combo.currentData() or "gpt_sovits_http"),
             "tts_api_url": self.tts_api_url_edit.text().strip(),
