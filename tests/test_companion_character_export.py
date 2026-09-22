@@ -69,7 +69,10 @@ def test_repository_bundle_has_only_pinned_runtime_and_notices():
     assert not any(
         "model" in name and name != "runtime_live2d_model.js" for name in targets
     )
-    assert len(manifest["libraries"]) == 3
+    assert {item["file"] for item in manifest["libraries"]} == {
+        "lib/pixi.min.js", "lib/pixi-unsafe-eval.min.js",
+        "lib/live2dcubismcore.min.js", "lib/pixi-live2d-display.min.js",
+    }
 
 
 @pytest.mark.parametrize("change", ["hash", "missing", "extra", "escape", "duplicate"])

@@ -21,7 +21,7 @@ RUNTIME = (
     "runtime_live2d_parameter_core.js",
     "runtime_character_host.js",
 )
-LIBRARIES = ("pixi.min.js", "live2dcubismcore.min.js", "pixi-live2d-display.min.js")
+LIBRARIES = ("pixi.min.js", "pixi-unsafe-eval.min.js", "live2dcubismcore.min.js", "pixi-live2d-display.min.js")
 CORE_TARGET = "lib/live2dcubismcore.min.js"
 NOTICES = (
     "Pixi-MIT.txt",
@@ -137,7 +137,7 @@ def validate(root: Path, manifest: dict, *, require_core: bool = False) -> dict[
         if target != CORE_TARGET:
             content[target] = data
     libraries = manifest.get("libraries", [])
-    if len(libraries) != 3 or {item.get("file") for item in libraries} != {
+    if len(libraries) != len(LIBRARIES) or {item.get("file") for item in libraries} != {
         f"lib/{name}" for name in LIBRARIES
     }:
         raise ExportError("라이브러리 고정 정보 누락")

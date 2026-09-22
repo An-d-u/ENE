@@ -3,6 +3,7 @@
 2026-09-16에 기존 설치 스크립트의 공개 원본과 로컬 바이트 SHA-256을 대조했다. 라이브러리는 수정하거나 새 버전으로 교체하지 않았다. 이 기록은 공개 배포·상용 이용에 대한 허가나 법률 판단을 대신하지 않는다.
 
 - Pixi.js 7.3.0: 고정된 npm 배포 파일과 일치한다. `Pixi-MIT.txt`는 해당 태그의 원문이다.
+- @pixi/unsafe-eval 7.3.0: 2026-09-22에 공식 npm 패키지의 SHA-512 무결성을 확인한 브라우저 번들을 추가했다. JavaScript 문자열 코드 생성을 금지한 환경을 지원하며 CSP를 완화하지 않는다. 원본 LICENSE가 기존 `Pixi-MIT.txt`와 같아 해당 고지를 함께 사용한다.
 - pixi-live2d-display 0.4.0의 cubism4 빌드: 고정된 npm 배포 파일과 일치한다. `pixi-live2d-display-MIT.txt`는 해당 태그의 원문이다.
 - 표시 라이브러리에 포함된 Cubism Web Framework: 상위 태그의 하위 모듈 커밋 `1f9cdfd140e87ba0ae68a356bb5ec339a0e65f99`를 확인했다. `CubismWebFramework-LICENSE.md`를 원문 그대로 보존한다. 이 파일의 과거 요금·정책 문구를 현재 정책으로 해석하지 않는다.
 - Live2D Cubism Core: 공개 소스와 실행부 내보내기에서 제외한다. 사용자가 [공식 SDK 페이지](https://www.live2d.com/en/sdk/download/web/)에서 약관을 확인하고 직접 받아 로컬에 배치한다. 검증된 기존 파일의 공개 API 버전 정수는 `83951616`이며 원본 파일의 저작권·재배포 코드 고지는 변경하지 않는다. [독점 소프트웨어 계약](https://www.live2d.com/eula/live2d-proprietary-software-license-agreement_en.html), [SDK 배포 정책](https://www.live2d.com/en/sdk/license/)을 별도로 확인해야 한다.

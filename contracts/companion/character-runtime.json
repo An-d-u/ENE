@@ -15,6 +15,15 @@
       "sha256": "cda32420e2d05eeeaa91d91b74ce7a2b3f31db148cadcbc5d8d104bd981b4ec7"
     },
     {
+      "file": "lib/pixi-unsafe-eval.min.js",
+      "version": "7.3.0",
+      "source": "https://registry.npmjs.org/@pixi/unsafe-eval/-/unsafe-eval-7.3.0.tgz",
+      "package_integrity": "sha512-crfrnYyjA852uRS7LHQsoYZA1LNKZtrj5ujt4IgHhZGgwT+wQs6ANdKD7m3NUaaeOsTudZnAcX5VWHEcnbOTRg==",
+      "source_verified_on": "2026-09-22",
+      "notices": ["notices/Pixi-MIT.txt"],
+      "sha256": "22b4b9ff425bf0ef3868714be239f3c88a97ca29e581ca7e09fc361f131bddca"
+    },
+    {
       "file": "lib/live2dcubismcore.min.js",
       "version": "csmGetVersion:83951616",
       "source": "https://www.live2d.com/en/sdk/download/web/",
@@ -93,6 +102,11 @@
       "sha256": "cda32420e2d05eeeaa91d91b74ce7a2b3f31db148cadcbc5d8d104bd981b4ec7"
     },
     {
+      "source": "assets/web/lib/pixi-unsafe-eval.min.js",
+      "target": "lib/pixi-unsafe-eval.min.js",
+      "sha256": "22b4b9ff425bf0ef3868714be239f3c88a97ca29e581ca7e09fc361f131bddca"
+    },
+    {
       "source": "assets/web/lib/live2dcubismcore.min.js",
       "target": "lib/live2dcubismcore.min.js",
       "sha256": "25ae938cb4fe282ce189b357bcc97e603d1e1f7ec78bf04150d401c23cdc792f"
@@ -105,7 +119,7 @@
     {
       "source": "assets/web/character/index.html",
       "target": "index.html",
-      "sha256": "d60a855a97361bc504d6c74809ef0b82e87b091161e2289891b5e5dc440eba44"
+      "sha256": "15f6cde2e21d50991ea7585bf37b23af33e79cfdf522b818fe95a6e2953a00a7"
     },
     {
       "source": "assets/web/character/entry.js",
@@ -135,7 +149,7 @@
     {
       "source": "assets/web/character/notices/THIRD-PARTY.md",
       "target": "notices/THIRD-PARTY.md",
-      "sha256": "04ca97ee0e0685ca99672a46fe22c740c576006ea35df4f211a95395e1f558ed"
+      "sha256": "850ed5d06557f70c19f01a017fc4ee59225fc63a87155ec6e002d380f8a330ac"
     }
   ]
 }
