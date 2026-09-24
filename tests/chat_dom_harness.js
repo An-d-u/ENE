@@ -70,7 +70,7 @@ const body = new Element('body');
 const elements = {};
 const web = path.join(__dirname, '..', 'assets', 'web');
 const html = fs.readFileSync(path.join(web, 'index.html'), 'utf8');
-for (const id of ['chat-container', 'chat-messages', 'chat-input', 'send-button', 'attach-button', 'image-input', 'loading-indicator', 'image-preview-container']) {
+for (const id of ['chat-container', 'chat-messages', 'chat-input', 'send-button', 'attach-button', 'image-input', 'loading-indicator', 'image-preview-container', 'toast-container']) {
     // 선택 조건에 영향을 주는 분류와 data 속성을 실제 HTML에서 가져온다.
     const openingTag = html.match(new RegExp(`<([a-z][\\w-]*)\\b[^>]*\\bid="${id}"[^>]*>`, 'i'));
     if (!openingTag) throw Error(`채팅 HTML 요소를 찾을 수 없음: ${id}`);
@@ -82,10 +82,11 @@ for (const id of ['chat-container', 'chat-messages', 'chat-input', 'send-button'
 }
 for (const id of ['chat-messages', 'loading-indicator', 'image-preview-container']) elements['chat-container'].appendChild(elements[id]);
 const label = new Element('span'); label.className = 'typing-text'; elements['loading-indicator'].appendChild(label);
-const signal = () => ({callbacks: [], connect(callback) {this.callbacks.push(callback);}, emit(value) {this.callbacks.forEach(callback => callback(value));}});
+const signal = () => ({callbacks: [], connect(callback) {this.callbacks.push(callback);}, emit(...values) {this.callbacks.forEach(callback => callback(...values));}});
 const calls = [];
 const bridge = {
     chat_display_event: signal(), chat_admission_result: signal(),
+    message_received: signal(), expression_changed: signal(), request_pending_changed: signal(),
     get_companion_chat_state(callback) { callback(JSON.stringify({server_epoch: 'epoch', conversation_id: 'conversation', conversation_revision: 0, event_seq: 0, messages: [], processing: {phase: 'idle'}})); },
     submit_pc_chat(raw, callback) { calls.push({payload: JSON.parse(raw), callback}); },
     reroll_companion_message(raw, callback) { calls.push({payload: JSON.parse(raw), callback}); },
@@ -93,8 +94,10 @@ const bridge = {
 };
 let nextId = 1;
 const context = {
-    console, document: {body, getElementById: id => elements[id] || null, querySelector: selector => body.querySelector(selector), createElement: tag => new Element(tag)},
+    console: {...console, log() {}}, document: {body, getElementById: id => elements[id] || null, querySelector: selector => body.querySelector(selector), createElement: tag => new Element(tag)},
     window: {pyBridge: bridge, crypto: {randomUUID: () => `request-${nextId++}`}, setTimeout, clearTimeout},
+    QWebChannel: function (_transport, callback) { callback({objects: {bridge}}); },
+    qt: {webChannelTransport: {}}, requestMoodSnapshot() {},
     DEFAULT_UI_STRINGS: {loading: '합성 대기 표시'},
     cancelPendingPatEmotionRestore() {}, changeExpression() {}, autoResizeTextarea() {}, updateAttachmentPreview() {},
     dispatchBridgeCall(task, failure) { try { task(); } catch (error) { if (failure) failure(error); else throw error; } },
@@ -107,8 +110,9 @@ for (const name of ['runtime_chat_state.js', 'runtime_message_helpers.js', 'runt
 vm.runInContext(`
     currentUiStrings = {loading: '합성 대기 표시', thoughts: {show: '보기', hide: '숨기기'}};
     typingEffectEnabled = false;
-    connectCompanionChatBridge(window.pyBridge);
 `, context);
+// 공개 메시지뿐 아니라 일반 오류 신호도 실제 PC 연결 코드를 거치게 한다.
+vm.runInContext(fs.readFileSync(path.join(web, 'runtime_bridge.js'), 'utf8'), context, {filename: 'runtime_bridge.js'});
 const source = fs.readFileSync(0, 'utf8');
 vm.runInContext(`(async () => { ${source} })()`, context).then(() => {
     process.stdout.write(JSON.stringify(context.result));

@@ -267,8 +267,9 @@ class CompanionPCBridgeMixin:
             return False
         retry = state.retry_operations.get(int(request_ref.operation_id))
         if retry is not None:
-            # 실패 요청의 재실패는 기존 안내를 유지하고 완료 처리에서 원본을 복원한다.
-            return retry.previous_ref.key in state.failed_assistant_ids
+            # 재생성 실패는 요청 상태 알림으로 안내하고 완료 처리에서 원본을 복원한다.
+            # 별도 오류 말풍선을 만들면 다음 성공 시에도 화면에 남게 된다.
+            return True
         if request_ref.key in state.failed_assistant_ids:
             return True
         event = state.public_transcript.publish_assistant(

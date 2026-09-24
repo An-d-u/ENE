@@ -259,3 +259,101 @@ def test_reset_during_failed_turn_retry_cannot_restore_old_failure(admission):
     assert state(bridge).messages == ()
     assert bridge.conversation_buffer == []
     assert bridge.chat_state.failed_assistant_ids == {}
+
+
+@pytest.mark.parametrize("kind", ["reroll", "edit"])
+@pytest.mark.parametrize("deferred_tts", [False, True])
+def test_successful_reply_retry_failure_never_leaves_extra_chat_bubbles(
+    admission, kind, deferred_tts
+):
+    from tests.companion_helpers import sample_id
+    from tests.test_chat_dom_runtime import run_dom_case
+
+    bridge, _, _, _ = admission
+    bridge.llm_client = _CommonMixin()
+    bridge.llm_client._history = []
+    original_text = "가상 원의 배치를 완료했습니다."
+    bridge.submit_chat_request("가상 원을 배치합니다.")
+    bridge.worker.reply(original_text)
+    snapshot = json.loads(bridge.get_companion_chat_state())
+    original_id = state(bridge).messages[-1].id
+    original_buffer = list(bridge.conversation_buffer)
+    if deferred_tts:
+        bridge.enable_tts = True
+        bridge.tts_client = object()
+        bridge.audio_player = object()
+        bridge._play_tts = lambda _: None
+    events = []
+    bridge.chat_display_event.connect(
+        lambda raw: events.append(["display", json.loads(raw)])
+    )
+    bridge.request_pending_changed.connect(
+        lambda active: events.append(["pending", active])
+    )
+    bridge.chat_admission_result.connect(
+        lambda raw: events.append(["admission", json.loads(raw)])
+    )
+    bridge.message_received.connect(
+        lambda *args: events.append(["legacy", list(args)])
+    )
+    replies = [None, None, "가상 원의 새 배치입니다.", "가상 원의 최종 배치입니다."]
+    expected_texts = []
+    for index, reply in enumerate(replies):
+        request_id = sample_id(80 + index)
+        events.append(["track", request_id])
+        if kind == "edit":
+            raw = command(
+                bridge, "user", text="가상 원을 다시 배치합니다.",
+                request_id=request_id,
+            )
+            result = json.loads(bridge.edit_companion_message(raw))
+        else:
+            raw = command(bridge, "assistant", request_id=request_id)
+            result = json.loads(bridge.reroll_companion_message(raw))
+        assert result["state"] == "accepted"
+        events.append(["admission", result])
+        if reply is None:
+            worker = fail_worker(bridge)
+            assert bridge.chat_state.request_ledger.lookup(
+                worker.companion_request_ref.key
+            ).state == "failed"
+            assert bridge.conversation_buffer == original_buffer
+        else:
+            bridge.worker.reply(reply, spoken="가상 음성 안내")
+            if deferred_tts:
+                bridge._flush_pending_response_if_any()
+        assert len(state(bridge).messages) == 2
+        assert state(bridge).messages[-1].id == original_id
+        expected_texts.append(reply or original_text)
+        events.append(["checkpoint", None])
+
+    result = run_dom_case(f"""
+window.eneCompanionChat.applySnapshot({json.dumps(snapshot)});
+const checkpoints = [];
+for (const [kind, value] of {json.dumps(events)}) {{
+    if (kind === 'track') window.eneCompanionChat.trackMutation(value, () => {{}});
+    if (kind === 'display') bridge.chat_display_event.emit(JSON.stringify(value));
+    if (kind === 'pending') bridge.request_pending_changed.emit(value);
+    if (kind === 'admission') bridge.chat_admission_result.emit(JSON.stringify(value));
+    if (kind === 'legacy') bridge.message_received.emit(...value);
+    if (kind === 'checkpoint') {{
+        await new Promise(resolve => setTimeout(resolve, 0));
+        const assistants = chatMessages.querySelectorAll('.message.assistant');
+        checkpoints.push({{
+            ids: assistants.map(node => node.dataset.messageId),
+            texts: assistants.map(node => getMessageLogicalText(node)),
+            buttons: chatMessages.querySelectorAll('.message-reroll-btn').length,
+            pending: isRequestPending,
+        }});
+    }}
+}}
+chatMessages.querySelector('.message-reroll-btn').click();
+result = {{checkpoints, notices: toastContainer.querySelectorAll('.toast-error').length,
+    target: calls[0]?.payload.target_message_id}};
+""")
+    assert result["checkpoints"] == [
+        {"ids": [original_id], "texts": [text], "buttons": 1, "pending": False}
+        for text in expected_texts
+    ]
+    assert result["notices"] == 2
+    assert result["target"] == original_id
