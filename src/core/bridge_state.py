@@ -89,6 +89,7 @@ class ChatBridgeState:
     request_ledger: RequestLedger = field(default_factory=RequestLedger)
     public_user_ids: dict[RequestKey, str] = field(default_factory=dict)
     public_assistant_ids: dict[RequestKey, str] = field(default_factory=dict)
+    failed_assistant_ids: dict[RequestKey, str] = field(default_factory=dict)
     operation_requests: dict[int, RequestRef] = field(default_factory=dict)
     pc_messages: dict[str, dict[str, Any]] = field(default_factory=dict)
     last_request_ref: RequestRef | None = None

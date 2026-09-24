@@ -258,6 +258,29 @@ class CompanionPCBridgeMixin:
     def reroll_companion_message(self, raw):
         return self._retry_companion_message(raw, "reroll")
 
+    def _display_companion_error(self, text, *, request_ref):
+        """오류 안내를 재시도 대상에 연결하되 성공 답변이나 내부 기억으로 기록하지 않는다."""
+        if not self._companion_request_is_current(request_ref):
+            return False
+        state = self.chat_state
+        if request_ref.key not in state.public_user_ids:
+            return False
+        retry = state.retry_operations.get(int(request_ref.operation_id))
+        if retry is not None:
+            # 실패 요청의 재실패는 기존 안내를 유지하고 완료 처리에서 원본을 복원한다.
+            return retry.previous_ref.key in state.failed_assistant_ids
+        if request_ref.key in state.failed_assistant_ids:
+            return True
+        event = state.public_transcript.publish_assistant(
+            text, request_id=request_ref.request_id
+        )
+        if event is None:
+            return True
+        state.failed_assistant_ids[request_ref.key] = event.message.id
+        self._emit_pc_message(event, emotion="confused", thought="")
+        self.companion_event.emit(event)
+        return True
+
     def _retry_companion_message(self, raw, kind):
         def reject(code):
             return json.dumps(
@@ -286,7 +309,9 @@ class CompanionPCBridgeMixin:
             if previous_ref is None or previous_ref.source not in {"pc", "mobile"}:
                 return reject("stale_target")
             user_id = state.public_user_ids.get(previous_ref.key)
-            assistant_id = state.public_assistant_ids.get(previous_ref.key)
+            assistant_id = state.public_assistant_ids.get(
+                previous_ref.key
+            ) or state.failed_assistant_ids.get(previous_ref.key)
             target = user_id if kind == "edit" else assistant_id
             if target_id != target or not user_id or not assistant_id:
                 return reject("stale_target")
@@ -383,6 +408,7 @@ class CompanionPCBridgeMixin:
         )
         retry.displayed = True
         self.chat_state.public_assistant_ids[request_ref.key] = retry.assistant_id
+        self.chat_state.failed_assistant_ids.pop(retry.previous_ref.key, None)
         self._emit_pc_message(event, emotion=emotion, thought=thought)
         self.companion_event.emit(event)
         return True

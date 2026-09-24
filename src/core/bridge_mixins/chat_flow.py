@@ -1011,7 +1011,8 @@ class ChatFlowBridgeMixin:
         # 리롤 직전 기준 컨텍스트(..., user C, assistant D)에서
         # D와 C를 제외한 상태(..., B)를 폴백 재구성용으로 준비한다.
         fallback_context = list(getattr(self, "_summarized_recent_context", []) or []) + list(self.conversation_buffer)
-        if fallback_context and fallback_context[-1][0] == "assistant":
+        has_assistant = bool(fallback_context and fallback_context[-1][0] == "assistant")
+        if has_assistant:
             fallback_context.pop()
         if fallback_context and fallback_context[-1][0] == "user":
             fallback_context.pop()
@@ -1019,7 +1020,8 @@ class ChatFlowBridgeMixin:
         # LLM 내부 chat 히스토리에서도 직전 user+assistant 턴을 롤백해야
         # 같은 user 입력이 누적되는 리롤 왜곡을 막을 수 있다.
         rolled_back = False
-        if hasattr(self.llm_client, "rollback_last_assistant_turn"):
+        # 실패한 요청에는 답변이 없다. SDK에 남은 이전 성공 턴을 삭제하지 않는다.
+        if has_assistant and hasattr(self.llm_client, "rollback_last_assistant_turn"):
             rolled_back = bool(self.llm_client.rollback_last_assistant_turn())
 
         # 일부 SDK 환경에서는 history가 비어 rollback이 실패한다.
@@ -1749,13 +1751,14 @@ class ChatFlowBridgeMixin:
         self._active_proactive_signature = None
         if proactive_manager and proactive_id:
             attempt(lambda: proactive_manager.set_status(proactive_id, "expired"))
-        attempt(
-            lambda: self.message_received.emit(
-                "음... 무슨 일이 있었나봐요.",
-                "confused",
-                "",
-            )
-        )
+        def display_error():
+            text = "음... 무슨 일이 있었나봐요."
+            display = getattr(self, "_display_companion_error", None)
+            if callable(display) and display(text, request_ref=request_ref):
+                return
+            self.message_received.emit(text, "confused", "")
+
+        attempt(display_error)
         if self._is_rerolling:
             self._is_rerolling = False
             attempt(lambda: self.reroll_state_changed.emit(False))

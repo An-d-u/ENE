@@ -466,6 +466,7 @@ class CompanionBridgeMixin:
         state.request_ledger.reset()
         state.public_user_ids.clear()
         state.public_assistant_ids.clear()
+        state.failed_assistant_ids.clear()
         state.operation_requests.clear()
         state.pc_messages.clear()
         state.last_request_ref = None
