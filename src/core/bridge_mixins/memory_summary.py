@@ -86,6 +86,28 @@ class MemorySummaryBridgeMixin:
         signal = getattr(self, "summary_review_finished", None)
         if signal is not None and hasattr(signal, "emit"):
             signal.emit(origin, outcome)
+        MemorySummaryBridgeMixin._handle_summary_review_completion(
+            self,
+            origin,
+            outcome,
+        )
+
+    def _handle_summary_review_completion(self, origin: str, outcome: str) -> None:
+        """요약 출처별 후속 동작을 승인 결과가 확정된 뒤에만 수행한다."""
+        if origin != "clear" or outcome == "failed":
+            return
+        if outcome not in {"saved", "cancelled", "saved_unregistered"}:
+            return
+
+        complete = getattr(self, "_complete_conversation_clear", None)
+        if not callable(complete):
+            complete = lambda: MemorySummaryBridgeMixin._complete_conversation_clear(self)
+        complete()
+        if outcome == "saved_unregistered":
+            self.summary_notice.emit(
+                "요약은 저장했지만 생활 기록 기준점으로 등록하지 못했어요.",
+                "error",
+            )
 
     def _persist_user_profile_facts(self, facts, memory_meta, saved_memory, original_messages, source_timestamp, *, reviewed=False):
         """자동·수동 요약의 사용자 프로필 변경에 같은 검증 규칙을 적용한다."""
@@ -938,26 +960,12 @@ class MemorySummaryBridgeMixin:
         finally:
             self._summary_in_progress = False
 
-    def clear_conversation(self):
-        """대화 내역 초기화"""
+    def _complete_conversation_clear(self) -> None:
+        """검토 결과가 확정된 뒤 대화 관련 상태를 실제로 초기화한다."""
         reset_public = getattr(self, "_reset_companion_conversation", None)
         if callable(reset_public):
             reset_public()
-        # 남은 대화가 있으면 요약
-        if self.memory_manager and len(self.conversation_buffer) >= 2:  # 최소 2개 이상
-            print(f"[Bridge] 대화 클리어 전 남은 {len(self.conversation_buffer)}개 메시지 요약")
-            
-            # 비동기로 요약 실행
-            import asyncio
-            try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(self._auto_summarize())
-                loop.close()
-            except Exception as e:
-                print(f"[Bridge] 클리어 시 요약 실패: {e}")
-        
-        # 대화 버퍼 클리어
+
         self.conversation_buffer = []
         self._summarized_recent_context = []
         self._pending_summary_review = None
@@ -971,9 +979,48 @@ class MemorySummaryBridgeMixin:
         self.away_already_triggered_since_last_user_msg = False
         self.away_trigger_count_since_last_user_msg = 0
         self.last_away_trigger_at = None
-        self._cancel_away_pipeline()
-        
-        # LLM 컨텍스트 초기화
+        cancel_away = getattr(self, "_cancel_away_pipeline", None)
+        if callable(cancel_away):
+            cancel_away()
+
         if self.llm_client:
             self.llm_client.clear_context()
             print("[Bridge] Conversation cleared")
+        MemorySummaryBridgeMixin._reset_auto_summary_watermark(
+            self,
+            from_current_buffer=False,
+        )
+
+    def clear_conversation(self):
+        """대화를 바로 지우거나, 남은 대화의 요약 검토를 먼저 시작한다."""
+        messages = list(getattr(self, "conversation_buffer", []) or [])
+        reviewable = (
+            len(messages) >= 2
+            and getattr(self, "memory_manager", None) is not None
+            and getattr(self, "llm_client", None) is not None
+        )
+        if not reviewable:
+            complete = getattr(self, "_complete_conversation_clear", None)
+            if not callable(complete):
+                complete = lambda: MemorySummaryBridgeMixin._complete_conversation_clear(self)
+            complete()
+            return
+
+        if isinstance(getattr(self, "_pending_summary_review", None), dict):
+            self.summary_notice.emit("진행 중인 요약 검토를 먼저 마쳐 주세요.", "info")
+            return
+
+        print(f"[Bridge] 대화 초기화 전 남은 {len(messages)}개 메시지 요약 검토")
+        starter = getattr(self, "_start_summary_review_worker", None)
+        if not callable(starter):
+            starter = lambda value, **kwargs: MemorySummaryBridgeMixin._start_summary_review_worker(
+                self,
+                value,
+                **kwargs,
+            )
+        starter(
+            messages,
+            success_notice="초기화 전에 요약을 확인해 주세요.",
+            origin="clear",
+            completion_action="clear",
+        )

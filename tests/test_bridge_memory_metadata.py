@@ -1060,6 +1060,249 @@ def test_runtime_threshold_change_counts_from_current_buffer():
     assert dummy.next_auto_summary_count == 0
 
 
+def test_clear_conversation_starts_clear_review_before_reset():
+    dummy = type("BridgeDummy", (), {})()
+    dummy.conversation_buffer = [
+        ("user", "hello", "2026-04-14 20:00"),
+        ("assistant", "hi", "2026-04-14 20:01"),
+    ]
+    dummy.memory_manager = _DummyMemoryManager()
+    dummy.llm_client = _ReviewLLMClient()
+    dummy.started = []
+    dummy.completed = 0
+    dummy._start_summary_review_worker = lambda messages, **kwargs: dummy.started.append(
+        (list(messages), kwargs)
+    )
+    dummy._complete_conversation_clear = lambda: setattr(
+        dummy,
+        "completed",
+        dummy.completed + 1,
+    )
+
+    WebBridge.clear_conversation(dummy)
+
+    assert dummy.completed == 0
+    assert dummy.conversation_buffer == [
+        ("user", "hello", "2026-04-14 20:00"),
+        ("assistant", "hi", "2026-04-14 20:01"),
+    ]
+    assert dummy.started == [
+        (
+            list(dummy.conversation_buffer),
+            {
+                "success_notice": "초기화 전에 요약을 확인해 주세요.",
+                "origin": "clear",
+                "completion_action": "clear",
+            },
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    ("messages", "memory_manager", "llm_client"),
+    [([], _DummyMemoryManager(), _ReviewLLMClient()),
+     ([("user", "single")], _DummyMemoryManager(), _ReviewLLMClient()),
+     ([("user", "one"), ("assistant", "two")], None, _ReviewLLMClient()),
+     ([("user", "one"), ("assistant", "two")], _DummyMemoryManager(), None)],
+)
+def test_clear_conversation_without_reviewable_messages_completes_immediately(
+    messages,
+    memory_manager,
+    llm_client,
+):
+    dummy = type("BridgeDummy", (), {})()
+    dummy.conversation_buffer = list(messages)
+    dummy.memory_manager = memory_manager
+    dummy.llm_client = llm_client
+    dummy.completed = 0
+    dummy._complete_conversation_clear = lambda: setattr(
+        dummy,
+        "completed",
+        dummy.completed + 1,
+    )
+
+    WebBridge.clear_conversation(dummy)
+
+    assert dummy.completed == 1
+
+
+@pytest.mark.parametrize(
+    ("outcome", "expected_completed"),
+    [("saved", 1), ("cancelled", 1), ("saved_unregistered", 1), ("failed", 0)],
+)
+def test_clear_summary_outcomes_complete_only_safe_transitions(
+    outcome,
+    expected_completed,
+):
+    dummy = type("BridgeDummy", (), {})()
+    dummy.completed = 0
+    dummy.summary_notice = _DummySignal()
+    dummy._complete_conversation_clear = lambda: setattr(
+        dummy,
+        "completed",
+        dummy.completed + 1,
+    )
+
+    WebBridge._handle_summary_review_completion(dummy, "clear", outcome)
+
+    assert dummy.completed == expected_completed
+    expected_errors = (
+        [("요약은 저장했지만 생활 기록 기준점으로 등록하지 못했어요.", "error")]
+        if outcome == "saved_unregistered"
+        else []
+    )
+    assert dummy.summary_notice.emitted == expected_errors
+
+
+def test_clear_summary_generation_failure_preserves_buffer():
+    messages = [
+        ("user", "one", "2026-04-14 20:00"),
+        ("assistant", "two", "2026-04-14 20:01"),
+    ]
+    dummy = type("BridgeDummy", (), {})()
+    dummy.conversation_buffer = list(messages)
+    dummy.summary_notice = _DummySignal()
+    dummy.summary_review_finished = _DummySignal()
+    dummy.completed = 0
+    dummy._summary_review_request = {
+        "origin": "clear",
+        "completion_action": "clear",
+        "messages": list(messages),
+    }
+    dummy._complete_conversation_clear = lambda: setattr(
+        dummy,
+        "completed",
+        dummy.completed + 1,
+    )
+
+    WebBridge._on_summary_review_failed(dummy, "summary_review_error")
+
+    assert dummy.completed == 0
+    assert dummy.conversation_buffer == messages
+    assert dummy.summary_review_finished.emitted == [("clear", "failed")]
+
+
+def test_clear_summary_storage_failure_preserves_buffer():
+    class _FailingMemoryManager:
+        async def add_summary(self, **_kwargs):
+            raise RuntimeError("synthetic memory save failure")
+
+    messages = [
+        ("user", "one", "2026-04-14 20:00"),
+        ("assistant", "two", "2026-04-14 20:01"),
+    ]
+    dummy = type("BridgeDummy", (), {})()
+    dummy.conversation_buffer = list(messages)
+    dummy.memory_manager = _FailingMemoryManager()
+    dummy.llm_client = _ReviewLLMClient()
+    dummy.user_profile = None
+    dummy.ene_profile = None
+    dummy.summary_notice = _DummySignal()
+    dummy.summary_review_finished = _DummySignal()
+    dummy.summarize_threshold = 3
+    dummy.next_auto_summary_count = 3
+    dummy.completed = 0
+    dummy._pending_summary_review = {
+        **_build_pending_review(messages),
+        "origin": "clear",
+        "completion_action": "clear",
+    }
+    dummy._persist_reviewed_summary = (
+        lambda summary, user_facts, ene_facts, memory_meta, topic_hints=None: WebBridge._persist_reviewed_summary(
+            dummy,
+            summary,
+            user_facts,
+            ene_facts,
+            memory_meta,
+            topic_hints,
+        )
+    )
+    dummy._complete_conversation_clear = lambda: setattr(
+        dummy,
+        "completed",
+        dummy.completed + 1,
+    )
+
+    WebBridge.approve_summary_review(
+        dummy,
+        json.dumps(
+            {
+                "summary": "synthetic summary",
+                "user_facts": [],
+                "ene_facts": [],
+                "memory_meta": {},
+                "topic_hints": [],
+            }
+        ),
+    )
+
+    assert dummy.completed == 0
+    assert dummy.conversation_buffer == messages
+    assert dummy._pending_summary_review["origin"] == "clear"
+    assert dummy.summary_review_finished.emitted == [("clear", "failed")]
+
+
+def test_complete_conversation_clear_resets_state_and_watermark():
+    dummy = type("BridgeDummy", (), {})()
+    dummy.conversation_buffer = [("user", "one"), ("assistant", "two")]
+    dummy._summarized_recent_context = [("user", "older")]
+    dummy._pending_summary_review = {"origin": "clear"}
+    dummy._ene_thought_context_buffer = [{"conversation_index": 0}]
+    dummy._loaded_topic_memory_context_buffer = [{"conversation_index": 0}]
+    dummy._last_request_payload = {"message": "synthetic"}
+    dummy._last_assistant_response = "synthetic"
+    dummy._is_rerolling = True
+    dummy.away_already_triggered_since_last_user_msg = True
+    dummy.away_trigger_count_since_last_user_msg = 2
+    dummy.last_away_trigger_at = "2026-04-14 20:00"
+    dummy.summarize_threshold = 4
+    dummy.next_auto_summary_count = 99
+    dummy.reset_public_calls = 0
+    dummy.attachment_clear_calls = 0
+    dummy.away_cancel_calls = 0
+    dummy.sync_calls = 0
+    dummy.llm_client = _ReviewLLMClient()
+    dummy._reset_companion_conversation = lambda: setattr(
+        dummy,
+        "reset_public_calls",
+        dummy.reset_public_calls + 1,
+    )
+    dummy._get_attachment_session = lambda: types.SimpleNamespace(
+        clear=lambda: setattr(
+            dummy,
+            "attachment_clear_calls",
+            dummy.attachment_clear_calls + 1,
+        )
+    )
+    dummy._sync_attachment_session_aliases = lambda: setattr(
+        dummy,
+        "sync_calls",
+        dummy.sync_calls + 1,
+    )
+    dummy._cancel_away_pipeline = lambda: setattr(
+        dummy,
+        "away_cancel_calls",
+        dummy.away_cancel_calls + 1,
+    )
+
+    WebBridge._complete_conversation_clear(dummy)
+
+    assert dummy.conversation_buffer == []
+    assert dummy._summarized_recent_context == []
+    assert dummy._pending_summary_review is None
+    assert dummy._ene_thought_context_buffer == []
+    assert dummy._loaded_topic_memory_context_buffer == []
+    assert dummy._last_request_payload is None
+    assert dummy._last_assistant_response is None
+    assert dummy._is_rerolling is False
+    assert dummy.reset_public_calls == 1
+    assert dummy.attachment_clear_calls == 1
+    assert dummy.sync_calls == 1
+    assert dummy.away_cancel_calls == 1
+    assert dummy.llm_client.clear_context_calls == 1
+    assert dummy.next_auto_summary_count == 4
+
+
 def test_regenerate_summary_review_starts_worker_without_saving():
     dummy = type("BridgeDummy", (), {})()
     dummy.memory_manager = _DummyMemoryManager()

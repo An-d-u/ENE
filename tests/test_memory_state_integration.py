@@ -57,6 +57,35 @@ def test_auto_summary_does_not_race_manual_worker(tmp_path):
     assert calls == []
 
 
+def test_clear_summary_cancel_completes_without_storage(tmp_path):
+    messages = [("user", "가상 선택을 정했어."), ("assistant", "선택을 확인했어.")]
+    bridge = SimpleNamespace(
+        conversation_buffer=list(messages),
+        memory_manager=MemoryManager(tmp_path / "memories.json"),
+        llm_client=SimpleNamespace(),
+        summary_notice=SimpleNamespace(emit=lambda *_args: None),
+        summary_review_finished=SimpleNamespace(emit=lambda *_args: None),
+    )
+    started = []
+    completed = []
+    bridge._start_summary_review_worker = lambda batch, **kwargs: started.append(
+        (list(batch), kwargs)
+    )
+    bridge._complete_conversation_clear = lambda: completed.append(True)
+
+    WebBridge.clear_conversation(bridge)
+    bridge._pending_summary_review = {
+        "messages": list(messages),
+        "origin": "clear",
+        "completion_action": "clear",
+    }
+    WebBridge.cancel_summary_review(bridge)
+
+    assert started[0][1]["origin"] == "clear"
+    assert completed == [True]
+    assert bridge.memory_manager.memories == []
+
+
 def test_raw_recall_can_find_detail_outside_initial_summary_candidates(tmp_path):
     manager = MemoryManager(tmp_path / "memories.json")
     asyncio.run(manager.add_summary("부품 정리", [{"role": "user", "text": "가상 부품 VX900의 보관함은 파란 상자야."}]))
