@@ -138,11 +138,13 @@ Common files:
 
 ## Life Records
 
-Life records can describe what ENE did in a text-based world while the app was not running. The feature is disabled by default. Enable it under `Settings → Behavior → Life records`; the default minimum inactive time is 60 minutes and can be changed there.
+Life records can describe what ENE did in a text-based world between an approved conversation summary and a later return. The feature is disabled by default. Enable it under `Settings → Behavior → Life records`; the default minimum time after the summary is 60 minutes and can be changed there.
 
 Edit the freeform Markdown world under `Settings → Prompts → Life World`. The runtime file is `%AppData%/ENE/prompts/life_world.md`. If the world is intentionally empty, ENE skips generation and normal chat continues.
 
-On the first normal chat after a qualifying inactive period, ENE may make two sequential LLM calls: one to generate the life record and one for the normal reply with the newest successful record as temporary context. Reported token usage for the turn combines both calls. Commands do not consume this first-chat trigger, and rerolling the reply does not regenerate the record.
+An approved, successfully saved summary creates the time anchor. The anchor becomes eligible only after the session containing that summary ends, and automatic summaries also require review before they can be saved. A life record can then be generated on the first normal message of a later run only if that run began with an empty chat and the configured time has elapsed. A normal message sent too early does not consume the anchor, but it closes the opportunity for that run; commands do not. Clearing the chat does not reopen it.
+
+ENE may make two sequential LLM calls on that first eligible message: one for the life record and one for the normal reply with the newest successful record as temporary context. Reported token usage combines both calls. The virtual-life interval may overlap with real conversations that happened after the anchor, because the approved summary time remains authoritative. V1 does not automatically promote older app exits that predate this summary-anchor state. Rerolling the reply does not regenerate the record.
 
 Open `··· → Life records` to browse records by date. Past records are read-only; only the newest record can be regenerated, with the previous version retained if regeneration fails. Corrupt record data or a generation failure never blocks the normal chat reply.
 

@@ -1651,6 +1651,32 @@ def test_korean_locale_uses_general_tts_enable_label():
     assert "일본어 응답" not in ko_locale["settings"]["tts"]["overview"]["enable"]
 
 
+def test_life_record_settings_describe_summary_anchored_timing():
+    locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
+    expected = {
+        "ko": {
+            "label": "요약 후 최소 시간:",
+            "hint_parts": ("승인·저장된 요약", "세션이 끝난 뒤", "빈 대화로 시작"),
+        },
+        "en": {
+            "label": "Minimum time after summary:",
+            "hint_parts": ("approved, saved summary", "session ends", "empty chat"),
+        },
+        "ja": {
+            "label": "要約後の最小時間:",
+            "hint_parts": ("承認・保存された要約", "セッション終了後", "空の会話"),
+        },
+    }
+
+    for language, language_expected in expected.items():
+        locale = json.loads(
+            (locales_dir / f"{language}.json").read_text(encoding="utf-8-sig")
+        )
+        life_records = locale["settings"]["behavior"]["life_records"]
+        assert life_records["min_inactive"]["label"] == language_expected["label"]
+        assert all(part in life_records["hint"] for part in language_expected["hint_parts"])
+
+
 def test_settings_dialog_translates_viseme_lipsync_toggle_label_in_japanese(monkeypatch):
     _get_qapp()
     locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
