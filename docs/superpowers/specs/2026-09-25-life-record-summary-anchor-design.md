@@ -28,7 +28,7 @@
 - **세션 요약 후보**: 현재 ENE 프로세스 실행에서 가장 최근에 저장한 승인 요약이다. 같은 실행이 끝나기 전에는 생활 기록을 만들 수 없다.
 - **활성 기준점**: 이전 실행에서 확정된 세션 요약 후보다. 요약 ID와 요약 저장 시각을 가진다.
 - **사용 완료**: 활성 기준점으로 만든 생활 기록이 권위 저장소에 저장되고 기준점 소비 상태도 확정된 상태다.
-- **빈 실행**: 현재 프로세스에서 일반 메시지를 아직 한 번도 성공적으로 수락하지 않은 실행이다. 시작 시 `conversation_buffer`도 비어 있어야 한다. 요약이나 초기화로 버퍼가 나중에 다시 비어도 같은 실행은 다시 빈 실행이 되지 않는다. 도구 명령과 부수효과 전에 거부된 요청은 이 상태를 소비하지 않는다.
+- **빈 실행**: 프로세스 시작 시 `conversation_buffer`가 비어 있고 실행 단위 `life_gate_open`이 아직 true인 실행이다. 일반 메시지 commit 또는 비어 있지 않은 대화 버퍼의 요약·초기화가 한 번이라도 완료되면 이 값은 false가 되며 같은 프로세스에서 다시 true가 되지 않는다. 도구 명령과 부수효과 전에 거부된 요청은 이 상태를 소비하지 않는다.
 
 ## 4. 확정한 제품 동작
 
@@ -46,11 +46,10 @@
 
 1. `life_records.json`을 읽고 검증해 claim A의 예상 기록 ID가 존재하는지 확인한다.
 2. 기록이 있으면 A를 사용 완료 처리하고, 없으면 claim만 해제해 A를 미사용 기준점으로 되돌린다.
-3. 위 조정 상태를 원자 저장한다.
-4. 그 뒤에만 B를 활성 기준점으로 승격해 A를 교체한다.
-5. 최종 상태를 새 `running` 세션과 함께 원자 저장한다.
+3. 메모리에서 A 조정 결과를 계산한 뒤 B를 활성 기준점으로 승격해 A를 교체한다.
+4. A 조정, B 승격과 새 `running` 세션을 포함한 최종 V2 payload를 한 번만 원자 저장한다.
 
-권위 기록을 읽거나 검증할 수 없거나 2~5단계의 상태 저장이 실패하면 A의 claim과 B를 원본 상태 그대로 보존하고 생활 기록 쓰기를 읽기 전용으로 닫는다. 조정하지 못한 상태에서 B를 먼저 승격하거나 A로 생성을 재시도하지 않는다.
+권위 기록을 읽거나 검증할 수 없거나 최종 단일 commit이 실패하면 디스크의 A claim과 B를 원본 상태 그대로 보존하고 생활 기록 쓰기를 읽기 전용으로 닫는다. 중간 payload를 저장하거나 조정하지 못한 상태에서 B를 먼저 승격하거나 A로 생성을 재시도하지 않는다.
 
 종료는 기준점을 활성화하는 경계일 뿐 시작 시각은 아니다. 생활 기록의 `inactive_started_at`은 승인 요약의 실제 저장 시각을 사용한다. 기존 저장 형식과 API 호환을 위해 필드명은 유지하지만 문서와 프롬프트에서는 이를 `요약 기준 생활 구간 시작`으로 설명한다.
 
@@ -118,7 +117,7 @@ watermark는 현재 버퍼 좌표계의 절대 메시지 수로 관리한다. �
 - 대화 초기화 완료: 버퍼를 비운 뒤 `next_count = summarize_threshold`로 재설정한다.
 - 런타임 임계값 변경: 현재 버퍼 길이를 기준으로 새 임계값을 적용하고 이미 열린 review의 대상 스냅샷에는 영향을 주지 않는다.
 
-자동·수동 review에는 내부 origin을 보관한다. 사용자가 보는 요약 내용과 저장 형식은 같지만 자동 취소만 메시지 수 watermark를 이동한다.
+자동·수동 review에는 내부 origin을 보관한다. 사용자가 보는 요약 내용과 저장 형식은 같지만 취소 origin과 현재 버퍼 길이에 따라 위 규칙대로 watermark를 이동한다.
 
 ### 5.3 대화 내역 초기화
 
@@ -133,12 +132,14 @@ watermark는 현재 버퍼 좌표계의 절대 메시지 수로 관리한다. �
 
 종료 전 요약 검토도 같은 승인 저장 경계를 사용한다. 종료는 요약 저장과 세션 상태 commit이 완료된 뒤 진행한다. 사용자가 최초 종료 확인에서 요약 없이 종료를 선택한 경우에만 바로 종료한다. 요약 후보 생성 실패, `memory.json` 저장 실패 또는 review 취소는 종료를 중단하고 앱과 버퍼를 유지한다. 기억 저장 뒤 tracker 등록이 실패하면 생활 기록을 읽기 전용으로 전환하고 종료를 중단해 오류를 사용자에게 보여준다. 사용자는 다시 종료해 요약 없이 종료를 명시적으로 선택할 수 있다.
 
+`memory.json` 저장 성공 뒤 tracker 등록만 실패한 경우, 요약 자체는 이미 durable하므로 모든 review origin에서 검토 대상 prefix를 요약 완료 처리해 버퍼에서 제거한다. 일반 수동·자동 review는 오류를 알리고 계속하며, 초기화 review는 나머지 초기화를 완료한다. 종료 review는 prefix를 제거하되 종료는 중단한다. 이 규칙은 같은 원문이 다음 review에서 중복 저장되는 것을 막으며, tracker 등록에 실패한 요약은 생활 기록 기준점으로 사용하지 않는다.
+
 ## 6. 세션 상태 V2
 
 `life_session_state.json`을 버전 2로 올리고 기존 세션 생존 정보에 다음 논리 상태를 추가한다.
 
 - 현재 세션의 최신 승인 요약: `summary_id`, `saved_at`
-- 이전 실행에서 활성화된 미사용 기준점: `summary_id`, `saved_at`, `activation_source`
+- 이전 실행에서 활성화된 미사용 기준점: `summary_id`, `saved_at`, `activation_source`, `origin_session_started_at`, `origin_session_ended_at`
 - 진행 중 생성 claim: `summary_id`, `returned_at`, `expected_record_id`
 
 실제 JSON 키와 중첩 구조는 구현 계획에서 현재 strict parser 스타일에 맞춰 확정한다. 다음 불변조건을 지켜야 한다.
@@ -155,7 +156,7 @@ watermark는 현재 버퍼 좌표계의 절대 메시지 수로 관리한다. �
 
 - 승인 요약 등록 시 tracker의 canonical clock을 다시 읽고 `summary_saved_at = max(now, persisted_last_seen_at, 이전 세션 요약 saved_at)`으로 정규화한다. 같은 commit에서 `last_seen_at`도 이 값 이상으로 올린다. `memory.json`의 표시 timestamp와 별개로 이 canonical 시각이 생활 기록 기준의 권위값이다.
 - 현재 세션 요약은 `started_at <= summary_saved_at <= last_seen_at`을 만족한다.
-- 활성 기준점은 이를 만든 이전 세션의 `started_at <= saved_at <= 종료 endpoint`를 만족해야 한다. 정상 종료 endpoint는 `stopped_at`, 복구 endpoint는 이전 `last_seen_at`이다.
+- 활성 기준점은 자체 보관한 원본 세션 경계에 대해 `origin_session_started_at <= saved_at <= origin_session_ended_at`을 만족해야 한다. 정상 종료 승격은 현재 `started_at`과 `stopped_at`, heartbeat recovery는 이전 `started_at`과 `last_seen_at`을 이 두 필드로 저장한다. V2 strict parser는 활성 기준점을 읽을 때마다 이 순서를 검증한다.
 - claim의 `returned_at`은 `max(request_received_at, current.started_at, current.last_seen_at, active.saved_at)`으로 정규화하며, 같은 commit에서 현재 `last_seen_at`도 후퇴하지 않는다.
 - 시스템 clock이 후퇴하면 위 `max` 규칙으로 단조 증가시킨다. overflow, timezone 해석 실패 또는 순서 불변조건을 만족할 수 없는 값은 clamp하지 않고 fail-closed로 거부한다.
 
@@ -178,7 +179,7 @@ watermark는 현재 버퍼 좌표계의 절대 메시지 수로 관리한다. �
 - pending review에 `origin`과 완료 후 행동을 저장한다.
 - 승인 저장 성공 후 tracker에 요약 ID와 실제 저장 시각을 등록한다.
 - 자동 취소 watermark와 대화 초기화 승인·취소 후속 동작을 관리한다.
-- 요약 저장과 tracker 등록 중 하나만 성공하는 경우를 안전하게 처리한다. 요약은 이미 권위 메모리에 저장됐더라도 tracker 등록 실패 시 생활 기록 기준점으로 사용하지 않고 생활 기록 쓰기를 읽기 전용으로 전환한다.
+- 요약 저장과 tracker 등록 중 하나만 성공하는 경우를 안전하게 처리한다. 요약은 이미 권위 메모리에 저장됐더라도 tracker 등록 실패 시 생활 기록 기준점으로 사용하지 않고 생활 기록 쓰기를 읽기 전용으로 전환한다. 저장된 review prefix는 모든 origin에서 요약 완료 처리하되 종료 origin만 실제 종료를 중단한다.
 
 ### 7.2 `AppSessionTracker`
 
@@ -190,11 +191,13 @@ watermark는 현재 버퍼 좌표계의 절대 메시지 수로 관리한다. �
 
 ### 7.3 `LifeRecordBridgeMixin`
 
-- 프로세스 시작 시 `has_accepted_general_message=false`로 두고, 버퍼가 비어 있으며 이 값이 false인 일반 요청만 활성 기준점을 평가한다.
-- 일반 요청이 보류 요청으로 안전하게 접수되어 생활 기록 생성을 시작했거나 일반 대화 버퍼 commit이 성공한 뒤에만 `has_accepted_general_message=true`로 바꾼다.
-- busy·입력 검증·첨부 파싱·claim 저장 단계에서 거부되거나 일반 대화 commit이 실패해 롤백된 요청은 gate 기회를 소비하지 않는다.
+- 프로세스 시작 시 버퍼가 비어 있을 때만 `life_gate_open=true`로 두고, 버퍼가 비어 있으며 이 값이 true인 일반 요청만 활성 기준점을 평가한다.
+- 일반 요청이 보류 요청으로 안전하게 접수되어 생활 기록 생성을 시작했거나 일반 대화 버퍼 commit이 성공하면 `life_gate_open=false`로 바꾼다.
+- 비어 있지 않은 버퍼를 요약하거나 초기화하는 동작도 완료 시 `life_gate_open=false`로 고정한다. 버퍼가 다시 비어도 되돌리지 않는다.
+- busy·입력 검증·첨부 파싱 단계에서 거부되거나 일반 대화 commit이 실패해 롤백된 요청은 gate 기회를 소비하지 않는다.
+- claim 저장 실패는 생활 기록 호출만 생략하고 같은 요청을 일반 대화로 처리한다. 그 일반 대화 commit이 성공하면 `life_gate_open=false`, commit도 실패하면 true를 유지한다.
 - 첫 일반 요청이 임계값 미만, 빈 세계, 기능 비활성화 같은 안전한 생략으로 정상 commit되면 현재 실행의 gate 기회는 끝나지만 durable 기준점은 유지한다.
-- 요약 승인이나 대화 초기화로 버퍼가 다시 비어도 `has_accepted_general_message`를 false로 되돌리지 않는다.
+- 요약 승인이나 대화 초기화로 버퍼가 다시 비어도 `life_gate_open`을 true로 되돌리지 않는다.
 - 임계값 미만과 안전한 생략은 durable 기준점을 소비하지 않는다.
 - 생성 전에 claim을 시작하고 성공·실패 finalizer에서 claim을 완료하거나 해제한다.
 - 시작 시 미완료 claim과 권위 기록 저장소를 조정한다.
@@ -218,6 +221,7 @@ watermark는 현재 버퍼 좌표계의 절대 메시지 수로 관리한다. �
 - 자동 요약 후보 생성 실패: 확인창을 열지 않고 기존 버퍼와 자동 제안 watermark를 유지한다.
 - 요약 저장 실패: 메시지를 제거하거나 기준점을 등록하지 않는다.
 - 요약 저장 성공·tracker 등록 실패: 저장된 기억은 보존하되 생활 기록 기준점으로 사용하지 않고 세션 추적을 fail-closed로 둔다.
+- tracker 등록 실패 review: 모든 origin에서 저장된 대상 prefix를 요약 완료 처리한다. 일반 수동·자동은 계속하고, 초기화는 완료하며, 종료 review는 종료를 중단한다.
 - 자동 검토 취소: 버퍼를 유지하고 다음 자동 제안 watermark만 이동한다.
 - 초기화 검토 취소: 저장 없이 초기화한다.
 - 정상 종료 상태 저장 실패: 현재 세션 요약을 활성화하지 않는다. 다음 시작에서 유효한 `running` 상태가 남았다면 heartbeat recovery 규칙을 적용한다.
@@ -253,8 +257,9 @@ watermark는 현재 버퍼 좌표계의 절대 메시지 수로 관리한다. �
 - 같은 실행의 최신 승인 요약이 이전 후보를 교체한다.
 - 새 승인 요약이 있는 실행 종료가 이전 미사용 기준점을 교체한다.
 - claim A와 새 세션 요약 B가 함께 남은 비정상 종료에서 A 조정 뒤 B를 승격한다.
+- A 조정, B 승격과 새 `running` 세션은 중간 저장 없이 하나의 최종 payload로 commit한다.
 - 권위 기록 읽기·검증, claim 해제·소비 commit 실패는 원본 claim을 보존하고 read-only로 전환한다.
-- summary·active·claim 시각의 순서와 clock rollback 단조 증가 규칙을 검증한다.
+- summary·active·claim 시각과 활성 기준점의 원본 세션 경계, clock rollback 단조 증가 규칙을 검증한다.
 - strict keys, timezone, UUID, 시간 순서, lease, clock rollback과 원자 저장 불변조건을 유지한다.
 - 요약 등록과 종료 commit 실패는 fail-closed로 처리한다.
 
@@ -266,7 +271,9 @@ watermark는 현재 버퍼 좌표계의 절대 메시지 수로 관리한다. �
 - 요약 없이 종료한 뒤 다음 빈 실행에서 기존 기준점을 다시 평가한다.
 - 현재 버퍼가 비어 있는 첫 텍스트·첨부 메시지만 생성할 수 있다.
 - 버퍼를 요약·초기화로 다시 비워도 같은 실행의 gate가 재활성화되지 않는다.
+- 시작 시 비어 있지 않은 버퍼와 비어 있지 않은 버퍼의 요약·초기화가 gate를 영구히 닫는지 검증한다.
 - busy·파싱·검증 거부와 commit rollback은 gate를 소비하지 않으며 정상 commit만 소비한다.
+- claim 저장 실패 뒤 일반 대화 commit 성공·실패에 따른 gate 상태를 검증한다.
 - 도구 명령은 버퍼 조건과 기준점을 소비하지 않는다.
 - 기능 비활성화, 빈 세계, read-only 상태와 충돌 작업은 기준점을 소비하지 않는다.
 - 새 source 값으로 만든 기록과 기존 source 기록의 조회·재생성을 모두 검증한다.
@@ -274,6 +281,7 @@ watermark는 현재 버퍼 좌표계의 절대 메시지 수로 관리한다. �
 ### 9.4 실패와 멱등성
 
 - claim 실패 시 공급자를 호출하지 않는다.
+- claim 실패 뒤 일반 대화 commit이 성공하면 현재 실행의 gate를 닫고, commit도 실패하면 gate를 유지한다.
 - 생성·검증·저장 실패 뒤 기준점과 일반 답변을 보존한다.
 - 실패한 실행에서 재시도하지 않고 다음 빈 실행에서 재시도한다.
 - 성공한 기록은 기준점을 정확히 한 번 소비한다.
