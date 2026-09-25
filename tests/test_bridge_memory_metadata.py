@@ -65,6 +65,19 @@ class _DummySignal:
         self.emitted.append(args)
 
 
+class _DummySummaryTracker:
+    def __init__(self, *, result=None, order=None):
+        self.result = result
+        self.order = order
+        self.calls = []
+
+    def register_approved_summary(self, summary_id):
+        self.calls.append(summary_id)
+        if self.order is not None:
+            self.order.append(("tracker", summary_id))
+        return self.result
+
+
 class _ReviewLLMClient:
     def __init__(self):
         self.calls = []
@@ -669,6 +682,135 @@ def test_approve_summary_review_persists_edited_summary_and_selected_facts():
     assert dummy.next_auto_summary_count == 10
 
 
+def test_approve_summary_review_registers_saved_memory_before_completing_origin():
+    order = []
+
+    class _OrderedMemoryManager(_DummyMemoryManager):
+        async def add_summary(self, **kwargs):
+            order.append("memory")
+            return await super().add_summary(**kwargs)
+
+    messages = [
+        ("user", "neutral input", "2026-04-14 20:00"),
+        ("assistant", "neutral reply", "2026-04-14 20:01"),
+    ]
+    dummy = type("BridgeDummy", (), {})()
+    dummy.conversation_buffer = list(messages)
+    dummy.memory_manager = _OrderedMemoryManager(summary_id="memory-review-anchor")
+    dummy.knowledge_map_manager = None
+    dummy.llm_client = _ReviewLLMClient()
+    dummy.user_profile = None
+    dummy.ene_profile = None
+    dummy.summary_notice = _DummySignal()
+    dummy.summary_review_saved = _DummySignal()
+    dummy.summary_review_finished = _DummySignal()
+    dummy.summarize_threshold = 3
+    dummy.next_auto_summary_count = 99
+    dummy._pending_summary_review = {
+        **_build_pending_review(messages),
+        "origin": "manual",
+        "completion_action": "continue",
+    }
+    dummy.life_session_tracker = _DummySummaryTracker(
+        result=types.SimpleNamespace(summary_id="memory-review-anchor"),
+        order=order,
+    )
+    dummy._persist_reviewed_summary = (
+        lambda summary, user_facts, ene_facts, memory_meta, topic_hints=None: WebBridge._persist_reviewed_summary(
+            dummy,
+            summary,
+            user_facts,
+            ene_facts,
+            memory_meta,
+            topic_hints,
+        )
+    )
+    dummy._complete_summary_context = lambda reviewed: (
+        order.append("complete"),
+        WebBridge._complete_summary_context(dummy, reviewed),
+    )[-1]
+
+    WebBridge.approve_summary_review(
+        dummy,
+        json.dumps({"summary": "approved summary"}),
+    )
+
+    assert order == [
+        "memory",
+        ("tracker", "memory-review-anchor"),
+        "complete",
+    ]
+    assert dummy.life_session_tracker.calls == ["memory-review-anchor"]
+    assert dummy.conversation_buffer == []
+    assert dummy._pending_summary_review is None
+    assert dummy.summary_review_saved.emitted == [()]
+    assert dummy.summary_review_finished.emitted == [("manual", "saved")]
+
+
+@pytest.mark.parametrize("origin", ["manual", "auto", "clear", "quit"])
+def test_approve_summary_review_tracker_failure_keeps_memory_and_degrades_life_records(origin):
+    messages = [
+        ("user", "neutral input", "2026-04-14 20:00"),
+        ("assistant", "neutral reply", "2026-04-14 20:01"),
+    ]
+    dummy = type("BridgeDummy", (), {})()
+    dummy.conversation_buffer = list(messages)
+    dummy.memory_manager = _DummyMemoryManager(summary_id="memory-review-unregistered")
+    dummy.knowledge_map_manager = None
+    dummy.llm_client = _ReviewLLMClient()
+    dummy.user_profile = None
+    dummy.ene_profile = None
+    dummy.summary_notice = _DummySignal()
+    dummy.summary_review_saved = _DummySignal()
+    dummy.summary_review_finished = _DummySignal()
+    dummy.summarize_threshold = 3
+    dummy.next_auto_summary_count = 99
+    dummy._pending_summary_review = {
+        **_build_pending_review(messages),
+        "origin": origin,
+        "completion_action": origin if origin in {"clear", "quit"} else "continue",
+    }
+    dummy.life_session_tracker = _DummySummaryTracker(result=None)
+    dummy.read_only_reasons = []
+    dummy._life_records_read_only_setter = dummy.read_only_reasons.append
+    dummy.clear_completions = 0
+    dummy._complete_conversation_clear = lambda: setattr(
+        dummy,
+        "clear_completions",
+        dummy.clear_completions + 1,
+    )
+    dummy._persist_reviewed_summary = (
+        lambda summary, user_facts, ene_facts, memory_meta, topic_hints=None: WebBridge._persist_reviewed_summary(
+            dummy,
+            summary,
+            user_facts,
+            ene_facts,
+            memory_meta,
+            topic_hints,
+        )
+    )
+
+    WebBridge.approve_summary_review(
+        dummy,
+        json.dumps({"summary": "durable summary"}),
+    )
+
+    assert len(dummy.memory_manager.calls) == 1
+    assert dummy.life_session_tracker.calls == ["memory-review-unregistered"]
+    assert dummy.read_only_reasons == ["session_tracker_degraded"]
+    assert dummy.conversation_buffer == []
+    assert dummy._pending_summary_review is None
+    assert dummy.summary_review_saved.emitted == []
+    assert dummy.summary_review_finished.emitted == [(origin, "saved_unregistered")]
+    assert dummy.clear_completions == (1 if origin == "clear" else 0)
+    expected_error = (
+        [("요약은 저장했지만 생활 기록 기준점으로 등록하지 못했어요.", "error")]
+        if origin in {"manual", "auto", "clear"}
+        else []
+    )
+    assert dummy.summary_notice.emitted == expected_error
+
+
 def test_approve_summary_review_persists_payload_topic_hints_to_knowledge_map():
     dummy = type("BridgeDummy", (), {})()
     dummy.conversation_buffer = [
@@ -860,13 +1002,13 @@ def test_persist_reviewed_summary_accepts_mixed_topic_hint_objects_and_skips_mal
     assert dummy.knowledge_map_manager.save_calls == 1
 
 
-def test_persist_reviewed_summary_skips_topic_storage_when_knowledge_map_manager_is_none():
+def test_persist_reviewed_summary_returns_memory_without_completing_review_context():
     dummy = type("BridgeDummy", (), {})()
     dummy.conversation_buffer = [
         ("user", "neutral input", "2026-04-14 20:00"),
         ("assistant", "neutral reply", "2026-04-14 20:01"),
     ]
-    dummy.memory_manager = _DummyMemoryManager()
+    dummy.memory_manager = _DummyMemoryManager(summary_id="memory-review-standalone")
     dummy.knowledge_map_manager = None
     dummy.llm_client = _ReviewLLMClient()
     dummy.user_profile = _DummyProfile()
@@ -877,7 +1019,7 @@ def test_persist_reviewed_summary_skips_topic_storage_when_knowledge_map_manager
         lambda messages: WebBridge._drop_reviewed_messages_from_buffer(dummy, messages)
     )
 
-    asyncio.run(
+    saved_memory = asyncio.run(
         WebBridge._persist_reviewed_summary(
             dummy,
             "approved summary",
@@ -898,11 +1040,12 @@ def test_persist_reviewed_summary_skips_topic_storage_when_knowledge_map_manager
 
     assert len(dummy.memory_manager.calls) == 1
     assert len(dummy.user_profile.calls) == 1
-    assert dummy.conversation_buffer == []
-    assert dummy._pending_summary_review is None
+    assert saved_memory.id == "memory-review-standalone"
+    assert dummy.conversation_buffer
+    assert dummy._pending_summary_review is not None
 
 
-def test_persist_reviewed_summary_keeps_summary_profile_and_buffer_cleanup_when_topic_save_fails():
+def test_persist_reviewed_summary_keeps_durable_data_pending_when_topic_save_fails():
     dummy = type("BridgeDummy", (), {})()
     dummy.conversation_buffer = [
         ("user", "neutral input", "2026-04-14 20:00"),
@@ -919,7 +1062,7 @@ def test_persist_reviewed_summary_keeps_summary_profile_and_buffer_cleanup_when_
         lambda messages: WebBridge._drop_reviewed_messages_from_buffer(dummy, messages)
     )
 
-    asyncio.run(
+    saved_memory = asyncio.run(
         WebBridge._persist_reviewed_summary(
             dummy,
             "approved summary",
@@ -943,8 +1086,9 @@ def test_persist_reviewed_summary_keeps_summary_profile_and_buffer_cleanup_when_
     assert len(dummy.ene_profile.calls) == 1
     assert len(dummy.knowledge_map_manager.merge_calls) == 1
     assert dummy.knowledge_map_manager.save_calls == 1
-    assert dummy.conversation_buffer == []
-    assert dummy._pending_summary_review is None
+    assert saved_memory.id == "memory-review-3"
+    assert dummy.conversation_buffer
+    assert dummy._pending_summary_review is not None
 
 
 def test_approve_summary_review_preserves_messages_added_after_review_started():
@@ -1253,6 +1397,9 @@ def test_clear_summary_storage_failure_preserves_buffer():
     dummy.ene_profile = None
     dummy.summary_notice = _DummySignal()
     dummy.summary_review_finished = _DummySignal()
+    dummy.life_session_tracker = _DummySummaryTracker(
+        result=types.SimpleNamespace(summary_id="must-not-register")
+    )
     dummy.summarize_threshold = 3
     dummy.next_auto_summary_count = 3
     dummy.completed = 0
@@ -1293,6 +1440,7 @@ def test_clear_summary_storage_failure_preserves_buffer():
     assert dummy.completed == 0
     assert dummy.conversation_buffer == messages
     assert dummy._pending_summary_review["origin"] == "clear"
+    assert dummy.life_session_tracker.calls == []
     assert dummy.summary_review_finished.emitted == [("clear", "failed")]
 
 

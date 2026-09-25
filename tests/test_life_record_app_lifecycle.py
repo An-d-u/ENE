@@ -165,6 +165,32 @@ def test_startup_binds_one_time_context_manager_candidate_and_heartbeat(tmp_path
     assert captured["tracker"].heartbeat_calls == 1
 
 
+def test_bridge_binding_shares_tracker_and_read_only_transition(tmp_path):
+    def tracker_factory(path, *, time_context):
+        return _Tracker(Path(path), time_context=time_context)
+
+    app = _bare_app(tmp_path, tracker_factory)
+    bridge = _Bridge()
+    app.overlay_window = SimpleNamespace(bridge=bridge)
+
+    app._init_life_record_runtime()
+    app._bind_life_record_runtime_to_bridge()
+    app._start_life_session_heartbeat()
+
+    assert bridge.life_session_tracker is app.life_session_tracker
+    assert callable(bridge._life_records_read_only_setter)
+
+    bridge._life_records_read_only_setter("session_tracker_degraded")
+
+    assert app.life_records_writable is False
+    assert app.life_record_candidate is None
+    assert app.life_record_read_only_reason == "session_tracker_degraded"
+    assert app.life_heartbeat_timer.started is False
+    assert bridge.life_record_state.life_records_writable is False
+    assert bridge.life_record_state.candidate is None
+    assert bridge.life_record_state.read_only_reason == "session_tracker_degraded"
+
+
 def test_startup_passes_authoritative_record_ids_to_tracker(tmp_path):
     captured = {}
 

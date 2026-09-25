@@ -340,6 +340,7 @@ class ENEApplication(QObject):
             return
         bridge.life_record_manager = manager
         bridge.life_session_tracker = getattr(self, "life_session_tracker", None)
+        bridge._life_records_read_only_setter = self._set_life_records_read_only
         bridge.settings = getattr(self, "settings", getattr(bridge, "settings", None))
         bridge.ene_profile = getattr(self, "ene_profile", getattr(bridge, "ene_profile", None))
         bridge.mood_manager = getattr(self, "mood_manager", getattr(bridge, "mood_manager", None))

@@ -167,6 +167,48 @@ class MemorySummaryBridgeMixin:
         if callable(rebuild):
             rebuild(recent + list(self.conversation_buffer))
 
+    def _set_life_records_read_only_after_tracker_failure(self) -> None:
+        """요약 기준점 등록 실패를 앱과 bridge의 공통 읽기 전용 상태에 반영한다."""
+        reason = "session_tracker_degraded"
+        setter = getattr(self, "_life_records_read_only_setter", None)
+        if callable(setter):
+            try:
+                setter(reason)
+                return
+            except Exception as error:
+                print(f"[Bridge] Life record read-only sync failed: {error}")
+
+        state_getter = getattr(self, "_get_life_record_state", None)
+        if callable(state_getter):
+            try:
+                state = state_getter()
+                state.candidate = None
+                state.life_records_writable = False
+                state.read_only_reason = reason
+            except Exception as error:
+                print(f"[Bridge] Life record state update failed: {error}")
+
+    def _register_approved_summary(self, saved_memory) -> bool:
+        """저장된 요약 ID를 현재 세션에 등록하고 실패하면 생활 기록만 비활성화한다."""
+        if not hasattr(self, "life_session_tracker"):
+            # 앱 lifecycle 밖에서 mixin만 사용하는 기존 호출자는 등록 대상이 없다.
+            return True
+
+        tracker = getattr(self, "life_session_tracker", None)
+        summary_id = str(getattr(saved_memory, "id", "") or "").strip()
+        registered = None
+        if tracker is not None and summary_id:
+            try:
+                registered = tracker.register_approved_summary(summary_id)
+            except Exception as error:
+                print(f"[Bridge] Approved summary registration failed: {error}")
+
+        if registered is not None:
+            return True
+
+        MemorySummaryBridgeMixin._set_life_records_read_only_after_tracker_failure(self)
+        return False
+
     @staticmethod
     def _summary_bridge_is_shutting_down(bridge) -> bool:
         state = getattr(bridge, "life_record_state", None)
@@ -767,7 +809,7 @@ class MemorySummaryBridgeMixin:
         self._emit_summary_review()
 
     async def _persist_reviewed_summary(self, summary, user_facts, ene_facts, memory_meta, topic_hints=None):
-        """검토가 끝난 요약과 승인된 정보만 실제 저장소에 반영한다."""
+        """검토가 끝난 요약과 승인된 정보만 저장하고 저장된 memory를 반환한다."""
         pending = getattr(self, "_pending_summary_review", None)
         if not isinstance(pending, dict):
             raise ValueError("저장할 요약 검토 항목이 없습니다.")
@@ -816,8 +858,7 @@ class MemorySummaryBridgeMixin:
         await MemorySummaryBridgeMixin._persist_topic_state(
             self, topic_hints, saved_memory, original_messages, source_timestamp, reviewed=True,
         )
-        MemorySummaryBridgeMixin._complete_summary_context(self, reviewed_messages)
-        self._pending_summary_review = None
+        return saved_memory
 
     @pyqtSlot(str)
     def approve_summary_review(self, payload_json: str):
@@ -827,6 +868,11 @@ class MemorySummaryBridgeMixin:
         pending = getattr(self, "_pending_summary_review", None)
         origin, _completion_action = MemorySummaryBridgeMixin._summary_review_metadata(
             pending
+        )
+        reviewed_messages = (
+            list(pending.get("messages") or [])
+            if isinstance(pending, dict)
+            else []
         )
         try:
             payload = json.loads(str(payload_json or "{}"))
@@ -840,7 +886,7 @@ class MemorySummaryBridgeMixin:
 
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            loop.run_until_complete(
+            saved_memory = loop.run_until_complete(
                 self._persist_reviewed_summary(
                     summary,
                     payload.get("user_facts") or [],
@@ -849,19 +895,40 @@ class MemorySummaryBridgeMixin:
                     payload.get("topic_hints") or [],
                 )
             )
-            self.summary_notice.emit("대화 요약을 저장했어요.", "success")
+            register = getattr(self, "_register_approved_summary", None)
+            if not callable(register):
+                register = lambda memory: MemorySummaryBridgeMixin._register_approved_summary(
+                    self,
+                    memory,
+                )
+            tracker_registered = register(saved_memory)
+
+            complete = getattr(self, "_complete_summary_context", None)
+            if not callable(complete):
+                complete = lambda messages: MemorySummaryBridgeMixin._complete_summary_context(
+                    self,
+                    messages,
+                )
+            complete(reviewed_messages)
+            self._pending_summary_review = None
             MemorySummaryBridgeMixin._reset_auto_summary_watermark(
                 self,
                 from_current_buffer=False,
             )
-            saved_signal = getattr(self, "summary_review_saved", None)
-            if saved_signal is not None:
-                saved_signal.emit()
-            MemorySummaryBridgeMixin._emit_summary_review_finished(
-                self,
-                origin,
-                "saved",
-            )
+            if tracker_registered:
+                self.summary_notice.emit("대화 요약을 저장했어요.", "success")
+                saved_signal = getattr(self, "summary_review_saved", None)
+                if saved_signal is not None:
+                    saved_signal.emit()
+                outcome = "saved"
+            else:
+                if origin in {"manual", "auto"}:
+                    self.summary_notice.emit(
+                        "요약은 저장했지만 생활 기록 기준점으로 등록하지 못했어요.",
+                        "error",
+                    )
+                outcome = "saved_unregistered"
+            MemorySummaryBridgeMixin._emit_summary_review_finished(self, origin, outcome)
         except Exception as e:
             print(f"[Bridge] Summary review approve failed: {e}")
             import traceback
