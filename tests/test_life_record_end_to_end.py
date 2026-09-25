@@ -516,6 +516,138 @@ def test_claim_complete_failure_keeps_record_for_startup_reconciliation(
         recovered.release_lease()
 
 
+def test_message_before_threshold_closes_gate_without_consuming_anchor(
+    monkeypatch,
+    tmp_path,
+):
+    early_return = STOPPED_AT + timedelta(minutes=30)
+    state_path = tmp_path / "before-threshold" / "life_session_state.json"
+    _seed_session(state_path, "summary_graceful_exit")
+    tracker = AppSessionTracker(state_path, time_context=_time_context(early_return))
+    candidate = tracker.start_session()
+    assert candidate is not None
+    bridge, _manager = _bridge(
+        monkeypatch,
+        state_path.parent,
+        candidate,
+        now=early_return,
+        tracker=tracker,
+    )
+    try:
+        bridge.send_to_ai("아직 이른 합성 요청")
+        bridge._capture_life_received_at = lambda: RETURNED_AT
+        bridge.send_to_ai("같은 실행의 늦은 합성 요청")
+
+        persisted = json.loads(state_path.read_text(encoding="utf-8"))
+        assert _LifeWorker.instances == []
+        assert len(bridge.normal_worker_calls) == 2
+        assert bridge.life_record_state.life_gate_open is False
+        assert persisted["active_anchor"] is not None
+        assert persisted["generation_claim"] is None
+    finally:
+        tracker.release_lease()
+
+
+def test_intermediate_message_run_preserves_anchor_for_later_eligible_run(
+    monkeypatch,
+    tmp_path,
+):
+    state_path = tmp_path / "intermediate-run" / "life_session_state.json"
+    _seed_session(state_path, "summary_graceful_exit")
+    early_return = STOPPED_AT + timedelta(minutes=20)
+    first_tracker = AppSessionTracker(
+        state_path,
+        time_context=_time_context(early_return),
+    )
+    first_candidate = first_tracker.start_session()
+    assert first_candidate is not None
+    first_bridge, _manager = _bridge(
+        monkeypatch,
+        state_path.parent,
+        first_candidate,
+        now=early_return,
+        tracker=first_tracker,
+    )
+    first_bridge.send_to_ai("테스트 실행의 합성 메시지")
+    assert _LifeWorker.instances == []
+    assert first_tracker.stop_session() is not None
+    first_tracker.release_lease()
+
+    later_return = STOPPED_AT + timedelta(hours=2)
+    later_tracker = AppSessionTracker(
+        state_path,
+        time_context=_time_context(later_return),
+    )
+    later_candidate = later_tracker.start_session()
+    try:
+        assert later_candidate is not None
+        assert later_candidate.started_at == STOPPED_AT
+        later_bridge, _manager = _bridge(
+            monkeypatch,
+            state_path.parent,
+            later_candidate,
+            now=later_return,
+            tracker=later_tracker,
+        )
+        later_bridge.send_to_ai("자격 실행의 첫 합성 메시지")
+        assert len(_LifeWorker.instances) == 1
+        assert _LifeWorker.instances[0].request.inactive_started_at == STOPPED_AT
+    finally:
+        later_tracker.release_lease()
+
+
+def test_post_summary_activity_does_not_move_anchor_timestamp(tmp_path):
+    state_path = tmp_path / "post-summary-activity" / "life_session_state.json"
+    _seed_session(state_path, "summary_graceful_exit")
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    later_exit = STOPPED_AT + timedelta(minutes=25)
+    payload["last_seen_at"] = later_exit.isoformat()
+    payload["stopped_at"] = later_exit.isoformat()
+    save_json_data(state_path, payload)
+
+    tracker = AppSessionTracker(
+        state_path,
+        time_context=_time_context(RETURNED_AT),
+    )
+    try:
+        candidate = tracker.start_session()
+        assert candidate is not None
+        assert candidate.started_at == STOPPED_AT
+        assert candidate.started_at != later_exit
+    finally:
+        tracker.release_lease()
+
+
+def test_existing_message_in_current_run_blocks_claim_and_generation(
+    monkeypatch,
+    tmp_path,
+):
+    state_path = tmp_path / "existing-message" / "life_session_state.json"
+    _seed_session(state_path, "summary_graceful_exit")
+    tracker = AppSessionTracker(state_path, time_context=_time_context())
+    candidate = tracker.start_session()
+    assert candidate is not None
+    bridge, _manager = _bridge(
+        monkeypatch,
+        state_path.parent,
+        candidate,
+        tracker=tracker,
+    )
+    bridge.conversation_buffer = [
+        ("user", "현재 실행의 기존 합성 메시지", "2099-08-07 09:59")
+    ]
+    try:
+        bridge.send_to_ai("현재 실행의 다음 합성 메시지")
+
+        persisted = json.loads(state_path.read_text(encoding="utf-8"))
+        assert _LifeWorker.instances == []
+        assert len(bridge.normal_worker_calls) == 1
+        assert persisted["active_anchor"] is not None
+        assert persisted["generation_claim"] is None
+    finally:
+        tracker.release_lease()
+
+
 def test_generation_failure_falls_back_then_reroll_does_not_regenerate(
     monkeypatch, tmp_path
 ):

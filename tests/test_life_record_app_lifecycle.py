@@ -11,6 +11,7 @@ from PyQt6.QtCore import QObject, QThread
 
 from src.core.app import ENEApplication
 from src.core.bridge_state import LifeRecordBridgeState
+from src.core.bridge_mixins.memory_summary import MemorySummaryBridgeMixin
 from src.core.life_session_tracker import InactiveStartCandidate
 from src.core.local_time import LocalTimeContext, LocalTimeResolution
 
@@ -189,6 +190,40 @@ def test_bridge_binding_shares_tracker_and_read_only_transition(tmp_path):
     assert bridge.life_record_state.life_records_writable is False
     assert bridge.life_record_state.candidate is None
     assert bridge.life_record_state.read_only_reason == "session_tracker_degraded"
+
+
+def test_clear_and_quit_summary_outcomes_have_distinct_completion_rules():
+    clear_completions = []
+    clear_bridge = SimpleNamespace(
+        _complete_conversation_clear=lambda: clear_completions.append("clear"),
+        summary_notice=SimpleNamespace(emit=lambda *_args: None),
+    )
+
+    MemorySummaryBridgeMixin._handle_summary_review_completion(
+        clear_bridge,
+        "clear",
+        "cancelled",
+    )
+    MemorySummaryBridgeMixin._handle_summary_review_completion(
+        clear_bridge,
+        "clear",
+        "saved",
+    )
+
+    quit_completions = []
+    app = ENEApplication.__new__(ENEApplication)
+    QObject.__init__(app)
+    app.overlay_window = SimpleNamespace(
+        bridge=SimpleNamespace(summary_notice=SimpleNamespace(emit=lambda *_args: None))
+    )
+    app._finish_quit_application = lambda: quit_completions.append("quit")
+    app._quit_after_summary_review = True
+    app._on_quit_summary_review_finished("quit", "cancelled")
+    app._quit_after_summary_review = True
+    app._on_quit_summary_review_finished("quit", "saved")
+
+    assert clear_completions == ["clear", "clear"]
+    assert quit_completions == ["quit"]
 
 
 def test_startup_passes_authoritative_record_ids_to_tracker(tmp_path):

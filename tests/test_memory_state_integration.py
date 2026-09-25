@@ -57,6 +57,44 @@ def test_auto_summary_does_not_race_manual_worker(tmp_path):
     assert calls == []
 
 
+def test_auto_summary_cancel_rearms_after_one_full_threshold():
+    started = []
+    notices = []
+    bridge = SimpleNamespace(
+        conversation_buffer=[("user", "합성 1"), ("assistant", "합성 2")],
+        memory_manager=object(),
+        summarize_threshold=2,
+        next_auto_summary_count=2,
+        _summary_review_worker=None,
+        _summary_in_progress=False,
+        _pending_summary_review=None,
+        summary_notice=SimpleNamespace(emit=lambda *args: notices.append(args)),
+        summary_review_finished=SimpleNamespace(emit=lambda *_args: None),
+    )
+    bridge._start_summary_review_worker = lambda messages, **kwargs: started.append(
+        (list(messages), kwargs)
+    )
+
+    WebBridge._check_auto_summarize(bridge)
+    bridge._pending_summary_review = {
+        "messages": list(bridge.conversation_buffer),
+        "origin": "auto",
+        "completion_action": "continue",
+    }
+    WebBridge.cancel_summary_review(bridge)
+    bridge.conversation_buffer.append(("user", "합성 3"))
+    WebBridge._check_auto_summarize(bridge)
+    bridge.conversation_buffer.append(("assistant", "합성 4"))
+    WebBridge._check_auto_summarize(bridge)
+
+    assert len(started) == 2
+    assert started[0][1]["origin"] == "auto"
+    assert len(started[0][0]) == 2
+    assert len(started[1][0]) == 4
+    assert bridge.next_auto_summary_count == 4
+    assert notices == [("요약 저장을 취소했어요.", "info")]
+
+
 def test_clear_summary_cancel_completes_without_storage(tmp_path):
     messages = [("user", "가상 선택을 정했어."), ("assistant", "선택을 확인했어.")]
     bridge = SimpleNamespace(
