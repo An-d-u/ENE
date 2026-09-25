@@ -268,6 +268,56 @@ class MemorySummaryBridgeMixin:
             completion_action="continue",
         )
 
+    def start_quit_summary_review(self) -> None:
+        """종료 전에 남은 대화를 quit 출처의 검토 흐름으로 보낸다."""
+        messages = list(getattr(self, "conversation_buffer", []) or [])
+        if (
+            not messages
+            or getattr(self, "memory_manager", None) is None
+            or getattr(self, "llm_client", None) is None
+        ):
+            self.summary_notice.emit("종료 전 요약 기능이 준비되지 않았어요.", "error")
+            MemorySummaryBridgeMixin._emit_summary_review_finished(
+                self,
+                "quit",
+                "failed",
+            )
+            return
+
+        current_worker = getattr(self, "_summary_review_worker", None)
+        is_running = getattr(current_worker, "isRunning", None)
+        review_busy = (
+            getattr(self, "_summary_in_progress", False)
+            or isinstance(getattr(self, "_pending_summary_review", None), dict)
+            or (
+                current_worker is not None
+                and callable(is_running)
+                and is_running()
+            )
+        )
+        if review_busy:
+            self.summary_notice.emit("진행 중인 요약 검토를 먼저 마쳐 주세요.", "info")
+            MemorySummaryBridgeMixin._emit_summary_review_finished(
+                self,
+                "quit",
+                "failed",
+            )
+            return
+
+        starter = getattr(self, "_start_summary_review_worker", None)
+        if not callable(starter):
+            starter = lambda value, **kwargs: MemorySummaryBridgeMixin._start_summary_review_worker(
+                self,
+                value,
+                **kwargs,
+            )
+        starter(
+            messages,
+            success_notice="종료 전에 요약을 확인해 주세요.",
+            origin="quit",
+            completion_action="quit",
+        )
+
     def _start_summary_review_worker(
         self,
         messages,
@@ -304,36 +354,73 @@ class MemorySummaryBridgeMixin:
         self._summary_review_success_notice = success_notice
         prepared_handler = getattr(self, "_on_summary_review_prepared", None)
         if not callable(prepared_handler):
-            prepared_handler = lambda pending: MemorySummaryBridgeMixin._on_summary_review_prepared(self, pending)
+            prepared_handler = lambda pending, **kwargs: MemorySummaryBridgeMixin._on_summary_review_prepared(
+                self,
+                pending,
+                **kwargs,
+            )
         failed_handler = getattr(self, "_on_summary_review_failed", None)
         if not callable(failed_handler):
-            failed_handler = lambda error: MemorySummaryBridgeMixin._on_summary_review_failed(self, error)
+            failed_handler = lambda error, **kwargs: MemorySummaryBridgeMixin._on_summary_review_failed(
+                self,
+                error,
+                **kwargs,
+            )
         finished_handler = getattr(self, "_on_summary_review_worker_finished", None)
         if not callable(finished_handler):
             finished_handler = lambda value: MemorySummaryBridgeMixin._on_summary_review_worker_finished(self, value)
 
-        worker.prepared.connect(prepared_handler)
-        worker.failed.connect(failed_handler)
+        worker.prepared.connect(
+            lambda pending: prepared_handler(pending, worker=worker)
+        )
+        worker.failed.connect(
+            lambda error: failed_handler(error, worker=worker)
+        )
         worker.finished.connect(lambda: finished_handler(worker))
         worker.start()
         return worker
 
-    def _on_summary_review_prepared(self, pending):
+    def _on_summary_review_prepared(self, pending, *, worker=None):
+        if (
+            worker is not None
+            and getattr(self, "_summary_review_worker", None) is not worker
+        ):
+            return
         if MemorySummaryBridgeMixin._summary_bridge_is_shutting_down(self):
             return
+        request = getattr(self, "_summary_review_request", None)
+        origin, completion_action = MemorySummaryBridgeMixin._summary_review_metadata(request)
         if not isinstance(pending, dict):
-            self.summary_notice.emit("요약할 대화가 없어요.", "info")
+            self._summary_review_request = None
+            self.summary_notice.emit("요약할 대화 상태가 변경되었어요.", "error")
+            MemorySummaryBridgeMixin._emit_summary_review_finished(
+                self,
+                origin,
+                "failed",
+            )
             return
 
         messages = pending.get("messages", []) if isinstance(pending, dict) else []
         current = getattr(self, "conversation_buffer", None)
         if messages and current is not None and list(current)[:len(messages)] != messages:
+            self._summary_review_request = None
+            self.summary_notice.emit("요약할 대화 상태가 변경되었어요.", "error")
+            MemorySummaryBridgeMixin._emit_summary_review_finished(
+                self,
+                origin,
+                "failed",
+            )
             return
-        request = getattr(self, "_summary_review_request", None)
-        origin, completion_action = MemorySummaryBridgeMixin._summary_review_metadata(request)
         if isinstance(request, dict):
             requested_messages = list(request.get("messages") or [])
             if requested_messages and requested_messages != list(messages):
+                self._summary_review_request = None
+                self.summary_notice.emit("요약할 대화 상태가 변경되었어요.", "error")
+                MemorySummaryBridgeMixin._emit_summary_review_finished(
+                    self,
+                    origin,
+                    "failed",
+                )
                 return
         self._pending_summary_review = {
             **pending,
@@ -345,7 +432,12 @@ class MemorySummaryBridgeMixin:
         notice = getattr(self, "_summary_review_success_notice", "요약을 확인해 주세요.")
         self.summary_notice.emit(notice, "info")
 
-    def _on_summary_review_failed(self, error: str):
+    def _on_summary_review_failed(self, error: str, *, worker=None):
+        if (
+            worker is not None
+            and getattr(self, "_summary_review_worker", None) is not worker
+        ):
+            return
         if MemorySummaryBridgeMixin._summary_bridge_is_shutting_down(self):
             return
         print("[Bridge] Manual summarize failed: summary_review_error")
@@ -364,7 +456,7 @@ class MemorySummaryBridgeMixin:
             return
         if getattr(self, "_summary_review_worker", None) is worker:
             self._summary_review_worker = None
-        self._summary_review_success_notice = ""
+            self._summary_review_success_notice = ""
 
     def _normalize_summary_result(self, summary_result):
         """LLM 요약 응답을 저장/검토에 쓰기 쉬운 형태로 정규화한다."""

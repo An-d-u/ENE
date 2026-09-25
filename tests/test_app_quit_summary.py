@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+import pytest
 from PyQt6.QtCore import QObject
 from PyQt6.QtWidgets import QMessageBox
 
@@ -9,21 +10,26 @@ from src.core import app as app_module
 class _DummySignal:
     def __init__(self):
         self.callbacks = []
+        self.emitted = []
 
     def connect(self, callback):
         self.callbacks.append(callback)
 
-    def emit(self):
+    def emit(self, *args):
+        self.emitted.append(args)
         for callback in list(self.callbacks):
-            callback()
+            callback(*args)
 
 
 class _DummyBridge:
     def __init__(self, conversation_buffer=None):
         self.conversation_buffer = list(conversation_buffer or [])
         self.summary_review_saved = _DummySignal()
+        self.summary_review_finished = _DummySignal()
+        self.summary_notice = _DummySignal()
         self.stop_away_monitor_calls = 0
         self.summarize_now_calls = 0
+        self.start_quit_summary_review_calls = 0
         self.clear_conversation_calls = 0
 
     def stop_away_monitor(self):
@@ -31,6 +37,9 @@ class _DummyBridge:
 
     def summarize_now(self):
         self.summarize_now_calls += 1
+
+    def start_quit_summary_review(self):
+        self.start_quit_summary_review_calls += 1
 
     def clear_conversation(self):
         self.clear_conversation_calls += 1
@@ -91,7 +100,7 @@ def _build_quit_app(monkeypatch, bridge, question_reply):
     return app, question_calls, quit_calls
 
 
-def test_tray_quit_prompts_and_opens_manual_summary_review_when_user_accepts(monkeypatch):
+def test_tray_quit_prompts_and_opens_quit_summary_review_when_user_accepts(monkeypatch):
     bridge = _DummyBridge([("user", "hello", "2026-06-01 10:00")])
     app, question_calls, quit_calls = _build_quit_app(
         monkeypatch,
@@ -103,7 +112,8 @@ def test_tray_quit_prompts_and_opens_manual_summary_review_when_user_accepts(mon
 
     assert len(question_calls) == 1
     assert bridge.stop_away_monitor_calls == 0
-    assert bridge.summarize_now_calls == 1
+    assert bridge.summarize_now_calls == 0
+    assert bridge.start_quit_summary_review_calls == 1
     assert bridge.clear_conversation_calls == 0
     assert app.overlay_window.show_calls == 1
     assert quit_calls == []
@@ -127,7 +137,7 @@ def test_tray_quit_skips_summary_and_exits_when_user_declines(monkeypatch):
     assert quit_calls == ["quit"]
 
 
-def test_tray_quit_finishes_after_summary_review_is_saved(monkeypatch):
+def test_tray_quit_finishes_only_after_quit_summary_review_is_saved(monkeypatch):
     bridge = _DummyBridge([("user", "hello", "2026-06-01 10:00")])
     app, _, quit_calls = _build_quit_app(
         monkeypatch,
@@ -136,9 +146,78 @@ def test_tray_quit_finishes_after_summary_review_is_saved(monkeypatch):
     )
 
     app_module.ENEApplication._quit_application(app)
-    bridge.summary_review_saved.emit()
+    bridge.summary_review_finished.emit("manual", "saved")
 
-    assert bridge.summarize_now_calls == 1
+    assert app.overlay_window.shutdown_calls == 0
+    assert quit_calls == []
+
+    bridge.summary_review_finished.emit("quit", "saved")
+
+    assert bridge.start_quit_summary_review_calls == 1
     assert app.overlay_window.shutdown_calls == 1
     assert app.overlay_window.close_calls == 1
     assert quit_calls == ["quit"]
+
+
+@pytest.mark.parametrize("outcome", ["cancelled", "failed", "saved_unregistered"])
+def test_tray_quit_aborts_when_quit_summary_does_not_fully_commit(
+    monkeypatch,
+    outcome,
+):
+    bridge = _DummyBridge([("user", "hello", "2026-06-01 10:00")])
+    app, _, quit_calls = _build_quit_app(
+        monkeypatch,
+        bridge,
+        QMessageBox.StandardButton.Yes,
+    )
+
+    app_module.ENEApplication._quit_application(app)
+    bridge.summary_review_finished.emit("quit", outcome)
+
+    assert app._quit_after_summary_review is False
+    assert app._quit_in_progress is False
+    assert app.overlay_window.shutdown_calls == 0
+    assert app.overlay_window.close_calls == 0
+    assert quit_calls == []
+    expected_errors = (
+        [("요약은 저장했지만 생활 기록 기준점으로 등록하지 못해 종료를 중단했어요.", "error")]
+        if outcome == "saved_unregistered"
+        else []
+    )
+    assert bridge.summary_notice.emitted == expected_errors
+
+
+def test_tray_quit_can_be_retried_without_summary_after_review_cancel(monkeypatch):
+    bridge = _DummyBridge([("user", "hello", "2026-06-01 10:00")])
+    app, question_calls, quit_calls = _build_quit_app(
+        monkeypatch,
+        bridge,
+        QMessageBox.StandardButton.Yes,
+    )
+
+    app_module.ENEApplication._quit_application(app)
+    bridge.summary_review_finished.emit("quit", "cancelled")
+    app._ask_quit_summary_confirmation = lambda: False
+    app_module.ENEApplication._quit_application(app)
+
+    assert len(question_calls) == 1
+    assert bridge.start_quit_summary_review_calls == 1
+    assert app.overlay_window.shutdown_calls == 1
+    assert quit_calls == ["quit"]
+
+
+def test_repeated_quit_request_does_not_start_duplicate_review(monkeypatch):
+    bridge = _DummyBridge([("user", "hello", "2026-06-01 10:00")])
+    app, question_calls, quit_calls = _build_quit_app(
+        monkeypatch,
+        bridge,
+        QMessageBox.StandardButton.Yes,
+    )
+
+    app_module.ENEApplication._quit_application(app)
+    app_module.ENEApplication._quit_application(app)
+
+    assert len(question_calls) == 1
+    assert bridge.start_quit_summary_review_calls == 1
+    assert len(bridge.summary_review_finished.callbacks) == 1
+    assert quit_calls == []

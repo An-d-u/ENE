@@ -1109,7 +1109,7 @@ class ENEApplication(QObject):
         return reply == QMessageBox.StandardButton.Yes
 
     def _start_quit_summary_review(self):
-        """수동 요약 검토를 시작하고 저장 완료 후 종료되도록 연결한다."""
+        """quit 출처의 요약 검토를 시작하고 결과에 따라 종료 여부를 정한다."""
         if not hasattr(self, "overlay_window") or not hasattr(self.overlay_window, "bridge"):
             self._finish_quit_application()
             return
@@ -1117,9 +1117,9 @@ class ENEApplication(QObject):
         bridge = self.overlay_window.bridge
         self._quit_after_summary_review = True
         if not getattr(self, "_quit_summary_review_connected", False):
-            saved_signal = getattr(bridge, "summary_review_saved", None)
-            if saved_signal is not None:
-                saved_signal.connect(self._on_quit_summary_review_saved)
+            finished_signal = getattr(bridge, "summary_review_finished", None)
+            if finished_signal is not None:
+                finished_signal.connect(self._on_quit_summary_review_finished)
                 self._quit_summary_review_connected = True
 
         if hasattr(self.overlay_window, "show"):
@@ -1129,19 +1129,39 @@ class ENEApplication(QObject):
         if hasattr(self.overlay_window, "activateWindow"):
             self.overlay_window.activateWindow()
 
-        bridge.summarize_now()
-
-    def _on_quit_summary_review_saved(self):
-        """종료 대기 중인 요약 검토 저장이 끝나면 실제 종료한다."""
-        if not getattr(self, "_quit_after_summary_review", False):
+        starter = getattr(bridge, "start_quit_summary_review", None)
+        if not callable(starter):
+            self._quit_after_summary_review = False
+            notice = getattr(bridge, "summary_notice", None)
+            if notice is not None and hasattr(notice, "emit"):
+                notice.emit("종료 전 요약 기능이 준비되지 않았어요.", "error")
             return
-        self._finish_quit_application()
+        starter()
+
+    def _on_quit_summary_review_finished(self, origin: str, outcome: str):
+        """quit 검토가 완전히 저장된 경우에만 실제 종료를 시작한다."""
+        if origin != "quit" or not getattr(self, "_quit_after_summary_review", False):
+            return
+        self._quit_after_summary_review = False
+        if outcome == "saved":
+            self._finish_quit_application()
+            return
+        if outcome == "saved_unregistered":
+            bridge = getattr(getattr(self, "overlay_window", None), "bridge", None)
+            notice = getattr(bridge, "summary_notice", None)
+            if notice is not None and hasattr(notice, "emit"):
+                notice.emit(
+                    "요약은 저장했지만 생활 기록 기준점으로 등록하지 못해 종료를 중단했어요.",
+                    "error",
+                )
     
     def _quit_application(self):
         """애플리케이션 종료"""
         print("애플리케이션 종료 중...")
 
         if getattr(self, "_quit_in_progress", False):
+            return
+        if getattr(self, "_quit_after_summary_review", False):
             return
 
         if self._bridge_has_unsummarized_messages():

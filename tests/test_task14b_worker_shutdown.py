@@ -212,6 +212,55 @@ def test_summary_review_handlers_ignore_late_callbacks_during_shutdown():
     assert bridge.summary_review_ready.emitted == []
 
 
+def test_quit_summary_review_starts_origin_aware_worker():
+    messages = [
+        ("user", "Synthetic input.", "2026-06-01 10:00"),
+        ("assistant", "Synthetic reply.", "2026-06-01 10:01"),
+    ]
+    started = []
+    bridge = SimpleNamespace(
+        conversation_buffer=list(messages),
+        memory_manager=object(),
+        llm_client=object(),
+        _pending_summary_review=None,
+        _summary_review_worker=None,
+        _summary_in_progress=False,
+        _start_summary_review_worker=lambda batch, **kwargs: started.append(
+            (list(batch), kwargs)
+        ),
+    )
+
+    MemorySummaryBridgeMixin.start_quit_summary_review(bridge)
+
+    assert started == [
+        (
+            messages,
+            {
+                "success_notice": "종료 전에 요약을 확인해 주세요.",
+                "origin": "quit",
+                "completion_action": "quit",
+            },
+        )
+    ]
+
+
+def test_quit_summary_review_failure_emits_origin_aware_outcome():
+    bridge = SimpleNamespace(
+        conversation_buffer=[("user", "Synthetic input.")],
+        memory_manager=None,
+        llm_client=None,
+        summary_notice=_Signal(),
+        summary_review_finished=_Signal(),
+    )
+
+    MemorySummaryBridgeMixin.start_quit_summary_review(bridge)
+
+    assert bridge.summary_review_finished.emitted == [("quit", "failed")]
+    assert bridge.summary_notice.emitted == [
+        ("종료 전 요약 기능이 준비되지 않았어요.", "error")
+    ]
+
+
 def test_obsidian_tree_worker_cancellation_after_network_skips_signal():
     _ensure_qt_app()
     worker = None

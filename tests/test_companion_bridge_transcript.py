@@ -205,6 +205,24 @@ def test_auto_summary_preserves_complete_public_snapshot(bridge):
         return_value=("가상 도형을 정리한 합성 요약", [], [], {})
     )
     asyncio.run(bridge._auto_summarize())
+    assert len(bridge.conversation_buffer) == 2
+    assert capture(bridge).messages == before.messages
+    assert capture(bridge).conversation_id == before.conversation_id
+    bridge.memory_manager.add_summary.assert_not_awaited()
+
+    bridge.approve_summary_review(
+        json.dumps(
+            {
+                "summary": "가상 도형을 정리한 합성 요약",
+                "user_facts": [],
+                "ene_facts": [],
+                "memory_meta": {},
+                "topic_hints": [],
+            },
+            ensure_ascii=False,
+        )
+    )
+
     assert bridge.conversation_buffer == []
     assert capture(bridge).messages == before.messages
     assert capture(bridge).conversation_id == before.conversation_id

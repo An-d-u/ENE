@@ -400,6 +400,60 @@ def test_summary_review_generation_failure_emits_origin_aware_outcome():
     assert dummy.next_auto_summary_count == 9
 
 
+@pytest.mark.parametrize("pending", [None, {"messages": [("user", "different")] }])
+def test_quit_summary_review_invalid_preparation_emits_failed_outcome(pending):
+    requested_messages = [("user", "hello", "2026-04-14 20:00")]
+    dummy = type("BridgeDummy", (), {})()
+    dummy.conversation_buffer = list(requested_messages)
+    dummy.summary_notice = _DummySignal()
+    dummy.summary_review_finished = _DummySignal()
+    dummy._summary_review_request = {
+        "origin": "quit",
+        "completion_action": "quit",
+        "messages": list(requested_messages),
+    }
+
+    WebBridge._on_summary_review_prepared(dummy, pending)
+
+    assert dummy._summary_review_request is None
+    assert dummy.summary_review_finished.emitted == [("quit", "failed")]
+    assert dummy.summary_notice.emitted == [("요약할 대화 상태가 변경되었어요.", "error")]
+
+
+def test_stale_summary_worker_callback_cannot_replace_new_request():
+    stale_worker = object()
+    current_worker = object()
+    requested_messages = [("user", "new", "2026-04-14 20:01")]
+    request = {
+        "origin": "quit",
+        "completion_action": "quit",
+        "messages": list(requested_messages),
+    }
+    dummy = type("BridgeDummy", (), {})()
+    dummy.conversation_buffer = list(requested_messages)
+    dummy.summary_notice = _DummySignal()
+    dummy.summary_review_ready = _DummySignal()
+    dummy.summary_review_finished = _DummySignal()
+    dummy._summary_review_worker = current_worker
+    dummy._summary_review_request = request
+
+    WebBridge._on_summary_review_prepared(
+        dummy,
+        _build_pending_review(),
+        worker=stale_worker,
+    )
+    WebBridge._on_summary_review_failed(
+        dummy,
+        "summary_review_error",
+        worker=stale_worker,
+    )
+
+    assert dummy._summary_review_request == request
+    assert dummy.summary_review_ready.emitted == []
+    assert dummy.summary_review_finished.emitted == []
+    assert dummy.summary_notice.emitted == []
+
+
 def test_cancel_summary_review_emits_origin_aware_outcome():
     dummy = type("BridgeDummy", (), {})()
     dummy.summary_notice = _DummySignal()

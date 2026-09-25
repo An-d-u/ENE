@@ -188,7 +188,7 @@ class MemoryManager:
             for field_name in _MIGRATED_MEMORY_REQUIRED_FIELDS
         )
     
-    def save(self):
+    def save(self) -> bool:
         """JSON 파일에 기억 저장"""
         try:
             data = {
@@ -205,9 +205,11 @@ class MemoryManager:
             )
             
             print(f"[Memory] {len(self.memories)}개 기억 저장 완료")
+            return True
             
-        except Exception as e:
-            print(f"[Memory] 저장 실패: {e}")
+        except Exception:
+            print("[Memory] 저장 실패: memory_save_failed")
+            return False
     
     async def add_summary(
         self,
@@ -273,7 +275,12 @@ class MemoryManager:
         )
         
         self.memories.append(memory)
-        self.save()
+        if self.save() is not True:
+            if self.memories and self.memories[-1] is memory:
+                self.memories.pop()
+            else:
+                self.memories = [item for item in self.memories if item is not memory]
+            raise RuntimeError("memory_save_failed")
         
         print(f"[Memory] 새 기억 추가: {summary[:50]}...")
         return memory

@@ -1,6 +1,8 @@
 import asyncio
 import json
 
+import pytest
+
 from src.ai.date_query_parser import DateQueryParser
 from src.ai.embedding import EmbeddingGenerator
 from src.ai.memory import MemoryManager
@@ -92,6 +94,25 @@ def test_save_and_reload_roundtrip(tmp_path):
     assert len(reloaded.memories) == 1
     assert reloaded.memories[0].summary == "테스트 요약"
     assert reloaded.memories[0].is_important is True
+
+
+def test_add_summary_raises_and_rolls_back_when_file_save_fails(tmp_path, monkeypatch):
+    manager = MemoryManager(str(tmp_path / "memory.json"))
+
+    def fail_save(*_args, **_kwargs):
+        raise OSError("synthetic memory storage failure")
+
+    monkeypatch.setattr("src.ai.memory.save_json_data", fail_save)
+
+    with pytest.raises(RuntimeError, match="memory_save_failed"):
+        asyncio.run(
+            manager.add_summary(
+                "Synthetic summary.",
+                [{"role": "user", "text": "Synthetic message."}],
+            )
+        )
+
+    assert manager.memories == []
 
 
 def test_get_recent_returns_descending_by_timestamp(tmp_path):

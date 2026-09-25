@@ -3,6 +3,7 @@ import asyncio
 from collections.abc import Mapping
 from copy import deepcopy
 from datetime import datetime
+import json
 import sys
 import types
 
@@ -120,7 +121,7 @@ class _DummyLLMClient:
         return True
 
 
-def test_auto_summarize_clears_llm_chat_context_after_persisting_summary():
+def test_auto_summarize_clears_llm_chat_context_only_after_review_approval():
     dummy = type("BridgeDummy", (), {})()
     dummy.conversation_buffer = [
         ("user", "안녕", "2026-03-24 10:00"),
@@ -131,8 +132,46 @@ def test_auto_summarize_clears_llm_chat_context_after_persisting_summary():
     dummy.llm_client = _DummyLLMClient()
     dummy.user_profile = None
     dummy.ene_profile = _DummyEneProfile()
+    dummy.knowledge_map_manager = None
+    dummy.summary_notice = _DummySignal()
+    dummy.summary_review_ready = _DummySignal()
+    dummy.summary_review_saved = _DummySignal()
+    dummy.summary_review_finished = _DummySignal()
+    dummy.summarize_threshold = 3
+    dummy.next_auto_summary_count = 3
+    dummy._normalize_summary_result = lambda result: WebBridge._normalize_summary_result(dummy, result)
+    dummy._build_summary_storage_payload = lambda messages: WebBridge._build_summary_storage_payload(dummy, messages)
+    dummy._emit_summary_review = lambda: WebBridge._emit_summary_review(dummy)
+    dummy._persist_reviewed_summary = (
+        lambda summary, user_facts, ene_facts, memory_meta, topic_hints=None: WebBridge._persist_reviewed_summary(
+            dummy,
+            summary,
+            user_facts,
+            ene_facts,
+            memory_meta,
+            topic_hints,
+        )
+    )
 
     asyncio.run(WebBridge._auto_summarize(dummy))
+
+    assert dummy.memory_manager.calls == []
+    assert dummy.llm_client.clear_context_calls == 0
+    assert len(dummy.conversation_buffer) == 3
+
+    WebBridge.approve_summary_review(
+        dummy,
+        json.dumps(
+            {
+                "summary": "압축된 요약",
+                "user_facts": [],
+                "ene_facts": ["[speaking_style] 짧고 단정한 말투를 유지한다."],
+                "memory_meta": dummy._pending_summary_review["memory_meta"],
+                "topic_hints": [],
+            },
+            ensure_ascii=False,
+        ),
+    )
 
     assert len(dummy.memory_manager.calls) == 1
     stored = dummy.memory_manager.calls[0]
