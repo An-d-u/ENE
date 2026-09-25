@@ -88,6 +88,23 @@ def _assert_code(code: str, function, *args, **kwargs) -> None:
     assert str(error.value) == code
 
 
+@pytest.mark.parametrize(
+    "source",
+    [
+        "graceful_exit",
+        "heartbeat_recovery",
+        "summary_graceful_exit",
+        "summary_heartbeat_recovery",
+    ],
+)
+def test_record_store_accepts_legacy_and_summary_anchor_sources(source: str) -> None:
+    envelope = {"version": 1, "records": [{**_record_dict(), "inactive_start_source": source}]}
+
+    records = parse_life_record_store(json.dumps(envelope, ensure_ascii=False))
+
+    assert records[0].inactive_start_source == source
+
+
 def test_model_output_parses_exact_contract_and_canonicalizes_seconds():
     start = datetime(2099, 6, 1, 9, 0, 0, 900000, tzinfo=SEOUL)
     end = datetime(2099, 6, 1, 10, 0, 0, 800000, tzinfo=SEOUL)

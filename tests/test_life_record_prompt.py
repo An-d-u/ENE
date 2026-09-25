@@ -230,14 +230,16 @@ def test_prompt_contains_only_life_record_context_and_full_generation_contract(
         '"short_term_mood": "steady"',
         "graceful_exit",
         "최대 24개",
-        "전체 비활성 구간",
+        "전체 기록 구간",
         "30분에서 수시간",
         language_rule,
     ):
         assert expected in prompt
 
-    assert "사용자는 inactive_started_at부터 returned_at 직전까지 돌아오지 않았다" in prompt
-    assert "복귀를 확인하는 행동은 returned_at 전에 배치하지 않는다" in prompt
+    assert "inactive_started_at은 승인된 대화 요약이 저장된 시각이다" in prompt
+    assert "이 구간에 사용자와 실제 대화가 있었을 수 있다" in prompt
+    assert "사용자는 inactive_started_at부터 returned_at 직전까지 돌아오지 않았다" not in prompt
+    assert "복귀를 확인하는 행동은 returned_at 전에 배치하지 않는다" not in prompt
     assert "base_system_prompt" not in prompt
 
 
@@ -510,7 +512,15 @@ def test_generation_context_rejects_invalid_inactive_start_source(value):
         replace(_context(), inactive_start_source=value)
 
 
-@pytest.mark.parametrize("value", ["graceful_exit", "heartbeat_recovery"])
+@pytest.mark.parametrize(
+    "value",
+    [
+        "graceful_exit",
+        "heartbeat_recovery",
+        "summary_graceful_exit",
+        "summary_heartbeat_recovery",
+    ],
+)
 def test_generation_context_accepts_only_canonical_inactive_start_sources(value):
     from dataclasses import replace
 
