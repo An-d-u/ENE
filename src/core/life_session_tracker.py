@@ -652,6 +652,70 @@ class AppSessionTracker:
             return persisted_last_seen
         return canonical_now
 
+    @staticmethod
+    def _latest_endpoint(*values: datetime) -> datetime:
+        if not values:
+            raise ValueError("endpoint_missing")
+        latest = values[0]
+        for value in values[1:]:
+            if _as_utc(value) > _as_utc(latest):
+                latest = value
+        return latest
+
+    def register_approved_summary(
+        self,
+        summary_id: str,
+    ) -> ApprovedSummaryState | None:
+        """현재 running 세션에 실제 저장된 승인 요약을 원자 등록한다."""
+
+        if (
+            not self._lease_acquired
+            or not self.life_records_writable
+            or self._stopped
+        ):
+            return None
+        try:
+            canonical_summary_id = _parse_summary_id(summary_id)
+        except (TypeError, ValueError):
+            self._diagnose("summary_id_invalid")
+            return None
+        canonical_now = self._read_clock_endpoint()
+        if canonical_now is None:
+            return None
+        authoritative = self._load_current_owner()
+        if authoritative is None:
+            return None
+        endpoints = [
+            canonical_now,
+            authoritative.started_at,
+            authoritative.last_seen_at,
+        ]
+        if authoritative.current_summary is not None:
+            endpoints.append(authoritative.current_summary.saved_at)
+        saved_at = self._latest_endpoint(*endpoints)
+        registered = ApprovedSummaryState(
+            summary_id=canonical_summary_id,
+            saved_at=saved_at,
+        )
+        updated = _SessionState(
+            session_id=authoritative.session_id,
+            started_at=authoritative.started_at,
+            last_seen_at=saved_at,
+            status="running",
+            stopped_at=None,
+            current_summary=registered,
+            active_anchor=authoritative.active_anchor,
+            generation_claim=authoritative.generation_claim,
+        )
+        if not self._commit(updated):
+            self._set_degraded(
+                SESSION_TRACKER_DEGRADED,
+                "session_summary_commit_failed",
+            )
+            return None
+        self._current_state = updated
+        return registered
+
     def heartbeat(self) -> bool:
         """현재 세션의 마지막 생존 시각만 단조 증가하도록 갱신한다."""
 

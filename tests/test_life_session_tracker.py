@@ -15,7 +15,11 @@ from PyQt6.QtCore import QLockFile
 
 from src.ai.life_record_types import stable_life_record_id
 from src.core import life_session_tracker
-from src.core.life_session_tracker import AppSessionTracker, InactiveStartCandidate
+from src.core.life_session_tracker import (
+    AppSessionTracker,
+    ApprovedSummaryState,
+    InactiveStartCandidate,
+)
 from src.core.local_time import (
     TIMEZONE_UNAVAILABLE,
     UTC_ZONE,
@@ -541,6 +545,147 @@ def test_heartbeat_only_updates_current_last_seen_at(tmp_path: Path) -> None:
 
     after = _read_state(state_path)
     assert after == {**before, "last_seen_at": _at(20).isoformat()}
+    tracker.release_lease()
+
+
+def test_register_approved_summary_persists_canonical_current_summary(
+    tmp_path: Path,
+) -> None:
+    state_path = tmp_path / "life_session_state.json"
+    clock = MutableClock(_at(10, microsecond=999999))
+    tracker = AppSessionTracker(state_path, now=clock)
+    tracker.start_session()
+    clock.current = _at(12, microsecond=777777)
+
+    registered = tracker.register_approved_summary(SUMMARY_ID)
+
+    assert registered == ApprovedSummaryState(
+        summary_id=SUMMARY_ID,
+        saved_at=_at(12),
+    )
+    saved = _read_state(state_path)
+    assert saved["current_summary"] == _summary(saved_at=_at(12))
+    assert saved["last_seen_at"] == _at(12).isoformat()
+    tracker.release_lease()
+
+
+def test_newer_approved_summary_replaces_current_summary(tmp_path: Path) -> None:
+    state_path = tmp_path / "life_session_state.json"
+    clock = MutableClock(_at(10))
+    tracker = AppSessionTracker(state_path, now=clock)
+    tracker.start_session()
+    clock.current = _at(12)
+    assert tracker.register_approved_summary(SUMMARY_ID) is not None
+    clock.current = _at(14)
+
+    registered = tracker.register_approved_summary(OTHER_SUMMARY_ID)
+
+    assert registered == ApprovedSummaryState(
+        summary_id=OTHER_SUMMARY_ID,
+        saved_at=_at(14),
+    )
+    assert _read_state(state_path)["current_summary"] == _summary(
+        summary_id=OTHER_SUMMARY_ID,
+        saved_at=_at(14),
+    )
+    tracker.release_lease()
+
+
+def test_register_approved_summary_never_moves_time_backwards(tmp_path: Path) -> None:
+    state_path = tmp_path / "life_session_state.json"
+    clock = MutableClock(_at(20))
+    tracker = AppSessionTracker(state_path, now=clock)
+    tracker.start_session()
+    assert tracker.register_approved_summary(SUMMARY_ID) is not None
+    clock.current = _at(10)
+
+    registered = tracker.register_approved_summary(OTHER_SUMMARY_ID)
+
+    assert registered == ApprovedSummaryState(
+        summary_id=OTHER_SUMMARY_ID,
+        saved_at=_at(20),
+    )
+    saved = _read_state(state_path)
+    assert saved["last_seen_at"] == _at(20).isoformat()
+    assert saved["current_summary"] == _summary(
+        summary_id=OTHER_SUMMARY_ID,
+        saved_at=_at(20),
+    )
+    tracker.release_lease()
+
+
+def test_register_approved_summary_rejects_stale_owner(tmp_path: Path) -> None:
+    state_path = tmp_path / "life_session_state.json"
+    tracker = AppSessionTracker(state_path, now=lambda: _at(10))
+    tracker.start_session()
+    replacement = _v2_state(
+        session_id=OTHER_SESSION_ID,
+        started_at=_at(11),
+        last_seen_at=_at(12),
+    )
+    _write_state(state_path, replacement)
+
+    assert tracker.register_approved_summary(SUMMARY_ID) is None
+    assert _read_state(state_path) == replacement
+    assert tracker.life_records_writable is False
+    assert tracker.reason == "session_tracker_degraded"
+    tracker.release_lease()
+
+
+def test_register_approved_summary_commit_failure_preserves_disk_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state_path = tmp_path / "life_session_state.json"
+    tracker = AppSessionTracker(state_path, now=lambda: _at(10))
+    tracker.start_session()
+    original = _read_state(state_path)
+
+    def fail_save(*_args: object, **_kwargs: object) -> object:
+        raise OSError("synthetic-summary-commit-failure-2099")
+
+    monkeypatch.setattr(life_session_tracker, "save_json_data", fail_save)
+
+    assert tracker.register_approved_summary(SUMMARY_ID) is None
+    assert _read_state(state_path) == original
+    assert tracker.life_records_writable is False
+    assert tracker.reason == "session_tracker_degraded"
+    tracker.release_lease()
+
+
+def test_heartbeat_preserves_summary_anchor_and_claim(tmp_path: Path) -> None:
+    state_path = tmp_path / "life_session_state.json"
+    clock = MutableClock(_at(10))
+    tracker = AppSessionTracker(state_path, now=clock)
+    tracker.start_session()
+    session_id = tracker.session_id
+    assert session_id is not None
+    anchor = _anchor()
+    claim = _claim(returned_at=_at(11))
+    current_summary = _summary(
+        summary_id=OTHER_SUMMARY_ID,
+        saved_at=_at(12),
+    )
+    _write_state(
+        state_path,
+        _v2_state(
+            session_id=session_id,
+            started_at=_at(10),
+            last_seen_at=_at(12),
+            current_summary=current_summary,
+            active_anchor=anchor,
+            generation_claim=claim,
+        ),
+    )
+    clock.current = _at(20)
+
+    assert tracker.heartbeat() is True
+
+    saved = _read_state(state_path)
+    assert saved["current_summary"] == current_summary
+    assert saved["active_anchor"] == anchor
+    assert saved["generation_claim"] == claim
+    assert saved["last_seen_at"] == _at(20).isoformat()
     tracker.release_lease()
 
 
