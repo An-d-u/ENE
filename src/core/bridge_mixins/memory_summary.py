@@ -10,6 +10,13 @@ import uuid
 from PyQt6.QtCore import QThread, pyqtSignal, pyqtSlot
 
 
+_SUMMARY_REVIEW_ORIGINS = frozenset({"manual", "auto", "clear", "quit"})
+_SUMMARY_COMPLETION_ACTIONS = frozenset({"continue", "clear", "quit"})
+_SUMMARY_REVIEW_OUTCOMES = frozenset(
+    {"saved", "cancelled", "failed", "saved_unregistered"}
+)
+
+
 class SummaryReviewWorker(QThread):
     """수동 대화 요약 후보 생성을 UI 스레드 밖에서 실행한다."""
 
@@ -60,6 +67,26 @@ class SummaryReviewWorker(QThread):
 
 
 class MemorySummaryBridgeMixin:
+    @staticmethod
+    def _summary_review_metadata(value) -> tuple[str, str]:
+        pending = value if isinstance(value, dict) else {}
+        origin = str(pending.get("origin") or "manual")
+        completion_action = str(pending.get("completion_action") or "continue")
+        if origin not in _SUMMARY_REVIEW_ORIGINS:
+            origin = "manual"
+        if completion_action not in _SUMMARY_COMPLETION_ACTIONS:
+            completion_action = "continue"
+        return origin, completion_action
+
+    def _emit_summary_review_finished(self, origin: str, outcome: str) -> None:
+        if origin not in _SUMMARY_REVIEW_ORIGINS:
+            origin = "manual"
+        if outcome not in _SUMMARY_REVIEW_OUTCOMES:
+            raise ValueError("invalid_summary_review_outcome")
+        signal = getattr(self, "summary_review_finished", None)
+        if signal is not None and hasattr(signal, "emit"):
+            signal.emit(origin, outcome)
+
     def _persist_user_profile_facts(self, facts, memory_meta, saved_memory, original_messages, source_timestamp, *, reviewed=False):
         """자동·수동 요약의 사용자 프로필 변경에 같은 검증 규칙을 적용한다."""
         profile = getattr(self, "user_profile", None)
@@ -207,14 +234,26 @@ class MemorySummaryBridgeMixin:
 
         starter = getattr(self, "_start_summary_review_worker", None)
         if not callable(starter):
-            starter = lambda messages, success_notice=None: MemorySummaryBridgeMixin._start_summary_review_worker(
+            starter = lambda messages, **kwargs: MemorySummaryBridgeMixin._start_summary_review_worker(
                 self,
                 messages,
-                success_notice=success_notice,
+                **kwargs,
             )
-        starter(self.conversation_buffer.copy(), success_notice="요약을 확인해 주세요.")
+        starter(
+            self.conversation_buffer.copy(),
+            success_notice="요약을 확인해 주세요.",
+            origin="manual",
+            completion_action="continue",
+        )
 
-    def _start_summary_review_worker(self, messages, *, success_notice: str):
+    def _start_summary_review_worker(
+        self,
+        messages,
+        *,
+        success_notice: str,
+        origin: str = "manual",
+        completion_action: str = "continue",
+    ):
         """요약 후보 생성을 별도 스레드에서 시작한다."""
         if MemorySummaryBridgeMixin._summary_bridge_is_shutting_down(self):
             return None
@@ -227,6 +266,17 @@ class MemorySummaryBridgeMixin:
             self.summary_notice.emit("이미 요약을 만드는 중이에요.", "info")
             return current_worker
 
+        origin, completion_action = MemorySummaryBridgeMixin._summary_review_metadata(
+            {
+                "origin": origin,
+                "completion_action": completion_action,
+            }
+        )
+        self._summary_review_request = {
+            "origin": origin,
+            "completion_action": completion_action,
+            "messages": list(messages or []),
+        }
         worker = SummaryReviewWorker(self, messages)
         self._summary_review_worker = worker
         self._summary_review_success_notice = success_notice
@@ -257,7 +307,18 @@ class MemorySummaryBridgeMixin:
         current = getattr(self, "conversation_buffer", None)
         if messages and current is not None and list(current)[:len(messages)] != messages:
             return
-        self._pending_summary_review = pending
+        request = getattr(self, "_summary_review_request", None)
+        origin, completion_action = MemorySummaryBridgeMixin._summary_review_metadata(request)
+        if isinstance(request, dict):
+            requested_messages = list(request.get("messages") or [])
+            if requested_messages and requested_messages != list(messages):
+                return
+        self._pending_summary_review = {
+            **pending,
+            "origin": origin,
+            "completion_action": completion_action,
+        }
+        self._summary_review_request = None
         self._emit_summary_review()
         notice = getattr(self, "_summary_review_success_notice", "요약을 확인해 주세요.")
         self.summary_notice.emit(notice, "info")
@@ -267,6 +328,14 @@ class MemorySummaryBridgeMixin:
             return
         print("[Bridge] Manual summarize failed: summary_review_error")
         self.summary_notice.emit("요약 중 오류가 발생했어요.", "error")
+        request = getattr(self, "_summary_review_request", None)
+        origin, _completion_action = MemorySummaryBridgeMixin._summary_review_metadata(request)
+        self._summary_review_request = None
+        MemorySummaryBridgeMixin._emit_summary_review_finished(
+            self,
+            origin,
+            "failed",
+        )
 
     def _on_summary_review_worker_finished(self, worker):
         if MemorySummaryBridgeMixin._summary_bridge_is_shutting_down(self):
@@ -641,6 +710,10 @@ class MemorySummaryBridgeMixin:
         """JS에서 호출: 사용자가 검토한 요약을 저장한다."""
         import asyncio
         loop = None
+        pending = getattr(self, "_pending_summary_review", None)
+        origin, _completion_action = MemorySummaryBridgeMixin._summary_review_metadata(
+            pending
+        )
         try:
             payload = json.loads(str(payload_json or "{}"))
             if not isinstance(payload, dict):
@@ -666,11 +739,21 @@ class MemorySummaryBridgeMixin:
             saved_signal = getattr(self, "summary_review_saved", None)
             if saved_signal is not None:
                 saved_signal.emit()
+            MemorySummaryBridgeMixin._emit_summary_review_finished(
+                self,
+                origin,
+                "saved",
+            )
         except Exception as e:
             print(f"[Bridge] Summary review approve failed: {e}")
             import traceback
             traceback.print_exc()
             self.summary_notice.emit("요약 저장 중 오류가 발생했어요.", "error")
+            MemorySummaryBridgeMixin._emit_summary_review_finished(
+                self,
+                origin,
+                "failed",
+            )
         finally:
             if loop is not None:
                 loop.close()
@@ -691,12 +774,20 @@ class MemorySummaryBridgeMixin:
 
             starter = getattr(self, "_start_summary_review_worker", None)
             if not callable(starter):
-                starter = lambda value, success_notice=None: MemorySummaryBridgeMixin._start_summary_review_worker(
+                starter = lambda value, **kwargs: MemorySummaryBridgeMixin._start_summary_review_worker(
                     self,
                     value,
-                    success_notice=success_notice,
+                    **kwargs,
                 )
-            starter(messages, success_notice="요약을 다시 만들었어요.")
+            origin, completion_action = MemorySummaryBridgeMixin._summary_review_metadata(
+                pending
+            )
+            starter(
+                messages,
+                success_notice="요약을 다시 만들었어요.",
+                origin=origin,
+                completion_action=completion_action,
+            )
         except Exception as e:
             print(f"[Bridge] Summary review regenerate failed: {e}")
             import traceback
@@ -706,8 +797,17 @@ class MemorySummaryBridgeMixin:
     @pyqtSlot()
     def cancel_summary_review(self):
         """JS에서 호출: 수동 요약 검토를 취소한다."""
+        pending = getattr(self, "_pending_summary_review", None)
+        origin, _completion_action = MemorySummaryBridgeMixin._summary_review_metadata(
+            pending
+        )
         self._pending_summary_review = None
         self.summary_notice.emit("요약 저장을 취소했어요.", "info")
+        MemorySummaryBridgeMixin._emit_summary_review_finished(
+            self,
+            origin,
+            "cancelled",
+        )
 
     def _check_auto_summarize(self):
         """자동 요약 확인"""

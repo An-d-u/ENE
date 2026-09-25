@@ -325,7 +325,11 @@ def test_manual_summarize_starts_review_worker_without_preparing_inline():
 
     dummy._prepare_summary_review = fail_if_called_inline
     dummy._start_summary_review_worker = (
-        lambda messages, success_notice=None: dummy.started.append((list(messages), success_notice))
+        lambda messages, success_notice=None, origin="manual", completion_action="continue": (
+            dummy.started.append(
+                (list(messages), success_notice, origin, completion_action)
+            )
+        )
     )
 
     WebBridge.summarize_now(dummy)
@@ -337,8 +341,67 @@ def test_manual_summarize_starts_review_worker_without_preparing_inline():
                 ("assistant", "hi", "2026-04-14 20:01"),
             ],
             "요약을 확인해 주세요.",
+            "manual",
+            "continue",
         )
     ]
+
+
+def test_summary_review_prepared_keeps_internal_origin_out_of_ui_payload():
+    dummy = type("BridgeDummy", (), {})()
+    messages = [("user", "hello", "2026-04-14 20:00")]
+    dummy.conversation_buffer = list(messages)
+    dummy.summary_notice = _DummySignal()
+    dummy.summary_review_ready = _DummySignal()
+    dummy._summary_review_request = {
+        "origin": "auto",
+        "completion_action": "continue",
+        "messages": list(messages),
+    }
+    dummy._summary_review_success_notice = "검토 준비 완료"
+    dummy._emit_summary_review = lambda: WebBridge._emit_summary_review(dummy)
+    pending = _build_pending_review(messages)
+
+    WebBridge._on_summary_review_prepared(dummy, pending)
+
+    assert dummy._pending_summary_review["origin"] == "auto"
+    assert dummy._pending_summary_review["completion_action"] == "continue"
+    assert dummy._summary_review_request is None
+    payload = json.loads(dummy.summary_review_ready.emitted[0][0])
+    assert "origin" not in payload
+    assert "completion_action" not in payload
+
+
+def test_summary_review_generation_failure_emits_origin_aware_outcome():
+    dummy = type("BridgeDummy", (), {})()
+    dummy.summary_notice = _DummySignal()
+    dummy.summary_review_finished = _DummySignal()
+    dummy._summary_review_request = {
+        "origin": "quit",
+        "completion_action": "quit",
+        "messages": [("user", "hello", "2026-04-14 20:00")],
+    }
+
+    WebBridge._on_summary_review_failed(dummy, "summary_review_error")
+
+    assert dummy.summary_review_finished.emitted == [("quit", "failed")]
+    assert dummy._summary_review_request is None
+
+
+def test_cancel_summary_review_emits_origin_aware_outcome():
+    dummy = type("BridgeDummy", (), {})()
+    dummy.summary_notice = _DummySignal()
+    dummy.summary_review_finished = _DummySignal()
+    dummy._pending_summary_review = {
+        **_build_pending_review(),
+        "origin": "auto",
+        "completion_action": "continue",
+    }
+
+    WebBridge.cancel_summary_review(dummy)
+
+    assert dummy._pending_summary_review is None
+    assert dummy.summary_review_finished.emitted == [("auto", "cancelled")]
 
 
 def test_manual_summarize_review_payload_includes_topic_hints_without_saving():
@@ -436,6 +499,7 @@ def test_approve_summary_review_persists_edited_summary_and_selected_facts():
     dummy.summary_notice = _DummySignal()
     dummy.summary_review_ready = _DummySignal()
     dummy.summary_review_saved = _DummySignal()
+    dummy.summary_review_finished = _DummySignal()
     dummy._ene_thought_context_buffer = ["생각"]
     dummy._pending_summary_review = {
         "messages": list(dummy.conversation_buffer),
@@ -527,6 +591,7 @@ def test_approve_summary_review_persists_edited_summary_and_selected_facts():
     assert dummy.conversation_buffer == []
     assert dummy._ene_thought_context_buffer == []
     assert dummy.summary_review_saved.emitted == [()]
+    assert dummy.summary_review_finished.emitted == [("manual", "saved")]
 
 
 def test_approve_summary_review_persists_payload_topic_hints_to_knowledge_map():
@@ -840,6 +905,8 @@ def test_approve_summary_review_preserves_messages_added_after_review_started():
         "user_facts": [],
         "ene_facts": [],
         "memory_meta": {},
+        "origin": "auto",
+        "completion_action": "continue",
     }
     dummy._persist_reviewed_summary = (
         lambda summary, user_facts, ene_facts, memory_meta, topic_hints=None: WebBridge._persist_reviewed_summary(
@@ -896,19 +963,32 @@ def test_regenerate_summary_review_starts_worker_without_saving():
         "user_facts": [],
         "ene_facts": [],
         "memory_meta": {},
+        "origin": "auto",
+        "completion_action": "continue",
     }
     dummy._normalize_summary_result = lambda result: WebBridge._normalize_summary_result(dummy, result)
     dummy._emit_summary_review = lambda: WebBridge._emit_summary_review(dummy)
     dummy.started = []
     dummy._start_summary_review_worker = (
-        lambda messages, success_notice=None: dummy.started.append((list(messages), success_notice))
+        lambda messages, success_notice=None, origin="manual", completion_action="continue": (
+            dummy.started.append(
+                (list(messages), success_notice, origin, completion_action)
+            )
+        )
     )
 
     WebBridge.regenerate_summary_review(dummy)
 
     assert dummy.memory_manager.calls == []
     assert dummy.llm_client.calls == []
-    assert dummy.started == [([("user", "hello", "2026-04-14 20:00")], "요약을 다시 만들었어요.")]
+    assert dummy.started == [
+        (
+            [("user", "hello", "2026-04-14 20:00")],
+            "요약을 다시 만들었어요.",
+            "auto",
+            "continue",
+        )
+    ]
 
 
 def test_summary_review_prepared_updates_topic_hints_payload_without_saving():

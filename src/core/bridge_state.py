@@ -97,6 +97,16 @@ class ChatBridgeState:
 
 
 @dataclass
+class SummaryReviewBridgeState:
+    """요약 검토 요청의 내부 origin과 worker 소유 상태."""
+
+    pending: dict[str, Any] | None = None
+    request: dict[str, Any] | None = None
+    worker: Any = None
+    success_notice: str = ""
+
+
+@dataclass
 class PromiseBridgeState:
     """대화 약속 실행 큐와 현재 실행 중인 약속 상태."""
 
@@ -324,6 +334,10 @@ BRIDGE_STATE_ALIASES = {
     "_last_request_payload": ("chat_state", "last_request_payload"),
     "_last_assistant_response": ("chat_state", "last_assistant_response"),
     "_is_rerolling": ("chat_state", "is_rerolling"),
+    "_pending_summary_review": ("summary_review_state", "pending"),
+    "_summary_review_request": ("summary_review_state", "request"),
+    "_summary_review_worker": ("summary_review_state", "worker"),
+    "_summary_review_success_notice": ("summary_review_state", "success_notice"),
     "promise_manager": ("promise_state", "manager"),
     "promise_run_queue": ("promise_state", "run_queue"),
     "_active_promise_id": ("promise_state", "active_id"),
@@ -359,6 +373,7 @@ class BridgeStateAliasMixin:
         self.obsidian_state = ObsidianBridgeState.initial(checked_files)
         self.tts_state = TTSBridgeState()
         self.chat_state = ChatBridgeState()
+        self.summary_review_state = SummaryReviewBridgeState()
         self.promise_state = PromiseBridgeState()
         self.proactive_state = ProactiveBridgeState()
         self.away_state = AwayBridgeState()
