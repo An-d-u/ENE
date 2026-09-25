@@ -13,6 +13,7 @@ from uuid import UUID
 import pytest
 from PyQt6.QtCore import QLockFile
 
+from src.ai.life_record_types import stable_life_record_id
 from src.core import life_session_tracker
 from src.core.life_session_tracker import AppSessionTracker, InactiveStartCandidate
 from src.core.local_time import (
@@ -24,7 +25,7 @@ from src.core.local_time import (
 
 
 UTC = timezone.utc
-SESSION_KEYS = {
+SESSION_V1_KEYS = {
     "version",
     "session_id",
     "started_at",
@@ -32,8 +33,15 @@ SESSION_KEYS = {
     "status",
     "stopped_at",
 }
+SESSION_V2_KEYS = SESSION_V1_KEYS | {
+    "current_summary",
+    "active_anchor",
+    "generation_claim",
+}
 SESSION_ID = "123e4567-e89b-42d3-a456-426614174000"
 OTHER_SESSION_ID = "123e4567-e89b-42d3-b456-426614174001"
+SUMMARY_ID = "223e4567-e89b-42d3-a456-426614174002"
+OTHER_SUMMARY_ID = "323e4567-e89b-42d3-a456-426614174003"
 
 
 class MutableClock:
@@ -69,6 +77,84 @@ def _state(
     }
 
 
+def _v2_state(
+    *,
+    session_id: str = SESSION_ID,
+    started_at: datetime | str = _at(1),
+    last_seen_at: datetime | str = _at(8),
+    status: str = "running",
+    stopped_at: datetime | str | None = None,
+    current_summary: object = None,
+    active_anchor: object = None,
+    generation_claim: object = None,
+) -> dict[str, object]:
+    def encode(value: datetime | str | None) -> str | None:
+        return value.isoformat() if isinstance(value, datetime) else value
+
+    return {
+        "version": 2,
+        "session_id": session_id,
+        "started_at": encode(started_at),
+        "last_seen_at": encode(last_seen_at),
+        "status": status,
+        "stopped_at": encode(stopped_at),
+        "current_summary": current_summary,
+        "active_anchor": active_anchor,
+        "generation_claim": generation_claim,
+    }
+
+
+def _summary(
+    *,
+    summary_id: str = SUMMARY_ID,
+    saved_at: datetime | str = _at(4),
+) -> dict[str, object]:
+    return {
+        "summary_id": summary_id,
+        "saved_at": saved_at.isoformat() if isinstance(saved_at, datetime) else saved_at,
+    }
+
+
+def _anchor(
+    *,
+    summary_id: str = SUMMARY_ID,
+    saved_at: datetime | str = _at(3),
+    activation_source: str = "summary_graceful_exit",
+    origin_session_started_at: datetime | str = _at(1),
+    origin_session_ended_at: datetime | str = _at(5),
+) -> dict[str, object]:
+    def encode(value: datetime | str) -> str:
+        return value.isoformat() if isinstance(value, datetime) else value
+
+    return {
+        "summary_id": summary_id,
+        "saved_at": encode(saved_at),
+        "activation_source": activation_source,
+        "origin_session_started_at": encode(origin_session_started_at),
+        "origin_session_ended_at": encode(origin_session_ended_at),
+    }
+
+
+def _claim(
+    *,
+    summary_id: str = SUMMARY_ID,
+    anchor_saved_at: datetime = _at(3),
+    returned_at: datetime | str = _at(7),
+    expected_record_id: str | None = None,
+) -> dict[str, object]:
+    encoded_returned = (
+        returned_at.isoformat() if isinstance(returned_at, datetime) else returned_at
+    )
+    resolved_id = expected_record_id
+    if resolved_id is None and isinstance(returned_at, datetime):
+        resolved_id = stable_life_record_id(anchor_saved_at, returned_at)
+    return {
+        "summary_id": summary_id,
+        "returned_at": encoded_returned,
+        "expected_record_id": resolved_id,
+    }
+
+
 def _write_state(path: Path, payload: object) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
 
@@ -99,13 +185,16 @@ def test_missing_or_corrupt_state_starts_fresh_running_session(
 
     assert tracker.start_session() is None
     saved = _read_state(state_path)
-    assert set(saved) == SESSION_KEYS
-    assert saved["version"] == 1
+    assert set(saved) == SESSION_V2_KEYS
+    assert saved["version"] == 2
     _assert_uuid4(saved["session_id"])
     assert saved["started_at"] == _at(10).isoformat()
     assert saved["last_seen_at"] == _at(10).isoformat()
     assert saved["status"] == "running"
     assert saved["stopped_at"] is None
+    assert saved["current_summary"] is None
+    assert saved["active_anchor"] is None
+    assert saved["generation_claim"] is None
     assert tracker.degraded is False
     assert tracker.life_records_writable is True
     assert tracker.reason is None
@@ -141,7 +230,7 @@ def test_authoritative_missing_or_read_error_never_uses_stale_runtime_state(
     tracker.release_lease()
 
 
-def test_stopped_state_recovers_graceful_exit_candidate(tmp_path: Path) -> None:
+def test_v1_stopped_state_migrates_without_inferred_anchor(tmp_path: Path) -> None:
     state_path = tmp_path / "life_session_state.json"
     previous_stop = _at(3)
     _write_state(
@@ -150,27 +239,172 @@ def test_stopped_state_recovers_graceful_exit_candidate(tmp_path: Path) -> None:
     )
     tracker = AppSessionTracker(state_path, now=lambda: _at(10))
 
-    candidate = tracker.start_session()
-
-    assert candidate == InactiveStartCandidate(
-        started_at=previous_stop,
-        source="graceful_exit",
-    )
+    assert tracker.start_session() is None
+    saved = _read_state(state_path)
+    assert saved["version"] == 2
+    assert saved["active_anchor"] is None
     assert tracker.start_session() is None
     tracker.release_lease()
 
 
-def test_running_state_recovers_heartbeat_candidate(tmp_path: Path) -> None:
+def test_v1_running_state_migrates_without_inferred_anchor(tmp_path: Path) -> None:
     state_path = tmp_path / "life_session_state.json"
     previous_heartbeat = _at(4)
     _write_state(state_path, _state(last_seen_at=previous_heartbeat))
     tracker = AppSessionTracker(state_path, now=lambda: _at(10))
 
-    assert tracker.start_session() == InactiveStartCandidate(
-        started_at=previous_heartbeat,
-        source="heartbeat_recovery",
-    )
+    assert tracker.start_session() is None
+    saved = _read_state(state_path)
+    assert saved["version"] == 2
+    assert saved["active_anchor"] is None
     tracker.release_lease()
+
+
+def test_v2_round_trip_accepts_exact_nested_envelopes() -> None:
+    payload = _v2_state(
+        current_summary=_summary(),
+        active_anchor=_anchor(),
+        generation_claim=_claim(),
+    )
+
+    parsed = life_session_tracker._parse_session_state(payload)
+
+    assert parsed.to_payload() == payload
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda value: {**value, "extra": "synthetic-2099"},
+        lambda value: {key: item for key, item in value.items() if key != "active_anchor"},
+        lambda value: {**value, "current_summary": {**_summary(), "extra": True}},
+        lambda value: {**value, "active_anchor": {**_anchor(), "extra": True}},
+        lambda value: {**value, "generation_claim": {**_claim(), "extra": True}},
+        lambda value: {**value, "current_summary": {}},
+        lambda value: {**value, "active_anchor": {}},
+        lambda value: {**value, "generation_claim": {}},
+    ],
+    ids=[
+        "top-level-extra",
+        "top-level-missing",
+        "summary-extra",
+        "anchor-extra",
+        "claim-extra",
+        "summary-missing",
+        "anchor-missing",
+        "claim-missing",
+    ],
+)
+def test_v2_rejects_inexact_envelopes(mutate) -> None:
+    payload = _v2_state(
+        current_summary=_summary(),
+        active_anchor=_anchor(),
+        generation_claim=_claim(),
+    )
+
+    with pytest.raises(ValueError):
+        life_session_tracker._parse_session_state(mutate(payload))
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda value: {**value, "started_at": _at(1, microsecond=1).isoformat()},
+        lambda value: {**value, "last_seen_at": "2099-01-02T03:04:08"},
+        lambda value: {
+            **value,
+            "current_summary": _summary(saved_at=_at(4, microsecond=1)),
+        },
+        lambda value: {
+            **value,
+            "active_anchor": _anchor(origin_session_ended_at="not-a-time"),
+        },
+        lambda value: {
+            **value,
+            "generation_claim": _claim(returned_at="2099-01-02T03:04:07"),
+        },
+    ],
+    ids=[
+        "session-subsecond",
+        "session-naive",
+        "summary-subsecond",
+        "anchor-invalid",
+        "claim-naive",
+    ],
+)
+def test_v2_rejects_noncanonical_timestamps(mutate) -> None:
+    payload = _v2_state(
+        current_summary=_summary(),
+        active_anchor=_anchor(),
+        generation_claim=_claim(),
+    )
+
+    with pytest.raises(ValueError):
+        life_session_tracker._parse_session_state(mutate(payload))
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda value: {**value, "current_summary": _summary(summary_id="not-a-uuid")},
+        lambda value: {**value, "active_anchor": _anchor(summary_id=OTHER_SUMMARY_ID)},
+        lambda value: {
+            **value,
+            "active_anchor": _anchor(activation_source="graceful_exit"),
+        },
+        lambda value: {
+            **value,
+            "generation_claim": _claim(expected_record_id="A" * 64),
+        },
+        lambda value: {
+            **value,
+            "generation_claim": _claim(expected_record_id="0" * 64),
+        },
+    ],
+    ids=[
+        "summary-id",
+        "claim-summary-mismatch",
+        "anchor-source",
+        "record-id-format",
+        "record-id-hash-mismatch",
+    ],
+)
+def test_v2_rejects_invalid_identifiers_or_sources(mutate) -> None:
+    payload = _v2_state(
+        current_summary=_summary(),
+        active_anchor=_anchor(),
+        generation_claim=_claim(),
+    )
+
+    with pytest.raises(ValueError):
+        life_session_tracker._parse_session_state(mutate(payload))
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        _v2_state(current_summary=_summary(saved_at=_at(0))),
+        _v2_state(current_summary=_summary(saved_at=_at(9))),
+        _v2_state(active_anchor=_anchor(saved_at=_at(0))),
+        _v2_state(active_anchor=_anchor(saved_at=_at(6))),
+        _v2_state(
+            active_anchor=_anchor(),
+            generation_claim=_claim(returned_at=_at(0)),
+        ),
+        _v2_state(generation_claim=_claim()),
+    ],
+    ids=[
+        "summary-before-session",
+        "summary-after-last-seen",
+        "anchor-before-origin",
+        "anchor-after-origin",
+        "claim-before-current-session",
+        "claim-without-anchor",
+    ],
+)
+def test_v2_rejects_invalid_state_relationships(payload: dict[str, object]) -> None:
+    with pytest.raises(ValueError):
+        life_session_tracker._parse_session_state(payload)
 
 
 @pytest.mark.parametrize(
@@ -226,7 +460,7 @@ def test_invalid_envelope_is_discarded(
     assert tracker.start_session() is None
     saved = _read_state(state_path)
     assert saved["session_id"] != SESSION_ID
-    assert set(saved) == SESSION_KEYS
+    assert set(saved) == SESSION_V2_KEYS
     tracker.release_lease()
 
 
@@ -253,7 +487,7 @@ def test_future_candidate_is_discarded(
     tracker.release_lease()
 
 
-def test_candidate_endpoint_is_canonicalized_to_integer_seconds(tmp_path: Path) -> None:
+def test_v1_candidate_endpoint_is_not_migrated_into_anchor(tmp_path: Path) -> None:
     state_path = tmp_path / "life_session_state.json"
     _write_state(
         state_path,
@@ -265,11 +499,9 @@ def test_candidate_endpoint_is_canonicalized_to_integer_seconds(tmp_path: Path) 
     )
     tracker = AppSessionTracker(state_path, now=lambda: _at(10, microsecond=555555))
 
-    assert tracker.start_session() == InactiveStartCandidate(
-        started_at=_at(3),
-        source="graceful_exit",
-    )
+    assert tracker.start_session() is None
     assert _read_state(state_path)["started_at"] == _at(10).isoformat()
+    assert _read_state(state_path)["active_anchor"] is None
     tracker.release_lease()
 
 
@@ -702,7 +934,7 @@ def test_utc_overflow_timestamp_is_discarded_as_invalid_state(
     tracker.release_lease()
 
 
-def test_candidate_zone_overflow_is_discarded_without_blocking_fresh_session(
+def test_v1_stopped_endpoint_is_not_canonicalized_as_candidate(
     tmp_path: Path,
 ) -> None:
     state_path = tmp_path / "life_session_state.json"
@@ -729,7 +961,7 @@ def test_candidate_zone_overflow_is_discarded_without_blocking_fresh_session(
 
     assert tracker.start_session() is None
     assert _read_state(state_path)["session_id"] != SESSION_ID
-    assert "session_candidate_invalid" in tracker.diagnostics
+    assert "session_candidate_invalid" not in tracker.diagnostics
     tracker.release_lease()
 
 
@@ -806,10 +1038,8 @@ def test_stop_keeps_lease_until_idempotent_release(tmp_path: Path) -> None:
     assert owner.release_lease() is True
     assert owner.release_lease() is False
     successor = AppSessionTracker(state_path, now=lambda: _at(12))
-    assert successor.start_session() == InactiveStartCandidate(
-        started_at=_at(10),
-        source="graceful_exit",
-    )
+    assert successor.start_session() is None
+    assert _read_state(state_path)["active_anchor"] is None
     successor.release_lease()
     blocked.release_lease()
 

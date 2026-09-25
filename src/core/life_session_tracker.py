@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import socket
 import sys
 from dataclasses import dataclass
@@ -24,8 +25,8 @@ from .local_time import (
 
 SESSION_LEASE_UNAVAILABLE = "session_lease_unavailable"
 SESSION_TRACKER_DEGRADED = "session_tracker_degraded"
-_SESSION_VERSION = 1
-_SESSION_KEYS = frozenset(
+_SESSION_VERSION = 2
+_SESSION_V1_KEYS = frozenset(
     {
         "version",
         "session_id",
@@ -35,6 +36,25 @@ _SESSION_KEYS = frozenset(
         "stopped_at",
     }
 )
+_SESSION_V2_KEYS = _SESSION_V1_KEYS | frozenset(
+    {
+        "current_summary",
+        "active_anchor",
+        "generation_claim",
+    }
+)
+_SUMMARY_KEYS = frozenset({"summary_id", "saved_at"})
+_ANCHOR_KEYS = frozenset(
+    {
+        "summary_id",
+        "saved_at",
+        "activation_source",
+        "origin_session_started_at",
+        "origin_session_ended_at",
+    }
+)
+_CLAIM_KEYS = frozenset({"summary_id", "returned_at", "expected_record_id"})
+_RECORD_ID_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _LOGGER = logging.getLogger(__name__)
 _LOCK_FAILED_ERROR = QLockFile.LockError.LockFailedError
 _LOCK_PERMISSION_ERROR = QLockFile.LockError.PermissionError
@@ -46,7 +66,60 @@ class InactiveStartCandidate:
     """이전 실행이 끝난 시각에서 시작할 비활성 기록 후보다."""
 
     started_at: datetime
-    source: Literal["graceful_exit", "heartbeat_recovery"]
+    source: Literal[
+        "graceful_exit",
+        "heartbeat_recovery",
+        "summary_graceful_exit",
+        "summary_heartbeat_recovery",
+    ]
+    summary_id: str | None = None
+
+
+@dataclass(frozen=True)
+class ApprovedSummaryState:
+    summary_id: str
+    saved_at: datetime
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "summary_id": self.summary_id,
+            "saved_at": self.saved_at.isoformat(),
+        }
+
+
+@dataclass(frozen=True)
+class ActiveLifeAnchor:
+    summary_id: str
+    saved_at: datetime
+    activation_source: Literal[
+        "summary_graceful_exit",
+        "summary_heartbeat_recovery",
+    ]
+    origin_session_started_at: datetime
+    origin_session_ended_at: datetime
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "summary_id": self.summary_id,
+            "saved_at": self.saved_at.isoformat(),
+            "activation_source": self.activation_source,
+            "origin_session_started_at": self.origin_session_started_at.isoformat(),
+            "origin_session_ended_at": self.origin_session_ended_at.isoformat(),
+        }
+
+
+@dataclass(frozen=True)
+class LifeGenerationClaim:
+    summary_id: str
+    returned_at: datetime
+    expected_record_id: str
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "summary_id": self.summary_id,
+            "returned_at": self.returned_at.isoformat(),
+            "expected_record_id": self.expected_record_id,
+        }
 
 
 @dataclass(frozen=True)
@@ -56,6 +129,9 @@ class _SessionState:
     last_seen_at: datetime
     status: Literal["running", "stopped"]
     stopped_at: datetime | None
+    current_summary: ApprovedSummaryState | None = None
+    active_anchor: ActiveLifeAnchor | None = None
+    generation_claim: LifeGenerationClaim | None = None
 
     def to_payload(self) -> dict[str, object]:
         return {
@@ -67,15 +143,36 @@ class _SessionState:
             "stopped_at": (
                 self.stopped_at.isoformat() if self.stopped_at is not None else None
             ),
+            "current_summary": (
+                self.current_summary.to_payload()
+                if self.current_summary is not None
+                else None
+            ),
+            "active_anchor": (
+                self.active_anchor.to_payload()
+                if self.active_anchor is not None
+                else None
+            ),
+            "generation_claim": (
+                self.generation_claim.to_payload()
+                if self.generation_claim is not None
+                else None
+            ),
         }
 
 
-def _parse_aware_timestamp(value: object) -> datetime:
+def _parse_aware_timestamp(
+    value: object,
+    *,
+    require_integer_seconds: bool,
+) -> datetime:
     if not isinstance(value, str):
         raise ValueError("timestamp_type")
     parsed = datetime.fromisoformat(value)
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise ValueError("timestamp_naive")
+    if require_integer_seconds and parsed.microsecond != 0:
+        raise ValueError("timestamp_subsecond")
     return parsed
 
 
@@ -90,6 +187,65 @@ def _parse_uuid4(value: object) -> str:
 
 def _as_utc(value: datetime) -> datetime:
     return value.astimezone(timezone.utc)
+
+
+def _parse_summary_id(value: object) -> str:
+    return _parse_uuid4(value)
+
+
+def _parse_record_id(value: object) -> str:
+    if not isinstance(value, str) or _RECORD_ID_PATTERN.fullmatch(value) is None:
+        raise ValueError("record_id_invalid")
+    return value
+
+
+def _parse_approved_summary(value: object) -> ApprovedSummaryState:
+    if not isinstance(value, dict) or set(value) != _SUMMARY_KEYS:
+        raise ValueError("summary_envelope_invalid")
+    return ApprovedSummaryState(
+        summary_id=_parse_summary_id(value["summary_id"]),
+        saved_at=_parse_aware_timestamp(
+            value["saved_at"],
+            require_integer_seconds=True,
+        ),
+    )
+
+
+def _parse_active_anchor(value: object) -> ActiveLifeAnchor:
+    if not isinstance(value, dict) or set(value) != _ANCHOR_KEYS:
+        raise ValueError("anchor_envelope_invalid")
+    source = value["activation_source"]
+    if source not in {"summary_graceful_exit", "summary_heartbeat_recovery"}:
+        raise ValueError("anchor_source_invalid")
+    return ActiveLifeAnchor(
+        summary_id=_parse_summary_id(value["summary_id"]),
+        saved_at=_parse_aware_timestamp(
+            value["saved_at"],
+            require_integer_seconds=True,
+        ),
+        activation_source=source,
+        origin_session_started_at=_parse_aware_timestamp(
+            value["origin_session_started_at"],
+            require_integer_seconds=True,
+        ),
+        origin_session_ended_at=_parse_aware_timestamp(
+            value["origin_session_ended_at"],
+            require_integer_seconds=True,
+        ),
+    )
+
+
+def _parse_generation_claim(value: object) -> LifeGenerationClaim:
+    if not isinstance(value, dict) or set(value) != _CLAIM_KEYS:
+        raise ValueError("claim_envelope_invalid")
+    return LifeGenerationClaim(
+        summary_id=_parse_summary_id(value["summary_id"]),
+        returned_at=_parse_aware_timestamp(
+            value["returned_at"],
+            require_integer_seconds=True,
+        ),
+        expected_record_id=_parse_record_id(value["expected_record_id"]),
+    )
 
 
 def _is_windows_platform() -> bool:
@@ -150,14 +306,25 @@ def _lease_failure_diagnostic(lock_file: QLockFile) -> str:
 
 
 def _parse_session_state(payload: object) -> _SessionState:
-    if not isinstance(payload, dict) or set(payload) != _SESSION_KEYS:
+    if not isinstance(payload, dict):
         raise ValueError("session_envelope_invalid")
-    if type(payload["version"]) is not int or payload["version"] != _SESSION_VERSION:
+    version = payload.get("version")
+    if type(version) is not int or version not in {1, _SESSION_VERSION}:
         raise ValueError("session_version_invalid")
+    expected_keys = _SESSION_V1_KEYS if version == 1 else _SESSION_V2_KEYS
+    if set(payload) != expected_keys:
+        raise ValueError("session_envelope_invalid")
 
     session_id = _parse_uuid4(payload["session_id"])
-    started_at = _parse_aware_timestamp(payload["started_at"])
-    last_seen_at = _parse_aware_timestamp(payload["last_seen_at"])
+    require_integer_seconds = version == _SESSION_VERSION
+    started_at = _parse_aware_timestamp(
+        payload["started_at"],
+        require_integer_seconds=require_integer_seconds,
+    )
+    last_seen_at = _parse_aware_timestamp(
+        payload["last_seen_at"],
+        require_integer_seconds=require_integer_seconds,
+    )
     status = payload["status"]
     if status not in ("running", "stopped"):
         raise ValueError("session_status_invalid")
@@ -168,12 +335,63 @@ def _parse_session_state(payload: object) -> _SessionState:
             raise ValueError("running_stop_invalid")
         stopped_at = None
     else:
-        stopped_at = _parse_aware_timestamp(raw_stopped_at)
+        stopped_at = _parse_aware_timestamp(
+            raw_stopped_at,
+            require_integer_seconds=require_integer_seconds,
+        )
 
     if _as_utc(started_at) > _as_utc(last_seen_at):
         raise ValueError("session_order_invalid")
     if stopped_at is not None and _as_utc(last_seen_at) > _as_utc(stopped_at):
         raise ValueError("session_order_invalid")
+
+    current_summary = None
+    active_anchor = None
+    generation_claim = None
+    if version == _SESSION_VERSION:
+        if payload["current_summary"] is not None:
+            current_summary = _parse_approved_summary(payload["current_summary"])
+            if not (
+                _as_utc(started_at)
+                <= _as_utc(current_summary.saved_at)
+                <= _as_utc(last_seen_at)
+            ):
+                raise ValueError("summary_order_invalid")
+
+        if payload["active_anchor"] is not None:
+            active_anchor = _parse_active_anchor(payload["active_anchor"])
+            if not (
+                _as_utc(active_anchor.origin_session_started_at)
+                <= _as_utc(active_anchor.saved_at)
+                <= _as_utc(active_anchor.origin_session_ended_at)
+            ):
+                raise ValueError("anchor_order_invalid")
+
+        if payload["generation_claim"] is not None:
+            generation_claim = _parse_generation_claim(payload["generation_claim"])
+            if active_anchor is None:
+                raise ValueError("claim_anchor_missing")
+            if generation_claim.summary_id != active_anchor.summary_id:
+                raise ValueError("claim_summary_mismatch")
+            lower_bound = max(
+                _as_utc(active_anchor.saved_at),
+                _as_utc(active_anchor.origin_session_ended_at),
+                _as_utc(started_at),
+            )
+            if not (
+                lower_bound
+                <= _as_utc(generation_claim.returned_at)
+                <= _as_utc(last_seen_at)
+            ):
+                raise ValueError("claim_order_invalid")
+            from src.ai.life_record_types import stable_life_record_id
+
+            expected_record_id = stable_life_record_id(
+                active_anchor.saved_at,
+                generation_claim.returned_at,
+            )
+            if generation_claim.expected_record_id != expected_record_id:
+                raise ValueError("claim_record_id_mismatch")
 
     return _SessionState(
         session_id=session_id,
@@ -181,6 +399,9 @@ def _parse_session_state(payload: object) -> _SessionState:
         last_seen_at=last_seen_at,
         status=status,
         stopped_at=stopped_at,
+        current_summary=current_summary,
+        active_anchor=active_anchor,
+        generation_claim=generation_claim,
     )
 
 
@@ -324,15 +545,10 @@ class AppSessionTracker:
         previous: _SessionState | None,
         canonical_now: datetime,
     ) -> InactiveStartCandidate | None:
-        if previous is None:
+        if previous is None or previous.active_anchor is None:
             return None
-        if previous.status == "stopped":
-            assert previous.stopped_at is not None
-            endpoint = previous.stopped_at
-            source: Literal["graceful_exit", "heartbeat_recovery"] = "graceful_exit"
-        else:
-            endpoint = previous.last_seen_at
-            source = "heartbeat_recovery"
+        anchor = previous.active_anchor
+        endpoint = anchor.saved_at
 
         assert self._time_context is not None
         try:
@@ -345,7 +561,8 @@ class AppSessionTracker:
             return None
         return InactiveStartCandidate(
             started_at=canonical_endpoint,
-            source=source,
+            source=anchor.activation_source,
+            summary_id=anchor.summary_id,
         )
 
     def start_session(self) -> InactiveStartCandidate | None:
@@ -380,6 +597,10 @@ class AppSessionTracker:
             last_seen_at=canonical_now,
             status="running",
             stopped_at=None,
+            active_anchor=previous.active_anchor if previous is not None else None,
+            generation_claim=(
+                previous.generation_claim if previous is not None else None
+            ),
         )
         if not self._commit(current):
             self._current_state = None
@@ -453,6 +674,9 @@ class AppSessionTracker:
             last_seen_at=endpoint,
             status="running",
             stopped_at=None,
+            current_summary=authoritative.current_summary,
+            active_anchor=authoritative.active_anchor,
+            generation_claim=authoritative.generation_claim,
         )
         if not self._commit(updated):
             self._set_degraded(
@@ -483,6 +707,9 @@ class AppSessionTracker:
             last_seen_at=shutdown_at,
             status="stopped",
             stopped_at=shutdown_at,
+            current_summary=authoritative.current_summary,
+            active_anchor=authoritative.active_anchor,
+            generation_claim=authoritative.generation_claim,
         )
         if not self._commit(stopped):
             self._set_degraded(
