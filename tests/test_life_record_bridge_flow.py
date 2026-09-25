@@ -76,7 +76,7 @@ class _Bridge(LifeRecordBridgeMixin):
     def __init__(self, manager, events):
         self.life_record_state = LifeRecordBridgeState(
             candidate=InactiveStartCandidate(START, "graceful_exit"),
-            auto_decision_completed=True,
+            life_gate_open=False,
             life_records_writable=True,
             time_context=resolve_local_time_context("Asia/Seoul").context,
             view_timezone="Asia/Seoul",

@@ -135,7 +135,7 @@ def test_exact_threshold_stashes_one_private_frozen_request_before_chat_commit()
     }
     assert "합성 인사" not in repr(request)
     assert bridge.language_calls == 1
-    assert bridge.life_record_state.auto_decision_completed is True
+    assert bridge.life_record_state.life_gate_open is False
     assert bridge.life_record_state.pending_request is request
     assert bridge.life_record_state.phase == "auto_generating"
     assert bridge.committed == []
@@ -147,6 +147,7 @@ def test_exact_threshold_stashes_one_private_frozen_request_before_chat_commit()
 
 def test_skip_decision_commits_once_and_does_not_rearm() -> None:
     bridge = _GateBridge(minutes=59)
+    original_candidate = bridge.life_record_state.candidate
     first = bridge._prepare_chat_request(
         received_at=NOW,
         request_type="text",
@@ -159,15 +160,93 @@ def test_skip_decision_commits_once_and_does_not_rearm() -> None:
     )
 
     bridge._dispatch_general_request(first)
+    assert bridge.life_record_state.candidate is original_candidate
     bridge.life_record_state.candidate = InactiveStartCandidate(
         started_at=NOW - timedelta(hours=3),
         source="graceful_exit",
     )
     bridge._dispatch_general_request(second)
 
-    assert bridge.life_record_state.auto_decision_completed is True
+    assert bridge.life_record_state.life_gate_open is False
     assert bridge.started == []
     assert bridge.committed == [first, second]
+
+
+def test_gate_starts_open_only_for_an_empty_process_buffer() -> None:
+    empty_bridge = _GateBridge(minutes=90)
+    assert empty_bridge._get_life_record_state().life_gate_open is True
+
+    existing_bridge = _GateBridge(minutes=90)
+    existing_bridge.conversation_buffer = [
+        ("user", "기존 합성 대화", "2026-08-07 09:59")
+    ]
+
+    assert existing_bridge._get_life_record_state().life_gate_open is False
+
+
+def test_existing_session_message_blocks_life_record_and_commits_normal_reply() -> None:
+    bridge = _GateBridge(minutes=90)
+    bridge.conversation_buffer = [
+        ("user", "기존 합성 대화", "2026-08-07 09:59")
+    ]
+    request = bridge._prepare_chat_request(
+        received_at=NOW,
+        request_type="text",
+        message="새 합성 요청",
+    )
+
+    bridge._dispatch_general_request(request)
+
+    assert bridge.life_record_state.life_gate_open is False
+    assert bridge.started == []
+    assert bridge.committed == [request]
+
+
+def test_normal_commit_failure_keeps_gate_open_and_candidate_available() -> None:
+    bridge = _GateBridge(minutes=59)
+    candidate = bridge.life_record_state.candidate
+    request = bridge._prepare_chat_request(
+        received_at=NOW,
+        request_type="text",
+        message="실패할 합성 요청",
+    )
+    bridge._commit_prepared_chat_request = lambda _request: (_ for _ in ()).throw(
+        RuntimeError("synthetic commit failure")
+    )
+
+    with pytest.raises(RuntimeError, match="synthetic commit failure"):
+        bridge._dispatch_general_request(request)
+
+    assert bridge.life_record_state.life_gate_open is True
+    assert bridge.life_record_state.phase == "idle"
+    assert bridge.life_record_state.candidate is candidate
+
+
+def test_summary_and_clear_close_gate_without_reopening_it() -> None:
+    summary_bridge = WebBridge()
+    summary_bridge.llm_client = object()
+    summary_bridge.memory_manager = object()
+    summary_bridge.conversation_buffer = [
+        ("user", "요약할 합성 대화", "2026-08-07 09:58")
+    ]
+    summary_bridge._start_summary_review_worker = lambda *_args, **_kwargs: object()
+
+    summary_bridge.summarize_now()
+
+    assert summary_bridge.life_record_state.life_gate_open is False
+
+    clear_bridge = WebBridge()
+    clear_bridge.conversation_buffer = [
+        ("user", "지울 합성 대화", "2026-08-07 09:58")
+    ]
+    clear_bridge.clear_conversation()
+
+    assert clear_bridge.conversation_buffer == []
+    assert clear_bridge.life_record_state.life_gate_open is False
+
+    clear_bridge.clear_conversation()
+
+    assert clear_bridge.life_record_state.life_gate_open is False
 
 
 def test_empty_world_emits_safe_notice_and_continues_without_lock() -> None:
@@ -205,7 +284,7 @@ def test_busy_arbiter_rejects_without_consuming_pending_or_candidate() -> None:
     assert bridge._life_operation_accepts_input() is False
     assert bridge.life_record_state.pending_request is original
     assert bridge.life_record_state.candidate is before_candidate
-    assert bridge.life_record_state.auto_decision_completed is False
+    assert bridge.life_record_state.life_gate_open is True
 
 
 def test_operation_id_rejects_stale_callbacks_and_pending_is_taken_once() -> None:
@@ -271,7 +350,7 @@ def test_busy_text_slot_rejects_before_any_side_effect() -> None:
     assert bridge.calendar_manager.conversation_count == 0
     assert bridge.calendar_manager.pending_head_pats == 3
     assert bridge.conversation_buffer == []
-    assert bridge.life_record_state.auto_decision_completed is False
+    assert bridge.life_record_state.life_gate_open is True
 
 
 def test_idle_tool_command_captures_clock_but_does_not_consume_opportunity() -> None:
@@ -284,7 +363,7 @@ def test_idle_tool_command_captures_clock_but_does_not_consume_opportunity() -> 
     bridge.send_to_ai("/note 합성 명령")
 
     assert captured == ["clock"]
-    assert bridge.life_record_state.auto_decision_completed is False
+    assert bridge.life_record_state.life_gate_open is True
 
 
 def test_first_general_chat_snapshots_mood_without_preapplying_user_message() -> None:
@@ -316,7 +395,7 @@ def test_busy_attachment_slot_rejects_before_json_or_session_side_effects(monkey
     assert bridge._pending_attachment_cache == {}
     assert bridge._message_attachment_records == {}
     assert bridge.conversation_buffer == []
-    assert bridge.life_record_state.auto_decision_completed is False
+    assert bridge.life_record_state.life_gate_open is True
 
 
 def test_busy_legacy_image_slot_rejects_before_json_side_effects(monkeypatch) -> None:
@@ -332,7 +411,7 @@ def test_busy_legacy_image_slot_rejects_before_json_side_effects(monkeypatch) ->
     bridge.send_to_ai_with_images("합성 요청", "[]")
 
     assert bridge.conversation_buffer == []
-    assert bridge.life_record_state.auto_decision_completed is False
+    assert bridge.life_record_state.life_gate_open is True
     assert parsed == []
 
 

@@ -188,7 +188,7 @@ class LifeRecordBridgeState:
     """생활 기록 생성과 일반 답변 사이의 단일 작업 상태."""
 
     candidate: Any = None
-    auto_decision_completed: bool = False
+    life_gate_open: bool = True
     life_records_writable: bool = False
     read_only_reason: str | None = None
     time_context: Any = None

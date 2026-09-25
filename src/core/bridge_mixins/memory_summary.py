@@ -67,6 +67,14 @@ class SummaryReviewWorker(QThread):
 
 
 class MemorySummaryBridgeMixin:
+    def _close_life_gate_for_summary(self, messages) -> None:
+        """대화가 있는 요약·초기화 흐름은 process 단위 생활 기록 gate를 닫는다."""
+        if not list(messages or []):
+            return
+        close_gate = getattr(self, "_close_life_gate", None)
+        if callable(close_gate):
+            close_gate()
+
     @staticmethod
     def _summary_review_metadata(value) -> tuple[str, str]:
         pending = value if isinstance(value, dict) else {}
@@ -296,6 +304,10 @@ class MemorySummaryBridgeMixin:
             self.summary_notice.emit("요약할 대화가 없어요.", "info")
             return
 
+        MemorySummaryBridgeMixin._close_life_gate_for_summary(
+            self,
+            self.conversation_buffer,
+        )
         starter = getattr(self, "_start_summary_review_worker", None)
         if not callable(starter):
             starter = lambda messages, **kwargs: MemorySummaryBridgeMixin._start_summary_review_worker(
@@ -346,6 +358,7 @@ class MemorySummaryBridgeMixin:
             )
             return
 
+        MemorySummaryBridgeMixin._close_life_gate_for_summary(self, messages)
         starter = getattr(self, "_start_summary_review_worker", None)
         if not callable(starter):
             starter = lambda value, **kwargs: MemorySummaryBridgeMixin._start_summary_review_worker(
@@ -380,6 +393,7 @@ class MemorySummaryBridgeMixin:
             self.summary_notice.emit("이미 요약을 만드는 중이에요.", "info")
             return current_worker
 
+        MemorySummaryBridgeMixin._close_life_gate_for_summary(self, messages)
         origin, completion_action = MemorySummaryBridgeMixin._summary_review_metadata(
             {
                 "origin": origin,
@@ -1065,6 +1079,10 @@ class MemorySummaryBridgeMixin:
             return
 
         print(f"[Bridge] 대화 {len(self.conversation_buffer)}개 - 자동 요약 검토 트리거")
+        MemorySummaryBridgeMixin._close_life_gate_for_summary(
+            self,
+            self.conversation_buffer,
+        )
         starter = getattr(self, "_start_summary_review_worker", None)
         if not callable(starter):
             starter = lambda messages, **kwargs: MemorySummaryBridgeMixin._start_summary_review_worker(
@@ -1090,6 +1108,10 @@ class MemorySummaryBridgeMixin:
         ):
             return
         self._summary_in_progress = True
+        MemorySummaryBridgeMixin._close_life_gate_for_summary(
+            self,
+            self.conversation_buffer,
+        )
         
         try:
             print(f"[Bridge] 대화 요약 시작 ({len(self.conversation_buffer)}개 메시지)")
@@ -1153,6 +1175,7 @@ class MemorySummaryBridgeMixin:
     def clear_conversation(self):
         """대화를 바로 지우거나, 남은 대화의 요약 검토를 먼저 시작한다."""
         messages = list(getattr(self, "conversation_buffer", []) or [])
+        MemorySummaryBridgeMixin._close_life_gate_for_summary(self, messages)
         reviewable = (
             len(messages) >= 2
             and getattr(self, "memory_manager", None) is not None

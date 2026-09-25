@@ -78,7 +78,7 @@ class _Bridge(LifeRecordBridgeMixin):
     def __init__(self, manager: LifeRecordManager) -> None:
         self.events = []
         self.life_record_state = LifeRecordBridgeState(
-            auto_decision_completed=True,
+            life_gate_open=False,
             life_records_writable=True,
             time_context=resolve_local_time_context("UTC").context,
             view_timezone="UTC",

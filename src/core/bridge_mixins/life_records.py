@@ -171,7 +171,16 @@ class LifeRecordBridgeMixin:
         if not isinstance(state, LifeRecordBridgeState):
             state = LifeRecordBridgeState()
             self.life_record_state = state
+        if (
+            state.life_gate_open
+            and list(getattr(self, "conversation_buffer", []) or [])
+        ):
+            state.life_gate_open = False
         return state
+
+    def _close_life_gate(self) -> None:
+        """현재 process의 생활 기록 gate를 닫고 다시 열지 않는다."""
+        self._get_life_record_state().life_gate_open = False
 
     def begin_shutdown(self) -> int:
         """모든 bridge 요청을 차단하고 현재 생활 기록 작업을 무효화한다."""
@@ -315,6 +324,7 @@ class LifeRecordBridgeMixin:
             except Exception:
                 state.finish_operation(operation_id)
                 raise
+            self._close_life_gate()
             worker = getattr(self, "worker", None)
             is_running = getattr(worker, "isRunning", None)
             if state.matches_operation(operation_id, "normal_reply") and not (
@@ -323,10 +333,9 @@ class LifeRecordBridgeMixin:
                 state.finish_operation(operation_id)
             return True
 
-        if state.auto_decision_completed:
+        if not state.life_gate_open:
             return commit_normal_reply()
 
-        state.auto_decision_completed = True
         if not state.life_records_writable:
             return commit_normal_reply()
         if self._life_setting("enable_life_records", False) is not True:
@@ -368,6 +377,7 @@ class LifeRecordBridgeMixin:
         self._emit_life_record_pending(True)
         starter = getattr(self, "_start_auto_life_record_generation", None)
         if callable(starter):
+            self._close_life_gate()
             starter(operation_id)
         return True
 

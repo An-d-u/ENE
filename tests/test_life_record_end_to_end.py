@@ -300,7 +300,7 @@ def test_recovered_first_chat_covers_exact_eleven_hours_without_gaps(
         bridge, manager = _bridge(monkeypatch, state_path.parent, candidate)
 
         bridge.send_to_ai("/note synthetic-command")
-        assert bridge.life_record_state.auto_decision_completed is False
+        assert bridge.life_record_state.life_gate_open is True
         assert bridge.command_messages == ["/note synthetic-command"]
 
         if first_request == "text":
@@ -532,7 +532,7 @@ def test_busy_auto_and_manual_operations_reject_competing_inputs_and_queue(
     bridge.begin_shutdown()
     _process_deferred_life_finalizers()
     bridge.life_record_state = LifeRecordBridgeState(
-        auto_decision_completed=True,
+        life_gate_open=False,
         life_records_writable=True,
         time_context=_time_context(),
         view_timezone="Asia/Seoul",
