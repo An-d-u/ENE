@@ -441,6 +441,40 @@ def test_operation_id_rejects_stale_callbacks_and_pending_is_taken_once() -> Non
     assert state.take_pending(operation_id) is None
 
 
+def test_stale_auto_finalizer_cannot_finalize_current_claim() -> None:
+    claim = SimpleNamespace(
+        summary_id="current-summary",
+        returned_at=NOW,
+        expected_record_id="current-record",
+    )
+    state = LifeRecordBridgeState(
+        phase="auto_generating",
+        operation_id=2,
+        generation_claim=claim,
+        generation_claim_operation_id=2,
+    )
+    tracker_calls = []
+    tracker = SimpleNamespace(
+        release_life_generation_claim=lambda *args: tracker_calls.append(
+            ("release", args)
+        ),
+        complete_life_generation_claim=lambda *args: tracker_calls.append(
+            ("complete", args)
+        ),
+    )
+    dummy = SimpleNamespace(
+        life_record_state=state,
+        life_session_tracker=tracker,
+        _get_life_record_state=lambda: state,
+    )
+
+    LifeRecordBridgeMixin._finalize_life_record_operation(dummy, 1)
+
+    assert tracker_calls == []
+    assert state.generation_claim is claim
+    assert state.generation_claim_operation_id == 2
+
+
 def test_state_rejects_unknown_read_only_reason_and_releases_finished_worker() -> None:
     try:
         LifeRecordBridgeState(read_only_reason="raw-provider-error")

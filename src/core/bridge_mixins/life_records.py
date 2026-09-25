@@ -263,9 +263,17 @@ class LifeRecordBridgeMixin:
         value = self._life_setting("life_record_min_inactive_minutes", 60)
         return value if type(value) is int and value >= 1 else 60
 
-    def _sync_claim_failure_read_only_state(self, tracker) -> None:
+    def _sync_claim_failure_read_only_state(
+        self,
+        tracker,
+        *,
+        force: bool = False,
+    ) -> None:
         """tracker가 쓰기 불가로 전환된 경우에만 앱과 bridge 상태를 맞춘다."""
-        if getattr(tracker, "life_records_writable", True) is not False:
+        if (
+            not force
+            and getattr(tracker, "life_records_writable", True) is not False
+        ):
             return
         reason = _public_read_only_reason(getattr(tracker, "reason", None))
         if reason is None:
@@ -290,6 +298,7 @@ class LifeRecordBridgeMixin:
         """생성 worker보다 먼저 현재 summary anchor의 영속 claim을 획득한다."""
         state = self._get_life_record_state()
         state.generation_claim = None
+        state.generation_claim_operation_id = None
         if not hasattr(self, "life_session_tracker"):
             # 앱 lifecycle 밖에서 mixin만 사용하는 기존 호출은 legacy 경로를 유지한다.
             return True
@@ -323,6 +332,49 @@ class LifeRecordBridgeMixin:
             return True
 
         self._sync_claim_failure_read_only_state(tracker)
+        return False
+
+    def _finalize_owned_generation_claim(
+        self,
+        operation_id: int,
+        *,
+        consume_anchor: bool,
+    ) -> bool:
+        """현재 auto operation 소유 claim을 정확히 한 번 완료하거나 해제한다."""
+        state = self._get_life_record_state()
+        if state.generation_claim_operation_id != operation_id:
+            return False
+        claim = state.generation_claim
+        if claim is None:
+            return False
+
+        state.generation_claim = None
+        state.generation_claim_operation_id = None
+        if not hasattr(self, "life_session_tracker"):
+            return True
+
+        tracker = getattr(self, "life_session_tracker", None)
+        method_name = (
+            "complete_life_generation_claim"
+            if consume_anchor
+            else "release_life_generation_claim"
+        )
+        finalize = getattr(tracker, method_name, None)
+        succeeded = False
+        if callable(finalize):
+            try:
+                succeeded = finalize(
+                    claim.summary_id,
+                    claim.expected_record_id,
+                ) is True
+            except Exception as error:
+                print(f"[Bridge] Life record claim finalization failed: {error}")
+        if succeeded:
+            if consume_anchor:
+                state.candidate = None
+            return True
+
+        self._sync_claim_failure_read_only_state(tracker, force=True)
         return False
 
     def _load_life_world_for_gate(self) -> str:
@@ -432,6 +484,8 @@ class LifeRecordBridgeMixin:
         )
         if operation_id is None:
             return False
+        if state.generation_claim is not None:
+            state.generation_claim_operation_id = operation_id
         begin_companion = getattr(self, "_companion_begin_request", None)
         if callable(begin_companion):
             begin_companion(prepared_request, operation_id, "preparing")
@@ -925,9 +979,17 @@ class LifeRecordBridgeMixin:
         request_ref = getattr(state.pending_request, "request_ref", None)
         is_current = getattr(self, "_companion_request_is_current", None)
         if request_ref is not None and callable(is_current) and not is_current(request_ref):
+            self._finalize_owned_generation_claim(
+                operation_id,
+                consume_anchor=False,
+            )
             self._finish_life_record_without_reply(operation_id)
             return
         if state.worker_error == "cancelled":
+            self._finalize_owned_generation_claim(
+                operation_id,
+                consume_anchor=False,
+            )
             self._finish_life_record_without_reply(operation_id)
             return
         result = state.worker_result
@@ -947,12 +1009,20 @@ class LifeRecordBridgeMixin:
                 success = False
                 notice = "save_failed"
             else:
+                self._finalize_owned_generation_claim(
+                    operation_id,
+                    consume_anchor=True,
+                )
                 if not self._emit_saved_life_record(saved):
                     try:
                         self._emit_life_record_notice("refresh_failed")
                     except Exception:
                         pass
         if not success:
+            self._finalize_owned_generation_claim(
+                operation_id,
+                consume_anchor=False,
+            )
             try:
                 self._emit_life_record_notice(notice)
             except Exception:

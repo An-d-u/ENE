@@ -343,6 +343,11 @@ def test_claimed_recovered_first_chat_covers_exact_eleven_hours_without_gaps(
 
         record = manager.latest()
         assert record is not None
+        persisted_session = json.loads(state_path.read_text(encoding="utf-8"))
+        assert persisted_session["generation_claim"] is None
+        assert persisted_session["active_anchor"] is None
+        assert bridge.life_record_state.generation_claim is None
+        assert bridge.life_record_state.candidate is None
         assert record.inactive_started_at == STOPPED_AT
         assert record.returned_at == RETURNED_AT
         assert (
@@ -380,6 +385,135 @@ def test_claimed_recovered_first_chat_covers_exact_eleven_hours_without_gaps(
         ]
     finally:
         tracker.release_lease()
+
+
+@pytest.mark.parametrize("failure_kind", ["generation", "validation", "save"])
+def test_claim_failure_releases_once_and_keeps_anchor(
+    monkeypatch,
+    tmp_path,
+    failure_kind,
+):
+    state_path = tmp_path / failure_kind / "life_session_state.json"
+    _seed_session(state_path, "summary_graceful_exit")
+    tracker = AppSessionTracker(state_path, time_context=_time_context())
+    candidate = tracker.start_session()
+    assert candidate is not None
+    bridge, manager = _bridge(
+        monkeypatch,
+        state_path.parent,
+        candidate,
+        tracker=tracker,
+    )
+    release_calls = []
+    original_release = tracker.release_life_generation_claim
+
+    def release(summary_id, expected_record_id):
+        release_calls.append((summary_id, expected_record_id))
+        return original_release(summary_id, expected_record_id)
+
+    monkeypatch.setattr(tracker, "release_life_generation_claim", release)
+    if failure_kind == "save":
+        monkeypatch.setattr(manager, "add", lambda _record: False)
+
+    try:
+        bridge.send_to_ai("claim 실패 합성 요청")
+        worker = _LifeWorker.instances[-1]
+        operation_id = worker.request.operation_id
+        if failure_kind == "generation":
+            worker.error_occurred.emit(
+                operation_id,
+                LifeRecordWorkerResult(
+                    operation_id=operation_id,
+                    output=None,
+                    status=None,
+                    token_usage=OneShotTokenUsage(None, None, None),
+                    attempt_count=1,
+                    error_code="synthetic_failure",
+                ),
+            )
+            worker.finished.emit()
+        elif failure_kind == "validation":
+            worker.result_ready.emit(
+                operation_id,
+                LifeRecordWorkerResult(
+                    operation_id=operation_id,
+                    output=None,
+                    status=ResponseStatus.COMPLETE,
+                    token_usage=OneShotTokenUsage(None, None, None),
+                    attempt_count=1,
+                ),
+            )
+            worker.finished.emit()
+        else:
+            _complete_worker(worker, _output())
+        _process_deferred_life_finalizers()
+
+        persisted_session = json.loads(state_path.read_text(encoding="utf-8"))
+        assert len(release_calls) == 1
+        assert persisted_session["generation_claim"] is None
+        assert persisted_session["active_anchor"] is not None
+        assert bridge.life_record_state.generation_claim is None
+        assert bridge.life_record_state.life_gate_open is False
+        assert manager.latest() is None
+
+        worker.finished.emit()
+        _process_deferred_life_finalizers()
+        assert len(release_calls) == 1
+    finally:
+        tracker.release_lease()
+
+
+def test_claim_complete_failure_keeps_record_for_startup_reconciliation(
+    monkeypatch,
+    tmp_path,
+):
+    state_path = tmp_path / "complete-failure" / "life_session_state.json"
+    _seed_session(state_path, "summary_graceful_exit")
+    tracker = AppSessionTracker(state_path, time_context=_time_context())
+    candidate = tracker.start_session()
+    assert candidate is not None
+    bridge, manager = _bridge(
+        monkeypatch,
+        state_path.parent,
+        candidate,
+        tracker=tracker,
+    )
+
+    def fail_complete(_summary_id, _expected_record_id):
+        tracker.life_records_writable = False
+        tracker.reason = "session_tracker_degraded"
+        return False
+
+    monkeypatch.setattr(tracker, "complete_life_generation_claim", fail_complete)
+    bridge.send_to_ai("complete 실패 합성 요청")
+    worker = _LifeWorker.instances[-1]
+    _complete_worker(worker, _output())
+    _process_deferred_life_finalizers()
+
+    record = manager.latest()
+    assert record is not None
+    persisted_session = json.loads(state_path.read_text(encoding="utf-8"))
+    assert persisted_session["generation_claim"] is not None
+    assert persisted_session["active_anchor"] is not None
+    assert bridge.life_record_state.life_records_writable is False
+    assert bridge.life_record_state.read_only_reason == "session_tracker_degraded"
+
+    tracker.release_lease()
+    recovered = AppSessionTracker(
+        state_path,
+        time_context=_time_context(RETURNED_AT + timedelta(minutes=1)),
+    )
+    try:
+        recovered_candidate = recovered.start_session(
+            persisted_record_ids=frozenset({record.id}),
+            record_store_healthy=True,
+        )
+        reconciled = json.loads(state_path.read_text(encoding="utf-8"))
+        assert recovered_candidate is None
+        assert reconciled["generation_claim"] is None
+        assert reconciled["active_anchor"] is None
+    finally:
+        recovered.release_lease()
 
 
 def test_generation_failure_falls_back_then_reroll_does_not_regenerate(
@@ -450,6 +584,22 @@ def test_manual_regeneration_replaces_only_after_success(
         InactiveStartCandidate(STOPPED_AT, "graceful_exit"),
         now=RETURNED_AT + timedelta(minutes=5),
     )
+    claim_marker = SimpleNamespace(
+        summary_id="unrelated-summary",
+        returned_at=RETURNED_AT,
+        expected_record_id="unrelated-record",
+    )
+    tracker_calls = []
+    bridge.life_record_state.generation_claim = claim_marker
+    bridge.life_record_state.generation_claim_operation_id = 999
+    bridge.life_session_tracker = SimpleNamespace(
+        release_life_generation_claim=lambda *args: tracker_calls.append(
+            ("release", args)
+        ),
+        complete_life_generation_claim=lambda *args: tracker_calls.append(
+            ("complete", args)
+        ),
+    )
     original = create_life_record(
         id=stable_life_record_id(STOPPED_AT, RETURNED_AT),
         inactive_started_at=STOPPED_AT,
@@ -510,6 +660,9 @@ def test_manual_regeneration_replaces_only_after_success(
         assert current.entries[0].activity != original.entries[0].activity
     else:
         assert current == original
+    assert tracker_calls == []
+    assert bridge.life_record_state.generation_claim is claim_marker
+    assert bridge.life_record_state.generation_claim_operation_id == 999
 
 
 def test_busy_auto_and_manual_operations_reject_competing_inputs_and_queue(
