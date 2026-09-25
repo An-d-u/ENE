@@ -565,6 +565,41 @@ class AppSessionTracker:
             summary_id=anchor.summary_id,
         )
 
+    @staticmethod
+    def _promote_previous_summary(
+        previous: _SessionState | None,
+    ) -> _SessionState | None:
+        if (
+            previous is None
+            or previous.current_summary is None
+            or previous.generation_claim is not None
+        ):
+            return previous
+        if previous.status == "stopped":
+            assert previous.stopped_at is not None
+            ended_at = previous.stopped_at
+            source = "summary_graceful_exit"
+        else:
+            ended_at = previous.last_seen_at
+            source = "summary_heartbeat_recovery"
+        promoted = ActiveLifeAnchor(
+            summary_id=previous.current_summary.summary_id,
+            saved_at=previous.current_summary.saved_at,
+            activation_source=source,
+            origin_session_started_at=previous.started_at,
+            origin_session_ended_at=ended_at,
+        )
+        return _SessionState(
+            session_id=previous.session_id,
+            started_at=previous.started_at,
+            last_seen_at=previous.last_seen_at,
+            status=previous.status,
+            stopped_at=previous.stopped_at,
+            current_summary=None,
+            active_anchor=promoted,
+            generation_claim=None,
+        )
+
     def start_session(self) -> InactiveStartCandidate | None:
         """이전 종료 후보를 회복하고 현재 running 세션을 원자 저장한다."""
 
@@ -589,7 +624,7 @@ class AppSessionTracker:
             )
             return None
 
-        previous = self._read_authoritative()
+        previous = self._promote_previous_summary(self._read_authoritative())
         candidate = self._candidate_from_previous(previous, canonical_now)
         current = _SessionState(
             session_id=str(uuid4()),
@@ -764,15 +799,29 @@ class AppSessionTracker:
         authoritative = self._load_current_owner()
         if authoritative is None:
             return False
-        shutdown_at = self._next_endpoint(canonical_now, authoritative.last_seen_at)
+        endpoints = [canonical_now, authoritative.last_seen_at]
+        if authoritative.current_summary is not None:
+            endpoints.append(authoritative.current_summary.saved_at)
+        shutdown_at = self._latest_endpoint(*endpoints)
+        current_summary = authoritative.current_summary
+        active_anchor = authoritative.active_anchor
+        if current_summary is not None and authoritative.generation_claim is None:
+            active_anchor = ActiveLifeAnchor(
+                summary_id=current_summary.summary_id,
+                saved_at=current_summary.saved_at,
+                activation_source="summary_graceful_exit",
+                origin_session_started_at=authoritative.started_at,
+                origin_session_ended_at=shutdown_at,
+            )
+            current_summary = None
         stopped = _SessionState(
             session_id=authoritative.session_id,
             started_at=authoritative.started_at,
             last_seen_at=shutdown_at,
             status="stopped",
             stopped_at=shutdown_at,
-            current_summary=authoritative.current_summary,
-            active_anchor=authoritative.active_anchor,
+            current_summary=current_summary,
+            active_anchor=active_anchor,
             generation_claim=authoritative.generation_claim,
         )
         if not self._commit(stopped):

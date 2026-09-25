@@ -264,6 +264,173 @@ def test_v1_running_state_migrates_without_inferred_anchor(tmp_path: Path) -> No
     tracker.release_lease()
 
 
+@pytest.mark.parametrize(
+    ("previous_status", "expected_source"),
+    [
+        ("stopped", "summary_graceful_exit"),
+        ("running", "summary_heartbeat_recovery"),
+    ],
+)
+def test_v2_current_summary_is_promoted_when_next_session_starts(
+    tmp_path: Path,
+    previous_status: str,
+    expected_source: str,
+) -> None:
+    state_path = tmp_path / "life_session_state.json"
+    stopped_at = _at(5) if previous_status == "stopped" else None
+    _write_state(
+        state_path,
+        _v2_state(
+            last_seen_at=_at(5),
+            status=previous_status,
+            stopped_at=stopped_at,
+            current_summary=_summary(saved_at=_at(4)),
+        ),
+    )
+    tracker = AppSessionTracker(state_path, now=lambda: _at(10))
+
+    candidate = tracker.start_session()
+
+    assert candidate == InactiveStartCandidate(
+        started_at=_at(4),
+        source=expected_source,
+        summary_id=SUMMARY_ID,
+    )
+    saved = _read_state(state_path)
+    assert saved["current_summary"] is None
+    assert saved["active_anchor"] == _anchor(
+        saved_at=_at(4),
+        activation_source=expected_source,
+        origin_session_started_at=_at(1),
+        origin_session_ended_at=_at(5),
+    )
+    tracker.release_lease()
+
+
+def test_v2_unused_anchor_is_preserved_without_new_summary(tmp_path: Path) -> None:
+    state_path = tmp_path / "life_session_state.json"
+    anchor = _anchor()
+    _write_state(
+        state_path,
+        _v2_state(
+            last_seen_at=_at(5),
+            status="stopped",
+            stopped_at=_at(5),
+            active_anchor=anchor,
+        ),
+    )
+    tracker = AppSessionTracker(state_path, now=lambda: _at(10))
+
+    candidate = tracker.start_session()
+
+    assert candidate == InactiveStartCandidate(
+        started_at=_at(3),
+        source="summary_graceful_exit",
+        summary_id=SUMMARY_ID,
+    )
+    assert _read_state(state_path)["active_anchor"] == anchor
+    tracker.release_lease()
+
+
+def test_v2_new_summary_replaces_older_unused_anchor(tmp_path: Path) -> None:
+    state_path = tmp_path / "life_session_state.json"
+    _write_state(
+        state_path,
+        _v2_state(
+            last_seen_at=_at(8),
+            status="stopped",
+            stopped_at=_at(8),
+            current_summary=_summary(
+                summary_id=OTHER_SUMMARY_ID,
+                saved_at=_at(7),
+            ),
+            active_anchor=_anchor(),
+        ),
+    )
+    tracker = AppSessionTracker(state_path, now=lambda: _at(10))
+
+    candidate = tracker.start_session()
+
+    assert candidate == InactiveStartCandidate(
+        started_at=_at(7),
+        source="summary_graceful_exit",
+        summary_id=OTHER_SUMMARY_ID,
+    )
+    assert _read_state(state_path)["active_anchor"] == _anchor(
+        summary_id=OTHER_SUMMARY_ID,
+        saved_at=_at(7),
+        origin_session_started_at=_at(1),
+        origin_session_ended_at=_at(8),
+    )
+    tracker.release_lease()
+
+
+def test_future_active_anchor_is_not_returned_as_candidate(tmp_path: Path) -> None:
+    state_path = tmp_path / "life_session_state.json"
+    future_anchor = _anchor(
+        saved_at=_at(20),
+        origin_session_started_at=_at(19),
+        origin_session_ended_at=_at(21),
+    )
+    _write_state(
+        state_path,
+        _v2_state(
+            last_seen_at=_at(5),
+            status="stopped",
+            stopped_at=_at(5),
+            active_anchor=future_anchor,
+        ),
+    )
+    tracker = AppSessionTracker(state_path, now=lambda: _at(10))
+
+    assert tracker.start_session() is None
+    assert "session_candidate_in_future" in tracker.diagnostics
+    assert _read_state(state_path)["active_anchor"] == future_anchor
+    tracker.release_lease()
+
+
+def test_stop_promotes_current_summary_in_same_atomic_state(tmp_path: Path) -> None:
+    state_path = tmp_path / "life_session_state.json"
+    clock = MutableClock(_at(10))
+    tracker = AppSessionTracker(state_path, now=clock)
+    tracker.start_session()
+    clock.current = _at(12)
+    assert tracker.register_approved_summary(SUMMARY_ID) is not None
+    clock.current = _at(20)
+
+    assert tracker.stop_session() is True
+
+    saved = _read_state(state_path)
+    assert saved["current_summary"] is None
+    assert saved["active_anchor"] == _anchor(
+        saved_at=_at(12),
+        origin_session_started_at=_at(10),
+        origin_session_ended_at=_at(20),
+    )
+    tracker.release_lease()
+
+
+def test_stop_uses_summary_time_when_clock_rolls_back(tmp_path: Path) -> None:
+    state_path = tmp_path / "life_session_state.json"
+    clock = MutableClock(_at(20))
+    tracker = AppSessionTracker(state_path, now=clock)
+    tracker.start_session()
+    assert tracker.register_approved_summary(SUMMARY_ID) is not None
+    clock.current = _at(10)
+
+    assert tracker.stop_session() is True
+
+    saved = _read_state(state_path)
+    assert saved["last_seen_at"] == _at(20).isoformat()
+    assert saved["stopped_at"] == _at(20).isoformat()
+    assert saved["active_anchor"] == _anchor(
+        saved_at=_at(20),
+        origin_session_started_at=_at(20),
+        origin_session_ended_at=_at(20),
+    )
+    tracker.release_lease()
+
+
 def test_v2_round_trip_accepts_exact_nested_envelopes() -> None:
     payload = _v2_state(
         current_summary=_summary(),
