@@ -201,6 +201,7 @@ class LifeRecordBridgeState:
     worker_result: Any = None
     worker_error: Any = None
     prior_token_usage: Any = None
+    generation_claim: Any = None
 
     def __post_init__(self) -> None:
         if (

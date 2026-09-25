@@ -16,6 +16,7 @@ from src.core.bridge_mixins.life_records import (
 from src.core.bridge_mixins.promise import PromiseBridgeMixin
 from src.core.bridge_mixins.proactive import ProactiveBridgeMixin
 from src.core.bridge import WebBridge
+from src.ai.life_record_types import stable_life_record_id
 from src.core.bridge_state import LifeRecordBridgeState
 from src.core.life_session_tracker import InactiveStartCandidate
 from src.core.local_time import LocalTimeContext
@@ -111,6 +112,21 @@ class _GateBridge(LifeRecordBridgeMixin):
         self.started.append(operation_id)
 
 
+class _ClaimTracker:
+    def __init__(self, result, *, writable=True, reason=None, order=None) -> None:
+        self.result = result
+        self.life_records_writable = writable
+        self.reason = reason
+        self.order = order
+        self.calls = []
+
+    def claim_life_generation(self, summary_id, returned_at):
+        self.calls.append((summary_id, returned_at))
+        if self.order is not None:
+            self.order.append("claim")
+        return self.result
+
+
 def test_exact_threshold_stashes_one_private_frozen_request_before_chat_commit() -> None:
     bridge = _GateBridge(minutes=60)
 
@@ -143,6 +159,124 @@ def test_exact_threshold_stashes_one_private_frozen_request_before_chat_commit()
     assert bridge.request_pending_stage_changed.emitted == [("life_record",)]
     assert bridge.request_pending_changed.emitted == [(True,)]
     assert bridge.started == [bridge.life_record_state.operation_id]
+
+
+def test_claim_is_persisted_before_worker_and_snapshotted_for_generation() -> None:
+    order = []
+    bridge = _GateBridge(minutes=60)
+    candidate = InactiveStartCandidate(
+        started_at=NOW - timedelta(minutes=60),
+        source="summary_graceful_exit",
+        summary_id="summary-anchor",
+    )
+    expected_id = stable_life_record_id(candidate.started_at, NOW)
+    claim = SimpleNamespace(
+        summary_id="summary-anchor",
+        returned_at=NOW,
+        expected_record_id=expected_id,
+    )
+    bridge.life_record_state.candidate = candidate
+    bridge.life_session_tracker = _ClaimTracker(claim, order=order)
+    bridge._start_auto_life_record_generation = lambda operation_id: (
+        order.append("worker"),
+        bridge.started.append(operation_id),
+    )
+    request = bridge._prepare_chat_request(
+        received_at=NOW,
+        request_type="text",
+        message="합성 복귀 요청",
+    )
+
+    bridge._dispatch_general_request(request)
+
+    assert order == ["claim", "worker"]
+    assert bridge.life_session_tracker.calls == [("summary-anchor", NOW)]
+    assert bridge.life_record_state.generation_claim is claim
+    assert bridge.life_record_state.life_gate_open is False
+
+
+def test_claim_failure_falls_back_without_consuming_anchor() -> None:
+    bridge = _GateBridge(minutes=60)
+    candidate = InactiveStartCandidate(
+        started_at=NOW - timedelta(minutes=60),
+        source="summary_graceful_exit",
+        summary_id="summary-anchor",
+    )
+    bridge.life_record_state.candidate = candidate
+    bridge.life_session_tracker = _ClaimTracker(None)
+    request = bridge._prepare_chat_request(
+        received_at=NOW,
+        request_type="text",
+        message="합성 fallback 요청",
+    )
+
+    bridge._dispatch_general_request(request)
+
+    assert bridge.life_session_tracker.calls == [("summary-anchor", NOW)]
+    assert bridge.started == []
+    assert bridge.committed == [request]
+    assert bridge.life_record_state.life_gate_open is False
+    assert bridge.life_record_state.candidate is candidate
+
+
+def test_claim_failure_and_fallback_commit_failure_keep_gate_and_anchor() -> None:
+    bridge = _GateBridge(minutes=60)
+    candidate = InactiveStartCandidate(
+        started_at=NOW - timedelta(minutes=60),
+        source="summary_graceful_exit",
+        summary_id="summary-anchor",
+    )
+    bridge.life_record_state.candidate = candidate
+    bridge.life_session_tracker = _ClaimTracker(None)
+    bridge._commit_prepared_chat_request = lambda _request: (_ for _ in ()).throw(
+        RuntimeError("synthetic fallback failure")
+    )
+    request = bridge._prepare_chat_request(
+        received_at=NOW,
+        request_type="text",
+        message="실패할 합성 fallback 요청",
+    )
+
+    with pytest.raises(RuntimeError, match="synthetic fallback failure"):
+        bridge._dispatch_general_request(request)
+
+    assert bridge.started == []
+    assert bridge.life_record_state.life_gate_open is True
+    assert bridge.life_record_state.candidate is candidate
+
+
+def test_closed_gate_prevents_second_claim_for_same_summary() -> None:
+    bridge = _GateBridge(minutes=60)
+    candidate = InactiveStartCandidate(
+        started_at=NOW - timedelta(minutes=60),
+        source="summary_graceful_exit",
+        summary_id="summary-anchor",
+    )
+    claim = SimpleNamespace(
+        summary_id="summary-anchor",
+        returned_at=NOW,
+        expected_record_id=stable_life_record_id(candidate.started_at, NOW),
+    )
+    bridge.life_record_state.candidate = candidate
+    bridge.life_session_tracker = _ClaimTracker(claim)
+    first = bridge._prepare_chat_request(
+        received_at=NOW,
+        request_type="text",
+        message="첫 합성 복귀 요청",
+    )
+    second = bridge._prepare_chat_request(
+        received_at=NOW,
+        request_type="text",
+        message="둘째 합성 복귀 요청",
+    )
+
+    bridge._dispatch_general_request(first)
+    bridge.life_record_state.finish_operation(bridge.life_record_state.operation_id)
+    bridge._dispatch_general_request(second)
+
+    assert bridge.life_session_tracker.calls == [("summary-anchor", NOW)]
+    assert len(bridge.started) == 1
+    assert bridge.committed == [second]
 
 
 def test_skip_decision_commits_once_and_does_not_rearm() -> None:

@@ -263,6 +263,68 @@ class LifeRecordBridgeMixin:
         value = self._life_setting("life_record_min_inactive_minutes", 60)
         return value if type(value) is int and value >= 1 else 60
 
+    def _sync_claim_failure_read_only_state(self, tracker) -> None:
+        """tracker가 쓰기 불가로 전환된 경우에만 앱과 bridge 상태를 맞춘다."""
+        if getattr(tracker, "life_records_writable", True) is not False:
+            return
+        reason = _public_read_only_reason(getattr(tracker, "reason", None))
+        if reason is None:
+            reason = "session_tracker_degraded"
+        setter = getattr(self, "_life_records_read_only_setter", None)
+        if callable(setter):
+            try:
+                setter(reason)
+                return
+            except Exception:
+                pass
+        state = self._get_life_record_state()
+        state.life_records_writable = False
+        state.read_only_reason = reason
+        state.candidate = None
+
+    def _claim_life_generation(
+        self,
+        candidate: InactiveStartCandidate,
+        prepared_request: PreparedChatRequest,
+    ) -> bool:
+        """생성 worker보다 먼저 현재 summary anchor의 영속 claim을 획득한다."""
+        state = self._get_life_record_state()
+        state.generation_claim = None
+        if not hasattr(self, "life_session_tracker"):
+            # 앱 lifecycle 밖에서 mixin만 사용하는 기존 호출은 legacy 경로를 유지한다.
+            return True
+
+        tracker = getattr(self, "life_session_tracker", None)
+        summary_id = str(candidate.summary_id or "").strip()
+        claim = None
+        if tracker is not None and summary_id:
+            try:
+                claim = tracker.claim_life_generation(
+                    summary_id,
+                    prepared_request.received_at,
+                )
+            except Exception as error:
+                print(f"[Bridge] Life record claim failed: {error}")
+
+        returned_at = getattr(claim, "returned_at", None)
+        expected_record_id = str(
+            getattr(claim, "expected_record_id", "") or ""
+        ).strip()
+        claim_summary_id = str(getattr(claim, "summary_id", "") or "").strip()
+        valid_claim = (
+            claim_summary_id == summary_id
+            and isinstance(returned_at, datetime)
+            and returned_at.tzinfo is not None
+            and returned_at.utcoffset() is not None
+            and bool(expected_record_id)
+        )
+        if valid_claim:
+            state.generation_claim = claim
+            return True
+
+        self._sync_claim_failure_read_only_state(tracker)
+        return False
+
     def _load_life_world_for_gate(self) -> str:
         return load_life_world_prompt()
 
@@ -361,6 +423,9 @@ class LifeRecordBridgeMixin:
         if elapsed <= timedelta(0) or elapsed < timedelta(minutes=threshold):
             return commit_normal_reply()
 
+        if not self._claim_life_generation(candidate, prepared_request):
+            return commit_normal_reply()
+
         operation_id = state.try_begin_operation(
             "auto_generating",
             pending_request=prepared_request,
@@ -389,6 +454,7 @@ class LifeRecordBridgeMixin:
             return
         prepared = state.pending_request
         candidate = state.candidate
+        claim = state.generation_claim
         if not isinstance(prepared, PreparedChatRequest) or not isinstance(
             candidate, InactiveStartCandidate
         ):
@@ -403,9 +469,10 @@ class LifeRecordBridgeMixin:
                 settings_source=getattr(self, "settings", None),
                 language=prepared.language,
             )
+            returned_at = getattr(claim, "returned_at", prepared.received_at)
             context = LifeRecordGenerationContext(
                 inactive_started_at=candidate.started_at,
-                returned_at=prepared.received_at,
+                returned_at=returned_at,
                 timezone=state.time_context.timezone_name,
                 inactive_start_source=candidate.source,
                 world_markdown=state.pending_world_markdown,
@@ -423,7 +490,7 @@ class LifeRecordBridgeMixin:
                 operation_id=operation_id,
                 prompt=build_life_record_prompt(context),
                 inactive_started_at=candidate.started_at,
-                returned_at=prepared.received_at,
+                returned_at=returned_at,
                 timezone=state.time_context.timezone_name,
                 language=prepared.language,
             )
@@ -927,6 +994,7 @@ class LifeRecordBridgeMixin:
         state = self._get_life_record_state()
         prepared = state.pending_request
         candidate = state.candidate
+        claim = state.generation_claim
         manager = self._life_record_manager()
         if (
             manager is None
@@ -934,12 +1002,20 @@ class LifeRecordBridgeMixin:
             or not isinstance(candidate, InactiveStartCandidate)
         ):
             raise RuntimeError("save_unavailable")
-        created_at = prepared.received_at
+        returned_at = getattr(claim, "returned_at", prepared.received_at)
+        expected_record_id = str(
+            getattr(claim, "expected_record_id", "") or ""
+        ).strip()
+        record_id = expected_record_id or stable_life_record_id(
+            candidate.started_at,
+            returned_at,
+        )
+        created_at = returned_at
         output = result.output
         record = create_life_record(
-            id=stable_life_record_id(candidate.started_at, prepared.received_at),
+            id=record_id,
             inactive_started_at=candidate.started_at,
-            returned_at=prepared.received_at,
+            returned_at=returned_at,
             created_at=created_at,
             updated_at=created_at,
             revision=1,

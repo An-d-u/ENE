@@ -198,7 +198,14 @@ def _old_record():
     )
 
 
-def _bridge(monkeypatch, data_root, candidate, *, now: datetime = RETURNED_AT):
+def _bridge(
+    monkeypatch,
+    data_root,
+    candidate,
+    *,
+    now: datetime = RETURNED_AT,
+    tracker=None,
+):
     settings = SimpleNamespace(
         config={
             "enable_life_records": True,
@@ -223,6 +230,8 @@ def _bridge(monkeypatch, data_root, candidate, *, now: datetime = RETURNED_AT):
         time_context=_time_context(now),
         view_timezone="Asia/Seoul",
     )
+    if tracker is not None:
+        bridge.life_session_tracker = tracker
     bridge._capture_life_received_at = lambda: now
     bridge._load_life_world_for_gate = lambda: (
         "# 합성 마을\n\n- 기록실\n- 온실\n- 작은 광장"
@@ -286,7 +295,7 @@ def _complete_worker(worker: _LifeWorker, output, *, order="result_finished") ->
         ("summary_heartbeat_recovery", "attachments"),
     ],
 )
-def test_recovered_first_chat_covers_exact_eleven_hours_without_gaps(
+def test_claimed_recovered_first_chat_covers_exact_eleven_hours_without_gaps(
     monkeypatch, tmp_path, source, first_request
 ):
     state_path = tmp_path / source / "life_session_state.json"
@@ -297,7 +306,12 @@ def test_recovered_first_chat_covers_exact_eleven_hours_without_gaps(
         assert candidate is not None
         assert candidate.source == source
         assert candidate.started_at == STOPPED_AT
-        bridge, manager = _bridge(monkeypatch, state_path.parent, candidate)
+        bridge, manager = _bridge(
+            monkeypatch,
+            state_path.parent,
+            candidate,
+            tracker=tracker,
+        )
 
         bridge.send_to_ai("/note synthetic-command")
         assert bridge.life_record_state.life_gate_open is True
@@ -311,9 +325,15 @@ def test_recovered_first_chat_covers_exact_eleven_hours_without_gaps(
                 json.dumps([{"id": "synthetic-file", "name": "sample.txt"}]),
             )
         worker = _LifeWorker.instances[-1]
+        claim = bridge.life_record_state.generation_claim
+        assert claim.summary_id == candidate.summary_id
+        assert claim.expected_record_id == stable_life_record_id(
+            candidate.started_at,
+            claim.returned_at,
+        )
         assert worker.started is True
         assert worker.request.inactive_started_at == STOPPED_AT
-        assert worker.request.returned_at == RETURNED_AT
+        assert worker.request.returned_at == claim.returned_at
         assert "합성 복귀 인사" not in worker.request.prompt
         assert "합성 첨부 확인" not in worker.request.prompt
         assert "sample.txt" not in worker.request.prompt
