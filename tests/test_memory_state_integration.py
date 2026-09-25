@@ -7,7 +7,7 @@ from src.ai.user_profile import UserProfile
 from src.core.bridge import WebBridge
 
 
-def test_auto_summary_updates_profile_topic_and_keeps_new_messages(tmp_path):
+def test_auto_summary_waits_for_review_and_keeps_new_messages(tmp_path):
     messages = [("user", "모형 전시 계획은 취소했어.", "2026-02-01 10:00"), ("assistant", "취소를 확인했어.", "2026-02-01 10:01")]
     newer = ("user", "다음에는 색을 골라 보자.", "2026-02-01 10:02")
     rebuilt = []
@@ -16,7 +16,13 @@ def test_auto_summary_updates_profile_topic_and_keeps_new_messages(tmp_path):
         memory_manager=MemoryManager(tmp_path / "memories.json"),
         user_profile=UserProfile(tmp_path / "profile.json"), ene_profile=None,
         knowledge_map_manager=KnowledgeMapManager(tmp_path / "topics.json"),
+        summary_notice=SimpleNamespace(emit=lambda *_args: None),
+        summary_review_ready=SimpleNamespace(emit=lambda *_args: None),
     )
+    bridge._create_memory_conversation_id = lambda _messages: "conv-auto-review"
+    bridge._normalize_summary_result = lambda result: WebBridge._normalize_summary_result(bridge, result)
+    bridge._build_summary_storage_payload = lambda batch: WebBridge._build_summary_storage_payload(bridge, batch)
+    bridge._emit_summary_review = lambda: WebBridge._emit_summary_review(bridge)
 
     async def summarize(batch):
         bridge.conversation_buffer.append(newer)
@@ -26,12 +32,12 @@ def test_auto_summary_updates_profile_topic_and_keeps_new_messages(tmp_path):
 
     bridge.llm_client = SimpleNamespace(summarize_conversation=summarize, clear_context=lambda: None, rebuild_context_from_conversation=lambda values: rebuilt.append(list(values)) or True)
     asyncio.run(WebBridge._auto_summarize(bridge))
-    assert bridge.user_profile.facts[0].state == "cancelled"
-    assert bridge.knowledge_map_manager.topics[0].clues[0].state == "cancelled"
-    assert bridge.conversation_buffer == [newer]
-    assert rebuilt[-1] == messages + [newer]
-    WebBridge._refresh_llm_history_from_visible_conversation(bridge)
-    assert rebuilt[-1] == messages + [newer]
+    assert bridge.user_profile.facts == []
+    assert bridge.knowledge_map_manager.topics == []
+    assert bridge.conversation_buffer == messages + [newer]
+    assert bridge._pending_summary_review["messages"] == messages
+    assert bridge._pending_summary_review["origin"] == "auto"
+    assert rebuilt == []
 
 
 def test_auto_summary_does_not_race_manual_worker(tmp_path):

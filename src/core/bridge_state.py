@@ -104,6 +104,7 @@ class SummaryReviewBridgeState:
     request: dict[str, Any] | None = None
     worker: Any = None
     success_notice: str = ""
+    next_auto_summary_count: int = 10
 
 
 @dataclass
@@ -338,6 +339,7 @@ BRIDGE_STATE_ALIASES = {
     "_summary_review_request": ("summary_review_state", "request"),
     "_summary_review_worker": ("summary_review_state", "worker"),
     "_summary_review_success_notice": ("summary_review_state", "success_notice"),
+    "next_auto_summary_count": ("summary_review_state", "next_auto_summary_count"),
     "promise_manager": ("promise_state", "manager"),
     "promise_run_queue": ("promise_state", "run_queue"),
     "_active_promise_id": ("promise_state", "active_id"),

@@ -1271,7 +1271,11 @@ class MemoryDialog(QDialog):
         if self._loading_settings:
             return
         if self.bridge:
-            self.bridge.summarize_threshold = value
+            setter = getattr(self.bridge, "set_summarize_threshold", None)
+            if callable(setter):
+                setter(value)
+            else:
+                self.bridge.summarize_threshold = value
             threshold_label = "무제한" if value == 0 else f"{value}개"
             print(f"[Memory Dialog] 자동 요약 임계값: {threshold_label}")
             if hasattr(self.bridge, "settings") and self.bridge.settings:

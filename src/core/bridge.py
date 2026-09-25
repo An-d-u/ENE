@@ -145,6 +145,7 @@ class WebBridge(
             )
         else:
             self.summarize_threshold = 10
+        self.next_auto_summary_count = self.summarize_threshold
 
         self.refresh_away_settings()
         

@@ -3,6 +3,8 @@ import json
 import sys
 import types
 
+import pytest
+
 google_module = types.ModuleType("google")
 genai_module = types.ModuleType("google.genai")
 genai_module.Client = object
@@ -235,7 +237,7 @@ def test_normalize_summary_result_accepts_topic_hints_and_legacy_tuples():
     )
 
 
-def test_auto_summarize_persists_structured_original_messages():
+def test_auto_summarize_prepares_structured_review_without_saving():
     dummy = type("BridgeDummy", (), {})()
     dummy.conversation_buffer = [
         ("user", "hello", "2026-04-14 20:00"),
@@ -246,13 +248,19 @@ def test_auto_summarize_persists_structured_original_messages():
     dummy.llm_client = _DummyLLMClient()
     dummy.user_profile = None
     dummy.ene_profile = None
+    dummy.summary_notice = _DummySignal()
+    dummy.summary_review_ready = _DummySignal()
     dummy._create_memory_conversation_id = lambda messages: "conv-test-1"
+    dummy._normalize_summary_result = lambda result: WebBridge._normalize_summary_result(dummy, result)
+    dummy._build_summary_storage_payload = lambda messages: WebBridge._build_summary_storage_payload(dummy, messages)
+    dummy._emit_summary_review = lambda: WebBridge._emit_summary_review(dummy)
 
     asyncio.run(WebBridge._auto_summarize(dummy))
 
-    assert dummy.memory_manager.calls[0]["aliases"] == ["릴리즈 후보"]
-    assert dummy.memory_manager.calls[0]["trigger_terms"] == ["릴리스", "후보"]
-    assert dummy.memory_manager.calls[0]["original_messages"] == [
+    assert dummy.memory_manager.calls == []
+    assert dummy._pending_summary_review["origin"] == "auto"
+    assert dummy._pending_summary_review["completion_action"] == "continue"
+    assert dummy._pending_summary_review["original_messages"] == [
         {
             "role": "user",
             "text": "hello",
@@ -376,6 +384,9 @@ def test_summary_review_generation_failure_emits_origin_aware_outcome():
     dummy = type("BridgeDummy", (), {})()
     dummy.summary_notice = _DummySignal()
     dummy.summary_review_finished = _DummySignal()
+    dummy.summarize_threshold = 3
+    dummy.next_auto_summary_count = 9
+    dummy.conversation_buffer = [("user", "hello")]
     dummy._summary_review_request = {
         "origin": "quit",
         "completion_action": "quit",
@@ -386,6 +397,7 @@ def test_summary_review_generation_failure_emits_origin_aware_outcome():
 
     assert dummy.summary_review_finished.emitted == [("quit", "failed")]
     assert dummy._summary_review_request is None
+    assert dummy.next_auto_summary_count == 9
 
 
 def test_cancel_summary_review_emits_origin_aware_outcome():
@@ -467,7 +479,7 @@ def test_prepare_summary_review_passes_loaded_topic_memory_context_side_buffer()
     ]
 
 
-def test_auto_summarize_ignores_topic_hints_for_storage():
+def test_auto_summarize_exposes_topic_hints_for_review_without_saving():
     dummy = type("BridgeDummy", (), {})()
     dummy.conversation_buffer = [
         ("user", "neutral input", "2026-04-14 20:00"),
@@ -477,13 +489,19 @@ def test_auto_summarize_ignores_topic_hints_for_storage():
     dummy.llm_client = _TopicAutoLLMClient()
     dummy.user_profile = None
     dummy.ene_profile = None
+    dummy.summary_notice = _DummySignal()
+    dummy.summary_review_ready = _DummySignal()
     dummy._create_memory_conversation_id = lambda messages: "conv-auto-topic"
+    dummy._normalize_summary_result = lambda result: WebBridge._normalize_summary_result(dummy, result)
+    dummy._build_summary_storage_payload = lambda messages: WebBridge._build_summary_storage_payload(dummy, messages)
+    dummy._emit_summary_review = lambda: WebBridge._emit_summary_review(dummy)
 
     asyncio.run(WebBridge._auto_summarize(dummy))
 
-    assert len(dummy.memory_manager.calls) == 1
-    assert dummy.memory_manager.calls[0]["summary"] == "auto topic summary"
+    assert dummy.memory_manager.calls == []
     assert dummy.memory_manager.topic_calls == []
+    assert dummy._pending_summary_review["summary"] == "auto topic summary"
+    assert dummy._pending_summary_review["topic_hints"][0]["keyword"] == "Project Auto"
 
 
 def test_approve_summary_review_persists_edited_summary_and_selected_facts():
@@ -500,6 +518,8 @@ def test_approve_summary_review_persists_edited_summary_and_selected_facts():
     dummy.summary_review_ready = _DummySignal()
     dummy.summary_review_saved = _DummySignal()
     dummy.summary_review_finished = _DummySignal()
+    dummy.summarize_threshold = 10
+    dummy.next_auto_summary_count = 99
     dummy._ene_thought_context_buffer = ["생각"]
     dummy._pending_summary_review = {
         "messages": list(dummy.conversation_buffer),
@@ -592,6 +612,7 @@ def test_approve_summary_review_persists_edited_summary_and_selected_facts():
     assert dummy._ene_thought_context_buffer == []
     assert dummy.summary_review_saved.emitted == [()]
     assert dummy.summary_review_finished.emitted == [("manual", "saved")]
+    assert dummy.next_auto_summary_count == 10
 
 
 def test_approve_summary_review_persists_payload_topic_hints_to_knowledge_map():
@@ -947,6 +968,96 @@ def test_auto_summarize_is_deferred_while_summary_review_is_pending():
     WebBridge._check_auto_summarize(dummy)
 
     assert dummy.scheduled is False
+
+
+def test_auto_summarize_threshold_starts_origin_aware_review_worker():
+    dummy = type("BridgeDummy", (), {})()
+    dummy.memory_manager = _DummyMemoryManager()
+    dummy.summarize_threshold = 2
+    dummy.next_auto_summary_count = 2
+    dummy.conversation_buffer = [
+        ("user", "hello", "2026-04-14 20:00"),
+        ("assistant", "hi", "2026-04-14 20:01"),
+    ]
+    dummy._pending_summary_review = None
+    dummy._summary_review_worker = None
+    dummy._summary_in_progress = False
+    dummy.started = []
+    dummy._start_summary_review_worker = lambda messages, **kwargs: dummy.started.append(
+        (list(messages), kwargs)
+    )
+
+    WebBridge._check_auto_summarize(dummy)
+
+    assert dummy.started == [
+        (
+            list(dummy.conversation_buffer),
+            {
+                "success_notice": "자동 요약을 확인해 주세요.",
+                "origin": "auto",
+                "completion_action": "continue",
+            },
+        )
+    ]
+
+
+def test_auto_cancel_postpones_next_review_by_one_threshold():
+    dummy = type("BridgeDummy", (), {})()
+    dummy.summary_notice = _DummySignal()
+    dummy.summary_review_finished = _DummySignal()
+    dummy.summarize_threshold = 3
+    dummy.next_auto_summary_count = 3
+    dummy.conversation_buffer = [("user", str(index)) for index in range(4)]
+    dummy._pending_summary_review = {
+        **_build_pending_review(),
+        "origin": "auto",
+        "completion_action": "continue",
+    }
+
+    WebBridge.cancel_summary_review(dummy)
+
+    assert dummy.next_auto_summary_count == 7
+
+
+@pytest.mark.parametrize(
+    ("buffer_size", "watermark", "expected"),
+    [(2, 5, 5), (5, 5, 8)],
+)
+def test_manual_cancel_only_postpones_when_watermark_was_reached(
+    buffer_size: int,
+    watermark: int,
+    expected: int,
+):
+    dummy = type("BridgeDummy", (), {})()
+    dummy.summary_notice = _DummySignal()
+    dummy.summary_review_finished = _DummySignal()
+    dummy.summarize_threshold = 3
+    dummy.next_auto_summary_count = watermark
+    dummy.conversation_buffer = [("user", str(index)) for index in range(buffer_size)]
+    dummy._pending_summary_review = {
+        **_build_pending_review(),
+        "origin": "manual",
+        "completion_action": "continue",
+    }
+
+    WebBridge.cancel_summary_review(dummy)
+
+    assert dummy.next_auto_summary_count == expected
+
+
+def test_runtime_threshold_change_counts_from_current_buffer():
+    dummy = type("BridgeDummy", (), {})()
+    dummy.conversation_buffer = [("user", "one"), ("assistant", "two")]
+    dummy.summarize_threshold = 3
+    dummy.next_auto_summary_count = 3
+
+    WebBridge.set_summarize_threshold(dummy, 4)
+
+    assert dummy.summarize_threshold == 4
+    assert dummy.next_auto_summary_count == 6
+
+    WebBridge.set_summarize_threshold(dummy, 0)
+    assert dummy.next_auto_summary_count == 0
 
 
 def test_regenerate_summary_review_starts_worker_without_saving():

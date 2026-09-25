@@ -736,6 +736,10 @@ class MemorySummaryBridgeMixin:
                 )
             )
             self.summary_notice.emit("대화 요약을 저장했어요.", "success")
+            MemorySummaryBridgeMixin._reset_auto_summary_watermark(
+                self,
+                from_current_buffer=False,
+            )
             saved_signal = getattr(self, "summary_review_saved", None)
             if saved_signal is not None:
                 saved_signal.emit()
@@ -801,12 +805,55 @@ class MemorySummaryBridgeMixin:
         origin, _completion_action = MemorySummaryBridgeMixin._summary_review_metadata(
             pending
         )
+        threshold = MemorySummaryBridgeMixin._normalized_summary_threshold(self)
+        current_count = len(list(getattr(self, "conversation_buffer", []) or []))
+        watermark = int(getattr(self, "next_auto_summary_count", threshold) or 0)
+        if origin == "auto" or (
+            origin == "manual" and threshold > 0 and current_count >= watermark
+        ):
+            MemorySummaryBridgeMixin._reset_auto_summary_watermark(
+                self,
+                from_current_buffer=True,
+            )
         self._pending_summary_review = None
         self.summary_notice.emit("요약 저장을 취소했어요.", "info")
         MemorySummaryBridgeMixin._emit_summary_review_finished(
             self,
             origin,
             "cancelled",
+        )
+
+    @staticmethod
+    def _normalized_summary_threshold(bridge) -> int:
+        try:
+            return max(0, int(getattr(bridge, "summarize_threshold", 10) or 0))
+        except (TypeError, ValueError, OverflowError):
+            return 10
+
+    def _reset_auto_summary_watermark(
+        self,
+        *,
+        from_current_buffer: bool,
+    ) -> int:
+        threshold = MemorySummaryBridgeMixin._normalized_summary_threshold(self)
+        if threshold == 0:
+            watermark = 0
+        elif from_current_buffer:
+            watermark = len(list(getattr(self, "conversation_buffer", []) or [])) + threshold
+        else:
+            watermark = threshold
+        self.next_auto_summary_count = watermark
+        return watermark
+
+    def set_summarize_threshold(self, value: int) -> None:
+        try:
+            threshold = max(0, int(value))
+        except (TypeError, ValueError, OverflowError):
+            threshold = 10
+        self.summarize_threshold = threshold
+        MemorySummaryBridgeMixin._reset_auto_summary_watermark(
+            self,
+            from_current_buffer=True,
         )
 
     def _check_auto_summarize(self):
@@ -818,27 +865,41 @@ class MemorySummaryBridgeMixin:
             print("[Bridge] 수동 요약 검토 중이라 자동 요약을 미룹니다.")
             return
 
-        threshold = max(0, int(getattr(self, "summarize_threshold", 10) or 0))
+        threshold = MemorySummaryBridgeMixin._normalized_summary_threshold(self)
         if threshold == 0:
             return
 
-        if len(self.conversation_buffer) >= threshold:
-            print(f"[Bridge] 대화 {len(self.conversation_buffer)}개 - 자동 요약 트리거")
-            
-            # QThread에서 실행되므로 새 이벤트 루프 생성
-            import asyncio
-            try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(self._auto_summarize())
-                loop.close()
-            except Exception as e:
-                print(f"[Bridge] 자동 요약 실패: {e}")
-                import traceback
-                traceback.print_exc()
+        current_worker = getattr(self, "_summary_review_worker", None)
+        is_running = getattr(current_worker, "isRunning", None)
+        if getattr(self, "_summary_in_progress", False) or (
+            current_worker is not None and callable(is_running) and is_running()
+        ):
+            return
+
+        watermark = int(getattr(self, "next_auto_summary_count", threshold) or 0)
+        if watermark <= 0:
+            watermark = threshold
+            self.next_auto_summary_count = watermark
+        if len(self.conversation_buffer) < watermark:
+            return
+
+        print(f"[Bridge] 대화 {len(self.conversation_buffer)}개 - 자동 요약 검토 트리거")
+        starter = getattr(self, "_start_summary_review_worker", None)
+        if not callable(starter):
+            starter = lambda messages, **kwargs: MemorySummaryBridgeMixin._start_summary_review_worker(
+                self,
+                messages,
+                **kwargs,
+            )
+        starter(
+            self.conversation_buffer.copy(),
+            success_notice="자동 요약을 확인해 주세요.",
+            origin="auto",
+            completion_action="continue",
+        )
     
     async def _auto_summarize(self):
-        """대화 자동 요약 및 사용자 정보 추출"""
+        """호환 호출에서도 자동 요약을 저장하지 않고 검토 상태만 준비한다."""
         if not self.conversation_buffer or not self.memory_manager or not self.llm_client:
             return
         if (
@@ -852,76 +913,28 @@ class MemorySummaryBridgeMixin:
         try:
             print(f"[Bridge] 대화 요약 시작 ({len(self.conversation_buffer)}개 메시지)")
             
-            # 대화 내용
             messages = self.conversation_buffer.copy()
-            
-            # LLM으로 요약 + 사용자/에네 정보 생성
-            summarizer = getattr(self, "_summarize_conversation_with_loaded_topic_memory", None)
-            if not callable(summarizer):
-                summarizer = lambda value: MemorySummaryBridgeMixin._summarize_conversation_with_loaded_topic_memory(
+            builder = getattr(self, "_build_summary_review_state", None)
+            if not callable(builder):
+                builder = lambda value: MemorySummaryBridgeMixin._build_summary_review_state(
                     self,
                     value,
                 )
-            summary_result = await summarizer(messages)
-            normalizer = getattr(self, "_normalize_summary_result", None)
-            if not callable(normalizer):
-                normalizer = lambda result: MemorySummaryBridgeMixin._normalize_summary_result(self, result)
-            storage_builder = getattr(self, "_build_summary_storage_payload", None)
-            if not callable(storage_builder):
-                storage_builder = lambda value: MemorySummaryBridgeMixin._build_summary_storage_payload(self, value)
-
-            summary, user_facts, ene_facts, memory_meta, topic_hints = normalizer(summary_result)
-            storage_payload = storage_builder(messages)
-            source_timestamp = storage_payload["source_timestamp"]
-            original_messages = storage_payload["original_messages"]
-            if list(self.conversation_buffer)[:len(messages)] != messages:
-                return
-            
-            # 메모리에 요약 저장
-            saved_memory = await self.memory_manager.add_summary(
-                summary=summary,
-                original_messages=original_messages,
-                is_important=False,
-                source="chat",
-                memory_type=str(memory_meta.get("memory_type") or "general"),
-                importance_reason=str(memory_meta.get("importance_reason")).strip() if memory_meta.get("importance_reason") else None,
-                confidence=memory_meta.get("confidence"),
-                entity_names=memory_meta.get("entity_names") or [],
-                aliases=memory_meta.get("aliases") or [],
-                trigger_terms=memory_meta.get("trigger_terms") or [],
-            )
-            
-            # 사용자 정보 저장
-            MemorySummaryBridgeMixin._persist_user_profile_facts(
-                self, user_facts, memory_meta, saved_memory, original_messages, source_timestamp,
-            )
-
-            if ene_facts and hasattr(self, 'ene_profile') and self.ene_profile:
-                print(f"[Bridge] 에네 정보 {len(ene_facts)}개 저장")
-                for fact in ene_facts:
-                    self.ene_profile.add_fact(
-                        content=fact,
-                        category="fact",
-                        source=f"대화 요약 ({source_timestamp})",
-                        origin="auto",
-                        auto_update=True,
-                    )
-
-            await MemorySummaryBridgeMixin._persist_topic_state(
-                self, topic_hints, saved_memory, original_messages, source_timestamp,
-            )
-            MemorySummaryBridgeMixin._complete_summary_context(self, messages)
-            
-            print(f"[Bridge] 대화 요약 완료: {summary}")
-            if user_facts:
-                print(f"[Bridge] 마스터 정보 count={len(user_facts)}")
-            if ene_facts:
-                print(f"[Bridge] 에네 정보 count={len(ene_facts)}")
-            
+            self._summary_review_request = {
+                "origin": "auto",
+                "completion_action": "continue",
+                "messages": list(messages),
+            }
+            pending = await builder(messages)
+            MemorySummaryBridgeMixin._on_summary_review_prepared(self, pending)
         except Exception as e:
             print(f"[Bridge] 자동 요약 실패: {e}")
             import traceback
             traceback.print_exc()
+            MemorySummaryBridgeMixin._on_summary_review_failed(
+                self,
+                "summary_review_error",
+            )
         finally:
             self._summary_in_progress = False
 
