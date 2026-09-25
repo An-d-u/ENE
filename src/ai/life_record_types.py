@@ -38,7 +38,14 @@ _MOOD_FIELDS = frozenset(
 )
 _MOOD_AXES = ("valence", "energy", "bond", "stress")
 _MOOD_INTEGER_ABS_LIMIT = 10**640
-_INACTIVE_SOURCES = frozenset({"graceful_exit", "heartbeat_recovery"})
+_INACTIVE_SOURCES = frozenset(
+    {
+        "graceful_exit",
+        "heartbeat_recovery",
+        "summary_graceful_exit",
+        "summary_heartbeat_recovery",
+    }
+)
 _JSON_FENCE = re.compile(r"\A```(?:json)?\s*\n(?P<body>.*)\n```\s*\Z", re.DOTALL)
 
 

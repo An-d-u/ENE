@@ -600,7 +600,12 @@ class AppSessionTracker:
             generation_claim=None,
         )
 
-    def start_session(self) -> InactiveStartCandidate | None:
+    def start_session(
+        self,
+        *,
+        persisted_record_ids: frozenset[str] | None = None,
+        record_store_healthy: bool | None = None,
+    ) -> InactiveStartCandidate | None:
         """이전 종료 후보를 회복하고 현재 running 세션을 원자 저장한다."""
 
         if self._start_attempted:
@@ -624,7 +629,43 @@ class AppSessionTracker:
             )
             return None
 
-        previous = self._promote_previous_summary(self._read_authoritative())
+        try:
+            state_existed = self._state_path.exists()
+        except OSError:
+            state_existed = True
+        previous = self._read_authoritative()
+        if previous is None and state_existed:
+            self._set_degraded(
+                SESSION_TRACKER_DEGRADED,
+                "session_state_unavailable",
+            )
+            return None
+        if record_store_healthy is False:
+            self._set_degraded(
+                SESSION_TRACKER_DEGRADED,
+                "life_record_store_unavailable",
+            )
+            return None
+        if previous is not None and previous.generation_claim is not None:
+            if record_store_healthy is not True or persisted_record_ids is None:
+                self._set_degraded(
+                    SESSION_TRACKER_DEGRADED,
+                    "claim_reconciliation_unavailable",
+                )
+                return None
+            claim = previous.generation_claim
+            record_exists = claim.expected_record_id in persisted_record_ids
+            previous = _SessionState(
+                session_id=previous.session_id,
+                started_at=previous.started_at,
+                last_seen_at=previous.last_seen_at,
+                status=previous.status,
+                stopped_at=previous.stopped_at,
+                current_summary=previous.current_summary,
+                active_anchor=None if record_exists else previous.active_anchor,
+                generation_claim=None,
+            )
+        previous = self._promote_previous_summary(previous)
         candidate = self._candidate_from_previous(previous, canonical_now)
         current = _SessionState(
             session_id=str(uuid4()),
@@ -750,6 +791,145 @@ class AppSessionTracker:
             return None
         self._current_state = updated
         return registered
+
+    def claim_life_generation(
+        self,
+        summary_id: str,
+        requested_returned_at: datetime,
+    ) -> LifeGenerationClaim | None:
+        """활성 기준점의 생활 기록 생성을 worker 시작 전에 영속 claim한다."""
+
+        if (
+            not self._lease_acquired
+            or not self.life_records_writable
+            or self._stopped
+        ):
+            return None
+        authoritative = self._load_current_owner()
+        if authoritative is None:
+            return None
+        existing = authoritative.generation_claim
+        if existing is not None:
+            return existing if existing.summary_id == summary_id else None
+        anchor = authoritative.active_anchor
+        if anchor is None or anchor.summary_id != summary_id:
+            return None
+        try:
+            assert self._time_context is not None
+            requested = self._time_context.canonicalize_endpoint(
+                requested_returned_at
+            )
+            returned_at = self._latest_endpoint(
+                requested,
+                authoritative.started_at,
+                authoritative.last_seen_at,
+                anchor.saved_at,
+                anchor.origin_session_ended_at,
+            )
+            from src.ai.life_record_types import stable_life_record_id
+
+            expected_record_id = stable_life_record_id(
+                anchor.saved_at,
+                returned_at,
+            )
+        except Exception:
+            self._set_degraded(
+                SESSION_TRACKER_DEGRADED,
+                "generation_claim_invalid",
+            )
+            return None
+        claim = LifeGenerationClaim(
+            summary_id=anchor.summary_id,
+            returned_at=returned_at,
+            expected_record_id=expected_record_id,
+        )
+        updated = _SessionState(
+            session_id=authoritative.session_id,
+            started_at=authoritative.started_at,
+            last_seen_at=returned_at,
+            status="running",
+            stopped_at=None,
+            current_summary=authoritative.current_summary,
+            active_anchor=anchor,
+            generation_claim=claim,
+        )
+        if not self._commit(updated):
+            self._set_degraded(
+                SESSION_TRACKER_DEGRADED,
+                "generation_claim_commit_failed",
+            )
+            return None
+        self._current_state = updated
+        return claim
+
+    def _finish_generation_claim(
+        self,
+        summary_id: str,
+        expected_record_id: str,
+        *,
+        consume_anchor: bool,
+    ) -> bool:
+        if (
+            not self._lease_acquired
+            or not self.life_records_writable
+            or self._stopped
+        ):
+            return False
+        authoritative = self._load_current_owner()
+        if authoritative is None:
+            return False
+        claim = authoritative.generation_claim
+        anchor = authoritative.active_anchor
+        if (
+            claim is None
+            or anchor is None
+            or claim.summary_id != summary_id
+            or claim.expected_record_id != expected_record_id
+            or anchor.summary_id != summary_id
+        ):
+            return False
+        updated = _SessionState(
+            session_id=authoritative.session_id,
+            started_at=authoritative.started_at,
+            last_seen_at=authoritative.last_seen_at,
+            status="running",
+            stopped_at=None,
+            current_summary=authoritative.current_summary,
+            active_anchor=None if consume_anchor else anchor,
+            generation_claim=None,
+        )
+        if not self._commit(updated):
+            self._set_degraded(
+                SESSION_TRACKER_DEGRADED,
+                "generation_claim_finalize_failed",
+            )
+            return False
+        self._current_state = updated
+        if consume_anchor:
+            self.candidate = None
+        return True
+
+    def release_life_generation_claim(
+        self,
+        summary_id: str,
+        expected_record_id: str,
+    ) -> bool:
+        return self._finish_generation_claim(
+            summary_id,
+            expected_record_id,
+            consume_anchor=False,
+        )
+
+    def complete_life_generation_claim(
+        self,
+        summary_id: str,
+        expected_record_id: str,
+    ) -> bool:
+        return self._finish_generation_claim(
+            summary_id,
+            expected_record_id,
+            consume_anchor=True,
+        )
 
     def heartbeat(self) -> bool:
         """현재 세션의 마지막 생존 시각만 단조 증가하도록 갱신한다."""

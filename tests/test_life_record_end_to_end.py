@@ -112,16 +112,22 @@ def _time_context(now: datetime = RETURNED_AT) -> LocalTimeContext:
 
 
 def _seed_session(path, source: str) -> None:
-    stopped = source == "graceful_exit"
+    stopped = source == "summary_graceful_exit"
     save_json_data(
         path,
         {
-            "version": 1,
+            "version": 2,
             "session_id": str(uuid4()),
             "status": "stopped" if stopped else "running",
             "started_at": (STOPPED_AT - timedelta(hours=2)).isoformat(),
             "last_seen_at": STOPPED_AT.isoformat(),
             "stopped_at": STOPPED_AT.isoformat() if stopped else None,
+            "current_summary": {
+                "summary_id": str(uuid4()),
+                "saved_at": STOPPED_AT.isoformat(),
+            },
+            "active_anchor": None,
+            "generation_claim": None,
         },
     )
 
@@ -276,8 +282,8 @@ def _complete_worker(worker: _LifeWorker, output, *, order="result_finished") ->
 @pytest.mark.parametrize(
     ("source", "first_request"),
     [
-        ("graceful_exit", "text"),
-        ("heartbeat_recovery", "attachments"),
+        ("summary_graceful_exit", "text"),
+        ("summary_heartbeat_recovery", "attachments"),
     ],
 )
 def test_recovered_first_chat_covers_exact_eleven_hours_without_gaps(

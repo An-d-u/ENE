@@ -284,7 +284,20 @@ class ENEApplication(QObject):
                 time_context=self.life_time_context,
             )
             self.life_session_tracker = tracker
-            candidate = tracker.start_session()
+            store_status = str(
+                getattr(self.life_record_manager, "store_status", "missing")
+            )
+            store_healthy = store_status in {"missing", "ready"}
+            records = tuple(getattr(self.life_record_manager, "records", ()) or ())
+            persisted_record_ids = frozenset(
+                str(record_id)
+                for record_id in (getattr(record, "id", None) for record in records)
+                if record_id is not None and str(record_id)
+            )
+            candidate = tracker.start_session(
+                persisted_record_ids=persisted_record_ids,
+                record_store_healthy=store_healthy,
+            )
             session_id = getattr(tracker, "session_id", None)
             writable = (
                 getattr(tracker, "life_records_writable", False) is True

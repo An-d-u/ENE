@@ -34,7 +34,14 @@ _WEEKDAYS = {
     ),
     "ja": ("月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日", "日曜日"),
 }
-_INACTIVE_START_SOURCES = frozenset({"graceful_exit", "heartbeat_recovery"})
+_INACTIVE_START_SOURCES = frozenset(
+    {
+        "graceful_exit",
+        "heartbeat_recovery",
+        "summary_graceful_exit",
+        "summary_heartbeat_recovery",
+    }
+)
 _PROFILE_FACT_CATEGORIES = frozenset(
     {"basic", "preference", "goal", "habit", "relationship_tone"}
 )

@@ -64,12 +64,19 @@ class _Tracker:
         self.reason = reason
         self.session_id = session_id
         self.heartbeat_calls = 0
+        self.start_kwargs = None
         self.candidate = InactiveStartCandidate(
             started_at=datetime(2099, 4, 11, 22, 0, tzinfo=timezone.utc),
             source="graceful_exit",
         )
 
-    def start_session(self):
+    def start_session(self, **kwargs):
+        self.start_kwargs = kwargs
+        if kwargs.get("record_store_healthy") is False:
+            self.life_records_writable = False
+            self.reason = "session_tracker_degraded"
+            self.session_id = None
+            return None
         return self.candidate
 
     def heartbeat(self) -> bool:
@@ -96,7 +103,13 @@ def _valid_resolution() -> LocalTimeResolution:
     return LocalTimeResolution(context=context, view_timezone=zone, reason=None)
 
 
-def _bare_app(tmp_path, tracker_factory):
+def _bare_app(
+    tmp_path,
+    tracker_factory,
+    *,
+    manager_status="missing",
+    record_ids=(),
+):
     app = ENEApplication.__new__(ENEApplication)
     QObject.__init__(app)
     app._life_time_resolver = _valid_resolution
@@ -104,6 +117,8 @@ def _bare_app(tmp_path, tracker_factory):
     app._life_record_manager_factory = lambda path, *, time_context=None: SimpleNamespace(
         store_path=Path(path),
         time_context=time_context,
+        store_status=manager_status,
+        records=tuple(SimpleNamespace(id=value) for value in record_ids),
     )
     app._life_timer_factory = _Timer
     app._life_data_root = tmp_path
@@ -130,6 +145,10 @@ def test_startup_binds_one_time_context_manager_candidate_and_heartbeat(tmp_path
     state = bridge.life_record_state
     assert captured["tracker"].path == tmp_path / "life_session_state.json"
     assert captured["tracker"].time_context is app.life_time_context
+    assert captured["tracker"].start_kwargs == {
+        "persisted_record_ids": frozenset(),
+        "record_store_healthy": True,
+    }
     assert app.life_record_manager.time_context is app.life_time_context
     assert state.time_context is app.life_time_context
     assert state.view_timezone == "Asia/Seoul"
@@ -144,6 +163,58 @@ def test_startup_binds_one_time_context_manager_candidate_and_heartbeat(tmp_path
     app.life_heartbeat_timer.timeout.callback()
 
     assert captured["tracker"].heartbeat_calls == 1
+
+
+def test_startup_passes_authoritative_record_ids_to_tracker(tmp_path):
+    captured = {}
+
+    def tracker_factory(path, *, time_context):
+        tracker = _Tracker(Path(path), time_context=time_context)
+        captured["tracker"] = tracker
+        return tracker
+
+    app = _bare_app(
+        tmp_path,
+        tracker_factory,
+        manager_status="ready",
+        record_ids=("record-a", "record-b"),
+    )
+    app.overlay_window = SimpleNamespace(bridge=_Bridge())
+
+    app._init_life_record_runtime()
+
+    assert captured["tracker"].start_kwargs == {
+        "persisted_record_ids": frozenset({"record-a", "record-b"}),
+        "record_store_healthy": True,
+    }
+
+
+def test_startup_read_error_keeps_life_records_read_only(tmp_path):
+    captured = {}
+
+    def tracker_factory(path, *, time_context):
+        tracker = _Tracker(Path(path), time_context=time_context)
+        captured["tracker"] = tracker
+        return tracker
+
+    app = _bare_app(
+        tmp_path,
+        tracker_factory,
+        manager_status="read_error",
+    )
+    bridge = _Bridge()
+    app.overlay_window = SimpleNamespace(bridge=bridge)
+
+    app._init_life_record_runtime()
+    app._bind_life_record_runtime_to_bridge()
+
+    assert captured["tracker"].start_kwargs == {
+        "persisted_record_ids": frozenset(),
+        "record_store_healthy": False,
+    }
+    assert app.life_records_writable is False
+    assert bridge.life_record_state.life_records_writable is False
+    assert bridge.life_record_state.read_only_reason == "session_tracker_degraded"
 
 
 @pytest.mark.parametrize(

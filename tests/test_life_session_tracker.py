@@ -19,6 +19,7 @@ from src.core.life_session_tracker import (
     AppSessionTracker,
     ApprovedSummaryState,
     InactiveStartCandidate,
+    LifeGenerationClaim,
 )
 from src.core.local_time import (
     TIMEZONE_UNAVAILABLE,
@@ -176,14 +177,10 @@ def _assert_uuid4(value: object) -> None:
     assert str(parsed) == value
 
 
-@pytest.mark.parametrize("initial_content", [None, "{synthetic-corrupt-json-2099"])
-def test_missing_or_corrupt_state_starts_fresh_running_session(
+def test_missing_state_starts_fresh_running_session(
     tmp_path: Path,
-    initial_content: str | None,
 ) -> None:
     state_path = tmp_path / "life_session_state.json"
-    if initial_content is not None:
-        state_path.write_text(initial_content, encoding="utf-8")
 
     tracker = AppSessionTracker(state_path, now=lambda: _at(10, microsecond=999999))
 
@@ -205,6 +202,19 @@ def test_missing_or_corrupt_state_starts_fresh_running_session(
     tracker.release_lease()
 
 
+def test_corrupt_existing_state_is_preserved_and_fails_closed(tmp_path: Path) -> None:
+    state_path = tmp_path / "life_session_state.json"
+    corrupt = "{synthetic-corrupt-json-2099"
+    state_path.write_text(corrupt, encoding="utf-8")
+    tracker = AppSessionTracker(state_path, now=lambda: _at(10))
+
+    assert tracker.start_session() is None
+    assert state_path.read_text(encoding="utf-8") == corrupt
+    assert tracker.life_records_writable is False
+    assert tracker.reason == "session_tracker_degraded"
+    tracker.release_lease()
+
+
 @pytest.mark.parametrize(
     "read_error",
     [
@@ -212,7 +222,7 @@ def test_missing_or_corrupt_state_starts_fresh_running_session(
         OSError("synthetic-authoritative-read-error-2099"),
     ],
 )
-def test_authoritative_missing_or_read_error_never_uses_stale_runtime_state(
+def test_authoritative_read_failure_preserves_existing_state(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     read_error: OSError,
@@ -230,7 +240,9 @@ def test_authoritative_missing_or_read_error_never_uses_stale_runtime_state(
     tracker = AppSessionTracker(state_path, now=lambda: _at(10))
 
     assert tracker.start_session() is None
-    assert _read_state(state_path)["session_id"] != SESSION_ID
+    assert _read_state(state_path)["session_id"] == SESSION_ID
+    assert tracker.life_records_writable is False
+    assert tracker.reason == "session_tracker_degraded"
     tracker.release_lease()
 
 
@@ -431,6 +443,221 @@ def test_stop_uses_summary_time_when_clock_rolls_back(tmp_path: Path) -> None:
     tracker.release_lease()
 
 
+def _start_with_active_anchor(
+    state_path: Path,
+    clock: MutableClock,
+) -> AppSessionTracker:
+    _write_state(
+        state_path,
+        _v2_state(
+            last_seen_at=_at(5),
+            status="stopped",
+            stopped_at=_at(5),
+            active_anchor=_anchor(),
+        ),
+    )
+    tracker = AppSessionTracker(state_path, now=clock)
+    assert tracker.start_session() is not None
+    return tracker
+
+
+def test_claim_life_generation_is_canonical_and_idempotent(tmp_path: Path) -> None:
+    state_path = tmp_path / "life_session_state.json"
+    clock = MutableClock(_at(10))
+    tracker = _start_with_active_anchor(state_path, clock)
+    expected_id = stable_life_record_id(_at(3), _at(10))
+
+    first = tracker.claim_life_generation(SUMMARY_ID, _at(7, microsecond=999999))
+    second = tracker.claim_life_generation(SUMMARY_ID, _at(9))
+
+    expected = LifeGenerationClaim(
+        summary_id=SUMMARY_ID,
+        returned_at=_at(10),
+        expected_record_id=expected_id,
+    )
+    assert first == expected
+    assert second == expected
+    saved = _read_state(state_path)
+    assert saved["generation_claim"] == expected.to_payload()
+    assert saved["last_seen_at"] == _at(10).isoformat()
+    tracker.release_lease()
+
+
+def test_claim_life_generation_rejects_different_summary(tmp_path: Path) -> None:
+    state_path = tmp_path / "life_session_state.json"
+    tracker = _start_with_active_anchor(state_path, MutableClock(_at(10)))
+
+    assert tracker.claim_life_generation(OTHER_SUMMARY_ID, _at(11)) is None
+    assert _read_state(state_path)["generation_claim"] is None
+    tracker.release_lease()
+
+
+def test_release_generation_claim_retains_active_anchor(tmp_path: Path) -> None:
+    state_path = tmp_path / "life_session_state.json"
+    tracker = _start_with_active_anchor(state_path, MutableClock(_at(10)))
+    claim = tracker.claim_life_generation(SUMMARY_ID, _at(11))
+    assert claim is not None
+
+    assert tracker.release_life_generation_claim(
+        claim.summary_id,
+        claim.expected_record_id,
+    ) is True
+
+    saved = _read_state(state_path)
+    assert saved["active_anchor"] == _anchor()
+    assert saved["generation_claim"] is None
+    tracker.release_lease()
+
+
+def test_complete_generation_claim_consumes_claim_and_anchor(tmp_path: Path) -> None:
+    state_path = tmp_path / "life_session_state.json"
+    tracker = _start_with_active_anchor(state_path, MutableClock(_at(10)))
+    claim = tracker.claim_life_generation(SUMMARY_ID, _at(11))
+    assert claim is not None
+
+    assert tracker.complete_life_generation_claim(
+        claim.summary_id,
+        claim.expected_record_id,
+    ) is True
+
+    saved = _read_state(state_path)
+    assert saved["active_anchor"] is None
+    assert saved["generation_claim"] is None
+    assert tracker.candidate is None
+    tracker.release_lease()
+
+
+def test_startup_reconciliation_consumes_claim_when_record_exists(
+    tmp_path: Path,
+) -> None:
+    state_path = tmp_path / "life_session_state.json"
+    claim = _claim(returned_at=_at(7))
+    _write_state(
+        state_path,
+        _v2_state(
+            last_seen_at=_at(8),
+            current_summary=_summary(
+                summary_id=OTHER_SUMMARY_ID,
+                saved_at=_at(8),
+            ),
+            active_anchor=_anchor(),
+            generation_claim=claim,
+        ),
+    )
+    tracker = AppSessionTracker(state_path, now=lambda: _at(10))
+
+    candidate = tracker.start_session(
+        persisted_record_ids=frozenset({str(claim["expected_record_id"])}),
+        record_store_healthy=True,
+    )
+
+    assert candidate == InactiveStartCandidate(
+        started_at=_at(8),
+        source="summary_heartbeat_recovery",
+        summary_id=OTHER_SUMMARY_ID,
+    )
+    saved = _read_state(state_path)
+    assert saved["generation_claim"] is None
+    assert saved["active_anchor"] == _anchor(
+        summary_id=OTHER_SUMMARY_ID,
+        saved_at=_at(8),
+        activation_source="summary_heartbeat_recovery",
+        origin_session_started_at=_at(1),
+        origin_session_ended_at=_at(8),
+    )
+    tracker.release_lease()
+
+
+def test_startup_reconciliation_releases_missing_record_claim(
+    tmp_path: Path,
+) -> None:
+    state_path = tmp_path / "life_session_state.json"
+    claim = _claim(returned_at=_at(7))
+    anchor = _anchor()
+    _write_state(
+        state_path,
+        _v2_state(
+            last_seen_at=_at(8),
+            active_anchor=anchor,
+            generation_claim=claim,
+        ),
+    )
+    tracker = AppSessionTracker(state_path, now=lambda: _at(10))
+
+    candidate = tracker.start_session(
+        persisted_record_ids=frozenset(),
+        record_store_healthy=True,
+    )
+
+    assert candidate == InactiveStartCandidate(
+        started_at=_at(3),
+        source="summary_graceful_exit",
+        summary_id=SUMMARY_ID,
+    )
+    saved = _read_state(state_path)
+    assert saved["active_anchor"] == anchor
+    assert saved["generation_claim"] is None
+    tracker.release_lease()
+
+
+@pytest.mark.parametrize(
+    ("record_ids", "store_healthy"),
+    [
+        (None, None),
+        (frozenset(), False),
+    ],
+)
+def test_startup_claim_without_authoritative_store_preserves_original_state(
+    tmp_path: Path,
+    record_ids: frozenset[str] | None,
+    store_healthy: bool | None,
+) -> None:
+    state_path = tmp_path / "life_session_state.json"
+    original = _v2_state(
+        last_seen_at=_at(8),
+        active_anchor=_anchor(),
+        generation_claim=_claim(returned_at=_at(7)),
+    )
+    _write_state(state_path, original)
+    tracker = AppSessionTracker(state_path, now=lambda: _at(10))
+
+    assert tracker.start_session(
+        persisted_record_ids=record_ids,
+        record_store_healthy=store_healthy,
+    ) is None
+    assert _read_state(state_path) == original
+    assert tracker.life_records_writable is False
+    assert tracker.reason == "session_tracker_degraded"
+    tracker.release_lease()
+
+
+def test_startup_reconciliation_commit_failure_preserves_original_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state_path = tmp_path / "life_session_state.json"
+    original = _v2_state(
+        last_seen_at=_at(8),
+        active_anchor=_anchor(),
+        generation_claim=_claim(returned_at=_at(7)),
+    )
+    _write_state(state_path, original)
+
+    def fail_save(*_args: object, **_kwargs: object) -> object:
+        raise OSError("synthetic-reconciliation-commit-failure-2099")
+
+    monkeypatch.setattr(life_session_tracker, "save_json_data", fail_save)
+    tracker = AppSessionTracker(state_path, now=lambda: _at(10))
+
+    assert tracker.start_session(
+        persisted_record_ids=frozenset(),
+        record_store_healthy=True,
+    ) is None
+    assert _read_state(state_path) == original
+    assert tracker.life_records_writable is False
+    tracker.release_lease()
+
+
 def test_v2_round_trip_accepts_exact_nested_envelopes() -> None:
     payload = _v2_state(
         current_summary=_summary(),
@@ -620,7 +847,7 @@ def test_v2_rejects_invalid_state_relationships(payload: dict[str, object]) -> N
         "stop-before-last-seen",
     ],
 )
-def test_invalid_envelope_is_discarded(
+def test_invalid_envelope_is_preserved_and_fails_closed(
     tmp_path: Path,
     mutate,
 ) -> None:
@@ -629,9 +856,9 @@ def test_invalid_envelope_is_discarded(
     tracker = AppSessionTracker(state_path, now=lambda: _at(10))
 
     assert tracker.start_session() is None
-    saved = _read_state(state_path)
-    assert saved["session_id"] != SESSION_ID
-    assert set(saved) == SESSION_V2_KEYS
+    assert _read_state(state_path) == mutate(_state())
+    assert tracker.life_records_writable is False
+    assert tracker.reason == "session_tracker_degraded"
     tracker.release_lease()
 
 
@@ -1224,7 +1451,7 @@ def test_live_child_process_lock_blocks_tracker_without_changing_state(
             child.wait(timeout=5)
 
 
-def test_utc_overflow_timestamp_is_discarded_as_invalid_state(
+def test_utc_overflow_timestamp_preserves_invalid_state_and_fails_closed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1241,8 +1468,9 @@ def test_utc_overflow_timestamp_is_discarded_as_invalid_state(
     tracker = AppSessionTracker(state_path, now=lambda: _at(10))
 
     assert tracker.start_session() is None
-    assert _read_state(state_path)["session_id"] != SESSION_ID
+    assert _read_state(state_path)["session_id"] == SESSION_ID
     assert "session_state_invalid" in tracker.diagnostics
+    assert tracker.life_records_writable is False
     tracker.release_lease()
 
 
