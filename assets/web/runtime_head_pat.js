@@ -27,6 +27,7 @@ function postHeadPatInput(input, phase) {
 }
 
 function armHeadPatInputTimer() {
+    if (!characterCanAnimate()) return;
     if (!headPatInput || headPatInputTimer !== null) return;
     headPatInputTimer = setTimeout(() => {
         headPatInputTimer = null;
@@ -83,6 +84,7 @@ function cancelHeadPatInteraction(send = true) {
 }
 
 function applyHeadPatState(value) {
+    if (!characterCanAnimate()) return false;
     const model = value?.model_generation || value?.model_version;
     if (!headPatEnabled || !model || model !== headPatModelGeneration()) return false;
     const own = value.source === (characterHost?.kind === 'pc' ? 'pc' : 'phone');
@@ -273,6 +275,7 @@ function isHeadPatPoint(pointerX, pointerY) {
 
 // 쓰다듬기 시작 이벤트 처리.
 function onHeadPatPointerDown(event) {
+    if (!characterCanAnimate()) return;
     if (!headPatEnabled || isHeadPatting) return;
     if (event.pointerType === 'mouse' && event.button !== 0) return;
 

@@ -255,12 +255,33 @@ function startBuiltinIdleMotion() {
     }
 }
 
+function calculatePhonePlacement(width, height, modelWidth, modelHeight, placement, root) {
+    if (![width, height, modelWidth, modelHeight, placement.scale, placement.xPercent, placement.yPercent].every(Number.isFinite) ||
+        width <= 0 || height <= 0 || modelWidth <= 0 || modelHeight <= 0 ||
+        placement.scale < 0.5 || placement.scale > 2 || placement.xPercent < 0 || placement.xPercent > 100 ||
+        placement.yPercent < 0 || placement.yPercent > 100) return null;
+    const offsets = normalizeLive2DRootMotionOffsets(root);
+    return {scale: Math.min(width * 0.9 / modelWidth, height * 0.9 / modelHeight) * placement.scale * (1 + offsets.rootScale),
+        x: width * (placement.xPercent + offsets.rootXPercent) / 100,
+        y: height * (placement.yPercent + offsets.rootYPercent) / 100};
+}
+
 function applyCurrentModelPlacement() {
     const model = window.live2dModel;
     if (!model) {
         return;
     }
 
+    if (characterHost?.kind === 'phone') {
+        const size = characterModelSizes.get(model);
+        if (!size) return;
+        const placement = calculatePhonePlacement(window.innerWidth, window.innerHeight, size.width, size.height,
+            characterPlacement, live2dRootMotionOffsets);
+        if (!placement) return;
+        model.anchor.set(0.5, 0.5);
+        model.scale.set(placement.scale); model.x = placement.x; model.y = placement.y;
+        return;
+    }
     const config = window.eneModelConfig || {};
     const scale = Number(config.scale ?? 1.0);
     const xPercent = Number(config.xPercent ?? 50);
@@ -357,6 +378,14 @@ async function loadModel() {
 
         console.log("Model loaded successfully!");
         console.log("Model size:", model.width, "x", model.height);
+        if (characterHost?.kind === 'phone') {
+            const size = {width: model.internalModel?.width, height: model.internalModel?.height};
+            if (![size.width, size.height].every(value => Number.isFinite(value) && value > 0)) {
+                model.destroy(); throw new Error('캐릭터의 기본 크기가 올바르지 않습니다.');
+            }
+            characterModelSizes.set(model, size);
+            model.autoUpdate = characterCanAnimate();
+        }
         window.live2dModel = model;
         app.stage.addChild(model);
         captureBuiltinEyeBlinkInstance(model);

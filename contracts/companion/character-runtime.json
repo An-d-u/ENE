@@ -49,12 +49,12 @@
     {
       "source": "assets/web/runtime_character_state.js",
       "target": "runtime_character_state.js",
-      "sha256": "52ba597bc916fbf6c2d2aa74be8f80958d274b45ec22388723dbc739c8e0a6e1"
+      "sha256": "7f6701af29ee198bfbeeee2aec8bc7eaee380c98fef98aa4fb32ec75b8160f08"
     },
     {
       "source": "assets/web/runtime_live2d_model.js",
       "target": "runtime_live2d_model.js",
-      "sha256": "2b8791d2289267304ece83f314e3f336bd6ed0b090edc6a67ec33a7a4ff7c686"
+      "sha256": "f0b9be0be1c3d6ee443285a63b06062e835a5f7f777397bf5510968f0b918ec8"
     },
     {
       "source": "assets/web/runtime_motion_state.js",
@@ -64,17 +64,17 @@
     {
       "source": "assets/web/runtime_gesture_engine.js",
       "target": "runtime_gesture_engine.js",
-      "sha256": "e9e98284cbb5bbde0ef71380d7a696850e8c21d76a3c683c30a4d10d84cb0cdb"
+      "sha256": "f16321bc1ffccaa85e22fc9849479b4be30cbd0efec6d146808630124aa19399"
     },
     {
       "source": "assets/web/runtime_head_pat.js",
       "target": "runtime_head_pat.js",
-      "sha256": "2921a1ba067a8c77f74c303a802ab01d592caef7e791013adb04e3035c321dbc"
+      "sha256": "8be0332947997cf62f8b2445c3e47f07a79c4c7f08ba5686c0615530ce1aff02"
     },
     {
       "source": "assets/web/runtime_auto_blink_tracking.js",
       "target": "runtime_auto_blink_tracking.js",
-      "sha256": "ae4f9a560287b681c0758f8d44c06ff75599295e6c0a8c158c5629d884a37e87"
+      "sha256": "a396071bf939ba6a9dc78b9fd735458358f0ed60b016f88e5adb4b0a1e5e4ce2"
     },
     {
       "source": "assets/web/runtime_expression.js",
@@ -94,7 +94,7 @@
     {
       "source": "assets/web/runtime_character_host.js",
       "target": "runtime_character_host.js",
-      "sha256": "8fa47cd3ba169e407f98c107acbae8c39bae58d0e8cab292dfc42d0ffed98679"
+      "sha256": "816309437d68bd6a5eb7ca85dcc81e0fa2de7f97406b5f38d6a185ca6e7f7df5"
     },
     {
       "source": "assets/web/lib/pixi.min.js",
@@ -124,7 +124,7 @@
     {
       "source": "assets/web/character/entry.js",
       "target": "entry.js",
-      "sha256": "29e1891ca741407ef9dddd008d4df347731e2e609e0fe15d8fbf9334fb9635fd"
+      "sha256": "1f13d2c58950fa53362b412cd27cfd98832ae7ae5fbae32218d30796f60ecb93"
     },
     {
       "source": "assets/web/character/style.css",

@@ -193,7 +193,7 @@ window.setMouseTrackingEnabled = function (enabled) {
 };
 // 매 프레임 마우스/idle/쓰다듬기 상태를 합성해 파라미터를 적용한다.
 function updateMouseTracking(nowMs) {
-    if (characterDisposed) return;
+    if (!characterCanAnimate()) { characterTrackingFrame = 0; return; }
     ensureHeadPatEventBindings();
 
     const coreModel = getTrackingCoreModel();

@@ -279,6 +279,7 @@ function queuePendingSyntheticSpeechGesture(delayMs) {
 }
 
 function scheduleSyntheticGestureDuringSpeech(rawKey) {
+    if (!characterCanAnimate()) return false;
     const requestedKey = normalizeSyntheticGestureKey(rawKey);
     if (!requestedKey || !SYNTHETIC_GESTURES[requestedKey] || IDLE_SYNTHETIC_GESTURES.includes(requestedKey)) {
         return false;
@@ -368,6 +369,7 @@ function scheduleSyntheticGestureSpeechInactivityReset() {
 }
 
 function notifySyntheticGestureSpeechActivity() {
+    if (!characterCanAnimate()) return false;
     const nowMs = performance.now();
     lastSyntheticSpeechActivityAt = nowMs;
     if (!speechGestureActivityStartedAt && (currentSpeechGestureKey || pendingSpeechGestureKey)) {
@@ -452,6 +454,7 @@ function pickIdleSyntheticGesture() {
 
 function scheduleNextIdleSyntheticGesture() {
     clearIdleSyntheticGestureTimer();
+    if (!characterCanAnimate()) return false;
     if (!idleSyntheticGestureEnabled) {
         return false;
     }
@@ -481,6 +484,7 @@ function setIdleSyntheticGestureConfig(enabled, frequency) {
 }
 
 function playSyntheticGesture(rawKey, options = {}) {
+    if (!characterCanAnimate()) return false;
     const key = normalizeSyntheticGestureKey(rawKey);
     const gesture = SYNTHETIC_GESTURES[key];
     if (!gesture || typeof window.setSyntheticGestureOffsets !== "function") {

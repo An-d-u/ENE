@@ -4,6 +4,12 @@ let characterHost = null;
 let characterCanvas = null;
 let characterDisposed = true;
 let characterTrackingFrame = 0;
+let characterPresentationVisible = true;
+let characterPlacement = {scale: 1, xPercent: 50, yPercent: 50};
+const characterModelSizes = new WeakMap();
+function characterCanAnimate() {
+    return !characterDisposed && (characterHost?.kind !== 'phone' || characterPresentationVisible);
+}
 let characterExpressionGeneration = 0;
 const characterExpressionReads = new Set();
 window.eneModelConfig = window.eneModelConfig || {};

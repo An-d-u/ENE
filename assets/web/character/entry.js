@@ -64,6 +64,8 @@
                 character.applyHeadPat(command.value);
             } else if (command.type === 'preview') {
                 character.applyPreview(command.value);
+            } else if (command.type === 'presentation') {
+                character.applyPresentation(command.value);
             }
         } catch (_) {
             if (!disposed && expected === generation) emitInput({type: 'error', code: failureCode});

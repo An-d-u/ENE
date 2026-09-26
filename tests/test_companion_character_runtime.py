@@ -38,8 +38,9 @@ function target(name) { return {
 }; }
 const canvas = target('canvas');
 const model = () => ({
-    width: 100, height: 200, anchor: {set() {}}, scale: {set() {}},
+    width: 100, height: 200, autoUpdate: true, anchor: {set() {}}, scale: {value: 1, set(value) {this.value=value;}},
     internalModel: {
+        width: 100, height: 200,
         coreModel: {setParameterValueById(k,v) { values.set(k,v); },
             getParameterValueById() {return 0;}, getParameterIndex() {return 0;},
             getParameterCount() {return 1;}, _parameterIds: ['ParamAccent'],
@@ -62,6 +63,8 @@ const context = {
     PIXI:{Application:class {
         constructor(options) {this.view=options.view;this.stage={addChild(){},removeChild(){}};this.renderer={resize(){}};calls.push('createApp');}
         destroy() {calls.push('destroyApp');}
+        start() {calls.push('startApp');}
+        stop() {calls.push('stopApp');}
     }, live2d:{Live2DModel:{from:async(path)=>{calls.push(path);return model();}}}},
 };
 Object.assign(context,target('window'));
@@ -94,13 +97,13 @@ main().then(()=>process.stdout.write(JSON.stringify({ok:true}))).catch(error=>{c
     assert json.loads(result.stdout) == {"ok": True}
 
 
-@pytest.mark.parametrize("kind", ["pc", "android"])
+@pytest.mark.parametrize("kind", ["pc", "phone"])
 def test_shared_runtime_without_chat_and_dispose_clears_callbacks(kind):
     run_character(
         f"host.kind={json.dumps(kind)};"
         + r"""
 const character=context.createCharacter(host,canvas);
-assert.deepEqual(Object.keys(character).sort(),['applyAction','applyHeadPat','applyPlayback','applyPreview','applySnapshot','dispose']);
+assert.deepEqual(Object.keys(character).sort(),['applyAction','applyHeadPat','applyPlayback','applyPresentation','applyPreview','applySnapshot','dispose']);
 assert.equal(calls.filter(x=>x==='createApp').length,1);
 await character.applySnapshot(snapshot);
 assert.ok(calls.some(x=>x.endsWith(snapshot.entry_asset_id)));
@@ -134,6 +137,77 @@ assert.equal(character.applyPreview({...snapshot,model_version:'c'.repeat(64)}),
 character.applyPreview(snapshot);listeners.get('model:beforeModelUpdate')();assert.equal(values.get('ParamAccent'),0.2);
 character.applyPreview({...snapshot,parameters:{}});assert.equal(values.get('ParamAccent'),0);
 character.dispose();assert.equal(character.applyPreview(snapshot),false);
+""")
+
+
+def test_phone_placement_fits_once_per_model_and_survives_snapshots_and_resize():
+    run_character(r"""
+host.kind='phone'; context.innerHeight=200;
+const character=context.createCharacter(host,canvas);
+const placement={scale:1.5,xPercent:25,yPercent:75};
+assert.equal(character.applyPresentation({placement,visible:true}),true);
+await character.applySnapshot(snapshot);
+const original=context.live2dModel;
+assert.equal(original.scale.value,1.35); assert.equal(original.x,100); assert.equal(original.y,150);
+original.width=5000; original.internalModel.width=5000;
+await character.applySnapshot({...snapshot,settings:{...snapshot.settings,enable_idle_motion:false}});
+character.applyPreview(snapshot);
+assert.equal(original.scale.value,1.35);
+context.innerWidth=200;context.innerHeight=400; listeners.get('window:resize')();
+assert.equal(original.scale.value,2.7);assert.equal(original.x,50);assert.equal(original.y,300);
+context.innerHeight=0; listeners.get('window:resize')();assert.equal(original.scale.value,2.7);
+for (const bad of [{placement:{...placement,scale:NaN},visible:true},{placement,visible:'true'},
+    {placement:{...placement,extra:1},visible:true},{placement,visible:true,extra:1}]) {
+    assert.equal(character.applyPresentation(bad),false);
+}
+assert.equal(context.live2dModel,original);
+assert.equal(calls.filter(x=>x.endsWith(snapshot.entry_asset_id)).length,1);
+character.dispose();
+""")
+
+
+def test_phone_hidden_suspends_all_owned_activity_and_resumes_same_model():
+    run_character(r"""
+host.kind='phone';const character=context.createCharacter(host,canvas);
+snapshot.settings.enable_idle_synthetic_gestures=true;
+await character.applySnapshot(snapshot);const original=context.live2dModel;
+const placement={scale:1.5,xPercent:25,yPercent:75};
+character.applyPresentation({placement,visible:false});
+assert.equal(original.autoUpdate,false);assert.equal(frames.size,0);assert.equal(timers.size,0);
+await character.applySnapshot(snapshot); character.applyPreview(snapshot);
+await character.applyAction({model_version:snapshot.model_version,kind:'gesture',action_id:'nod'});
+character.applyPlayback({active:true,mouth_open:0.6});
+assert.equal(values.get('ParamMouthOpenY'),0);assert.equal(frames.size,0);assert.equal(timers.size,0);
+character.applyPresentation({placement,visible:true});
+character.applyPresentation({placement,visible:true});
+assert.equal(original.autoUpdate,true);assert.equal(context.live2dModel,original);
+assert.equal(calls.filter(x=>x==='startApp').length,1);
+assert.equal(frames.size,1);assert.equal(timers.size,1);
+character.dispose();assert.equal(frames.size,0);assert.equal(timers.size,0);
+""")
+
+
+def test_phone_hidden_while_loading_does_not_restart_updates():
+    run_character(r"""
+host.kind='phone';context.PIXI.live2d.Live2DModel.from=()=>new Promise(resolve=>{releaseModel=resolve;});
+const character=context.createCharacter(host,canvas);
+const pending=character.applySnapshot(snapshot);
+character.applyPresentation({placement:{scale:1,xPercent:50,yPercent:50},visible:false});
+releaseModel(model());assert.equal(await pending,true);
+assert.equal(context.live2dModel.autoUpdate,false);assert.equal(frames.size,0);assert.equal(timers.size,0);
+character.dispose();
+""")
+
+
+def test_pc_placement_does_not_use_phone_fit_or_visibility():
+    run_character(r"""
+host.kind='pc';const character=context.createCharacter(host,canvas);
+await character.applySnapshot(snapshot);
+await context.applyENEModelSettings({scale:0.4,xPercent:30,yPercent:60});
+assert.equal(character.applyPresentation({placement:{scale:2,xPercent:0,yPercent:0},visible:false}),false);
+assert.equal(context.live2dModel.scale.value,0.4);assert.equal(context.live2dModel.x,120);
+assert.equal(context.live2dModel.y,360);assert.equal(context.live2dModel.autoUpdate,true);
+character.dispose();
 """)
 
 

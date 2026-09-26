@@ -8,6 +8,8 @@ window.createCharacter = function createCharacter(host, canvas) {
     characterHost = {...host, currentModel: host.currentModel || (() => version)};
     characterCanvas = canvas;
     characterDisposed = false;
+    characterPresentationVisible = true;
+    characterPlacement = {scale: 1, xPercent: 50, yPercent: 50};
     let disposed = false;
     let version = null;
     let snapshotGeneration = 0;
@@ -15,6 +17,34 @@ window.createCharacter = function createCharacter(host, canvas) {
     let loadingModel = null;
     let parameterModel = null;
     let parameterHook = null;
+
+    function applyPresentation(value) {
+        if (disposed || host.kind !== 'phone' || !value || typeof value.visible !== 'boolean' ||
+            Object.keys(value).sort().join(',') !== 'placement,visible') return false;
+        const p = value.placement;
+        if (!p || Object.keys(p).sort().join(',') !== 'scale,xPercent,yPercent' ||
+            ![p.scale, p.xPercent, p.yPercent].every(Number.isFinite) || p.scale < 0.5 || p.scale > 2 ||
+            p.xPercent < 0 || p.xPercent > 100 || p.yPercent < 0 || p.yPercent > 100) return false;
+        characterPlacement = {...p};
+        applyCurrentModelPlacement();
+        if (characterPresentationVisible === value.visible) return true;
+        characterPresentationVisible = value.visible;
+        if (!value.visible) {
+            cancelHeadPatInteraction(); cancelPendingPatEmotionRestore();
+            clearIdleSyntheticGestureTimer(); stopSyntheticGesture(); setMouthOpen(0);
+            cancelAnimationFrame(characterTrackingFrame); characterTrackingFrame = 0;
+            if (window.live2dModel) window.live2dModel.autoUpdate = false;
+            app.stop();
+        } else {
+            lastMouseUpdateAt = performance.now();
+            resetAutoEyeBlinkRuntime();
+            if (window.live2dModel) window.live2dModel.autoUpdate = true;
+            app.start();
+            if (!characterTrackingFrame) characterTrackingFrame = requestAnimationFrame(updateMouseTracking);
+            scheduleNextIdleSyntheticGesture();
+        }
+        return true;
+    }
 
     function resize() {
         if (disposed) return;
@@ -82,7 +112,7 @@ window.createCharacter = function createCharacter(host, canvas) {
         applyParameters(next);
         applySettings(next.settings, next.head_pat_defaults);
         const loading = loadingModel || (loadingModel = window.applyENEModelSettings({modelPath: host.assetUrl('model', next.entry_asset_id),
-            emotionsBasePath: '', availableEmotions: next.expression_ids || ['normal'], scale: 1, xPercent: 50, yPercent: 50}));
+            emotionsBasePath: '', availableEmotions: next.expression_ids || ['normal']}));
         await loading;
         if (loadingModel === loading) loadingModel = null;
         if (disposed || generation !== snapshotGeneration) return false;
@@ -103,7 +133,7 @@ window.createCharacter = function createCharacter(host, canvas) {
         return true;
     }
     async function applyAction(action) {
-        if (disposed || !snapshot || action?.model_version !== version) return false;
+        if (!characterCanAnimate() || !snapshot || action?.model_version !== version) return false;
         if (action.kind === 'expression' && snapshot.expression_ids?.includes(action.action_id)) {
             await changeExpression(action.action_id, {durationMs: Math.min(30000, Math.max(0, Number(action.duration_ms) || 0))});
             return !disposed;
@@ -115,7 +145,7 @@ window.createCharacter = function createCharacter(host, canvas) {
     }
     function applyPlayback(value) {
         if (disposed) return false;
-        const mouth = value?.active && Number.isFinite(value.mouth_open) ? Math.min(1, Math.max(0, value.mouth_open)) : 0;
+        const mouth = characterCanAnimate() && value?.active && Number.isFinite(value.mouth_open) ? Math.min(1, Math.max(0, value.mouth_open)) : 0;
         applyMouthPose({source: 'rms', open: mouth});
         return true;
     }
@@ -135,5 +165,5 @@ window.createCharacter = function createCharacter(host, canvas) {
     window.addEventListener('pagehide', dispose);
     ensureHeadPatEventBindings();
     characterTrackingFrame = requestAnimationFrame(updateMouseTracking);
-    return Object.freeze({applySnapshot, applyAction, applyPreview, applyPlayback, applyHeadPat:applyHeadPatState, dispose});
+    return Object.freeze({applySnapshot, applyAction, applyPreview, applyPlayback, applyPresentation, applyHeadPat:applyHeadPatState, dispose});
 };
