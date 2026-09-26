@@ -18,8 +18,8 @@
 - 공식 명세 리뷰와 품질 리뷰는 현재 diff와 직접 관련된 범위로 제한한다. Critical·Important는 즉시 수정하고 같은 집중 테스트를 다시 실행한다. Minor는 본 문서 하단의 `최종 Minor 검토 목록`에만 누적하고 Task 15에서 한 번에 판단한다.
 - 테스트 fixture와 문서 예시는 모두 합성 데이터만 사용한다. `memory.json`, `user_profile.json`, `ene_profile.json`, `config.json`, `api_keys.json`, `obs_config.json`, `mood_state.json`, `calendar.json`, `diary.json`, `api_key.txt`, `.env*`와 생성 산출물은 커밋하지 않는다.
 - 수정 파일은 UTF-8 without BOM으로 저장한다. 커밋 메시지는 영어로 작성한다.
-- 모든 테스트 명령은 격리 worktree 루트 `C:\Users\umpad\Desktop\coding\ENE\.worktrees\life-record-summary-anchor`에서 실행한다.
-- Windows 임시 디렉터리 권한 문제를 피하기 위해 pytest의 `--basetemp`는 허용된 외부 경로 아래 Task별 하위 경로를 쓴다.
+- 모든 테스트 명령은 선택한 저장소 또는 격리 worktree 루트(`.`)에서 실행한다. 해당 작업 폴더에 `.venv`를 준비한다.
+- pytest의 `--basetemp`는 Git에서 제외되는 `.pytest_tmp/` 아래 Task별 하위 경로를 쓴다.
 
 ## 공통 테스트 명령
 
@@ -27,14 +27,14 @@
 
 ```powershell
 $env:PYTHONDONTWRITEBYTECODE='1'
-& 'C:\Users\umpad\Desktop\coding\ENE\.venv\Scripts\python.exe' -m pytest -q -p no:cacheprovider --basetemp='C:\Users\umpad\.codex\visualizations\2026\08\07\019fdb8c-2350-7f51-a617-bb9c519718a3\.pytest_tmp_<task>' <test files or node ids>
+& '.\.venv\Scripts\python.exe' -m pytest -q -p no:cacheprovider --basetemp='.\.pytest_tmp\<task>' <test files or node ids>
 ```
 
 전체 테스트 형식(Task 4, 8B, 14, 15만):
 
 ```powershell
 $env:PYTHONDONTWRITEBYTECODE='1'
-& 'C:\Users\umpad\Desktop\coding\ENE\.venv\Scripts\python.exe' -m pytest -q -p no:cacheprovider --basetemp='C:\Users\umpad\.codex\visualizations\2026\08\07\019fdb8c-2350-7f51-a617-bb9c519718a3\.pytest_tmp_ene_summary_anchor_full'
+& '.\.venv\Scripts\python.exe' -m pytest -q -p no:cacheprovider --basetemp='.\.pytest_tmp\ene_summary_anchor_full'
 ```
 
 기준선은 `4155 passed, 2 skipped`다. 새 테스트 수만큼 passed 수가 늘 수 있지만 실패는 0이어야 한다.
