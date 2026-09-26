@@ -92,6 +92,41 @@ vm.runInNewContext(fs.readFileSync('assets/web/character/entry.js','utf8'),conte
     assert result.returncode == 0, result.stderr
 
 
+def test_pending_expression_respects_snapshot_sequence_and_new_snapshot_ownership():
+    script = r"""
+const fs=require('fs'),vm=require('vm'),assert=require('assert/strict');
+const generation='00000000-0000-4000-8000-000000000001';
+const native={postMessage(){}},waits=[],actions=[];
+let releaseAction;
+const character={applySnapshot:()=>new Promise(resolve=>waits.push(resolve)),
+    applyAction:async value=>{actions.push(value.action_seq);if(value.action_seq===11)await new Promise(resolve=>{releaseAction=resolve;});}};
+const context={AbortController,document:{getElementById:()=>({})},
+    fetch:async()=>({ok:true,json:async()=>({})}),window:{
+        location:{origin:'https://appassets.androidplatform.net'},eneCharacterNative:native,
+        createCharacter:()=>character,addEventListener(){},removeEventListener(){}}};
+vm.runInNewContext(fs.readFileSync('assets/web/character/entry.js','utf8'),context);
+const model='a'.repeat(64);
+const snapshot=seq=>({status:'ready',model_version:model,entry_asset_id:'b'.repeat(64),expression_ids:['normal','bright'],action_seq:seq});
+const action=seq=>({model_version:model,kind:'expression',action_id:'bright',action_seq:seq});
+const send=(type,value)=>native.onmessage({data:JSON.stringify({type,value,generation})});
+async function settle(){for(let i=0;i<8;i++)await Promise.resolve();}
+(async()=>{
+    await send('initialize');
+    const first=send('snapshot',snapshot(3));await settle();
+    await send('action',action(4));
+    const second=send('snapshot',snapshot(10));await settle();
+    waits[0](true);await first;
+    await send('action',action(9));await send('action',action(11));
+    waits[1](true);await settle();
+    assert.deepEqual(actions,[11]);
+    await send('action',action(12));releaseAction();await second;
+    assert.deepEqual(actions,[11,12]);
+})().catch(error=>{console.error(error);process.exitCode=1;});
+"""
+    result = subprocess.run(["node", "-e", script], cwd=ROOT, capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+
+
 @pytest.mark.parametrize("failure", ["asset", "render"])
 def test_character_snapshot_failure_reports_only_its_safe_stage(failure):
     script = r"""

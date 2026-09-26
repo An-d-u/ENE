@@ -84,6 +84,7 @@ main().then(()=>process.stdout.write(JSON.stringify({ok:true}))).catch(error=>{c
     pc_entry = (WEB / "script.js").read_text(encoding="utf-8")
     script = harness.replace("SOURCE", json.dumps(source)).replace(
         "CASE", case.replace("PC_ENTRY", json.dumps(pc_entry))
+        .replace("PHONE_ENTRY", json.dumps((WEB / "character/entry.js").read_text(encoding="utf-8")))
     )
     result = subprocess.run(
         ["node"],
@@ -196,6 +197,38 @@ character.applyPresentation({placement:{scale:1,xPercent:50,yPercent:50},visible
 releaseModel(model());assert.equal(await pending,true);
 assert.equal(context.live2dModel.autoUpdate,false);assert.equal(frames.size,0);assert.equal(timers.size,0);
 character.dispose();
+""")
+
+
+def test_phone_resume_snapshot_cannot_overwrite_newer_expression_during_asset_read():
+    run_character(r"""
+context.location.origin='https://appassets.androidplatform.net';
+const replies=[];context.eneCharacterNative={postMessage:x=>replies.push(JSON.parse(x))};
+const generation='00000000-0000-4000-8000-000000000001';
+let releaseRead, delayRead=false;
+context.fetch=async url=>{
+    if(url.endsWith(snapshot.entry_asset_id)) {
+        if(delayRead) await new Promise(resolve=>{releaseRead=resolve;});
+        return {ok:true,json:async()=>({FileReferences:{Expressions:[
+            {Name:'normal',File:'c'.repeat(64)},{Name:'bright',File:'d'.repeat(64)}]}})};
+    }
+    return {ok:true,json:async()=>({Parameters:[]})};
+};
+vm.runInContext(PHONE_ENTRY,ctx);
+async function send(type,value) {return context.eneCharacterNative.onmessage({data:JSON.stringify({type,value,generation})});}
+await send('initialize');await send('snapshot',{...snapshot,action_seq:3});
+const original=context.live2dModel;
+const placement={scale:1.5,xPercent:25,yPercent:75};
+await send('presentation',{placement,visible:false});await send('presentation',{placement,visible:true});
+delayRead=true;const refresh=send('snapshot',{...snapshot,action_seq:3});
+await send('action',{model_version:snapshot.model_version,kind:'expression',action_id:'bright',action_seq:4,duration_ms:0});
+await send('action',{model_version:snapshot.model_version,kind:'gesture',action_id:'nod',action_seq:5});
+releaseRead();await refresh;
+assert.equal(vm.runInContext('currentEmotionTag',ctx),'bright');
+assert.equal(vm.runInContext('activeGestureKey',ctx),'');
+assert.equal(context.live2dModel,original);assert.equal(calls.filter(x=>x.endsWith(snapshot.entry_asset_id)).length,1);
+assert.equal(replies.at(-1).type,'ready');
+listeners.get('window:pagehide')();
 """)
 
 

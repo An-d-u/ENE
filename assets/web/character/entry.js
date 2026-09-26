@@ -11,6 +11,8 @@
     let disposed = false;
     let request = null;
     let character = null;
+    let snapshotPending = false;
+    let pendingExpression = null;
     const assetId = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
     function assetUrl(kind, id) {
         const resolved = kind === 'expression' ? expressions.get(id) : id;
@@ -40,8 +42,11 @@
             if (command.type === 'snapshot') {
                 const current = ++generation;
                 expected = current;
+                snapshotPending = true;
                 request?.abort(); request = new AbortController();
                 snapshot = command.value; expressions = new Map();
+                if (pendingExpression?.model_version !== snapshot?.model_version ||
+                    pendingExpression?.action_seq <= snapshot?.action_seq) pendingExpression = null;
                 if (snapshot?.status === 'ready') {
                     failureCode = 'character_asset_failed';
                     const response = await fetch(assetUrl('model', snapshot.entry_asset_id), {signal: request.signal});
@@ -55,9 +60,23 @@
                 if (disposed || generation !== current) return;
                 failureCode = 'character_render_failed';
                 const ready = await character.applySnapshot(snapshot);
+                // 스냅샷의 비동기 자산 읽기 동안 도착한 표정은 최신 현재값 하나만 복원한다.
+                // 이전 스냅샷의 완료가 새 스냅샷의 준비 상태나 표정을 지우지 못하게 한다.
+                while (!disposed && generation === current && ready && pendingExpression) {
+                    const latest = pendingExpression; pendingExpression = null;
+                    await character.applyAction(latest);
+                }
+                if (!disposed && generation === current) snapshotPending = false;
                 if (!disposed && generation === current) emitInput({type: ready ? 'ready' : 'unavailable', model_version: snapshot?.model_version || null});
             } else if (command.type === 'action') {
-                await character.applyAction(command.value);
+                if (snapshotPending) {
+                    const action = command.value;
+                    if (action?.kind === 'expression' && action.model_version === snapshot?.model_version &&
+                        snapshot.expression_ids?.includes(action.action_id) && Number.isSafeInteger(action.action_seq) &&
+                        action.action_seq > (snapshot.action_seq ?? 0) && action.action_seq > (pendingExpression?.action_seq ?? 0)) {
+                        pendingExpression = action;
+                    }
+                } else await character.applyAction(command.value);
             } else if (command.type === 'playback') {
                 character.applyPlayback(command.value);
             } else if (command.type === 'head_pat') {
@@ -68,14 +87,17 @@
                 character.applyPresentation(command.value);
             }
         } catch (_) {
-            if (!disposed && expected === generation) emitInput({type: 'error', code: failureCode});
+            if (!disposed && expected === generation) {
+                snapshotPending = false; pendingExpression = null;
+                emitInput({type: 'error', code: failureCode});
+            }
         }
     }
     function dispose() {
         if (disposed) return;
         try { character?.dispose(); }
         finally {
-            disposed = true; generation++; request?.abort();
+            disposed = true; generation++; request?.abort(); pendingExpression = null; snapshotPending = false;
             native.onmessage = null;
             window.removeEventListener('pagehide', dispose);
         }
