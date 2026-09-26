@@ -143,7 +143,7 @@ def _anchor(
 def _claim(
     *,
     summary_id: str = SUMMARY_ID,
-    anchor_saved_at: datetime = _at(3),
+    record_start: datetime = _at(3),
     returned_at: datetime | str = _at(7),
     expected_record_id: str | None = None,
 ) -> dict[str, object]:
@@ -152,7 +152,7 @@ def _claim(
     )
     resolved_id = expected_record_id
     if resolved_id is None and isinstance(returned_at, datetime):
-        resolved_id = stable_life_record_id(anchor_saved_at, returned_at)
+        resolved_id = stable_life_record_id(record_start, returned_at)
     return {
         "summary_id": summary_id,
         "returned_at": encoded_returned,
@@ -465,7 +465,7 @@ def test_claim_life_generation_is_canonical_and_idempotent(tmp_path: Path) -> No
     state_path = tmp_path / "life_session_state.json"
     clock = MutableClock(_at(10))
     tracker = _start_with_active_anchor(state_path, clock)
-    expected_id = stable_life_record_id(_at(3), _at(10))
+    expected_id = stable_life_record_id(_at(5), _at(10))
 
     first = tracker.claim_life_generation(SUMMARY_ID, _at(7, microsecond=999999))
     second = tracker.claim_life_generation(SUMMARY_ID, _at(9))
@@ -663,6 +663,17 @@ def test_v2_round_trip_accepts_exact_nested_envelopes() -> None:
         current_summary=_summary(),
         active_anchor=_anchor(),
         generation_claim=_claim(),
+    )
+
+    parsed = life_session_tracker._parse_session_state(payload)
+
+    assert parsed.to_payload() == payload
+
+
+def test_v2_round_trip_accepts_session_end_claim_record_id() -> None:
+    payload = _v2_state(
+        active_anchor=_anchor(),
+        generation_claim=_claim(record_start=_at(5)),
     )
 
     parsed = life_session_tracker._parse_session_state(payload)

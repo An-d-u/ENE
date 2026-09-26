@@ -248,6 +248,20 @@ def _parse_generation_claim(value: object) -> LifeGenerationClaim:
     )
 
 
+def _valid_claim_record_ids(
+    anchor: ActiveLifeAnchor,
+    returned_at: datetime,
+) -> frozenset[str]:
+    from src.ai.life_record_types import stable_life_record_id
+
+    return frozenset(
+        {
+            stable_life_record_id(anchor.saved_at, returned_at),
+            stable_life_record_id(anchor.origin_session_ended_at, returned_at),
+        }
+    )
+
+
 def _is_windows_platform() -> bool:
     return sys.platform == "win32"
 
@@ -384,13 +398,10 @@ def _parse_session_state(payload: object) -> _SessionState:
                 <= _as_utc(last_seen_at)
             ):
                 raise ValueError("claim_order_invalid")
-            from src.ai.life_record_types import stable_life_record_id
-
-            expected_record_id = stable_life_record_id(
-                active_anchor.saved_at,
+            if generation_claim.expected_record_id not in _valid_claim_record_ids(
+                active_anchor,
                 generation_claim.returned_at,
-            )
-            if generation_claim.expected_record_id != expected_record_id:
+            ):
                 raise ValueError("claim_record_id_mismatch")
 
     return _SessionState(
@@ -829,7 +840,7 @@ class AppSessionTracker:
             from src.ai.life_record_types import stable_life_record_id
 
             expected_record_id = stable_life_record_id(
-                anchor.saved_at,
+                anchor.origin_session_ended_at,
                 returned_at,
             )
         except Exception:

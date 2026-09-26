@@ -26,7 +26,8 @@ from src.core.local_time import LocalTimeContext
 
 
 SEOUL = ZoneInfo("Asia/Seoul")
-STOPPED_AT = datetime(2099, 8, 6, 23, 0, tzinfo=SEOUL)
+SUMMARY_SAVED_AT = datetime(2099, 8, 6, 19, 0, tzinfo=SEOUL)
+STOPPED_AT = datetime(2099, 8, 6, 20, 0, tzinfo=SEOUL)
 RETURNED_AT = datetime(2099, 8, 7, 10, 0, tzinfo=SEOUL)
 
 
@@ -124,7 +125,7 @@ def _seed_session(path, source: str) -> None:
             "stopped_at": STOPPED_AT.isoformat() if stopped else None,
             "current_summary": {
                 "summary_id": str(uuid4()),
-                "saved_at": STOPPED_AT.isoformat(),
+                "saved_at": SUMMARY_SAVED_AT.isoformat(),
             },
             "active_anchor": None,
             "generation_claim": None,
@@ -205,11 +206,12 @@ def _bridge(
     *,
     now: datetime = RETURNED_AT,
     tracker=None,
+    min_inactive_minutes: int = 60,
 ):
     settings = SimpleNamespace(
         config={
             "enable_life_records": True,
-            "life_record_min_inactive_minutes": 60,
+            "life_record_min_inactive_minutes": min_inactive_minutes,
             "max_profile_facts_in_context": 3,
             "ui_language": "ko",
             "assistant_display_name": "루미",
@@ -295,7 +297,7 @@ def _complete_worker(worker: _LifeWorker, output, *, order="result_finished") ->
         ("summary_heartbeat_recovery", "attachments"),
     ],
 )
-def test_claimed_recovered_first_chat_covers_exact_eleven_hours_without_gaps(
+def test_claimed_recovered_first_chat_covers_full_session_end_interval_without_gaps(
     monkeypatch, tmp_path, source, first_request
 ):
     state_path = tmp_path / source / "life_session_state.json"
@@ -353,7 +355,7 @@ def test_claimed_recovered_first_chat_covers_exact_eleven_hours_without_gaps(
         assert (
             record.returned_at.astimezone(timezone.utc)
             - record.inactive_started_at.astimezone(timezone.utc)
-            == timedelta(hours=11)
+            == timedelta(hours=14)
         )
         assert record.entries[0].started_at == STOPPED_AT
         assert record.entries[-1].ended_at == RETURNED_AT
@@ -596,7 +598,64 @@ def test_intermediate_message_run_preserves_anchor_for_later_eligible_run(
         later_tracker.release_lease()
 
 
-def test_post_summary_activity_does_not_move_anchor_timestamp(tmp_path):
+def test_session_end_threshold_ignores_earlier_summary_time(
+    monkeypatch,
+    tmp_path,
+):
+    state_path = tmp_path / "session-end-threshold" / "life_session_state.json"
+    _seed_session(state_path, "summary_graceful_exit")
+    early_return = STOPPED_AT + timedelta(minutes=299)
+    early_tracker = AppSessionTracker(
+        state_path,
+        time_context=_time_context(early_return),
+    )
+    early_candidate = early_tracker.start_session()
+    assert early_candidate is not None
+    early_bridge, _manager = _bridge(
+        monkeypatch,
+        state_path.parent,
+        early_candidate,
+        now=early_return,
+        tracker=early_tracker,
+        min_inactive_minutes=300,
+    )
+    early_bridge.send_to_ai("임계값 직전의 합성 메시지")
+    assert _LifeWorker.instances == []
+    assert early_tracker.stop_session() is True
+    early_tracker.release_lease()
+
+    eligible_return = STOPPED_AT + timedelta(minutes=300)
+    eligible_tracker = AppSessionTracker(
+        state_path,
+        time_context=_time_context(eligible_return),
+    )
+    eligible_candidate = eligible_tracker.start_session()
+    try:
+        assert eligible_candidate is not None
+        assert eligible_candidate.started_at == STOPPED_AT
+        eligible_bridge, _manager = _bridge(
+            monkeypatch,
+            state_path.parent,
+            eligible_candidate,
+            now=eligible_return,
+            tracker=eligible_tracker,
+            min_inactive_minutes=300,
+        )
+        eligible_bridge.send_to_ai("임계값에 도달한 합성 메시지")
+
+        worker = _LifeWorker.instances[-1]
+        claim = eligible_bridge.life_record_state.generation_claim
+        assert worker.request.inactive_started_at == STOPPED_AT
+        assert claim is not None
+        assert claim.expected_record_id == stable_life_record_id(
+            STOPPED_AT,
+            eligible_return,
+        )
+    finally:
+        eligible_tracker.release_lease()
+
+
+def test_same_summary_session_uses_later_exit_as_anchor_timestamp(tmp_path):
     state_path = tmp_path / "post-summary-activity" / "life_session_state.json"
     _seed_session(state_path, "summary_graceful_exit")
     payload = json.loads(state_path.read_text(encoding="utf-8"))
@@ -612,8 +671,7 @@ def test_post_summary_activity_does_not_move_anchor_timestamp(tmp_path):
     try:
         candidate = tracker.start_session()
         assert candidate is not None
-        assert candidate.started_at == STOPPED_AT
-        assert candidate.started_at != later_exit
+        assert candidate.started_at == later_exit
     finally:
         tracker.release_lease()
 
