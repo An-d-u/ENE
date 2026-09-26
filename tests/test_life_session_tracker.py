@@ -304,7 +304,7 @@ def test_v2_current_summary_is_promoted_when_next_session_starts(
     candidate = tracker.start_session()
 
     assert candidate == InactiveStartCandidate(
-        started_at=_at(4),
+        started_at=_at(5),
         source=expected_source,
         summary_id=SUMMARY_ID,
     )
@@ -336,7 +336,7 @@ def test_v2_unused_anchor_is_preserved_without_new_summary(tmp_path: Path) -> No
     candidate = tracker.start_session()
 
     assert candidate == InactiveStartCandidate(
-        started_at=_at(3),
+        started_at=_at(5),
         source="summary_graceful_exit",
         summary_id=SUMMARY_ID,
     )
@@ -364,7 +364,7 @@ def test_v2_new_summary_replaces_older_unused_anchor(tmp_path: Path) -> None:
     candidate = tracker.start_session()
 
     assert candidate == InactiveStartCandidate(
-        started_at=_at(7),
+        started_at=_at(8),
         source="summary_graceful_exit",
         summary_id=OTHER_SUMMARY_ID,
     )
@@ -590,7 +590,7 @@ def test_startup_reconciliation_releases_missing_record_claim(
     )
 
     assert candidate == InactiveStartCandidate(
-        started_at=_at(3),
+        started_at=_at(5),
         source="summary_graceful_exit",
         summary_id=SUMMARY_ID,
     )

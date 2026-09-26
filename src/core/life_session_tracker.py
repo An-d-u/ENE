@@ -548,7 +548,7 @@ class AppSessionTracker:
         if previous is None or previous.active_anchor is None:
             return None
         anchor = previous.active_anchor
-        endpoint = anchor.saved_at
+        endpoint = anchor.origin_session_ended_at
 
         assert self._time_context is not None
         try:
