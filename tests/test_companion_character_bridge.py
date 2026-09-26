@@ -15,7 +15,7 @@ from src.core.companion.character_bridge import CompanionCharacterBridge
 from src.core.companion.character_assets import build_bundle
 from src.core.companion.controller import CompanionController
 from tests.test_companion_character_assets import synthetic_model
-from tests.test_companion_character_state import CATALOG
+from tests.test_companion_character_state import CATALOG, MOTION_SETTINGS
 from tests.test_companion_adapter import qt_app as synthetic_qt_app  # noqa: F401
 
 
@@ -122,6 +122,33 @@ def test_replacement_has_one_worker_and_discards_late_result(tmp_path):
     wait_until(app, lambda: not bridge.is_running)
     assert len(calls) == 2 and calls[-1][0].name == "synthetic-last.model3.json"
     assert bridge.state.generation == generation
+    bridge.deactivate()
+
+
+def test_saved_motion_settings_notify_and_reuse_confirmed_model(tmp_path):
+    app = QApplication.instance() or QApplication([])
+    owner = Owner()
+    class SavedSettings(dict):
+        def commit_character_settings(self, values):
+            self.update(values)
+    owner.settings = SavedSettings()
+    bridge = CompanionCharacterBridge(owner)
+    path = synthetic_model(tmp_path)
+    generation = bridge.select(path, (), {}, {})
+    bridge.activate()
+    wait_until(app, lambda: not bridge.is_running)
+    bundle = bridge.state.bundle
+    assert bridge.catalog({"generation": generation, "model_version": bundle.model_version,
+                           "parameters": CATALOG, "expressions": ["normal", "bright"], "gestures": ["nod"]})
+    revision = bridge.state.settings_revision
+    owner.sent.clear()
+    assert bridge.save_local_settings(MOTION_SETTINGS)["status"] == "accepted"
+    assert bridge.select(path, (), MOTION_SETTINGS, {}, reuse=True) == generation
+    assert not bridge.is_running and bridge.state.bundle is bundle
+    assert bridge.state.settings_revision == revision + 1
+    assert bridge.state.snapshot()["settings"] == MOTION_SETTINGS
+    assert any(kind == "character_changed" and value["state_revision"] == bridge.state.state_revision
+               for kind, value in owner.sent)
     bridge.deactivate()
 
 

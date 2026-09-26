@@ -11,6 +11,28 @@ from tests.companion_helpers import sample_id
 
 
 CATALOG = [{"id": "ParamAccent", "min": -1.0, "max": 1.0, "default": 0.0}]
+MOTION_SETTINGS = {
+    "enable_builtin_idle_motion": False, "enable_auto_eye_blink": False,
+    "enable_idle_motion": False, "idle_motion_strength": 1.4, "idle_motion_speed": 1.3,
+    "enable_expressive_motion": False, "expressive_motion_strength": 1.6,
+    "expressive_motion_speed": 1.2, "expressive_motion_speech_boost": 0.0,
+    "enable_expressive_pose_transitions": False, "enable_idle_synthetic_gestures": True,
+    "synthetic_gesture_scale": 1.7, "idle_synthetic_gesture_frequency": "high",
+    "enable_head_pat": False, "head_pat_strength": 1.5,
+    "head_pat_fade_in_ms": 300, "head_pat_fade_out_ms": 400,
+    "head_pat_active_emotion_custom": "bright", "head_pat_end_emotion_custom": "normal",
+    "head_pat_end_emotion_duration_sec": 7,
+}
+
+
+def test_all_pc_motion_settings_are_published_without_pc_placement(tmp_path):
+    from src.core.companion.character_state import SETTING_KEYS
+
+    state, bundle = state_with_bundle(tmp_path)
+    assert set(MOTION_SETTINGS) == SETTING_KEYS
+    state.select(sample_id(41), bundle, {**MOTION_SETTINGS, "scale": 8, "xPercent": 5}, {})
+    state.accept_catalog(sample_id(41), bundle.model_version, CATALOG, ["normal", "bright"], ["nod"])
+    assert state.snapshot()["settings"] == MOTION_SETTINGS
 
 
 def test_head_pat_defaults_only_publish_current_catalog_expression_ids(tmp_path):

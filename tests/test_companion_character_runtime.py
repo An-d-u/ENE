@@ -211,6 +211,34 @@ character.dispose();
 """)
 
 
+def test_all_pc_motion_settings_apply_without_overwriting_phone_placement():
+    from tests.test_companion_character_state import MOTION_SETTINGS
+
+    run_character("snapshot.settings=" + json.dumps(MOTION_SETTINGS) + ";" + r"""
+host.kind='phone';context.innerHeight=200;
+const character=context.createCharacter(host,canvas);
+character.applyPresentation({placement:{scale:1.5,xPercent:25,yPercent:75},visible:true});
+const configured={};
+for(const key of ['setBuiltinIdleMotionEnabled','setAutoEyeBlinkEnabled','setIdleMotionEnabled','setIdleMotionConfig',
+    'setExpressiveMotionConfig','setSyntheticGestureScale','setIdleSyntheticGestureConfig','setHeadPatConfig']) {
+    const original=context[key];context[key]=(...args)=>{configured[key]=args;return original(...args);};
+}
+await character.applySnapshot(snapshot);
+assert.deepEqual(configured.setBuiltinIdleMotionEnabled,[false]);
+assert.deepEqual(configured.setAutoEyeBlinkEnabled,[false]);
+assert.deepEqual(configured.setIdleMotionEnabled,[false]);
+assert.deepEqual(configured.setIdleMotionConfig,[1.4,1.3]);
+assert.deepEqual(configured.setExpressiveMotionConfig,[false,1.6,1.2,0,false]);
+assert.deepEqual(configured.setSyntheticGestureScale,[1.7]);
+assert.deepEqual(configured.setIdleSyntheticGestureConfig,[true,'high']);
+assert.deepEqual(configured.setHeadPatConfig,[false,1.5,300,400,'bright','normal',7]);
+await character.applySnapshot({...snapshot,model_version:'c'.repeat(64)});
+character.applyPreview({...snapshot,model_version:'c'.repeat(64),settings:{enable_head_pat:true}});
+assert.equal(context.live2dModel.scale.value,1.35);assert.equal(context.live2dModel.x,100);assert.equal(context.live2dModel.y,150);
+character.dispose();
+""")
+
+
 def test_dispose_and_model_reset_discard_late_load_and_expression():
     run_character(r"""
 context.PIXI.live2d.Live2DModel.from=()=>new Promise(resolve=>{releaseModel=resolve;});
