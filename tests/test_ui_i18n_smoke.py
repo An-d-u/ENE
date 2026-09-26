@@ -1655,16 +1655,28 @@ def test_life_record_settings_describe_summary_anchored_timing():
     locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
     expected = {
         "ko": {
-            "label": "요약 후 최소 시간:",
-            "hint_parts": ("승인·저장된 요약", "세션이 끝난 뒤", "빈 대화로 시작"),
+            "label": "세션 종료 후 최소 시간:",
+            "hint_parts": (
+                "승인·저장된 요약",
+                "세션이 종료된 시점부터",
+                "첫 일반 메시지",
+            ),
         },
         "en": {
-            "label": "Minimum time after summary:",
-            "hint_parts": ("approved, saved summary", "session ends", "empty chat"),
+            "label": "Minimum time after session end:",
+            "hint_parts": (
+                "approved, saved summary",
+                "from the end of a session",
+                "first normal message",
+            ),
         },
         "ja": {
-            "label": "要約後の最小時間:",
-            "hint_parts": ("承認・保存された要約", "セッション終了後", "空の会話"),
+            "label": "セッション終了後の最小時間:",
+            "hint_parts": (
+                "承認・保存された要約",
+                "セッションが終了した時点から",
+                "最初の通常メッセージ",
+            ),
         },
     }
 

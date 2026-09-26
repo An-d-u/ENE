@@ -1235,10 +1235,10 @@
         "title": "Life records",
         "enable": "Enable life records",
         "min_inactive": {
-          "label": "Minimum time after summary:",
+          "label": "Minimum time after session end:",
           "suffix": " min"
         },
-        "hint": "After an approved, saved summary is stored and the session ends, a life record can be created only in the first run that starts with an empty chat and reaches this time."
+        "hint": "After this time has elapsed from the end of a session with an approved, saved summary, a life record is created on the first normal message of the next run that starts with an empty chat."
       }
     },
     "memory": {

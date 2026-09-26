@@ -1,5 +1,7 @@
 # Summary-Anchored Life Records Implementation Plan
 
+> **대체 결정:** 이 계획의 saved-at 기준 구현 단계는 [2026-09-27 세션 종료 기준점 설계](../specs/2026-09-27-life-record-session-end-anchor-design.md)와 후속 구현 계획으로 대체됐다. 현재 동작은 승인·저장된 요약이 있는 세션의 종료 시각부터 임계값과 기록 구간을 계산한다. 이 문서는 당시 구현 이력으로 남긴다.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 승인되어 실제 저장까지 끝난 대화 요약과 그 세션의 종료를 생활 기록 기준점으로 삼고, 비어 있는 새 실행의 첫 일반 메시지에서만 생활 기록을 안전하게 한 번 생성한다.
