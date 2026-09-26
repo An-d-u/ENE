@@ -538,6 +538,7 @@ process.stdout.write(JSON.stringify(context.result));
 
 def _run_head_pat_runtime_case(case_script: str) -> dict:
     runtime_paths = [
+        str(WEB_DIR / "runtime_character_state.js"),
         str(WEB_DIR / "runtime_motion_state.js"),
         str(WEB_DIR / "runtime_head_pat.js"),
     ]
@@ -552,7 +553,6 @@ const changeCalls = [];
 const timeoutCallbacks = [];
 let headPatCount = 0;
 const context = {{
-    characterHost: {{ currentModel:()=> 'synthetic', emitInput() {{}} }},
     window: {{
         live2dModel: null,
         crypto: {{ randomUUID:()=> '00000000-0000-4000-8000-000000000001' }},
@@ -604,7 +604,9 @@ const context = {{
 context.window.imageAvatarState = context.imageAvatarState;
 
 vm.createContext(context);
-vm.runInContext(preludeSource + '\\n' + runtimeSource + '\\n' + caseSource + '\\nresult = {{ ...result, changeCalls, headPatCount: getHeadPatCount(), timeoutCount: timeoutCallbacks.length }};', context, {{
+vm.runInContext(preludeSource + '\\n' + runtimeSource + '\\n' +
+    "characterDisposed=false; characterHost={{kind:'pc',currentModel:()=> 'synthetic',emitInput(){{}}}};\\n" +
+    caseSource + '\\nresult = {{ ...result, changeCalls, headPatCount: getHeadPatCount(), timeoutCount: timeoutCallbacks.length }};', context, {{
     filename: 'runtime_head_pat.js',
 }});
 process.stdout.write(JSON.stringify(context.result));
