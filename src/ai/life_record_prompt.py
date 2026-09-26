@@ -467,7 +467,8 @@ def build_life_record_prompt(context: LifeRecordGenerationContext) -> str:
 {world_close}
 
 [시간 구간 사실]
-- inactive_started_at은 승인된 대화 요약이 저장된 시각이다.
+- inactive_started_at은 확정된 가상 생활 구간의 시작 시각이다.
+- 새 자동 생성에서는 승인된 요약이 있는 세션의 종료 시각을 사용한다.
 - 이 구간에 사용자와 실제 대화가 있었을 수 있다. 사용자 부재나 복귀 시점을 추정하지 않는다.
 - 가상 생활은 사용자와의 실제 대화와 독립적으로 이어지며 시간상 겹칠 수 있다.
 - 첫 entry의 started_at부터 마지막 entry의 ended_at까지 전체 기록 구간을 빠짐없이 덮는다.

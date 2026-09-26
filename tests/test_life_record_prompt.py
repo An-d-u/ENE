@@ -236,11 +236,30 @@ def test_prompt_contains_only_life_record_context_and_full_generation_contract(
     ):
         assert expected in prompt
 
-    assert "inactive_started_at은 승인된 대화 요약이 저장된 시각이다" in prompt
+    assert "inactive_started_at은 확정된 가상 생활 구간의 시작 시각이다" in prompt
+    assert "승인된 요약이 있는 세션의 종료 시각을 사용한다" in prompt
+    assert "inactive_started_at은 승인된 대화 요약이 저장된 시각이다" not in prompt
     assert "이 구간에 사용자와 실제 대화가 있었을 수 있다" in prompt
     assert "사용자는 inactive_started_at부터 returned_at 직전까지 돌아오지 않았다" not in prompt
     assert "복귀를 확인하는 행동은 returned_at 전에 배치하지 않는다" not in prompt
     assert "base_system_prompt" not in prompt
+
+
+def test_prompt_time_contract_uses_session_end_for_new_automatic_records():
+    from dataclasses import replace
+
+    from src.ai.life_record_prompt import build_life_record_prompt
+
+    prompt = build_life_record_prompt(
+        replace(_context(), inactive_start_source="summary_graceful_exit")
+    )
+
+    assert "inactive_started_at은 확정된 가상 생활 구간의 시작 시각이다" in prompt
+    assert (
+        "새 자동 생성에서는 승인된 요약이 있는 세션의 종료 시각을 사용한다"
+        in prompt
+    )
+    assert "inactive_started_at은 승인된 대화 요약이 저장된 시각이다" not in prompt
 
 
 def test_weekday_name_uses_deterministic_english_fallback_for_unknown_language():
