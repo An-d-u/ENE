@@ -9,6 +9,31 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 
+@pytest.mark.parametrize("phase", ["initialize", "resize", "resume"])
+def test_real_host_render_failure_uses_existing_safe_generation_error(phase):
+    from tests.test_companion_character_runtime import run_character
+    import json
+
+    run_character("const phase=" + json.dumps(phase) + ";" + r"""
+context.location.origin='https://appassets.androidplatform.net';
+const replies=[];context.eneCharacterNative={postMessage:x=>replies.push(JSON.parse(x))};
+const generation='00000000-0000-4000-8000-000000000001';
+vm.runInContext(PHONE_ENTRY,ctx);
+const send=(type,value)=>context.eneCharacterNative.onmessage({data:JSON.stringify({type,value,generation})});
+resizeFailure=phase==='initialize';await send('initialize');
+if(phase!=='initialize') {
+    const placement={scale:1,xPercent:50,yPercent:50};
+    if(phase==='resume')await send('presentation',{placement,visible:false});
+    context.innerWidth=600;resizeFailure=true;
+    if(phase==='resume')await send('presentation',{placement,visible:true});
+    else listeners.get('window:resize')();
+}
+const code=phase==='initialize'?'character_initialization_failed':'character_render_failed';
+assert.deepEqual(replies.filter(x=>x.type==='error'),[{type:'error',code,generation}]);
+assert.equal(vm.runInContext('app',ctx),null);assert.equal(frames.size,0);
+""")
+
+
 def test_entry_requires_native_generation_before_accepting_commands():
     script = r"""
 const fs = require('fs'), vm = require('vm'), assert = require('assert');

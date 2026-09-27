@@ -1,10 +1,52 @@
 /** 캐릭터 전용 수명. 호스트는 입력 전달과 검증된 자산 URL 생성만 맡는다. */
+function readPhoneRenderLimits(renderer) {
+    try {
+        const gl = renderer.gl;
+        const texture = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+        const renderbuffer = gl.getParameter(gl.MAX_RENDERBUFFER_SIZE);
+        const viewport = gl.getParameter(gl.MAX_VIEWPORT_DIMS);
+        if (viewport?.length === 2 && [texture, renderbuffer, viewport[0], viewport[1]].every(value => Number.isInteger(value) && value > 0)) {
+            return {valid: true, width: Math.min(4096, texture, renderbuffer, viewport[0]),
+                height: Math.min(4096, texture, renderbuffer, viewport[1])};
+        }
+    } catch (_) { /* 한도 확인이 불가능한 환경에서는 밀도를 승격하지 않는다. */ }
+    return {valid: false, width: 4096, height: 4096};
+}
+
+function calculatePhoneRenderSize(width, height, dpr, limits) {
+    if (![width, height].every(Number.isFinite) || width <= 0 || height <= 0) return null;
+    const target = Number.isFinite(dpr) && dpr > 0 ? Math.min(3, Math.max(1, dpr)) : 1;
+    let resolution = Math.min(limits.valid ? target : 1, Math.sqrt(4194304 / (width * height)),
+        limits.width / width, limits.height / height);
+    const withinCaps = value => {
+        const w = Math.round(width * value), h = Math.round(height * value);
+        return w <= limits.width && h <= limits.height && w * h <= 4194304;
+    };
+    // Pixi 7의 반올림 이후에도 예산을 넘지 않게 보정한다. 렌더러 재시도는 하지 않는다.
+    if (!withinCaps(resolution)) {
+        let low = 0, high = resolution;
+        for (let index = 0; index < 48; index++) {
+            const middle = (low + high) / 2;
+            if (withinCaps(middle)) low = middle; else high = middle;
+        }
+        resolution = low;
+    }
+    const bufferWidth = Math.round(width * resolution), bufferHeight = Math.round(height * resolution);
+    if (!Number.isFinite(resolution) || resolution <= 0 || bufferWidth < 1 || bufferHeight < 1 || !withinCaps(resolution)) {
+        throw new Error('캐릭터 그리기 크기를 적용할 수 없습니다.');
+    }
+    return {logicalWidth: width, logicalHeight: height, resolution, bufferWidth, bufferHeight};
+}
+
 window.createCharacter = function createCharacter(host, canvas) {
     if (!characterDisposed || app) throw new Error('캐릭터 실행부가 이미 존재합니다.');
     if (!host || typeof host.emitInput !== 'function' || typeof host.assetUrl !== 'function' || !canvas) {
         throw new Error('캐릭터 호스트가 올바르지 않습니다.');
     }
-    app = new PIXI.Application({view: canvas, transparent: true, backgroundAlpha: 0, resizeTo: window, antialias: true});
+    const phone = host.kind === 'phone';
+    app = new PIXI.Application(phone
+        ? {view: canvas, transparent: true, backgroundAlpha: 0, antialias: true, width: 1, height: 1, resolution: 1, autoDensity: true}
+        : {view: canvas, transparent: true, backgroundAlpha: 0, resizeTo: window, antialias: true});
     characterHost = {...host, currentModel: host.currentModel || (() => version)};
     characterCanvas = canvas;
     characterDisposed = false;
@@ -17,6 +59,37 @@ window.createCharacter = function createCharacter(host, canvas) {
     let loadingModel = null;
     let parameterModel = null;
     let parameterHook = null;
+    const renderLimits = phone ? readPhoneRenderLimits(app.renderer) : null;
+    let renderSize = null;
+    let removeDensityListener = null;
+    let watchedDensity = null;
+
+    function syncRenderSize() {
+        if (!phone || disposed || !characterPresentationVisible) return;
+        const next = calculatePhoneRenderSize(window.innerWidth, window.innerHeight, window.devicePixelRatio, renderLimits);
+        if (!next || (renderSize?.logicalWidth === next.logicalWidth && renderSize.logicalHeight === next.logicalHeight &&
+            renderSize.resolution === next.resolution)) return;
+        app.renderer.resolution = next.resolution;
+        app.renderer.resize(next.logicalWidth, next.logicalHeight);
+        renderSize = next;
+    }
+    function watchDensity() {
+        if (!phone || disposed || typeof window.matchMedia !== 'function') return;
+        const dpr = Number.isFinite(window.devicePixelRatio) && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
+        if (watchedDensity === dpr) return;
+        removeDensityListener?.(); removeDensityListener = null;
+        watchedDensity = dpr;
+        try {
+            const query = window.matchMedia(`(resolution: ${dpr}dppx)`);
+            if (typeof query.addEventListener === 'function' && typeof query.removeEventListener === 'function') {
+                query.addEventListener('change', resize);
+                removeDensityListener = () => query.removeEventListener('change', resize);
+            } else if (typeof query.addListener === 'function' && typeof query.removeListener === 'function') {
+                query.addListener(resize);
+                removeDensityListener = () => query.removeListener(resize);
+            }
+        } catch (_) { /* 미지원 환경은 창 크기 변경과 전경 복귀 때 다시 확인한다. */ }
+    }
 
     function applyPresentation(value) {
         if (disposed || host.kind !== 'phone' || !value || typeof value.visible !== 'boolean' ||
@@ -34,6 +107,8 @@ window.createCharacter = function createCharacter(host, canvas) {
             if (window.live2dModel) window.live2dModel.autoUpdate = false;
             app.stop();
         } else {
+            try { syncRenderSize(); watchDensity(); }
+            catch (error) { dispose(); throw error; }
             lastMouseUpdateAt = performance.now();
             resetAutoEyeBlinkRuntime();
             if (window.live2dModel) window.live2dModel.autoUpdate = true;
@@ -46,6 +121,14 @@ window.createCharacter = function createCharacter(host, canvas) {
 
     function resize() {
         if (disposed) return;
+        if (phone) {
+            try { syncRenderSize(); watchDensity(); }
+            catch (_) {
+                dispose();
+                host.emitInput({type: 'error', code: 'character_render_failed'});
+                return;
+            }
+        }
         applyCurrentModelPlacement();
         if (typeof isImageAvatarMode === 'function' && isImageAvatarMode()) applyImageAvatarPlacement();
         host.emitInput({type: 'resize'});
@@ -155,13 +238,17 @@ window.createCharacter = function createCharacter(host, canvas) {
         removeHeadPatEventBindings();
         window.removeEventListener('resize', resize);
         window.removeEventListener('pagehide', dispose);
+        removeDensityListener?.(); removeDensityListener = null;
         try { app.destroy(false, {children: true, texture: true, baseTexture: true}); } catch (_) { /* 이미 손실된 컨텍스트 */ }
         window.live2dModel = null;
         app = null; characterHost = null; characterCanvas = null;
     }
-    window.addEventListener('resize', resize);
-    window.addEventListener('pagehide', dispose);
-    ensureHeadPatEventBindings();
-    characterTrackingFrame = requestAnimationFrame(updateMouseTracking);
+    try {
+        syncRenderSize(); watchDensity();
+        window.addEventListener('resize', resize);
+        window.addEventListener('pagehide', dispose);
+        ensureHeadPatEventBindings();
+        characterTrackingFrame = requestAnimationFrame(updateMouseTracking);
+    } catch (error) { dispose(); throw error; }
     return Object.freeze({applySnapshot, applyAction, applyPreview, applyPlayback, applyPresentation, applyHeadPat:applyHeadPatState, dispose});
 };

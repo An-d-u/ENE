@@ -29,6 +29,10 @@ const vm = require('vm');
 const assert = require('assert/strict');
 const listeners = new Map(), timers = new Map(), frames = new Map();
 const calls = [], inputs = [], values = new Map();
+const applications = [], resizes = [], hitPoints = [], mediaQueries = [];
+let gpuValues = [8192, 8192, new Int32Array([8192,8192])], gpuReadError = false, resizeFailure = false;
+const gl = {MAX_TEXTURE_SIZE:0,MAX_RENDERBUFFER_SIZE:1,MAX_VIEWPORT_DIMS:2,
+    getParameter(key) {if(gpuReadError)throw new Error('합성 GPU 조회 실패');return gpuValues[key];}};
 let now = 1000, id = 0, releaseModel;
 function target(name) { return {
     style: {}, width: 400, height: 600,
@@ -47,13 +51,19 @@ const model = () => ({
             _parameterValues: [0], _parameterMinimumValues: [-1], _parameterMaximumValues: [1], _parameterDefaultValues: [0]},
         on(type, fn) {listeners.set('model:'+type,fn);}, off(type) {listeners.delete('model:'+type);},
     },
-    destroy() {calls.push('destroyModel');}, motion() {}, hitTest() {return ['Head'];}
+    destroy() {calls.push('destroyModel');}, motion() {}, hitTest(...args) {hitPoints.push(args);return ['Head'];}
 });
 const context = {
     crypto: {randomUUID:()=> '00000000-0000-4000-8000-'+String(++id).padStart(12,'0')},
     console: {log(){}, warn(){}, error(){}}, URL, AbortController,
     location: {href:'https://appassets.androidplatform.net/character/index.html'},
     innerWidth:400, innerHeight:600, performance:{now:()=>now},
+    devicePixelRatio:1,
+    matchMedia(query) {
+        const item={query,callbacks:new Set(),addEventListener(type,fn){this.callbacks.add(fn);},
+            removeEventListener(type,fn){this.callbacks.delete(fn);}};
+        mediaQueries.push(item);return item;
+    },
     document:{getElementById:(key)=>key==='live2d-canvas'?canvas:null},
     setTimeout(fn) {const key=++id;timers.set(key,fn);return key;},
     clearTimeout(key) {timers.delete(key);},
@@ -61,7 +71,14 @@ const context = {
     cancelAnimationFrame(key) {frames.delete(key);},
     fetch: async()=>({ok:true,json:async()=>({Parameters:[{Id:'ParamAccent',Value:0.4,Blend:'Overwrite'}]})}),
     PIXI:{Application:class {
-        constructor(options) {this.view=options.view;this.stage={addChild(){},removeChild(){}};this.renderer={resize(){}};calls.push('createApp');}
+        constructor(options) {
+            this.view=options.view;this.stage={addChild(){},removeChild(){}};
+            this.renderer={gl,resolution:options.resolution??1,resize(width,height){
+                if(resizeFailure)throw new Error('합성 크기 적용 실패');
+                resizes.push({width,height,resolution:this.resolution});
+            }};
+            applications.push({options,instance:this});calls.push('createApp');
+        }
         destroy() {calls.push('destroyApp');}
         start() {calls.push('startApp');}
         stop() {calls.push('stopApp');}
@@ -193,6 +210,156 @@ assert.equal(character.applyPresentation({placement:{scale:1,xPercent:50},visibl
 assert.equal(context.live2dModel,original);
 assert.equal(calls.filter(x=>x.endsWith(snapshot.entry_asset_id)).length,1);
 character.dispose();
+""")
+
+
+def test_phone_render_size_clamps_density_and_rounds_within_gpu_and_pixel_limits():
+    run_character(r"""
+const calc=context.calculatePhoneRenderSize;
+assert.equal(typeof calc,'function');
+const limits={valid:true,width:4096,height:4096};
+for(const [dpr,expected] of [[1,1],[2,2],[3,3],[10,3],[.5,1],[NaN,1],[Infinity,1],[0,1],[-1,1],[undefined,1],['3',1]]) {
+    const size=calc(400,600,dpr,limits);
+    assert.equal(size.resolution,expected);
+    assert.equal(size.bufferWidth,400*expected);assert.equal(size.bufferHeight,600*expected);
+    assert.equal(size.logicalWidth,400);assert.equal(size.logicalHeight,600);
+}
+for(const width of [1,333,500.5,1025,1921,4097,16000]) {
+    for(const height of [17,337.25,1441,3000,8000]) {
+        for(const dpr of [1.25,2.625,3]) {
+            const size=calc(width,height,dpr,limits);
+            assert.ok(size.bufferWidth>0&&size.bufferWidth<=4096);
+            assert.ok(size.bufferHeight>0&&size.bufferHeight<=4096);
+            assert.ok(size.bufferWidth*size.bufferHeight<=4194304);
+            assert.equal(size.bufferWidth,Math.round(width*size.resolution));
+            assert.equal(size.bufferHeight,Math.round(height*size.resolution));
+        }
+    }
+}
+const limited=calc(400,600,3,{valid:true,width:800,height:600});
+assert.equal(limited.resolution,1);assert.equal(limited.bufferHeight,600);
+assert.ok(calc(8000,8000,3,limits).resolution<1);
+assert.equal(calc(400,600,3,{valid:false,width:4096,height:4096}).resolution,1);
+for(const size of [[0,600],[400,0],[-1,600],[400,NaN],[Infinity,600]]) assert.equal(calc(...size,3,limits),null);
+""")
+
+
+@pytest.mark.parametrize("dpr", [1, 3])
+def test_phone_renderer_uses_tiny_initial_buffer_and_css_pat_coordinates(dpr):
+    run_character(f"context.devicePixelRatio={dpr};" + r"""
+host.kind='phone';const character=context.createCharacter(host,canvas);
+const options=applications[0].options;
+assert.equal(options.width,1);assert.equal(options.height,1);assert.equal(options.resolution,1);
+assert.equal(options.autoDensity,true);assert.equal(options.resizeTo,undefined);
+assert.deepEqual(resizes,[{width:400,height:600,resolution:context.devicePixelRatio}]);
+await character.applySnapshot(snapshot);const original=context.live2dModel;
+character.applyPresentation({placement:{scale:6,xPercent:-300,yPercent:400},visible:true});
+await character.applySnapshot(snapshot);character.applyPreview(snapshot);character.applyPlayback({active:true,mouth_open:.4});
+listeners.get('window:resize')();
+assert.equal(resizes.length,1);assert.equal(context.live2dModel,original);
+assert.equal(calls.filter(x=>x.endsWith(snapshot.entry_asset_id)).length,1);
+listeners.get('canvas:pointerdown')({pointerType:'touch',button:0,pointerId:1,clientX:42,clientY:73,target:canvas,preventDefault(){}});
+assert.ok(hitPoints.length>0);assert.deepEqual(hitPoints[0].slice(-2),[42,73]);
+character.dispose();assert.equal(mediaQueries.flatMap(x=>[...x.callbacks]).length,0);
+""")
+
+
+def test_phone_gpu_queries_limit_each_axis_and_fall_back_without_upscaling():
+    run_character(r"""
+host.kind='phone';context.devicePixelRatio=3;
+gpuValues=[1024,2048,new Int32Array([800,600])];
+context.createCharacter(host,canvas).dispose();assert.equal(resizes.at(-1).resolution,1);
+for(const invalid of [[0,8192,[8192,8192]],[8192,NaN,[8192,8192]],
+    [8192,8192,[8192]],[8192,8192,[8192,0]],[undefined,8192,[8192,8192]],
+    [8192,8192,['8192',8192]]]) {
+    gpuValues=invalid;
+    context.createCharacter(host,canvas).dispose();assert.equal(resizes.at(-1).resolution,1);
+}
+gpuReadError=true;context.createCharacter(host,canvas).dispose();assert.equal(resizes.at(-1).resolution,1);
+""")
+
+
+def test_phone_density_resize_defers_hidden_and_detaches_stale_callbacks():
+    run_character(r"""
+host.kind='phone';const character=context.createCharacter(host,canvas);
+await character.applySnapshot(snapshot);
+const oldResize=listeners.get('window:resize');
+const oldChange=[...mediaQueries.at(-1).callbacks][0];assert.equal(typeof oldChange,'function');
+context.devicePixelRatio=3;oldChange();
+assert.equal(resizes.at(-1).resolution,3);assert.equal(mediaQueries[0].callbacks.size,0);
+assert.equal(mediaQueries.flatMap(x=>[...x.callbacks]).length,1);
+const placement={scale:6,xPercent:400,yPercent:-300};
+character.applyPresentation({placement,visible:false});const before=resizes.length;
+context.innerWidth=600;context.innerHeight=400;context.devicePixelRatio=2;
+oldResize();[...mediaQueries.at(-1).callbacks][0]();
+assert.equal(resizes.length,before);assert.equal(frames.size,0);assert.equal(timers.size,0);
+character.applyPresentation({placement,visible:true});
+assert.deepEqual(resizes.at(-1),{width:600,height:400,resolution:2});
+assert.equal(calls.filter(x=>x==='startApp').length,1);
+const afterResume=resizes.length;
+character.applyPresentation({placement,visible:true});oldResize();assert.equal(resizes.length,afterResume);
+context.innerHeight=0;oldResize();assert.equal(resizes.length,afterResume);
+context.innerHeight=200;oldResize();assert.equal(resizes.at(-1).height,200);
+const lastChange=[...mediaQueries.at(-1).callbacks][0];
+character.dispose();assert.equal(mediaQueries.flatMap(x=>[...x.callbacks]).length,0);
+const next=context.createCharacter(host,canvas);const beforeLate=resizes.length;
+context.devicePixelRatio=1;oldChange();lastChange();oldResize();assert.equal(resizes.length,beforeLate);
+next.dispose();assert.equal(frames.size,0);assert.equal(timers.size,0);assert.equal(listeners.size,0);
+assert.equal(mediaQueries.flatMap(x=>[...x.callbacks]).length,0);
+""")
+
+
+@pytest.mark.parametrize("mode", ["missing", "legacy", "throws"])
+def test_phone_density_observer_is_optional_and_resume_still_updates(mode):
+    run_character("const mode=" + json.dumps(mode) + ";" + r"""
+host.kind='phone';let legacyCallback=null;
+if(mode==='missing')context.matchMedia=undefined;
+else if(mode==='throws')context.matchMedia=()=>{throw new Error('합성 미지원 감지');};
+else context.matchMedia=()=>({addListener(fn){legacyCallback=fn;},removeListener(fn){if(legacyCallback===fn)legacyCallback=null;}});
+const character=context.createCharacter(host,canvas),placement={scale:1,xPercent:50,yPercent:50};
+character.applyPresentation({placement,visible:false});context.devicePixelRatio=3;
+character.applyPresentation({placement,visible:true});assert.equal(resizes.at(-1).resolution,3);
+character.dispose();assert.equal(legacyCallback,null);
+""")
+
+
+def test_pc_renderer_keeps_existing_options_and_does_not_query_density():
+    run_character(r"""
+host.kind='pc';context.devicePixelRatio=3;
+context.matchMedia=()=>{throw new Error('PC 밀도 감지 금지');};
+gl.getParameter=()=>{throw new Error('PC GPU 한도 조회 금지');};
+const character=context.createCharacter(host,canvas),options=applications[0].options;
+assert.equal(options.resizeTo,vm.runInContext('window',ctx));assert.equal(options.resolution,undefined);
+assert.equal(options.width,undefined);assert.equal(options.autoDensity,undefined);
+listeners.get('window:resize')();assert.equal(resizes.length,0);
+character.dispose();
+""")
+
+
+@pytest.mark.parametrize("phase", ["initialize", "resize", "density", "resume"])
+def test_phone_resize_failure_releases_resources_once_and_allows_manual_recreate(phase):
+    run_character("const phase=" + json.dumps(phase) + ";" + r"""
+host.kind='phone';let character;
+if(phase==='initialize') {
+    resizeFailure=true;assert.throws(()=>context.createCharacter(host,canvas));
+} else {
+    character=context.createCharacter(host,canvas);await character.applySnapshot(snapshot);
+    const resize=listeners.get('window:resize'),change=[...mediaQueries.at(-1).callbacks][0];
+    const placement={scale:1,xPercent:50,yPercent:50};
+    if(phase==='resume')character.applyPresentation({placement,visible:false});
+    resizeFailure=true;context.innerWidth=600;context.devicePixelRatio=2;
+    if(phase==='resume')assert.throws(()=>character.applyPresentation({placement,visible:true}));
+    else {
+        (phase==='resize'?resize:change)();resize();change();
+        assert.deepEqual(JSON.parse(JSON.stringify(inputs.filter(x=>x.type==='error'))),[{type:'error',code:'character_render_failed'}]);
+    }
+    character.dispose();
+}
+assert.equal(vm.runInContext('app',ctx),null);assert.equal(context.live2dModel,null);
+assert.equal(frames.size,0);assert.equal(timers.size,0);assert.equal(listeners.size,0);
+assert.equal(mediaQueries.flatMap(x=>[...x.callbacks]).length,0);
+assert.equal(calls.filter(x=>x==='destroyApp').length,1);
+resizeFailure=false;context.createCharacter(host,canvas).dispose();
 """)
 
 
