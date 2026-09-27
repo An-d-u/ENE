@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' blob:; connect-src 'none'; worker-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+    <title>캐릭터 그리기 버퍼 합성 검사</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <canvas id="live2d-canvas" aria-label="합성 렌더링 검사"></canvas>
+    <pre id="probe-result" hidden>pending</pre>
+    <script src="lib/pixi.min.js"></script>
+    <script src="lib/pixi-unsafe-eval.min.js"></script>
+    <script src="runtime_character_state.js"></script>
+    <script src="runtime_live2d_model.js"></script>
+    <script src="runtime_motion_state.js"></script>
+    <script src="runtime_gesture_engine.js"></script>
+    <script src="runtime_head_pat.js"></script>
+    <script src="runtime_auto_blink_tracking.js"></script>
+    <script src="runtime_expression.js"></script>
+    <script src="runtime_lipsync.js"></script>
+    <script src="runtime_live2d_parameter_core.js"></script>
+    <script src="runtime_character_host.js"></script>
+    <script src="probe.js"></script>
+</body>
+</html>
