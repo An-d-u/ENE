@@ -30,6 +30,7 @@ const assert = require('assert/strict');
 const listeners = new Map(), timers = new Map(), frames = new Map();
 const calls = [], inputs = [], values = new Map();
 const applications = [], resizes = [], hitPoints = [], mediaQueries = [];
+const bufferStates = [];
 let gpuValues = [8192, 8192, new Int32Array([8192,8192])], gpuReadError = false, resizeFailure = false;
 const gl = {MAX_TEXTURE_SIZE:0,MAX_RENDERBUFFER_SIZE:1,MAX_VIEWPORT_DIMS:2,
     getParameter(key) {if(gpuReadError)throw new Error('합성 GPU 조회 실패');return gpuValues[key];}};
@@ -73,9 +74,15 @@ const context = {
     PIXI:{Application:class {
         constructor(options) {
             this.view=options.view;this.stage={addChild(){},removeChild(){}};
+            this.view.width=Math.round((options.width??400)*(options.resolution??1));
+            this.view.height=Math.round((options.height??600)*(options.resolution??1));
             this.renderer={gl,resolution:options.resolution??1,resize(width,height){
                 if(resizeFailure)throw new Error('합성 크기 적용 실패');
                 resizes.push({width,height,resolution:this.resolution});
+                options.view.width=Math.round(width*this.resolution);
+                bufferStates.push([options.view.width,options.view.height]);
+                options.view.height=Math.round(height*this.resolution);
+                bufferStates.push([options.view.width,options.view.height]);
             }};
             applications.push({options,instance:this});calls.push('createApp');
         }
@@ -261,6 +268,23 @@ assert.equal(calls.filter(x=>x.endsWith(snapshot.entry_asset_id)).length,1);
 listeners.get('canvas:pointerdown')({pointerType:'touch',button:0,pointerId:1,clientX:42,clientY:73,target:canvas,preventDefault(){}});
 assert.ok(hitPoints.length>0);assert.deepEqual(hitPoints[0].slice(-2),[42,73]);
 character.dispose();assert.equal(mediaQueries.flatMap(x=>[...x.callbacks]).length,0);
+""")
+
+
+def test_phone_rotation_keeps_intermediate_pixi_width_first_buffers_within_budget():
+    run_character(r"""
+host.kind='phone';context.devicePixelRatio=3;context.innerWidth=1000;context.innerHeight=2000;
+const character=context.createCharacter(host,canvas);
+await character.applySnapshot(snapshot);const original=context.live2dModel;
+context.innerWidth=2000;context.innerHeight=1000;listeners.get('window:resize')();
+for(const [width,height] of bufferStates) {
+    assert.ok(width*height<=4194304,`중간 버퍼 초과: ${width}x${height}`);
+    assert.ok(width<=4096&&height<=4096);
+}
+assert.equal(canvas.width,2896);assert.equal(canvas.height,1448);
+assert.equal(context.live2dModel,original);assert.equal(calls.filter(x=>x.endsWith(snapshot.entry_asset_id)).length,1);
+const before=resizes.length;listeners.get('window:resize')();assert.equal(resizes.length,before);
+character.dispose();
 """)
 
 

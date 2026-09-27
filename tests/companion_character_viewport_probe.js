@@ -5,11 +5,23 @@
     const check = (condition, code) => { if (!condition) throw new Error(code); };
     const Application = PIXI.Application;
     let character = null, initialWidth, initialHeight, resizeCount = 0;
+    let maxTransitionPixels = 0;
     if (!PIXI.utils.isWebGLSupported()) {
         output.textContent = JSON.stringify({status:'unavailable', code:'webgl_unavailable'});
         return;
     }
     try {
+        for (const axis of ['width','height']) {
+            const property = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, axis);
+            Object.defineProperty(canvas, axis, {configurable:true,
+                get() { return property.get.call(canvas); },
+                set(value) {
+                    property.set.call(canvas, value);
+                    maxTransitionPixels = Math.max(maxTransitionPixels, canvas.width * canvas.height);
+                    const gl = app?.renderer?.gl;
+                    if (gl) maxTransitionPixels = Math.max(maxTransitionPixels, gl.drawingBufferWidth * gl.drawingBufferHeight);
+                }});
+        }
         // 실제 생성자·resize를 그대로 호출하며 초기 버퍼와 호출 횟수만 관찰한다.
         PIXI.Application = class extends Application {
             constructor(options) {
@@ -45,12 +57,24 @@
         check(canvas.width === expected.bufferWidth && canvas.height === expected.bufferHeight, 'zoom_buffer');
         const glError = gl.getError();
         check(glError === gl.NO_ERROR, 'gl_error');
-        output.textContent = JSON.stringify({status:'passed',dpr:devicePixelRatio,
+        const result = {status:'passed',dpr:devicePixelRatio,
             logicalWidth:innerWidth,logicalHeight:innerHeight,resolution:renderer.resolution,
             bufferWidth:canvas.width,bufferHeight:canvas.height,
             drawingBufferWidth:gl.drawingBufferWidth,drawingBufferHeight:gl.drawingBufferHeight,
             cssWidth:rect.width,cssHeight:rect.height,maxWidth:limits.width,maxHeight:limits.height,
-            initialWidth,initialHeight,resizeCount,glError});
+            initialWidth,initialHeight,resizeCount,glError};
+        // 표시 크기만 합성 회전시킨다. 버퍼 크기 쓰기와 WebGL 렌더러는 실제 구현 그대로다.
+        let viewportWidth = innerWidth, viewportHeight = innerHeight;
+        Object.defineProperty(window, 'innerWidth', {configurable:true,get:()=>viewportWidth});
+        Object.defineProperty(window, 'innerHeight', {configurable:true,get:()=>viewportHeight});
+        for (const [width,height] of [[1000,2000],[2000,1000],[400,600]]) {
+            viewportWidth = width; viewportHeight = height;
+            window.dispatchEvent(new Event('resize'));
+            renderer.render(app.stage);
+            check(gl.getError() === gl.NO_ERROR, 'transition_gl_error');
+        }
+        check(maxTransitionPixels <= 4194304, 'transition_pixel_budget');
+        output.textContent = JSON.stringify({...result,maxTransitionPixels});
     } catch (_) {
         output.textContent = JSON.stringify({status:'failed',code:'renderer_check_failed'});
     } finally {

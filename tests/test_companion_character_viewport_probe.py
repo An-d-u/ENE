@@ -16,7 +16,7 @@ def result_html(**overrides):
         "resolution": 3, "bufferWidth": 1200, "bufferHeight": 1800,
         "drawingBufferWidth": 1200, "drawingBufferHeight": 1800,
         "cssWidth": 400, "cssHeight": 600, "maxWidth": 4096, "maxHeight": 4096,
-        "initialWidth": 1, "initialHeight": 1, "resizeCount": 1, "glError": 0,
+        "initialWidth": 1, "initialHeight": 1, "resizeCount": 1, "glError": 0, "maxTransitionPixels": 4000000,
     }
     value.update(overrides)
     return '<pre id="probe-result">' + escape(json.dumps(value)) + '</pre>'
@@ -34,6 +34,7 @@ def test_parse_requires_complete_measured_result():
     ("bufferWidth", 9000), ("drawingBufferWidth", 1199), ("resolution", 0),
     ("cssWidth", 900), ("initialWidth", 800), ("resizeCount", 2), ("glError", 1280),
     ("dpr", float("nan")), ("dpr", "3"), ("dpr", True), ("maxWidth", 1024),
+    ("maxTransitionPixels", 4194305),
 ])
 def test_parse_rejects_failed_measurements(field, value):
     with pytest.raises(probe.ProbeError):

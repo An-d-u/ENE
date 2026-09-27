@@ -69,7 +69,7 @@ def parse_probe_result(html: str) -> dict:
         raise ProbeUnavailable("이 브라우저에서 WebGL을 사용할 수 없습니다.")
     fields = ("dpr", "logicalWidth", "logicalHeight", "resolution", "bufferWidth", "bufferHeight",
               "drawingBufferWidth", "drawingBufferHeight", "cssWidth", "cssHeight", "maxWidth", "maxHeight",
-              "initialWidth", "initialHeight", "resizeCount", "glError")
+              "initialWidth", "initialHeight", "resizeCount", "glError", "maxTransitionPixels")
     if value.get("status") != "passed" or any(
         type(value.get(key)) not in (int, float) or not math.isfinite(value[key]) for key in fields
     ):
@@ -82,7 +82,7 @@ def parse_probe_result(html: str) -> dict:
             and bw == value["drawingBufferWidth"] and bh == value["drawingBufferHeight"]
             and abs(value["cssWidth"] - w) <= .5 / r + .02 and abs(value["cssHeight"] - h) <= .5 / r + .02
             and value["initialWidth"] == value["initialHeight"] == value["resizeCount"] == 1
-            and value["glError"] == 0):
+            and value["glError"] == 0 and 0 < value["maxTransitionPixels"] <= 4194304):
         raise ProbeError("렌더러 버퍼·좌표·수명 측정값이 요구 조건과 다릅니다.")
     return value
 

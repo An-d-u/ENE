@@ -94,7 +94,7 @@
     {
       "source": "assets/web/runtime_character_host.js",
       "target": "runtime_character_host.js",
-      "sha256": "ee5dce52f290fd96de4448474094c6af6893c44e82da9b8801a3f2871e64b418"
+      "sha256": "8787495ee83b4f225f38bce493461742f84cefc9521ebad6f12089ff140a6ea0"
     },
     {
       "source": "assets/web/lib/pixi.min.js",

@@ -70,6 +70,10 @@ window.createCharacter = function createCharacter(host, canvas) {
         if (!next || (renderSize?.logicalWidth === next.logicalWidth && renderSize.logicalHeight === next.logicalHeight &&
             renderSize.resolution === next.resolution)) return;
         app.renderer.resolution = next.resolution;
+        // Pixi는 너비부터 바꾸므로 회전 중의 임시 정사각형도 픽셀 예산을 넘지 않게 한다.
+        if (next.bufferWidth * canvas.height > 4194304) {
+            app.renderer.resize(1 / next.resolution, 1 / next.resolution);
+        }
         app.renderer.resize(next.logicalWidth, next.logicalHeight);
         renderSize = next;
     }
