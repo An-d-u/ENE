@@ -256,10 +256,8 @@ function startBuiltinIdleMotion() {
 }
 
 function calculatePhonePlacement(width, height, modelWidth, modelHeight, placement, root) {
-    if (![width, height, modelWidth, modelHeight, placement.scale, placement.xPercent, placement.yPercent].every(Number.isFinite) ||
-        width <= 0 || height <= 0 || modelWidth <= 0 || modelHeight <= 0 ||
-        placement.scale < 0.5 || placement.scale > 2 || placement.xPercent < 0 || placement.xPercent > 100 ||
-        placement.yPercent < 0 || placement.yPercent > 100) return null;
+    if (![width, height, modelWidth, modelHeight].every(Number.isFinite) ||
+        width <= 0 || height <= 0 || modelWidth <= 0 || modelHeight <= 0 || !isPhonePlacementInRange(placement)) return null;
     const offsets = normalizeLive2DRootMotionOffsets(root);
     return {scale: Math.min(width * 0.9 / modelWidth, height * 0.9 / modelHeight) * placement.scale * (1 + offsets.rootScale),
         x: width * (placement.xPercent + offsets.rootXPercent) / 100,

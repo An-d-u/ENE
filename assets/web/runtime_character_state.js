@@ -7,6 +7,13 @@ let characterTrackingFrame = 0;
 let characterPresentationVisible = true;
 let characterPlacement = {scale: 1, xPercent: 50, yPercent: 50};
 const characterModelSizes = new WeakMap();
+const phonePlacementLimits = Object.freeze({minScale: 0.5, maxScale: 6, minPosition: -300, maxPosition: 400});
+function isPhonePlacementInRange(value) {
+    return Boolean(value) && [value.scale, value.xPercent, value.yPercent].every(Number.isFinite) &&
+        value.scale >= phonePlacementLimits.minScale && value.scale <= phonePlacementLimits.maxScale &&
+        value.xPercent >= phonePlacementLimits.minPosition && value.xPercent <= phonePlacementLimits.maxPosition &&
+        value.yPercent >= phonePlacementLimits.minPosition && value.yPercent <= phonePlacementLimits.maxPosition;
+}
 function characterCanAnimate() {
     return !characterDisposed && (characterHost?.kind !== 'phone' || characterPresentationVisible);
 }

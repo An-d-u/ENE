@@ -22,9 +22,7 @@ window.createCharacter = function createCharacter(host, canvas) {
         if (disposed || host.kind !== 'phone' || !value || typeof value.visible !== 'boolean' ||
             Object.keys(value).sort().join(',') !== 'placement,visible') return false;
         const p = value.placement;
-        if (!p || Object.keys(p).sort().join(',') !== 'scale,xPercent,yPercent' ||
-            ![p.scale, p.xPercent, p.yPercent].every(Number.isFinite) || p.scale < 0.5 || p.scale > 2 ||
-            p.xPercent < 0 || p.xPercent > 100 || p.yPercent < 0 || p.yPercent > 100) return false;
+        if (!isPhonePlacementInRange(p) || Object.keys(p).sort().join(',') !== 'scale,xPercent,yPercent') return false;
         characterPlacement = {...p};
         applyCurrentModelPlacement();
         if (characterPresentationVisible === value.visible) return true;

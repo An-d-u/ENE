@@ -49,12 +49,12 @@
     {
       "source": "assets/web/runtime_character_state.js",
       "target": "runtime_character_state.js",
-      "sha256": "7f6701af29ee198bfbeeee2aec8bc7eaee380c98fef98aa4fb32ec75b8160f08"
+      "sha256": "e8feb1a3bb3bb0eff524b5b732a8647956cfcfe3b58661d1b82770135daf716f"
     },
     {
       "source": "assets/web/runtime_live2d_model.js",
       "target": "runtime_live2d_model.js",
-      "sha256": "f0b9be0be1c3d6ee443285a63b06062e835a5f7f777397bf5510968f0b918ec8"
+      "sha256": "bd9fb546ff96da6d44cfc0a1f9a1bc764c033033075bbb17d13ef817f91bd582"
     },
     {
       "source": "assets/web/runtime_motion_state.js",
@@ -94,7 +94,7 @@
     {
       "source": "assets/web/runtime_character_host.js",
       "target": "runtime_character_host.js",
-      "sha256": "816309437d68bd6a5eb7ca85dcc81e0fa2de7f97406b5f38d6a185ca6e7f7df5"
+      "sha256": "914edf2fa06d7dd0741d609ecd7543f72ebce622a26453b2f8668f034dbfd247"
     },
     {
       "source": "assets/web/lib/pixi.min.js",

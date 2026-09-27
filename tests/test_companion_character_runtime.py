@@ -167,6 +167,35 @@ character.dispose();
 """)
 
 
+def test_phone_expanded_placement_keeps_css_coordinates_and_rejects_invalid_values():
+    run_character(r"""
+host.kind='phone';context.innerHeight=200;
+const character=context.createCharacter(host,canvas);
+await character.applySnapshot(snapshot);const original=context.live2dModel;
+const placement={scale:6,xPercent:-300,yPercent:400};
+assert.equal(character.applyPresentation({placement,visible:true}),true);
+assert.equal(original.scale.value,5.4);assert.equal(original.x,-1200);assert.equal(original.y,800);
+await character.applySnapshot(snapshot);character.applyPreview(snapshot);
+character.applyPlayback({active:true,mouth_open:.4});
+assert.equal(original.scale.value,5.4);assert.equal(original.x,-1200);assert.equal(original.y,800);
+for(const valid of [{scale:.5,xPercent:0,yPercent:100},{scale:2,xPercent:100,yPercent:0},
+    {scale:2.01,xPercent:-1,yPercent:101},{scale:6,xPercent:400,yPercent:-300}]) {
+    assert.equal(character.applyPresentation({placement:valid,visible:true}),true);
+}
+for(const [key,invalid] of [['scale',.49],['scale',6.01],['xPercent',-300.01],['xPercent',400.01],
+    ['yPercent',-300.01],['yPercent',400.01],['scale','6'],['scale',null],['scale',NaN],['xPercent',Infinity]]) {
+    const bad={...placement,[key]:invalid};
+    assert.equal(character.applyPresentation({placement:bad,visible:true}),false);
+    assert.equal(context.calculatePhonePlacement(400,200,100,200,bad,{}),null);
+}
+assert.equal(character.applyPresentation({placement:{...placement,extra:1},visible:true}),false);
+assert.equal(character.applyPresentation({placement:{scale:1,xPercent:50},visible:true}),false);
+assert.equal(context.live2dModel,original);
+assert.equal(calls.filter(x=>x.endsWith(snapshot.entry_asset_id)).length,1);
+character.dispose();
+""")
+
+
 def test_phone_hidden_suspends_all_owned_activity_and_resumes_same_model():
     run_character(r"""
 host.kind='phone';const character=context.createCharacter(host,canvas);
