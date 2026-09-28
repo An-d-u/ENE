@@ -11,6 +11,7 @@ from PyQt6.QtCore import QObject, QTimer, Qt, pyqtSignal, pyqtSlot
 
 from .adapter import AdmissionContext, AdapterError, QtGatewayAdapter
 from .gateway import CompanionGateway, GatewayState
+from .discovery import CompanionAdvertisement
 from .network import discover_endpoints
 from .pairing import PairingError, PairingService
 from .storage import RegistrationStore, StorageError
@@ -34,6 +35,7 @@ class CompanionController(QObject):
         *,
         store_factory=RegistrationStore,
         endpoint_provider=discover_endpoints,
+        discovery_factory=CompanionAdvertisement,
     ):
         super().__init__(parent)
         self.adapter = QtGatewayAdapter(owner, self)
@@ -49,6 +51,12 @@ class CompanionController(QObject):
         self._stop_requested = threading.Event()
         self._action_pending = False
         self._generation = None
+        self._discovery_factory = discovery_factory
+        self._advertisement = None
+        self._discovery_allowed = False
+        self._discovery_timer = QTimer(self)
+        self._discovery_timer.setInterval(15_000)
+        self._discovery_timer.timeout.connect(self._refresh_discovery)
         self._network_state.connect(
             self._receive_state, Qt.ConnectionType.QueuedConnection
         )
@@ -93,7 +101,29 @@ class CompanionController(QObject):
                 state, running=False, qr=None, pending=None, code="stopping"
             )
         self.state = state
+        if state.running and state.registered and state.port and not self._stop_requested.is_set():
+            if not self._discovery_timer.isActive():
+                self._discovery_timer.start()
+                self._refresh_discovery()
+        else:
+            self._discovery_timer.stop()
         self.state_changed.emit(state)
+
+    def _refresh_discovery(self):
+        """주소 목록은 Qt 스레드에서 복사한 뒤 서버 루프에 전달한다."""
+        if not self.state.running or not self.state.registered or self._stop_requested.is_set():
+            return
+        try:
+            endpoints = tuple(self._endpoint_provider(self.state.port))
+        except Exception:
+            endpoints = ()
+            self.operation_failed.emit("discovery_network_unavailable")
+        if self._loop is not None and not self._loop.is_closed():
+            self._loop.call_soon_threadsafe(self._apply_discovery, self._generation, endpoints)
+
+    def _apply_discovery(self, generation, endpoints):
+        if generation == self._generation and self._discovery_allowed and not self._stop_requested.is_set() and self._advertisement is not None:
+            self._advertisement.update(endpoints)
 
     def start(self, port=8765, host="0.0.0.0", *, test_port=False):
         if type(port) is not int or not (
@@ -147,6 +177,9 @@ class CompanionController(QObject):
 
         def gateway_state(state):
             nonlocal failure
+            self._discovery_allowed = bool(state.running and state.registered and state.port)
+            if not self._discovery_allowed and self._advertisement is not None:
+                self._advertisement.update(())
             if not state.running and state.code:
                 failure = state.code
                 self._stop_event.set()
@@ -155,6 +188,7 @@ class CompanionController(QObject):
         try:
             if self._stop_requested.is_set():
                 return
+            self._advertisement = self._discovery_factory(report=self.operation_failed.emit)
             store = self._store_factory()
             tls_store = resources.enter_context(TlsIdentityStore(store))
             identity = tls_store.load_or_create()
@@ -190,6 +224,10 @@ class CompanionController(QObject):
         except Exception:
             failure = "gateway_failed"
         finally:
+            self._discovery_allowed = False
+            if self._advertisement is not None:
+                await self._advertisement.close()
+                self._advertisement = None
             if self._gateway is not None:
                 registered = self._gateway.pairing.registration.token_hash is not None
                 await self._gateway.stop()
@@ -204,6 +242,7 @@ class CompanionController(QObject):
         # Qt에서 즉시 차단하므로 그 뒤 처리되는 서버 신호는 신규 작업을 수락할 수 없다.
         already_stopping = self._stop_requested.is_set()
         self._stop_requested.set()
+        self._discovery_timer.stop()
         self.adapter.disable()
         if already_stopping:
             return
@@ -218,6 +257,9 @@ class CompanionController(QObject):
             QTimer.singleShot(8000, lambda: self._check_stop_timeout(generation))
 
     def _signal_stop(self):
+        self._discovery_allowed = False
+        if self._advertisement is not None:
+            self._advertisement.update(())
         if self._stop_event is not None:
             self._stop_event.set()
 
@@ -242,6 +284,7 @@ class CompanionController(QObject):
             QTimer.singleShot(20, self._finish_thread)
             return
         self.adapter.detach()
+        self._discovery_timer.stop()
         self._thread = self._loop = None
         self._action_pending = False
         self.stopped.emit()
@@ -307,6 +350,7 @@ class CompanionController(QObject):
             self.operation_failed.emit("tls_stop_first")
             return
         self.adapter.disable()
+        self._discovery_timer.stop()
         self._stop_requested.clear()
         self._generation = str(uuid4())
         self._receive_state(

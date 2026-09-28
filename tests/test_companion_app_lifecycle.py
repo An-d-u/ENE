@@ -15,6 +15,7 @@ from src.core.companion.controller import CompanionController
 from src.core.companion.gateway import GatewayState
 from src.core.companion.storage import RegistrationStore
 from src.core.companion.network import Endpoint
+from tests.companion_helpers import NoDiscovery
 from src.core.companion.tls_identity import TrustAnchor, utc_now
 from src.core.settings import Settings
 from tests.test_companion_bridge_transcript import bridge  # noqa: F401
@@ -263,6 +264,7 @@ def test_real_app_bridge_tls_pairing_chat_and_duplicate_roundtrip(
         bridge,
         store_factory=lambda: RegistrationStore(tmp_path / "registration.json"),
         endpoint_provider=lambda port: (Endpoint("192.0.2.10", port),),
+        discovery_factory=NoDiscovery,
     )
     bridge.companion_event.connect(controller.adapter.publish)
     replies = []

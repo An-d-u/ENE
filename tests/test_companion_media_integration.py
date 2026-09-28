@@ -10,6 +10,7 @@ from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 
 from src.core.companion.controller import CompanionController
 from src.core.companion.network import Endpoint
+from tests.companion_helpers import NoDiscovery
 from src.core.companion.storage import RegistrationStore
 from src.core.companion.tls_identity import TrustAnchor, utc_now
 from tests.companion_helpers import LoopbackClient, sample_id
@@ -82,6 +83,7 @@ def test_qt_tts_to_authenticated_pcm_keeps_one_output_and_one_completion(
     controller = CompanionController(
         bridge, store_factory=lambda: RegistrationStore(tmp_path / "registration.json"),
         endpoint_provider=lambda port: (Endpoint("192.0.2.10", port),),
+        discovery_factory=NoDiscovery,
     )
     bridge.companion_event.connect(controller.adapter.publish)
 

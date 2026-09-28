@@ -11,6 +11,7 @@ import pytest
 
 from src.core.companion.gateway import GatewayState
 from src.core.companion.network import Endpoint
+from tests.companion_helpers import NoDiscovery
 from src.core.companion.pairing import PendingPairing
 from src.core.companion.tls_identity import TrustAnchor, utc_now
 from src.core.companion.storage import RegistrationStore
@@ -91,6 +92,7 @@ def test_controller_start_stop_is_nonblocking_and_releases_server_thread(
         owner,
         store_factory=lambda: RegistrationStore(tmp_path / "registration.json"),
         endpoint_provider=lambda port: (Endpoint("192.0.2.10", port),),
+        discovery_factory=NoDiscovery,
     )
     started = time.monotonic()
     controller.start(port=0, host="127.0.0.1", test_port=True)
@@ -191,6 +193,7 @@ def test_full_controller_qt_approval_socket_echo_and_duplicate_recovery(
         owner,
         store_factory=lambda: RegistrationStore(tmp_path / "registration.json"),
         endpoint_provider=lambda port: (Endpoint("192.0.2.10", port),),
+        discovery_factory=NoDiscovery,
     )
     owner.publish = controller.adapter.publish
     controller.start(port=0, host="127.0.0.1", test_port=True)

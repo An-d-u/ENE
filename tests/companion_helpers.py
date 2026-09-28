@@ -29,6 +29,19 @@ class FakeClock:
         self.seconds += seconds
 
 
+class NoDiscovery:
+    """일반 TLS 시험이 LAN에 실제 광고를 송신하지 않도록 한다."""
+
+    def __init__(self, **kwargs):
+        pass
+
+    def update(self, endpoints):
+        pass
+
+    async def close(self):
+        pass
+
+
 class LoopbackClient:
     """실제 클라이언트의 업그레이드 응답까지 명시적으로 닫는 시험용 수명 래퍼."""
 
