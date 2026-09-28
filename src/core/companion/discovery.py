@@ -43,6 +43,8 @@ class CompanionAdvertisement:
         self._desired = None
         self._applied = ()
         self._closed = self._blocked = False
+        self._withdrawing = False
+        self._working = False
 
     def update(self, endpoints):
         """서버 루프에서만 호출하며 입력은 최신 한 개만 보관한다."""
@@ -50,14 +52,26 @@ class CompanionAdvertisement:
             return
         self._desired = tuple(endpoints)
         if self._task is None or self._task.done():
-            self._task = asyncio.create_task(self._drain())
+            self._withdrawing = False
+            self._task = asyncio.create_task(self._run())
+        elif not self._desired and self._working and not self._withdrawing:
+            # 등록 해제 뒤 대기 중이던 register/update가 새 광고를 보내지 않게 한다.
+            self._withdrawing = True
+            self._task.cancel()
 
     async def wait_idle(self):
         if self._task is not None:
             await self._task
 
+    async def _run(self):
+        self._working = True
+        try:
+            await self._drain()
+        finally:
+            self._working = False
+
     async def _drain(self):
-        while self._desired is not None and not self._closed:
+        while self._desired is not None and not self._closed and not self._blocked:
             endpoints, self._desired = self._desired, None
             if endpoints == self._applied:
                 continue
@@ -80,7 +94,12 @@ class CompanionAdvertisement:
                     await (await self._zeroconf.async_update_service(info))
                 self._applied = endpoints
             except asyncio.CancelledError:
-                raise
+                if self._closed or not self._withdrawing:
+                    raise
+                try:
+                    await self._dispose_bounded()
+                finally:
+                    self._withdrawing = False
             except Exception as error:
                 self._report("discovery_unavailable" if isinstance(error, ImportError) else "discovery_publish_failed")
                 await self._dispose_bounded()

@@ -140,3 +140,42 @@ def test_publish_failure_and_missing_dependency_are_nonfatal_and_retryable():
         assert instances[-1].calls[-1][0] == "close"
         await advertisement.close()
     asyncio.run(run())
+
+
+def test_revocation_cancels_pending_registration_before_announcement():
+    from src.core.companion.discovery import CompanionAdvertisement
+
+    async def run():
+        fake = FakeZeroconf()
+        fake.register_gate = asyncio.Event()
+        advertisement = CompanionAdvertisement(factory=lambda **kw: fake)
+        advertisement.update((Endpoint("192.0.2.41", 8765),))
+        await asyncio.sleep(0)
+        advertisement.update(())
+        advertisement.update(())
+        fake.register_gate.set()
+        await advertisement.wait_idle()
+        assert "register_sent" not in [call[0] for call in fake.calls]
+        assert fake.calls[-1][0] == "close"
+        advertisement.update((Endpoint("192.0.2.42", 8765),))
+        await advertisement.wait_idle()
+        assert fake.calls[-1][0] == "register_sent"
+        assert fake.calls[-1][1].parsed_addresses() == ["192.0.2.42"]
+        await advertisement.close()
+    asyncio.run(run())
+
+
+def test_revocation_before_queued_update_starts_still_removes_existing_record():
+    from src.core.companion.discovery import CompanionAdvertisement
+
+    async def run():
+        fake = FakeZeroconf()
+        advertisement = CompanionAdvertisement(factory=lambda **kw: fake)
+        advertisement.update((Endpoint("192.0.2.41", 8765),))
+        await advertisement.wait_idle()
+        advertisement.update((Endpoint("192.0.2.42", 8765),))
+        advertisement.update(())
+        await advertisement.wait_idle()
+        assert [call[0] for call in fake.calls][-3:] == ["unregister", "unregister_sent", "close"]
+        await advertisement.close()
+    asyncio.run(run())
