@@ -1,0 +1,486 @@
+{
+  "cases": [
+    {
+      "name": "수정",
+      "message": {
+        "type": "chat_action",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "request_id": "00000000-0000-4000-8000-000000000004",
+        "kind": "edit",
+        "target_message_id": "00000000-0000-4000-8000-000000000005",
+        "expected_revision": 2,
+        "text": "가상의 보라색 블록을 옮겨 줘."
+      },
+      "expected": {
+        "type": "chat_action",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "request_id": "00000000-0000-4000-8000-000000000004",
+        "kind": "edit",
+        "target_message_id": "00000000-0000-4000-8000-000000000005",
+        "expected_revision": 2,
+        "text": "가상의 보라색 블록을 옮겨 줘."
+      }
+    },
+    {
+      "name": "리롤",
+      "message": {
+        "type": "chat_action",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "request_id": "00000000-0000-4000-8000-000000000004",
+        "kind": "reroll",
+        "target_message_id": "00000000-0000-4000-8000-000000000006",
+        "expected_revision": 2
+      },
+      "expected": {
+        "type": "chat_action",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "request_id": "00000000-0000-4000-8000-000000000004",
+        "kind": "reroll",
+        "target_message_id": "00000000-0000-4000-8000-000000000006",
+        "expected_revision": 2
+      }
+    },
+    {
+      "name": "조회",
+      "message": {
+        "type": "chat_actions_request",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "query_id": "00000000-0000-4000-8000-000000000007",
+        "refresh": false
+      },
+      "expected": {
+        "type": "chat_actions_request",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "query_id": "00000000-0000-4000-8000-000000000007",
+        "refresh": false
+      }
+    },
+    {
+      "name": "새캡처조회",
+      "message": {
+        "type": "chat_actions_request",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "query_id": "00000000-0000-4000-8000-000000000007",
+        "refresh": true
+      },
+      "expected": {
+        "type": "chat_actions_request",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "query_id": "00000000-0000-4000-8000-000000000007",
+        "refresh": true
+      }
+    },
+    {
+      "name": "자동상태",
+      "message": {
+        "type": "chat_actions_state",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "query_id": null,
+        "snapshot_id": null,
+        "conversation_revision": 2,
+        "event_seq": 4,
+        "state_seq": 1,
+        "user_message_id": "00000000-0000-4000-8000-000000000005",
+        "assistant_message_id": "00000000-0000-4000-8000-000000000006",
+        "edit_allowed": true,
+        "edit_reason": "ready",
+        "reroll_allowed": true,
+        "reroll_reason": "ready"
+      },
+      "expected": {
+        "type": "chat_actions_state",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "query_id": null,
+        "snapshot_id": null,
+        "conversation_revision": 2,
+        "event_seq": 4,
+        "state_seq": 1,
+        "user_message_id": "00000000-0000-4000-8000-000000000005",
+        "assistant_message_id": "00000000-0000-4000-8000-000000000006",
+        "edit_allowed": true,
+        "edit_reason": "ready",
+        "reroll_allowed": true,
+        "reroll_reason": "ready"
+      }
+    },
+    {
+      "name": "조회상태",
+      "message": {
+        "type": "chat_actions_state",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "query_id": "00000000-0000-4000-8000-000000000007",
+        "snapshot_id": "00000000-0000-4000-8000-000000000008",
+        "conversation_revision": 2,
+        "event_seq": 4,
+        "state_seq": 1,
+        "user_message_id": "00000000-0000-4000-8000-000000000005",
+        "assistant_message_id": "00000000-0000-4000-8000-000000000006",
+        "edit_allowed": true,
+        "edit_reason": "ready",
+        "reroll_allowed": true,
+        "reroll_reason": "ready"
+      },
+      "expected": {
+        "type": "chat_actions_state",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "query_id": "00000000-0000-4000-8000-000000000007",
+        "snapshot_id": "00000000-0000-4000-8000-000000000008",
+        "conversation_revision": 2,
+        "event_seq": 4,
+        "state_seq": 1,
+        "user_message_id": "00000000-0000-4000-8000-000000000005",
+        "assistant_message_id": "00000000-0000-4000-8000-000000000006",
+        "edit_allowed": true,
+        "edit_reason": "ready",
+        "reroll_allowed": true,
+        "reroll_reason": "ready"
+      }
+    },
+    {
+      "name": "빈상태",
+      "message": {
+        "type": "chat_actions_state",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "query_id": null,
+        "snapshot_id": null,
+        "conversation_revision": 2,
+        "event_seq": 4,
+        "state_seq": 1,
+        "user_message_id": null,
+        "assistant_message_id": null,
+        "edit_allowed": false,
+        "edit_reason": "no_target",
+        "reroll_allowed": false,
+        "reroll_reason": "no_target"
+      },
+      "expected": {
+        "type": "chat_actions_state",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "query_id": null,
+        "snapshot_id": null,
+        "conversation_revision": 2,
+        "event_seq": 4,
+        "state_seq": 1,
+        "user_message_id": null,
+        "assistant_message_id": null,
+        "edit_allowed": false,
+        "edit_reason": "no_target",
+        "reroll_allowed": false,
+        "reroll_reason": "no_target"
+      }
+    },
+    {
+      "name": "전체기능",
+      "message": {
+        "type": "extensions_ready",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "capabilities": [
+          "audio_pcm_v1",
+          "character_v1",
+          "character_controls_v1",
+          "chat_actions_v1"
+        ]
+      },
+      "expected": {
+        "type": "extensions_ready",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "capabilities": [
+          "audio_pcm_v1",
+          "character_v1",
+          "character_controls_v1",
+          "chat_actions_v1"
+        ]
+      }
+    },
+    {
+      "name": "잘못된종류",
+      "message": {
+        "type": "chat_action",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "request_id": "00000000-0000-4000-8000-000000000004",
+        "kind": "delete",
+        "target_message_id": "00000000-0000-4000-8000-000000000005",
+        "expected_revision": 2,
+        "text": "가상의 보라색 블록을 옮겨 줘."
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "리롤본문",
+      "message": {
+        "type": "chat_action",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "request_id": "00000000-0000-4000-8000-000000000004",
+        "kind": "reroll",
+        "target_message_id": "00000000-0000-4000-8000-000000000006",
+        "expected_revision": 2,
+        "text": "가상 입력"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "공백본문",
+      "message": {
+        "type": "chat_action",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "request_id": "00000000-0000-4000-8000-000000000004",
+        "kind": "edit",
+        "target_message_id": "00000000-0000-4000-8000-000000000005",
+        "expected_revision": 2,
+        "text": " \n"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "음수개정",
+      "message": {
+        "type": "chat_action",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "request_id": "00000000-0000-4000-8000-000000000004",
+        "kind": "edit",
+        "target_message_id": "00000000-0000-4000-8000-000000000005",
+        "expected_revision": -1,
+        "text": "가상의 보라색 블록을 옮겨 줘."
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "불리언개정",
+      "message": {
+        "type": "chat_action",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "request_id": "00000000-0000-4000-8000-000000000004",
+        "kind": "edit",
+        "target_message_id": "00000000-0000-4000-8000-000000000005",
+        "expected_revision": true,
+        "text": "가상의 보라색 블록을 옮겨 줘."
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "불량조회",
+      "message": {
+        "type": "chat_actions_request",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "query_id": "invalid",
+        "refresh": false
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "불량새캡처",
+      "message": {
+        "type": "chat_actions_request",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "query_id": "00000000-0000-4000-8000-000000000007",
+        "refresh": 1
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "불량상태",
+      "message": {
+        "type": "chat_actions_state",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "query_id": null,
+        "snapshot_id": null,
+        "conversation_revision": 2,
+        "event_seq": 4,
+        "state_seq": 1,
+        "user_message_id": "00000000-0000-4000-8000-000000000005",
+        "assistant_message_id": "00000000-0000-4000-8000-000000000006",
+        "edit_allowed": 1,
+        "edit_reason": "ready",
+        "reroll_allowed": true,
+        "reroll_reason": "ready"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "미지사유",
+      "message": {
+        "type": "chat_actions_state",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "query_id": null,
+        "snapshot_id": null,
+        "conversation_revision": 2,
+        "event_seq": 4,
+        "state_seq": 1,
+        "user_message_id": "00000000-0000-4000-8000-000000000005",
+        "assistant_message_id": "00000000-0000-4000-8000-000000000006",
+        "edit_allowed": true,
+        "edit_reason": "raw_failure",
+        "reroll_allowed": true,
+        "reroll_reason": "ready"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "대상없는허용",
+      "message": {
+        "type": "chat_actions_state",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "query_id": null,
+        "snapshot_id": null,
+        "conversation_revision": 2,
+        "event_seq": 4,
+        "state_seq": 1,
+        "user_message_id": null,
+        "assistant_message_id": "00000000-0000-4000-8000-000000000006",
+        "edit_allowed": true,
+        "edit_reason": "ready",
+        "reroll_allowed": true,
+        "reroll_reason": "ready"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "불일치사유",
+      "message": {
+        "type": "chat_actions_state",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "query_id": null,
+        "snapshot_id": null,
+        "conversation_revision": 2,
+        "event_seq": 4,
+        "state_seq": 1,
+        "user_message_id": "00000000-0000-4000-8000-000000000005",
+        "assistant_message_id": "00000000-0000-4000-8000-000000000006",
+        "edit_allowed": false,
+        "edit_reason": "ready",
+        "reroll_allowed": true,
+        "reroll_reason": "ready"
+      },
+      "error": "invalid_message"
+    },
+    {
+      "name": "상관없는스냅샷",
+      "message": {
+        "type": "chat_actions_state",
+        "protocol_version": 1,
+        "registration_generation": 1,
+        "server_epoch": "00000000-0000-4000-8000-000000000001",
+        "connection_generation": "00000000-0000-4000-8000-000000000002",
+        "conversation_id": "00000000-0000-4000-8000-000000000003",
+        "query_id": null,
+        "snapshot_id": "00000000-0000-4000-8000-000000000008",
+        "conversation_revision": 2,
+        "event_seq": 4,
+        "state_seq": 1,
+        "user_message_id": "00000000-0000-4000-8000-000000000005",
+        "assistant_message_id": "00000000-0000-4000-8000-000000000006",
+        "edit_allowed": true,
+        "edit_reason": "ready",
+        "reroll_allowed": true,
+        "reroll_reason": "ready"
+      },
+      "error": "invalid_message"
+    }
+  ]
+}

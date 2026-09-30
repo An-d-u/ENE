@@ -4,10 +4,12 @@ from dataclasses import dataclass
 import math
 import re
 
-from .protocol import ProtocolError, integer_value, text_value, uuid_value
+from .protocol import MAX_TEXT_BYTES, ProtocolError, integer_value, text_value, uuid_value
 
 
-CAPABILITIES = ("audio_pcm_v1", "character_v1", "character_controls_v1")
+CAPABILITIES = ("audio_pcm_v1", "character_v1", "character_controls_v1", "chat_actions_v1")
+CHAT_TYPES = frozenset({"chat_actions_request", "chat_actions_state", "chat_action"})
+CHAT_REASONS = frozenset({"ready", "no_target", "busy", "ai_unavailable", "unsupported_command", "text_too_large"})
 AUDIO_REFS = ("conversation_id", "message_id", "operation_id", "utterance_id")
 AUDIO_TYPES = frozenset(
     {
@@ -45,6 +47,7 @@ EXTENSION_TYPES = (
     AUDIO_TYPES
     | CHARACTER_TYPES
     | CONTROL_TYPES
+    | CHAT_TYPES
     | {"extensions_ready", "extension_error"}
 )
 FROM_PHONE = frozenset(
@@ -59,6 +62,8 @@ FROM_PHONE = frozenset(
         "character_snapshot_request",
         "head_pat",
         "character_settings_patch",
+        "chat_actions_request",
+        "chat_action",
     }
 )
 FROM_PC = EXTENSION_TYPES - FROM_PHONE | {"audio_cancel"}
@@ -69,6 +74,8 @@ SMALL_TYPES = frozenset(
         "character_playback",
         "head_pat",
         "head_pat_state",
+        "chat_actions_request",
+        "chat_actions_state",
     }
 )
 BOOL_SETTINGS = frozenset(
@@ -220,7 +227,7 @@ def normalize_extension(kind, body):
         result["reason"] = _code(get("reason"))
     if kind == "extensions_ready":
         capabilities = get("capabilities")
-        if not isinstance(capabilities, list) or not 1 <= len(capabilities) <= 3:
+        if not isinstance(capabilities, list) or not 1 <= len(capabilities) <= len(CAPABILITIES):
             raise ProtocolError()
         capabilities = [_choice(item, CAPABILITIES) for item in capabilities]
         if len(set(capabilities)) != len(capabilities) or set(
@@ -228,6 +235,31 @@ def normalize_extension(kind, body):
         ) != set(capabilities):
             raise ProtocolError()
         result["capabilities"] = capabilities
+    elif kind in CHAT_TYPES:
+        result["conversation_id"] = uuid_value(get("conversation_id"))
+        if kind == "chat_actions_request":
+            result.update(query_id=uuid_value(get("query_id")), refresh=_bool(get("refresh")))
+        elif kind == "chat_action":
+            action = _choice(get("kind"), {"edit", "reroll"})
+            result.update(request_id=uuid_value(get("request_id")), kind=action,
+                          target_message_id=uuid_value(get("target_message_id")),
+                          expected_revision=integer_value(get("expected_revision")))
+            if action == "edit":
+                result["text"] = text_value(get("text"), max_bytes=MAX_TEXT_BYTES, nonblank=True, limit_code="text_too_large")
+            elif "text" in body:
+                raise ProtocolError()
+        else:
+            for key in ("query_id", "snapshot_id", "user_message_id", "assistant_message_id"):
+                result[key] = None if get(key) is None else uuid_value(get(key))
+            for key in ("conversation_revision", "event_seq", "state_seq"):
+                result[key] = integer_value(get(key), 1 if key == "state_seq" else 0)
+            for action, target in (("edit", "user_message_id"), ("reroll", "assistant_message_id")):
+                allowed = result[action + "_allowed"] = _bool(get(action + "_allowed"))
+                reason = result[action + "_reason"] = _choice(get(action + "_reason"), CHAT_REASONS)
+                if allowed != (reason == "ready") or (allowed and result[target] is None):
+                    raise ProtocolError()
+            if result["snapshot_id"] is not None and result["query_id"] is None:
+                raise ProtocolError()
     elif kind == "audio_availability":
         result.update(
             available=_bool(get("available")),
@@ -344,6 +376,8 @@ def normalize_extension(kind, body):
 
 
 def feature_for(kind, fields):
+    if kind in CHAT_TYPES:
+        return "chat_actions_v1"
     if kind in AUDIO_TYPES:
         return "audio_pcm_v1"
     if kind in CHARACTER_TYPES:
