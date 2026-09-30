@@ -381,6 +381,8 @@ class CompanionPCBridgeMixin:
         state.request_ledger.reserve(ref.key, body_hash)
         state.request_ledger.mark_accepted(ref.key, user_id)
         try:
+            # 수락 이후에만 PC·휴대폰·브라우저의 이전 음성/입 모양을 중단한다.
+            self.interrupt_tts_for_ptt()
             if kind == "edit":
                 # 동기 완료도 같은 순서를 지킨다. 준비/생성 실패 시 아래 복구 경계가 되돌린다.
                 event = state.public_transcript.replace(
