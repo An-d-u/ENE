@@ -1,6 +1,7 @@
 """마지막 공개 쌍의 판정과 원문 없는 조작 상태를 Qt에서 소유한다."""
 
 from .protocol import MAX_TEXT_BYTES
+from .transcript import TranscriptEvent
 
 
 class CompanionChatActionsBridge:
@@ -9,6 +10,21 @@ class CompanionChatActionsBridge:
     def __init__(self, owner):
         self.owner = owner
         self._sequence = 0
+        owner.companion_event.connect(self._on_event)
+
+    def _on_event(self, event):
+        kind = event.get("type") if isinstance(event, dict) else getattr(event, "type", None)
+        if isinstance(event, TranscriptEvent) or kind in {"request_status", "resync_required"}:
+            self.changed()
+
+    def changed(self):
+        adapter = getattr(self.owner, "_companion_adapter", None)
+        if adapter is not None:
+            try:
+                adapter.publish_extension("chat_actions_state", self.snapshot())
+            except Exception:
+                # 표시 알림 실패가 원래 채팅·음성의 완료 처리를 중단하지 않는다.
+                pass
 
     def targets(self):
         owner, state = self.owner, self.owner.chat_state

@@ -323,6 +323,9 @@ class ChatFlowBridgeMixin:
             return
         if getattr(self, "worker", None) is response_worker:
             self.worker = None
+            actions = getattr(self, "_companion_chat_actions", None)
+            if actions is not None:
+                actions.changed()
         pending_drain = getattr(self, "_normal_operation_drain_pending", None)
         if pending_drain != (operation_id, response_worker):
             return

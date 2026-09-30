@@ -590,7 +590,7 @@ def test_controller_only_advertises_installed_media_boundaries(routed_bridge):
 
     bridge, _, _, _, _ = routed_bridge
     controller = CompanionController(bridge)
-    assert controller._capabilities == ("audio_pcm_v1", "character_v1", "character_controls_v1")
+    assert controller._capabilities == ("audio_pcm_v1", "character_v1", "character_controls_v1", "chat_actions_v1")
     assert controller._character is bridge._companion_character
 
 

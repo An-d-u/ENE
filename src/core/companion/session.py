@@ -2,7 +2,7 @@
 
 import asyncio
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import itertools
 import time
 from uuid import uuid4
@@ -189,6 +189,7 @@ class Outbox:
 class SyncCapture:
     transcript: CapturedTranscript
     statuses: tuple[WireMessage, ...] = ()
+    snapshot_id: str | None = None
 
 
 def _prepare_frames(captured):
@@ -218,11 +219,13 @@ class SnapshotPump:
     def failure(self):
         return self._error
 
-    def request_sync(self, pending):
+    def request_sync(self, pending, *, fresh=False):
         if self._closed:
             return
         if self._error is not None:
             raise SessionError(self._error)
+        if fresh:
+            self.invalidate()
         pending = tuple(pending)
         if self.busy:
             if pending != self._pending:
@@ -264,7 +267,7 @@ class SnapshotPump:
                             await asyncio.wait_for(self._emit(frame), 10)
                         else:
                             if not self._closed and generation == self._generation:
-                                self._on_complete(result)
+                                self._on_complete(replace(result, snapshot_id=first["snapshot_id"]))
                     finally:
                         frames.close()
                 if not self._rerun:
@@ -346,6 +349,9 @@ class CompanionSession:
         self._sync_version = self._capture_version = 0
         self._snapshot_active = False
         self._ever_synced = False
+        self._pending_ids = ()
+        self._queued_chat_query = None
+        self._last_snapshot = None
         self.synced = False
         self.code = "connection_closed"
         self._pump = SnapshotPump(
@@ -518,6 +524,7 @@ class CompanionSession:
             self.stop("stale_session")
             return
         self.outbox.trim_events(captured)
+        self._last_snapshot = result
         self.synced = True
         self._snapshot_active = False
         for status in result.statuses:
@@ -629,6 +636,11 @@ class CompanionSession:
                 except ProtocolError:
                     continue
                 try:
+                    if message.type == "chat_actions_request":
+                        queued = self._queued_chat_query
+                        self._queued_chat_query = message
+                        if queued is not None:
+                            continue
                     self._extensions.put_nowait(message)
                 except asyncio.QueueFull:
                     raise SessionError("rate_limited") from None
@@ -653,7 +665,8 @@ class CompanionSession:
             if message.type == "sync_request":
                 self.synced = False
                 self._ever_synced = self._snapshot_active = True
-                self._pump.request_sync(message.fields["pending_request_ids"])
+                self._pending_ids = tuple(message.fields["pending_request_ids"])
+                self._pump.request_sync(self._pending_ids)
             elif not self.synced:
                 self.queue(
                     {
@@ -700,6 +713,8 @@ class CompanionSession:
     async def _extension_worker(self):
         while True:
             message = await self._extensions.get()
+            if message.type == "chat_actions_request":
+                message, self._queued_chat_query = self._queued_chat_query, None
             self._validate_connection()
             try:
                 validate_extension(
@@ -708,14 +723,38 @@ class CompanionSession:
                     self.capabilities,
                     direction="from_phone",
                 )
+                if message.type == "chat_action" and not self.synced:
+                    self._chat_action_error(message, "rejected", "sync_required")
+                    continue
+                snapshot_id = None
+                if message.type == "chat_actions_request" and message.fields["refresh"]:
+                    self._sync_version += 1
+                    self.synced = False
+                    self._ever_synced = self._snapshot_active = True
+                    self._last_snapshot = None
+                    self._pump.request_sync(self._pending_ids, fresh=True)
+                    await self._pump.wait_idle()
+                    self._validate_connection()
+                    validate_extension(message, self.extension_context, self.capabilities, direction="from_phone")
+                    if self._last_snapshot is None:
+                        raise SessionError("snapshot_failed")
+                    snapshot_id = self._last_snapshot.snapshot_id
                 result = await self.adapter.call(
                     "extension", self.context, message=message
                 )
                 if result is not None:
+                    if message.type == "chat_actions_request":
+                        result = decode_message(encode_message({**result.to_dict(), "snapshot_id": snapshot_id}))
                     self.publish(result)
             except ProtocolError:
                 continue
-            except Exception:
+            except Exception as error:
+                if message.type == "chat_action":
+                    from .adapter import AdapterError
+
+                    self._chat_action_error(message, "rejected" if isinstance(error, AdapterError) else "unknown",
+                                            error.code if isinstance(error, AdapterError) else "admission_failed")
+                    continue
                 self.queue(
                     {
                         "type": "extension_error",
@@ -725,9 +764,18 @@ class CompanionSession:
                         "connection_generation": self.context.connection_generation,
                         "feature": feature_for(message.type, message.fields),
                         "code": "extension_failed",
+                        **({"command_id": message.fields["query_id"]} if message.type == "chat_actions_request" else {}),
                     },
                     control=True,
                 )
+
+    def _chat_action_error(self, message, state, code):
+        self.queue({
+            "type": "request_status", "protocol_version": 1,
+            "server_epoch": message.fields["server_epoch"],
+            "conversation_id": message.fields["conversation_id"],
+            "request_id": message.fields["request_id"], "state": state, "code": code,
+        }, control=True)
 
     async def _timer(self):
         while True:

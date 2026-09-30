@@ -33,6 +33,7 @@ class CompanionBridgeMixin:
 
     def bind_companion_adapter(self, adapter):
         self._companion_adapter = adapter
+        self._ensure_companion_chat_actions()
         if not hasattr(self, "_companion_audio"):
             from ..companion.audio_bridge import CompanionAudioBridge
 

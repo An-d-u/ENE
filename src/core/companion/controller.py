@@ -42,7 +42,9 @@ class CompanionController(QObject):
         # Qt에서 확정한 불변 값만 서버 스레드로 전달한다.
         self._capabilities = tuple(
             getattr(getattr(owner, "_companion_audio", None), "capabilities", ())
-        ) + tuple(getattr(getattr(owner, "_companion_character", None), "capabilities", ()))
+        ) + tuple(getattr(getattr(owner, "_companion_character", None), "capabilities", ())) + tuple(
+            getattr(getattr(owner, "_companion_chat_actions", None), "capabilities", ())
+        )
         self._character = getattr(owner, "_companion_character", None)
         self.state = GatewayState(False, None, False, None, None)
         self._store_factory, self._endpoint_provider = store_factory, endpoint_provider

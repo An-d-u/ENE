@@ -15,7 +15,7 @@ def playback(request, monkeypatch):
     bridge, context, jobs, transfers, played = routed
     now, position, events, mouths = [0], [0], [], []
     monkeypatch.setattr(bridge._companion_adapter, "publish_extension",
-                        lambda kind, fields: events.append((kind, dict(fields))))
+                        lambda kind, fields: events.append((kind, dict(fields))) if kind == "character_playback" else None)
     bridge.audio_player.position_ms = lambda: position[0]
     bridge.lip_sync_update.connect(mouths.append)
     bridge._companion_audio.playback.now_ms = lambda: now[0]
