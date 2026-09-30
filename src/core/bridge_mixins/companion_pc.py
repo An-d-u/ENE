@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import json
 from uuid import uuid4
 
-from PyQt6.QtCore import pyqtSlot
+from PyQt6.QtCore import QThread, pyqtSlot
 
 from ...ai.chat_commands import (
     parse_diary_command,
@@ -16,6 +16,7 @@ from ...ai.chat_commands import (
 )
 from ..companion.protocol import (
     MAX_PUBLIC_TEXT_BYTES,
+    MAX_TEXT_BYTES,
     ProtocolError,
     integer_value,
     text_value,
@@ -23,6 +24,7 @@ from ..companion.protocol import (
 )
 from ..companion.transcript import TranscriptEvent
 from ..companion.requests import AdmissionResult
+from ..companion.adapter import AdapterError
 
 
 @dataclass(repr=False)
@@ -283,49 +285,53 @@ class CompanionPCBridgeMixin:
         return True
 
     def _retry_companion_message(self, raw, kind):
-        def reject(code):
-            return json.dumps(
-                {"state": "rejected", "code": code, "current": self._pc_chat_head()}
-            )
-
-        state = self.chat_state
-        captured = state.public_transcript.capture()
+        ref = self._new_companion_request_ref()
         try:
             command = json.loads(raw)
             if not isinstance(command, dict):
                 raise ProtocolError()
-            if (
-                uuid_value(command.get("server_epoch")),
-                uuid_value(command.get("conversation_id")),
-            ) != (captured.server_epoch, captured.conversation_id):
-                return reject("stale_session")
+            ref = replace(ref, server_epoch=uuid_value(command.get("server_epoch")),
+                          conversation_id=uuid_value(command.get("conversation_id")),
+                          request_id=uuid_value(command["request_id"]) if "request_id" in command else ref.request_id)
+            result = self._submit_companion_retry(command, kind, request_ref=ref)
+        except (ValueError, TypeError):
+            result = AdmissionResult(ref, "rejected", code="invalid_message")
+        return json.dumps({**result.to_wire().to_dict(), "current": self._pc_chat_head()})
+
+    def _submit_companion_retry(self, command, kind, *, request_ref, admission_context=None):
+        """인증·중복 판정 이후에만 기존 재생성/복구 경계로 진입한다."""
+        if QThread.currentThread() != self.thread():
+            raise RuntimeError("qt_thread_required")
+        ref = request_ref
+
+        def reject(code):
+            return AdmissionResult(ref, "rejected", code=code)
+
+        if ref.source == "mobile":
+            adapter = getattr(self, "_companion_adapter", None)
+            if adapter is None or admission_context is None:
+                return reject("admission_blocked")
+            try:
+                adapter.validate_admission(admission_context)
+            except AdapterError as error:
+                return reject(error.code)
+            if ref.registration_generation != admission_context.registration_generation:
+                return reject("stale_registration")
+        if not self._companion_request_is_current(ref):
+            return reject("stale_session")
+        state = self.chat_state
+        try:
+            uuid_value(ref.request_id)
+            if kind not in {"edit", "reroll"}:
+                return reject("unsupported_command")
             target_id = uuid_value(command.get("target_message_id"))
             expected_revision = integer_value(command.get("expected_revision"))
-            client_request_id = (
-                uuid_value(command["request_id"]) if "request_id" in command else None
-            )
-            if expected_revision != captured.conversation_revision:
-                return reject("stale_target")
-            previous_ref = state.last_request_ref
-            if previous_ref is None or previous_ref.source not in {"pc", "mobile"}:
-                return reject("stale_target")
-            user_id = state.public_user_ids.get(previous_ref.key)
-            assistant_id = state.public_assistant_ids.get(
-                previous_ref.key
-            ) or state.failed_assistant_ids.get(previous_ref.key)
-            target = user_id if kind == "edit" else assistant_id
-            if target_id != target or not user_id or not assistant_id:
-                return reject("stale_target")
-            if self.life_record_state.phase != "idle" or (
-                self.worker and self.worker.isRunning()
-            ):
-                return reject("busy")
-            if not self.llm_client or not isinstance(self._last_request_payload, dict):
-                return reject("ai_unavailable")
             edited = None
             if kind == "edit":
                 edited = text_value(
-                    command.get("text"), max_bytes=MAX_PUBLIC_TEXT_BYTES, nonblank=True
+                    command.get("text"),
+                    max_bytes=MAX_TEXT_BYTES if ref.source == "mobile" else MAX_PUBLIC_TEXT_BYTES,
+                    nonblank=True, limit_code="text_too_large",
                 ).strip()
                 if any(
                     parser(edited)[0]
@@ -336,14 +342,23 @@ class CompanionPCBridgeMixin:
                     )
                 ):
                     return reject("unsupported_command")
+        except ProtocolError as error:
+            return reject(error.code)
         except (ValueError, TypeError):
             return reject("invalid_message")
 
-        ref = self._new_companion_request_ref()
-        if client_request_id is not None:
-            ref = replace(ref, request_id=client_request_id)
-        if state.request_ledger.lookup(ref.key) is not None:
-            return reject("request_conflict")
+        body_hash = sha256(json.dumps([kind, target_id, expected_revision, edited], ensure_ascii=False).encode("utf-8")).hexdigest()
+        existing = state.request_ledger.lookup(ref.key)
+        if existing is not None:
+            return self._companion_request_status(ref) if existing.body_hash == body_hash else reject("request_conflict")
+        actions = self._ensure_companion_chat_actions()
+        captured, user_id, assistant_id, previous_ref = actions.targets()
+        target = user_id if kind == "edit" else assistant_id
+        if expected_revision != captured.conversation_revision or target_id != target or not user_id or not assistant_id:
+            return reject("stale_target")
+        available = actions.availability(mobile=ref.source == "mobile")
+        if not available[kind + "_allowed"]:
+            return reject(available[kind + "_reason"])
         operation_id = self.life_record_state.try_begin_operation("normal_reply")
         if operation_id is None:
             return reject("busy")
@@ -363,9 +378,6 @@ class CompanionPCBridgeMixin:
         state.retry_operations[operation_id] = retry
         state.operation_requests[operation_id] = ref
         state.public_user_ids[ref.key] = user_id
-        body_hash = sha256(
-            json.dumps([kind, target_id, expected_revision, edited]).encode("utf-8")
-        ).hexdigest()
         state.request_ledger.reserve(ref.key, body_hash)
         state.request_ledger.mark_accepted(ref.key, user_id)
         try:
@@ -388,10 +400,7 @@ class CompanionPCBridgeMixin:
             if self.life_record_state.matches_operation(operation_id):
                 self.life_record_state.finish_operation(operation_id)
                 self._companion_finish_operation(operation_id, code="retry_failed")
-        result = self._companion_request_status(ref)
-        return json.dumps(
-            {**result.to_wire().to_dict(), "current": self._pc_chat_head()}
-        )
+        return self._companion_request_status(ref)
 
     def _publish_companion_retry_reply(self, request_ref, text, emotion, thought):
         if request_ref.operation_id is None:

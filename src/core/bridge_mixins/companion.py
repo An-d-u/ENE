@@ -47,6 +47,13 @@ class CompanionBridgeMixin:
             self._companion_character = CompanionCharacterBridge(self)
         return self._companion_character
 
+    def _ensure_companion_chat_actions(self):
+        if not hasattr(self, "_companion_chat_actions"):
+            from ..companion.chat_actions_bridge import CompanionChatActionsBridge
+
+            self._companion_chat_actions = CompanionChatActionsBridge(self)
+        return self._companion_chat_actions
+
     def _companion_prepare_character(self, path, emotions, settings, parameters, *, reuse=False):
         return self._ensure_companion_character().select(path, emotions, settings, parameters, reuse=reuse)
 
@@ -93,7 +100,7 @@ class CompanionBridgeMixin:
             character.request_catalog()
 
     def submit_extension(self, context, message):
-        from ..companion.extension_protocol import ExtensionContext, validate_extension
+        from ..companion.extension_protocol import CAPABILITIES, ExtensionContext, validate_extension
 
         self._companion_adapter.validate_admission(context)
         head = self.head()
@@ -105,9 +112,23 @@ class CompanionBridgeMixin:
                 context.connection_generation,
                 head.conversation_id,
             ),
-            ("audio_pcm_v1", "character_v1", "character_controls_v1"),
+            CAPABILITIES,
             direction="from_phone",
         )
+        if message.type == "chat_action":
+            fields = message.fields
+            ref = RequestRef(context.registration_generation, fields["server_epoch"],
+                             fields["conversation_id"], fields["request_id"], "mobile")
+            return self._submit_companion_retry(fields, fields["kind"], request_ref=ref, admission_context=context).to_wire()
+        if message.type == "chat_actions_request":
+            from ..companion.protocol import decode_message, encode_message
+
+            return decode_message(encode_message({
+                **self._ensure_companion_chat_actions().snapshot(message.fields["query_id"]),
+                "type": "chat_actions_state", "protocol_version": 1,
+                "registration_generation": context.registration_generation,
+                "server_epoch": head.server_epoch, "connection_generation": context.connection_generation,
+            }))
         if message.type == "character_snapshot_request":
             character = getattr(self, "_companion_character", None)
             if character is not None:
