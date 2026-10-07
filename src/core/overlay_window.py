@@ -651,10 +651,11 @@ class OverlayWindow(QWidget):
         self.web_view.page().runJavaScript(js_code)
 
     def _sync_thought_feature_settings_to_js(self, settings_override: dict | None = None) -> None:
+        payload = self._resolve_thought_feature_payload(settings_override)
+        self.bridge._ensure_companion_thoughts().settings_changed(payload["enabled"])
         if not self._page_loaded:
             return
 
-        payload = self._resolve_thought_feature_payload(settings_override)
         js_code = f"""
         (function() {{
             window.eneThoughtFeatureConfig = {json.dumps(payload)};

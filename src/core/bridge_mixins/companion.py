@@ -34,12 +34,20 @@ class CompanionBridgeMixin:
     def bind_companion_adapter(self, adapter):
         self._companion_adapter = adapter
         self._ensure_companion_chat_actions()
+        self._ensure_companion_thoughts()
         if not hasattr(self, "_companion_audio"):
             from ..companion.audio_bridge import CompanionAudioBridge
 
             self._companion_audio = CompanionAudioBridge(self)
         if hasattr(self, "character_catalog_requested"):
             self._ensure_companion_character()
+
+    def _ensure_companion_thoughts(self):
+        if not hasattr(self, "_companion_thoughts"):
+            from ..companion.thoughts_bridge import CompanionThoughtsBridge
+
+            self._companion_thoughts = CompanionThoughtsBridge(self)
+        return self._companion_thoughts
 
     def _ensure_companion_character(self):
         if not hasattr(self, "_companion_character"):
@@ -116,6 +124,15 @@ class CompanionBridgeMixin:
             CAPABILITIES,
             direction="from_phone",
         )
+        if message.type == "thought_request":
+            from ..companion.protocol import decode_message, encode_message
+
+            return decode_message(encode_message({
+                **self._ensure_companion_thoughts().response(message.fields),
+                "type": "thought_response", "protocol_version": 1,
+                "registration_generation": context.registration_generation,
+                "server_epoch": head.server_epoch, "connection_generation": context.connection_generation,
+            }))
         if message.type == "chat_action":
             fields = message.fields
             ref = RequestRef(context.registration_generation, fields["server_epoch"],

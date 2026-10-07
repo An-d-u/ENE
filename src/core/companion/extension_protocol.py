@@ -7,7 +7,9 @@ import re
 from .protocol import MAX_TEXT_BYTES, ProtocolError, integer_value, text_value, uuid_value
 
 
-CAPABILITIES = ("audio_pcm_v1", "character_v1", "character_controls_v1", "chat_actions_v1")
+CAPABILITIES = ("audio_pcm_v1", "character_v1", "character_controls_v1", "chat_actions_v1", "message_thoughts_v1")
+THOUGHT_TYPES = frozenset({"thought_request", "thought_response", "thought_invalidated"})
+MAX_THOUGHT_BYTES = 8192
 CHAT_TYPES = frozenset({"chat_actions_request", "chat_actions_state", "chat_action"})
 CHAT_REASONS = frozenset({"ready", "no_target", "busy", "ai_unavailable", "unsupported_command", "text_too_large"})
 AUDIO_REFS = ("conversation_id", "message_id", "operation_id", "utterance_id")
@@ -48,6 +50,7 @@ EXTENSION_TYPES = (
     | CHARACTER_TYPES
     | CONTROL_TYPES
     | CHAT_TYPES
+    | THOUGHT_TYPES
     | {"extensions_ready", "extension_error"}
 )
 FROM_PHONE = frozenset(
@@ -64,6 +67,7 @@ FROM_PHONE = frozenset(
         "character_settings_patch",
         "chat_actions_request",
         "chat_action",
+        "thought_request",
     }
 )
 FROM_PC = EXTENSION_TYPES - FROM_PHONE | {"audio_cancel"}
@@ -76,6 +80,8 @@ SMALL_TYPES = frozenset(
         "head_pat_state",
         "chat_actions_request",
         "chat_actions_state",
+        "thought_request",
+        "thought_invalidated",
     }
 )
 BOOL_SETTINGS = frozenset(
@@ -235,6 +241,16 @@ def normalize_extension(kind, body):
         ) != set(capabilities):
             raise ProtocolError()
         result["capabilities"] = capabilities
+    elif kind in THOUGHT_TYPES:
+        result["conversation_id"] = uuid_value(get("conversation_id"))
+        if kind != "thought_invalidated":
+            result.update(query_id=uuid_value(get("query_id")), message_id=uuid_value(get("message_id")),
+                          conversation_revision=integer_value(get("conversation_revision")))
+        if kind == "thought_response":
+            status = result["status"] = _choice(get("status"), {"available", "empty", "stale", "too_large"})
+            value = result["text"] = text_value(get("text"), max_bytes=MAX_THOUGHT_BYTES)
+            if (status == "available" and not value.strip()) or (status != "available" and value != ""):
+                raise ProtocolError()
     elif kind in CHAT_TYPES:
         result["conversation_id"] = uuid_value(get("conversation_id"))
         if kind == "chat_actions_request":
@@ -376,6 +392,8 @@ def normalize_extension(kind, body):
 
 
 def feature_for(kind, fields):
+    if kind in THOUGHT_TYPES:
+        return "message_thoughts_v1"
     if kind in CHAT_TYPES:
         return "chat_actions_v1"
     if kind in AUDIO_TYPES:
