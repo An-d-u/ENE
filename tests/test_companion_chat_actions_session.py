@@ -68,7 +68,7 @@ def test_controller_advertises_chat_without_character_or_audio(admission, monkey
     monkeypatch.setattr(bridge, "_companion_audio", None)
     monkeypatch.setattr(bridge, "_companion_character", None)
     controller = CompanionController(bridge)
-    assert controller._capabilities == ("chat_actions_v1", "message_thoughts_v1")
+    assert controller._capabilities == ("chat_actions_v1", "message_thoughts_v1", "chat_display_v1")
 
 
 def test_state_publish_failure_does_not_escape_owner_callback(admission, monkeypatch):

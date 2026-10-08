@@ -1,3 +1,11 @@
+def _attach_display_bridge(window):
+    from types import SimpleNamespace
+    from src.core.companion.chat_display_bridge import CompanionChatDisplayBridge
+
+    display = CompanionChatDisplayBridge(SimpleNamespace(settings=window.settings))
+    window.bridge = SimpleNamespace(_ensure_companion_chat_display=lambda: display)
+
+
 def test_get_available_model_emotions_reads_model_emotions_folder(tmp_path):
     from src.core.model_emotions import get_available_model_emotions
 
@@ -381,6 +389,7 @@ def test_overlay_window_preview_settings_preserves_saved_parameter_overrides(tmp
     window = OverlayWindow.__new__(OverlayWindow)
     window.settings = DummySettings()
     window._page_loaded = False
+    _attach_display_bridge(window)
     window._get_base_path = lambda: tmp_path
     window._apply_drag_bar_theme = lambda settings_override=None: None
     window.move = lambda *args: None
@@ -435,6 +444,7 @@ def test_overlay_window_preview_settings_includes_image_avatar_config(tmp_path):
     window = OverlayWindow.__new__(OverlayWindow)
     window.settings = DummySettings()
     window._page_loaded = False
+    _attach_display_bridge(window)
     window._get_base_path = lambda: tmp_path
     window._apply_drag_bar_theme = lambda settings_override=None: None
     window.move = lambda *args: None
@@ -491,6 +501,7 @@ def test_overlay_window_preview_settings_includes_selected_image_avatar_emotion(
     window = OverlayWindow.__new__(OverlayWindow)
     window.settings = DummySettings()
     window._page_loaded = False
+    _attach_display_bridge(window)
     window._get_base_path = lambda: tmp_path
     window._apply_drag_bar_theme = lambda settings_override=None: None
     window.move = lambda *args: None
