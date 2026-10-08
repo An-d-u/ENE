@@ -1,0 +1,127 @@
+[
+  {
+    "name": "off_preserves_space",
+    "text": "  가상의 문장.\r\n\r둘째 줄.  ",
+    "enabled": false,
+    "expected": [
+      "  가상의 문장.\n\n둘째 줄.  "
+    ]
+  },
+  {
+    "name": "empty",
+    "text": "",
+    "enabled": false,
+    "expected": []
+  },
+  {
+    "name": "blank_enabled",
+    "text": " \n\t﻿",
+    "enabled": true,
+    "expected": []
+  },
+  {
+    "name": "lines",
+    "text": "  가상 상자는 둥글다.\r\n\n 仮の棚は青い。\rSynthetic tile.",
+    "enabled": true,
+    "expected": [
+      "가상 상자는 둥글다.",
+      "仮の棚は青い。",
+      "Synthetic tile."
+    ]
+  },
+  {
+    "name": "boundary_71",
+    "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa. bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.",
+    "enabled": true,
+    "expected": [
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa. bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb."
+    ]
+  },
+  {
+    "name": "boundary_72",
+    "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa. bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.",
+    "enabled": true,
+    "expected": [
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.",
+      "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb."
+    ]
+  },
+  {
+    "name": "boundary_73",
+    "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa. bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.",
+    "enabled": true,
+    "expected": [
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.",
+      "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb."
+    ]
+  },
+  {
+    "name": "emoji_utf16",
+    "text": "🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦. 🟨🟨🟨🟨🟨🟨🟨🟨🟨🟨🟨🟨🟨🟨🟨🟨🟨.",
+    "enabled": true,
+    "expected": [
+      "🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦.",
+      "🟨🟨🟨🟨🟨🟨🟨🟨🟨🟨🟨🟨🟨🟨🟨🟨🟨."
+    ]
+  },
+  {
+    "name": "quotes",
+    "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!\") bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.",
+    "enabled": true,
+    "expected": [
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!\")",
+      "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb."
+    ]
+  },
+  {
+    "name": "cjk",
+    "text": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가。 仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮！",
+    "enabled": true,
+    "expected": [
+      "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가。",
+      "仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮仮！"
+    ]
+  },
+  {
+    "name": "single_long",
+    "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "enabled": true,
+    "expected": [
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    ]
+  },
+  {
+    "name": "punctuation_only",
+    "text": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+    "enabled": true,
+    "expected": [
+      "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+    ]
+  },
+  {
+    "name": "ecma_whitespace",
+    "text": "﻿   가상 도형.  \n상자",
+    "enabled": true,
+    "expected": [
+      "가상 도형.",
+      "상자"
+    ]
+  },
+  {
+    "name": "numeric_url_short",
+    "text": "가상 치수 1.25, https://example.invalid/a",
+    "enabled": true,
+    "expected": [
+      "가상 치수 1.25, https://example.invalid/a"
+    ]
+  },
+  {
+    "name": "whitespace_match",
+    "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.﻿bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.",
+    "enabled": true,
+    "expected": [
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.",
+      "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb."
+    ]
+  }
+]
