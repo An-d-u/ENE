@@ -31,6 +31,7 @@ from .prompt import (
 )
 from .prompt_config import get_runtime_emotions
 from .prompt_language import resolve_prompt_language
+from .input_device_context import append_input_device_context
 from .response_contract import build_response_repair_prompt
 from .response_envelope import (
     build_response_requirements,
@@ -1321,6 +1322,7 @@ class GeminiClient:
         include_life_record_context: bool = False,
         *,
         mood_event_context: Mapping[str, str] | None = None,
+        request_device: str | None = None,
     ) -> LLM_RESPONSE_TUPLE:
         """
         메모리를 활용한 메시지 전송
@@ -1372,6 +1374,7 @@ class GeminiClient:
         return self.send_message(
             enhanced_message,
             history_user_content=message,
+            **({"request_device": request_device} if request_device is not None else {}),
             mood_event_context=mood_event_context,
         )
 
@@ -1387,6 +1390,7 @@ class GeminiClient:
         include_life_record_context: bool = False,
         *,
         mood_event_context: Mapping[str, str] | None = None,
+        request_device: str | None = None,
     ) -> LLM_RESPONSE_TUPLE:
         """이미지 final 응답의 전처리부터 usage transaction으로 처리한다."""
         self._last_response_delivery_metadata = ResponseDeliveryMetadata.empty()
@@ -1402,6 +1406,7 @@ class GeminiClient:
                 include_life_record_context=include_life_record_context,
                 progress_callback=progress_callback,
                 mood_event_context=mood_event_context,
+                request_device=request_device,
             )
         finally:
             self._finish_response_turn_usage()
@@ -1418,6 +1423,7 @@ class GeminiClient:
         include_life_record_context: bool = False,
         *,
         mood_event_context: Mapping[str, str] | None = None,
+        request_device: str | None = None,
     ) -> LLM_RESPONSE_TUPLE:
         """
         이미지와 함께 메시지 전송 (멀티모달)
@@ -1480,6 +1486,7 @@ class GeminiClient:
                     include_life_record_context=include_life_record_context,
                     progress_callback=progress_callback,
                     mood_event_context=mood_event_context,
+                    **({"request_device": request_device} if request_device is not None else {}),
                 )
             
             # 메모리 컨텍스트 추가
@@ -1512,6 +1519,11 @@ class GeminiClient:
                 web_search_context=web_search_context,
             )
             
+            if request_device is not None:
+                enhanced_message = append_input_device_context(
+                    enhanced_message, request_device, self._prompt_language()
+                )
+
             # Gemini에 멀티모달 요청
             # contents에 이미지와 텍스트를 함께 전달
             contents = pil_images + [enhanced_message]
@@ -1744,6 +1756,7 @@ class GeminiClient:
         history_user_content: str | None = None,
         *,
         mood_event_context: Mapping[str, str] | None = None,
+        request_device: str | None = None,
     ) -> LLM_RESPONSE_TUPLE:
         """
         메시지 전송 및 응답 받기
@@ -1754,6 +1767,13 @@ class GeminiClient:
         Returns:
             (응답 텍스트, 감정 태그, TTS 텍스트, 이벤트 리스트, analysis 메타, 약속 리스트, 속마음, 목표 업데이트) 튜플
         """
+        clean_history = history_user_content if history_user_content is not None else message
+        request_message = message
+        if request_device is not None:
+            request_message = append_input_device_context(
+                message, request_device,
+                resolve_prompt_language(settings_source=getattr(self, "settings", None)),
+            )
         try:
             print(
                 "[LLM] category=final_request request_kind=text "
@@ -1770,8 +1790,8 @@ class GeminiClient:
                     response_mode=response_mode,
                 )
                 result = self._execute_final_response(
-                    message,
-                    history_user_content=history_user_content or message,
+                    request_message,
+                    history_user_content=clean_history,
                     label="텍스트",
                     settings_source=settings_snapshot,
                     response_mode=response_mode,
@@ -1781,11 +1801,11 @@ class GeminiClient:
                 return result
 
             self._refresh_chat_session_for_runtime_prompt_if_needed()
-            response = self.chat.send_message(message)
+            response = self.chat.send_message(request_message)
             self._log_turn_token_usage(response, label="텍스트")
             response_text = self._extract_response_text_or_empty(response, label="텍스트")
-            if history_user_content is not None:
-                GeminiClient._replace_latest_user_history_text(self, history_user_content)
+            if history_user_content is not None or request_message != message:
+                GeminiClient._replace_latest_user_history_text(self, clean_history)
             if not response_text:
                 return self._empty_text_fallback_response()
             result = self._parse_response(response_text)

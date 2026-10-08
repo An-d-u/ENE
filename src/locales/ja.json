@@ -1015,6 +1015,12 @@
       }
     },
     "behavior": {
+      "context": {
+        "title": "会話コンテキスト",
+        "input_device": "入力デバイス情報をAIに伝える",
+        "input_device_hint": "メッセージの送信元がPCかモバイルアプリかをAIに伝えます。PC・モバイルの両方の会話に適用されます。",
+        "saved_hint": "保存後に生成を開始する応答から適用されます。"
+      },
       "display": {
         "title": "Display elements",
         "drag_bar": "Show drag bar",

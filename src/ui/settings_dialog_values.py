@@ -620,6 +620,9 @@ class SettingsDialogValuesMixin:
             self.include_ene_thoughts_in_context_check.setChecked(
                 self._original_settings.get("include_ene_thoughts_in_context", False)
             )
+            self.include_input_device_context_check.setChecked(
+                self._original_settings.get("include_input_device_context", False) is True
+            )
             self.enable_proactive_conversation_check.setChecked(
                 self._original_settings.get("enable_proactive_conversation", True)
             )
@@ -1099,6 +1102,7 @@ class SettingsDialogValuesMixin:
             ),
             "enable_ene_goals": self.enable_ene_goals_check.isChecked(),
             "include_ene_thoughts_in_context": self.include_ene_thoughts_in_context_check.isChecked(),
+            "include_input_device_context": self.include_input_device_context_check.isChecked(),
             "ene_thought_context_limit": self.ene_thought_context_limit_spin.value(),
             "show_manual_summary_button": self.show_manual_summary_button_check.isChecked(),
             "show_obsidian_note_button": self.show_obsidian_note_button_check.isChecked(),

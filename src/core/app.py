@@ -881,6 +881,17 @@ class ENEApplication(QObject):
                     commit_target(target)
                 except Exception:
                     return {"status": "rejected", "reason": "storage_failed"}
+        if "include_input_device_context" in new_settings:
+            enabled = new_settings["include_input_device_context"] is True
+            new_settings = {**new_settings, "include_input_device_context": enabled}
+            if enabled != (self.settings.get("include_input_device_context", False) is True):
+                commit_device_context = getattr(self.settings, "commit_input_device_context", None)
+                if not callable(commit_device_context):
+                    return {"status": "rejected", "reason": "storage_failed"}
+                try:
+                    commit_device_context(enabled)
+                except Exception:
+                    return {"status": "rejected", "reason": "storage_failed"}
         self.overlay_window.apply_new_settings(new_settings)
         if hasattr(self.overlay_window, "bridge") and self.overlay_window.bridge:
             refresh_proactive_settings = getattr(self.overlay_window.bridge, "refresh_proactive_settings", None)

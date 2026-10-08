@@ -63,6 +63,7 @@ class Settings:
         "enable_idle_synthetic_gestures": False,
         "idle_synthetic_gesture_frequency": "normal",
         "include_ene_thoughts_in_context": False,
+        "include_input_device_context": False,
         "ene_thought_context_limit": 2,
         "enable_ene_goals": True,
         "show_ene_goal_button": True,
@@ -593,6 +594,14 @@ class Settings:
     def commit_tts_output_target(self, value):
         """다음 발화 선택은 디스크 저장이 성공한 뒤에만 확정한다."""
         candidate = {**self.config, "tts_output_target": normalize_output_target(value)}
+        save_json_data_atomic(self.config_path, candidate)
+        self.config = candidate
+
+    def commit_input_device_context(self, enabled: bool):
+        """정보 전달 동의는 디스크 저장에 성공한 뒤에만 확정한다."""
+        if type(enabled) is not bool:
+            raise ValueError("invalid_input_device_context")
+        candidate = {**self.config, "include_input_device_context": enabled}
         save_json_data_atomic(self.config_path, candidate)
         self.config = candidate
 

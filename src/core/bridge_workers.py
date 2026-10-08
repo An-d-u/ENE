@@ -420,11 +420,17 @@ class AIWorker(QThread):
         include_life_record_context: bool = False,
         prior_token_usage: Mapping[str, object] | None = None,
         mood_event_context: Mapping[str, str] | None = None,
+        request_device: str | None = None,
     ):
         super().__init__()
         self.llm_client = llm_client
         self.message = message
         self.use_memory = use_memory
+        self.request_device = (
+            request_device
+            if type(request_device) is str and request_device in ("pc", "mobile")
+            else None
+        )
         self.images = images or []  # 이미지 데이터 리스트
         self.memory_search_text = (memory_search_text or "").strip()
         self.latest_user_message = (latest_user_message or "").strip()
@@ -521,6 +527,10 @@ class AIWorker(QThread):
 
             proactive_conversations = []
             gesture = ""
+            device_kwargs = (
+                {"request_device": self.request_device}
+                if self.request_device is not None else {}
+            )
 
             if self.note_request and self.note_service and self.obsidian_manager:
                 print("[AI Worker] /note 모드")
@@ -542,6 +552,7 @@ class AIWorker(QThread):
                         self.head_pat_count_before_message,
                         progress_callback=self.progress_callback,
                         mood_event_context=self.mood_event_context or None,
+                        **device_kwargs,
                         **(
                             {"include_life_record_context": True}
                             if self.include_life_record_context
@@ -563,6 +574,7 @@ class AIWorker(QThread):
                         self.head_pat_count_before_message,
                         progress_callback=self.progress_callback,
                         mood_event_context=self.mood_event_context or None,
+                        **device_kwargs,
                         **(
                             {"include_life_record_context": True}
                             if self.include_life_record_context
@@ -578,6 +590,7 @@ class AIWorker(QThread):
                 response_payload = self.llm_client.send_message(
                     self.message,
                     mood_event_context=self.mood_event_context or None,
+                    **device_kwargs,
                 )
                 self._capture_response_delivery_metadata()
 

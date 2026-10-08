@@ -35,6 +35,7 @@ class LLMClientProtocol(Protocol):
         include_life_record_context: bool = False,
         *,
         mood_event_context: Mapping[str, str] | None = None,
+        request_device: str | None = None,
     ) -> LLM_RESPONSE_TUPLE:
         ...
 
@@ -50,6 +51,7 @@ class LLMClientProtocol(Protocol):
         include_life_record_context: bool = False,
         *,
         mood_event_context: Mapping[str, str] | None = None,
+        request_device: str | None = None,
     ) -> LLM_RESPONSE_TUPLE:
         ...
 
@@ -59,6 +61,7 @@ class LLMClientProtocol(Protocol):
         history_user_content: str | None = None,
         *,
         mood_event_context: Mapping[str, str] | None = None,
+        request_device: str | None = None,
     ) -> LLM_RESPONSE_TUPLE:
         ...
 

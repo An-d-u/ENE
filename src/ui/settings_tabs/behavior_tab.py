@@ -250,6 +250,25 @@ def build_behavior_tab(dialog):
     )
     layout.addWidget(display_group)
 
+    context_group = QGroupBox("대화 컨텍스트")
+    self._bind_group_title(context_group, "settings.behavior.context.title", "대화 컨텍스트")
+    context_layout = QVBoxLayout(context_group)
+    context_layout.setSpacing(8)
+    self.include_input_device_context_check = self._create_toggle(
+        "대화 기기 정보 전달", key="settings.behavior.context.input_device",
+    )
+    self.include_input_device_context_check.toggled.connect(self._on_setting_changed)
+    context_layout.addWidget(self.include_input_device_context_check)
+    context_layout.addWidget(self._build_hint_label(
+        "메시지를 보낸 기기가 PC인지 모바일 앱인지 AI에 알립니다. PC·모바일 대화에 공통 적용됩니다.",
+        key="settings.behavior.context.input_device_hint",
+    ))
+    context_layout.addWidget(self._build_hint_label(
+        "저장 후 새로 시작하는 응답부터 적용됩니다.",
+        key="settings.behavior.context.saved_hint",
+    ))
+    layout.addWidget(context_group)
+
     action_group = QGroupBox("대화와 보조 버튼")
     self._bind_group_title(action_group, "settings.behavior.actions.title", "대화와 보조 버튼")
     action_layout = QVBoxLayout(action_group)

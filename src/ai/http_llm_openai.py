@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Mapping
+from .input_device_context import append_input_device_context
 import requests
 from .http_llm_common import (
     HTTPFinalRequestDescriptor,
@@ -444,6 +445,7 @@ class OpenAICompatibleClient(_CommonMixin):
         include_life_record_context: bool = False,
         *,
         mood_event_context: Mapping[str, str] | None = None,
+        request_device: str | None = None,
     ) -> LLM_RESPONSE_TUPLE:
         enhanced = await self._build_contextual_message(
             message,
@@ -457,6 +459,7 @@ class OpenAICompatibleClient(_CommonMixin):
         return self.send_message(
             enhanced,
             history_user_content=message,
+            **({"request_device": request_device} if request_device is not None else {}),
             mood_event_context=mood_event_context,
         )
 
@@ -472,6 +475,7 @@ class OpenAICompatibleClient(_CommonMixin):
         include_life_record_context: bool = False,
         *,
         mood_event_context: Mapping[str, str] | None = None,
+        request_device: str | None = None,
     ) -> LLM_RESPONSE_TUPLE:
         enhanced = await self._build_contextual_message(
             message,
@@ -482,6 +486,7 @@ class OpenAICompatibleClient(_CommonMixin):
             include_life_record_context=include_life_record_context,
             progress_callback=progress_callback,
         )
+        enhanced = append_input_device_context(enhanced, request_device, self._prompt_language())
         parts = [{"type": "text", "text": enhanced}]
         history_parts = [{"type": "text", "text": message}]
         for img in images_data or []:
@@ -507,13 +512,15 @@ class OpenAICompatibleClient(_CommonMixin):
         history_user_content: str | None = None,
         *,
         mood_event_context: Mapping[str, str] | None = None,
+        request_device: str | None = None,
     ) -> LLM_RESPONSE_TUPLE:
+        request_message = append_input_device_context(message, request_device, self._prompt_language())
         return self._execute_final_response(
             lambda descriptor: self._request_openai(
                 descriptor.context.user_content,
                 request_descriptor=descriptor,
             ),
-            user_content=message,
+            user_content=request_message,
             history_user_content=(
                 history_user_content if history_user_content is not None else message
             ),
@@ -915,6 +922,7 @@ class OpenAIResponseAPIClient(_CommonMixin):
         include_life_record_context: bool = False,
         *,
         mood_event_context: Mapping[str, str] | None = None,
+        request_device: str | None = None,
     ) -> LLM_RESPONSE_TUPLE:
         enhanced = await self._build_contextual_message(
             message,
@@ -928,6 +936,7 @@ class OpenAIResponseAPIClient(_CommonMixin):
         return self.send_message(
             enhanced,
             history_user_content=message,
+            **({"request_device": request_device} if request_device is not None else {}),
             mood_event_context=mood_event_context,
         )
 
@@ -943,6 +952,7 @@ class OpenAIResponseAPIClient(_CommonMixin):
         include_life_record_context: bool = False,
         *,
         mood_event_context: Mapping[str, str] | None = None,
+        request_device: str | None = None,
     ) -> LLM_RESPONSE_TUPLE:
         enhanced = await self._build_contextual_message(
             message,
@@ -953,6 +963,7 @@ class OpenAIResponseAPIClient(_CommonMixin):
             include_life_record_context=include_life_record_context,
             progress_callback=progress_callback,
         )
+        enhanced = append_input_device_context(enhanced, request_device, self._prompt_language())
         parts = [{"type": "text", "text": enhanced}]
         history_parts = [{"type": "text", "text": message}]
         for img in images_data or []:
@@ -978,13 +989,15 @@ class OpenAIResponseAPIClient(_CommonMixin):
         history_user_content: str | None = None,
         *,
         mood_event_context: Mapping[str, str] | None = None,
+        request_device: str | None = None,
     ) -> LLM_RESPONSE_TUPLE:
+        request_message = append_input_device_context(message, request_device, self._prompt_language())
         return self._execute_final_response(
             lambda descriptor: self._request_responses(
                 descriptor.context.user_content,
                 request_descriptor=descriptor,
             ),
-            user_content=message,
+            user_content=request_message,
             history_user_content=(
                 history_user_content if history_user_content is not None else message
             ),

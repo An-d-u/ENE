@@ -1069,6 +1069,12 @@
       }
     },
     "behavior": {
+      "context": {
+        "title": "대화 컨텍스트",
+        "input_device": "대화 기기 정보 전달",
+        "input_device_hint": "메시지를 보낸 기기가 PC인지 모바일 앱인지 AI에 알립니다. PC·모바일 대화에 공통 적용됩니다.",
+        "saved_hint": "저장 후 새로 시작하는 응답부터 적용됩니다."
+      },
       "display": {
         "title": "표시 요소",
         "drag_bar": "드래그 바 표시",

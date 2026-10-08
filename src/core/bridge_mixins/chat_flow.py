@@ -33,6 +33,7 @@ from ...ai.mood_engine import (
     TARGET_SCOPES,
 )
 from ..bridge_workers import AIWorker
+from ..companion.requests import RequestRef
 from .life_records import LifeRecordBridgeMixin, PreparedChatRequest
 from ..chat_attachments import (
     build_attachment_context_block,
@@ -420,9 +421,22 @@ class ChatFlowBridgeMixin:
         try:
             message_with_context = self._with_ene_thought_context(message_with_time)
             message_with_context = self._with_tts_output_reminder(message_with_context)
+            # 바인딩의 합성 출처가 아니라 실제 수락된 요청과 저장 설정만 사용한다.
+            settings = getattr(self, "settings", None)
+            request_device = None
+            if (
+                not companion_file_result
+                and isinstance(request_ref, RequestRef)
+                and type(request_ref.source) is str
+                and request_ref.source in ("pc", "mobile")
+                and settings is not None
+                and settings.get("include_input_device_context", False) is True
+            ):
+                request_device = request_ref.source
             self.worker = AIWorker(
                 self.llm_client,
                 message_with_context,
+                request_device=request_device,
                 images=images_data or [],
                 memory_search_text=memory_search_text,
                 latest_user_message=latest_user_message,

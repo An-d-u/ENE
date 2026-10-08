@@ -1067,6 +1067,12 @@
       }
     },
     "behavior": {
+      "context": {
+        "title": "Conversation context",
+        "input_device": "Share input device with AI",
+        "input_device_hint": "Tell the AI whether a message was sent from the PC or mobile app. Applies to both PC and mobile conversations.",
+        "saved_hint": "Applies to responses started after saving."
+      },
       "display": {
         "title": "Display elements",
         "drag_bar": "Show drag bar",
