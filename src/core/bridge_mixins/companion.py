@@ -35,12 +35,20 @@ class CompanionBridgeMixin:
         self._companion_adapter = adapter
         self._ensure_companion_chat_actions()
         self._ensure_companion_thoughts()
+        self._ensure_companion_chat_display()
         if not hasattr(self, "_companion_audio"):
             from ..companion.audio_bridge import CompanionAudioBridge
 
             self._companion_audio = CompanionAudioBridge(self)
         if hasattr(self, "character_catalog_requested"):
             self._ensure_companion_character()
+
+    def _ensure_companion_chat_display(self):
+        if not hasattr(self, "_companion_chat_display"):
+            from ..companion.chat_display_bridge import CompanionChatDisplayBridge
+
+            self._companion_chat_display = CompanionChatDisplayBridge(self)
+        return self._companion_chat_display
 
     def _ensure_companion_thoughts(self):
         if not hasattr(self, "_companion_thoughts"):
@@ -124,6 +132,15 @@ class CompanionBridgeMixin:
             CAPABILITIES,
             direction="from_phone",
         )
+        if message.type == "chat_display_request":
+            from ..companion.protocol import decode_message, encode_message
+
+            return decode_message(encode_message({
+                **self._ensure_companion_chat_display().snapshot(),
+                "type": "chat_display_state", "protocol_version": 1,
+                "registration_generation": context.registration_generation,
+                "server_epoch": head.server_epoch, "connection_generation": context.connection_generation,
+            }))
         if message.type == "thought_request":
             from ..companion.protocol import decode_message, encode_message
 

@@ -46,6 +46,8 @@ class CompanionController(QObject):
             getattr(getattr(owner, "_companion_chat_actions", None), "capabilities", ())
         ) + tuple(
             getattr(getattr(owner, "_companion_thoughts", None), "capabilities", ())
+        ) + tuple(
+            getattr(getattr(owner, "_companion_chat_display", None), "capabilities", ())
         )
         self._character = getattr(owner, "_companion_character", None)
         self.state = GatewayState(False, None, False, None, None)

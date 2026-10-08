@@ -5183,6 +5183,10 @@ def test_overlay_window_syncs_message_split_settings_to_webview(tmp_path):
 
     overlay = OverlayWindow.__new__(OverlayWindow)
     overlay.settings = _DummySettings({"message_split_enabled": False})
+    from src.core.companion.chat_display_bridge import CompanionChatDisplayBridge
+    from types import SimpleNamespace
+    display = CompanionChatDisplayBridge(SimpleNamespace(settings=overlay.settings))
+    overlay.bridge = SimpleNamespace(_ensure_companion_chat_display=lambda: display)
     overlay.web_view = _FakeWebView()
     overlay._page_loaded = True
 

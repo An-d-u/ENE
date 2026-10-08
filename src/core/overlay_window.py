@@ -636,10 +636,11 @@ class OverlayWindow(QWidget):
         self.web_view.page().runJavaScript(js_code)
 
     def _sync_message_split_settings_to_js(self, settings_override: dict | None = None) -> None:
+        payload = self._resolve_message_split_payload(settings_override)
+        self.bridge._ensure_companion_chat_display().settings_changed(payload["enabled"])
         if not self._page_loaded:
             return
 
-        payload = self._resolve_message_split_payload(settings_override)
         js_code = f"""
         (function() {{
             window.eneMessageSplitConfig = {json.dumps(payload)};
@@ -823,9 +824,9 @@ class OverlayWindow(QWidget):
             self._sync_goal_button_visibility_to_js(new_settings)
             self._sync_token_usage_bubble_visibility_to_js(new_settings)
             self._sync_typing_effect_settings_to_js(new_settings)
-            self._sync_message_split_settings_to_js(new_settings)
             self._sync_thought_feature_settings_to_js(new_settings)
             self._sync_chat_panel_height_to_js(new_settings)
+        self._sync_message_split_settings_to_js(new_settings)
 
     def apply_companion_character_settings(self):
         """원격 확정값은 캐릭터 표시만 갱신한다. 창 배치·TTS·비밀 설정은 건드리지 않는다."""
