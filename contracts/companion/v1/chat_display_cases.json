@@ -1,0 +1,143 @@
+[
+  {
+    "name": "request",
+    "valid": true,
+    "body": {
+      "type": "chat_display_request",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "00000000-0000-4000-8000-000000000001",
+      "connection_generation": "00000000-0000-4000-8000-000000000002"
+    }
+  },
+  {
+    "name": "disabled",
+    "valid": true,
+    "body": {
+      "type": "chat_display_state",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "00000000-0000-4000-8000-000000000001",
+      "connection_generation": "00000000-0000-4000-8000-000000000002",
+      "display_revision": 0,
+      "message_split_enabled": false
+    }
+  },
+  {
+    "name": "enabled_max_revision",
+    "valid": true,
+    "body": {
+      "type": "chat_display_state",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "00000000-0000-4000-8000-000000000001",
+      "connection_generation": "00000000-0000-4000-8000-000000000002",
+      "display_revision": 9007199254740991,
+      "message_split_enabled": true
+    }
+  },
+  {
+    "name": "negative_revision",
+    "valid": false,
+    "body": {
+      "type": "chat_display_state",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "00000000-0000-4000-8000-000000000001",
+      "connection_generation": "00000000-0000-4000-8000-000000000002",
+      "display_revision": -1,
+      "message_split_enabled": false
+    }
+  },
+  {
+    "name": "fraction_revision",
+    "valid": false,
+    "body": {
+      "type": "chat_display_state",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "00000000-0000-4000-8000-000000000001",
+      "connection_generation": "00000000-0000-4000-8000-000000000002",
+      "display_revision": 1.5,
+      "message_split_enabled": false
+    }
+  },
+  {
+    "name": "bool_revision",
+    "valid": false,
+    "body": {
+      "type": "chat_display_state",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "00000000-0000-4000-8000-000000000001",
+      "connection_generation": "00000000-0000-4000-8000-000000000002",
+      "display_revision": true,
+      "message_split_enabled": false
+    }
+  },
+  {
+    "name": "string_revision",
+    "valid": false,
+    "body": {
+      "type": "chat_display_state",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "00000000-0000-4000-8000-000000000001",
+      "connection_generation": "00000000-0000-4000-8000-000000000002",
+      "display_revision": "1",
+      "message_split_enabled": false
+    }
+  },
+  {
+    "name": "overflow_revision",
+    "valid": false,
+    "body": {
+      "type": "chat_display_state",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "00000000-0000-4000-8000-000000000001",
+      "connection_generation": "00000000-0000-4000-8000-000000000002",
+      "display_revision": 9007199254740992,
+      "message_split_enabled": false
+    }
+  },
+  {
+    "name": "string_bool",
+    "valid": false,
+    "body": {
+      "type": "chat_display_state",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "00000000-0000-4000-8000-000000000001",
+      "connection_generation": "00000000-0000-4000-8000-000000000002",
+      "display_revision": 0,
+      "message_split_enabled": "true"
+    }
+  },
+  {
+    "name": "number_bool",
+    "valid": false,
+    "body": {
+      "type": "chat_display_state",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "00000000-0000-4000-8000-000000000001",
+      "connection_generation": "00000000-0000-4000-8000-000000000002",
+      "display_revision": 0,
+      "message_split_enabled": 1
+    }
+  },
+  {
+    "name": "missing_bool",
+    "valid": false,
+    "body": {
+      "type": "chat_display_state",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "00000000-0000-4000-8000-000000000001",
+      "connection_generation": "00000000-0000-4000-8000-000000000002",
+      "display_revision": 0,
+      "message_split_enabled": null
+    }
+  }
+]

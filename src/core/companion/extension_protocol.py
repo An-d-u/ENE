@@ -7,7 +7,8 @@ import re
 from .protocol import MAX_TEXT_BYTES, ProtocolError, integer_value, text_value, uuid_value
 
 
-CAPABILITIES = ("audio_pcm_v1", "character_v1", "character_controls_v1", "chat_actions_v1", "message_thoughts_v1")
+CAPABILITIES = ("audio_pcm_v1", "character_v1", "character_controls_v1", "chat_actions_v1", "message_thoughts_v1", "chat_display_v1")
+DISPLAY_TYPES = frozenset({"chat_display_request", "chat_display_state"})
 THOUGHT_TYPES = frozenset({"thought_request", "thought_response", "thought_invalidated"})
 MAX_THOUGHT_BYTES = 8192
 CHAT_TYPES = frozenset({"chat_actions_request", "chat_actions_state", "chat_action"})
@@ -51,6 +52,7 @@ EXTENSION_TYPES = (
     | CONTROL_TYPES
     | CHAT_TYPES
     | THOUGHT_TYPES
+    | DISPLAY_TYPES
     | {"extensions_ready", "extension_error"}
 )
 FROM_PHONE = frozenset(
@@ -68,6 +70,7 @@ FROM_PHONE = frozenset(
         "chat_actions_request",
         "chat_action",
         "thought_request",
+        "chat_display_request",
     }
 )
 FROM_PC = EXTENSION_TYPES - FROM_PHONE | {"audio_cancel"}
@@ -82,6 +85,8 @@ SMALL_TYPES = frozenset(
         "chat_actions_state",
         "thought_request",
         "thought_invalidated",
+        "chat_display_request",
+        "chat_display_state",
     }
 )
 BOOL_SETTINGS = frozenset(
@@ -241,6 +246,11 @@ def normalize_extension(kind, body):
         ) != set(capabilities):
             raise ProtocolError()
         result["capabilities"] = capabilities
+    elif kind == "chat_display_request":
+        pass
+    elif kind == "chat_display_state":
+        result.update(display_revision=integer_value(get("display_revision")),
+                      message_split_enabled=_bool(get("message_split_enabled")))
     elif kind in THOUGHT_TYPES:
         result["conversation_id"] = uuid_value(get("conversation_id"))
         if kind != "thought_invalidated":
@@ -392,6 +402,8 @@ def normalize_extension(kind, body):
 
 
 def feature_for(kind, fields):
+    if kind in DISPLAY_TYPES:
+        return "chat_display_v1"
     if kind in THOUGHT_TYPES:
         return "message_thoughts_v1"
     if kind in CHAT_TYPES:
