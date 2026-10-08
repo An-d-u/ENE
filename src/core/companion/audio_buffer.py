@@ -184,22 +184,33 @@ class PcmStream:
         with self._lock:
             return self._accepted // self.format.frame_bytes
 
+    def _offer_result(self, data):
+        if self.closed or self.source_ended:
+            return "closed"
+        if (
+            type(data) is not bytes
+            or not 0 < len(data) <= MAX_CHUNK
+            or len(data) % self.format.frame_bytes
+            or self._accepted + len(data) > self.format.source_limit
+        ):
+            return "invalid"
+        if (
+            self._retained + len(data) > self.buffer_limit
+            or len(self._chunks) >= 256
+        ):
+            return "full"
+        return "accepted"
+
+    def would_block(self, data):
+        """유효한 조각의 용량 부족만 확인하며 오류·종료 처리는 지연하지 않는다."""
+        with self._lock:
+            return self._offer_result(data) == "full"
+
     def offer(self, data):
         with self._lock:
-            if self.closed or self.source_ended:
-                return "closed"
-            if (
-                type(data) is not bytes
-                or not 0 < len(data) <= MAX_CHUNK
-                or len(data) % self.format.frame_bytes
-                or self._accepted + len(data) > self.format.source_limit
-            ):
-                return "invalid"
-            if (
-                self._retained + len(data) > self.buffer_limit
-                or len(self._chunks) >= 256
-            ):
-                return "full"
+            result = self._offer_result(data)
+            if result != "accepted":
+                return result
             self._chunks.append((self._accepted, data))
             self._accepted += len(data)
             self._retained += len(data)

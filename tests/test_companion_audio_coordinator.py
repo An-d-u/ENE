@@ -87,6 +87,30 @@ def prepare(coordinator, ref):
     return coordinator.receive(command(ref, "audio_prepared", buffered_frames=4800))
 
 
+def test_capacity_query_only_blocks_current_valid_stream(setup):
+    coordinator, ref, transport, _, completed, _ = setup
+    data = b"\0" * 32000
+    assert coordinator.can_deliver_pcm(ref, data)
+    coordinator.begin_stream(ref, PcmFormat(8000, 1))
+    coordinator.offer_pcm(ref, data)
+    coordinator.offer_pcm(ref, data)
+    events = list(transport.events)
+    assert not coordinator.can_deliver_pcm(ref, b"\0\0")
+    assert coordinator.can_deliver_pcm(replace(ref, utterance_id=sample_id(100)), data)
+    assert coordinator.can_deliver_pcm(ref, b"")
+    assert coordinator.can_deliver_pcm(ref, b"\0")
+    assert transport.events == events and completed == []
+    assert transport.source.buffered_bytes == 64000
+    transport.source.commit()
+    transport.source.consume(32000)
+    assert coordinator.can_deliver_pcm(ref, data)
+    transport.source.close()
+    assert coordinator.can_deliver_pcm(ref, data)
+    coordinator.cancel(ref, "interrupted")
+    coordinator.begin_wave(ref, WavSource(wav()))
+    assert coordinator.can_deliver_pcm(ref, data)
+
+
 @pytest.mark.parametrize("failure", ["rejected", "timeout", "late_prepared", "disconnect", "overflow", "send"])
 def test_phone_only_failure_never_calls_pc(setup, failure):
     coordinator, ref, transport, sink, completed, now = setup

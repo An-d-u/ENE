@@ -100,7 +100,7 @@ class CompanionAudioBridge(QObject):
         self._pc_analyzer = None
         bounded = getattr(worker, "enable_bounded_delivery", None)
         if callable(bounded):
-            bounded()
+            bounded(can_deliver=lambda data: self._can_deliver_stream_chunk(worker, data))
         if not isinstance(completion, dict) or not isinstance(
             completion.get("request_ref"), RequestRef
         ):
@@ -118,6 +118,18 @@ class CompanionAudioBridge(QObject):
         )
         self._set_status("none", "preparing", "generating")
         self._refresh_status()
+
+    def _can_deliver_stream_chunk(self, worker, data):
+        active = getattr(self.owner, "_active_tts_operation", None)
+        claim = self._stream_claim
+        if (
+            not isinstance(active, tuple) or len(active) != 2 or active[1] is not worker
+            or self._pc_bypass or self._stream_terminal or claim is None
+            or self._intent() is not claim[1]
+        ):
+            return True
+        # Qt만 생산하므로 확인과 전달 사이에 HTTP 소비자는 여유를 늘릴 수만 있다.
+        return self.coordinator.can_deliver_pcm(claim[0], data)
 
     def _intent(self):
         active = getattr(self.owner, "_active_tts_operation", None)

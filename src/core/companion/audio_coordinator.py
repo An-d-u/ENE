@@ -192,6 +192,12 @@ class AudioCoordinator:
         if not self._attempt(lambda: self.transport.offer(message, entry.source)):
             self._fallback(entry, reason="delivery_failed")
 
+    def can_deliver_pcm(self, ref, data):
+        entry = self._active
+        if entry is None or entry.ref != ref or not entry.streaming or not data:
+            return True
+        return not entry.source.would_block(data)
+
     def offer_pcm(self, ref, data):
         entry = self._active
         if entry is None or entry.ref != ref or not entry.streaming or not data:

@@ -4,6 +4,7 @@ import threading
 
 import pytest
 from PyQt6.QtWidgets import QApplication
+from PyQt6.QtTest import QTest
 
 from src.core.companion.audio_mailbox import BoundedTtsMailbox
 from tests.test_companion_audio_coordinator import setup as audio_setup  # noqa: F401
@@ -90,6 +91,126 @@ def test_callback_failure_does_not_leave_a_blocked_producer(app):
     assert errors == ["tts_stream_error"]
     assert box.buffered_bytes == 0
     assert not box.push(b"\0\0", [])
+
+
+def test_downstream_wait_retains_bytes_and_delays_tail_and_completion(app):
+    seen, guards, wakes = [], [], []
+    ready = [False]
+
+    def guard(data):
+        guards.append(data)
+        return ready[0]
+
+    box = BoundedTtsMailbox(
+        lambda data, mouth: seen.append((data, mouth)),
+        lambda: seen.append("end"), seen.append, can_deliver=guard,
+    )
+    box.configure(8000, 1, 2)
+    box.wake.connect(lambda: wakes.append(True))
+    box.push(b"\1\2", [0.5])
+    app.processEvents()
+    box.push(b"", [0.0])
+    box.finish()
+    QTest.qWait(35)
+    assert seen == [] and box.buffered_bytes == 2
+    assert len(wakes) == 1 and 1 <= len(guards) <= 5
+    ready[0] = True
+    QTest.qWait(35)
+    assert seen == [(b"\1\2", [0.5]), (b"", [0.0]), "end"]
+    assert box.buffered_bytes == 0
+    assert b"" not in guards
+
+
+@pytest.mark.parametrize("action", ["cancel", "fail"])
+def test_waiting_mailbox_releases_producer_on_cross_thread_close(app, action):
+    seen, result = [], []
+    entered = threading.Event()
+    box = BoundedTtsMailbox(
+        lambda *args: seen.append("chunk"), lambda: seen.append("end"),
+        seen.append, can_deliver=lambda data: False,
+    )
+    box.configure(8000, 1, 2)
+    box.push(b"\0" * 32000, [])
+    app.processEvents()
+
+    def produce():
+        entered.set()
+        result.append(box.push(b"\0\0", []))
+
+    worker = threading.Thread(target=produce)
+    worker.start()
+    try:
+        assert entered.wait(1)
+        closer = threading.Thread(target=getattr(box, action))
+        closer.start()
+        closer.join(1)
+        worker.join(1)
+        assert not worker.is_alive() and result == [False]
+        QTest.qWait(35)
+        assert seen == (["tts_stream_error"] if action == "fail" else [])
+        assert box.buffered_bytes == 0
+    finally:
+        box.cancel()
+        worker.join(1)
+
+
+@pytest.mark.parametrize("action", ["cancel", "raise"])
+def test_guard_reentrant_cancel_or_exception_never_delivers_head(app, action):
+    seen = []
+
+    def guard(data):
+        if action == "raise":
+            raise RuntimeError("synthetic")
+        box.cancel()
+        return True
+
+    box = BoundedTtsMailbox(
+        lambda *args: seen.append("chunk"), lambda: seen.append("end"),
+        seen.append, can_deliver=guard,
+    )
+    box.configure(8000, 1, 2)
+    box.push(b"\0\0", [])
+    box.finish()
+    QTest.qWait(35)
+    assert seen == (["tts_stream_error"] if action == "raise" else [])
+    assert box.buffered_bytes == 0
+
+
+def test_wait_preserves_chunk_count_limit_and_resumes_producer(app):
+    seen, result = [], []
+    entered, done = threading.Event(), threading.Event()
+    ready = [False]
+    box = BoundedTtsMailbox(
+        lambda data, mouth: seen.append(data), lambda: seen.append("end"),
+        seen.append, can_deliver=lambda data: ready[0],
+    )
+    box.configure(8000, 1, 2)
+    for _ in range(128):
+        box.push(b"\1\2", [])
+    app.processEvents()
+
+    def produce():
+        entered.set()
+        result.append(box.push(b"\3\4", []))
+        box.finish()
+        done.set()
+
+    worker = threading.Thread(target=produce)
+    worker.start()
+    try:
+        assert entered.wait(1) and not done.wait(0.03)
+        assert box.buffered_bytes == 256 and seen == []
+        ready[0] = True
+        for _ in range(100):
+            QTest.qWait(5)
+            if "end" in seen:
+                break
+        assert result == [True]
+        assert seen == [b"\1\2"] * 128 + [b"\3\4", "end"]
+        assert box.buffered_bytes == 0
+    finally:
+        box.cancel()
+        worker.join(1)
 
 
 def test_real_stream_worker_delivers_bounded_chunks_before_finished(app):

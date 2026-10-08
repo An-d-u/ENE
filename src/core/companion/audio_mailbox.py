@@ -4,21 +4,26 @@ from collections import deque
 import threading
 import time
 
-from PyQt6.QtCore import QObject, Qt, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QObject, QTimer, Qt, pyqtSignal, pyqtSlot
 
 
 class BoundedTtsMailbox(QObject):
     wake = pyqtSignal()
 
-    def __init__(self, chunk, finished, failed, parent=None):
+    def __init__(self, chunk, finished, failed, parent=None, *, can_deliver=None):
         super().__init__(parent)
         self._chunk, self._finished, self._failed = chunk, finished, failed
+        self._can_deliver = can_deliver
         self._condition = threading.Condition()
         self._queue = deque()
         self._bytes = 0
         self.capacity = 0
         self._scheduled = self._closed = self._ended = False
         self._error = False
+        self._retry = QTimer(self)
+        self._retry.setSingleShot(True)
+        self._retry.setInterval(10)
+        self._retry.timeout.connect(self._drain)
         self.wake.connect(self._drain, Qt.ConnectionType.QueuedConnection)
 
     def configure(self, sample_rate, channels, sample_width):
@@ -98,13 +103,27 @@ class BoundedTtsMailbox(QObject):
                     action = self._finished
                 else:
                     action = None
-                    data, mouth = self._queue.popleft()
+                    data, mouth = self._queue[0]
             if action is not None:
                 if action == self._failed:
                     action("tts_stream_error")
                 else:
                     action()
                 return
+            try:
+                allowed = not data or self._can_deliver is None or self._can_deliver(data)
+            except Exception:
+                self.fail()
+                continue
+            with self._condition:
+                # 용량 확인 중 재진입 취소되거나 생산자에서 실패했을 수 있다.
+                if self._closed:
+                    continue
+                if not allowed:
+                    # 예약 바이트와 단일 깨우기 상태를 유지하고 Qt는 즉시 반환한다.
+                    self._retry.start()
+                    return
+                self._queue.popleft()
             try:
                 self._chunk(data, mouth)
             except Exception:

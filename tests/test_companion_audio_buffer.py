@@ -141,3 +141,34 @@ def test_stream_total_duration_remains_bounded_after_drain():
         assert stream.offer(b"\x00" * 32000) == "accepted"
         stream.consume(32000)
     assert stream.offer(b"\x00\x00") == "invalid"
+    assert not stream.would_block(b"\x00\x00")
+
+
+def test_capacity_query_is_read_only_and_retains_partial_prefix():
+    stream = PcmStream(PcmFormat(8000, 1), buffer_limit=8)
+    first = b"\x01\x02" * 4
+    assert not stream.would_block(first)
+    assert stream.buffered_bytes == stream.total_frames == 0
+    stream.offer(first)
+    stream.consume(4)
+    for _ in range(2):
+        assert stream.would_block(b"\x03\x04")
+        assert stream.buffered_bytes == 8 and stream.total_frames == 4
+        assert bytes(stream.peek()) == first[4:]
+    stream.commit()
+    assert stream.would_block(b"\x03\x04")
+    stream.consume(4)
+    assert not stream.would_block(b"\x03\x04")
+
+
+def test_capacity_query_checks_chunk_count_but_never_waits_on_invalid_or_closed():
+    stream = PcmStream(PcmFormat(48000, 1))
+    for _ in range(256):
+        stream.offer(b"\0\0")
+    assert stream.would_block(b"\0\0")
+    for invalid in (b"", b"\0", b"\0" * 32770, bytearray(2)):
+        assert not stream.would_block(invalid)
+    stream.finish()
+    assert not stream.would_block(b"\0\0")
+    stream.close()
+    assert not stream.would_block(b"\0\0")

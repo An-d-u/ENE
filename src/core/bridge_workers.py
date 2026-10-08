@@ -1027,7 +1027,7 @@ class StreamingTTSWorker(QThread):
         self._stop_requested = False
         self._delivery = None
 
-    def enable_bounded_delivery(self):
+    def enable_bounded_delivery(self, *, can_deliver=None):
         """Qt 소유자가 시작 전에 요청한 경우에만 제한된 전달 큐를 사용한다."""
         from .companion.audio_mailbox import BoundedTtsMailbox
 
@@ -1037,6 +1037,7 @@ class StreamingTTSWorker(QThread):
                 self.stream_finished.emit,
                 self.error_occurred.emit,
                 self,
+                can_deliver=can_deliver,
             )
 
     def request_stop(self):
