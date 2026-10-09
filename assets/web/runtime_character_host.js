@@ -129,7 +129,7 @@ window.createCharacter = function createCharacter(host, canvas) {
             try { syncRenderSize(); watchDensity(); }
             catch (_) {
                 dispose();
-                host.emitInput({type: 'error', code: 'character_render_failed'});
+                host.emitInput({type: 'document_error', code: 'character_render_failed'});
                 return;
             }
         }
@@ -157,6 +157,19 @@ window.createCharacter = function createCharacter(host, canvas) {
         removeCurrentModelArtifacts();
         currentModelPath = ''; currentEmotionsBasePath = '';
         currentEmotionTag = 'normal'; baseEmotionTag = 'normal';
+    }
+    function invalidatePending() {
+        if (disposed) return;
+        snapshotGeneration++;
+        characterExpressionGeneration++;
+        characterExpressionReads.forEach(controller => controller.abort());
+        characterExpressionReads.clear();
+        cancelHeadPatInteraction(); cancelPendingPatEmotionRestore();
+        clearIdleSyntheticGestureTimer(); stopSyntheticGesture(); setMouthOpen(0);
+        // 준비된 모델은 보존한다. 아직 반환되지 않은 SDK 생성 결과만 무효화한다.
+        if (loadingModel && !window.live2dModel) {
+            currentModelLoadToken++; loadingModel = null; currentModelPath = '';
+        }
     }
     function applySettings(settings, defaults) {
         const s = settings || {};
@@ -254,5 +267,5 @@ window.createCharacter = function createCharacter(host, canvas) {
         ensureHeadPatEventBindings();
         characterTrackingFrame = requestAnimationFrame(updateMouseTracking);
     } catch (error) { dispose(); throw error; }
-    return Object.freeze({applySnapshot, applyAction, applyPreview, applyPlayback, applyPresentation, applyHeadPat:applyHeadPatState, dispose});
+    return Object.freeze({applySnapshot, applyAction, applyPreview, applyPlayback, applyPresentation, applyHeadPat:applyHeadPatState, invalidatePending, dispose});
 };

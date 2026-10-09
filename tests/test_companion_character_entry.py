@@ -9,6 +9,35 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_rebinding_cancels_pending_snapshot_without_reporting_old_completion():
+    script = r"""
+const fs=require('fs'),vm=require('vm'),assert=require('assert/strict');
+const replies=[],waits=[];let invalidations=0;
+const generation='00000000-0000-4000-8000-000000000001';
+const native={postMessage:raw=>replies.push(JSON.parse(raw))};
+const character={applyPresentation(){},invalidatePending(){invalidations++;},
+    applySnapshot:()=>new Promise(resolve=>waits.push(resolve))};
+const context={AbortController,document:{getElementById:()=>({})},window:{
+    location:{origin:'https://appassets.androidplatform.net'},eneCharacterNative:native,
+    createCharacter:()=>character,addEventListener(){},removeEventListener(){}}};
+vm.runInNewContext(fs.readFileSync('assets/web/character/entry.js','utf8'),context);
+const send=(type,presentation_generation,value)=>native.onmessage({data:JSON.stringify({type,generation,presentation_generation,value})});
+(async()=>{
+    await send('initialize');await send('binding',1);
+    const previous=send('snapshot',1,{status:'unavailable'});
+    await send('binding',2);
+    waits[0](false);await previous;
+    assert.equal(replies.filter(x=>x.type==='unavailable').length,0);
+    assert.equal(invalidations,2);
+    await send('snapshot',1,{status:'unavailable'});assert.equal(waits.length,1);
+    const current=send('snapshot',2,{status:'unavailable'});waits[1](false);await current;
+    assert.deepEqual(replies.at(-1),{type:'unavailable',model_version:null,generation,presentation_generation:2});
+})().catch(error=>{console.error(error);process.exitCode=1;});
+"""
+    result = subprocess.run(["node", "-e", script], cwd=ROOT, capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+
+
 @pytest.mark.parametrize("phase", ["initialize", "resize", "resume"])
 def test_real_host_render_failure_uses_existing_safe_generation_error(phase):
     from tests.test_companion_character_runtime import run_character
@@ -19,17 +48,18 @@ context.location.origin='https://appassets.androidplatform.net';
 const replies=[];context.eneCharacterNative={postMessage:x=>replies.push(JSON.parse(x))};
 const generation='00000000-0000-4000-8000-000000000001';
 vm.runInContext(PHONE_ENTRY,ctx);
-const send=(type,value)=>context.eneCharacterNative.onmessage({data:JSON.stringify({type,value,generation})});
-resizeFailure=phase==='initialize';await send('initialize');
+const send=(type,value)=>context.eneCharacterNative.onmessage({data:JSON.stringify({presentation_generation:1,type,value,generation})});
+resizeFailure=phase==='initialize';await send('initialize');await send('binding');
 if(phase!=='initialize') {
     const placement={scale:1,xPercent:50,yPercent:50};
+    if(phase==='resize')await send('presentation',{placement,visible:true});
     if(phase==='resume')await send('presentation',{placement,visible:false});
     context.innerWidth=600;resizeFailure=true;
     if(phase==='resume')await send('presentation',{placement,visible:true});
     else listeners.get('window:resize')();
 }
 const code=phase==='initialize'?'character_initialization_failed':'character_render_failed';
-assert.deepEqual(replies.filter(x=>x.type==='error'),[{type:'error',code,generation}]);
+assert.deepEqual(replies.filter(x=>x.type==='error'||x.type==='document_error'),[{type:phase==='initialize'?'error':'document_error',code,generation}]);
 assert.equal(vm.runInContext('app',ctx),null);assert.equal(frames.size,0);
 """)
 
@@ -41,7 +71,7 @@ const origin = 'https://appassets.androidplatform.net';
 const generation = '00000000-0000-4000-8000-000000000001';
 const listeners = {}, calls = [], replies = [];
 let host;
-const character = {applySnapshot:async x=>{calls.push(x);return false;},
+const character = {invalidatePending(){},applySnapshot:async x=>{calls.push(x);return false;},
     applyAction:async x=>calls.push(x),applyPlayback:x=>calls.push(x),applyHeadPat:x=>calls.push(x),applyPreview:x=>calls.push(x),applyPresentation:x=>calls.push(x),
     dispose:()=>{calls.push('disposed');host.emitInput({type:'head_pat_input',phase:'cancel'});}};
 const context = {AbortController, document:{getElementById:()=>({})},window:{
@@ -49,7 +79,7 @@ const context = {AbortController, document:{getElementById:()=>({})},window:{
     eneCharacterNative:{postMessage:x=>replies.push(JSON.parse(x))},
     addEventListener:(name,fn)=>listeners[name]=fn, removeEventListener:()=>{}}};
 vm.runInNewContext(fs.readFileSync('assets/web/character/entry.js','utf8'),context);
-async function send(data) { await context.window.eneCharacterNative.onmessage({data:JSON.stringify(data)}); }
+async function send(data) { await context.window.eneCharacterNative.onmessage({data:JSON.stringify({presentation_generation:1,...data})}); }
 (async()=>{
     assert.deepEqual(replies,[{type:'bridge_ready'}]);
     assert.equal(listeners.message,undefined);
@@ -59,7 +89,7 @@ async function send(data) { await context.window.eneCharacterNative.onmessage({d
     assert.equal(calls.length,0);
     await send({type:'initialize',generation:'invalid'});
     assert.equal(replies.length,0);
-    await send({type:'initialize',generation});
+    await send({type:'initialize',generation});await send({type:'binding',generation});calls.length=0;
     assert.equal(replies[0].type,'document_ready');
     assert.equal(replies[0].generation,generation);
     await send({type:'snapshot',generation:'00000000-0000-4000-8000-000000000002',value:{status:'unavailable'}});
@@ -82,7 +112,7 @@ async function send(data) { await context.window.eneCharacterNative.onmessage({d
     listeners.pagehide();
     assert.equal(replies[2].phase,'cancel');assert.equal(replies[2].generation,generation);
     assert.equal(context.window.eneCharacterNative.onmessage,null);
-    await lateReceive({data:JSON.stringify({type:'action',generation,value:{kind:'gesture'}})});
+    await lateReceive({data:JSON.stringify({presentation_generation:1,type:'action',generation,value:{kind:'gesture'}})});
     assert.equal(calls.length,5);
 })().catch(error=>{console.error(error);process.exitCode=1;});
 """
@@ -104,7 +134,8 @@ const context = {AbortController,document:{getElementById:()=>({})},window:{
     addEventListener:(name,fn)=>listeners[name]=fn,removeEventListener:()=>{}}};
 vm.runInNewContext(fs.readFileSync('assets/web/character/entry.js','utf8'),context);
 (async()=>{
-    await native.onmessage({data:JSON.stringify({type:'initialize',generation})});
+    await native.onmessage({data:JSON.stringify({presentation_generation:1,type:'initialize',generation})});
+    await native.onmessage({data:JSON.stringify({presentation_generation:1,type:'binding',generation})});
     assert.deepEqual(replies,[{type:'bridge_ready'},
         {type:'error',code:'character_initialization_failed',generation}]);
     listeners.pagehide();
@@ -123,7 +154,7 @@ const fs=require('fs'),vm=require('vm'),assert=require('assert/strict');
 const generation='00000000-0000-4000-8000-000000000001';
 const native={postMessage(){}},waits=[],actions=[];
 let releaseAction;
-const character={applySnapshot:()=>new Promise(resolve=>waits.push(resolve)),
+const character={invalidatePending(){},applyPresentation(){},applySnapshot:()=>new Promise(resolve=>waits.push(resolve)),
     applyAction:async value=>{actions.push(value.action_seq);if(value.action_seq===11)await new Promise(resolve=>{releaseAction=resolve;});}};
 const context={AbortController,document:{getElementById:()=>({})},
     fetch:async()=>({ok:true,json:async()=>({})}),window:{
@@ -133,10 +164,10 @@ vm.runInNewContext(fs.readFileSync('assets/web/character/entry.js','utf8'),conte
 const model='a'.repeat(64);
 const snapshot=seq=>({status:'ready',model_version:model,entry_asset_id:'b'.repeat(64),expression_ids:['normal','bright'],action_seq:seq});
 const action=seq=>({model_version:model,kind:'expression',action_id:'bright',action_seq:seq});
-const send=(type,value)=>native.onmessage({data:JSON.stringify({type,value,generation})});
+const send=(type,value)=>native.onmessage({data:JSON.stringify({presentation_generation:1,type,value,generation})});
 async function settle(){for(let i=0;i<8;i++)await Promise.resolve();}
 (async()=>{
-    await send('initialize');
+    await send('initialize');await send('binding');
     const first=send('snapshot',snapshot(3));await settle();
     await send('action',action(4));
     const second=send('snapshot',snapshot(10));await settle();
@@ -162,14 +193,15 @@ const native = {postMessage:raw=>replies.push(JSON.parse(raw))};
 const context = {AbortController,document:{getElementById:()=>({})},
     fetch:async()=>({ok:failure !== 'asset',json:async()=>({})}),window:{
     location:{origin:'https://appassets.androidplatform.net'},eneCharacterNative:native,
-    createCharacter:()=>({applySnapshot:async()=>{throw new Error('synthetic renderer detail');}}),
+    createCharacter:()=>({invalidatePending(){},applyPresentation(){},applySnapshot:async()=>{throw new Error('synthetic renderer detail');}}),
     addEventListener:()=>{},removeEventListener:()=>{}}};
 vm.runInNewContext(fs.readFileSync('assets/web/character/entry.js','utf8'),context);
 (async()=>{
-    await native.onmessage({data:JSON.stringify({type:'initialize',generation})});
-    await native.onmessage({data:JSON.stringify({type:'snapshot',generation,value:{
+    await native.onmessage({data:JSON.stringify({presentation_generation:1,type:'initialize',generation})});
+    await native.onmessage({data:JSON.stringify({presentation_generation:1,type:'binding',generation})});
+    await native.onmessage({data:JSON.stringify({presentation_generation:1,type:'snapshot',generation,value:{
         status:'ready',model_version:'a'.repeat(64),entry_asset_id:'b'.repeat(64)}})});
-    assert.deepEqual(replies.at(-1),{type:'error',code:`character_${failure}_failed`,generation});
+    assert.deepEqual(replies.at(-1),{type:'error',code:`character_${failure}_failed`,generation,presentation_generation:1});
 })().catch(error=>{console.error(error);process.exitCode=1;});
 """
     result = subprocess.run(

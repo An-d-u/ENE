@@ -122,13 +122,53 @@ main().then(()=>process.stdout.write(JSON.stringify({ok:true}))).catch(error=>{c
     assert json.loads(result.stdout) == {"ok": True}
 
 
+def test_phone_invalidation_preserves_prepared_model_and_cancels_late_expression():
+    run_character(r"""
+host.kind='phone';const character=context.createCharacter(host,canvas);
+await character.applySnapshot(snapshot);const original=context.live2dModel;
+let release;
+context.fetch=()=>new Promise(resolve=>{release=()=>resolve({ok:true,json:async()=>({Parameters:[{Id:'ParamAccent',Value:0.9,Blend:'Overwrite'}]})});});
+const action=character.applyAction({model_version:snapshot.model_version,kind:'expression',action_id:'bright',duration_ms:0});
+character.invalidatePending();release();await action;
+assert.notEqual(values.get('ParamAccent'),0.9);
+context.fetch=async()=>({ok:true,json:async()=>({Parameters:[]})});
+const placement={scale:1,xPercent:50,yPercent:50};
+for(let i=0;i<3;i++) {
+    character.applyPresentation({placement,visible:false});character.invalidatePending();
+    assert.equal(frames.size,0);assert.equal(original.autoUpdate,false);
+    assert.equal(await character.applySnapshot(snapshot),true);
+    character.applyPresentation({placement,visible:true});
+    assert.equal(context.live2dModel,original);
+}
+assert.equal(calls.filter(x=>x.endsWith(snapshot.entry_asset_id)).length,1);
+assert.equal(calls.filter(x=>x==='destroyModel').length,0);
+assert.equal(calls.filter(x=>x==='createApp').length,1);character.dispose();
+""")
+
+
+def test_cancelled_initial_model_cannot_replace_new_binding_model():
+    run_character(r"""
+host.kind='phone';const waits=[];
+context.PIXI.live2d.Live2DModel.from=()=>new Promise(resolve=>waits.push(resolve));
+const character=context.createCharacter(host,canvas);
+const previous=character.applySnapshot(snapshot);
+character.invalidatePending();
+const current=character.applySnapshot(snapshot);
+const latest=model();waits[1](latest);assert.equal(await current,true);
+waits[0](model());assert.equal(await previous,false);
+assert.equal(context.live2dModel,latest);
+assert.equal(calls.filter(x=>x==='destroyModel').length,1);
+character.dispose();
+""")
+
+
 @pytest.mark.parametrize("kind", ["pc", "phone"])
 def test_shared_runtime_without_chat_and_dispose_clears_callbacks(kind):
     run_character(
         f"host.kind={json.dumps(kind)};"
         + r"""
 const character=context.createCharacter(host,canvas);
-assert.deepEqual(Object.keys(character).sort(),['applyAction','applyHeadPat','applyPlayback','applyPresentation','applyPreview','applySnapshot','dispose']);
+assert.deepEqual(Object.keys(character).sort(),['applyAction','applyHeadPat','applyPlayback','applyPresentation','applyPreview','applySnapshot','dispose','invalidatePending']);
 assert.equal(calls.filter(x=>x==='createApp').length,1);
 await character.applySnapshot(snapshot);
 assert.ok(calls.some(x=>x.endsWith(snapshot.entry_asset_id)));
@@ -375,7 +415,7 @@ if(phase==='initialize') {
     if(phase==='resume')assert.throws(()=>character.applyPresentation({placement,visible:true}));
     else {
         (phase==='resize'?resize:change)();resize();change();
-        assert.deepEqual(JSON.parse(JSON.stringify(inputs.filter(x=>x.type==='error'))),[{type:'error',code:'character_render_failed'}]);
+        assert.deepEqual(JSON.parse(JSON.stringify(inputs.filter(x=>x.type==='document_error'))),[{type:'document_error',code:'character_render_failed'}]);
     }
     character.dispose();
 }
@@ -435,8 +475,8 @@ context.fetch=async url=>{
     return {ok:true,json:async()=>({Parameters:[]})};
 };
 vm.runInContext(PHONE_ENTRY,ctx);
-async function send(type,value) {return context.eneCharacterNative.onmessage({data:JSON.stringify({type,value,generation})});}
-await send('initialize');await send('snapshot',{...snapshot,action_seq:3});
+async function send(type,value) {return context.eneCharacterNative.onmessage({data:JSON.stringify({type,value,generation,presentation_generation:1})});}
+await send('initialize');await send('binding');await send('snapshot',{...snapshot,action_seq:3});
 const original=context.live2dModel;
 const placement={scale:1.5,xPercent:25,yPercent:75};
 await send('presentation',{placement,visible:false});await send('presentation',{placement,visible:true});

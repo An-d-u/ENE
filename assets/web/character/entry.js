@@ -8,25 +8,34 @@
     let expressions = new Map();
     let generation = 0;
     let documentGeneration = null;
+    let presentationGeneration = 0;
     let disposed = false;
     let request = null;
     let character = null;
     let snapshotPending = false;
     let pendingExpression = null;
+    let presentation = {placement:{scale:1,xPercent:50,yPercent:50},visible:false};
     const assetId = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
     function assetUrl(kind, id) {
         const resolved = kind === 'expression' ? expressions.get(id) : id;
         if (!assetId(snapshot?.model_version) || !assetId(resolved)) throw new Error('허용되지 않은 캐릭터 자산입니다.');
         return `${origin}/models/${snapshot.model_version}/assets/${resolved}`;
     }
-    function emitInput(value) {
-        if (!disposed && documentGeneration) native.postMessage(JSON.stringify({...value, generation: documentGeneration}));
+    function emitInput(value, presentation = presentationGeneration) {
+        if (disposed || !documentGeneration) return;
+        if (value.type === 'document_ready' || value.type === 'document_error' || value.code === 'character_initialization_failed') {
+            native.postMessage(JSON.stringify({...value, generation: documentGeneration}));
+        } else if (presentation > 0 && presentation === presentationGeneration) {
+            native.postMessage(JSON.stringify({...value, generation: documentGeneration, presentation_generation: presentation}));
+        }
     }
     async function receive(event) {
         // 허용된 내부 문서에 주입한 객체의 응답만 받는다. 일반 window 메시지는 사용하지 않는다.
         if (disposed || typeof event.data !== 'string' || event.data.length > 262400) return;
         let expected = generation;
+        let expectedPresentation = presentationGeneration;
         let failureCode = 'character_render_failed';
+        let documentFailure = false;
         try {
             const command = JSON.parse(event.data);
             if (command.type === 'initialize') {
@@ -39,6 +48,18 @@
                 return;
             }
             if (!character || !documentGeneration || command.generation !== documentGeneration) return;
+            if (command.type === 'binding') {
+                const next = command.presentation_generation;
+                if (!Number.isSafeInteger(next) || next <= presentationGeneration) return;
+                presentationGeneration = next; generation++;
+                request?.abort(); request = null; pendingExpression = null; snapshotPending = false;
+                character.invalidatePending();
+                presentation = {...presentation,visible:false};
+                character.applyPresentation(presentation);
+                return;
+            }
+            if (!presentationGeneration || command.presentation_generation !== presentationGeneration) return;
+            expectedPresentation = presentationGeneration;
             if (command.type === 'snapshot') {
                 const current = ++generation;
                 expected = current;
@@ -67,7 +88,7 @@
                     await character.applyAction(latest);
                 }
                 if (!disposed && generation === current) snapshotPending = false;
-                if (!disposed && generation === current) emitInput({type: ready ? 'ready' : 'unavailable', model_version: snapshot?.model_version || null});
+                if (!disposed && generation === current) emitInput({type: ready ? 'ready' : 'unavailable', model_version: snapshot?.model_version || null}, expectedPresentation);
             } else if (command.type === 'action') {
                 if (snapshotPending) {
                     const action = command.value;
@@ -84,12 +105,19 @@
             } else if (command.type === 'preview') {
                 character.applyPreview(command.value);
             } else if (command.type === 'presentation') {
+                if (command.value?.visible === false && presentation.visible) {
+                    generation++; expected = generation;
+                    request?.abort(); request = null; pendingExpression = null; snapshotPending = false;
+                    character.invalidatePending();
+                }
+                documentFailure = true;
                 character.applyPresentation(command.value);
+                presentation = command.value;
             }
         } catch (_) {
             if (!disposed && expected === generation) {
                 snapshotPending = false; pendingExpression = null;
-                emitInput({type: 'error', code: failureCode});
+                emitInput({type: documentFailure ? 'document_error' : 'error', code: failureCode}, expectedPresentation);
             }
         }
     }
