@@ -94,7 +94,7 @@
     {
       "source": "assets/web/runtime_character_host.js",
       "target": "runtime_character_host.js",
-      "sha256": "a00feaa74265e0e2f6ccc4dd0a9ddf62d5931e4c860a7a37ab5ffc40d0a764ae"
+      "sha256": "93aa6482521c94185dde763ba68234ed6b24dac13580c9bca5718c3e5007dacf"
     },
     {
       "source": "assets/web/lib/pixi.min.js",
@@ -124,7 +124,7 @@
     {
       "source": "assets/web/character/entry.js",
       "target": "entry.js",
-      "sha256": "31a7383f4fbeb54feb875b9e123c2bbbe0372dc78913f543e0c69dce76d28d4e"
+      "sha256": "a18082fbaa5534b1c6af5495dca5a750b867de1685b592f7173c0c650356601a"
     },
     {
       "source": "assets/web/character/style.css",

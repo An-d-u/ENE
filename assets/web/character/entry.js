@@ -85,7 +85,7 @@
                 // 이전 스냅샷의 완료가 새 스냅샷의 준비 상태나 표정을 지우지 못하게 한다.
                 while (!disposed && generation === current && ready && pendingExpression) {
                     const latest = pendingExpression; pendingExpression = null;
-                    await character.applyAction(latest);
+                    await character.applyAction(latest, {restoreCurrent:true});
                 }
                 if (!disposed && generation === current) snapshotPending = false;
                 if (!disposed && generation === current) emitInput({type: ready ? 'ready' : 'unavailable', model_version: snapshot?.model_version || null}, expectedPresentation);

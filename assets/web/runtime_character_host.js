@@ -230,10 +230,12 @@ window.createCharacter = function createCharacter(host, canvas) {
         applySettings(next.settings, next.head_pat_defaults);
         return true;
     }
-    async function applyAction(action) {
-        if (!characterCanAnimate() || !snapshot || action?.model_version !== version) return false;
+    async function applyAction(action, {restoreCurrent = false} = {}) {
+        if (disposed || !snapshot || action?.model_version !== version) return false;
+        // 준비 중에는 현재 표정 하나만 복원한다. 숨긴 제스처나 애니메이션은 재생하지 않는다.
+        if (!characterCanAnimate() && !(restoreCurrent && action.kind === 'expression')) return false;
         if (action.kind === 'expression' && snapshot.expression_ids?.includes(action.action_id)) {
-            await changeExpression(action.action_id, {durationMs: Math.min(30000, Math.max(0, Number(action.duration_ms) || 0))});
+            await changeExpression(action.action_id, {durationMs: restoreCurrent ? 0 : Math.min(30000, Math.max(0, Number(action.duration_ms) || 0))});
             return !disposed;
         }
         if (action.kind === 'gesture' && snapshot.gesture_ids?.includes(action.action_id)) {

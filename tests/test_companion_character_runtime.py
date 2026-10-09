@@ -460,7 +460,8 @@ character.dispose();
 """)
 
 
-def test_phone_resume_snapshot_cannot_overwrite_newer_expression_during_asset_read():
+@pytest.mark.parametrize("visible", [True, False])
+def test_phone_resume_snapshot_cannot_overwrite_newer_expression_during_asset_read(visible):
     run_character(r"""
 context.location.origin='https://appassets.androidplatform.net';
 const replies=[];context.eneCharacterNative={postMessage:x=>replies.push(JSON.parse(x))};
@@ -479,7 +480,7 @@ async function send(type,value) {return context.eneCharacterNative.onmessage({da
 await send('initialize');await send('binding');await send('snapshot',{...snapshot,action_seq:3});
 const original=context.live2dModel;
 const placement={scale:1.5,xPercent:25,yPercent:75};
-await send('presentation',{placement,visible:false});await send('presentation',{placement,visible:true});
+await send('presentation',{placement,visible:false});await send('presentation',{placement,visible:TEST_VISIBLE});
 delayRead=true;const refresh=send('snapshot',{...snapshot,action_seq:3});
 await send('action',{model_version:snapshot.model_version,kind:'expression',action_id:'bright',action_seq:4,duration_ms:0});
 await send('action',{model_version:snapshot.model_version,kind:'gesture',action_id:'nod',action_seq:5});
@@ -488,8 +489,9 @@ assert.equal(vm.runInContext('currentEmotionTag',ctx),'bright');
 assert.equal(vm.runInContext('activeGestureKey',ctx),'');
 assert.equal(context.live2dModel,original);assert.equal(calls.filter(x=>x.endsWith(snapshot.entry_asset_id)).length,1);
 assert.equal(replies.at(-1).type,'ready');
+if (!TEST_VISIBLE) { assert.equal(frames.size,0); assert.equal(timers.size,0); }
 listeners.get('window:pagehide')();
-""")
+""".replace("TEST_VISIBLE", str(visible).lower()))
 
 
 def test_pc_placement_does_not_use_phone_fit_or_visibility():
