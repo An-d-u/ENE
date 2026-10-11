@@ -1,0 +1,277 @@
+[
+  {
+    "name": "request",
+    "valid": true,
+    "body": {
+      "type": "chat_progress_request",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "00000000-0000-4000-8000-000000000001",
+      "connection_generation": "00000000-0000-4000-8000-000000000002",
+      "conversation_id": "00000000-0000-4000-8000-000000000003"
+    }
+  },
+  {
+    "name": "idle",
+    "valid": true,
+    "body": {
+      "type": "chat_progress_state",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "00000000-0000-4000-8000-000000000001",
+      "connection_generation": "00000000-0000-4000-8000-000000000002",
+      "conversation_id": "00000000-0000-4000-8000-000000000003",
+      "progress_revision": 0,
+      "phase": "idle"
+    }
+  },
+  {
+    "name": "preparing",
+    "valid": true,
+    "body": {
+      "type": "chat_progress_state",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "00000000-0000-4000-8000-000000000001",
+      "connection_generation": "00000000-0000-4000-8000-000000000002",
+      "conversation_id": "00000000-0000-4000-8000-000000000003",
+      "progress_revision": 1,
+      "phase": "preparing",
+      "request_id": "00000000-0000-4000-8000-000000000004"
+    }
+  },
+  {
+    "name": "generating",
+    "valid": true,
+    "body": {
+      "type": "chat_progress_state",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "00000000-0000-4000-8000-000000000001",
+      "connection_generation": "00000000-0000-4000-8000-000000000002",
+      "conversation_id": "00000000-0000-4000-8000-000000000003",
+      "progress_revision": 1,
+      "phase": "generating",
+      "request_id": "00000000-0000-4000-8000-000000000004"
+    }
+  },
+  {
+    "name": "text_ready",
+    "valid": true,
+    "body": {
+      "type": "chat_progress_state",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "00000000-0000-4000-8000-000000000001",
+      "connection_generation": "00000000-0000-4000-8000-000000000002",
+      "conversation_id": "00000000-0000-4000-8000-000000000003",
+      "progress_revision": 1,
+      "phase": "text_ready",
+      "request_id": "00000000-0000-4000-8000-000000000004"
+    }
+  },
+  {
+    "name": "maximum_revision",
+    "valid": true,
+    "body": {
+      "type": "chat_progress_state",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "00000000-0000-4000-8000-000000000001",
+      "connection_generation": "00000000-0000-4000-8000-000000000002",
+      "conversation_id": "00000000-0000-4000-8000-000000000003",
+      "progress_revision": 9007199254740991,
+      "phase": "generating",
+      "request_id": "00000000-0000-4000-8000-000000000004"
+    }
+  },
+  {
+    "name": "feature_error",
+    "valid": true,
+    "body": {
+      "type": "extension_error",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "00000000-0000-4000-8000-000000000001",
+      "connection_generation": "00000000-0000-4000-8000-000000000002",
+      "feature": "chat_progress_v1",
+      "code": "progress_unavailable"
+    }
+  },
+  {
+    "name": "idle_with_request",
+    "valid": false,
+    "body": {
+      "type": "chat_progress_state",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "00000000-0000-4000-8000-000000000001",
+      "connection_generation": "00000000-0000-4000-8000-000000000002",
+      "conversation_id": "00000000-0000-4000-8000-000000000003",
+      "progress_revision": 0,
+      "phase": "idle",
+      "request_id": "00000000-0000-4000-8000-000000000004"
+    }
+  },
+  {
+    "name": "idle_with_null_request",
+    "valid": false,
+    "body": {
+      "type": "chat_progress_state",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "00000000-0000-4000-8000-000000000001",
+      "connection_generation": "00000000-0000-4000-8000-000000000002",
+      "conversation_id": "00000000-0000-4000-8000-000000000003",
+      "progress_revision": 0,
+      "phase": "idle",
+      "request_id": null
+    }
+  },
+  {
+    "name": "active_without_request",
+    "valid": false,
+    "body": {
+      "type": "chat_progress_state",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "00000000-0000-4000-8000-000000000001",
+      "connection_generation": "00000000-0000-4000-8000-000000000002",
+      "conversation_id": "00000000-0000-4000-8000-000000000003",
+      "progress_revision": 1,
+      "phase": "generating"
+    }
+  },
+  {
+    "name": "active_with_null_request",
+    "valid": false,
+    "body": {
+      "type": "chat_progress_state",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "00000000-0000-4000-8000-000000000001",
+      "connection_generation": "00000000-0000-4000-8000-000000000002",
+      "conversation_id": "00000000-0000-4000-8000-000000000003",
+      "progress_revision": 1,
+      "phase": "generating",
+      "request_id": null
+    }
+  },
+  {
+    "name": "unknown_phase",
+    "valid": false,
+    "body": {
+      "type": "chat_progress_state",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "00000000-0000-4000-8000-000000000001",
+      "connection_generation": "00000000-0000-4000-8000-000000000002",
+      "conversation_id": "00000000-0000-4000-8000-000000000003",
+      "progress_revision": 1,
+      "phase": "playing",
+      "request_id": "00000000-0000-4000-8000-000000000004"
+    }
+  },
+  {
+    "name": "invalid_revision_0",
+    "valid": false,
+    "body": {
+      "type": "chat_progress_state",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "00000000-0000-4000-8000-000000000001",
+      "connection_generation": "00000000-0000-4000-8000-000000000002",
+      "conversation_id": "00000000-0000-4000-8000-000000000003",
+      "progress_revision": -1,
+      "phase": "generating",
+      "request_id": "00000000-0000-4000-8000-000000000004"
+    }
+  },
+  {
+    "name": "invalid_revision_1",
+    "valid": false,
+    "body": {
+      "type": "chat_progress_state",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "00000000-0000-4000-8000-000000000001",
+      "connection_generation": "00000000-0000-4000-8000-000000000002",
+      "conversation_id": "00000000-0000-4000-8000-000000000003",
+      "progress_revision": 1.5,
+      "phase": "generating",
+      "request_id": "00000000-0000-4000-8000-000000000004"
+    }
+  },
+  {
+    "name": "invalid_revision_2",
+    "valid": false,
+    "body": {
+      "type": "chat_progress_state",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "00000000-0000-4000-8000-000000000001",
+      "connection_generation": "00000000-0000-4000-8000-000000000002",
+      "conversation_id": "00000000-0000-4000-8000-000000000003",
+      "progress_revision": true,
+      "phase": "generating",
+      "request_id": "00000000-0000-4000-8000-000000000004"
+    }
+  },
+  {
+    "name": "invalid_revision_3",
+    "valid": false,
+    "body": {
+      "type": "chat_progress_state",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "00000000-0000-4000-8000-000000000001",
+      "connection_generation": "00000000-0000-4000-8000-000000000002",
+      "conversation_id": "00000000-0000-4000-8000-000000000003",
+      "progress_revision": "1",
+      "phase": "generating",
+      "request_id": "00000000-0000-4000-8000-000000000004"
+    }
+  },
+  {
+    "name": "invalid_revision_4",
+    "valid": false,
+    "body": {
+      "type": "chat_progress_state",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "00000000-0000-4000-8000-000000000001",
+      "connection_generation": "00000000-0000-4000-8000-000000000002",
+      "conversation_id": "00000000-0000-4000-8000-000000000003",
+      "progress_revision": 9007199254740992,
+      "phase": "generating",
+      "request_id": "00000000-0000-4000-8000-000000000004"
+    }
+  },
+  {
+    "name": "invalid_revision_5",
+    "valid": false,
+    "body": {
+      "type": "chat_progress_state",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "00000000-0000-4000-8000-000000000001",
+      "connection_generation": "00000000-0000-4000-8000-000000000002",
+      "conversation_id": "00000000-0000-4000-8000-000000000003",
+      "progress_revision": null,
+      "phase": "generating",
+      "request_id": "00000000-0000-4000-8000-000000000004"
+    }
+  },
+  {
+    "name": "invalid_conversation",
+    "valid": false,
+    "body": {
+      "type": "chat_progress_request",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "00000000-0000-4000-8000-000000000001",
+      "connection_generation": "00000000-0000-4000-8000-000000000002",
+      "conversation_id": "not-a-uuid"
+    }
+  }
+]

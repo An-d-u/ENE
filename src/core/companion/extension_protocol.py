@@ -7,7 +7,8 @@ import re
 from .protocol import MAX_TEXT_BYTES, ProtocolError, integer_value, text_value, uuid_value
 
 
-CAPABILITIES = ("audio_pcm_v1", "character_v1", "character_controls_v1", "chat_actions_v1", "message_thoughts_v1", "chat_display_v1")
+CAPABILITIES = ("audio_pcm_v1", "character_v1", "character_controls_v1", "chat_actions_v1", "message_thoughts_v1", "chat_display_v1", "chat_progress_v1")
+PROGRESS_TYPES = frozenset({"chat_progress_request", "chat_progress_state"})
 DISPLAY_TYPES = frozenset({"chat_display_request", "chat_display_state"})
 THOUGHT_TYPES = frozenset({"thought_request", "thought_response", "thought_invalidated"})
 MAX_THOUGHT_BYTES = 8192
@@ -53,6 +54,7 @@ EXTENSION_TYPES = (
     | CHAT_TYPES
     | THOUGHT_TYPES
     | DISPLAY_TYPES
+    | PROGRESS_TYPES
     | {"extensions_ready", "extension_error"}
 )
 FROM_PHONE = frozenset(
@@ -71,6 +73,7 @@ FROM_PHONE = frozenset(
         "chat_action",
         "thought_request",
         "chat_display_request",
+        "chat_progress_request",
     }
 )
 FROM_PC = EXTENSION_TYPES - FROM_PHONE | {"audio_cancel"}
@@ -87,6 +90,8 @@ SMALL_TYPES = frozenset(
         "thought_invalidated",
         "chat_display_request",
         "chat_display_state",
+        "chat_progress_request",
+        "chat_progress_state",
     }
 )
 BOOL_SETTINGS = frozenset(
@@ -246,6 +251,16 @@ def normalize_extension(kind, body):
         ) != set(capabilities):
             raise ProtocolError()
         result["capabilities"] = capabilities
+    elif kind in PROGRESS_TYPES:
+        result["conversation_id"] = uuid_value(get("conversation_id"))
+        if kind == "chat_progress_state":
+            phase = _choice(get("phase"), {"idle", "preparing", "generating", "text_ready"})
+            result.update(progress_revision=integer_value(get("progress_revision")), phase=phase)
+            if phase == "idle":
+                if "request_id" in body:
+                    raise ProtocolError()
+            else:
+                result["request_id"] = uuid_value(get("request_id"))
     elif kind == "chat_display_request":
         pass
     elif kind == "chat_display_state":
@@ -402,6 +417,8 @@ def normalize_extension(kind, body):
 
 
 def feature_for(kind, fields):
+    if kind in PROGRESS_TYPES:
+        return "chat_progress_v1"
     if kind in DISPLAY_TYPES:
         return "chat_display_v1"
     if kind in THOUGHT_TYPES:
