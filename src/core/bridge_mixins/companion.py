@@ -36,12 +36,20 @@ class CompanionBridgeMixin:
         self._ensure_companion_chat_actions()
         self._ensure_companion_thoughts()
         self._ensure_companion_chat_display()
+        self._ensure_companion_chat_progress()
         if not hasattr(self, "_companion_audio"):
             from ..companion.audio_bridge import CompanionAudioBridge
 
             self._companion_audio = CompanionAudioBridge(self)
         if hasattr(self, "character_catalog_requested"):
             self._ensure_companion_character()
+
+    def _ensure_companion_chat_progress(self):
+        if not hasattr(self, "_companion_chat_progress"):
+            from ..companion.chat_progress_bridge import CompanionChatProgressBridge
+
+            self._companion_chat_progress = CompanionChatProgressBridge(self)
+        return self._companion_chat_progress
 
     def _ensure_companion_chat_display(self):
         if not hasattr(self, "_companion_chat_display"):
@@ -132,6 +140,15 @@ class CompanionBridgeMixin:
             CAPABILITIES,
             direction="from_phone",
         )
+        if message.type == "chat_progress_request":
+            from ..companion.protocol import decode_message, encode_message
+
+            return decode_message(encode_message({
+                **self._ensure_companion_chat_progress().snapshot(),
+                "type": "chat_progress_state", "protocol_version": 1,
+                "registration_generation": context.registration_generation,
+                "server_epoch": head.server_epoch, "connection_generation": context.connection_generation,
+            }))
         if message.type == "chat_display_request":
             from ..companion.protocol import decode_message, encode_message
 
@@ -381,6 +398,10 @@ class CompanionBridgeMixin:
         self.chat_state.operation_requests[operation_id] = replace(
             ref, operation_id=str(operation_id)
         )
+        self._ensure_companion_chat_progress().begin(
+            self.chat_state.operation_requests[operation_id],
+            "preparing" if phase == "preparing" else "generating",
+        )
         event = self.chat_state.public_transcript.set_processing(phase, ref.request_id)
         if event is not None:
             self.companion_event.emit(event)
@@ -398,6 +419,7 @@ class CompanionBridgeMixin:
         if callable(finish_retry):
             finish_retry(operation_id)
         ref = self.chat_state.operation_requests.pop(operation_id, None)
+        self._ensure_companion_chat_progress().finish(ref)
         if ref is None or not self._companion_request_is_current(ref):
             return
         succeeded = code is None and ref.key in self.chat_state.public_assistant_ids
@@ -449,6 +471,7 @@ class CompanionBridgeMixin:
         worker.companion_file_result = file_result
         self.chat_state.last_request_ref = worker.companion_request_ref
         self.chat_state.operation_requests[operation_id] = worker.companion_request_ref
+        self._ensure_companion_chat_progress().begin(worker.companion_request_ref, "generating")
         event = self.chat_state.public_transcript.set_processing(
             "responding", request_ref.request_id
         )
@@ -519,6 +542,7 @@ class CompanionBridgeMixin:
             audio.cancel("conversation_reset", release=False)
         state = self.chat_state
         state.public_transcript.reset()
+        self._ensure_companion_chat_progress().reset(state.public_transcript.conversation_id)
         state.request_ledger.reset()
         state.public_user_ids.clear()
         state.public_assistant_ids.clear()

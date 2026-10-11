@@ -1453,6 +1453,9 @@ class ChatFlowBridgeMixin:
             thoughts_enabled = lambda: ThoughtBridgeMixin._are_ene_thoughts_enabled(self)
         if not thoughts_enabled():
             thought = ""
+        progress_factory = getattr(self, "_ensure_companion_chat_progress", None)
+        if callable(progress_factory):
+            progress_factory().text_ready(request_ref)
         response_mode, schema_version, repair_performed = _response_log_metadata(
             response_metadata
         )

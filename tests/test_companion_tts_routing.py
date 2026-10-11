@@ -393,6 +393,7 @@ def test_pending_stream_publishes_before_offer_and_waits_for_phone(routed_bridge
     )[1])
     result = stream_reply(routed_bridge, published=False)
     assert played == [] and transfers == []
+    assert bridge._ensure_companion_chat_progress().snapshot()["phase"] == "text_ready"
     assert result.request_ref.key not in bridge.chat_state.public_assistant_ids
     events.clear()
     jobs[0].stream_chunk_ready.emit(b"\0\0" * 2400, [])
@@ -404,8 +405,10 @@ def test_pending_stream_publishes_before_offer_and_waits_for_phone(routed_bridge
     bridge.submit_extension(context, wire(offer.ref, "audio_prepared", buffered_frames=2400))
     jobs[0].stream_finished.emit()
     assert bridge.life_record_state.phase == "normal_reply" and played == []
+    assert bridge._ensure_companion_chat_progress().snapshot()["phase"] == "text_ready"
     bridge.submit_extension(context, wire(offer.ref, "audio_finished", played_frames=2400))
     assert bridge.life_record_state.phase == "idle" and played == []
+    assert bridge._ensure_companion_chat_progress().snapshot()["phase"] == "idle"
 
 
 def test_format_without_pcm_finishes_text_without_starting_audio(routed_bridge):
@@ -590,7 +593,7 @@ def test_controller_only_advertises_installed_media_boundaries(routed_bridge):
 
     bridge, _, _, _, _ = routed_bridge
     controller = CompanionController(bridge)
-    assert controller._capabilities == ("audio_pcm_v1", "character_v1", "character_controls_v1", "chat_actions_v1", "message_thoughts_v1", "chat_display_v1")
+    assert controller._capabilities == ("audio_pcm_v1", "character_v1", "character_controls_v1", "chat_actions_v1", "message_thoughts_v1", "chat_display_v1", "chat_progress_v1")
     assert controller._character is bridge._companion_character
 
 

@@ -61,9 +61,10 @@ def test_extension_dispatch_rechecks_qt_owner_and_direction(qt_app):
     assert all(thread == qt_app.thread() for thread in owner.thread_ids)
 
 
-def test_legacy_hello_never_receives_extension_frames(tmp_path):
+@pytest.mark.parametrize("capabilities", [("audio_pcm_v1",), ("chat_progress_v1",)])
+def test_legacy_hello_never_receives_extension_frames(tmp_path, capabilities):
     async def scenario():
-        async with harness(tmp_path, capabilities=("audio_pcm_v1",)) as (
+        async with harness(tmp_path, capabilities=capabilities) as (
             _,
             client,
             base,
