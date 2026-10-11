@@ -45,7 +45,7 @@ class ConnectionResources:
     def acquire(self, kind):
         if self.closed:
             raise MediaError("not_found", 404)
-        limit = {"audio": 1, "asset": 2, "manifest": 1}[kind]
+        limit = {"audio": 1, "asset": 2, "manifest": 1, "upload": 1, "thumbnail": 2}[kind]
         if sum(value == kind for value in self._tasks.values()) >= limit:
             raise MediaError("resource_busy", 429)
         task = asyncio.current_task()

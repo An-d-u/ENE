@@ -12,6 +12,7 @@ from aiohttp import WSMsgType
 from .protocol import ProtocolError, WireMessage, decode_message, encode_message
 from .transcript import CapturedTranscript, TranscriptError
 from .connection_resources import ConnectionResources
+from .input_uploads import UploadStore, InputError
 from .extension_protocol import (
     EXTENSION_TYPES,
     ExtensionContext,
@@ -307,12 +308,16 @@ class CompanionSession:
         validate_connection=None,
         heartbeat_interval=15,
         heartbeat_timeout=10,
+        input_budget=None,
     ):
         self.ws, self.adapter, self.context = ws, adapter, context
         self._validate_connection = validate_connection or (lambda: None)
         self.server_epoch = ready["server_epoch"]
         self.conversation_id = ready["conversation_id"]
         self.capabilities = tuple(ready.get("capabilities", ()))
+        self.uploads = UploadStore(self.extension_context, budget=input_budget)
+        self.input_rate = TokenBucket(2, 8)
+        self.thumbnail_rate = TokenBucket(4, 8)
         self.resources = ConnectionResources()
         # 재동기화·pong·대기 음성 제안/EOF의 전용 자리도 총 상한에 포함한다.
         self.outbox = Outbox(max_items=252, max_bytes=4194304 - 3 * 65536 - 125)
@@ -349,6 +354,9 @@ class CompanionSession:
         self._sync_version = self._capture_version = 0
         self._snapshot_active = False
         self._ever_synced = False
+        from .stt_input import SttInput
+
+        self.stt_input = SttInput(self)
         self._pending_ids = ()
         self._queued_chat_query = None
         self._last_snapshot = None
@@ -365,6 +373,8 @@ class CompanionSession:
         self.synced = False
         self.adapter.cancel_connection(self.context)
         self.resources.cancel()
+        self.uploads.close()
+        self.stt_input.close()
         self._audio_offer = self._audio_source_end = None
         self._stopped.set()
         self._wake.set()
@@ -394,6 +404,8 @@ class CompanionSession:
                 return
             if message.type == "character_changed":
                 self.resources.observe_character(value["state_revision"], value["model_version"])
+            if message.type == "audio_start":
+                self.stt_input.cancel()
             self.queue(message, control=True)
             return
         if message.type == "resync_required":
@@ -403,6 +415,9 @@ class CompanionSession:
                 value["server_epoch"],
                 value["conversation_id"],
             )
+            if self.uploads.context != self.extension_context:
+                self.uploads.reset(self.extension_context)
+                self.stt_input.cancel()
             self._sync_version += 1
             self.synced = False
             self._resync = encode_message(value)
@@ -417,6 +432,8 @@ class CompanionSession:
                 self.server_epoch,
                 self.conversation_id,
             ):
+                if value["op"] == "processing" and value["payload"]["phase"] != "idle":
+                    self.stt_input.cancel()
                 self.queue(message)
         elif message.type == "request_status":
             self.queue(message, control=True)
@@ -723,7 +740,37 @@ class CompanionSession:
                     self.capabilities,
                     direction="from_phone",
                 )
-                if message.type == "chat_action" and not self.synced:
+                if message.type in {"input_reserve", "input_cancel"}:
+                    if not self.synced:
+                        raise InputError("sync_required", 409)
+                    fields = message.fields
+                    if message.type == "input_reserve":
+                        key = self.uploads.reserve(self.extension_context, fields["command_id"], fields["purpose"],
+                                                  fields["byte_length"], fields["sha256"])
+                        self.queue({
+                            "type": "input_reserved", "protocol_version": 1,
+                            "registration_generation": self.context.registration_generation,
+                            "server_epoch": self.server_epoch, "connection_generation": self.context.connection_generation,
+                            "conversation_id": self.conversation_id, "command_id": fields["command_id"],
+                            "purpose": fields["purpose"], "upload_id": key,
+                        }, control=True)
+                    else:
+                        if self.uploads.purpose(self.extension_context, fields["upload_id"]) != fields["purpose"]:
+                            raise InputError("upload_mismatch")
+                        self.uploads.cancel(self.extension_context, fields["upload_id"])
+                    continue
+                if message.type.startswith("stt_"):
+                    try:
+                        if not self.synced:
+                            raise InputError("sync_required", 409)
+                        await self.stt_input.receive(message)
+                    finally:
+                        if message.type == "stt_transcribe":
+                            self._release_input_ids((message.fields["upload_id"],))
+                    continue
+                if message.type in {"chat_action", "chat_images_send"} and not self.synced:
+                    if message.type == "chat_images_send":
+                        self._release_input_ids(tuple(item["upload_id"] for item in message.fields["images"]))
                     self._chat_action_error(message, "rejected", "sync_required")
                     continue
                 snapshot_id = None
@@ -739,9 +786,14 @@ class CompanionSession:
                     if self._last_snapshot is None:
                         raise SessionError("snapshot_failed")
                     snapshot_id = self._last_snapshot.snapshot_id
-                result = await self.adapter.call(
-                    "extension", self.context, message=message
-                )
+                if message.type == "chat_images_send":
+                    try:
+                        result = await self.adapter.call("send_images", self.context, message=message, input_store=self.uploads)
+                    finally:
+                        # claim된 입력은 별도 불변 객체다. 중복·거절·예외의 미수락 슬롯만 회수한다.
+                        self._release_input_ids(tuple(item["upload_id"] for item in message.fields["images"]))
+                else:
+                    result = await self.adapter.call("extension", self.context, message=message)
                 if result is not None:
                     if message.type == "chat_actions_request":
                         result = decode_message(encode_message({**result.to_dict(), "snapshot_id": snapshot_id}))
@@ -749,7 +801,7 @@ class CompanionSession:
             except ProtocolError:
                 continue
             except Exception as error:
-                if message.type == "chat_action":
+                if message.type in {"chat_action", "chat_images_send"}:
                     from .adapter import AdapterError
 
                     self._chat_action_error(message, "rejected" if isinstance(error, AdapterError) else "unknown",
@@ -763,8 +815,9 @@ class CompanionSession:
                         "server_epoch": self.server_epoch,
                         "connection_generation": self.context.connection_generation,
                         "feature": feature_for(message.type, message.fields),
-                        "code": "extension_failed",
-                        **({"command_id": message.fields["query_id"]} if message.type == "chat_actions_request" else {}),
+                        "code": error.code if isinstance(error, InputError) else "extension_failed",
+                        **({"command_id": message.fields["query_id"]} if "query_id" in message.fields else
+                           {"command_id": message.fields["command_id"]} if "command_id" in message.fields else {}),
                     },
                     control=True,
                 )
@@ -777,9 +830,18 @@ class CompanionSession:
             "request_id": message.fields["request_id"], "state": state, "code": code,
         }, control=True)
 
+    def _release_input_ids(self, ids):
+        for key in ids:
+            try:
+                self.uploads.cancel(self.extension_context, key)
+            except InputError:
+                pass
+
     async def _timer(self):
         while True:
             await asyncio.sleep(0.02)
+            self.uploads.expire()
+            self.stt_input.tick()
             if self._pump.failure is not None:
                 raise SessionError(self._pump.failure)
             ping = self._heartbeat.tick()

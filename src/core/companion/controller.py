@@ -50,7 +50,9 @@ class CompanionController(QObject):
             getattr(getattr(owner, "_companion_chat_display", None), "capabilities", ())
         ) + tuple(
             getattr(getattr(owner, "_companion_chat_progress", None), "capabilities", ())
-        )
+        ) + tuple(
+            getattr(getattr(owner, "_companion_images", None), "capabilities", ())
+        ) + (("stt_input_v1",) if hasattr(owner, "submit_extension") else ())
         self._character = getattr(owner, "_companion_character", None)
         self.state = GatewayState(False, None, False, None, None)
         self._store_factory, self._endpoint_provider = store_factory, endpoint_provider

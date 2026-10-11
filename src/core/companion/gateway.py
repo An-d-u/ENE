@@ -24,6 +24,8 @@ from .tls_listener import TlsListener
 from .connection_resources import MediaError
 from .extension_protocol import CAPABILITIES, negotiate
 from .media_http import MediaHttp
+from .input_http import InputHttp
+from .input_uploads import InputBudget
 
 
 # 기존 최소 의존성과 새 aiohttp의 타입 지정 요청 키를 모두 지원한다.
@@ -63,6 +65,8 @@ class CompanionGateway:
         self.pairing, self.adapter = pairing, adapter
         self.capabilities = negotiate(capabilities, CAPABILITIES)
         self._media = MediaHttp(self._authorize_media, self._validate_session_tls)
+        self._input = InputHttp(self._authorize_media, self._validate_session_tls)
+        self._input_budget = InputBudget()
         self._tls_store = tls_store
         self._tls_identity = None
         self._tls_clock, self._renewal_clock = tls_clock, renewal_clock
@@ -142,7 +146,7 @@ class CompanionGateway:
         @web.middleware
         async def guard(request, handler):
             media = request.path.startswith(
-                ("/companion/v1/audio/", "/companion/v1/character/")
+                ("/companion/v1/audio/", "/companion/v1/character/", "/companion/v1/input/", "/companion/v1/chat-images/")
             )
             if not media and ("Origin" in request.headers or request.query_string):
                 return self._response("forbidden", 403)
@@ -168,6 +172,8 @@ class CompanionGateway:
         app.router.add_get("/companion/v1/info", self._info)
         app.router.add_get("/companion/v1/pair", self._pair)
         app.router.add_get("/companion/v1/ws", self._normal)
+        app.router.add_put("/companion/v1/input/{upload_id}", self._input.upload)
+        app.router.add_get("/companion/v1/chat-images/{message_id}/{image_id}", self._input.image, allow_head=False)
         app.router.add_get(
             "/companion/v1/audio/{utterance_id}", self._media.audio, allow_head=False
         )
@@ -178,7 +184,7 @@ class CompanionGateway:
             "/companion/v1/character/assets/{asset_id}", self._media.character_asset, allow_head=False
         )
         # 자격증명이 URL/헤더/예외에 포함될 수 있으므로 액세스 로그를 만들지 않는다.
-        self._runner = web.AppRunner(app, access_log=None, shutdown_timeout=2)
+        self._runner = web.AppRunner(app, access_log=None, shutdown_timeout=2, auto_decompress=False)
         try:
             await self._runner.setup()
             self._site = await TlsListener.start(self._runner, host, port, context)
@@ -335,6 +341,7 @@ class CompanionGateway:
                     validate_connection=self._validate_session_tls,
                     heartbeat_interval=self._heartbeat_interval,
                     heartbeat_timeout=self._heartbeat_timeout,
+                    input_budget=self._input_budget,
                 )
                 self._active = session
             self._limiter.release(request[_PREAUTH_SLOT])

@@ -57,6 +57,9 @@ class LoopbackClient:
     def get(self, *args, **kwargs):
         return self.session.get(*args, **kwargs)
 
+    def put(self, *args, **kwargs):
+        return self.session.put(*args, **kwargs)
+
     async def ws_connect(self, *args, **kwargs):
         socket = await self.session.ws_connect(*args, **kwargs)
         self._sockets.append(socket)

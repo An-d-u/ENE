@@ -248,10 +248,17 @@ class AttachmentBridgeMixin:
         is_current = getattr(self, "_companion_request_is_current", None)
         if request_ref is not None and callable(is_current) and not is_current(request_ref):
             return
+        if request_ref is not None and request_ref.source == "mobile" and getattr(self.llm_client, "supports_image_input", None) is False:
+            raise ValueError("image_input_unsupported")
         legacy_direct_mixin = not hasattr(self, "life_record_state")
         attachments_data = request.attachment_copies()
         prepared_attachments = self._resolve_prepared_attachments(attachments_data)
         runtime_attachments = self._normalize_attachment_runtime_state(prepared_attachments)
+        if request_ref is not None and request_ref.source == "mobile" and (
+            len(runtime_attachments) != len(attachments_data)
+            or any(item.get("status") != "ready" or item.get("category") != "image" for item in runtime_attachments)
+        ):
+            raise ValueError("invalid_mobile_images")
         ready_attachments = [
             item for item in runtime_attachments
             if str(item.get("status", "ready")) == "ready"
@@ -338,6 +345,9 @@ class AttachmentBridgeMixin:
             self._sync_attachment_session_aliases()
         else:
             self._message_attachment_records[message_id] = record
+        images_bridge = getattr(self, "_companion_images", None)
+        if images_bridge is not None:
+            images_bridge.register(request_ref, message_id, runtime_attachments)
         mood_context = self._new_mood_event_context()
         mood_event_id = str(mood_context.get("event_id", ""))
         mood_occurred_at = str(mood_context.get("occurred_at_utc", ""))
@@ -446,3 +456,6 @@ class AttachmentBridgeMixin:
             self._last_request_payload["attachment_context"] = attachment_context
 
         self._refresh_llm_history_from_visible_conversation()
+        images_bridge = getattr(self, "_companion_images", None)
+        if images_bridge is not None:
+            images_bridge.changed(normalized_message_id)

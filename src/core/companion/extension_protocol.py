@@ -5,9 +5,10 @@ import math
 import re
 
 from .protocol import MAX_TEXT_BYTES, ProtocolError, integer_value, text_value, uuid_value
+from .input_protocol import INPUT_TYPES, INPUT_FROM_PHONE, input_feature, normalize_input
 
 
-CAPABILITIES = ("audio_pcm_v1", "character_v1", "character_controls_v1", "chat_actions_v1", "message_thoughts_v1", "chat_display_v1", "chat_progress_v1")
+CAPABILITIES = ("audio_pcm_v1", "character_v1", "character_controls_v1", "chat_actions_v1", "message_thoughts_v1", "chat_display_v1", "chat_progress_v1", "chat_images_v1", "stt_input_v1")
 PROGRESS_TYPES = frozenset({"chat_progress_request", "chat_progress_state"})
 DISPLAY_TYPES = frozenset({"chat_display_request", "chat_display_state"})
 THOUGHT_TYPES = frozenset({"thought_request", "thought_response", "thought_invalidated"})
@@ -55,6 +56,7 @@ EXTENSION_TYPES = (
     | THOUGHT_TYPES
     | DISPLAY_TYPES
     | PROGRESS_TYPES
+    | INPUT_TYPES
     | {"extensions_ready", "extension_error"}
 )
 FROM_PHONE = frozenset(
@@ -75,7 +77,7 @@ FROM_PHONE = frozenset(
         "chat_display_request",
         "chat_progress_request",
     }
-)
+) | INPUT_FROM_PHONE
 FROM_PC = EXTENSION_TYPES - FROM_PHONE | {"audio_cancel"}
 SMALL_TYPES = frozenset(
     {
@@ -241,7 +243,9 @@ def normalize_extension(kind, body):
         "character_settings_result",
     }:
         result["reason"] = _code(get("reason"))
-    if kind == "extensions_ready":
+    if kind in INPUT_TYPES:
+        result.update(normalize_input(kind, body))
+    elif kind == "extensions_ready":
         capabilities = get("capabilities")
         if not isinstance(capabilities, list) or not 1 <= len(capabilities) <= len(CAPABILITIES):
             raise ProtocolError()
@@ -417,6 +421,8 @@ def normalize_extension(kind, body):
 
 
 def feature_for(kind, fields):
+    if kind in INPUT_TYPES:
+        return input_feature(kind, fields)
     if kind in PROGRESS_TYPES:
         return "chat_progress_v1"
     if kind in DISPLAY_TYPES:

@@ -39,6 +39,7 @@ class AdapterCommand:
     deadline: float
     message: WireMessage | None = field(default=None, repr=False)
     pending: tuple[str, ...] = ()
+    input_store: object | None = field(default=None, repr=False)
 
 
 @dataclass
@@ -192,7 +193,7 @@ class QtGatewayAdapter(QObject):
         with self._lock:
             return len(self._pending)
 
-    async def call(self, operation, context, *, message=None, pending=()):
+    async def call(self, operation, context, *, message=None, pending=(), input_store=None):
         loop = asyncio.get_running_loop()
         if loop is not self._loop:
             raise AdapterError("adapter_unavailable")
@@ -201,6 +202,9 @@ class QtGatewayAdapter(QObject):
             "disconnect",
             "capture",
             "character_capture",
+            "image_capture",
+            "send_images",
+            "stt_settings",
             "send",
             "extension",
             "block",
@@ -215,6 +219,7 @@ class QtGatewayAdapter(QObject):
             time.monotonic() + self._timeout,
             message,
             tuple(pending),
+            input_store,
         )
         call = _PendingCall(command, loop.create_future())
         with self._lock:
@@ -328,6 +333,28 @@ class QtGatewayAdapter(QObject):
             raise AdapterError("stale_connection")
         if operation == "capture":
             return self._owner.capture(context.registration_generation, command.pending)
+        if operation == "stt_settings":
+            from .stt_input import capture_stt_settings
+
+            return capture_stt_settings(self._owner)
+        if operation == "image_capture":
+            from .protocol import uuid_value
+            from .input_uploads import InputError
+
+            images = getattr(self._owner, "_companion_images", None)
+            if images is None or len(command.pending) != 2:
+                raise AdapterError("unsupported_command")
+            try:
+                message_id, image_id = (uuid_value(item) for item in command.pending)
+                return images.capture(context.registration_generation, message_id, image_id)
+            except (ProtocolError, InputError) as error:
+                raise AdapterError(error.code) from None
+        if operation == "send_images" and isinstance(command.message, WireMessage) and command.message.type == "chat_images_send":
+            from .input_uploads import UploadStore
+
+            if not isinstance(command.input_store, UploadStore):
+                raise AdapterError("invalid_input_store")
+            return self._owner.submit_mobile_images(context, command.message, command.input_store).to_wire()
         if operation == "character_capture":
             character = getattr(self._owner, "_companion_character", None)
             if character is None:

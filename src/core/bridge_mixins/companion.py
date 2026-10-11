@@ -37,12 +37,20 @@ class CompanionBridgeMixin:
         self._ensure_companion_thoughts()
         self._ensure_companion_chat_display()
         self._ensure_companion_chat_progress()
+        self._ensure_companion_images()
         if not hasattr(self, "_companion_audio"):
             from ..companion.audio_bridge import CompanionAudioBridge
 
             self._companion_audio = CompanionAudioBridge(self)
         if hasattr(self, "character_catalog_requested"):
             self._ensure_companion_character()
+
+    def _ensure_companion_images(self):
+        if not hasattr(self, "_companion_images"):
+            from ..companion.chat_images_bridge import CompanionChatImagesBridge
+
+            self._companion_images = CompanionChatImagesBridge(self)
+        return self._companion_images
 
     def _ensure_companion_chat_progress(self):
         if not hasattr(self, "_companion_chat_progress"):
@@ -140,6 +148,14 @@ class CompanionBridgeMixin:
             CAPABILITIES,
             direction="from_phone",
         )
+        if message.type in {"chat_images_limits_request", "chat_images_request"}:
+            from ..companion.protocol import decode_message, encode_message
+
+            images = self._ensure_companion_images()
+            value = images.limits(message.fields["query_id"]) if message.type == "chat_images_limits_request" else images.metadata(context.registration_generation, message.fields)
+            return decode_message(encode_message({**value, "type": "chat_images_limits" if message.type == "chat_images_limits_request" else "chat_images_state",
+                "protocol_version": 1, "registration_generation": context.registration_generation,
+                "server_epoch": head.server_epoch, "connection_generation": context.connection_generation}))
         if message.type == "chat_progress_request":
             from ..companion.protocol import decode_message, encode_message
 
@@ -256,6 +272,23 @@ class CompanionBridgeMixin:
             fields["text"], request_ref=ref, context=context
         )
 
+    def submit_mobile_images(self, context, message, uploads):
+        from ..companion.chat_images_bridge import MobileImageAdmission
+        from ..companion.extension_protocol import ExtensionContext, validate_extension
+
+        fields = message.fields
+        ref = RequestRef(context.registration_generation, fields["server_epoch"], fields["conversation_id"], fields["request_id"], "mobile")
+        try:
+            self._companion_adapter.validate_admission(context)
+            head = self.head()
+            scope = ExtensionContext(context.registration_generation, head.server_epoch, context.connection_generation, head.conversation_id)
+            validate_extension(message, scope, {"chat_images_v1"}, direction="from_phone")
+        except (AdapterError, ProtocolError) as error:
+            return AdmissionResult(ref, "rejected", code=error.code)
+        admission = MobileImageAdmission(uploads, scope, tuple(dict(item) for item in fields["images"]))
+        return self.submit_chat_request(fields["text"].strip() or "첨부한 자료를 확인해 줘.", request_ref=ref,
+            context=context, request_type="attachments", _mobile_images=admission)
+
     def submit_chat_request(
         self,
         message,
@@ -266,6 +299,7 @@ class CompanionBridgeMixin:
         request_type="text",
         attachments=(),
         head_pat_count_before_message=None,
+        _mobile_images=None,
     ):
         """중복 확인과 기존 생활 기록 gate 진입을 같은 Qt 호출에서 수행한다."""
         if QThread.currentThread() != self.thread():
@@ -301,9 +335,12 @@ class CompanionBridgeMixin:
             return reject(error.code)
         if request_type not in {"text", "attachments"}:
             return reject("unsupported_command")
+        from ..companion.chat_images_bridge import MobileImageAdmission
+        from ..companion.input_uploads import InputError
+
+        verified_images = isinstance(_mobile_images, MobileImageAdmission) and request_type == "attachments" and not attachments
         if ref.source == "mobile" and (
-            request_type != "text"
-            or attachments
+            ((request_type != "text" or attachments) and not verified_images)
             or any(
                 parser(message)[0]
                 for parser in (
@@ -314,7 +351,7 @@ class CompanionBridgeMixin:
             )
         ):
             return reject("unsupported_command")
-        body_hash = sha256(
+        body_hash = _mobile_images.fingerprint(message) if verified_images else sha256(
             json.dumps(
                 [request_type, message, attachments],
                 ensure_ascii=False,
@@ -336,8 +373,16 @@ class CompanionBridgeMixin:
             return reject("busy")
         if not self.llm_client:
             return reject("ai_unavailable")
+        if verified_images and getattr(self.llm_client, "supports_image_input", None) is False:
+            return reject("image_input_unsupported")
         ledger.reserve(ref.key, body_hash)
         try:
+            if verified_images:
+                try:
+                    attachments = _mobile_images.materialize()
+                except InputError as error:
+                    ledger.discard_reservation(ref.key)
+                    return reject(error.code)
             if head_pat_count_before_message is None:
                 getter = getattr(
                     getattr(self, "calendar_manager", None),
@@ -542,6 +587,7 @@ class CompanionBridgeMixin:
             audio.cancel("conversation_reset", release=False)
         state = self.chat_state
         state.public_transcript.reset()
+        self._ensure_companion_images().reset()
         self._ensure_companion_chat_progress().reset(state.public_transcript.conversation_id)
         state.request_ledger.reset()
         state.public_user_ids.clear()
