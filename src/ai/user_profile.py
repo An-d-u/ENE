@@ -10,6 +10,7 @@ import re
 from uuid import NAMESPACE_URL, uuid5
 
 from .profile_updates import is_current_update, parse_memory_time
+from .profile_review import ReviewedUpdate, normalize_subject
 
 from ..core.app_paths import load_json_data, resolve_user_storage_path, save_json_data
 
@@ -78,7 +79,7 @@ class UserProfile:
             else:
                 print("[Profile] Profile file not found. Starting fresh.")
 
-    def save(self):
+    def save(self, *, strict=False):
         """Save profile to JSON file."""
         try:
             data = {
@@ -98,9 +99,13 @@ class UserProfile:
             )
 
             print(f"[Profile] Saved {len(self.facts)} facts")
+            return True
 
         except Exception as e:
+            if strict:
+                raise
             print(f"[Profile] Save failed: {e}")
+            return False
 
     def add_fact(self, content: str, category: str = "fact", source: str = ""):
         """Add a new durable fact if it passes policy checks."""
@@ -151,7 +156,7 @@ class UserProfile:
         self.save()
         print(f"[Profile] Added fact: [{inferred_category}] {content}")
 
-    def apply_summary_facts(self, facts, updates, *, original_messages, source="", source_memory_id="", observed_at="", reviewed=False):
+    def apply_summary_facts(self, facts, updates, *, original_messages, source="", source_memory_id="", observed_at="", reviewed=False, review_context=None, persist=True):
         """선택된 내용과 검증된 변경안만 반영하며 원래 값을 이력으로 남긴다."""
         if updates is None:
             # 구형 응답은 원문 요약만 보존한다. 명시적으로 검토한 사실만 추가한다.
@@ -162,7 +167,10 @@ class UserProfile:
         selected = {self._normalize_fact(value) for value in facts if isinstance(value, str)}
         timestamp = observed_at or datetime.now().astimezone().isoformat()
         for update in updates if isinstance(updates, list) else []:
-            manual_edit = reviewed and isinstance(update, dict) and update.get("manual_edit") is True
+            trusted = next((item for item in review_context or [] if isinstance(item, ReviewedUpdate) and item.update == update), None)
+            if trusted and trusted.decision(self.facts) != "apply":
+                continue
+            manual_edit = bool(reviewed and trusted and trusted.manual_edit)
             if not manual_edit and not is_current_update(update, original_messages):
                 continue
             category = str(update.get("category", "")).strip()
@@ -191,10 +199,13 @@ class UserProfile:
                     continue
                 existing = matches[0] if matches else None
             if existing:
+                same_subject = bool(normalize_subject(existing.subject)) and normalize_subject(existing.subject) == normalize_subject(subject)
+                if not same_subject and not (reviewed and trusted and trusted.subject_confirmed):
+                    continue
                 previous_time = parse_memory_time(existing.effective_at or existing.timestamp)
                 if (existing.category != category and not manual_edit) or (previous_time and effective_time < previous_time):
                     continue
-                if existing.content == content and existing.state == state and existing.category == category:
+                if existing.content == content and existing.state == state and existing.category == category and existing.subject == subject:
                     if previous_time is None or effective_time > previous_time:
                         existing.effective_at = effective_at
                         existing.timestamp = recorded_at
@@ -227,7 +238,8 @@ class UserProfile:
                 self._update_basic_info(content)
             elif category == "preference":
                 self._update_preferences(content)
-        self.save()
+        if persist:
+            self.save()
 
     def _remove_derived_fact(self, fact):
         """해당 사실에서 만들어진 값만 제거해 무관한 수동 값은 보존한다."""

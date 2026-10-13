@@ -5,7 +5,7 @@ from src.ai.user_profile import ProfileFact, UserProfile
 
 def _seed(tmp_path):
     profile = UserProfile(tmp_path / "profile.json")
-    profile.facts = [ProfileFact("작업할 때 긴 도표 설명을 선호한다.", "preference", "2026-01-01T10:00:00+09:00")]
+    profile.facts = [ProfileFact("작업할 때 긴 도표 설명을 선호한다.", "preference", "2026-01-01T10:00:00+09:00", subject="설명 방식")]
     profile.preferences["likes"] = [profile.facts[0].content, "수동 항목"]
     return profile
 
@@ -99,13 +99,17 @@ def test_legacy_fact_ids_are_stable_without_migration_write(tmp_path):
 
 
 def test_manual_review_edit_replaces_target_only_when_reviewed(tmp_path):
+    from src.ai.profile_review import make_proposals, review_proposal
     profile = _seed(tmp_path)
     update = _change(profile, content="대신 표로 설명하는 방식을 선호한다.", evidence="", manual_edit=True)
     _apply(profile, update)
     assert profile.facts[0].content != update["content"]
+    proposal = make_proposals(profile.facts, [{**update, "content": profile.facts[0].content}])[0]
+    reviewed = review_proposal(proposal, edits={"content": update["content"]})
     profile.apply_summary_facts(
-        [f"[preference] {update['content']}"], [update], original_messages=[],
+        [f"[preference] {update['content']}"], [reviewed.update], original_messages=[],
         observed_at="2026-02-01T11:00:00+09:00", reviewed=True,
+        review_context=[reviewed],
     )
     assert profile.facts[0].content == update["content"]
 
