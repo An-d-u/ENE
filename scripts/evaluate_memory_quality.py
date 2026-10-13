@@ -44,9 +44,12 @@ def main():
     args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     missing = sum(any(case["missing_evidence"].values()) for case in result["cases"])
     forbidden = sum(bool(case["state_grade"]["forbidden_changes"]) for case in result["cases"])
+    corrections = sum(any(item["status"] in {"missing_target", "incorrect_state", "not_applied"}
+                          for item in case["state_grade"]["corrections"]) for case in result["cases"]) if args.mode == "live" else 0
     print(json.dumps({"status": result["status"], "cases": len(result["cases"]), "missing_evidence_cases": missing,
-                      "forbidden_change_cases": forbidden, "api_requests": budget.total, "calls_by_model": budget.by_model}))
-    return 3 if missing or forbidden or result["status"] != "complete" else 0
+                      "forbidden_change_cases": forbidden, "failed_correction_cases": corrections,
+                      "api_requests": budget.total, "calls_by_model": budget.by_model}))
+    return 3 if missing or forbidden or corrections or result["status"] != "complete" else 0
 
 
 if __name__ == "__main__":

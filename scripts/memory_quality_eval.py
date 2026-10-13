@@ -201,6 +201,9 @@ def prepare_review_actions(pending, profile, actions):
         if len(matches) != 1:
             outcomes.append({"action": kind, "status": "missing_proposal" if not matches else "ambiguous_proposal"})
             continue
+        if kind == "correct_subject" and matches[0].target_id != action.get("target_id"):
+            outcomes.append({"action": kind, "status": "missing_target_binding"})
+            continue
         row = rows[matches[0].proposal_id]
         if kind == "reject":
             row["selected"] = False
@@ -224,6 +227,10 @@ def grade_state(expected, before_storage, final_facts):
         status = "exact_match"
         if actual is None:
             status = "missing_target"
+        elif any(actual.get(key) != value for key, value in expected_fact.items() if key not in {"fact_id", "content"}):
+            status = "incorrect_state"
+        elif "content" in expected_fact and actual.get("content") != expected_fact["content"] and actual.get("content") == before.get(expected_fact["fact_id"], {}).get("content"):
+            status = "not_applied"
         elif any(actual.get(key) != value for key, value in expected_fact.items() if key != "fact_id"):
             status = "review_required"
         corrections.append({"fact_id": expected_fact["fact_id"], "status": status})

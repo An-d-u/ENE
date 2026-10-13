@@ -104,6 +104,10 @@ def test_review_actions_bind_server_proposals_and_report_missing(tmp_path):
     assert outcomes[0]["status"] == "applied"
     _, missing = prepare_review_actions(pending, profile, [dict(action, evidence="다른 합성 근거")])
     assert missing[0]["status"] == "missing_proposal"
+    unbound = dict(update, category="preference", replaces="")
+    pending["profile_proposals"] = make_proposals(profile.facts, [unbound])
+    _, missing = prepare_review_actions(pending, profile, [action])
+    assert missing[0]["status"] == "missing_target_binding"
 
 
 def test_state_grading_detects_overwrite_and_preserves_external_delete():
@@ -113,6 +117,15 @@ def test_state_grading_detects_overwrite_and_preserves_external_delete():
     assert grade_state(expected, before, [{"id": "f", "content": "덮어쓴 상태"}])["forbidden_changes"] == ["f"]
     assert grade_state(expected, [], [])["forbidden_changes"] == []
     assert grade_state(expected, [], before)["forbidden_changes"] == ["f"]
+
+
+def test_state_grading_fails_unchanged_correction_even_when_answer_is_right():
+    from scripts.memory_quality_eval import grade_state
+    before = [{"id": "f", "content": "기존 합성 상태", "subject": "투명 판"}]
+    expected = {"forbidden_changes": [], "corrections": [{"fact_id": "f", "content": "바뀐 합성 상태"}]}
+    assert grade_state(expected, before, before)["corrections"][0]["status"] == "not_applied"
+    expected["corrections"] = [{"fact_id": "f", "subject": "유리 판"}]
+    assert grade_state(expected, before, before)["corrections"][0]["status"] == "incorrect_state"
 
 
 def test_evaluator_composition_matches_public_gemini_memory_path(tmp_path, monkeypatch):

@@ -558,6 +558,8 @@ def build_summary_prompt_from_text(
 - 각 항목의 필드: category, content, subject, replaces, state, assertion, effective_at, evidence.
 - subject: 같은 사실을 이후에도 식별할 짧고 안정적인 대상명.
 - replaces: 수정하는 기존 CURRENT_PROFILE의 id. 신규 사실이면 빈 문자열.
+- 기존 사실을 정정할 때는 CURRENT_PROFILE에 표시된 category를 유지하고 해당 id를 replaces에 반드시 넣으세요. 내용을 다른 분류로 다시 분류해 신규 사실로 만들지 마세요.
+- 사용자가 기존 대상의 이름을 명시적으로 정정한 경우에도 기존 항목의 id로 연결하세요. 이름 정정만으로 기존 완료 상태나 나머지 내용을 바꾸지 마세요. 정정 대상이 모호하면 교체할 id를 추측하지 마세요.
 - state: active | completed | cancelled | paused. 완료·취소·보류는 명시적 발언이 필요합니다.
 - assertion: current | historical | uncertain. 현재 상태로 확정 가능한 진술만 current입니다.
 - effective_at: 사용자가 명시한 효력 발생 시각의 ISO 형식. 불명확하면 빈 문자열이며 임의 추정하지 마세요.
