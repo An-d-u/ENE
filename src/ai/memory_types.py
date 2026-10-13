@@ -12,6 +12,22 @@ import re
 CURRENT_MEMORY_SCHEMA_VERSION = 5
 LEGACY_MIGRATION_VERSION = 1
 
+
+@dataclass
+class MemoryContextTrace:
+    """선택 근거의 식별자만 보관하는 선택적 평가 추적."""
+
+    fact_ids: list[str] = field(default_factory=list)
+    summary_ids: list[str] = field(default_factory=list)
+    raw_chunks: list[tuple[str, int, int]] = field(default_factory=list)
+    candidates: dict[str, list[str]] = field(default_factory=dict)
+    excluded: dict[str, str] = field(default_factory=dict)
+    calls: dict[str, int] = field(default_factory=dict)
+    usage_recorded: bool | None = None
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
 _PREFERENCE_PATTERNS = ("좋아", "선호", "편해", "익숙", "싫어", "자주")
 _PROMISE_PATTERNS = ("말해줘", "기억해줘", "리마인드", "까먹지", "알려줘")
 _EVENT_PATTERNS = ("일정", "예약", "회의", "약속", "날짜", "시간", "내일", "오늘", "주말")

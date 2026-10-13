@@ -604,6 +604,8 @@ async def build_memory_context(
     recent_context: str = "",
     head_pat_count_before_message: int | None = None,
     include_life_record_context: bool = False,
+    *,
+    trace=None,
 ) -> str:
     """클라이언트 상태에서 LLM에 붙일 메모리 컨텍스트를 구성한다."""
     life_record_block = _load_life_record_context_block(
@@ -712,6 +714,8 @@ async def build_memory_context(
                     facts = list(facts)
                 if max_profile_facts > 0:
                     facts = facts[:max_profile_facts]
+                if trace is not None:
+                    trace.fact_ids = [str(getattr(fact, "id", "")) for fact in facts]
                 fact_lines = [f"[{labels['master_facts']}]"]
                 for fact in facts:
                     fact_lines.append(f"- [{fact.category}] : {fact.content}")
@@ -825,6 +829,8 @@ async def build_memory_context(
             if memory_id not in included_memory_ids:
                 included_memory_ids.add(memory_id)
                 selected.append(memory)
+                if trace is not None:
+                    trace.summary_ids.append(str(memory_id))
         return selected
 
     important_memories = unique_summaries(memory_manager.get_important()[:max_important])
@@ -865,6 +871,8 @@ async def build_memory_context(
             )
 
         if similar_memories:
+            if trace is not None:
+                trace.candidates["primary"] = [memory.id for memory, _ in similar_memories]
             related_memories_reported = True
             print(f"[LLM] 유사 기억 {len(similar_memories)}개 발견")
             related_summaries = unique_summaries(memory for memory, _similarity in similar_memories)
@@ -915,6 +923,8 @@ async def build_memory_context(
                 print(f"[LLM] raw chunk {len(raw_chunks)}개 선택")
                 context_parts.append(f"\n[{labels['raw_chunks']}]")
                 for index, (chunk, _score, _score_meta) in enumerate(raw_chunks, start=1):
+                    if trace is not None:
+                        trace.raw_chunks.append((chunk.memory_id, chunk.start_turn_index, chunk.end_turn_index))
                     chunk_messages = getattr(chunk, "messages", []) or []
                     chunk_time = getattr(chunk_messages[0], "timestamp", "") if chunk_messages else ""
                     context_parts.append(
