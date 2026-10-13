@@ -23,7 +23,7 @@ def test_mock_evaluation_is_isolated_and_keeps_answers_ungraded(tmp_path, monkey
     assert result["api_requests"] == 0
     assert result["cases"][0]["answer_grade"] == "ungraded"
     assert result["cases"][0]["trace"]["fact_ids"]
-    assert result["cases"][0]["missing_evidence"]["fact_ids"]
+    assert result["cases"][0]["missing_evidence"]["fact_ids"] == []
     assert result["mode"] == "mock"
 
 

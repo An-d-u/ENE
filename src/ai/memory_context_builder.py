@@ -704,16 +704,8 @@ async def build_memory_context(
         if hasattr(user_profile, "get_all_facts"):
             facts = user_profile.get_all_facts()
             if facts:
-                try:
-                    facts = sorted(
-                        facts,
-                        key=lambda fact: getattr(fact, "timestamp", "") or "",
-                        reverse=True,
-                    )
-                except Exception:
-                    facts = list(facts)
-                if max_profile_facts > 0:
-                    facts = facts[:max_profile_facts]
+                from .profile_selection import select_response_facts
+                facts = select_response_facts(facts, normalized_query, max_profile_facts)
                 if trace is not None:
                     trace.fact_ids = [str(getattr(fact, "id", "")) for fact in facts]
                 fact_lines = [f"[{labels['master_facts']}]"]

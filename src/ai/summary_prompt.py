@@ -9,6 +9,7 @@ from datetime import datetime
 
 from .persona_names import default_prompt_persona_names
 from .prompt_language import resolve_prompt_language
+from .profile_selection import select_summary_facts
 
 
 @dataclass(frozen=True)
@@ -92,7 +93,7 @@ def _build_elapsed_hint(first_time: str | None, last_time: str | None, language:
     return f"{minutes}분"
 
 
-def build_current_profile_snapshot(user_profile, language: str = "ko") -> str:
+def build_current_profile_snapshot(user_profile, language: str = "ko", *, user_text: str = "") -> str:
     if not user_profile:
         return ""
 
@@ -139,7 +140,7 @@ def build_current_profile_snapshot(user_profile, language: str = "ko") -> str:
 
     if hasattr(user_profile, "get_all_facts"):
         facts = user_profile.get_all_facts()
-        sorted_facts = sorted(facts, key=lambda x: x.timestamp, reverse=True)[:20]
+        sorted_facts = select_summary_facts(facts, user_text, limit=20)
         if sorted_facts:
             profile_lines.append("[facts]")
             for fact in sorted_facts:
@@ -168,7 +169,9 @@ def build_summary_prompt(
     conversation_text, first_time, last_time = _build_conversation_text(messages)
     time_range = f"{first_time} ~ {last_time}" if first_time and last_time else time_str
     elapsed_hint = _build_elapsed_hint(first_time, last_time, resolved_language)
-    current_profile = build_current_profile_snapshot(user_profile, resolved_language)
+    user_text = "\n".join(str(item[1]) for item in messages or []
+                          if isinstance(item, (list, tuple)) and len(item) >= 2 and item[0] == "user")
+    current_profile = build_current_profile_snapshot(user_profile, resolved_language, user_text=user_text)
     return build_summary_prompt_from_text(
         conversation_text,
         current_profile=current_profile,
