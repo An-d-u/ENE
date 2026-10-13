@@ -1,0 +1,3667 @@
+[
+  {
+    "id": "base-profile-1",
+    "group": "profile",
+    "gate": "required",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-profile-1-memory",
+          "summary": "도자기 진열대는 네 칸이다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "도자기 진열대"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-profile-1-turn",
+              "role": "user",
+              "text": "도자기 진열대는 네 칸이다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-profile-1-fact",
+          "category": "goal",
+          "content": "도자기 진열대는 네 칸이다.",
+          "subject": "도자기 진열대",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-1-noise-0",
+          "category": "goal",
+          "content": "연습 부품 1은 회색이다.",
+          "subject": "연습 부품 1",
+          "state": "active",
+          "timestamp": "2025-02-01T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-1-noise-1",
+          "category": "goal",
+          "content": "연습 부품 2은 회색이다.",
+          "subject": "연습 부품 2",
+          "state": "active",
+          "timestamp": "2025-02-02T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-1-noise-2",
+          "category": "goal",
+          "content": "연습 부품 3은 회색이다.",
+          "subject": "연습 부품 3",
+          "state": "active",
+          "timestamp": "2025-02-03T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-1-noise-3",
+          "category": "goal",
+          "content": "연습 부품 4은 회색이다.",
+          "subject": "연습 부품 4",
+          "state": "active",
+          "timestamp": "2025-02-04T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-1-noise-4",
+          "category": "goal",
+          "content": "연습 부품 5은 회색이다.",
+          "subject": "연습 부품 5",
+          "state": "active",
+          "timestamp": "2025-02-05T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-1-noise-5",
+          "category": "goal",
+          "content": "연습 부품 6은 회색이다.",
+          "subject": "연습 부품 6",
+          "state": "active",
+          "timestamp": "2025-02-06T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-1-noise-6",
+          "category": "goal",
+          "content": "연습 부품 7은 회색이다.",
+          "subject": "연습 부품 7",
+          "state": "active",
+          "timestamp": "2025-02-07T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-1-noise-7",
+          "category": "goal",
+          "content": "연습 부품 8은 회색이다.",
+          "subject": "연습 부품 8",
+          "state": "active",
+          "timestamp": "2025-02-08T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-1-noise-8",
+          "category": "goal",
+          "content": "연습 부품 9은 회색이다.",
+          "subject": "연습 부품 9",
+          "state": "active",
+          "timestamp": "2025-02-09T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-1-noise-9",
+          "category": "goal",
+          "content": "연습 부품 10은 회색이다.",
+          "subject": "연습 부품 10",
+          "state": "active",
+          "timestamp": "2025-02-10T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-1-noise-10",
+          "category": "goal",
+          "content": "연습 부품 11은 회색이다.",
+          "subject": "연습 부품 11",
+          "state": "active",
+          "timestamp": "2025-02-11T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-1-noise-11",
+          "category": "goal",
+          "content": "연습 부품 12은 회색이다.",
+          "subject": "연습 부품 12",
+          "state": "active",
+          "timestamp": "2025-02-12T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-1-noise-12",
+          "category": "goal",
+          "content": "연습 부품 13은 회색이다.",
+          "subject": "연습 부품 13",
+          "state": "active",
+          "timestamp": "2025-02-13T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-1-noise-13",
+          "category": "goal",
+          "content": "연습 부품 14은 회색이다.",
+          "subject": "연습 부품 14",
+          "state": "active",
+          "timestamp": "2025-02-14T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-1-noise-14",
+          "category": "goal",
+          "content": "연습 부품 15은 회색이다.",
+          "subject": "연습 부품 15",
+          "state": "active",
+          "timestamp": "2025-02-15T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-1-noise-15",
+          "category": "goal",
+          "content": "연습 부품 16은 회색이다.",
+          "subject": "연습 부품 16",
+          "state": "active",
+          "timestamp": "2025-02-16T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-1-noise-16",
+          "category": "goal",
+          "content": "연습 부품 17은 회색이다.",
+          "subject": "연습 부품 17",
+          "state": "active",
+          "timestamp": "2025-02-17T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-1-noise-17",
+          "category": "goal",
+          "content": "연습 부품 18은 회색이다.",
+          "subject": "연습 부품 18",
+          "state": "active",
+          "timestamp": "2025-02-18T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-1-noise-18",
+          "category": "goal",
+          "content": "연습 부품 19은 회색이다.",
+          "subject": "연습 부품 19",
+          "state": "active",
+          "timestamp": "2025-02-19T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-1-noise-19",
+          "category": "goal",
+          "content": "연습 부품 20은 회색이다.",
+          "subject": "연습 부품 20",
+          "state": "active",
+          "timestamp": "2025-02-20T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-1-noise-20",
+          "category": "goal",
+          "content": "연습 부품 21은 회색이다.",
+          "subject": "연습 부품 21",
+          "state": "active",
+          "timestamp": "2025-02-21T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-1-noise-21",
+          "category": "goal",
+          "content": "연습 부품 22은 회색이다.",
+          "subject": "연습 부품 22",
+          "state": "active",
+          "timestamp": "2025-02-22T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-1-noise-22",
+          "category": "goal",
+          "content": "연습 부품 23은 회색이다.",
+          "subject": "연습 부품 23",
+          "state": "active",
+          "timestamp": "2025-02-23T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-1-noise-23",
+          "category": "goal",
+          "content": "연습 부품 24은 회색이다.",
+          "subject": "연습 부품 24",
+          "state": "active",
+          "timestamp": "2025-02-24T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-1-noise-24",
+          "category": "goal",
+          "content": "연습 부품 25은 회색이다.",
+          "subject": "연습 부품 25",
+          "state": "active",
+          "timestamp": "2025-02-25T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "도자기 진열대 칸 수는?",
+    "review_actions": [
+      {
+        "action": "approve"
+      }
+    ],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [
+        "base-profile-1-fact"
+      ],
+      "turn_ids": [],
+      "allowed_claims": [
+        "도자기 진열대는 네 칸이다."
+      ],
+      "forbidden_claims": [],
+      "forbidden_changes": [],
+      "corrections": []
+    }
+  },
+  {
+    "id": "base-profile-2",
+    "group": "profile",
+    "gate": "required",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-profile-2-memory",
+          "summary": "종이 모형 접기를 끝냈다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "종이 모형"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-profile-2-turn",
+              "role": "user",
+              "text": "종이 모형 접기를 끝냈다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-profile-2-fact",
+          "category": "goal",
+          "content": "종이 모형 접기를 끝냈다.",
+          "subject": "종이 모형",
+          "state": "completed",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-2-noise-0",
+          "category": "goal",
+          "content": "연습 부품 1은 회색이다.",
+          "subject": "연습 부품 1",
+          "state": "active",
+          "timestamp": "2025-02-01T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-2-noise-1",
+          "category": "goal",
+          "content": "연습 부품 2은 회색이다.",
+          "subject": "연습 부품 2",
+          "state": "active",
+          "timestamp": "2025-02-02T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-2-noise-2",
+          "category": "goal",
+          "content": "연습 부품 3은 회색이다.",
+          "subject": "연습 부품 3",
+          "state": "active",
+          "timestamp": "2025-02-03T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-2-noise-3",
+          "category": "goal",
+          "content": "연습 부품 4은 회색이다.",
+          "subject": "연습 부품 4",
+          "state": "active",
+          "timestamp": "2025-02-04T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-2-noise-4",
+          "category": "goal",
+          "content": "연습 부품 5은 회색이다.",
+          "subject": "연습 부품 5",
+          "state": "active",
+          "timestamp": "2025-02-05T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-2-noise-5",
+          "category": "goal",
+          "content": "연습 부품 6은 회색이다.",
+          "subject": "연습 부품 6",
+          "state": "active",
+          "timestamp": "2025-02-06T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-2-noise-6",
+          "category": "goal",
+          "content": "연습 부품 7은 회색이다.",
+          "subject": "연습 부품 7",
+          "state": "active",
+          "timestamp": "2025-02-07T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-2-noise-7",
+          "category": "goal",
+          "content": "연습 부품 8은 회색이다.",
+          "subject": "연습 부품 8",
+          "state": "active",
+          "timestamp": "2025-02-08T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-2-noise-8",
+          "category": "goal",
+          "content": "연습 부품 9은 회색이다.",
+          "subject": "연습 부품 9",
+          "state": "active",
+          "timestamp": "2025-02-09T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-2-noise-9",
+          "category": "goal",
+          "content": "연습 부품 10은 회색이다.",
+          "subject": "연습 부품 10",
+          "state": "active",
+          "timestamp": "2025-02-10T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-2-noise-10",
+          "category": "goal",
+          "content": "연습 부품 11은 회색이다.",
+          "subject": "연습 부품 11",
+          "state": "active",
+          "timestamp": "2025-02-11T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-2-noise-11",
+          "category": "goal",
+          "content": "연습 부품 12은 회색이다.",
+          "subject": "연습 부품 12",
+          "state": "active",
+          "timestamp": "2025-02-12T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-2-noise-12",
+          "category": "goal",
+          "content": "연습 부품 13은 회색이다.",
+          "subject": "연습 부품 13",
+          "state": "active",
+          "timestamp": "2025-02-13T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-2-noise-13",
+          "category": "goal",
+          "content": "연습 부품 14은 회색이다.",
+          "subject": "연습 부품 14",
+          "state": "active",
+          "timestamp": "2025-02-14T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-2-noise-14",
+          "category": "goal",
+          "content": "연습 부품 15은 회색이다.",
+          "subject": "연습 부품 15",
+          "state": "active",
+          "timestamp": "2025-02-15T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-2-noise-15",
+          "category": "goal",
+          "content": "연습 부품 16은 회색이다.",
+          "subject": "연습 부품 16",
+          "state": "active",
+          "timestamp": "2025-02-16T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-2-noise-16",
+          "category": "goal",
+          "content": "연습 부품 17은 회색이다.",
+          "subject": "연습 부품 17",
+          "state": "active",
+          "timestamp": "2025-02-17T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-2-noise-17",
+          "category": "goal",
+          "content": "연습 부품 18은 회색이다.",
+          "subject": "연습 부품 18",
+          "state": "active",
+          "timestamp": "2025-02-18T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-2-noise-18",
+          "category": "goal",
+          "content": "연습 부품 19은 회색이다.",
+          "subject": "연습 부품 19",
+          "state": "active",
+          "timestamp": "2025-02-19T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-2-noise-19",
+          "category": "goal",
+          "content": "연습 부품 20은 회색이다.",
+          "subject": "연습 부품 20",
+          "state": "active",
+          "timestamp": "2025-02-20T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-2-noise-20",
+          "category": "goal",
+          "content": "연습 부품 21은 회색이다.",
+          "subject": "연습 부품 21",
+          "state": "active",
+          "timestamp": "2025-02-21T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-2-noise-21",
+          "category": "goal",
+          "content": "연습 부품 22은 회색이다.",
+          "subject": "연습 부품 22",
+          "state": "active",
+          "timestamp": "2025-02-22T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-2-noise-22",
+          "category": "goal",
+          "content": "연습 부품 23은 회색이다.",
+          "subject": "연습 부품 23",
+          "state": "active",
+          "timestamp": "2025-02-23T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-2-noise-23",
+          "category": "goal",
+          "content": "연습 부품 24은 회색이다.",
+          "subject": "연습 부품 24",
+          "state": "active",
+          "timestamp": "2025-02-24T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-2-noise-24",
+          "category": "goal",
+          "content": "연습 부품 25은 회색이다.",
+          "subject": "연습 부품 25",
+          "state": "active",
+          "timestamp": "2025-02-25T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "종이 모형 작업 상태는?",
+    "review_actions": [
+      {
+        "action": "approve"
+      }
+    ],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [
+        "base-profile-2-fact"
+      ],
+      "turn_ids": [],
+      "allowed_claims": [
+        "종이 모형 접기를 끝냈다."
+      ],
+      "forbidden_claims": [],
+      "forbidden_changes": [],
+      "corrections": []
+    }
+  },
+  {
+    "id": "base-profile-3",
+    "group": "profile",
+    "gate": "required",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-profile-3-memory",
+          "summary": "황동 고리 구매를 취소했다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "황동 고리"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-profile-3-turn",
+              "role": "user",
+              "text": "황동 고리 구매를 취소했다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-profile-3-fact",
+          "category": "goal",
+          "content": "황동 고리 구매를 취소했다.",
+          "subject": "황동 고리",
+          "state": "cancelled",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-3-noise-0",
+          "category": "goal",
+          "content": "연습 부품 1은 회색이다.",
+          "subject": "연습 부품 1",
+          "state": "active",
+          "timestamp": "2025-02-01T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-3-noise-1",
+          "category": "goal",
+          "content": "연습 부품 2은 회색이다.",
+          "subject": "연습 부품 2",
+          "state": "active",
+          "timestamp": "2025-02-02T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-3-noise-2",
+          "category": "goal",
+          "content": "연습 부품 3은 회색이다.",
+          "subject": "연습 부품 3",
+          "state": "active",
+          "timestamp": "2025-02-03T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-3-noise-3",
+          "category": "goal",
+          "content": "연습 부품 4은 회색이다.",
+          "subject": "연습 부품 4",
+          "state": "active",
+          "timestamp": "2025-02-04T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-3-noise-4",
+          "category": "goal",
+          "content": "연습 부품 5은 회색이다.",
+          "subject": "연습 부품 5",
+          "state": "active",
+          "timestamp": "2025-02-05T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-3-noise-5",
+          "category": "goal",
+          "content": "연습 부품 6은 회색이다.",
+          "subject": "연습 부품 6",
+          "state": "active",
+          "timestamp": "2025-02-06T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-3-noise-6",
+          "category": "goal",
+          "content": "연습 부품 7은 회색이다.",
+          "subject": "연습 부품 7",
+          "state": "active",
+          "timestamp": "2025-02-07T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-3-noise-7",
+          "category": "goal",
+          "content": "연습 부품 8은 회색이다.",
+          "subject": "연습 부품 8",
+          "state": "active",
+          "timestamp": "2025-02-08T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-3-noise-8",
+          "category": "goal",
+          "content": "연습 부품 9은 회색이다.",
+          "subject": "연습 부품 9",
+          "state": "active",
+          "timestamp": "2025-02-09T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-3-noise-9",
+          "category": "goal",
+          "content": "연습 부품 10은 회색이다.",
+          "subject": "연습 부품 10",
+          "state": "active",
+          "timestamp": "2025-02-10T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-3-noise-10",
+          "category": "goal",
+          "content": "연습 부품 11은 회색이다.",
+          "subject": "연습 부품 11",
+          "state": "active",
+          "timestamp": "2025-02-11T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-3-noise-11",
+          "category": "goal",
+          "content": "연습 부품 12은 회색이다.",
+          "subject": "연습 부품 12",
+          "state": "active",
+          "timestamp": "2025-02-12T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-3-noise-12",
+          "category": "goal",
+          "content": "연습 부품 13은 회색이다.",
+          "subject": "연습 부품 13",
+          "state": "active",
+          "timestamp": "2025-02-13T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-3-noise-13",
+          "category": "goal",
+          "content": "연습 부품 14은 회색이다.",
+          "subject": "연습 부품 14",
+          "state": "active",
+          "timestamp": "2025-02-14T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-3-noise-14",
+          "category": "goal",
+          "content": "연습 부품 15은 회색이다.",
+          "subject": "연습 부품 15",
+          "state": "active",
+          "timestamp": "2025-02-15T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-3-noise-15",
+          "category": "goal",
+          "content": "연습 부품 16은 회색이다.",
+          "subject": "연습 부품 16",
+          "state": "active",
+          "timestamp": "2025-02-16T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-3-noise-16",
+          "category": "goal",
+          "content": "연습 부품 17은 회색이다.",
+          "subject": "연습 부품 17",
+          "state": "active",
+          "timestamp": "2025-02-17T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-3-noise-17",
+          "category": "goal",
+          "content": "연습 부품 18은 회색이다.",
+          "subject": "연습 부품 18",
+          "state": "active",
+          "timestamp": "2025-02-18T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-3-noise-18",
+          "category": "goal",
+          "content": "연습 부품 19은 회색이다.",
+          "subject": "연습 부품 19",
+          "state": "active",
+          "timestamp": "2025-02-19T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-3-noise-19",
+          "category": "goal",
+          "content": "연습 부품 20은 회색이다.",
+          "subject": "연습 부품 20",
+          "state": "active",
+          "timestamp": "2025-02-20T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-3-noise-20",
+          "category": "goal",
+          "content": "연습 부품 21은 회색이다.",
+          "subject": "연습 부품 21",
+          "state": "active",
+          "timestamp": "2025-02-21T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-3-noise-21",
+          "category": "goal",
+          "content": "연습 부품 22은 회색이다.",
+          "subject": "연습 부품 22",
+          "state": "active",
+          "timestamp": "2025-02-22T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-3-noise-22",
+          "category": "goal",
+          "content": "연습 부품 23은 회색이다.",
+          "subject": "연습 부품 23",
+          "state": "active",
+          "timestamp": "2025-02-23T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-3-noise-23",
+          "category": "goal",
+          "content": "연습 부품 24은 회색이다.",
+          "subject": "연습 부품 24",
+          "state": "active",
+          "timestamp": "2025-02-24T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-3-noise-24",
+          "category": "goal",
+          "content": "연습 부품 25은 회색이다.",
+          "subject": "연습 부품 25",
+          "state": "active",
+          "timestamp": "2025-02-25T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "황동 고리 구매는 진행 중인가?",
+    "review_actions": [
+      {
+        "action": "approve"
+      }
+    ],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [
+        "base-profile-3-fact"
+      ],
+      "turn_ids": [],
+      "allowed_claims": [
+        "황동 고리 구매를 취소했다."
+      ],
+      "forbidden_claims": [],
+      "forbidden_changes": [],
+      "corrections": []
+    }
+  },
+  {
+    "id": "base-profile-4",
+    "group": "profile",
+    "gate": "required",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-profile-4-memory",
+          "summary": "파랑 상자는 위쪽 선반에 있다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "파랑 상자"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-profile-4-turn",
+              "role": "user",
+              "text": "파랑 상자는 위쪽 선반에 있다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-profile-4-fact",
+          "category": "goal",
+          "content": "파랑 상자는 위쪽 선반에 있다.",
+          "subject": "파랑 상자",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-4-noise-0",
+          "category": "goal",
+          "content": "연습 부품 1은 회색이다.",
+          "subject": "연습 부품 1",
+          "state": "active",
+          "timestamp": "2025-02-01T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-4-noise-1",
+          "category": "goal",
+          "content": "연습 부품 2은 회색이다.",
+          "subject": "연습 부품 2",
+          "state": "active",
+          "timestamp": "2025-02-02T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-4-noise-2",
+          "category": "goal",
+          "content": "연습 부품 3은 회색이다.",
+          "subject": "연습 부품 3",
+          "state": "active",
+          "timestamp": "2025-02-03T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-4-noise-3",
+          "category": "goal",
+          "content": "연습 부품 4은 회색이다.",
+          "subject": "연습 부품 4",
+          "state": "active",
+          "timestamp": "2025-02-04T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-4-noise-4",
+          "category": "goal",
+          "content": "연습 부품 5은 회색이다.",
+          "subject": "연습 부품 5",
+          "state": "active",
+          "timestamp": "2025-02-05T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-4-noise-5",
+          "category": "goal",
+          "content": "연습 부품 6은 회색이다.",
+          "subject": "연습 부품 6",
+          "state": "active",
+          "timestamp": "2025-02-06T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-4-noise-6",
+          "category": "goal",
+          "content": "연습 부품 7은 회색이다.",
+          "subject": "연습 부품 7",
+          "state": "active",
+          "timestamp": "2025-02-07T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-4-noise-7",
+          "category": "goal",
+          "content": "연습 부품 8은 회색이다.",
+          "subject": "연습 부품 8",
+          "state": "active",
+          "timestamp": "2025-02-08T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-4-noise-8",
+          "category": "goal",
+          "content": "연습 부품 9은 회색이다.",
+          "subject": "연습 부품 9",
+          "state": "active",
+          "timestamp": "2025-02-09T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-4-noise-9",
+          "category": "goal",
+          "content": "연습 부품 10은 회색이다.",
+          "subject": "연습 부품 10",
+          "state": "active",
+          "timestamp": "2025-02-10T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-4-noise-10",
+          "category": "goal",
+          "content": "연습 부품 11은 회색이다.",
+          "subject": "연습 부품 11",
+          "state": "active",
+          "timestamp": "2025-02-11T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-4-noise-11",
+          "category": "goal",
+          "content": "연습 부품 12은 회색이다.",
+          "subject": "연습 부품 12",
+          "state": "active",
+          "timestamp": "2025-02-12T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-4-noise-12",
+          "category": "goal",
+          "content": "연습 부품 13은 회색이다.",
+          "subject": "연습 부품 13",
+          "state": "active",
+          "timestamp": "2025-02-13T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-4-noise-13",
+          "category": "goal",
+          "content": "연습 부품 14은 회색이다.",
+          "subject": "연습 부품 14",
+          "state": "active",
+          "timestamp": "2025-02-14T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-4-noise-14",
+          "category": "goal",
+          "content": "연습 부품 15은 회색이다.",
+          "subject": "연습 부품 15",
+          "state": "active",
+          "timestamp": "2025-02-15T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-4-noise-15",
+          "category": "goal",
+          "content": "연습 부품 16은 회색이다.",
+          "subject": "연습 부품 16",
+          "state": "active",
+          "timestamp": "2025-02-16T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-4-noise-16",
+          "category": "goal",
+          "content": "연습 부품 17은 회색이다.",
+          "subject": "연습 부품 17",
+          "state": "active",
+          "timestamp": "2025-02-17T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-4-noise-17",
+          "category": "goal",
+          "content": "연습 부품 18은 회색이다.",
+          "subject": "연습 부품 18",
+          "state": "active",
+          "timestamp": "2025-02-18T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-4-noise-18",
+          "category": "goal",
+          "content": "연습 부품 19은 회색이다.",
+          "subject": "연습 부품 19",
+          "state": "active",
+          "timestamp": "2025-02-19T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-4-noise-19",
+          "category": "goal",
+          "content": "연습 부품 20은 회색이다.",
+          "subject": "연습 부품 20",
+          "state": "active",
+          "timestamp": "2025-02-20T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-4-noise-20",
+          "category": "goal",
+          "content": "연습 부품 21은 회색이다.",
+          "subject": "연습 부품 21",
+          "state": "active",
+          "timestamp": "2025-02-21T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-4-noise-21",
+          "category": "goal",
+          "content": "연습 부품 22은 회색이다.",
+          "subject": "연습 부품 22",
+          "state": "active",
+          "timestamp": "2025-02-22T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-4-noise-22",
+          "category": "goal",
+          "content": "연습 부품 23은 회색이다.",
+          "subject": "연습 부품 23",
+          "state": "active",
+          "timestamp": "2025-02-23T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-4-noise-23",
+          "category": "goal",
+          "content": "연습 부품 24은 회색이다.",
+          "subject": "연습 부품 24",
+          "state": "active",
+          "timestamp": "2025-02-24T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-4-noise-24",
+          "category": "goal",
+          "content": "연습 부품 25은 회색이다.",
+          "subject": "연습 부품 25",
+          "state": "active",
+          "timestamp": "2025-02-25T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "파랑 상자는 어디에 있지?",
+    "review_actions": [
+      {
+        "action": "approve"
+      }
+    ],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [
+        "base-profile-4-fact"
+      ],
+      "turn_ids": [],
+      "allowed_claims": [
+        "파랑 상자는 위쪽 선반에 있다."
+      ],
+      "forbidden_claims": [],
+      "forbidden_changes": [],
+      "corrections": []
+    }
+  },
+  {
+    "id": "base-profile-5",
+    "group": "profile",
+    "gate": "required",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-profile-5-memory",
+          "summary": "나무 퍼즐 조립을 보류했다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "나무 퍼즐"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-profile-5-turn",
+              "role": "user",
+              "text": "나무 퍼즐 조립을 보류했다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-profile-5-fact",
+          "category": "goal",
+          "content": "나무 퍼즐 조립을 보류했다.",
+          "subject": "나무 퍼즐",
+          "state": "paused",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-5-noise-0",
+          "category": "goal",
+          "content": "연습 부품 1은 회색이다.",
+          "subject": "연습 부품 1",
+          "state": "active",
+          "timestamp": "2025-02-01T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-5-noise-1",
+          "category": "goal",
+          "content": "연습 부품 2은 회색이다.",
+          "subject": "연습 부품 2",
+          "state": "active",
+          "timestamp": "2025-02-02T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-5-noise-2",
+          "category": "goal",
+          "content": "연습 부품 3은 회색이다.",
+          "subject": "연습 부품 3",
+          "state": "active",
+          "timestamp": "2025-02-03T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-5-noise-3",
+          "category": "goal",
+          "content": "연습 부품 4은 회색이다.",
+          "subject": "연습 부품 4",
+          "state": "active",
+          "timestamp": "2025-02-04T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-5-noise-4",
+          "category": "goal",
+          "content": "연습 부품 5은 회색이다.",
+          "subject": "연습 부품 5",
+          "state": "active",
+          "timestamp": "2025-02-05T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-5-noise-5",
+          "category": "goal",
+          "content": "연습 부품 6은 회색이다.",
+          "subject": "연습 부품 6",
+          "state": "active",
+          "timestamp": "2025-02-06T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-5-noise-6",
+          "category": "goal",
+          "content": "연습 부품 7은 회색이다.",
+          "subject": "연습 부품 7",
+          "state": "active",
+          "timestamp": "2025-02-07T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-5-noise-7",
+          "category": "goal",
+          "content": "연습 부품 8은 회색이다.",
+          "subject": "연습 부품 8",
+          "state": "active",
+          "timestamp": "2025-02-08T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-5-noise-8",
+          "category": "goal",
+          "content": "연습 부품 9은 회색이다.",
+          "subject": "연습 부품 9",
+          "state": "active",
+          "timestamp": "2025-02-09T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-5-noise-9",
+          "category": "goal",
+          "content": "연습 부품 10은 회색이다.",
+          "subject": "연습 부품 10",
+          "state": "active",
+          "timestamp": "2025-02-10T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-5-noise-10",
+          "category": "goal",
+          "content": "연습 부품 11은 회색이다.",
+          "subject": "연습 부품 11",
+          "state": "active",
+          "timestamp": "2025-02-11T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-5-noise-11",
+          "category": "goal",
+          "content": "연습 부품 12은 회색이다.",
+          "subject": "연습 부품 12",
+          "state": "active",
+          "timestamp": "2025-02-12T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-5-noise-12",
+          "category": "goal",
+          "content": "연습 부품 13은 회색이다.",
+          "subject": "연습 부품 13",
+          "state": "active",
+          "timestamp": "2025-02-13T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-5-noise-13",
+          "category": "goal",
+          "content": "연습 부품 14은 회색이다.",
+          "subject": "연습 부품 14",
+          "state": "active",
+          "timestamp": "2025-02-14T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-5-noise-14",
+          "category": "goal",
+          "content": "연습 부품 15은 회색이다.",
+          "subject": "연습 부품 15",
+          "state": "active",
+          "timestamp": "2025-02-15T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-5-noise-15",
+          "category": "goal",
+          "content": "연습 부품 16은 회색이다.",
+          "subject": "연습 부품 16",
+          "state": "active",
+          "timestamp": "2025-02-16T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-5-noise-16",
+          "category": "goal",
+          "content": "연습 부품 17은 회색이다.",
+          "subject": "연습 부품 17",
+          "state": "active",
+          "timestamp": "2025-02-17T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-5-noise-17",
+          "category": "goal",
+          "content": "연습 부품 18은 회색이다.",
+          "subject": "연습 부품 18",
+          "state": "active",
+          "timestamp": "2025-02-18T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-5-noise-18",
+          "category": "goal",
+          "content": "연습 부품 19은 회색이다.",
+          "subject": "연습 부품 19",
+          "state": "active",
+          "timestamp": "2025-02-19T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-5-noise-19",
+          "category": "goal",
+          "content": "연습 부품 20은 회색이다.",
+          "subject": "연습 부품 20",
+          "state": "active",
+          "timestamp": "2025-02-20T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-5-noise-20",
+          "category": "goal",
+          "content": "연습 부품 21은 회색이다.",
+          "subject": "연습 부품 21",
+          "state": "active",
+          "timestamp": "2025-02-21T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-5-noise-21",
+          "category": "goal",
+          "content": "연습 부품 22은 회색이다.",
+          "subject": "연습 부품 22",
+          "state": "active",
+          "timestamp": "2025-02-22T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-5-noise-22",
+          "category": "goal",
+          "content": "연습 부품 23은 회색이다.",
+          "subject": "연습 부품 23",
+          "state": "active",
+          "timestamp": "2025-02-23T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-5-noise-23",
+          "category": "goal",
+          "content": "연습 부품 24은 회색이다.",
+          "subject": "연습 부품 24",
+          "state": "active",
+          "timestamp": "2025-02-24T09:00:00+09:00"
+        },
+        {
+          "id": "base-profile-5-noise-24",
+          "category": "goal",
+          "content": "연습 부품 25은 회색이다.",
+          "subject": "연습 부품 25",
+          "state": "active",
+          "timestamp": "2025-02-25T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "나무 퍼즐 조립 상태는?",
+    "review_actions": [
+      {
+        "action": "approve"
+      }
+    ],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [
+        "base-profile-5-fact"
+      ],
+      "turn_ids": [],
+      "allowed_claims": [
+        "나무 퍼즐 조립을 보류했다."
+      ],
+      "forbidden_claims": [],
+      "forbidden_changes": [],
+      "corrections": []
+    }
+  },
+  {
+    "id": "base-followup-1",
+    "group": "followup",
+    "gate": "required",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-followup-1-memory",
+          "summary": "등대 모형 받침은 육각형이다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "등대 모형"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-followup-1-turn",
+              "role": "user",
+              "text": "등대 모형 받침은 육각형이다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-followup-1-fact",
+          "category": "goal",
+          "content": "등대 모형 받침은 육각형이다.",
+          "subject": "등대 모형",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [
+      {
+        "id": "base-followup-1-recent",
+        "messages": [
+          {
+            "id": "base-followup-1-recent-turn",
+            "role": "user",
+            "text": "등대 모형 이야기를 이어가자.",
+            "timestamp": "2025-03-01T09:00:00+09:00"
+          }
+        ],
+        "summarize": false
+      }
+    ],
+    "query": "그건 어떤 모양이었지?",
+    "review_actions": [
+      {
+        "action": "approve"
+      }
+    ],
+    "expected": {
+      "memory_ids": [
+        "base-followup-1-memory"
+      ],
+      "fact_ids": [],
+      "turn_ids": [
+        "base-followup-1-turn"
+      ],
+      "allowed_claims": [
+        "등대 모형 받침은 육각형이다."
+      ],
+      "forbidden_claims": [],
+      "forbidden_changes": [],
+      "corrections": []
+    }
+  },
+  {
+    "id": "base-followup-2",
+    "group": "followup",
+    "gate": "required",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-followup-2-memory",
+          "summary": "Lantern Kit uses amber glass.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "Lantern Kit"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-followup-2-turn",
+              "role": "user",
+              "text": "Lantern Kit uses amber glass.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-followup-2-fact",
+          "category": "goal",
+          "content": "Lantern Kit uses amber glass.",
+          "subject": "Lantern Kit",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [
+      {
+        "id": "base-followup-2-recent",
+        "messages": [
+          {
+            "id": "base-followup-2-recent-turn",
+            "role": "user",
+            "text": "I am assembling Lantern Kit.",
+            "timestamp": "2025-03-01T09:00:00+09:00"
+          }
+        ],
+        "summarize": false
+      }
+    ],
+    "query": "What color was it?",
+    "review_actions": [
+      {
+        "action": "approve"
+      }
+    ],
+    "expected": {
+      "memory_ids": [
+        "base-followup-2-memory"
+      ],
+      "fact_ids": [],
+      "turn_ids": [
+        "base-followup-2-turn"
+      ],
+      "allowed_claims": [
+        "Lantern Kit uses amber glass."
+      ],
+      "forbidden_claims": [],
+      "forbidden_changes": [],
+      "corrections": []
+    }
+  },
+  {
+    "id": "base-followup-3",
+    "group": "followup",
+    "gate": "required",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-followup-3-memory",
+          "summary": "紙の塔の土台は青い。",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "紙の塔"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-followup-3-turn",
+              "role": "user",
+              "text": "紙の塔の土台は青い。",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-followup-3-fact",
+          "category": "goal",
+          "content": "紙の塔の土台は青い。",
+          "subject": "紙の塔",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [
+      {
+        "id": "base-followup-3-recent",
+        "messages": [
+          {
+            "id": "base-followup-3-recent-turn",
+            "role": "user",
+            "text": "紙の塔について話そう。",
+            "timestamp": "2025-03-01T09:00:00+09:00"
+          }
+        ],
+        "summarize": false
+      }
+    ],
+    "query": "それは何色だった？",
+    "review_actions": [
+      {
+        "action": "approve"
+      }
+    ],
+    "expected": {
+      "memory_ids": [
+        "base-followup-3-memory"
+      ],
+      "fact_ids": [],
+      "turn_ids": [
+        "base-followup-3-turn"
+      ],
+      "allowed_claims": [
+        "紙の塔の土台は青い。"
+      ],
+      "forbidden_claims": [],
+      "forbidden_changes": [],
+      "corrections": []
+    }
+  },
+  {
+    "id": "base-followup-4",
+    "group": "followup",
+    "gate": "required",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-followup-4-memory",
+          "summary": "청록 기어 톱니는 열두 개다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "청록 기어"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-followup-4-turn",
+              "role": "user",
+              "text": "청록 기어 톱니는 열두 개다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        },
+        {
+          "id": "base-followup-4-other",
+          "summary": "은색 기어는 톱니가 여섯 개다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "은색 기어"
+          ],
+          "aliases": [],
+          "messages": []
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-followup-4-fact",
+          "category": "goal",
+          "content": "청록 기어 톱니는 열두 개다.",
+          "subject": "청록 기어",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [
+      {
+        "id": "base-followup-4-recent",
+        "messages": [
+          {
+            "id": "base-followup-4-recent-turn",
+            "role": "user",
+            "text": "청록 기어와 은색 기어를 비교하고 있어.",
+            "timestamp": "2025-03-01T09:00:00+09:00"
+          }
+        ],
+        "summarize": false
+      }
+    ],
+    "query": "그건 몇 개였지?",
+    "review_actions": [
+      {
+        "action": "approve"
+      }
+    ],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [],
+      "turn_ids": [],
+      "allowed_claims": [
+        "대상 확인이 필요하다."
+      ],
+      "forbidden_claims": [
+        "대상 확인 없이 이전 대상을 확정한다."
+      ],
+      "forbidden_changes": [],
+      "corrections": []
+    }
+  },
+  {
+    "id": "base-followup-5",
+    "group": "followup",
+    "gate": "required",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-followup-5-memory",
+          "summary": "수정 구슬은 천 주머니에 있다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "수정 구슬"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-followup-5-turn",
+              "role": "user",
+              "text": "수정 구슬은 천 주머니에 있다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-followup-5-fact",
+          "category": "goal",
+          "content": "수정 구슬은 천 주머니에 있다.",
+          "subject": "수정 구슬",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [
+      {
+        "id": "base-followup-5-recent",
+        "messages": [
+          {
+            "id": "base-followup-5-recent-turn",
+            "role": "assistant",
+            "text": "수정 구슬부터 볼까요?",
+            "timestamp": "2025-03-01T09:00:00+09:00"
+          }
+        ],
+        "summarize": false
+      }
+    ],
+    "query": "그건 어디에 있었지?",
+    "review_actions": [
+      {
+        "action": "approve"
+      }
+    ],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [],
+      "turn_ids": [],
+      "allowed_claims": [
+        "대상 확인이 필요하다."
+      ],
+      "forbidden_claims": [
+        "대상 확인 없이 이전 대상을 확정한다."
+      ],
+      "forbidden_changes": [],
+      "corrections": []
+    }
+  },
+  {
+    "id": "base-temporal-1",
+    "group": "temporal",
+    "gate": "observe",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-temporal-1-memory",
+          "summary": "조립판은 현재 완성 상태다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "조립판"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-temporal-1-turn",
+              "role": "user",
+              "text": "조립판은 현재 완성 상태다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-temporal-1-fact",
+          "category": "goal",
+          "content": "조립판은 현재 완성 상태다.",
+          "subject": "조립판",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "조립판은 일주일 전에도 완성 상태였나?",
+    "review_actions": [
+      {
+        "action": "approve"
+      }
+    ],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [],
+      "turn_ids": [],
+      "allowed_claims": [
+        "현재 기록과 과거 시점의 불확실성을 구분한다."
+      ],
+      "forbidden_claims": [
+        "현재 상태를 과거 상태로 단정한다."
+      ],
+      "forbidden_changes": [],
+      "corrections": []
+    }
+  },
+  {
+    "id": "base-temporal-2",
+    "group": "temporal",
+    "gate": "observe",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-temporal-2-memory",
+          "summary": "회전축은 현재 두 번째 보관함에 있다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "회전축"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-temporal-2-turn",
+              "role": "user",
+              "text": "회전축은 현재 두 번째 보관함에 있다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-temporal-2-fact",
+          "category": "goal",
+          "content": "회전축은 현재 두 번째 보관함에 있다.",
+          "subject": "회전축",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "회전축이 처음 보관됐던 곳은?",
+    "review_actions": [
+      {
+        "action": "approve"
+      }
+    ],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [],
+      "turn_ids": [],
+      "allowed_claims": [
+        "현재 기록과 과거 시점의 불확실성을 구분한다."
+      ],
+      "forbidden_claims": [
+        "현재 상태를 과거 상태로 단정한다."
+      ],
+      "forbidden_changes": [],
+      "corrections": []
+    }
+  },
+  {
+    "id": "base-temporal-3",
+    "group": "temporal",
+    "gate": "observe",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-temporal-3-memory",
+          "summary": "전시 받침 재도색을 취소했다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "전시 받침"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-temporal-3-turn",
+              "role": "user",
+              "text": "전시 받침 재도색을 취소했다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-temporal-3-fact",
+          "category": "goal",
+          "content": "전시 받침 재도색을 취소했다.",
+          "subject": "전시 받침",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "취소 전에는 어떤 계획이었나?",
+    "review_actions": [
+      {
+        "action": "approve"
+      }
+    ],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [],
+      "turn_ids": [],
+      "allowed_claims": [
+        "현재 기록과 과거 시점의 불확실성을 구분한다."
+      ],
+      "forbidden_claims": [
+        "현재 상태를 과거 상태로 단정한다."
+      ],
+      "forbidden_changes": [],
+      "corrections": []
+    }
+  },
+  {
+    "id": "base-temporal-4",
+    "group": "temporal",
+    "gate": "observe",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-temporal-4-memory",
+          "summary": "별 종이 접기 상태를 나중에 기록했다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "별 종이"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-temporal-4-turn",
+              "role": "user",
+              "text": "별 종이 접기 상태를 나중에 기록했다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-temporal-4-fact",
+          "category": "goal",
+          "content": "별 종이 접기 상태를 나중에 기록했다.",
+          "subject": "별 종이",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "기록 시점과 실제 작업 시점은 같은가?",
+    "review_actions": [
+      {
+        "action": "approve"
+      }
+    ],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [],
+      "turn_ids": [],
+      "allowed_claims": [
+        "현재 기록과 과거 시점의 불확실성을 구분한다."
+      ],
+      "forbidden_claims": [
+        "현재 상태를 과거 상태로 단정한다."
+      ],
+      "forbidden_changes": [],
+      "corrections": []
+    }
+  },
+  {
+    "id": "base-temporal-5",
+    "group": "temporal",
+    "gate": "observe",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-temporal-5-memory",
+          "summary": "색연필함은 열 칸이다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "색연필함"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-temporal-5-turn",
+              "role": "user",
+              "text": "색연필함은 열 칸이다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-temporal-5-fact",
+          "category": "goal",
+          "content": "색연필함은 열 칸이다.",
+          "subject": "색연필함",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "그 전날 색연필함의 칸 수는?",
+    "review_actions": [
+      {
+        "action": "approve"
+      }
+    ],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [],
+      "turn_ids": [],
+      "allowed_claims": [
+        "현재 기록과 과거 시점의 불확실성을 구분한다."
+      ],
+      "forbidden_claims": [
+        "현재 상태를 과거 상태로 단정한다."
+      ],
+      "forbidden_changes": [],
+      "corrections": []
+    }
+  },
+  {
+    "id": "base-raw_detail-1",
+    "group": "raw_detail",
+    "gate": "required",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-raw_detail-1-memory",
+          "summary": "구름 모빌 재료를 정리했다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "구름 모빌"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-raw_detail-1-turn",
+              "role": "user",
+              "text": "구름 모빌 끈은 27센티미터로 자른다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-raw_detail-1-fact",
+          "category": "goal",
+          "content": "구름 모빌 재료를 정리했다.",
+          "subject": "구름 모빌",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "구름 모빌의 끈 길이는?",
+    "review_actions": [
+      {
+        "action": "approve"
+      }
+    ],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [],
+      "turn_ids": [
+        "base-raw_detail-1-turn"
+      ],
+      "allowed_claims": [
+        "구름 모빌 끈은 27센티미터로 자른다."
+      ],
+      "forbidden_claims": [],
+      "forbidden_changes": [],
+      "corrections": []
+    }
+  },
+  {
+    "id": "base-raw_detail-2",
+    "group": "raw_detail",
+    "gate": "required",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-raw_detail-2-memory",
+          "summary": "녹색 배 제작을 논의했다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "녹색 배"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-raw_detail-2-turn",
+              "role": "user",
+              "text": "녹색 배 바닥에는 얇은 코르크를 쓴다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-raw_detail-2-fact",
+          "category": "goal",
+          "content": "녹색 배 제작을 논의했다.",
+          "subject": "녹색 배",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "녹색 배의 바닥 재료는?",
+    "review_actions": [
+      {
+        "action": "approve"
+      }
+    ],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [],
+      "turn_ids": [
+        "base-raw_detail-2-turn"
+      ],
+      "allowed_claims": [
+        "녹색 배 바닥에는 얇은 코르크를 쓴다."
+      ],
+      "forbidden_claims": [],
+      "forbidden_changes": [],
+      "corrections": []
+    }
+  },
+  {
+    "id": "base-raw_detail-3",
+    "group": "raw_detail",
+    "gate": "required",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-raw_detail-3-memory",
+          "summary": "달 조각 마감을 정했다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "달 조각"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-raw_detail-3-turn",
+              "role": "user",
+              "text": "달 조각 표면은 마른 천으로 두 번 닦는다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-raw_detail-3-fact",
+          "category": "goal",
+          "content": "달 조각 마감을 정했다.",
+          "subject": "달 조각",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "달 조각의 표면 처리 방법은?",
+    "review_actions": [
+      {
+        "action": "approve"
+      }
+    ],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [],
+      "turn_ids": [
+        "base-raw_detail-3-turn"
+      ],
+      "allowed_claims": [
+        "달 조각 표면은 마른 천으로 두 번 닦는다."
+      ],
+      "forbidden_claims": [],
+      "forbidden_changes": [],
+      "corrections": []
+    }
+  },
+  {
+    "id": "base-raw_detail-4",
+    "group": "raw_detail",
+    "gate": "required",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-raw_detail-4-memory",
+          "summary": "평면 성 장식을 골랐다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "평면 성"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-raw_detail-4-turn",
+              "role": "user",
+              "text": "평면 성 문에는 작은 삼각형 두 개를 붙인다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-raw_detail-4-fact",
+          "category": "goal",
+          "content": "평면 성 장식을 골랐다.",
+          "subject": "평면 성",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "평면 성 문에는 무슨 장식이 있지?",
+    "review_actions": [
+      {
+        "action": "approve"
+      }
+    ],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [],
+      "turn_ids": [
+        "base-raw_detail-4-turn"
+      ],
+      "allowed_claims": [
+        "평면 성 문에는 작은 삼각형 두 개를 붙인다."
+      ],
+      "forbidden_claims": [],
+      "forbidden_changes": [],
+      "corrections": []
+    }
+  },
+  {
+    "id": "base-raw_detail-5",
+    "group": "raw_detail",
+    "gate": "required",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-raw_detail-5-memory",
+          "summary": "바람 종 부품을 분류했다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "바람 종"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-raw_detail-5-turn",
+              "role": "user",
+              "text": "바람 종 연결핀에는 보라색 점을 찍었다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-raw_detail-5-fact",
+          "category": "goal",
+          "content": "바람 종 부품을 분류했다.",
+          "subject": "바람 종",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "바람 종 부품의 표시는?",
+    "review_actions": [
+      {
+        "action": "approve"
+      }
+    ],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [],
+      "turn_ids": [
+        "base-raw_detail-5-turn"
+      ],
+      "allowed_claims": [
+        "바람 종 연결핀에는 보라색 점을 찍었다."
+      ],
+      "forbidden_claims": [],
+      "forbidden_changes": [],
+      "corrections": []
+    }
+  },
+  {
+    "id": "base-assertion-1",
+    "group": "assertion",
+    "gate": "regression",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-assertion-1-memory",
+          "summary": "종이 로봇은 접는 중이다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "종이 로봇"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-assertion-1-turn",
+              "role": "user",
+              "text": "종이 로봇은 접는 중이다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-assertion-1-fact",
+          "category": "goal",
+          "content": "종이 로봇은 접는 중이다.",
+          "subject": "종이 로봇",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [
+      {
+        "id": "base-assertion-1-session",
+        "messages": [
+          {
+            "id": "base-assertion-1-new-turn",
+            "role": "user",
+            "text": "종이 로봇을 완성한 것은 아니야.",
+            "timestamp": "2025-03-01T09:00:00+09:00"
+          }
+        ],
+        "summarize": true
+      }
+    ],
+    "query": "종이 로봇이 완성됐나?",
+    "review_actions": [
+      {
+        "action": "reject",
+        "target_id": "base-assertion-1-fact",
+        "subject": "종이 로봇",
+        "evidence": "종이 로봇을 완성한 것은 아니야."
+      }
+    ],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [
+        "base-assertion-1-fact"
+      ],
+      "turn_ids": [],
+      "allowed_claims": [
+        "종이 로봇은 접는 중이다."
+      ],
+      "forbidden_claims": [],
+      "forbidden_changes": [
+        {
+          "fact_id": "base-assertion-1-fact",
+          "reason": "거부된 제안, 다른 대상 또는 변경된 검토 대상을 덮어쓰지 않는다."
+        }
+      ],
+      "corrections": []
+    }
+  },
+  {
+    "id": "base-assertion-2",
+    "group": "assertion",
+    "gate": "regression",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-assertion-2-memory",
+          "summary": "원목 틀은 비어 있다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "원목 틀"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-assertion-2-turn",
+              "role": "user",
+              "text": "원목 틀은 비어 있다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-assertion-2-fact",
+          "category": "goal",
+          "content": "원목 틀은 비어 있다.",
+          "subject": "원목 틀",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [
+      {
+        "id": "base-assertion-2-session",
+        "messages": [
+          {
+            "id": "base-assertion-2-new-turn",
+            "role": "user",
+            "text": "원목 틀에 유리를 끼운다면 단단해질 거야.",
+            "timestamp": "2025-03-01T09:00:00+09:00"
+          }
+        ],
+        "summarize": true
+      }
+    ],
+    "query": "원목 틀에 유리를 끼웠나?",
+    "review_actions": [
+      {
+        "action": "reject",
+        "target_id": "base-assertion-2-fact",
+        "subject": "원목 틀",
+        "evidence": "원목 틀에 유리를 끼운다면 단단해질 거야."
+      }
+    ],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [
+        "base-assertion-2-fact"
+      ],
+      "turn_ids": [],
+      "allowed_claims": [
+        "원목 틀은 비어 있다."
+      ],
+      "forbidden_claims": [],
+      "forbidden_changes": [
+        {
+          "fact_id": "base-assertion-2-fact",
+          "reason": "거부된 제안, 다른 대상 또는 변경된 검토 대상을 덮어쓰지 않는다."
+        }
+      ],
+      "corrections": []
+    }
+  },
+  {
+    "id": "base-assertion-3",
+    "group": "assertion",
+    "gate": "regression",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-assertion-3-memory",
+          "summary": "고무 팽이는 아직 칠하지 않았다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "고무 팽이"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-assertion-3-turn",
+              "role": "user",
+              "text": "고무 팽이는 아직 칠하지 않았다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-assertion-3-fact",
+          "category": "goal",
+          "content": "고무 팽이는 아직 칠하지 않았다.",
+          "subject": "고무 팽이",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [
+      {
+        "id": "base-assertion-3-session",
+        "messages": [
+          {
+            "id": "base-assertion-3-new-turn",
+            "role": "user",
+            "text": "설명서에 '고무 팽이를 빨갛게 칠했다'라는 예시가 있어.",
+            "timestamp": "2025-03-01T09:00:00+09:00"
+          }
+        ],
+        "summarize": true
+      }
+    ],
+    "query": "고무 팽이에 색을 칠했나?",
+    "review_actions": [
+      {
+        "action": "reject",
+        "target_id": "base-assertion-3-fact",
+        "subject": "고무 팽이",
+        "evidence": "설명서에 '고무 팽이를 빨갛게 칠했다'라는 예시가 있어."
+      }
+    ],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [
+        "base-assertion-3-fact"
+      ],
+      "turn_ids": [],
+      "allowed_claims": [
+        "고무 팽이는 아직 칠하지 않았다."
+      ],
+      "forbidden_claims": [],
+      "forbidden_changes": [
+        {
+          "fact_id": "base-assertion-3-fact",
+          "reason": "거부된 제안, 다른 대상 또는 변경된 검토 대상을 덮어쓰지 않는다."
+        }
+      ],
+      "corrections": []
+    }
+  },
+  {
+    "id": "base-assertion-4",
+    "group": "assertion",
+    "gate": "regression",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-assertion-4-memory",
+          "summary": "사각 접시는 흰색이다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "사각 접시"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-assertion-4-turn",
+              "role": "user",
+              "text": "사각 접시는 흰색이다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-assertion-4-fact",
+          "category": "goal",
+          "content": "사각 접시는 흰색이다.",
+          "subject": "사각 접시",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [
+      {
+        "id": "base-assertion-4-session",
+        "messages": [
+          {
+            "id": "base-assertion-4-new-turn",
+            "role": "user",
+            "text": "사각 접시를 노란색으로 칠했다.",
+            "timestamp": "2025-03-01T09:00:00+09:00"
+          }
+        ],
+        "summarize": true
+      }
+    ],
+    "query": "사각 접시의 현재 색은?",
+    "review_actions": [
+      {
+        "action": "approve",
+        "target_id": "base-assertion-4-fact",
+        "subject": "사각 접시",
+        "evidence": "사각 접시를 노란색으로 칠했다."
+      }
+    ],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [
+        "base-assertion-4-fact"
+      ],
+      "turn_ids": [],
+      "allowed_claims": [
+        "사각 접시를 노란색으로 칠했다."
+      ],
+      "forbidden_claims": [],
+      "forbidden_changes": [],
+      "corrections": [
+        {
+          "fact_id": "base-assertion-4-fact",
+          "content": "사각 접시를 노란색으로 칠했다."
+        }
+      ]
+    }
+  },
+  {
+    "id": "base-assertion-5",
+    "group": "assertion",
+    "gate": "regression",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-assertion-5-memory",
+          "summary": "직조틀은 조립 중이다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "직조틀"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-assertion-5-turn",
+              "role": "user",
+              "text": "직조틀은 조립 중이다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-assertion-5-fact",
+          "category": "goal",
+          "content": "직조틀은 조립 중이다.",
+          "subject": "직조틀",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [
+      {
+        "id": "base-assertion-5-session",
+        "messages": [
+          {
+            "id": "base-assertion-5-new-turn",
+            "role": "user",
+            "text": "직조틀 조립을 완료했다.",
+            "timestamp": "2025-03-01T09:00:00+09:00"
+          }
+        ],
+        "summarize": true
+      }
+    ],
+    "query": "직조틀 조립은 끝났나?",
+    "review_actions": [
+      {
+        "action": "approve",
+        "target_id": "base-assertion-5-fact",
+        "subject": "직조틀",
+        "evidence": "직조틀 조립을 완료했다."
+      }
+    ],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [
+        "base-assertion-5-fact"
+      ],
+      "turn_ids": [],
+      "allowed_claims": [
+        "직조틀 조립을 완료했다."
+      ],
+      "forbidden_claims": [],
+      "forbidden_changes": [],
+      "corrections": [
+        {
+          "fact_id": "base-assertion-5-fact",
+          "content": "직조틀 조립을 완료했다."
+        }
+      ]
+    }
+  },
+  {
+    "id": "base-abstention-1",
+    "group": "abstention",
+    "gate": "regression",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-abstention-1-memory",
+          "summary": "금속 새는 선반에 있다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "금속 새"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-abstention-1-turn",
+              "role": "user",
+              "text": "금속 새는 선반에 있다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-abstention-1-fact",
+          "category": "goal",
+          "content": "금속 새는 선반에 있다.",
+          "subject": "금속 새",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "금속 새의 무게는?",
+    "review_actions": [
+      {
+        "action": "approve"
+      }
+    ],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [],
+      "turn_ids": [],
+      "allowed_claims": [
+        "기록에서 해당 정보를 확인할 수 없다."
+      ],
+      "forbidden_claims": [
+        "기록에 없는 값을 확정해서 답한다."
+      ],
+      "forbidden_changes": [],
+      "corrections": []
+    }
+  },
+  {
+    "id": "base-abstention-2",
+    "group": "abstention",
+    "gate": "regression",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-abstention-2-memory",
+          "summary": "종이 숲은 초록색이다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "종이 숲"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-abstention-2-turn",
+              "role": "user",
+              "text": "종이 숲은 초록색이다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-abstention-2-fact",
+          "category": "goal",
+          "content": "종이 숲은 초록색이다.",
+          "subject": "종이 숲",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "종이 숲을 만든 시간은?",
+    "review_actions": [
+      {
+        "action": "approve"
+      }
+    ],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [],
+      "turn_ids": [],
+      "allowed_claims": [
+        "기록에서 해당 정보를 확인할 수 없다."
+      ],
+      "forbidden_claims": [
+        "기록에 없는 값을 확정해서 답한다."
+      ],
+      "forbidden_changes": [],
+      "corrections": []
+    }
+  },
+  {
+    "id": "base-abstention-3",
+    "group": "abstention",
+    "gate": "regression",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-abstention-3-memory",
+          "summary": "투명 탑은 네 층이다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "투명 탑"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-abstention-3-turn",
+              "role": "user",
+              "text": "투명 탑은 네 층이다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-abstention-3-fact",
+          "category": "goal",
+          "content": "투명 탑은 네 층이다.",
+          "subject": "투명 탑",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "투명 탑의 제작 도구는?",
+    "review_actions": [
+      {
+        "action": "approve"
+      }
+    ],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [],
+      "turn_ids": [],
+      "allowed_claims": [
+        "기록에서 해당 정보를 확인할 수 없다."
+      ],
+      "forbidden_claims": [
+        "기록에 없는 값을 확정해서 답한다."
+      ],
+      "forbidden_changes": [],
+      "corrections": []
+    }
+  },
+  {
+    "id": "base-abstention-4",
+    "group": "abstention",
+    "gate": "regression",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-abstention-4-memory",
+          "summary": "나선 바퀴는 둥글다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "나선 바퀴"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-abstention-4-turn",
+              "role": "user",
+              "text": "나선 바퀴는 둥글다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-abstention-4-fact",
+          "category": "goal",
+          "content": "나선 바퀴는 둥글다.",
+          "subject": "나선 바퀴",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "나선 바퀴의 가격은?",
+    "review_actions": [
+      {
+        "action": "approve"
+      }
+    ],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [],
+      "turn_ids": [],
+      "allowed_claims": [
+        "기록에서 해당 정보를 확인할 수 없다."
+      ],
+      "forbidden_claims": [
+        "기록에 없는 값을 확정해서 답한다."
+      ],
+      "forbidden_changes": [],
+      "corrections": []
+    }
+  },
+  {
+    "id": "base-abstention-5",
+    "group": "abstention",
+    "gate": "regression",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-abstention-5-memory",
+          "summary": "작은 배지는 별 모양이다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "작은 배지"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-abstention-5-turn",
+              "role": "user",
+              "text": "작은 배지는 별 모양이다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-abstention-5-fact",
+          "category": "goal",
+          "content": "작은 배지는 별 모양이다.",
+          "subject": "작은 배지",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "작은 배지는 어디에서 왔나?",
+    "review_actions": [
+      {
+        "action": "approve"
+      }
+    ],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [],
+      "turn_ids": [],
+      "allowed_claims": [
+        "기록에서 해당 정보를 확인할 수 없다."
+      ],
+      "forbidden_claims": [
+        "기록에 없는 값을 확정해서 답한다."
+      ],
+      "forbidden_changes": [],
+      "corrections": []
+    }
+  },
+  {
+    "id": "base-multi_memory-1",
+    "group": "multi_memory",
+    "gate": "required",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-multi_memory-1-memory",
+          "summary": "적색 타일은 네 개다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "적색 타일"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-multi_memory-1-turn",
+              "role": "user",
+              "text": "적색 타일은 네 개다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        },
+        {
+          "id": "base-multi_memory-1-second",
+          "summary": "백색 타일은 여섯 개다.",
+          "timestamp": "2025-01-03T09:00:00+09:00",
+          "entity_names": [
+            "백색 타일"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-multi_memory-1-second-turn",
+              "role": "user",
+              "text": "백색 타일은 여섯 개다.",
+              "timestamp": "2025-01-03T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-multi_memory-1-fact",
+          "category": "goal",
+          "content": "적색 타일은 네 개다.",
+          "subject": "적색 타일",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "적색 타일과 백색 타일은 각각 몇 개인가?",
+    "review_actions": [
+      {
+        "action": "approve"
+      }
+    ],
+    "expected": {
+      "memory_ids": [
+        "base-multi_memory-1-memory",
+        "base-multi_memory-1-second"
+      ],
+      "fact_ids": [],
+      "turn_ids": [],
+      "allowed_claims": [
+        "적색 타일은 네 개다.",
+        "백색 타일은 여섯 개다."
+      ],
+      "forbidden_claims": [],
+      "forbidden_changes": [],
+      "corrections": []
+    }
+  },
+  {
+    "id": "base-multi_memory-2",
+    "group": "multi_memory",
+    "gate": "required",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-multi_memory-2-memory",
+          "summary": "둥근 화분은 진열대에 있다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "둥근 화분"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-multi_memory-2-turn",
+              "role": "user",
+              "text": "둥근 화분은 진열대에 있다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        },
+        {
+          "id": "base-multi_memory-2-second",
+          "summary": "긴 화분은 작업대에 있다.",
+          "timestamp": "2025-01-03T09:00:00+09:00",
+          "entity_names": [
+            "긴 화분"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-multi_memory-2-second-turn",
+              "role": "user",
+              "text": "긴 화분은 작업대에 있다.",
+              "timestamp": "2025-01-03T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-multi_memory-2-fact",
+          "category": "goal",
+          "content": "둥근 화분은 진열대에 있다.",
+          "subject": "둥근 화분",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "둥근 화분과 긴 화분은 어디에 있나?",
+    "review_actions": [
+      {
+        "action": "approve"
+      }
+    ],
+    "expected": {
+      "memory_ids": [
+        "base-multi_memory-2-memory",
+        "base-multi_memory-2-second"
+      ],
+      "fact_ids": [],
+      "turn_ids": [],
+      "allowed_claims": [
+        "둥근 화분은 진열대에 있다.",
+        "긴 화분은 작업대에 있다."
+      ],
+      "forbidden_claims": [],
+      "forbidden_changes": [],
+      "corrections": []
+    }
+  },
+  {
+    "id": "base-multi_memory-3",
+    "group": "multi_memory",
+    "gate": "required",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-multi_memory-3-memory",
+          "summary": "구리 종 끈은 짧다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "구리 종"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-multi_memory-3-turn",
+              "role": "user",
+              "text": "구리 종 끈은 짧다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        },
+        {
+          "id": "base-multi_memory-3-second",
+          "summary": "은색 종 끈은 길다.",
+          "timestamp": "2025-01-03T09:00:00+09:00",
+          "entity_names": [
+            "은색 종"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-multi_memory-3-second-turn",
+              "role": "user",
+              "text": "은색 종 끈은 길다.",
+              "timestamp": "2025-01-03T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-multi_memory-3-fact",
+          "category": "goal",
+          "content": "구리 종 끈은 짧다.",
+          "subject": "구리 종",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "구리 종과 은색 종의 끈 차이는?",
+    "review_actions": [
+      {
+        "action": "approve"
+      }
+    ],
+    "expected": {
+      "memory_ids": [
+        "base-multi_memory-3-memory",
+        "base-multi_memory-3-second"
+      ],
+      "fact_ids": [],
+      "turn_ids": [],
+      "allowed_claims": [
+        "구리 종 끈은 짧다.",
+        "은색 종 끈은 길다."
+      ],
+      "forbidden_claims": [],
+      "forbidden_changes": [],
+      "corrections": []
+    }
+  },
+  {
+    "id": "base-multi_memory-4",
+    "group": "multi_memory",
+    "gate": "required",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-multi_memory-4-memory",
+          "summary": "빨간 연은 마름모다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "빨간 연"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-multi_memory-4-turn",
+              "role": "user",
+              "text": "빨간 연은 마름모다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        },
+        {
+          "id": "base-multi_memory-4-second",
+          "summary": "파란 연은 삼각형이다.",
+          "timestamp": "2025-01-03T09:00:00+09:00",
+          "entity_names": [
+            "파란 연"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-multi_memory-4-second-turn",
+              "role": "user",
+              "text": "파란 연은 삼각형이다.",
+              "timestamp": "2025-01-03T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-multi_memory-4-fact",
+          "category": "goal",
+          "content": "빨간 연은 마름모다.",
+          "subject": "빨간 연",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "빨간 연과 파란 연의 모양은?",
+    "review_actions": [
+      {
+        "action": "approve"
+      }
+    ],
+    "expected": {
+      "memory_ids": [
+        "base-multi_memory-4-memory",
+        "base-multi_memory-4-second"
+      ],
+      "fact_ids": [],
+      "turn_ids": [],
+      "allowed_claims": [
+        "빨간 연은 마름모다.",
+        "파란 연은 삼각형이다."
+      ],
+      "forbidden_claims": [],
+      "forbidden_changes": [],
+      "corrections": []
+    }
+  },
+  {
+    "id": "base-multi_memory-5",
+    "group": "multi_memory",
+    "gate": "required",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-multi_memory-5-memory",
+          "summary": "돌탑은 다섯 층이다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "돌탑"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-multi_memory-5-turn",
+              "role": "user",
+              "text": "돌탑은 다섯 층이다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        },
+        {
+          "id": "base-multi_memory-5-second",
+          "summary": "나무탑은 세 층이다.",
+          "timestamp": "2025-01-03T09:00:00+09:00",
+          "entity_names": [
+            "나무탑"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-multi_memory-5-second-turn",
+              "role": "user",
+              "text": "나무탑은 세 층이다.",
+              "timestamp": "2025-01-03T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-multi_memory-5-fact",
+          "category": "goal",
+          "content": "돌탑은 다섯 층이다.",
+          "subject": "돌탑",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "돌탑과 나무탑의 층 수 차이는?",
+    "review_actions": [
+      {
+        "action": "approve"
+      }
+    ],
+    "expected": {
+      "memory_ids": [
+        "base-multi_memory-5-memory",
+        "base-multi_memory-5-second"
+      ],
+      "fact_ids": [],
+      "turn_ids": [],
+      "allowed_claims": [
+        "돌탑은 다섯 층이다.",
+        "나무탑은 세 층이다."
+      ],
+      "forbidden_claims": [],
+      "forbidden_changes": [],
+      "corrections": []
+    }
+  },
+  {
+    "id": "base-boundary-1",
+    "group": "boundary",
+    "gate": "regression",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-boundary-1-memory",
+          "summary": "모형 A는 조립 중이다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "모형 A"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-boundary-1-turn",
+              "role": "user",
+              "text": "모형 A는 조립 중이다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-boundary-1-fact",
+          "category": "goal",
+          "content": "모형 A는 조립 중이다.",
+          "subject": "모형 A",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [
+      {
+        "id": "base-boundary-1-session",
+        "messages": [
+          {
+            "id": "base-boundary-1-new-turn",
+            "role": "user",
+            "text": "모형 B를 완성했다.",
+            "timestamp": "2025-03-01T09:00:00+09:00"
+          }
+        ],
+        "summarize": true
+      }
+    ],
+    "query": "모형 A 상태는?",
+    "review_actions": [
+      {
+        "action": "approve",
+        "target_id": "base-boundary-1-fact",
+        "subject": "모형 A",
+        "evidence": "모형 B를 완성했다."
+      }
+    ],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [
+        "base-boundary-1-fact"
+      ],
+      "turn_ids": [],
+      "allowed_claims": [
+        "모형 A는 조립 중이다."
+      ],
+      "forbidden_claims": [],
+      "forbidden_changes": [
+        {
+          "fact_id": "base-boundary-1-fact",
+          "reason": "거부된 제안, 다른 대상 또는 변경된 검토 대상을 덮어쓰지 않는다."
+        }
+      ],
+      "corrections": []
+    }
+  },
+  {
+    "id": "base-boundary-2",
+    "group": "boundary",
+    "gate": "regression",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-boundary-2-memory",
+          "summary": "종이 지붕은 미완성이다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "종이 지붕"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-boundary-2-turn",
+              "role": "user",
+              "text": "종이 지붕은 미완성이다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-boundary-2-fact",
+          "category": "goal",
+          "content": "종이 지붕은 미완성이다.",
+          "subject": "종이 지붕",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [
+      {
+        "id": "base-boundary-2-session",
+        "messages": [
+          {
+            "id": "base-boundary-2-new-turn",
+            "role": "user",
+            "text": "종이 지붕을 종이 돔으로 부른다.",
+            "timestamp": "2025-03-01T09:00:00+09:00"
+          }
+        ],
+        "summarize": true
+      }
+    ],
+    "query": "종이 지붕의 이름을 정정해줘.",
+    "review_actions": [
+      {
+        "action": "correct_subject",
+        "target_id": "base-boundary-2-fact",
+        "subject": "종이 지붕",
+        "evidence": "종이 지붕을 종이 돔으로 부른다.",
+        "corrected_subject": "종이 돔"
+      }
+    ],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [
+        "base-boundary-2-fact"
+      ],
+      "turn_ids": [],
+      "allowed_claims": [
+        "종이 지붕은 미완성이다."
+      ],
+      "forbidden_claims": [],
+      "forbidden_changes": [],
+      "corrections": [
+        {
+          "fact_id": "base-boundary-2-fact",
+          "subject": "종이 돔"
+        }
+      ]
+    }
+  },
+  {
+    "id": "base-boundary-3",
+    "group": "boundary",
+    "gate": "regression",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-boundary-3-memory",
+          "summary": "나무 다리는 미완성이다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "나무 다리"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-boundary-3-turn",
+              "role": "user",
+              "text": "나무 다리는 미완성이다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-boundary-3-fact",
+          "category": "goal",
+          "content": "나무 다리는 미완성이다.",
+          "subject": "나무 다리",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [
+      {
+        "id": "base-boundary-3-session",
+        "messages": [
+          {
+            "id": "base-boundary-3-new-turn",
+            "role": "user",
+            "text": "나무 다리를 완성했다.",
+            "timestamp": "2025-03-01T09:00:00+09:00"
+          }
+        ],
+        "summarize": true
+      }
+    ],
+    "query": "나무 다리 상태는?",
+    "review_actions": [
+      {
+        "action": "edit_target",
+        "target_id": "base-boundary-3-fact",
+        "subject": "나무 다리",
+        "evidence": "나무 다리를 완성했다."
+      }
+    ],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [
+        "base-boundary-3-fact"
+      ],
+      "turn_ids": [],
+      "allowed_claims": [
+        "나무 다리는 미완성이다."
+      ],
+      "forbidden_claims": [],
+      "forbidden_changes": [
+        {
+          "fact_id": "base-boundary-3-fact",
+          "reason": "거부된 제안, 다른 대상 또는 변경된 검토 대상을 덮어쓰지 않는다."
+        }
+      ],
+      "corrections": []
+    }
+  },
+  {
+    "id": "base-boundary-4",
+    "group": "boundary",
+    "gate": "regression",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-boundary-4-memory",
+          "summary": "동판은 미완성이다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "동판"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-boundary-4-turn",
+              "role": "user",
+              "text": "동판은 미완성이다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-boundary-4-fact",
+          "category": "goal",
+          "content": "동판은 미완성이다.",
+          "subject": "동판",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [
+      {
+        "id": "base-boundary-4-session",
+        "messages": [
+          {
+            "id": "base-boundary-4-new-turn",
+            "role": "user",
+            "text": "동판을 완성했다.",
+            "timestamp": "2025-03-01T09:00:00+09:00"
+          }
+        ],
+        "summarize": true
+      }
+    ],
+    "query": "동판 상태는?",
+    "review_actions": [
+      {
+        "action": "delete_target",
+        "target_id": "base-boundary-4-fact",
+        "subject": "동판",
+        "evidence": "동판을 완성했다."
+      }
+    ],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [],
+      "turn_ids": [],
+      "allowed_claims": [
+        "동판은 미완성이다."
+      ],
+      "forbidden_claims": [],
+      "forbidden_changes": [
+        {
+          "fact_id": "base-boundary-4-fact",
+          "reason": "거부된 제안, 다른 대상 또는 변경된 검토 대상을 덮어쓰지 않는다."
+        }
+      ],
+      "corrections": []
+    }
+  },
+  {
+    "id": "base-boundary-5",
+    "group": "boundary",
+    "gate": "regression",
+    "now": "2025-03-01T12:00:00+09:00",
+    "seed_state": {
+      "memories": [
+        {
+          "id": "base-boundary-5-memory",
+          "summary": "작은 도르래는 미완성이다.",
+          "timestamp": "2025-01-02T09:00:00+09:00",
+          "entity_names": [
+            "작은 도르래"
+          ],
+          "aliases": [],
+          "messages": [
+            {
+              "id": "base-boundary-5-turn",
+              "role": "user",
+              "text": "작은 도르래는 미완성이다.",
+              "timestamp": "2025-01-02T09:00:00+09:00"
+            }
+          ]
+        }
+      ],
+      "facts": [
+        {
+          "id": "base-boundary-5-fact",
+          "category": "goal",
+          "content": "작은 도르래는 미완성이다.",
+          "subject": "작은 도르래",
+          "state": "active",
+          "timestamp": "2025-01-02T09:00:00+09:00"
+        }
+      ]
+    },
+    "sessions": [
+      {
+        "id": "base-boundary-5-session",
+        "messages": [
+          {
+            "id": "base-boundary-5-new-turn",
+            "role": "user",
+            "text": "작은 도르래를 완성했다.",
+            "timestamp": "2025-03-01T09:00:00+09:00"
+          }
+        ],
+        "summarize": true
+      }
+    ],
+    "query": "작은 도르래 상태는?",
+    "review_actions": [
+      {
+        "action": "approve",
+        "target_id": "base-boundary-5-fact",
+        "subject": "작은 도르래",
+        "evidence": "작은 도르래를 완성했다."
+      }
+    ],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [
+        "base-boundary-5-fact"
+      ],
+      "turn_ids": [],
+      "allowed_claims": [
+        "작은 도르래를 완성했다."
+      ],
+      "forbidden_claims": [],
+      "forbidden_changes": [],
+      "corrections": [
+        {
+          "fact_id": "base-boundary-5-fact",
+          "content": "작은 도르래를 완성했다."
+        }
+      ]
+    }
+  }
+]
