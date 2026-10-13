@@ -422,6 +422,10 @@ class MemoryManager:
         top_k: int = 3,
         min_similarity: float = 0.5,
         expand_hops: int = 1,
+        *,
+        mark_retrieved: bool = True,
+        trace=None,
+        trace_stage="activation",
     ) -> List[MemoryActivationResult]:
         """유사도 위에 별칭/트리거/최근 대화 신호를 얹어 기억을 고른다."""
         max_results = max(0, int(top_k or 0))
@@ -470,6 +474,8 @@ class MemoryManager:
                 )
             )
 
+        if trace is not None:
+            trace.candidates[trace_stage + "_pool"] = [item.memory.id for item in ranked]
         if not ranked:
             return []
 
@@ -482,7 +488,13 @@ class MemoryManager:
             expand_hops=expand_hops,
             raw_similarity_by_id=raw_similarity_by_id,
         )
-        self._mark_activation_results_used(selected)
+        if trace is not None:
+            selected_ids = {item.memory.id for item in selected}
+            for item in ranked:
+                if item.memory.id not in selected_ids:
+                    trace.excluded[trace_stage + ":" + item.memory.id] = "selection_limit"
+        if mark_retrieved:
+            self._mark_activation_results_used(selected)
 
         if selected:
             print(f"[Memory] 활성화 기억 {len(selected)}개 찾음")
@@ -715,7 +727,7 @@ class MemoryManager:
 
     def _normalize_direct_match_text(self, text: str) -> str:
         """직접 매칭용으로 대소문자와 구두점을 정규화한다."""
-        normalized = re.sub(r"[^0-9a-z가-힣]+", " ", str(text or "").lower())
+        normalized = re.sub(r"[^0-9a-z가-힣ぁ-ゖァ-ヺ一-龯々ー]+", " ", str(text or "").lower())
         return re.sub(r"\s+", " ", normalized).strip()
 
     def _direct_phrase_matches(
@@ -731,6 +743,9 @@ class MemoryManager:
             return False
         if re.search(r"[a-z0-9]", compact_term):
             return self._ascii_term_matches(normalized_query, normalized_term)
+        if re.search(r"[ぁ-ゖァ-ヺ一-龯々ー]", compact_term):
+            from .memory_recall import contains_entity
+            return contains_entity(normalized_query, normalized_term)
         return normalized_term in normalized_query or compact_term in compact_query
 
     def _ascii_term_matches(self, normalized_query: str, normalized_term: str) -> bool:
@@ -892,10 +907,15 @@ class MemoryManager:
         recent_context: str = "",
         top_k: int = 2,
         chunk_turns: int = 6,
+        *,
+        supplemental_memories=None,
+        recall_plan=None,
+        trace=None,
     ) -> List[Tuple[MemoryChunk, float, dict[str, float]]]:
         """후보 memory 안에서 최신 사용자 메시지 중심 raw chunk를 선별한다."""
         normalized_query = str(latest_query or "").strip()
         normalized_recent = str(recent_context or "").strip()
+        supplemental_query = recall_plan.expanded_query if recall_plan else ""
         if not (normalized_query or normalized_recent):
             return []
 
@@ -912,21 +932,53 @@ class MemoryManager:
         # 전체 원문을 외부 임베딩에 보내지 않도록 후보 구간 수를 먼저 제한한다.
         candidate_ids = {memory.id for memory, _ in candidate_memories}
         fallback_chunks = []
+        from .memory_recall import contains_entity
+        def grounded_chunk(chunk):
+            return recall_plan is not None and any(contains_entity(chunk.text, name)
+                                                   for name in (recall_plan.entity_name, *recall_plan.aliases))
+        for memory, memory_score in supplemental_memories or []:
+            if memory.id in candidate_ids:
+                continue
+            for chunk in self.build_raw_chunks(memory, chunk_turns=chunk_turns):
+                if grounded_chunk(chunk):
+                    lexical_score = self._raw_recall_overlap(supplemental_query, chunk.text)
+                    fallback_chunks.append((chunk, max(lexical_score, float(memory_score))))
         for memory in self.memories:
             if memory.id in candidate_ids:
                 continue
             for chunk in self.build_raw_chunks(memory, chunk_turns=chunk_turns):
                 lexical_score = self._raw_recall_overlap(normalized_query, chunk.text)
+                if grounded_chunk(chunk):
+                    lexical_score = max(lexical_score, self._raw_recall_overlap(supplemental_query, chunk.text))
                 if lexical_score >= 0.35:
                     fallback_chunks.append((chunk, lexical_score))
         fallback_chunks.sort(key=lambda item: item[1], reverse=True)
-        all_chunks.extend(fallback_chunks[:max_chunks * 3])
+        seen_chunks = {(chunk.memory_id, chunk.start_turn_index, chunk.end_turn_index) for chunk, _ in all_chunks}
+        added = 0
+        for chunk, score in fallback_chunks:
+            identity = (chunk.memory_id, chunk.start_turn_index, chunk.end_turn_index)
+            if identity in seen_chunks:
+                continue
+            all_chunks.append((chunk, score))
+            seen_chunks.add(identity)
+            added += 1
+            if added >= max_chunks * 3:
+                break
 
         if not all_chunks:
             return []
 
+        def trace_id(chunk):
+            return f"raw:{chunk.memory_id}:{chunk.start_turn_index}:{chunk.end_turn_index}"
+        if trace is not None:
+            trace.candidates["raw_before_embedding"] = [trace_id(chunk) for chunk, _ in all_chunks]
+            for chunk, _ in fallback_chunks:
+                if trace_id(chunk) not in trace.candidates["raw_before_embedding"]:
+                    trace.excluded[trace_id(chunk)] = "extra_chunk_limit"
+
         query_embedding = None
         recent_embedding = None
+        supplemental_embedding = None
         if self.embedding_generator and normalized_query:
             try:
                 query_embedding = await self.embedding_generator.embed(normalized_query)
@@ -939,6 +991,11 @@ class MemoryManager:
                 print(f"[Memory] 최근 문맥 chunk 검색 임베딩 실패: {error}")
 
         await self._ensure_chunk_embeddings([chunk for chunk, _ in all_chunks])
+        if self.embedding_generator and supplemental_query:
+            try:
+                supplemental_embedding = await self.embedding_generator.embed(supplemental_query)
+            except Exception:
+                supplemental_embedding = None
 
         ranked: list[tuple[MemoryChunk, float, dict[str, float]]] = []
         for chunk, memory_score in all_chunks:
@@ -951,13 +1008,17 @@ class MemoryManager:
             recency_bonus = self._chunk_recency_bonus(chunk)
             user_bonus = self._chunk_user_bonus(chunk)
 
-            if primary_similarity < 0.35 and keyword_score < 0.2:
+            supplemental_similarity = self._cosine_if_available(supplemental_embedding, chunk.embedding) if grounded_chunk(chunk) else 0.0
+            supplemental_keyword = self._raw_recall_overlap(supplemental_query, chunk.text) if grounded_chunk(chunk) else 0.0
+            if primary_similarity < 0.35 and keyword_score < 0.2 and supplemental_similarity < 0.35 and supplemental_keyword < 0.2:
+                if trace is not None:
+                    trace.excluded[trace_id(chunk)] = "insufficient_query_evidence"
                 continue
 
             final_score = (
-                (primary_similarity * 0.52)
+                (max(primary_similarity, supplemental_similarity) * 0.52)
                 + (support_similarity * 0.14)
-                + (keyword_score * 0.14)
+                + (max(keyword_score, supplemental_keyword) * 0.14)
                 + (support_keyword_score * 0.06)
                 + (temporal_score * 0.05)
                 + (memory_bonus * 0.05)
@@ -970,6 +1031,8 @@ class MemoryManager:
                     final_score,
                     {
                         "primary_similarity": primary_similarity,
+                        "supplemental_similarity": supplemental_similarity,
+                        "supplemental_keyword_score": supplemental_keyword,
                         "support_similarity": support_similarity,
                         "keyword_score": keyword_score,
                         "support_keyword_score": support_keyword_score,
@@ -986,10 +1049,18 @@ class MemoryManager:
         selected: list[tuple[MemoryChunk, float, dict[str, float]]] = []
         for chunk, score, meta in ranked:
             if any(self._chunks_overlap(chunk, existing_chunk) for existing_chunk, _, _ in selected):
+                if trace is not None:
+                    trace.excluded[trace_id(chunk)] = "overlapping_chunk"
                 continue
             selected.append((chunk, score, meta))
             if len(selected) >= max_chunks:
                 break
+
+        if trace is not None:
+            selected_ids = {trace_id(chunk) for chunk, _, _ in selected}
+            for chunk, _, _ in ranked:
+                if trace_id(chunk) not in selected_ids:
+                    trace.excluded.setdefault(trace_id(chunk), "selection_limit")
 
         return selected
 
@@ -1078,7 +1149,7 @@ class MemoryManager:
 
     def _tokenize_overlap_text(self, text: str) -> set[str]:
         """겹침 계산용 간단 토큰화."""
-        tokens = re.findall(r"[0-9A-Za-z가-힣]+", str(text or "").lower())
+        tokens = re.findall(r"[0-9A-Za-z가-힣ぁ-ゖァ-ヺ一-龯々ー]+", str(text or "").lower())
         return {token for token in tokens if len(token) >= 2}
 
     def _temporal_overlap_score(self, query: str, text: str) -> float:
@@ -1181,6 +1252,35 @@ class MemoryManager:
             return datetime.fromisoformat(text)
         except ValueError:
             return None
+
+    def record_context_usage(self, memory_ids, activated_ids=(), request_id=None) -> bool:
+        """최종 입력에 사용한 기억만 요청당 한 번 기록한다."""
+        requests = getattr(self, "_context_usage_requests", [])
+        if request_id and request_id in requests:
+            return True
+        ids = set(memory_ids)
+        activated = set(activated_ids) & ids
+        memories = [memory for memory in self.memories if memory.id in ids]
+        if not memories:
+            return True
+        previous = [(memory, memory.retrieval_count, memory.last_used_at, memory.last_activated_at) for memory in memories]
+        now = datetime.now().astimezone().isoformat(timespec="seconds")
+        for memory in memories:
+            memory.retrieval_count = int(memory.retrieval_count or 0) + 1
+            memory.last_used_at = now
+            if memory.id in activated:
+                memory.last_activated_at = now
+        try:
+            persisted = self.save() is True
+        except Exception:
+            persisted = False
+        if not persisted:
+            for memory, count, used, activated_at in previous:
+                memory.retrieval_count, memory.last_used_at, memory.last_activated_at = count, used, activated_at
+            return False
+        if request_id:
+            self._context_usage_requests = [*requests, request_id][-128:]
+        return True
 
     def _mark_memories_retrieved(self, memories: List[MemoryEntry]):
         """실제로 사용된 기억의 회수 메타데이터를 갱신한다."""

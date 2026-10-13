@@ -34,6 +34,8 @@ class LLMClientProtocol(Protocol):
         progress_callback=None,
         include_life_record_context: bool = False,
         *,
+        recent_memory_messages: list[dict] | None = None,
+        memory_request_id: str | None = None,
         mood_event_context: Mapping[str, str] | None = None,
         request_device: str | None = None,
     ) -> LLM_RESPONSE_TUPLE:
@@ -50,6 +52,8 @@ class LLMClientProtocol(Protocol):
         progress_callback=None,
         include_life_record_context: bool = False,
         *,
+        recent_memory_messages: list[dict] | None = None,
+        memory_request_id: str | None = None,
         mood_event_context: Mapping[str, str] | None = None,
         request_device: str | None = None,
     ) -> LLM_RESPONSE_TUPLE:

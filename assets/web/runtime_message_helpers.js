@@ -69,6 +69,7 @@ function appendSummaryReviewFact(container, fact, groupName) {
     if (!container) return;
     const row = document.createElement('div');
     row.className = 'summary-review-fact';
+    row.dataset.manualEntry = 'true';
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
     checkbox.checked = true;
@@ -193,6 +194,7 @@ function collectSummaryProfileSelections(container) {
         const consent = row.querySelector('.summary-review-subject-confirm');
         return {
             proposal_id: row.dataset.proposalId || '',
+            manual_entry: row.dataset.manualEntry === 'true',
             selected: Boolean(checkbox && checkbox.checked && match),
             edits: match ? {category: match[1], content: match[2].trim(),
                 state: state ? state.value : 'active', subject: subject ? subject.value : match[2].trim()} : {},

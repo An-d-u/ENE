@@ -3,6 +3,36 @@ import json
 
 import pytest
 
+
+def test_context_usage_is_unique_per_request_and_save_failure_can_retry(tmp_path, monkeypatch):
+    manager = MemoryManager(tmp_path / "memory.json")
+    memory = MemoryEntry("sample", "합성 종이 배", [], "2025-01-01")
+    manager.memories = [memory]
+    assert manager.record_context_usage(["sample", "sample"], ["sample"], "request-1")
+    assert memory.retrieval_count == 1
+    assert memory.last_activated_at
+    assert manager.record_context_usage(["sample"], ["sample"], "request-1")
+    assert memory.retrieval_count == 1
+    original = manager.save
+    monkeypatch.setattr(manager, "save", lambda: False)
+    assert manager.record_context_usage(["sample"], [], "request-2") is False
+    assert memory.retrieval_count == 1
+    monkeypatch.setattr(manager, "save", original)
+    assert manager.record_context_usage(["sample"], [], "request-2")
+    assert memory.retrieval_count == 2
+
+
+def test_activated_candidates_can_be_read_without_usage_updates(tmp_path):
+    manager = MemoryManager(tmp_path / "memory.json")
+    memory = MemoryEntry("sample", "합성 종이 배", [], "2025-01-01", entity_names=["종이 배"])
+    manager.memories = [memory]
+    results = asyncio.run(manager.find_activated("종이 배", mark_retrieved=False))
+    assert results[0].memory is memory
+    assert memory.retrieval_count == 0
+    assert memory.last_activated_at is None
+    asyncio.run(manager.find_activated("종이 배"))
+    assert memory.retrieval_count == 1
+
 from src.ai.date_query_parser import DateQueryParser
 from src.ai.embedding import EmbeddingGenerator
 from src.ai.memory import MemoryManager

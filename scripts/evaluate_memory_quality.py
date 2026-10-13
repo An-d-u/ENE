@@ -43,8 +43,10 @@ def main():
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     missing = sum(any(case["missing_evidence"].values()) for case in result["cases"])
-    print(json.dumps({"status": result["status"], "cases": len(result["cases"]), "missing_evidence_cases": missing, "api_requests": budget.total, "calls_by_model": budget.by_model}))
-    return 3 if missing or result["status"] != "complete" else 0
+    forbidden = sum(bool(case["state_grade"]["forbidden_changes"]) for case in result["cases"])
+    print(json.dumps({"status": result["status"], "cases": len(result["cases"]), "missing_evidence_cases": missing,
+                      "forbidden_change_cases": forbidden, "api_requests": budget.total, "calls_by_model": budget.by_model}))
+    return 3 if missing or forbidden or result["status"] != "complete" else 0
 
 
 if __name__ == "__main__":

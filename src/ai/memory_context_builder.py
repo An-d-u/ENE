@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 import json
+import inspect
 from datetime import datetime, timedelta
 import math
 
@@ -606,6 +607,8 @@ async def build_memory_context(
     include_life_record_context: bool = False,
     *,
     trace=None,
+    recent_memory_messages: list[dict] | None = None,
+    memory_request_id: str | None = None,
 ) -> str:
     """클라이언트 상태에서 LLM에 붙일 메모리 컨텍스트를 구성한다."""
     life_record_block = _load_life_record_context_block(
@@ -836,87 +839,114 @@ async def build_memory_context(
         print("[LLM] 중요 기억 없음")
 
     similar_memories = []
+    def trace_kwargs(method, stage=None):
+        if trace is None or "trace" not in inspect.signature(method).parameters:
+            return {}
+        return {"trace": trace, **({"trace_stage": stage} if stage else {})}
+    activated_ids = set()
+    raw_memory_ids = set()
     activation_attempted = False
-    related_memories_reported = False
     try:
         if activation_enabled and max_activated > 0 and hasattr(memory_manager, "find_activated"):
             activation_attempted = True
             activated_results = await memory_manager.find_activated(
-                normalized_query,
-                recent_context=normalized_recent_context,
-                top_k=max_activated,
-                min_similarity=min_sim,
-                expand_hops=activation_expand_hops,
+                normalized_query, recent_context=normalized_recent_context,
+                top_k=max_activated, min_similarity=min_sim,
+                expand_hops=activation_expand_hops, mark_retrieved=False,
+                **trace_kwargs(memory_manager.find_activated, "primary"),
             )
-            similar_memories = [
-                (result.memory, result.activation_score)
-                for result in activated_results
-            ]
-            if similar_memories:
-                print(f"[LLM] 활성화 기억 {len(similar_memories)}개 발견")
-
-        if not activation_attempted:
-            similar_memories = await memory_manager.find_similar(
-                normalized_query,
-                top_k=max_similar,
-                min_similarity=min_sim,
-            )
-
-        if similar_memories:
-            if trace is not None:
-                trace.candidates["primary"] = [memory.id for memory, _ in similar_memories]
-            related_memories_reported = True
-            print(f"[LLM] 유사 기억 {len(similar_memories)}개 발견")
-            related_summaries = unique_summaries(memory for memory, _similarity in similar_memories)
-            if related_summaries:
-                context_parts.append(f"\n[{labels['related']}]")
-            for memory in related_summaries:
-                context_parts.append(f"- {memory.summary}")
-                print("[LLM] similar_memory_selected")
+            similar_memories = [(result.memory, result.activation_score) for result in activated_results]
+            activated_ids = {str(getattr(result.memory, "id", "")) for result in activated_results} - {""}
         else:
-            related_memories_reported = True
-            print("[LLM] 유사 기억 없음")
-
-    except Exception as e:
-        print(f"[LLM] memory_search category=memory_search_failed exception_class={type(e).__name__}")
-
+            similar_memories = await memory_manager.find_similar(
+                normalized_query, top_k=max_similar, min_similarity=min_sim, mark_retrieved=False,
+            )
+    except Exception as error:
+        print(f"[LLM] memory_search category=memory_search_failed exception_class={type(error).__name__}")
         if activation_attempted:
             try:
                 similar_memories = await memory_manager.find_similar(
-                    normalized_query,
-                    top_k=max_similar,
-                    min_similarity=min_sim,
+                    normalized_query, top_k=max_similar, min_similarity=min_sim, mark_retrieved=False,
                 )
-            except Exception as fallback_error:
-                print(f"[LLM] memory_search category=memory_fallback_failed exception_class={type(fallback_error).__name__}")
-
-    if not related_memories_reported:
-        if similar_memories:
-            print(f"[LLM] 유사 기억 {len(similar_memories)}개 발견")
-            related_summaries = unique_summaries(memory for memory, _similarity in similar_memories)
-            if related_summaries:
-                context_parts.append(f"\n[{labels['related']}]")
-            for memory in related_summaries:
-                context_parts.append(f"- {memory.summary}")
-                print("[LLM] similar_memory_selected")
-        else:
-            print("[LLM] 유사 기억 없음")
+            except Exception as error:
+                print(f"[LLM] memory_search category=memory_fallback_failed exception_class={type(error).__name__}")
+    primary_memories = list(similar_memories)
+    supplemental_memories = []
+    recall_plan = None
+    if trace is not None:
+        trace.candidates["primary"] = [str(getattr(memory, "id", "")) for memory, _ in primary_memories]
+        trace.calls["primary_search"] = 1
+    selection_limit = max_activated if activation_attempted else max_similar
+    if recent_memory_messages and max_raw_chunks > 0 and selection_limit > 0:
+        from .memory_recall import collect_known_entities, resolve_followup_recall, memory_matches_recall
+        topics = getattr(getattr(client, "knowledge_map_manager", None), "topics", [])
+        entities = collect_known_entities(getattr(memory_manager, "memories", []), topics)
+        recall_plan = resolve_followup_recall(normalized_query, recent_memory_messages, entities)
+        if recall_plan is not None:
+            try:
+                if trace is not None:
+                    trace.calls["supplemental_search"] = 1
+                if activation_attempted:
+                    extra = await memory_manager.find_activated(
+                        recall_plan.expanded_query, top_k=selection_limit,
+                        min_similarity=min_sim, expand_hops=0, mark_retrieved=False,
+                        **trace_kwargs(memory_manager.find_activated, "supplemental"),
+                    )
+                    supplemental_memories = [(result.memory, result.activation_score) for result in extra
+                                             if memory_matches_recall(result.memory, recall_plan)]
+                    activated_ids.update(memory.id for memory, _ in supplemental_memories)
+                else:
+                    extra = await memory_manager.find_similar(
+                        recall_plan.expanded_query, top_k=selection_limit,
+                        min_similarity=min_sim, mark_retrieved=False,
+                    )
+                    supplemental_memories = [(memory, score) for memory, score in extra
+                                             if memory_matches_recall(memory, recall_plan)]
+                # 최신 질문에 직접 근거가 있는 원래 후보를 먼저 유지한다.
+                overlap = getattr(memory_manager, "_raw_recall_overlap", lambda *args: 0.0)
+                grounded = [item for item in primary_memories if overlap(normalized_query, item[0].summary) >= 0.35]
+                merged = []
+                seen = set()
+                for memory, score in [*grounded, *supplemental_memories, *primary_memories]:
+                    identity = str(getattr(memory, "id", "")) or id(memory)
+                    if identity not in seen:
+                        merged.append((memory, score))
+                        seen.add(identity)
+                similar_memories = merged[:selection_limit]
+            except Exception as error:
+                supplemental_memories = []
+                recall_plan = None
+                similar_memories = primary_memories
+                print(f"[LLM] memory_search category=supplement_failed exception_class={type(error).__name__}")
+    if trace is not None:
+        trace.candidates["supplemental"] = [memory.id for memory, _ in supplemental_memories]
+    related_summaries = unique_summaries(memory for memory, _ in similar_memories)
+    if related_summaries:
+        context_parts.append(f"\n[{labels['related']}]")
+        for memory in related_summaries:
+            context_parts.append(f"- {memory.summary}")
+            print("[LLM] similar_memory_selected")
 
     if max_raw_chunks > 0 and hasattr(memory_manager, "find_relevant_raw_chunks"):
         try:
             raw_chunks = await memory_manager.find_relevant_raw_chunks(
                 normalized_query,
-                similar_memories,
+                primary_memories,
+                **({"supplemental_memories": supplemental_memories, "recall_plan": recall_plan} if recall_plan else {}),
                 recent_context=normalized_recent_context,
                 top_k=max_raw_chunks,
                 chunk_turns=raw_chunk_turns,
+                **trace_kwargs(memory_manager.find_relevant_raw_chunks),
             )
             if raw_chunks:
                 print(f"[LLM] raw chunk {len(raw_chunks)}개 선택")
                 context_parts.append(f"\n[{labels['raw_chunks']}]")
                 for index, (chunk, _score, _score_meta) in enumerate(raw_chunks, start=1):
-                    if trace is not None:
-                        trace.raw_chunks.append((chunk.memory_id, chunk.start_turn_index, chunk.end_turn_index))
+                    chunk_memory_id = str(getattr(chunk, "memory_id", "") or "")
+                    if chunk_memory_id:
+                        raw_memory_ids.add(chunk_memory_id)
+                    if trace is not None and chunk_memory_id:
+                        trace.raw_chunks.append((chunk_memory_id, chunk.start_turn_index, chunk.end_turn_index))
                     chunk_messages = getattr(chunk, "messages", []) or []
                     chunk_time = getattr(chunk_messages[0], "timestamp", "") if chunk_messages else ""
                     context_parts.append(
@@ -991,6 +1021,12 @@ async def build_memory_context(
         context_parts.append(f"- {labels['head_pat_before']}: {head_pat_count}{labels['times']}")
 
     if context_parts:
+        usage_ids = ({str(getattr(memory, "id", "")) for memory, _ in similar_memories} & included_memory_ids) | raw_memory_ids
+        record_usage = getattr(memory_manager, "record_context_usage", None)
+        if callable(record_usage):
+            recorded = record_usage(usage_ids, activated_ids & usage_ids, memory_request_id)
+            if trace is not None:
+                trace.usage_recorded = recorded
         result = "\n".join([memory_rules, *context_parts])
         print(f"[LLM] 총 메모리 컨텍스트: {len(result)}자")
         return result

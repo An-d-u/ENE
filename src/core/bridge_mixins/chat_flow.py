@@ -403,6 +403,8 @@ class ChatFlowBridgeMixin:
         mood_occurred_at: str = "",
         request_ref=None,
         companion_file_result: bool = False,
+        recent_memory_messages: list[dict] | None = None,
+        memory_request_id: str | None = None,
     ):
         """현재 요청 페이로드로 AI 워커를 시작한다."""
         if self.worker and self.worker.isRunning():
@@ -441,6 +443,8 @@ class ChatFlowBridgeMixin:
                 memory_search_text=memory_search_text,
                 latest_user_message=latest_user_message,
                 recent_memory_context=recent_memory_context,
+                recent_memory_messages=recent_memory_messages,
+                memory_request_id=memory_request_id,
                 head_pat_count_before_message=head_pat_count_before_message,
                 include_life_record_context=include_life_record_context,
                 prior_token_usage=(
@@ -736,11 +740,24 @@ class ChatFlowBridgeMixin:
         current_timestamp: str | None = None,
         *,
         language: str | None = None,
-    ) -> dict[str, str]:
+    ) -> dict[str, object]:
         """장기기억 검색용 최신 메시지/보조 문맥/전체 텍스트를 각각 구성한다."""
         current = str(current_message or "").strip()
         turns = self._resolve_memory_search_turns()
         entries = list(self.conversation_buffer or [])
+        structured_entries = list(getattr(self, "_summarized_recent_context", []) or [])
+        overlap = 0
+        for count in range(1, min(len(structured_entries), len(entries)) + 1):
+            if structured_entries[-count:] == entries[:count]:
+                overlap = count
+        structured_entries += entries[overlap:]
+        structured_entries = structured_entries[-(turns * 2):] if turns > 0 else []
+        request_id = uuid4().hex
+        structured_messages = [
+            {"turn_id": f"{request_id}:{index}", "role": str(item[0]).lower(),
+             "text": str(item[1]), "timestamp": str(item[2]) if len(item) > 2 else ""}
+            for index, item in enumerate(structured_entries) if isinstance(item, (list, tuple)) and len(item) >= 2
+        ]
         if turns > 0:
             entries = entries[-(turns * 2):]
 
@@ -776,6 +793,8 @@ class ChatFlowBridgeMixin:
 
         return {
             "latest_user_message": current,
+            "recent_memory_messages": structured_messages,
+            "memory_request_id": request_id,
             "recent_context_text": "\n".join(recent_lines).strip(),
             "memory_search_text": "\n".join(memory_search_lines).strip(),
         }
@@ -923,6 +942,8 @@ class ChatFlowBridgeMixin:
             "memory_search_text": memory_search_text,
             "latest_user_message": memory_search_inputs["latest_user_message"],
             "recent_memory_context": memory_search_inputs["recent_context_text"],
+            "recent_memory_messages": memory_search_inputs.get("recent_memory_messages", []),
+            "memory_request_id": memory_search_inputs.get("memory_request_id"),
             "head_pat_count_before_message": committed_head_pat_count,
             "include_life_record_context": True,
             "mood_event_id": mood_event_id,
@@ -935,6 +956,8 @@ class ChatFlowBridgeMixin:
             "memory_search_text": memory_search_text,
             "latest_user_message": memory_search_inputs["latest_user_message"],
             "recent_memory_context": memory_search_inputs["recent_context_text"],
+            "recent_memory_messages": memory_search_inputs.get("recent_memory_messages", []),
+            "memory_request_id": memory_search_inputs.get("memory_request_id"),
             "head_pat_count_before_message": committed_head_pat_count,
             "include_life_record_context": True,
             "prior_token_usage": (
@@ -1005,6 +1028,8 @@ class ChatFlowBridgeMixin:
             self.conversation_buffer.pop()
 
         payload = self._last_request_payload
+        payload["memory_request_id"] = uuid4().hex
+        payload["recent_memory_messages"] = [dict(item, turn_id=f"{payload['memory_request_id']}:{index}") for index, item in enumerate(payload.get("recent_memory_messages", []))]
         self._is_rerolling = True
         self.reroll_state_changed.emit(True)
         self._start_ai_worker(
@@ -1013,6 +1038,8 @@ class ChatFlowBridgeMixin:
             memory_search_text=str(payload.get("memory_search_text", "") or ""),
             latest_user_message=str(payload.get("latest_user_message", "") or ""),
             recent_memory_context=str(payload.get("recent_memory_context", "") or ""),
+            recent_memory_messages=payload.get("recent_memory_messages"),
+            memory_request_id=payload.get("memory_request_id"),
             head_pat_count_before_message=int(payload.get("head_pat_count_before_message", 0) or 0),
             include_life_record_context=(
                 payload.get("include_life_record_context") is True
@@ -1176,6 +1203,8 @@ class ChatFlowBridgeMixin:
             "memory_search_text": memory_search_text,
             "latest_user_message": memory_search_inputs["latest_user_message"],
             "recent_memory_context": memory_search_inputs["recent_context_text"],
+            "recent_memory_messages": memory_search_inputs.get("recent_memory_messages", []),
+            "memory_request_id": memory_search_inputs.get("memory_request_id"),
             "head_pat_count_before_message": int(previous_payload.get("head_pat_count_before_message", 0) or 0),
             "include_life_record_context": include_life_record_context,
             "mood_event_id": mood_event_id,
@@ -1191,6 +1220,8 @@ class ChatFlowBridgeMixin:
             memory_search_text=memory_search_text,
             latest_user_message=memory_search_inputs["latest_user_message"],
             recent_memory_context=memory_search_inputs["recent_context_text"],
+            recent_memory_messages=memory_search_inputs.get("recent_memory_messages", []),
+            memory_request_id=memory_search_inputs.get("memory_request_id"),
             head_pat_count_before_message=int(self._last_request_payload.get("head_pat_count_before_message", 0) or 0),
             include_life_record_context=include_life_record_context,
             mood_event_id=mood_event_id,

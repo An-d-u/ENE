@@ -64,6 +64,38 @@ def test_ui_cannot_replace_server_target_or_forge_manual_edit(tmp_path):
     assert len(bridge.user_profile.facts) == 1
 
 
+def test_unmapped_model_row_cannot_be_promoted_to_manual_entry(tmp_path):
+    bridge = bridge_case(tmp_path)
+    payload = selected_payload(bridge)
+    payload["profile_selections"] = [dict(proposal_id="", selected=True,
+        edits=dict(category="goal", content="보라색 연을 완성했다.", subject="보라색 연", state="completed"))]
+    persist(bridge, payload)
+    assert len(bridge.user_profile.facts) == 1
+    assert bridge.user_profile.facts[0].state == "active"
+
+
+def test_all_model_rows_have_server_proposals_without_manual_trust(tmp_path):
+    bridge = bridge_case(tmp_path)
+    async def summarize(messages):
+        return "합성 요약", ["[goal] 보라색 연을 완성했다."], [], {"profile_updates": []}, []
+    bridge._summarize_conversation_with_loaded_topic_memory = summarize
+    bridge._pending_summary_review = asyncio.run(bridge._build_summary_review_state(bridge.conversation_buffer))
+    assert len(bridge._pending_summary_review["profile_proposals"]) == 1
+    persist(bridge)
+    assert len(bridge.user_profile.facts) == 1
+
+
+@pytest.mark.parametrize("tracker", [None, SimpleNamespace(life_records_writable=False)])
+def test_missing_optional_tracker_does_not_block_saved_summary(tmp_path, tracker):
+    bridge = bridge_case(tmp_path)
+    bridge.life_session_tracker = tracker
+    pending = bridge._pending_summary_review
+    bridge.approve_summary_review(json.dumps(selected_payload(bridge)))
+    assert pending["checkpoints"]["registration"]["status"] == "skipped"
+    assert bridge._pending_summary_review is None
+    assert bridge.conversation_buffer == []
+
+
 def test_stale_approval_does_not_save_summary(tmp_path):
     from src.ai.profile_review import StaleProfileReview
     bridge = bridge_case(tmp_path)

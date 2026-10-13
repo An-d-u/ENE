@@ -1321,6 +1321,8 @@ class GeminiClient:
         progress_callback=None,
         include_life_record_context: bool = False,
         *,
+        recent_memory_messages: list[dict] | None = None,
+        memory_request_id: str | None = None,
         mood_event_context: Mapping[str, str] | None = None,
         request_device: str | None = None,
     ) -> LLM_RESPONSE_TUPLE:
@@ -1341,6 +1343,10 @@ class GeminiClient:
             "recent_context": support_context,
             "head_pat_count_before_message": head_pat_count_before_message,
         }
+        if recent_memory_messages is not None:
+            memory_context_kwargs["recent_memory_messages"] = recent_memory_messages
+        if memory_request_id is not None:
+            memory_context_kwargs["memory_request_id"] = memory_request_id
         if include_life_record_context is True:
             memory_context_kwargs["include_life_record_context"] = True
         memory_context = await self._build_memory_context(
@@ -1389,6 +1395,8 @@ class GeminiClient:
         progress_callback=None,
         include_life_record_context: bool = False,
         *,
+        recent_memory_messages: list[dict] | None = None,
+        memory_request_id: str | None = None,
         mood_event_context: Mapping[str, str] | None = None,
         request_device: str | None = None,
     ) -> LLM_RESPONSE_TUPLE:
@@ -1402,6 +1410,8 @@ class GeminiClient:
                 memory_search_text=memory_search_text,
                 latest_user_message=latest_user_message,
                 recent_memory_context=recent_memory_context,
+                recent_memory_messages=recent_memory_messages,
+                memory_request_id=memory_request_id,
                 head_pat_count_before_message=head_pat_count_before_message,
                 include_life_record_context=include_life_record_context,
                 progress_callback=progress_callback,
@@ -1422,6 +1432,8 @@ class GeminiClient:
         progress_callback=None,
         include_life_record_context: bool = False,
         *,
+        recent_memory_messages: list[dict] | None = None,
+        memory_request_id: str | None = None,
         mood_event_context: Mapping[str, str] | None = None,
         request_device: str | None = None,
     ) -> LLM_RESPONSE_TUPLE:
@@ -1483,6 +1495,8 @@ class GeminiClient:
                     latest_user_message,
                     recent_memory_context,
                     head_pat_count_before_message,
+                    recent_memory_messages=recent_memory_messages,
+                    memory_request_id=memory_request_id,
                     include_life_record_context=include_life_record_context,
                     progress_callback=progress_callback,
                     mood_event_context=mood_event_context,
@@ -1497,6 +1511,10 @@ class GeminiClient:
                 "recent_context": support_context,
                 "head_pat_count_before_message": head_pat_count_before_message,
             }
+            if recent_memory_messages is not None:
+                memory_context_kwargs["recent_memory_messages"] = recent_memory_messages
+            if memory_request_id is not None:
+                memory_context_kwargs["memory_request_id"] = memory_request_id
             if include_life_record_context is True:
                 memory_context_kwargs["include_life_record_context"] = True
             memory_context = await self._build_memory_context(
@@ -1581,12 +1599,17 @@ class GeminiClient:
         recent_context: str = "",
         head_pat_count_before_message: int | None = None,
         include_life_record_context: bool = False,
+        *,
+        recent_memory_messages: list[dict] | None = None,
+        memory_request_id: str | None = None,
     ) -> str:
         """메모리 기반 컨텍스트 구성."""
         return await build_common_memory_context(
             self,
             query,
             recent_context=recent_context,
+            recent_memory_messages=recent_memory_messages,
+            memory_request_id=memory_request_id,
             head_pat_count_before_message=head_pat_count_before_message,
             include_life_record_context=include_life_record_context,
         )

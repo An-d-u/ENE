@@ -169,6 +169,74 @@ def _evaluation_settings():
     return SimpleNamespace(config=config, get=lambda key, default=None: config.get(key, default))
 
 
+def prepare_review_actions(pending, profile, actions):
+    """사전 검토 동작을 출력 순서가 아닌 서버 대상과 사용자 근거에 연결한다."""
+    from src.ai.profile_review import normalize_subject
+    proposals = pending.get("profile_proposals", [])
+    rows = {proposal.proposal_id: {"proposal_id": proposal.proposal_id, "selected": True}
+            for proposal in proposals}
+    outcomes = []
+    for action in actions:
+        kind = action["action"]
+        if kind in {"edit_target", "delete_target"}:
+            target = next((fact for fact in profile.facts if fact.id == action["target_id"]), None)
+            if target:
+                if kind == "delete_target":
+                    profile.facts.remove(target)
+                else:
+                    target.content = "별도의 합성 절차로 변경된 상태다."
+            outcomes.append({"action": kind, "status": "applied" if target else "missing_target"})
+        if not action.get("evidence"):
+            if kind == "approve":
+                outcomes.append({"action": kind, "status": "applied"})
+            continue
+        evidence = normalize_subject(action["evidence"])
+        matches = []
+        for proposal in proposals:
+            proposed_evidence = normalize_subject(proposal.update.get("evidence"))
+            same_target = (proposal.target_id == action.get("target_id") or
+                           normalize_subject(proposal.update.get("subject")) == normalize_subject(action.get("subject")))
+            if same_target and proposed_evidence and (proposed_evidence in evidence or evidence in proposed_evidence):
+                matches.append(proposal)
+        if len(matches) != 1:
+            outcomes.append({"action": kind, "status": "missing_proposal" if not matches else "ambiguous_proposal"})
+            continue
+        row = rows[matches[0].proposal_id]
+        if kind == "reject":
+            row["selected"] = False
+        elif kind == "correct_subject":
+            row.update(edits={"subject": action["corrected_subject"]}, confirm_subject=True)
+        outcomes.append({"action": kind, "status": "applied", "proposal_id": matches[0].proposal_id})
+    payload = {key: pending.get(key) for key in ("review_id", "summary", "user_facts", "ene_facts", "memory_meta", "topic_hints")}
+    payload["profile_selections"] = list(rows.values())
+    return payload, outcomes
+
+
+def grade_state(expected, before_storage, final_facts):
+    """금지 덮어쓰기는 정확히 검사하고 자연어 정정은 별도 검토 대상으로 남긴다."""
+    before = {fact["id"]: fact for fact in before_storage}
+    final = {fact["id"]: fact for fact in final_facts}
+    forbidden = [item["fact_id"] for item in expected["forbidden_changes"]
+                 if before.get(item["fact_id"]) != final.get(item["fact_id"])]
+    corrections = []
+    for expected_fact in expected["corrections"]:
+        actual = final.get(expected_fact["fact_id"])
+        status = "exact_match"
+        if actual is None:
+            status = "missing_target"
+        elif any(actual.get(key) != value for key, value in expected_fact.items() if key != "fact_id"):
+            status = "review_required"
+        corrections.append({"fact_id": expected_fact["fact_id"], "status": status})
+    return {"forbidden_changes": forbidden, "corrections": corrections}
+
+
+def compose_evaluation_message(query, context, settings, recent=""):
+    """제품과 동일하게 비활성 웹 검색의 상태 문구까지 포함한다."""
+    from src.ai.tool_calling import build_web_search_context_from_settings, compose_contextual_message
+    web_context = build_web_search_context_from_settings(settings, message=query, recent_context=recent)
+    return compose_contextual_message(query, memory_context=context, web_search_context=web_context)
+
+
 async def _run_case(case, root, mode, config, budget):
     from src.ai.embedding import create_embedding_generator
     from src.ai.ene_profile import EneProfile
@@ -176,7 +244,6 @@ async def _run_case(case, root, mode, config, budget):
     from src.ai.llm_provider import create_llm_client, LLMProviderConfig
     from src.ai.memory import MemoryManager
     from src.ai.memory_context_builder import build_memory_context
-    from src.ai.tool_calling import compose_contextual_message
     from src.ai.memory_types import MemoryContextTrace, MemoryEntry
     from src.ai.user_profile import UserProfile, ProfileFact
     from src.core.bridge_mixins.memory_summary import MemorySummaryBridgeMixin
@@ -195,6 +262,8 @@ async def _run_case(case, root, mode, config, budget):
     budget.stage = "seed_embedding"
     seeds = case["seed_state"]["memories"]
     vectors = await embedding.embed_batch([memory["summary"] for memory in seeds])
+    if len(vectors) != len(seeds):
+        raise RuntimeError("평가 준비 중 임베딩 개수가 달라 기억을 구성할 수 없습니다")
     for memory, vector in zip(seeds, vectors):
         manager.memories.append(MemoryEntry(
             id=memory["id"], summary=memory["summary"], timestamp=memory["timestamp"],
@@ -217,6 +286,8 @@ async def _run_case(case, root, mode, config, budget):
     bridge.user_profile, bridge.ene_profile, bridge.knowledge_map_manager = profile, ene, knowledge
     storage = []
     raw_summaries = []
+    review_outcomes = []
+    before_storage = [asdict(fact) for fact in profile.facts]
     for session in case["sessions"]:
         if not session.get("summarize"):
             continue
@@ -236,22 +307,15 @@ async def _run_case(case, root, mode, config, budget):
             client._request_summary_text = capture
         pending = await bridge._build_summary_review_state(messages)
         bridge._pending_summary_review = pending
-        facts = list(pending["user_facts"])
-        actions = case["review_actions"]
-        for action in actions:
-            if action["action"] == "reject":
-                updates = pending["memory_meta"].get("profile_updates", [])
-                rejected = {f"[{item.get('category')}] {item.get('content')}" for item in updates if item.get("evidence") == action.get("evidence")}
-                facts = [fact for fact in facts if fact not in rejected]
-            elif action["action"] == "delete_target":
-                profile.facts = [fact for fact in profile.facts if fact.id != action["target_id"]]
-            elif action["action"] == "edit_target":
-                target = next(fact for fact in profile.facts if fact.id == action["target_id"])
-                target.content = "별도의 합성 절차로 변경된 상태다."
+        payload, outcomes = prepare_review_actions(pending, profile, case["review_actions"])
+        review_outcomes.extend(outcomes)
+        before_storage = [asdict(fact) for fact in profile.facts]
         budget.stage = "review_storage"
         try:
-            saved = await bridge._persist_reviewed_summary(pending["summary"], facts, pending["ene_facts"], pending["memory_meta"], pending["topic_hints"])
-            storage.append({"memory_id": saved.id, "status": "persisted", "selected_facts": facts})
+            resolved = bridge._resolve_profile_review_payload(payload)
+            saved = await bridge._persist_reviewed_summary(resolved["summary"], resolved["user_facts"], resolved["ene_facts"], resolved["memory_meta"], resolved["topic_hints"])
+            storage.append({"memory_id": saved.id, "status": "persisted", "selected_facts": resolved["user_facts"],
+                            "checkpoints": pending.get("checkpoints", {})})
         except Exception as error:
             storage.append({"status": "failed", "error": type(error).__name__})
     trace = MemoryContextTrace()
@@ -262,7 +326,7 @@ async def _run_case(case, root, mode, config, budget):
     if "recent_memory_messages" in inspect.signature(build_memory_context).parameters:
         kwargs["recent_memory_messages"] = recent_messages
     context = await build_memory_context(client, case["query"], **kwargs)
-    composed = compose_contextual_message(case["query"], memory_context=context)
+    composed = compose_evaluation_message(case["query"], context, settings, recent)
     budget.stage = "response"
     answer = "" if mode == "mock" else client.send_message(composed, history_user_content=case["query"])
     if inspect.isawaitable(answer):
@@ -278,6 +342,8 @@ async def _run_case(case, root, mode, config, budget):
         "id": case["id"], "gate": case["gate"], "group": case["group"],
         "trace": trace.to_dict(), "missing_evidence": missing,
         "storage": storage, "raw_summary_outputs": raw_summaries,
+        "review_actions": review_outcomes,
+        "state_grade": grade_state(case["expected"], before_storage, [asdict(fact) for fact in profile.facts]),
         "final_facts": [asdict(fact) for fact in profile.facts],
         "answer": answer, "answer_grade": "ungraded",
         "input_chars": len(composed), "token_usage": getattr(client, "_last_token_usage", None) or "unknown",
@@ -288,6 +354,7 @@ async def evaluate(cases, *, mode, config=None, budget=None):
     config = dict(config or {})
     budget = budget or ApiBudget(config.get("max_api_requests", 1))
     start = time.monotonic()
+    requests_before = budget.total
     results = []
     status = "complete"
     with isolated_storage() as root, request_boundary(mode, budget):
@@ -296,16 +363,25 @@ async def evaluate(cases, *, mode, config=None, budget=None):
                 # 제품의 진단 출력에 합성 원문이 있어도 평가 보고서로만 전달한다.
                 with redirect_stdout(io.StringIO()):
                     result = await _run_case(case, root / str(index), mode, config, budget)
+                result["run_index"] = index
                 results.append(result)
             except BudgetExceeded:
                 status = "budget_exhausted"
                 break
     repository = Path(__file__).resolve().parents[1]
     revision = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repository, capture_output=True, text=True, check=True).stdout.strip()
+    prompt_paths = [repository / "src/ai/summary_prompt.py", *sorted((repository / "prompts/defaults").glob("*"))]
+    prompt_hashes = {str(path.relative_to(repository)): sha256(path.read_bytes()).hexdigest()
+                     for path in prompt_paths if path.is_file()}
+    effective_settings = _evaluation_settings().config
     return {
         "mode": mode, "status": status, "answer_grade": "ungraded", "code_commit": revision,
         "fixture_hash": sha256(json.dumps(cases, ensure_ascii=False, sort_keys=True).encode()).hexdigest(),
         "prompt_hash": sha256((repository / "src/ai/summary_prompt.py").read_bytes()).hexdigest(),
+        "prompt_hashes": prompt_hashes,
+        "settings": effective_settings,
+        "settings_hash": sha256(json.dumps(effective_settings, sort_keys=True).encode()).hexdigest(),
+        "run_api_requests": budget.total - requests_before,
         "config": config, "api_requests": budget.total, "calls_by_model": budget.by_model,
         "cases": results, "elapsed_seconds": round(time.monotonic() - start, 3),
     }

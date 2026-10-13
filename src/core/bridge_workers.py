@@ -421,6 +421,9 @@ class AIWorker(QThread):
         prior_token_usage: Mapping[str, object] | None = None,
         mood_event_context: Mapping[str, str] | None = None,
         request_device: str | None = None,
+        *,
+        recent_memory_messages: list[dict] | None = None,
+        memory_request_id: str | None = None,
     ):
         super().__init__()
         self.llm_client = llm_client
@@ -435,6 +438,8 @@ class AIWorker(QThread):
         self.memory_search_text = (memory_search_text or "").strip()
         self.latest_user_message = (latest_user_message or "").strip()
         self.recent_memory_context = (recent_memory_context or "").strip()
+        self.recent_memory_messages = [dict(item) for item in recent_memory_messages or []]
+        self.memory_request_id = memory_request_id
         self.head_pat_count_before_message = max(0, int(head_pat_count_before_message or 0))
         self.include_life_record_context = include_life_record_context is True
         self.prior_token_usage = (
@@ -505,6 +510,17 @@ class AIWorker(QThread):
         if getattr(self.llm_client, "supports_image_input", None) is False:
             raise _UnsupportedImageInputError()
 
+    def _recall_kwargs(self, method):
+        """확장 제공자의 서명을 확인하고 요청을 재전송하지 않는다."""
+        import inspect
+        try:
+            parameters = inspect.signature(method).parameters
+        except (TypeError, ValueError):
+            return {}
+        variadic = any(item.kind == inspect.Parameter.VAR_KEYWORD for item in parameters.values())
+        values = {"recent_memory_messages": self.recent_memory_messages, "memory_request_id": self.memory_request_id}
+        return {key: value for key, value in values.items() if value is not None and (key in parameters or variadic)}
+
     def run(self):
         self.response_metadata = ResponseDeliveryMetadata.empty()
         loop = None
@@ -550,6 +566,7 @@ class AIWorker(QThread):
                         self.latest_user_message,
                         self.recent_memory_context,
                         self.head_pat_count_before_message,
+                        **self._recall_kwargs(self.llm_client.send_message_with_images),
                         progress_callback=self.progress_callback,
                         mood_event_context=self.mood_event_context or None,
                         **device_kwargs,
@@ -572,6 +589,7 @@ class AIWorker(QThread):
                         self.latest_user_message,
                         self.recent_memory_context,
                         self.head_pat_count_before_message,
+                        **self._recall_kwargs(self.llm_client.send_message_with_memory),
                         progress_callback=self.progress_callback,
                         mood_event_context=self.mood_event_context or None,
                         **device_kwargs,

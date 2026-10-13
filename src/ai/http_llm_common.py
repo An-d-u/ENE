@@ -2168,11 +2168,16 @@ class _CommonMixin:
         recent_context: str = "",
         head_pat_count_before_message: int | None = None,
         include_life_record_context: bool = False,
+        *,
+        recent_memory_messages: list[dict] | None = None,
+        memory_request_id: str | None = None,
     ) -> str:
         return await build_common_memory_context(
             self,
             query,
             recent_context=recent_context,
+            recent_memory_messages=recent_memory_messages,
+            memory_request_id=memory_request_id,
             head_pat_count_before_message=head_pat_count_before_message,
             include_life_record_context=include_life_record_context,
         )
@@ -2184,6 +2189,8 @@ class _CommonMixin:
         memory_search_text: str | None = None,
         latest_user_message: str | None = None,
         recent_memory_context: str | None = None,
+        recent_memory_messages: list[dict] | None = None,
+        memory_request_id: str | None = None,
         head_pat_count_before_message: int | None = None,
         include_life_record_context: bool = False,
         progress_callback=None,
@@ -2195,6 +2202,10 @@ class _CommonMixin:
             "recent_context": support_context,
             "head_pat_count_before_message": head_pat_count_before_message,
         }
+        if recent_memory_messages is not None:
+            memory_context_kwargs["recent_memory_messages"] = recent_memory_messages
+        if memory_request_id is not None:
+            memory_context_kwargs["memory_request_id"] = memory_request_id
         if include_life_record_context is True:
             memory_context_kwargs["include_life_record_context"] = True
         memory_context = await self._build_memory_context(

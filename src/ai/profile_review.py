@@ -4,6 +4,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from hashlib import sha256
 import json
+import re
 import unicodedata
 from uuid import uuid4
 
@@ -64,10 +65,19 @@ class ReviewedUpdate:
         return "apply"
 
 
-def make_proposals(facts, updates):
+def make_proposals(facts, updates, *, legacy_facts=()):
     proposals = []
     allowed = {"category", "content", "subject", "state", "assertion", "evidence", "replaces", "effective_at"}
-    for raw in updates if isinstance(updates, list) else []:
+    candidates = list(updates) if isinstance(updates, list) else []
+    linked = {f"[{item.get('category')}] {item.get('content')}" for item in candidates if isinstance(item, dict)}
+    for fact in legacy_facts:
+        match = re.fullmatch(r"\[(basic|preference|goal|habit)\]\s*(.+)", str(fact), re.DOTALL)
+        if match and fact not in linked:
+            # 구조화 근거가 없는 모델 행도 식별하되 수동 편집 권한을 주지 않는다.
+            candidates.append(dict(category=match[1], content=match[2], subject=match[2],
+                                   state="active", assertion="current", evidence="", replaces=""))
+            linked.add(fact)
+    for raw in candidates:
         if not isinstance(raw, dict):
             continue
         update = {key: deepcopy(value) for key, value in raw.items() if key in allowed}

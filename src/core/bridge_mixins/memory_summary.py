@@ -100,7 +100,7 @@ class MemorySummaryBridgeMixin:
             approved.append(reviewed)
         if supplied:
             for row in selections:
-                if not isinstance(row, dict) or row.get("proposal_id") or row.get("selected") is not True:
+                if not isinstance(row, dict) or row.get("proposal_id") or row.get("selected") is not True or row.get("manual_entry") is not True:
                     continue
                 edits = row.get("edits") or {}
                 if edits.get("category") not in {"basic", "preference", "goal", "habit"} or not str(edits.get("content") or "").strip():
@@ -963,7 +963,7 @@ class MemorySummaryBridgeMixin:
         storage_payload = storage_builder(messages)
         return {
             "review_id": uuid.uuid4().hex,
-            "profile_proposals": make_proposals(profile_snapshot, memory_meta.get("profile_updates")),
+            "profile_proposals": make_proposals(profile_snapshot, memory_meta.get("profile_updates"), legacy_facts=user_facts),
             "messages": messages,
             "original_messages": storage_payload["original_messages"],
             "source_timestamp": storage_payload["source_timestamp"],
@@ -1124,9 +1124,23 @@ class MemorySummaryBridgeMixin:
                     memory,
                 )
             registration = pending.setdefault("checkpoints", {}).setdefault("registration", {})
-            tracker_registered = registration.get("status") == "persisted" or register(saved_memory)
-            registration["status"] = "persisted" if tracker_registered else "failed"
-            if not tracker_registered:
+            tracker = getattr(self, "life_session_tracker", None)
+            def unavailable():
+                return hasattr(self, "life_session_tracker") and (
+                    tracker is None or (
+                        getattr(tracker, "life_records_writable", None) is False
+                        and getattr(tracker, "_retryable_summary_id", None) != saved_memory.id
+                    )
+                )
+            tracker_registered = registration.get("status") == "persisted"
+            if not tracker_registered and not unavailable():
+                tracker_registered = register(saved_memory)
+            if tracker_registered:
+                registration["status"] = "persisted"
+            elif unavailable():
+                registration.update(status="skipped", reason="tracker_absent_or_unavailable")
+            else:
+                registration["status"] = "failed"
                 raise OSError("summary_registration_failed")
 
             complete = getattr(self, "_complete_summary_context", None)

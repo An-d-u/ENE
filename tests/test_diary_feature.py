@@ -503,6 +503,8 @@ def test_bridge_general_chat_includes_checked_obsidian_context(monkeypatch):
         mood_event_id: str = "",
         mood_occurred_at: str = "",
         request_ref=None,
+        recent_memory_messages=None,
+        memory_request_id=None,
     ):
         captured["message_with_time"] = message_with_time
 
@@ -548,6 +550,8 @@ def test_bridge_general_chat_skips_obsidian_context_when_disconnected(monkeypatc
         mood_event_id: str = "",
         mood_occurred_at: str = "",
         request_ref=None,
+        recent_memory_messages=None,
+        memory_request_id=None,
     ):
         captured["message_with_time"] = message_with_time
 
@@ -586,6 +590,8 @@ def test_bridge_general_chat_cache_miss_before_obsidian_activation_skips_backgro
         mood_event_id: str = "",
         mood_occurred_at: str = "",
         request_ref=None,
+        recent_memory_messages=None,
+        memory_request_id=None,
     ):
         captured["message_with_time"] = message_with_time
 
@@ -626,6 +632,8 @@ def test_bridge_general_chat_cache_miss_after_obsidian_activation_schedules_back
         mood_event_id: str = "",
         mood_occurred_at: str = "",
         request_ref=None,
+        recent_memory_messages=None,
+        memory_request_id=None,
     ):
         captured["message_with_time"] = message_with_time
 

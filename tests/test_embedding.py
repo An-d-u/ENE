@@ -123,6 +123,8 @@ def test_gemini_embedding_generator_reads_sdk_values():
         def embed_content(self, *, model, contents):
             calls["model"] = model
             calls["contents"] = contents
+            if all(isinstance(item, str) for item in contents):
+                return SimpleNamespace(embeddings=[SimpleNamespace(values=[0.5, 0.6])])
             return SimpleNamespace(
                 embeddings=[
                     SimpleNamespace(values=[0.7, 0.8]),
@@ -140,4 +142,14 @@ def test_gemini_embedding_generator_reads_sdk_values():
     embeddings = asyncio.run(generator.embed_batch(["first", "second"]))
 
     assert embeddings == [[0.7, 0.8], [0.9, 1.0]]
-    assert calls == {"model": "gemini-embedding-2", "contents": ["first", "second"]}
+    assert calls["model"] == "gemini-embedding-2"
+    assert [item.parts[0].text for item in calls["contents"]] == ["first", "second"]
+
+
+def test_gemini_embedding_batch_rejects_wrong_vector_count():
+    import pytest
+    client = SimpleNamespace(models=SimpleNamespace(embed_content=lambda **kwargs:
+        SimpleNamespace(embeddings=[SimpleNamespace(values=[0.1, 0.2])])))
+    generator = GeminiEmbeddingGenerator(api_key="synthetic", client=client)
+    with pytest.raises(RuntimeError, match="count"):
+        asyncio.run(generator.embed_batch(["synthetic one", "synthetic two"]))

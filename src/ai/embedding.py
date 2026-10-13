@@ -189,9 +189,11 @@ class GeminiEmbeddingGenerator:
         print(f"[Embedding] Gemini 초기화: {self.model}")
 
     def _request_batch(self, texts: list[str]) -> list[list[float]]:
+        from google.genai import types
+        # 문자열 목록은 모델에 따라 하나로 합쳐지므로 입력 단위를 명시한다.
         response = self.client.models.embed_content(
             model=self.model,
-            contents=texts,
+            contents=[types.Content(parts=[types.Part.from_text(text=text)]) for text in texts],
         )
         embeddings = getattr(response, "embeddings", None)
         if embeddings is None and isinstance(response, dict):
@@ -201,7 +203,10 @@ class GeminiEmbeddingGenerator:
             if embedding is None and isinstance(response, dict):
                 embedding = response.get("embedding")
             embeddings = [embedding] if embedding is not None else []
-        return [_extract_embedding_values(item) for item in embeddings]
+        vectors = [_extract_embedding_values(item) for item in embeddings]
+        if len(vectors) != len(texts) or any(not vector for vector in vectors):
+            raise RuntimeError("Gemini embedding count does not match input count")
+        return vectors
 
     async def embed(self, text: str) -> List[float]:
         embeddings = await self.embed_batch([text])

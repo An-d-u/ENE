@@ -929,6 +929,8 @@ def test_reroll_last_response_deletes_only_tracked_promises():
         include_life_record_context=False,
         mood_event_id="",
         mood_occurred_at="",
+        recent_memory_messages=None,
+        memory_request_id=None,
     ):
         started.append(
             {

@@ -317,7 +317,7 @@ class _EmptyMemoryManager:
     def get_important(self):
         return []
 
-    async def find_similar(self, query, top_k=3, min_similarity=0.5):
+    async def find_similar(self, query, top_k=3, min_similarity=0.5, mark_retrieved=True):
         return []
 
     def get_recent(self, count=5):
@@ -1657,7 +1657,7 @@ class _RawChunkMemoryManager:
     def get_recent(self, count=5):
         return []
 
-    async def find_similar(self, query, top_k=3, min_similarity=0.5):
+    async def find_similar(self, query, top_k=3, min_similarity=0.5, mark_retrieved=True):
         self.find_similar_calls.append(
             {
                 "query": query,
@@ -1712,8 +1712,7 @@ class _ActivatedRawChunkMemoryManager(_RawChunkMemoryManager):
         recent_context="",
         top_k=3,
         min_similarity=0.5,
-        expand_hops=1,
-    ):
+        expand_hops=1, mark_retrieved=True):
         self.find_activated_calls.append(
             {
                 "latest_query": latest_query,
@@ -1743,8 +1742,7 @@ class _FailingActivatedMemoryManager(_RawChunkMemoryManager):
         recent_context="",
         top_k=3,
         min_similarity=0.5,
-        expand_hops=1,
-    ):
+        expand_hops=1, mark_retrieved=True):
         raise RuntimeError("activation failed")
 
 
@@ -1759,8 +1757,7 @@ class _EmptyActivatedMemoryManager(_RawChunkMemoryManager):
         recent_context="",
         top_k=3,
         min_similarity=0.5,
-        expand_hops=1,
-    ):
+        expand_hops=1, mark_retrieved=True):
         self.find_activated_calls.append(
             {
                 "latest_query": latest_query,

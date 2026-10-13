@@ -363,6 +363,8 @@ class AttachmentBridgeMixin:
             "memory_search_text": memory_search_text,
             "latest_user_message": memory_search_inputs["latest_user_message"],
             "recent_memory_context": memory_search_inputs["recent_context_text"],
+            "recent_memory_messages": memory_search_inputs.get("recent_memory_messages", []),
+            "memory_request_id": memory_search_inputs.get("memory_request_id"),
             "head_pat_count_before_message": request.head_pat_count_before_message,
             "include_life_record_context": True,
             "mood_event_id": mood_event_id,
@@ -375,6 +377,8 @@ class AttachmentBridgeMixin:
             "memory_search_text": memory_search_text,
             "latest_user_message": memory_search_inputs["latest_user_message"],
             "recent_memory_context": memory_search_inputs["recent_context_text"],
+            "recent_memory_messages": memory_search_inputs.get("recent_memory_messages", []),
+            "memory_request_id": memory_search_inputs.get("memory_request_id"),
             "head_pat_count_before_message": request.head_pat_count_before_message,
             "include_life_record_context": True,
             "prior_token_usage": (
