@@ -45,6 +45,27 @@ def test_alias_collision_is_not_resolved_by_recency():
     assert resolve_followup_recall("그건 어떤 모양이었지?", [message("작은 탑을 꺼냈다.")], entities) is None
 
 
+@pytest.mark.parametrize("raw_limit", [0, 3])
+@pytest.mark.parametrize("recent", [
+    [message("유리 풍차를 살펴볼까요?", "assistant")],
+    [message("유리 풍차를 보자."), message("다른 이야기로 넘어가자. 종이 터널을 보자.")],
+])
+def test_unresolved_reference_reaches_response_even_with_existing_memory(tmp_path, raw_limit, recent):
+    import asyncio
+    from types import SimpleNamespace
+    from src.ai.memory import MemoryManager
+    from src.ai.memory_types import MemoryEntry
+    from src.ai.memory_context_builder import build_memory_context
+
+    manager = MemoryManager(tmp_path / "memory.json")
+    manager.memories = [MemoryEntry("glass", "유리 풍차는 상자에 있다.", [], "2025-01-01", entity_names=["유리 풍차"])]
+    client = SimpleNamespace(memory_manager=manager, settings=SimpleNamespace(config={"max_raw_chunks_in_context": raw_limit}))
+    result = asyncio.run(build_memory_context(client, "그건 어디에 있었지?", recent_memory_messages=recent))
+    assert "MEMORY_REFERENCE_UNRESOLVED" in result
+    resolved = asyncio.run(build_memory_context(client, "그건 어디에 있었지?", recent_memory_messages=[message("유리 풍차를 보자.")]))
+    assert "MEMORY_REFERENCE_UNRESOLVED" not in resolved
+
+
 @pytest.mark.parametrize("next_text", ["Switch topics. I am holding a blue umbrella.", "이제 다른 얘기를 하자.", "파란 우산을 펼쳤어."])
 def test_later_user_subject_cannot_inherit_an_older_known_entity(next_text):
     from src.ai.memory_recall import KnownEntity, resolve_followup_recall

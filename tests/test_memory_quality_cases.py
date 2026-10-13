@@ -36,3 +36,19 @@ def test_quality_cases_have_fixed_evidence_and_review_contract(filename, count, 
         assert all(action["action"] in {"approve", "reject", "correct_subject", "edit_target", "delete_target"} for action in case["review_actions"])
         if case["group"] == "temporal":
             assert case["gate"] == "observe"
+
+
+def test_additional_topic_switch_and_manifest_are_readable_and_complete():
+    additional = json.loads((ROOT / "additional.json").read_text(encoding="utf-8"))
+    case = additional[0]
+    messages = case["sessions"][0]["messages"]
+    assert messages[0]["text"] == "수정 구슬을 살펴보자."
+    assert messages[1]["text"] == "다른 이야기로 넘어가자. 이번에는 종이 터널에 대해 얘기하자."
+    for filename in ["cases.json", "holdout.json", "additional.json"]:
+        source = (ROOT / filename).read_text(encoding="utf-8")
+        assert "??" not in source and "\ufffd" not in source
+    cases = [case for filename in ["cases.json", "holdout.json", "additional.json"]
+             for case in json.loads((ROOT / filename).read_text(encoding="utf-8"))]
+    manifest = json.loads((ROOT / "approval_manifest.json").read_text(encoding="utf-8"))
+    assert set(manifest) == {case["id"] for case in cases}
+    assert Counter(manifest.values()) == {1: 39, 3: 10}

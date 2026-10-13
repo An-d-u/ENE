@@ -146,3 +146,57 @@ def test_evaluator_composition_matches_public_gemini_memory_path(tmp_path, monke
         asyncio.run(client.send_message_with_memory(query))
         assert sent[0][0] == expected
         assert sent[0][1]["history_user_content"] == query
+
+
+def test_evaluation_embedding_cache_reuses_only_exact_inputs_and_copies_vectors():
+    from scripts.memory_quality_eval import EvaluationEmbeddingCache
+
+    class Generator:
+        provider, model = "synthetic", "v1"
+
+        def __init__(self):
+            self.calls = []
+
+        async def embed_batch(self, texts):
+            self.calls.append(texts)
+            return [[float(len(text)), 1.0] for text in texts]
+
+    async def run():
+        shared = {}
+        source = Generator()
+        cached = EvaluationEmbeddingCache(source, shared)
+        first = await cached.embed_batch(["합성 가", "합성 나", "합성 가"])
+        first[0][0] = -1
+        assert await cached.embed("합성 가") == [4.0, 1.0]
+        assert await cached.embed_batch([]) == []
+        second = EvaluationEmbeddingCache(source, shared)
+        await second.embed_batch(["합성 나", "합성 다"])
+        assert source.calls == [["합성 가", "합성 나"], ["합성 다"]]
+        source.model = "v2"
+        await second.embed("합성 가")
+        assert len(source.calls) == 3
+    asyncio.run(run())
+
+
+def test_evaluation_embedding_cache_does_not_cache_incomplete_batches():
+    from scripts.memory_quality_eval import EvaluationEmbeddingCache
+
+    async def incomplete(texts):
+        return [[1.0]]
+    source = SimpleNamespace(provider="synthetic", model="v1", embed_batch=incomplete)
+    shared = {}
+    cached = EvaluationEmbeddingCache(source, shared)
+    with pytest.raises(RuntimeError):
+        asyncio.run(cached.embed_batch(["합성 가", "합성 나"]))
+    assert shared == {}
+
+
+def test_evaluation_restores_unsummarized_turns_without_reviving_closed_sessions():
+    from scripts.memory_quality_eval import restore_recent_conversation
+
+    received = []
+    client = SimpleNamespace(rebuild_context_from_conversation=lambda rows: received.extend(rows) or True)
+    message = dict(role="user", text="합성 등잔을 살펴보자.", timestamp="2025-03-01")
+    closed = dict(role="user", text="이전 합성 대화", timestamp="2025-01-01")
+    restore_recent_conversation(client, [dict(summarize=True, messages=[closed]), dict(summarize=False, messages=[message])])
+    assert received == [("user", message["text"], message["timestamp"])]

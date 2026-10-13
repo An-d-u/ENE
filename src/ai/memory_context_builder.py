@@ -877,12 +877,20 @@ async def build_memory_context(
         trace.candidates["primary"] = [str(getattr(memory, "id", "")) for memory, _ in primary_memories]
         trace.calls["primary_search"] = 1
     selection_limit = max_activated if activation_attempted else max_similar
-    if recent_memory_messages and max_raw_chunks > 0 and selection_limit > 0:
-        from .memory_recall import collect_known_entities, resolve_followup_recall, memory_matches_recall
+    if recent_memory_messages:
+        from .memory_recall import collect_known_entities, resolve_followup_recall, memory_matches_recall, is_narrow_recall_query
         topics = getattr(getattr(client, "knowledge_map_manager", None), "topics", [])
         entities = collect_known_entities(getattr(memory_manager, "memories", []), topics)
         recall_plan = resolve_followup_recall(normalized_query, recent_memory_messages, entities)
-        if recall_plan is not None:
+        if recall_plan is None and is_narrow_recall_query(normalized_query):
+            # 보완 검색만 차단하면 기존 프로필·기억을 보고 답변 모델이 대상을 다시 추측할 수 있다.
+            context_parts.append(
+                "\n[MEMORY_REFERENCE_UNRESOLVED]\n"
+                "최근 사용자 발화만으로 이번 생략 질문의 대상을 하나로 확인하지 못했다. "
+                "검색된 기억이나 조수가 먼저 언급한 대상만으로 질문의 대상을 확정하지 않는다. "
+                "먼저 어떤 대상인지 확인 질문을 하고, 확인 전에는 특정 대상의 값을 이번 질문의 정답으로 제시하지 않는다."
+            )
+        if recall_plan is not None and max_raw_chunks > 0 and selection_limit > 0:
             try:
                 if trace is not None:
                     trace.calls["supplemental_search"] = 1

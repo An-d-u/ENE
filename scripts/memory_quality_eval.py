@@ -133,6 +133,32 @@ def isolated_storage():
                 os.environ["ENE_USER_DATA_DIR"] = previous
 
 
+class EvaluationEmbeddingCache:
+    """같은 평가 실행 안에서 동일 모델·문자열의 실제 임베딩만 재사용한다."""
+
+    def __init__(self, generator, cache):
+        self.generator = generator
+        self.cache = cache
+        self.hits = 0
+
+    def __getattr__(self, name):
+        return getattr(self.generator, name)
+
+    async def embed(self, text):
+        return (await self.embed_batch([text]))[0]
+
+    async def embed_batch(self, texts):
+        keys = [(self.provider, self.model, text) for text in texts]
+        missing = list(dict.fromkeys(key for key in keys if key not in self.cache))
+        self.hits += len(keys) - len(missing)
+        if missing:
+            vectors = await self.generator.embed_batch([key[2] for key in missing])
+            if len(vectors) != len(missing) or any(not vector for vector in vectors):
+                raise RuntimeError("임베딩 캐시에 불완전한 배치를 저장할 수 없습니다")
+            self.cache.update((key, list(vector)) for key, vector in zip(missing, vectors))
+        return [list(self.cache[key]) for key in keys]
+
+
 class SyntheticEmbedding:
     """정답을 참조하지 않는 어휘 해시 대역. 의미 품질 점수가 아니다."""
 
@@ -244,7 +270,16 @@ def compose_evaluation_message(query, context, settings, recent=""):
     return compose_contextual_message(query, memory_context=context, web_search_context=web_context)
 
 
-async def _run_case(case, root, mode, config, budget):
+def restore_recent_conversation(client, sessions):
+    """끝난 요약 세션은 기억으로, 진행 중 발화는 제품의 대화 이력으로 전달한다."""
+    messages = [(message["role"], message["text"], message["timestamp"])
+                for session in sessions if not session.get("summarize")
+                for message in session["messages"]]
+    if messages and not client.rebuild_context_from_conversation(messages):
+        raise RuntimeError("평가의 최근 대화 이력을 구성하지 못했습니다")
+
+
+async def _run_case(case, root, mode, config, budget, embedding_cache=None):
     from src.ai.embedding import create_embedding_generator
     from src.ai.ene_profile import EneProfile
     from src.ai.knowledge_map import KnowledgeMapManager
@@ -261,6 +296,8 @@ async def _run_case(case, root, mode, config, budget):
         provider=config["embedding_provider"], model=config["embedding_model"],
         api_key=os.environ["ENE_EVAL_EMBEDDING_KEY"], api_url=config.get("embedding_api_url", ""),
     )
+    if embedding_cache is not None:
+        embedding = EvaluationEmbeddingCache(embedding, embedding_cache)
     manager = MemoryManager(root / "memory.json", embedding_generator=embedding)
     profile = UserProfile(root / "user_profile.json")
     profile.facts = [ProfileFact.from_dict(fact) for fact in case["seed_state"]["facts"]]
@@ -334,6 +371,7 @@ async def _run_case(case, root, mode, config, budget):
         kwargs["recent_memory_messages"] = recent_messages
     context = await build_memory_context(client, case["query"], **kwargs)
     composed = compose_evaluation_message(case["query"], context, settings, recent)
+    restore_recent_conversation(client, case["sessions"])
     budget.stage = "response"
     answer = "" if mode == "mock" else client.send_message(composed, history_user_content=case["query"])
     if inspect.isawaitable(answer):
@@ -352,24 +390,29 @@ async def _run_case(case, root, mode, config, budget):
         "review_actions": review_outcomes,
         "state_grade": grade_state(case["expected"], before_storage, [asdict(fact) for fact in profile.facts]),
         "final_facts": [asdict(fact) for fact in profile.facts],
+        "before_storage": before_storage,
+        "embedding_cache_hits": getattr(embedding, "hits", 0),
+        "response_history": "unsummarized_sessions",
         "answer": answer, "answer_grade": "ungraded",
         "input_chars": len(composed), "token_usage": getattr(client, "_last_token_usage", None) or "unknown",
     }
 
 
-async def evaluate(cases, *, mode, config=None, budget=None):
+async def evaluate(cases, *, mode, config=None, budget=None, embedding_cache=None):
     config = dict(config or {})
     budget = budget or ApiBudget(config.get("max_api_requests", 1))
     start = time.monotonic()
     requests_before = budget.total
     results = []
     status = "complete"
+    if embedding_cache is None and config.get("cache_embeddings"):
+        embedding_cache = {}
     with isolated_storage() as root, request_boundary(mode, budget):
         for index, case in enumerate(cases):
             try:
                 # 제품의 진단 출력에 합성 원문이 있어도 평가 보고서로만 전달한다.
                 with redirect_stdout(io.StringIO()):
-                    result = await _run_case(case, root / str(index), mode, config, budget)
+                    result = await _run_case(case, root / str(index), mode, config, budget, embedding_cache)
                 result["run_index"] = index
                 results.append(result)
             except BudgetExceeded:

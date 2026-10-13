@@ -63,9 +63,13 @@ _UNSAFE = re.compile(r"['\"“”‘’「」『』]|아니|않|말고|만약|�
 _TOPIC_SWITCH = re.compile(r"다른\s*(?:이야기|얘기|주제)|주제.{0,5}바|switch\s+topics?|change\s+(?:the\s+)?subject|話[題を].{0,5}変|別の話")
 
 
+def is_narrow_recall_query(query):
+    return any(pattern.fullmatch(normalize_subject(query)) for pattern in _RECALL)
+
+
 def resolve_followup_recall(query, recent_messages, known_entities):
     normalized = normalize_subject(query)
-    if not any(pattern.fullmatch(normalized) for pattern in _RECALL):
+    if not is_narrow_recall_query(query):
         return None
     aliases = {}
     entities = {entity.entity_id: entity for entity in known_entities}
