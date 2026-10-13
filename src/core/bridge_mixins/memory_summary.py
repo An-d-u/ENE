@@ -6,6 +6,11 @@ import inspect
 from datetime import datetime
 import re
 import uuid
+from copy import deepcopy
+
+from src.ai.profile_review import (
+    ProfileProposal, StaleProfileReview, fact_fingerprint, make_proposals, review_proposal,
+)
 
 from PyQt6.QtCore import QThread, pyqtSignal, pyqtSlot
 
@@ -67,6 +72,120 @@ class SummaryReviewWorker(QThread):
 
 
 class MemorySummaryBridgeMixin:
+    def _resolve_profile_review_payload(self, payload):
+        """교체 대상과 수동 편집 여부는 서버의 원래 제안으로 다시 구성한다."""
+        pending = getattr(self, "_pending_summary_review", None)
+        if not isinstance(pending, dict):
+            raise StaleProfileReview("검토 항목이 없습니다.")
+        if payload.get("review_id") and payload["review_id"] != pending.get("review_id"):
+            raise StaleProfileReview("이전 검토는 만료됐습니다.")
+        if pending.get("locked_payload"):
+            return deepcopy(pending["locked_payload"])
+        facts = list(getattr(getattr(self, "user_profile", None), "facts", []) or [])
+        proposals = pending.setdefault("profile_proposals", make_proposals(facts, pending.get("memory_meta", {}).get("profile_updates")))
+        selections = payload.get("profile_selections")
+        supplied = isinstance(selections, list) and payload.get("review_id") == pending.get("review_id")
+        by_id = {row.get("proposal_id"): row for row in selections or [] if isinstance(row, dict)}
+        selected_facts = set(payload.get("user_facts") or [])
+        approved = []
+        selection_state = {}
+        for proposal in proposals:
+            original = f"[{proposal.update.get('category')}] {proposal.update.get('content')}"
+            row = by_id.get(proposal.proposal_id, {}) if supplied else {"selected": original in selected_facts}
+            selection_state[proposal.proposal_id] = deepcopy(row)
+            if row.get("selected") is not True:
+                continue
+            reviewed = review_proposal(proposal, edits=row.get("edits") if supplied else None,
+                                       confirm_subject=supplied and row.get("confirm_subject") is True)
+            approved.append(reviewed)
+        if supplied:
+            for row in selections:
+                if not isinstance(row, dict) or row.get("proposal_id") or row.get("selected") is not True:
+                    continue
+                edits = row.get("edits") or {}
+                if edits.get("category") not in {"basic", "preference", "goal", "habit"} or not str(edits.get("content") or "").strip():
+                    continue
+                manual = ProfileProposal(uuid.uuid4().hex, {"category": edits["category"], "content": "", "state": "active",
+                                                          "subject": "", "replaces": "", "assertion": "current", "evidence": ""}, "", None, "")
+                approved.append(review_proposal(manual, edits=edits))
+        pending["approved_context"] = approved
+        pending["selection_state"] = selection_state
+        result = deepcopy(payload)
+        meta = dict(pending.get("memory_meta") or {})
+        meta.update({key: value for key, value in (payload.get("memory_meta") or {}).items()
+                     if key in {"memory_type", "importance_reason", "confidence", "entity_names", "aliases", "trigger_terms"}})
+        if proposals or "profile_updates" in meta:
+            meta["profile_updates"] = [item.update for item in approved]
+            result["user_facts"] = [f"[{item.update.get('category')}] {item.update.get('content')}" for item in approved]
+        result["memory_meta"] = meta
+        return result
+
+    def _validate_profile_review(self):
+        pending = self._pending_summary_review
+        facts = list(getattr(getattr(self, "user_profile", None), "facts", []) or [])
+        if any(item.decision(facts) == "refresh" for item in pending.get("approved_context", [])):
+            raise StaleProfileReview("프로필이 바뀌었습니다. 변경된 행을 다시 확인해 주세요.")
+
+    def _refresh_profile_review(self):
+        """변경된 행만 선택을 해제하고 다른 행의 편집은 보존한다."""
+        pending = self._pending_summary_review
+        facts = list(getattr(getattr(self, "user_profile", None), "facts", []) or [])
+        refreshed = []
+        selections = pending.setdefault("selection_state", {})
+        for proposal in pending.get("profile_proposals", []):
+            target = next((fact for fact in facts if fact.id == proposal.target_id), None)
+            fingerprint = fact_fingerprint(target) if target else ""
+            if fingerprint != proposal.fingerprint:
+                selections[proposal.proposal_id] = {"selected": False}
+                proposal = ProfileProposal(proposal.proposal_id, proposal.update, proposal.target_id,
+                                           deepcopy(target.to_dict()) if target else None, fingerprint, proposal.conflicting)
+            refreshed.append(proposal)
+        pending["profile_proposals"] = refreshed
+        pending["review_id"] = uuid.uuid4().hex
+        pending["review_notice"] = "저장 대상이 변경됐습니다. 변경된 행을 다시 확인해 주세요."
+        MemorySummaryBridgeMixin._emit_summary_review(self)
+
+    @staticmethod
+    def _review_manager_fingerprint(manager):
+        data = {}
+        for name in ("facts", "topics", "basic_info", "preferences", "core_profile"):
+            value = getattr(manager, name, None)
+            if isinstance(value, list):
+                value = [item.to_dict() if hasattr(item, "to_dict") else item for item in value]
+            if value is not None:
+                data[name] = value
+        return fact_fingerprint(data)
+
+    def _persist_review_stage(self, name, manager, apply):
+        """메모리 적용과 디스크 저장 완료를 분리해 재시도 중 중복을 막는다."""
+        pending = self._pending_summary_review
+        checkpoint = pending.setdefault("checkpoints", {}).setdefault(name, {})
+        if checkpoint.get("status") in {"persisted", "skipped"}:
+            return
+        if manager is None:
+            checkpoint.update(status="skipped", reason="manager_absent")
+            return
+        current = MemorySummaryBridgeMixin._review_manager_fingerprint(manager)
+        if checkpoint.get("applied") and checkpoint.get("fingerprint") != current:
+            checkpoint["fingerprint"] = current
+            raise StaleProfileReview("저장 재시도 전에 상태가 변경됐습니다. 현재 상태를 다시 확인해 주세요.")
+        try:
+            if not checkpoint.get("applied"):
+                apply()
+                checkpoint.update(applied=True, fingerprint=MemorySummaryBridgeMixin._review_manager_fingerprint(manager))
+            save = getattr(manager, "save", None)
+            if callable(save):
+                parameters = inspect.signature(save).parameters
+                result = save(strict=True) if "strict" in parameters else save()
+                if result is False:
+                    raise OSError(f"{name}_save_failed")
+                checkpoint["status"] = "persisted"
+            else:
+                checkpoint.update(status="skipped", reason="storage_absent")
+        except Exception:
+            checkpoint["status"] = "failed"
+            raise
+
     def _close_life_gate_for_summary(self, messages) -> None:
         """대화가 있는 요약·초기화 흐름은 process 단위 생활 기록 gate를 닫는다."""
         if not list(messages or []):
@@ -168,10 +287,11 @@ class MemorySummaryBridgeMixin:
             recent.pop(0)
         self._summarized_recent_context = recent
         MemorySummaryBridgeMixin._drop_reviewed_messages_from_buffer(self, messages)
-        clear = getattr(self.llm_client, "clear_context", None)
+        client = getattr(self, "llm_client", None)
+        clear = getattr(client, "clear_context", None)
         if callable(clear):
             clear()
-        rebuild = getattr(self.llm_client, "rebuild_context_from_conversation", None)
+        rebuild = getattr(client, "rebuild_context_from_conversation", None)
         if callable(rebuild):
             rebuild(recent + list(self.conversation_buffer))
 
@@ -207,7 +327,10 @@ class MemorySummaryBridgeMixin:
         registered = None
         if tracker is not None and summary_id:
             try:
-                registered = tracker.register_approved_summary(summary_id)
+                registration = (getattr(self, "_pending_summary_review", None) or {}).get("checkpoints", {}).get("registration", {})
+                supports_retry = "retry_failed" in inspect.signature(tracker.register_approved_summary).parameters
+                kwargs = {"retry_failed": True} if supports_retry and registration.get("status") == "failed" else {}
+                registered = tracker.register_approved_summary(summary_id, **kwargs)
             except Exception as error:
                 print(f"[Bridge] Approved summary registration failed: {error}")
 
@@ -645,16 +768,20 @@ class MemorySummaryBridgeMixin:
         return str(source_timestamp or "").strip()
 
     async def _persist_reviewed_topic_hints(self, topic_hints, saved_memory, pending, source_timestamp):
-        """승인된 topic_hints만 지식 맵에 병합하고, 실패해도 요약 저장은 유지한다."""
+        """주제 적용과 실제 저장을 구분하고 저장 실패를 호출자에게 전달한다."""
+        review = getattr(self, "_pending_summary_review", None)
+        checkpoint = review.setdefault("checkpoints", {}).setdefault("topic", {}) if isinstance(review, dict) else {}
         storage_normalizer = getattr(self, "_normalize_topic_hints_for_storage", None)
         if not callable(storage_normalizer):
             storage_normalizer = lambda hints: MemorySummaryBridgeMixin._normalize_topic_hints_for_storage(self, hints)
         storage_hints = storage_normalizer(topic_hints)
         if not storage_hints:
+            checkpoint.update(status="skipped", reason="no_accepted_hints")
             return
 
         knowledge_map_manager = getattr(self, "knowledge_map_manager", None)
         if knowledge_map_manager is None:
+            checkpoint.update(status="skipped", reason="manager_absent")
             return
 
         source_builder = getattr(self, "_reviewed_summary_source_memory_id", None)
@@ -666,9 +793,15 @@ class MemorySummaryBridgeMixin:
                 timestamp,
             )
         source_memory_id = source_builder(saved_memory, pending, source_timestamp)
+        fingerprint = MemorySummaryBridgeMixin._review_manager_fingerprint(knowledge_map_manager)
+        if checkpoint.get("applied") and checkpoint.get("fingerprint") != fingerprint:
+            checkpoint["fingerprint"] = fingerprint
+            raise StaleProfileReview("주제 상태가 바뀌었습니다. 현재 상태를 다시 확인해 주세요.")
         try:
             async_merge = getattr(knowledge_map_manager, "async_merge_hints", None)
-            if callable(async_merge):
+            if checkpoint.get("applied"):
+                pass
+            elif callable(async_merge):
                 merge_result = async_merge(storage_hints, source_memory_id=source_memory_id)
                 if inspect.isawaitable(merge_result):
                     await merge_result
@@ -677,14 +810,21 @@ class MemorySummaryBridgeMixin:
                 if not callable(merge_direct):
                     merge_direct = getattr(knowledge_map_manager, "merge_hints", None)
                 if not callable(merge_direct):
+                    checkpoint.update(status="skipped", reason="merge_absent")
                     return
                 merge_direct(storage_hints, source_memory_id=source_memory_id)
 
+            checkpoint.update(applied=True, fingerprint=MemorySummaryBridgeMixin._review_manager_fingerprint(knowledge_map_manager))
             save = getattr(knowledge_map_manager, "save", None)
             if callable(save):
-                save()
-        except Exception as e:
-            print(f"[Bridge] Topic hints save skipped after failure: {e}")
+                if save() is False:
+                    raise OSError("topic_save_failed")
+                checkpoint["status"] = "persisted"
+            else:
+                checkpoint.update(status="skipped", reason="storage_absent")
+        except Exception:
+            checkpoint["status"] = "failed"
+            raise
 
     def _build_summary_storage_payload(self, messages):
         """요약 저장에 필요한 원문 메시지와 출처 시각을 만든다."""
@@ -728,13 +868,34 @@ class MemorySummaryBridgeMixin:
             return
 
         payload = {
+            "review_id": pending.get("review_id", ""),
+            "locked": pending.get("saved_memory") is not None,
+            "review_notice": pending.get("review_notice", ""),
+            "profile_proposals": [],
             "summary": str(pending.get("summary") or ""),
             "user_facts": list(pending.get("user_facts") or []),
             "ene_facts": list(pending.get("ene_facts") or []),
             "memory_meta": dict(pending.get("memory_meta") or {}),
             "topic_hints": list(pending.get("topic_hints") or []),
         }
-        self.summary_review_ready.emit(json.dumps(payload, ensure_ascii=False))
+        selections = pending.get("selection_state", {})
+        for proposal in pending.get("profile_proposals", []):
+            selection = selections.get(proposal.proposal_id, {})
+            snippet = str(proposal.update.get("evidence") or "")
+            evidence = [str(item.get("text") or "") for item in pending.get("original_messages", [])
+                        if isinstance(item, dict) and item.get("role") == "user" and snippet and snippet in str(item.get("text") or "")]
+            payload["profile_proposals"].append({
+                "proposal_id": proposal.proposal_id, "update": proposal.update,
+                "fact_index": next((index for index, value in enumerate(payload["user_facts"])
+                                    if value == f"[{proposal.update.get('category')}] {proposal.update.get('content')}"), -1),
+                "existing": proposal.snapshot, "evidence": evidence,
+                "subject_conflict": proposal.subject_conflict, "conflicting": proposal.conflicting,
+                "selected": selection.get("selected", not proposal.conflicting),
+                "edits": selection.get("edits", {}), "confirm_subject": selection.get("confirm_subject", False),
+            })
+        signal = getattr(self, "summary_review_ready", None)
+        if signal is not None:
+            signal.emit(json.dumps(payload, ensure_ascii=False))
 
     def _drop_reviewed_messages_from_buffer(self, reviewed_messages):
         """검토 대상으로 저장한 메시지만 버퍼에서 제거하고 이후 새 대화는 보존한다."""
@@ -787,6 +948,7 @@ class MemorySummaryBridgeMixin:
 
     async def _build_summary_review_state(self, messages):
         """요약 후보 생성 결과를 검토 대기 상태 딕셔너리로 만든다."""
+        profile_snapshot = deepcopy(list(getattr(getattr(self, "user_profile", None), "facts", []) or []))
         summarizer = getattr(self, "_summarize_conversation_with_loaded_topic_memory", None)
         if not callable(summarizer):
             summarizer = lambda value: MemorySummaryBridgeMixin._summarize_conversation_with_loaded_topic_memory(
@@ -800,6 +962,8 @@ class MemorySummaryBridgeMixin:
             storage_builder = lambda value: MemorySummaryBridgeMixin._build_summary_storage_payload(self, value)
         storage_payload = storage_builder(messages)
         return {
+            "review_id": uuid.uuid4().hex,
+            "profile_proposals": make_proposals(profile_snapshot, memory_meta.get("profile_updates")),
             "messages": messages,
             "original_messages": storage_payload["original_messages"],
             "source_timestamp": storage_payload["source_timestamp"],
@@ -841,7 +1005,17 @@ class MemorySummaryBridgeMixin:
         if reviewed_messages and list(self.conversation_buffer)[:len(reviewed_messages)] != reviewed_messages:
             raise ValueError("검토 대상 대화가 변경되었습니다. 요약을 다시 생성해 주세요.")
 
-        saved_memory = await self.memory_manager.add_summary(
+        if "approved_context" not in pending:
+            resolved = MemorySummaryBridgeMixin._resolve_profile_review_payload(self, {
+                "summary": summary, "user_facts": user_facts, "ene_facts": ene_facts,
+                "memory_meta": memory_meta, "topic_hints": topic_hints or [],
+            })
+            user_facts, memory_meta = resolved["user_facts"], resolved["memory_meta"]
+        checkpoints = pending.setdefault("checkpoints", {})
+        saved_memory = pending.get("saved_memory")
+        if saved_memory is None:
+            MemorySummaryBridgeMixin._validate_profile_review(self)
+            options = dict(
             summary=str(summary or "").strip(),
             original_messages=original_messages,
             is_important=False,
@@ -852,26 +1026,59 @@ class MemorySummaryBridgeMixin:
             entity_names=memory_meta.get("entity_names") or [],
             aliases=memory_meta.get("aliases") or [],
             trigger_terms=memory_meta.get("trigger_terms") or [],
-        )
+            )
+            parameters = inspect.signature(self.memory_manager.add_summary).parameters
+            if "before_commit" in parameters or any(item.kind == inspect.Parameter.VAR_KEYWORD for item in parameters.values()):
+                options["before_commit"] = lambda: MemorySummaryBridgeMixin._validate_profile_review(self)
+            saved_memory = await self.memory_manager.add_summary(**options)
+            pending["saved_memory"] = saved_memory
+            checkpoints["summary"] = {"status": "persisted", "memory_id": str(getattr(saved_memory, "id", ""))}
+            pending["locked_payload"] = deepcopy({
+                "summary": summary, "user_facts": user_facts, "ene_facts": ene_facts,
+                "memory_meta": memory_meta, "topic_hints": topic_hints or [],
+            })
+        else:
+            locked = pending["locked_payload"]
+            user_facts, ene_facts, memory_meta, topic_hints = (
+                locked["user_facts"], locked["ene_facts"], locked["memory_meta"], locked["topic_hints"]
+            )
 
-        MemorySummaryBridgeMixin._persist_user_profile_facts(
-            self, user_facts, memory_meta, saved_memory, original_messages, source_timestamp, reviewed=True,
-        )
+        profile = getattr(self, "user_profile", None)
+        def apply_profile():
+            if callable(getattr(profile, "apply_summary_facts", None)):
+                options = dict(original_messages=original_messages, source=f"대화 요약 ({source_timestamp})",
+                               source_memory_id=str(getattr(saved_memory, "id", "")), observed_at=source_timestamp, reviewed=True)
+                parameters = inspect.signature(profile.apply_summary_facts).parameters
+                if "review_context" in parameters:
+                    options.update(review_context=pending.get("approved_context"), persist=False)
+                profile.apply_summary_facts(user_facts, memory_meta.get("profile_updates"), **options)
+            elif profile:
+                for fact in user_facts:
+                    profile.add_fact(content=fact, category="fact", source=f"대화 요약 ({source_timestamp})")
+        MemorySummaryBridgeMixin._persist_review_stage(self, "profile", profile, apply_profile)
 
-        if ene_facts and hasattr(self, 'ene_profile') and self.ene_profile:
-            print(f"[Bridge] 에네 정보 {len(ene_facts)}개 저장")
-            for fact in ene_facts:
-                self.ene_profile.add_fact(
+        ene = getattr(self, "ene_profile", None)
+        def apply_ene():
+            for fact in ene_facts if ene else []:
+                options = dict(
                     content=fact,
                     category="fact",
                     source=f"대화 요약 ({source_timestamp})",
                     origin="auto",
                     auto_update=True,
                 )
+                if "persist" in inspect.signature(ene.add_fact).parameters:
+                    options["persist"] = False
+                ene.add_fact(**options)
+        MemorySummaryBridgeMixin._persist_review_stage(self, "ene", ene, apply_ene)
 
-        await MemorySummaryBridgeMixin._persist_topic_state(
-            self, topic_hints, saved_memory, original_messages, source_timestamp, reviewed=True,
-        )
+        topic_checkpoint = checkpoints.setdefault("topic", {})
+        if topic_checkpoint.get("status") not in {"persisted", "skipped"}:
+            await MemorySummaryBridgeMixin._persist_topic_state(
+                self, topic_hints, saved_memory, original_messages, source_timestamp, reviewed=True,
+            )
+            if not topic_checkpoint:
+                topic_checkpoint.update(status="skipped", reason="no_accepted_hints")
         return saved_memory
 
     @pyqtSlot(str)
@@ -892,6 +1099,7 @@ class MemorySummaryBridgeMixin:
             payload = json.loads(str(payload_json or "{}"))
             if not isinstance(payload, dict):
                 payload = {}
+            payload = MemorySummaryBridgeMixin._resolve_profile_review_payload(self, payload)
 
             summary = str(payload.get("summary") or "").strip()
             if not summary:
@@ -915,7 +1123,11 @@ class MemorySummaryBridgeMixin:
                     self,
                     memory,
                 )
-            tracker_registered = register(saved_memory)
+            registration = pending.setdefault("checkpoints", {}).setdefault("registration", {})
+            tracker_registered = registration.get("status") == "persisted" or register(saved_memory)
+            registration["status"] = "persisted" if tracker_registered else "failed"
+            if not tracker_registered:
+                raise OSError("summary_registration_failed")
 
             complete = getattr(self, "_complete_summary_context", None)
             if not callable(complete):
@@ -943,11 +1155,18 @@ class MemorySummaryBridgeMixin:
                     )
                 outcome = "saved_unregistered"
             MemorySummaryBridgeMixin._emit_summary_review_finished(self, origin, outcome)
+        except StaleProfileReview:
+            if isinstance(pending, dict):
+                MemorySummaryBridgeMixin._refresh_profile_review(self)
+            self.summary_notice.emit("프로필이 변경돼 다시 확인해야 해요. 변경되지 않은 행의 선택은 유지했어요.", "info")
         except Exception as e:
             print(f"[Bridge] Summary review approve failed: {e}")
             import traceback
             traceback.print_exc()
             self.summary_notice.emit("요약 저장 중 오류가 발생했어요.", "error")
+            if isinstance(pending, dict) and pending.get("saved_memory"):
+                pending["review_notice"] = "일부 항목은 이미 저장됐습니다. 잠긴 항목은 유지하고 실패한 저장만 재시도합니다."
+                MemorySummaryBridgeMixin._emit_summary_review(self)
             MemorySummaryBridgeMixin._emit_summary_review_finished(
                 self,
                 origin,
@@ -964,6 +1183,9 @@ class MemorySummaryBridgeMixin:
             pending = getattr(self, "_pending_summary_review", None)
             if not isinstance(pending, dict):
                 self.summary_notice.emit("다시 만들 요약이 없어요.", "error")
+                return
+            if pending.get("saved_memory"):
+                self.summary_notice.emit("이미 저장된 요약이 있어 남은 저장을 재시도해야 해요.", "info")
                 return
 
             messages = list(pending.get("messages") or [])
@@ -1011,7 +1233,10 @@ class MemorySummaryBridgeMixin:
                 from_current_buffer=True,
             )
         self._pending_summary_review = None
-        self.summary_notice.emit("요약 저장을 취소했어요.", "info")
+        partial = isinstance(pending, dict) and pending.get("saved_memory") is not None
+        if partial:
+            MemorySummaryBridgeMixin._complete_summary_context(self, list(pending.get("messages") or []))
+        self.summary_notice.emit("남은 저장을 취소했어요. 이미 저장된 항목은 유지돼요." if partial else "요약 저장을 취소했어요.", "info")
         MemorySummaryBridgeMixin._emit_summary_review_finished(
             self,
             origin,

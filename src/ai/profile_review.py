@@ -8,6 +8,10 @@ import unicodedata
 from uuid import uuid4
 
 
+class StaleProfileReview(ValueError):
+    """검토 대상이 바뀌어 해당 행의 재승인이 필요하다."""
+
+
 def normalize_subject(value):
     return " ".join(unicodedata.normalize("NFKC", str(value or "")).casefold().split())
 

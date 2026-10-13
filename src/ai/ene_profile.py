@@ -76,7 +76,7 @@ class EneProfile:
             else:
                 print("[ENE Profile] Profile file not found. Starting fresh.")
 
-    def save(self):
+    def save(self, *, strict=False):
         """JSON 파일에 프로필을 저장한다."""
         try:
             payload = {
@@ -93,8 +93,12 @@ class EneProfile:
                 trailing_newline=True,
             )
             print(f"[ENE Profile] Saved {len(self.facts)} facts")
+            return True
         except Exception as e:
+            if strict:
+                raise
             print(f"[ENE Profile] Save failed: {e}")
+            return False
 
     def add_fact(
         self,
@@ -104,6 +108,8 @@ class EneProfile:
         origin: str = "auto",
         auto_update: bool = True,
         confidence: float | None = None,
+        *,
+        persist: bool = True,
     ):
         """에네 자기 정보 fact를 정책에 맞게 추가한다."""
         normalized = self._normalize_fact(content)
@@ -156,7 +162,8 @@ class EneProfile:
             existing.origin = origin or existing.origin
             existing.auto_update = bool(auto_update)
             existing.confidence = confidence if confidence is not None else existing.confidence
-            self.save()
+            if persist:
+                self.save()
             print(f"[ENE Profile] Updated similar fact: [{resolved_category}] {existing.content}")
             return
 
@@ -170,7 +177,8 @@ class EneProfile:
             confidence=confidence,
         )
         self.facts.append(fact)
-        self.save()
+        if persist:
+            self.save()
         print(f"[ENE Profile] Added fact: [{resolved_category}] {normalized}")
 
     def delete_fact(self, index: int):

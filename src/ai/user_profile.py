@@ -107,7 +107,7 @@ class UserProfile:
             print(f"[Profile] Save failed: {e}")
             return False
 
-    def add_fact(self, content: str, category: str = "fact", source: str = ""):
+    def add_fact(self, content: str, category: str = "fact", source: str = "", *, persist=True):
         """Add a new durable fact if it passes policy checks."""
         content = self._normalize_fact(content)
         if not content:
@@ -153,7 +153,8 @@ class UserProfile:
         elif inferred_category == "preference":
             self._update_preferences(content)
 
-        self.save()
+        if persist:
+            self.save()
         print(f"[Profile] Added fact: [{inferred_category}] {content}")
 
     def apply_summary_facts(self, facts, updates, *, original_messages, source="", source_memory_id="", observed_at="", reviewed=False, review_context=None, persist=True):
@@ -162,7 +163,7 @@ class UserProfile:
             # 구형 응답은 원문 요약만 보존한다. 명시적으로 검토한 사실만 추가한다.
             if reviewed:
                 for content in facts:
-                    self.add_fact(content, source=source)
+                    self.add_fact(content, source=source, persist=persist)
             return
         selected = {self._normalize_fact(value) for value in facts if isinstance(value, str)}
         timestamp = observed_at or datetime.now().astimezone().isoformat()

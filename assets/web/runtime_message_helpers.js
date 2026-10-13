@@ -37,6 +37,10 @@ function normalizeSummaryReviewPayload(payload) {
     }
     const meta = data.memory_meta && typeof data.memory_meta === 'object' ? data.memory_meta : {};
     return {
+        review_id: String(data.review_id || ''),
+        profile_proposals: Array.isArray(data.profile_proposals) ? data.profile_proposals : [],
+        locked: data.locked === true,
+        review_notice: String(data.review_notice || ''),
         summary: String(data.summary || ''),
         user_facts: Array.isArray(data.user_facts) ? data.user_facts.map(String) : [],
         ene_facts: Array.isArray(data.ene_facts) ? data.ene_facts.map(String) : [],
@@ -63,7 +67,7 @@ function ensureSummaryReviewSelectOption(select, value) {
 
 function appendSummaryReviewFact(container, fact, groupName) {
     if (!container) return;
-    const row = document.createElement('label');
+    const row = document.createElement('div');
     row.className = 'summary-review-fact';
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
@@ -111,7 +115,7 @@ function renderSummaryReviewFacts(container, facts, groupName) {
     }
 
     facts.forEach((fact, index) => {
-        const row = document.createElement('label');
+        const row = document.createElement('div');
         row.className = 'summary-review-fact';
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
@@ -125,7 +129,75 @@ function renderSummaryReviewFacts(container, facts, groupName) {
         row.appendChild(checkbox);
         row.appendChild(text);
         if (groupName === 'summary-user-fact') appendSummaryReviewFactState(row, fact);
+        if (groupName === 'summary-user-fact') appendSummaryProfileReview(row, index);
         container.appendChild(row);
+    });
+}
+
+function appendSummaryProfileReview(row, index) {
+    const payload = currentSummaryReviewPayload || {};
+    const proposals = payload.profile_proposals || [];
+    const proposal = proposals.find((item) => item.fact_index === index)
+        || proposals.find((item, position) => item.fact_index === undefined && position === index);
+    if (!proposal) return;
+    row.dataset.proposalId = proposal.proposal_id;
+    const checkbox = row.children[0];
+    checkbox.checked = proposal.selected !== false;
+    checkbox.ariaLabel = '이 변경 선택';
+    const update = proposal.update || {};
+    const edits = proposal.edits || {};
+    if (edits.content !== undefined) row.children[1].value = '[' + (edits.category || update.category) + '] ' + edits.content;
+    const state = row.querySelector('.summary-review-fact-state');
+    if (state) state.value = edits.state || update.state || 'active';
+    const details = document.createElement('div');
+    details.className = 'summary-review-evidence';
+    const before = document.createElement('p');
+    before.textContent = proposal.existing ? '기존 기억: ' + proposal.existing.content : '기존 기억: 새 항목 또는 삭제된 대상';
+    const evidence = document.createElement('p');
+    evidence.textContent = '사용자 근거: ' + ((proposal.evidence || []).join('\n') || '확인된 사용자 근거 없음');
+    details.appendChild(before);
+    details.appendChild(evidence);
+    const subject = document.createElement('input');
+    subject.className = 'summary-review-subject';
+    subject.value = edits.subject !== undefined ? edits.subject : (update.subject || '');
+    subject.ariaLabel = '기억 대상 이름';
+    details.appendChild(subject);
+    const label = document.createElement('label');
+    const confirm = document.createElement('input');
+    confirm.type = 'checkbox';
+    confirm.className = 'summary-review-subject-confirm';
+    confirm.checked = proposal.confirm_subject === true;
+    const explanation = document.createElement('span');
+    explanation.textContent = '기존 기억의 대상 이름을 이 이름으로 정정합니다';
+    label.appendChild(confirm);
+    label.appendChild(explanation);
+    details.appendChild(label);
+    subject.addEventListener('input', () => { confirm.checked = false; });
+    row.children[1].addEventListener('input', () => { confirm.checked = false; });
+    if (proposal.subject_conflict || proposal.conflicting) {
+        const warning = document.createElement('p');
+        warning.textContent = proposal.conflicting ? '같은 기억에 서로 다른 변경이 제안돼 적용되지 않습니다.' : '대상 연결이 다릅니다. 이름 정정에 동의한 경우에만 교체합니다.';
+        details.appendChild(warning);
+    }
+    row.appendChild(details);
+}
+
+function collectSummaryProfileSelections(container) {
+    if (!container) return [];
+    return Array.from(container.querySelectorAll('.summary-review-fact')).map((row) => {
+        const checkbox = row.children[0];
+        const input = row.querySelector('.summary-review-fact-input');
+        const match = String(input ? input.value : '').trim().match(/^\[(basic|preference|goal|habit)\]\s*(.+)$/s);
+        const state = row.querySelector('.summary-review-fact-state');
+        const subject = row.querySelector('.summary-review-subject');
+        const consent = row.querySelector('.summary-review-subject-confirm');
+        return {
+            proposal_id: row.dataset.proposalId || '',
+            selected: Boolean(checkbox && checkbox.checked && match),
+            edits: match ? {category: match[1], content: match[2].trim(),
+                state: state ? state.value : 'active', subject: subject ? subject.value : match[2].trim()} : {},
+            confirm_subject: Boolean(consent && consent.checked)
+        };
     });
 }
 
@@ -267,6 +339,14 @@ function showSummaryReview(payload) {
     renderSummaryReviewFacts(summaryReviewUserFacts, currentSummaryReviewPayload.user_facts, 'summary-user-fact');
     renderSummaryReviewFacts(summaryReviewEneFacts, currentSummaryReviewPayload.ene_facts, 'summary-ene-fact');
     renderSummaryReviewTopicHints(summaryReviewTopicHints, currentSummaryReviewPayload.topic_hints);
+    let notice = summaryReviewOverlay.querySelector('.summary-review-status');
+    if (!notice) {
+        notice = document.createElement('p');
+        notice.className = 'summary-review-status';
+        const content = document.getElementById('summary-review-dialog');
+        (content || summaryReviewOverlay).appendChild(notice);
+    }
+    notice.textContent = currentSummaryReviewPayload.review_notice;
     summaryReviewOverlay.classList.remove('hidden');
     setSummaryReviewBusy(false);
     if (summaryReviewTextarea) {
@@ -286,7 +366,9 @@ function setSummaryReviewBusy(active) {
     if (!summaryReviewOverlay) return;
     const controls = summaryReviewOverlay.querySelectorAll('textarea, input, select, button');
     controls.forEach((control) => {
-        control.disabled = summaryReviewBusy;
+        const locked = currentSummaryReviewPayload && currentSummaryReviewPayload.locked;
+        const retryControl = ['summary-review-save', 'summary-review-cancel', 'summary-review-close'].includes(control.id);
+        control.disabled = summaryReviewBusy || Boolean(locked && !retryControl);
     });
 }
 
@@ -342,6 +424,8 @@ function collectSummaryReviewPayload() {
         ? currentSummaryReviewPayload.memory_meta
         : {};
     return {
+        review_id: currentSummaryReviewPayload ? currentSummaryReviewPayload.review_id : '',
+        profile_selections: collectSummaryProfileSelections(summaryReviewUserFacts),
         summary: String(summaryReviewTextarea ? summaryReviewTextarea.value : '').trim(),
         user_facts: collectCheckedSummaryFacts(summaryReviewUserFacts),
         ene_facts: collectCheckedSummaryFacts(summaryReviewEneFacts),

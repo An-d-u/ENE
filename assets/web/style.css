@@ -1398,7 +1398,8 @@ body.thought-feature-disabled .message-thought {
 }
 
 .summary-review-fact {
-    display: flex;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     gap: 8px;
     align-items: flex-start;
     padding: 8px;
@@ -1436,6 +1437,37 @@ body.thought-feature-disabled .message-thought {
     background: var(--ene-floating-panel-bg);
     color: var(--ene-floating-panel-text);
     font: inherit;
+}
+
+.summary-review-evidence {
+    grid-column: 2 / -1;
+    min-width: 0;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.summary-review-evidence p {
+    margin: 6px 0;
+}
+
+.summary-review-evidence .summary-review-subject {
+    width: 100%;
+    box-sizing: border-box;
+    margin: 6px 0;
+}
+
+.summary-review-evidence label {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.summary-review-status {
+    padding: 0 16px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
 }
 
 .summary-review-topic-hint {

@@ -487,6 +487,7 @@ class AppSessionTracker:
         )
 
     def _set_degraded(self, reason: str, diagnostic_code: str) -> None:
+        self._retryable_summary_id = None
         self.candidate = None
         self.degraded = True
         self.life_records_writable = False
@@ -752,12 +753,16 @@ class AppSessionTracker:
     def register_approved_summary(
         self,
         summary_id: str,
+        *,
+        retry_failed: bool = False,
     ) -> ApprovedSummaryState | None:
         """현재 running 세션에 실제 저장된 승인 요약을 원자 등록한다."""
 
         if (
             not self._lease_acquired
-            or not self.life_records_writable
+            or (not self.life_records_writable and not (
+                retry_failed and getattr(self, "_retryable_summary_id", None) == summary_id
+            ))
             or self._stopped
         ):
             return None
@@ -799,8 +804,10 @@ class AppSessionTracker:
                 SESSION_TRACKER_DEGRADED,
                 "session_summary_commit_failed",
             )
+            self._retryable_summary_id = canonical_summary_id
             return None
         self._current_state = updated
+        self._retryable_summary_id = None
         return registered
 
     def claim_life_generation(

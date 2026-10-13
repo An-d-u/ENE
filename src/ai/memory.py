@@ -224,6 +224,8 @@ class MemoryManager:
         entity_names: Optional[List[str]] = None,
         aliases: Optional[List[str]] = None,
         trigger_terms: Optional[List[str]] = None,
+        *,
+        before_commit=None,
     ) -> MemoryEntry:
         """
         새 요약 추가
@@ -274,6 +276,8 @@ class MemoryManager:
             trigger_terms=trigger_terms,
         )
         
+        if before_commit is not None:
+            before_commit()
         self.memories.append(memory)
         if self.save() is not True:
             if self.memories and self.memories[-1] is memory:

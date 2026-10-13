@@ -798,17 +798,12 @@ def test_approve_summary_review_tracker_failure_keeps_memory_and_degrades_life_r
     assert len(dummy.memory_manager.calls) == 1
     assert dummy.life_session_tracker.calls == ["memory-review-unregistered"]
     assert dummy.read_only_reasons == ["session_tracker_degraded"]
-    assert dummy.conversation_buffer == []
-    assert dummy._pending_summary_review is None
+    assert dummy.conversation_buffer == messages
+    assert dummy._pending_summary_review["checkpoints"]["registration"]["status"] == "failed"
     assert dummy.summary_review_saved.emitted == []
-    assert dummy.summary_review_finished.emitted == [(origin, "saved_unregistered")]
-    assert dummy.clear_completions == (1 if origin == "clear" else 0)
-    expected_error = (
-        [("요약은 저장했지만 생활 기록 기준점으로 등록하지 못했어요.", "error")]
-        if origin in {"manual", "auto", "clear"}
-        else []
-    )
-    assert dummy.summary_notice.emitted == expected_error
+    assert dummy.summary_review_finished.emitted == [(origin, "failed")]
+    assert dummy.clear_completions == 0
+    assert dummy.summary_notice.emitted == [("요약 저장 중 오류가 발생했어요.", "error")]
 
 
 def test_approve_summary_review_persists_payload_topic_hints_to_knowledge_map():
@@ -1062,31 +1057,33 @@ def test_persist_reviewed_summary_keeps_durable_data_pending_when_topic_save_fai
         lambda messages: WebBridge._drop_reviewed_messages_from_buffer(dummy, messages)
     )
 
-    saved_memory = asyncio.run(
-        WebBridge._persist_reviewed_summary(
-            dummy,
-            "approved summary",
-            ["[goal] synthetic neutral fact"],
-            ["[speaking_style] synthetic neutral fact"],
-            {"memory_type": "task"},
-            [
-                {
-                    "keyword": "Failing Save Topic",
-                    "subject": "save failure",
-                    "type": "status_flow",
-                    "state": "active",
-                    "text": "Topic save failure should not rollback summary.",
-                }
-            ],
+    with pytest.raises(RuntimeError, match="synthetic save failure"):
+        asyncio.run(
+            WebBridge._persist_reviewed_summary(
+                dummy,
+                "approved summary",
+                ["[goal] synthetic neutral fact"],
+                ["[speaking_style] synthetic neutral fact"],
+                {"memory_type": "task"},
+                [
+                    {
+                        "keyword": "Failing Save Topic",
+                        "subject": "save failure",
+                        "type": "status_flow",
+                        "state": "active",
+                        "text": "Topic save failure should not rollback summary.",
+                    }
+                ],
+            )
         )
-    )
 
     assert len(dummy.memory_manager.calls) == 1
     assert len(dummy.user_profile.calls) == 1
     assert len(dummy.ene_profile.calls) == 1
     assert len(dummy.knowledge_map_manager.merge_calls) == 1
     assert dummy.knowledge_map_manager.save_calls == 1
-    assert saved_memory.id == "memory-review-3"
+    assert dummy._pending_summary_review["saved_memory"].id == "memory-review-3"
+    assert dummy._pending_summary_review["checkpoints"]["topic"]["status"] == "failed"
     assert dummy.conversation_buffer
     assert dummy._pending_summary_review is not None
 

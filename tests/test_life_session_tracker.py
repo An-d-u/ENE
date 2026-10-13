@@ -1049,12 +1049,18 @@ def test_register_approved_summary_commit_failure_preserves_disk_state(
     def fail_save(*_args: object, **_kwargs: object) -> object:
         raise OSError("synthetic-summary-commit-failure-2099")
 
+    real_save = life_session_tracker.save_json_data
     monkeypatch.setattr(life_session_tracker, "save_json_data", fail_save)
 
     assert tracker.register_approved_summary(SUMMARY_ID) is None
     assert _read_state(state_path) == original
     assert tracker.life_records_writable is False
     assert tracker.reason == "session_tracker_degraded"
+    monkeypatch.setattr(life_session_tracker, "save_json_data", real_save)
+    assert tracker.register_approved_summary(OTHER_SUMMARY_ID, retry_failed=True) is None
+    assert tracker.register_approved_summary(SUMMARY_ID, retry_failed=True) is not None
+    assert _read_state(state_path)["current_summary"]["summary_id"] == SUMMARY_ID
+    assert tracker.life_records_writable is False
     tracker.release_lease()
 
 

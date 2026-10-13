@@ -4,6 +4,29 @@ import re
 import subprocess
 
 
+def test_profile_review_uses_proposal_ids_and_separate_subject_consent():
+    result = _run_message_helpers_runtime_case("""
+const fact = '[goal] 은색 모형을 완성했다.';
+currentSummaryReviewPayload = normalizeSummaryReviewPayload({
+    review_id: 'review-synthetic', user_facts: [fact], memory_meta: {},
+    profile_proposals: [{proposal_id: 'proposal-synthetic',
+        update: {category: 'goal', content: '은색 모형을 완성했다.', subject: '은색 모형', state: 'completed'},
+        existing: {content: '황색 모형은 조립 중이다.', subject: '황색 모형'},
+        subject_conflict: true, evidence: ['은색 모형을 완성했다.'], selected: true}]
+});
+const container = document.createElement('div');
+renderSummaryReviewFacts(container, [fact], 'summary-user-fact');
+const row = container.querySelector('.summary-review-fact');
+const correction = row.querySelector('.summary-review-subject-confirm');
+result = {tag: row.tagName, separate: !!correction,
+          selections: collectSummaryProfileSelections(container)};
+""")
+    assert result["tag"].lower() == "div"
+    assert result["separate"] is True
+    assert result["selections"][0]["proposal_id"] == "proposal-synthetic"
+    assert result["selections"][0]["confirm_subject"] is False
+
+
 WEB_DIR = Path(__file__).resolve().parents[1] / "assets" / "web"
 STYLE_PATH = WEB_DIR / "style.css"
 SCRIPT_PATH = WEB_DIR / "script.js"
