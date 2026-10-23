@@ -13,7 +13,8 @@ def main():
     parser.add_argument("--mode", required=True, choices=["mock", "live"])
     parser.add_argument("--cases", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--group", choices=["profile", "followup", "temporal", "raw_detail", "assertion", "abstention", "multi_memory", "boundary"])
+    parser.add_argument("--group", choices=["profile", "followup", "temporal", "raw_detail", "assertion", "abstention", "multi_memory", "boundary", "experience"])
+    parser.add_argument("--experience-mode", choices=["enabled", "disabled"])
     parser.add_argument("--repeat-critical", type=int, default=1)
     parser.add_argument("--cache-embeddings", action="store_true", help="동일 실행의 동일 입력 임베딩 재사용; 요약·답변은 매번 새로 생성")
     parser.add_argument("--provider")
@@ -33,8 +34,8 @@ def main():
         parser.error("반복 횟수는 양수여야 합니다")
     cases = json.loads(args.cases.read_text(encoding="utf-8"))
     cases = [case for case in cases if not args.group or case["group"] == args.group]
-    cases = [case for case in cases for _ in range(args.repeat_critical if case["gate"] != "observe" else 1)]
-    config = {name: getattr(args, name) for name in ("provider", "model", "embedding_provider", "embedding_model", "max_api_requests", "response_tokens", "summary_tokens", "cache_embeddings") if getattr(args, name) is not None}
+    cases = [case for case in cases for _ in range(args.repeat_critical if (bool(case.get("followups")) if case["group"] == "experience" else case["gate"] != "observe") else 1)]
+    config = {name: getattr(args, name) for name in ("provider", "model", "embedding_provider", "embedding_model", "max_api_requests", "response_tokens", "summary_tokens", "cache_embeddings", "experience_mode") if getattr(args, name) is not None}
     budget = ApiBudget(args.max_api_requests or 1, args.ledger)
     try:
         result = asyncio.run(evaluate(cases, mode=args.mode, config=config, budget=budget))

@@ -97,16 +97,26 @@ def main():
     parser.add_argument("--manifest", type=Path, help="사례 ID를 필수 실행 횟수에 연결한 JSON")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--create-template", action="store_true")
+    parser.add_argument("--suite", choices=["memory", "experience"], default="memory")
+    parser.add_argument("--baseline-report", type=Path)
+    parser.add_argument("--baseline-review", type=Path)
     args = parser.parse_args()
     report = json.loads(args.report.read_text(encoding="utf-8"))
+    from .experience_quality_review import make_experience_template, assess_experience
     if args.create_template:
-        args.review.write_text(json.dumps(make_template(report), ensure_ascii=False, indent=2), encoding="utf-8")
+        template = make_experience_template(report) if args.suite == "experience" else make_template(report)
+        args.review.write_text(json.dumps(template, ensure_ascii=False, indent=2), encoding="utf-8")
         return 0
     if args.manifest is None or args.output is None:
         parser.error("판정에는 --manifest와 --output이 필요합니다")
     review = json.loads(args.review.read_text(encoding="utf-8"))
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
-    result = assess(report, review, manifest)
+    if args.suite == "experience":
+        baseline = json.loads(args.baseline_report.read_text(encoding="utf-8")) if args.baseline_report else None
+        baseline_review = json.loads(args.baseline_review.read_text(encoding="utf-8")) if args.baseline_review else None
+        result = assess_experience(report, review, manifest, baseline, baseline_review)
+    else:
+        result = assess(report, review, manifest)
     args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps({"status": result["status"], "human_approved": result["human_approved"]}))
     return 0 if result["status"] == "pass" else 3

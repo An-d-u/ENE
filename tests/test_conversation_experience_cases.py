@@ -29,12 +29,25 @@ def test_fixed_synthetic_cases_have_grounded_evidence_and_separate_holdout():
         assert set(case["expected"]["required_evidence_refs"]) <= refs
         assert case["expected"]["forbidden_claims"]
         assert case["expected"]["prior_response_considerations"]
-        assert all(m["messages"] for m in memories)
+        assert all(isinstance(m["messages"], list) for m in memories)
     manifest = json.loads((ROOT / "approval_manifest.json").read_text(encoding="utf-8"))
     assert manifest["version"] == 1
     assert set(manifest["repetitions"]) == {c["id"] for c in cases}
     assert Counter(manifest["repetitions"].values()) == {1: 40, 3: 8}
     assert manifest["holdout_sha256"] == sha256(paths[1].read_bytes()).hexdigest()
+
+
+def test_development_cases_cover_history_missing_raw_and_competing_sources():
+    cases = json.loads((ROOT / "cases.json").read_text(encoding="utf-8"))
+    assert any(len(case["seed_state"]["memories"]) > 1 for case in cases)
+    assert any(not memory["messages"] for case in cases for memory in case["seed_state"]["memories"])
+    long_histories = [(case, clue["history"]) for case in cases for topic in case["seed_state"].get("topics", [])
+                      for clue in topic["clues"] if len(clue.get("history", [])) > 20]
+    assert long_histories
+    for case, history in long_histories:
+        source_ids = {memory["id"] for memory in case["seed_state"]["memories"]}
+        assert history[-1]["source_memory_id"] in source_ids
+        assert any(item["source_memory_id"] not in source_ids for item in history)
 
 
 def test_fixture_encoding_is_utf8_without_bom_or_replacement_characters():

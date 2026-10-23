@@ -6,6 +6,7 @@ import asyncio
 from collections import Counter
 from contextlib import contextmanager, ExitStack, redirect_stdout
 from dataclasses import asdict
+from datetime import datetime
 from hashlib import sha256
 import inspect
 import io
@@ -159,6 +160,30 @@ class EvaluationEmbeddingCache:
         return [list(self.cache[key]) for key in keys]
 
 
+class MeasuredEmbedding:
+    """캐시 뒤 실제 생성기에 전달한 논리 호출과 입력 수를 구분한다."""
+
+    def __init__(self, generator, budget):
+        self.generator, self.budget = generator, budget
+        self.embedding_usage = {"logical_calls": 0, "inputs": 0, "by_stage": {}}
+
+    def __getattr__(self, name):
+        return getattr(self.generator, name)
+
+    async def embed(self, text):
+        return (await self.embed_batch([text]))[0]
+
+    async def embed_batch(self, texts):
+        if not texts:
+            return []
+        self.embedding_usage["logical_calls"] += 1
+        self.embedding_usage["inputs"] += len(texts)
+        stage = self.embedding_usage["by_stage"].setdefault(self.budget.stage, {"calls": 0, "inputs": 0})
+        stage["calls"] += 1
+        stage["inputs"] += len(texts)
+        return await self.generator.embed_batch(texts)
+
+
 class SyntheticEmbedding:
     """정답을 참조하지 않는 어휘 해시 대역. 의미 품질 점수가 아니다."""
 
@@ -181,7 +206,7 @@ class SyntheticEmbedding:
         return EmbeddingGenerator.cosine_similarity(left, right)
 
 
-def _evaluation_settings():
+def _evaluation_settings(options=None):
     # 실제 설정의 대화·프로필·이름·도구 경로를 복사하지 않는다.
     config = {
         "prompt_language": "ko", "enable_mood_system": False,
@@ -192,6 +217,8 @@ def _evaluation_settings():
         "max_recent_memories": 0, "max_important_memories": 0,
         "max_profile_facts_in_context": 10,
     }
+    if options and "experience_mode" in options:
+        config["experience_memory_enabled"] = options["experience_mode"] == "enabled"
     return SimpleNamespace(config=config, get=lambda key, default=None: config.get(key, default))
 
 
@@ -291,11 +318,12 @@ async def _run_case(case, root, mode, config, budget, embedding_cache=None):
     from src.core.bridge_mixins.memory_summary import MemorySummaryBridgeMixin
 
     root.mkdir()
-    settings = _evaluation_settings()
+    settings = _evaluation_settings(config)
     embedding = SyntheticEmbedding() if mode == "mock" else create_embedding_generator(
         provider=config["embedding_provider"], model=config["embedding_model"],
         api_key=os.environ["ENE_EVAL_EMBEDDING_KEY"], api_url=config.get("embedding_api_url", ""),
     )
+    embedding = MeasuredEmbedding(embedding, budget)
     if embedding_cache is not None:
         embedding = EvaluationEmbeddingCache(embedding, embedding_cache)
     manager = MemoryManager(root / "memory.json", embedding_generator=embedding)
@@ -315,6 +343,11 @@ async def _run_case(case, root, mode, config, budget, embedding_cache=None):
             entity_names=memory["entity_names"], aliases=memory.get("aliases", []),
             embedding=vector, embedding_provider=embedding.provider, embedding_model=embedding.model,
         ))
+    from src.ai.knowledge_map_types import TopicMemoryTopic
+    knowledge.topics = [TopicMemoryTopic.from_dict(topic) for topic in case["seed_state"].get("topics", [])]
+    knowledge.last_updated = case.get("now")
+    if knowledge.topics:
+        await knowledge.regenerate_embeddings()
     client = create_llm_client(
         LLMProviderConfig(provider=config.get("provider", "gemini"),
                           api_key=os.environ.get("ENE_EVAL_LLM_KEY", "synthetic-test-key"),
@@ -362,6 +395,9 @@ async def _run_case(case, root, mode, config, budget, embedding_cache=None):
                             "checkpoints": pending.get("checkpoints", {})})
         except Exception as error:
             storage.append({"status": "failed", "error": type(error).__name__})
+    if case["group"] == "experience":
+        return await _run_experience_dialogue(case, client, manager, profile, settings, mode, budget, embedding,
+                                              storage, raw_summaries, review_outcomes, before_storage)
     trace = MemoryContextTrace()
     recent_messages = [dict(message, turn_id=message["id"]) for session in case["sessions"] for message in session["messages"]]
     recent = "\n".join(f"{message['role']}: {message['text']}" for message in recent_messages)
@@ -392,10 +428,76 @@ async def _run_case(case, root, mode, config, budget, embedding_cache=None):
         "final_facts": [asdict(fact) for fact in profile.facts],
         "before_storage": before_storage,
         "embedding_cache_hits": getattr(embedding, "hits", 0),
+        "embedding_usage": embedding.embedding_usage,
         "response_history": "unsummarized_sessions",
         "answer": answer, "answer_grade": "ungraded",
         "input_chars": len(composed), "token_usage": getattr(client, "_last_token_usage", None) or "unknown",
     }
+
+
+@contextmanager
+def evaluation_clock(iso_time):
+    """사건 시간과 가중치의 기준 시각을 합성 사례에 고정한다."""
+    fixed = datetime.fromisoformat(iso_time)
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed.astimezone(tz) if tz else fixed.replace(tzinfo=None)
+    with ExitStack() as stack:
+        for module in ("src.ai.memory", "src.ai.knowledge_map", "src.ai.memory_context_builder", "src.ai.date_query_parser"):
+            stack.enter_context(patch(module + ".datetime", FrozenDatetime))
+        yield
+
+
+async def _run_experience_dialogue(case, client, manager, profile, settings, mode, budget, embedding,
+                                   storage, raw_summaries, review_outcomes, before_storage):
+    from src.ai.memory_context_builder import build_memory_context
+    from src.ai.memory_types import MemoryContextTrace
+    recent_messages = [dict(message, turn_id=message["id"]) for session in case["sessions"]
+                       if not session.get("summarize") for message in session["messages"]]
+    restore_recent_conversation(client, case["sessions"])
+    turns = []
+    selected_refs = set()
+    for index, turn in enumerate([{"query": case["query"]}, *case.get("followups", [])]):
+        trace = MemoryContextTrace()
+        recent = "\n".join(f"{message['role']}: {message['text']}" for message in recent_messages)
+        budget.stage = "retrieval"
+        started = time.perf_counter()
+        context = await build_memory_context(client, turn["query"], recent_context=recent, trace=trace,
+                                             recent_memory_messages=recent_messages,
+                                             memory_request_id=f"{case['id']}:{index}")
+        retrieval_ms = (time.perf_counter() - started) * 1000
+        composed = compose_evaluation_message(turn["query"], context, settings, recent)
+        budget.stage = "response"
+        answer = "" if mode == "mock" else client.send_message(composed, history_user_content=turn["query"])
+        if inspect.isawaitable(answer):
+            answer = await answer
+        answer_text = str(answer[0]) if isinstance(answer, (tuple, list)) and answer else str(answer)
+        if index == 0:
+            selected_refs = {f"{mid}:{i}" for mid, start, end in trace.raw_chunks for i in range(start, end + 1)}
+            for ref in trace.experience_refs:
+                selected_refs.update(f"{ref['memory_id']}:{i}" for i in ref["turn_indexes"])
+                if ref.get("history_revision"):
+                    selected_refs.add(f"history:{ref['memory_id']}:{ref['history_revision']}")
+        turns.append({"query": turn["query"], "answer": answer, "trace": trace.to_dict(),
+                      "context": context, "input_chars": len(composed), "retrieval_ms": round(retrieval_ms, 3),
+                      "token_usage": getattr(client, "_last_token_usage", None) or "unknown",
+                      "previous_response_source": ("generated" if mode == "live" else "mock") if index else None})
+        recent_messages.extend([
+            {"role": "user", "text": turn["query"], "turn_id": f"current-{index}-u", "timestamp": case["now"]},
+            {"role": "assistant", "text": answer_text, "turn_id": f"current-{index}-a", "timestamp": case["now"]},
+        ])
+    missing = sorted(set(case["expected"]["required_evidence_refs"]) - selected_refs)
+    return {"id": case["id"], "group": case["group"], "gate": case["gate"], "evaluation_now": case["now"],
+            "fixture_case_hash": sha256(json.dumps(case, ensure_ascii=False, sort_keys=True).encode()).hexdigest(),
+            "experience": {"policy": case["expected"]["connection_policy"], "family": case["family"]},
+            "trace": turns[0]["trace"], "answer": turns[0]["answer"], "answer_grade": "ungraded", "turns": turns,
+            "missing_evidence": {"experience_refs": missing}, "storage": storage, "raw_summary_outputs": raw_summaries,
+            "review_actions": review_outcomes, "state_grade": grade_state(case["expected"], before_storage, [asdict(f) for f in profile.facts]),
+            "before_storage": before_storage, "final_facts": [asdict(f) for f in profile.facts],
+            "embedding_cache_hits": getattr(embedding, "hits", 0), "response_history": "generated_unsummarized_turns",
+            "embedding_usage": embedding.embedding_usage,
+            "input_chars": sum(turn["input_chars"] for turn in turns)}
 
 
 async def evaluate(cases, *, mode, config=None, budget=None, embedding_cache=None):
@@ -411,7 +513,7 @@ async def evaluate(cases, *, mode, config=None, budget=None, embedding_cache=Non
         for index, case in enumerate(cases):
             try:
                 # 제품의 진단 출력에 합성 원문이 있어도 평가 보고서로만 전달한다.
-                with redirect_stdout(io.StringIO()):
+                with redirect_stdout(io.StringIO()), evaluation_clock(case["now"]):
                     result = await _run_case(case, root / str(index), mode, config, budget, embedding_cache)
                 result["run_index"] = index
                 results.append(result)
@@ -420,10 +522,11 @@ async def evaluate(cases, *, mode, config=None, budget=None, embedding_cache=Non
                 break
     repository = Path(__file__).resolve().parents[1]
     revision = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repository, capture_output=True, text=True, check=True).stdout.strip()
-    prompt_paths = [repository / "src/ai/summary_prompt.py", *sorted((repository / "prompts/defaults").glob("*"))]
+    prompt_paths = [repository / "src/ai/summary_prompt.py", repository / "src/ai/experience_memory.py",
+                    repository / "src/ai/memory_context_builder.py", *sorted((repository / "prompts/defaults").glob("*"))]
     prompt_hashes = {str(path.relative_to(repository)): sha256(path.read_bytes()).hexdigest()
                      for path in prompt_paths if path.is_file()}
-    effective_settings = _evaluation_settings().config
+    effective_settings = _evaluation_settings(config).config
     return {
         "mode": mode, "status": status, "answer_grade": "ungraded", "code_commit": revision,
         "fixture_hash": sha256(json.dumps(cases, ensure_ascii=False, sort_keys=True).encode()).hexdigest(),
