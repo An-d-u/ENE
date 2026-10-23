@@ -417,6 +417,11 @@ class KnowledgeMapManager:
         language: str = "ko",
     ) -> str:
         results = await self.async_search(query, top_k=top_k)
+        return self.format_context_block(results, language=language)
+
+    @staticmethod
+    def format_context_block(results, language: str = "ko") -> str:
+        """검색 결과를 재사용하며 현재 단서만 표시한다."""
         if not results:
             return ""
 
