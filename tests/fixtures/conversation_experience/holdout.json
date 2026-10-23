@@ -1,0 +1,1150 @@
+[
+  {
+    "id": "experience-continuation-4",
+    "group": "experience",
+    "family": "continuation",
+    "gate": "required",
+    "now": "2025-04-04T16:05:00+09:00",
+    "seed_state": {
+      "facts": [],
+      "memories": [
+        {
+          "id": "experience-continuation-4-past",
+          "summary": "종이 도시: 종이 도시에 다리를 세우고 있어. 강둑은 맞췄고 다리 난간은 아직이야.",
+          "timestamp": "2025-02-02T14:05:00+09:00",
+          "entity_names": [
+            "종이 도시"
+          ],
+          "messages": [
+            {
+              "id": "experience-continuation-4-past-0",
+              "role": "user",
+              "text": "종이 도시에 다리를 세우고 있어.",
+              "timestamp": "2025-02-02T14:00:00+09:00"
+            },
+            {
+              "id": "experience-continuation-4-past-1",
+              "role": "assistant",
+              "text": "양쪽 강둑 높이를 먼저 맞춰봐.",
+              "timestamp": "2025-02-02T14:01:00+09:00"
+            },
+            {
+              "id": "experience-continuation-4-past-2",
+              "role": "user",
+              "text": "강둑은 맞췄고 다리 난간은 아직이야.",
+              "timestamp": "2025-02-02T14:02:00+09:00"
+            }
+          ]
+        }
+      ],
+      "topics": [
+        {
+          "id": "topic-synthetic",
+          "keyword": "종이 도시",
+          "aliases": [],
+          "retrieval_terms": [],
+          "clues": [
+            {
+              "id": "clue-synthetic",
+              "subject": "종이 도시",
+              "type": "status_flow",
+              "state": "active",
+              "text": "종이 도시에 대한 대화가 있었다.",
+              "source_memory_id": "experience-continuation-4-past",
+              "effective_at": "2025-02-02",
+              "history": []
+            }
+          ]
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "종이 도시 작업을 다시 펼쳤어.",
+    "review_actions": [],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [],
+      "turn_ids": [],
+      "allowed_claims": [
+        "난간 작업이 남아 있었다"
+      ],
+      "forbidden_claims": [
+        "이번 상황에서 사용자가 이미 같은 방법을 실행했다",
+        "한 번의 경험을 사용자의 고정 성격으로 단정한다"
+      ],
+      "forbidden_changes": [],
+      "corrections": [],
+      "required_evidence_refs": [
+        "experience-continuation-4-past:0",
+        "experience-continuation-4-past:1",
+        "experience-continuation-4-past:2"
+      ],
+      "connection_policy": "required",
+      "prior_response_considerations": [
+        "난간 작업이 남아 있었다"
+      ]
+    }
+  },
+  {
+    "id": "experience-difficulty-4",
+    "group": "experience",
+    "family": "difficulty",
+    "gate": "required",
+    "now": "2025-04-04T16:05:00+09:00",
+    "seed_state": {
+      "facts": [],
+      "memories": [
+        {
+          "id": "experience-difficulty-4-past",
+          "summary": "투명 필름: 투명 필름에 펜으로 쓰면 잘 지워져. 유성 펜은 잘 남더라.",
+          "timestamp": "2025-02-02T14:05:00+09:00",
+          "entity_names": [
+            "투명 필름"
+          ],
+          "messages": [
+            {
+              "id": "experience-difficulty-4-past-0",
+              "role": "user",
+              "text": "투명 필름에 펜으로 쓰면 잘 지워져.",
+              "timestamp": "2025-02-02T14:00:00+09:00"
+            },
+            {
+              "id": "experience-difficulty-4-past-1",
+              "role": "assistant",
+              "text": "구석에서 다른 펜을 시험해보자.",
+              "timestamp": "2025-02-02T14:01:00+09:00"
+            },
+            {
+              "id": "experience-difficulty-4-past-2",
+              "role": "user",
+              "text": "유성 펜은 잘 남더라.",
+              "timestamp": "2025-02-02T14:02:00+09:00"
+            }
+          ]
+        }
+      ],
+      "topics": [
+        {
+          "id": "topic-synthetic",
+          "keyword": "투명 필름",
+          "aliases": [],
+          "retrieval_terms": [],
+          "clues": [
+            {
+              "id": "clue-synthetic",
+              "subject": "투명 필름",
+              "type": "status_flow",
+              "state": "active",
+              "text": "투명 필름에 대한 대화가 있었다.",
+              "source_memory_id": "experience-difficulty-4-past",
+              "effective_at": "2025-02-02",
+              "history": []
+            }
+          ]
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "투명 필름 글씨가 닦여버렸어.",
+    "review_actions": [],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [],
+      "turn_ids": [],
+      "allowed_claims": [
+        "과거에는 유성 펜으로 글씨가 남았다"
+      ],
+      "forbidden_claims": [
+        "이번 상황에서 사용자가 이미 같은 방법을 실행했다",
+        "한 번의 경험을 사용자의 고정 성격으로 단정한다"
+      ],
+      "forbidden_changes": [],
+      "corrections": [],
+      "required_evidence_refs": [
+        "experience-difficulty-4-past:0",
+        "experience-difficulty-4-past:1",
+        "experience-difficulty-4-past:2"
+      ],
+      "connection_policy": "required",
+      "prior_response_considerations": [
+        "과거에는 유성 펜으로 글씨가 남았다"
+      ]
+    }
+  },
+  {
+    "id": "experience-success-4",
+    "group": "experience",
+    "family": "success",
+    "gate": "required",
+    "now": "2025-04-04T16:05:00+09:00",
+    "seed_state": {
+      "facts": [],
+      "memories": [
+        {
+          "id": "experience-success-4-past",
+          "summary": "소리 카드: 소리 카드를 한꺼번에 외우기 어렵네. 작게 묶으니 구별이 쉬워졌어.",
+          "timestamp": "2025-02-02T14:05:00+09:00",
+          "entity_names": [
+            "소리 카드"
+          ],
+          "messages": [
+            {
+              "id": "experience-success-4-past-0",
+              "role": "user",
+              "text": "소리 카드를 한꺼번에 외우기 어렵네.",
+              "timestamp": "2025-02-02T14:00:00+09:00"
+            },
+            {
+              "id": "experience-success-4-past-1",
+              "role": "assistant",
+              "text": "네 장씩 묶어서 들어보자.",
+              "timestamp": "2025-02-02T14:01:00+09:00"
+            },
+            {
+              "id": "experience-success-4-past-2",
+              "role": "user",
+              "text": "작게 묶으니 구별이 쉬워졌어.",
+              "timestamp": "2025-02-02T14:02:00+09:00"
+            }
+          ]
+        }
+      ],
+      "topics": [
+        {
+          "id": "topic-synthetic",
+          "keyword": "소리 카드",
+          "aliases": [],
+          "retrieval_terms": [],
+          "clues": [
+            {
+              "id": "clue-synthetic",
+              "subject": "소리 카드",
+              "type": "status_flow",
+              "state": "active",
+              "text": "소리 카드에 대한 대화가 있었다.",
+              "source_memory_id": "experience-success-4-past",
+              "effective_at": "2025-02-02",
+              "history": []
+            }
+          ]
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "새 소리 카드 묶음을 익히고 싶어.",
+    "review_actions": [],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [],
+      "turn_ids": [],
+      "allowed_claims": [
+        "작게 나눠 익히는 방법이 도움이 됐다"
+      ],
+      "forbidden_claims": [
+        "이번 상황에서 사용자가 이미 같은 방법을 실행했다",
+        "한 번의 경험을 사용자의 고정 성격으로 단정한다"
+      ],
+      "forbidden_changes": [],
+      "corrections": [],
+      "required_evidence_refs": [
+        "experience-success-4-past:0",
+        "experience-success-4-past:1",
+        "experience-success-4-past:2"
+      ],
+      "connection_policy": "required",
+      "prior_response_considerations": [
+        "작게 나눠 익히는 방법이 도움이 됐다"
+      ]
+    }
+  },
+  {
+    "id": "experience-change-4",
+    "group": "experience",
+    "family": "change",
+    "gate": "required",
+    "now": "2025-04-04T16:05:00+09:00",
+    "seed_state": {
+      "facts": [],
+      "memories": [
+        {
+          "id": "experience-change-4-past",
+          "summary": "포장 장식: 포장 장식은 반짝이는 게 좋아. 이번에는 광택 없이 차분하게 하고 싶어졌어.",
+          "timestamp": "2025-02-02T14:05:00+09:00",
+          "entity_names": [
+            "포장 장식"
+          ],
+          "messages": [
+            {
+              "id": "experience-change-4-past-0",
+              "role": "user",
+              "text": "포장 장식은 반짝이는 게 좋아.",
+              "timestamp": "2025-02-02T14:00:00+09:00"
+            },
+            {
+              "id": "experience-change-4-past-1",
+              "role": "assistant",
+              "text": "은색 조각을 붙여볼까?",
+              "timestamp": "2025-02-02T14:01:00+09:00"
+            },
+            {
+              "id": "experience-change-4-past-2",
+              "role": "user",
+              "text": "이번에는 광택 없이 차분하게 하고 싶어졌어.",
+              "timestamp": "2025-02-02T14:02:00+09:00"
+            }
+          ]
+        }
+      ],
+      "topics": [
+        {
+          "id": "topic-synthetic",
+          "keyword": "포장 장식",
+          "aliases": [],
+          "retrieval_terms": [],
+          "clues": [
+            {
+              "id": "clue-synthetic",
+              "subject": "포장 장식",
+              "type": "status_flow",
+              "state": "active",
+              "text": "포장 장식에 대한 대화가 있었다.",
+              "source_memory_id": "experience-change-4-past",
+              "effective_at": "2025-02-02",
+              "history": []
+            }
+          ]
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "포장 장식을 마무리하려고 해.",
+    "review_actions": [],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [],
+      "turn_ids": [],
+      "allowed_claims": [
+        "최근에는 무광의 차분한 장식을 원했다"
+      ],
+      "forbidden_claims": [
+        "이번 상황에서 사용자가 이미 같은 방법을 실행했다",
+        "한 번의 경험을 사용자의 고정 성격으로 단정한다"
+      ],
+      "forbidden_changes": [],
+      "corrections": [],
+      "required_evidence_refs": [
+        "experience-change-4-past:0",
+        "experience-change-4-past:1",
+        "experience-change-4-past:2"
+      ],
+      "connection_policy": "required",
+      "prior_response_considerations": [
+        "최근에는 무광의 차분한 장식을 원했다"
+      ]
+    }
+  },
+  {
+    "id": "experience-reaction-4",
+    "group": "experience",
+    "family": "reaction",
+    "gate": "required",
+    "now": "2025-04-04T16:05:00+09:00",
+    "seed_state": {
+      "facts": [],
+      "memories": [
+        {
+          "id": "experience-reaction-4-past",
+          "summary": "물감 팔레트: 물감 팔레트가 빨리 말라. 조금씩 뿌리니까 농도가 유지돼서 좋았어.",
+          "timestamp": "2025-02-02T14:05:00+09:00",
+          "entity_names": [
+            "물감 팔레트"
+          ],
+          "messages": [
+            {
+              "id": "experience-reaction-4-past-0",
+              "role": "user",
+              "text": "물감 팔레트가 빨리 말라.",
+              "timestamp": "2025-02-02T14:00:00+09:00"
+            },
+            {
+              "id": "experience-reaction-4-past-1",
+              "role": "assistant",
+              "text": "분무기로 물을 뿌려볼까?",
+              "timestamp": "2025-02-02T14:01:00+09:00"
+            },
+            {
+              "id": "experience-reaction-4-past-2",
+              "role": "user",
+              "text": "조금씩 뿌리니까 농도가 유지돼서 좋았어.",
+              "timestamp": "2025-02-02T14:02:00+09:00"
+            }
+          ]
+        }
+      ],
+      "topics": [
+        {
+          "id": "topic-synthetic",
+          "keyword": "물감 팔레트",
+          "aliases": [],
+          "retrieval_terms": [],
+          "clues": [
+            {
+              "id": "clue-synthetic",
+              "subject": "물감 팔레트",
+              "type": "status_flow",
+              "state": "active",
+              "text": "물감 팔레트에 대한 대화가 있었다.",
+              "source_memory_id": "experience-reaction-4-past",
+              "effective_at": "2025-02-02",
+              "history": []
+            }
+          ]
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "물감 팔레트가 마르기 전에 뭔가 해야겠어.",
+    "review_actions": [],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [],
+      "turn_ids": [],
+      "allowed_claims": [
+        "소량 분무가 도움이 됐다고 보고했다"
+      ],
+      "forbidden_claims": [
+        "이번 상황에서 사용자가 이미 같은 방법을 실행했다",
+        "한 번의 경험을 사용자의 고정 성격으로 단정한다"
+      ],
+      "forbidden_changes": [],
+      "corrections": [],
+      "required_evidence_refs": [
+        "experience-reaction-4-past:0",
+        "experience-reaction-4-past:1",
+        "experience-reaction-4-past:2"
+      ],
+      "connection_policy": "required",
+      "prior_response_considerations": [
+        "소량 분무가 도움이 됐다고 보고했다"
+      ]
+    }
+  },
+  {
+    "id": "experience-joy-4",
+    "group": "experience",
+    "family": "joy",
+    "gate": "required",
+    "now": "2025-04-04T16:05:00+09:00",
+    "seed_state": {
+      "facts": [],
+      "memories": [
+        {
+          "id": "experience-joy-4-past",
+          "summary": "빛 그림자: 종이로 빛 그림자를 만들었어. 작은 용 모양이 나와서 신기했어.",
+          "timestamp": "2025-02-02T14:05:00+09:00",
+          "entity_names": [
+            "빛 그림자"
+          ],
+          "messages": [
+            {
+              "id": "experience-joy-4-past-0",
+              "role": "user",
+              "text": "종이로 빛 그림자를 만들었어.",
+              "timestamp": "2025-02-02T14:00:00+09:00"
+            },
+            {
+              "id": "experience-joy-4-past-1",
+              "role": "assistant",
+              "text": "벽에 어떤 모습이 나왔어?",
+              "timestamp": "2025-02-02T14:01:00+09:00"
+            },
+            {
+              "id": "experience-joy-4-past-2",
+              "role": "user",
+              "text": "작은 용 모양이 나와서 신기했어.",
+              "timestamp": "2025-02-02T14:02:00+09:00"
+            }
+          ]
+        }
+      ],
+      "topics": [
+        {
+          "id": "topic-synthetic",
+          "keyword": "빛 그림자",
+          "aliases": [],
+          "retrieval_terms": [],
+          "clues": [
+            {
+              "id": "clue-synthetic",
+              "subject": "빛 그림자",
+              "type": "status_flow",
+              "state": "active",
+              "text": "빛 그림자에 대한 대화가 있었다.",
+              "source_memory_id": "experience-joy-4-past",
+              "effective_at": "2025-02-02",
+              "history": []
+            }
+          ]
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "빛 그림자 놀이를 다시 하고 싶어.",
+    "review_actions": [],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [],
+      "turn_ids": [],
+      "allowed_claims": [
+        "작은 용 모양을 보고 즐거워했다"
+      ],
+      "forbidden_claims": [
+        "이번 상황에서 사용자가 이미 같은 방법을 실행했다",
+        "한 번의 경험을 사용자의 고정 성격으로 단정한다"
+      ],
+      "forbidden_changes": [],
+      "corrections": [],
+      "required_evidence_refs": [
+        "experience-joy-4-past:0",
+        "experience-joy-4-past:1",
+        "experience-joy-4-past:2"
+      ],
+      "connection_policy": "required",
+      "prior_response_considerations": [
+        "작은 용 모양을 보고 즐거워했다"
+      ]
+    }
+  },
+  {
+    "id": "experience-implicit-4",
+    "group": "experience",
+    "family": "implicit",
+    "gate": "required",
+    "now": "2025-04-04T16:05:00+09:00",
+    "seed_state": {
+      "facts": [],
+      "memories": [
+        {
+          "id": "experience-implicit-4-past",
+          "summary": "종이 배지: 종이 배지에 달 핀을 고르고 있어. 둥근 핀이 옷에 덜 걸려서 좋았어.",
+          "timestamp": "2025-02-02T14:05:00+09:00",
+          "entity_names": [
+            "종이 배지"
+          ],
+          "messages": [
+            {
+              "id": "experience-implicit-4-past-0",
+              "role": "user",
+              "text": "종이 배지에 달 핀을 고르고 있어.",
+              "timestamp": "2025-02-02T14:00:00+09:00"
+            },
+            {
+              "id": "experience-implicit-4-past-1",
+              "role": "assistant",
+              "text": "둥근 핀이 덜 걸리지 않을까?",
+              "timestamp": "2025-02-02T14:01:00+09:00"
+            },
+            {
+              "id": "experience-implicit-4-past-2",
+              "role": "user",
+              "text": "둥근 핀이 옷에 덜 걸려서 좋았어.",
+              "timestamp": "2025-02-02T14:02:00+09:00"
+            }
+          ]
+        }
+      ],
+      "topics": [
+        {
+          "id": "topic-synthetic",
+          "keyword": "종이 배지",
+          "aliases": [],
+          "retrieval_terms": [],
+          "clues": [
+            {
+              "id": "clue-synthetic",
+              "subject": "종이 배지",
+              "type": "status_flow",
+              "state": "active",
+              "text": "종이 배지에 대한 대화가 있었다.",
+              "source_memory_id": "experience-implicit-4-past",
+              "effective_at": "2025-02-02",
+              "history": []
+            }
+          ]
+        }
+      ]
+    },
+    "sessions": [
+      {
+        "summarize": false,
+        "messages": [
+          {
+            "id": "recent-user",
+            "role": "user",
+            "text": "종이 배지 작업을 다시 보고 있어.",
+            "timestamp": "2025-04-04T16:00:00+09:00"
+          }
+        ]
+      }
+    ],
+    "query": "이번 것도 같은 방식으로 달까?",
+    "review_actions": [],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [],
+      "turn_ids": [],
+      "allowed_claims": [
+        "둥근 핀 사용을 만족스러워했다"
+      ],
+      "forbidden_claims": [
+        "이번 상황에서 사용자가 이미 같은 방법을 실행했다",
+        "한 번의 경험을 사용자의 고정 성격으로 단정한다"
+      ],
+      "forbidden_changes": [],
+      "corrections": [],
+      "required_evidence_refs": [
+        "experience-implicit-4-past:0",
+        "experience-implicit-4-past:1",
+        "experience-implicit-4-past:2"
+      ],
+      "connection_policy": "required",
+      "prior_response_considerations": [
+        "둥근 핀 사용을 만족스러워했다"
+      ]
+    }
+  },
+  {
+    "id": "experience-transfer-4",
+    "group": "experience",
+    "family": "transfer",
+    "gate": "required",
+    "now": "2025-04-04T16:05:00+09:00",
+    "seed_state": {
+      "facts": [],
+      "memories": [
+        {
+          "id": "experience-transfer-4-past",
+          "summary": "Paper glider: My paper glider kept tilting to one side. Balancing it made the flight steady.",
+          "timestamp": "2025-02-02T14:05:00+09:00",
+          "entity_names": [
+            "Paper glider"
+          ],
+          "messages": [
+            {
+              "id": "experience-transfer-4-past-0",
+              "role": "user",
+              "text": "My paper glider kept tilting to one side.",
+              "timestamp": "2025-02-02T14:00:00+09:00"
+            },
+            {
+              "id": "experience-transfer-4-past-1",
+              "role": "assistant",
+              "text": "Try balancing the weight on both sides.",
+              "timestamp": "2025-02-02T14:01:00+09:00"
+            },
+            {
+              "id": "experience-transfer-4-past-2",
+              "role": "user",
+              "text": "Balancing it made the flight steady.",
+              "timestamp": "2025-02-02T14:02:00+09:00"
+            }
+          ]
+        }
+      ],
+      "topics": [
+        {
+          "id": "topic-synthetic",
+          "keyword": "Paper glider",
+          "aliases": [],
+          "retrieval_terms": [],
+          "clues": [
+            {
+              "id": "clue-synthetic",
+              "subject": "Paper glider",
+              "type": "status_flow",
+              "state": "active",
+              "text": "Paper glider에 대한 대화가 있었다.",
+              "source_memory_id": "experience-transfer-4-past",
+              "effective_at": "2025-02-02",
+              "history": []
+            }
+          ]
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "My tiny hanging sculpture keeps leaning to one side.",
+    "review_actions": [],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [],
+      "turn_ids": [],
+      "allowed_claims": [
+        "다른 활동에서 양쪽 무게를 맞춰 안정시킨 경험이 있다"
+      ],
+      "forbidden_claims": [
+        "이번 상황에서 사용자가 이미 같은 방법을 실행했다",
+        "한 번의 경험을 사용자의 고정 성격으로 단정한다"
+      ],
+      "forbidden_changes": [],
+      "corrections": [],
+      "required_evidence_refs": [
+        "experience-transfer-4-past:0",
+        "experience-transfer-4-past:1",
+        "experience-transfer-4-past:2"
+      ],
+      "connection_policy": "required",
+      "prior_response_considerations": [
+        "다른 활동에서 양쪽 무게를 맞춰 안정시킨 경험이 있다"
+      ]
+    }
+  },
+  {
+    "id": "experience-avoid-9",
+    "group": "experience",
+    "family": "namesake",
+    "gate": "required",
+    "now": "2025-04-04T16:05:00+09:00",
+    "seed_state": {
+      "facts": [],
+      "topics": [],
+      "memories": [
+        {
+          "id": "experience-avoid-9-past",
+          "summary": "책상용 별 모형은 파란색이야.",
+          "timestamp": "2025-02-02T14:05:00+09:00",
+          "entity_names": [
+            "별 모형"
+          ],
+          "messages": [
+            {
+              "id": "experience-avoid-9-past-0",
+              "role": "user",
+              "text": "책상용 별 모형은 파란색이야.",
+              "timestamp": "2025-02-02T14:00:00+09:00"
+            },
+            {
+              "id": "experience-avoid-9-past-1",
+              "role": "assistant",
+              "text": "여러 방법을 생각해볼 수 있겠네.",
+              "timestamp": "2025-02-02T14:01:00+09:00"
+            }
+          ]
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "이번에는 이름만 같은 야외 별 모형을 만들 거야.",
+    "review_actions": [],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [],
+      "turn_ids": [],
+      "allowed_claims": [
+        "현재 사용자 발화에 맞춰 답하거나 확인할 수 없는 부분을 밝힌다"
+      ],
+      "forbidden_claims": [
+        "책상용과 야외용 모형을 동일한 물건으로 본다"
+      ],
+      "forbidden_changes": [],
+      "corrections": [],
+      "required_evidence_refs": [],
+      "connection_policy": "avoid",
+      "prior_response_considerations": [
+        "책상용과 야외용 모형을 동일한 물건으로 본다"
+      ]
+    }
+  },
+  {
+    "id": "experience-avoid-10",
+    "group": "experience",
+    "family": "hypothetical",
+    "gate": "required",
+    "now": "2025-04-04T16:05:00+09:00",
+    "seed_state": {
+      "facts": [],
+      "topics": [],
+      "memories": [
+        {
+          "id": "experience-avoid-10-past",
+          "summary": "만약 카드 탑이 무너지면 받침을 바꿀 수도 있겠어.",
+          "timestamp": "2025-02-02T14:05:00+09:00",
+          "entity_names": [
+            "카드 탑"
+          ],
+          "messages": [
+            {
+              "id": "experience-avoid-10-past-0",
+              "role": "user",
+              "text": "만약 카드 탑이 무너지면 받침을 바꿀 수도 있겠어.",
+              "timestamp": "2025-02-02T14:00:00+09:00"
+            },
+            {
+              "id": "experience-avoid-10-past-1",
+              "role": "assistant",
+              "text": "여러 방법을 생각해볼 수 있겠네.",
+              "timestamp": "2025-02-02T14:01:00+09:00"
+            }
+          ]
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "카드 탑은 아직 만든 적 없어.",
+    "review_actions": [],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [],
+      "turn_ids": [],
+      "allowed_claims": [
+        "현재 사용자 발화에 맞춰 답하거나 확인할 수 없는 부분을 밝힌다"
+      ],
+      "forbidden_claims": [
+        "가정을 실제 과거 경험으로 말한다"
+      ],
+      "forbidden_changes": [],
+      "corrections": [],
+      "required_evidence_refs": [],
+      "connection_policy": "avoid",
+      "prior_response_considerations": [
+        "가정을 실제 과거 경험으로 말한다"
+      ]
+    }
+  },
+  {
+    "id": "experience-avoid-11",
+    "group": "experience",
+    "family": "denied",
+    "gate": "required",
+    "now": "2025-04-04T16:05:00+09:00",
+    "seed_state": {
+      "facts": [],
+      "topics": [],
+      "memories": [
+        {
+          "id": "experience-avoid-11-past",
+          "summary": "돌 주머니를 떨어뜨린 건 내가 아니야.",
+          "timestamp": "2025-02-02T14:05:00+09:00",
+          "entity_names": [
+            "돌 주머니"
+          ],
+          "messages": [
+            {
+              "id": "experience-avoid-11-past-0",
+              "role": "user",
+              "text": "돌 주머니를 떨어뜨린 건 내가 아니야.",
+              "timestamp": "2025-02-02T14:00:00+09:00"
+            },
+            {
+              "id": "experience-avoid-11-past-1",
+              "role": "assistant",
+              "text": "여러 방법을 생각해볼 수 있겠네.",
+              "timestamp": "2025-02-02T14:01:00+09:00"
+            }
+          ]
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "돌 주머니를 처음 사용해보려고.",
+    "review_actions": [],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [],
+      "turn_ids": [],
+      "allowed_claims": [
+        "현재 사용자 발화에 맞춰 답하거나 확인할 수 없는 부분을 밝힌다"
+      ],
+      "forbidden_claims": [
+        "부정한 일을 사용자 경험으로 말한다"
+      ],
+      "forbidden_changes": [],
+      "corrections": [],
+      "required_evidence_refs": [],
+      "connection_policy": "avoid",
+      "prior_response_considerations": [
+        "부정한 일을 사용자 경험으로 말한다"
+      ]
+    }
+  },
+  {
+    "id": "experience-avoid-12",
+    "group": "experience",
+    "family": "unrelated",
+    "gate": "required",
+    "now": "2025-04-04T16:05:00+09:00",
+    "seed_state": {
+      "facts": [],
+      "topics": [],
+      "memories": [
+        {
+          "id": "experience-avoid-12-past",
+          "summary": "연필 깎기를 끝냈어.",
+          "timestamp": "2025-02-02T14:05:00+09:00",
+          "entity_names": [
+            "연필 깎기"
+          ],
+          "messages": [
+            {
+              "id": "experience-avoid-12-past-0",
+              "role": "user",
+              "text": "연필 깎기를 끝냈어.",
+              "timestamp": "2025-02-02T14:00:00+09:00"
+            },
+            {
+              "id": "experience-avoid-12-past-1",
+              "role": "assistant",
+              "text": "여러 방법을 생각해볼 수 있겠네.",
+              "timestamp": "2025-02-02T14:01:00+09:00"
+            }
+          ]
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "구름은 왜 하얗게 보이지?",
+    "review_actions": [],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [],
+      "turn_ids": [],
+      "allowed_claims": [
+        "현재 사용자 발화에 맞춰 답하거나 확인할 수 없는 부분을 밝힌다"
+      ],
+      "forbidden_claims": [
+        "무관한 연필 경험을 언급한다"
+      ],
+      "forbidden_changes": [],
+      "corrections": [],
+      "required_evidence_refs": [],
+      "connection_policy": "avoid",
+      "prior_response_considerations": [
+        "무관한 연필 경험을 언급한다"
+      ]
+    }
+  },
+  {
+    "id": "experience-avoid-13",
+    "group": "experience",
+    "family": "current_priority",
+    "gate": "required",
+    "now": "2025-04-04T16:05:00+09:00",
+    "seed_state": {
+      "facts": [],
+      "topics": [],
+      "memories": [
+        {
+          "id": "experience-avoid-13-past",
+          "summary": "상자 손잡이는 붉은색으로 정했어.",
+          "timestamp": "2025-02-02T14:05:00+09:00",
+          "entity_names": [
+            "상자 손잡이"
+          ],
+          "messages": [
+            {
+              "id": "experience-avoid-13-past-0",
+              "role": "user",
+              "text": "상자 손잡이는 붉은색으로 정했어.",
+              "timestamp": "2025-02-02T14:00:00+09:00"
+            },
+            {
+              "id": "experience-avoid-13-past-1",
+              "role": "assistant",
+              "text": "여러 방법을 생각해볼 수 있겠네.",
+              "timestamp": "2025-02-02T14:01:00+09:00"
+            }
+          ]
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "지금은 노란색으로 바꿨어. 새 색 기준으로 말해줘.",
+    "review_actions": [],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [],
+      "turn_ids": [],
+      "allowed_claims": [
+        "현재 사용자 발화에 맞춰 답하거나 확인할 수 없는 부분을 밝힌다"
+      ],
+      "forbidden_claims": [
+        "예전 색을 현재 색으로 말한다"
+      ],
+      "forbidden_changes": [],
+      "corrections": [],
+      "required_evidence_refs": [],
+      "connection_policy": "avoid",
+      "prior_response_considerations": [
+        "예전 색을 현재 색으로 말한다"
+      ]
+    }
+  },
+  {
+    "id": "experience-avoid-14",
+    "group": "experience",
+    "family": "no_reaction",
+    "gate": "required",
+    "now": "2025-04-04T16:05:00+09:00",
+    "seed_state": {
+      "facts": [],
+      "topics": [],
+      "memories": [
+        {
+          "id": "experience-avoid-14-past",
+          "summary": "나무 판 표면을 매끄럽게 하고 싶어.",
+          "timestamp": "2025-02-02T14:05:00+09:00",
+          "entity_names": [
+            "나무 판"
+          ],
+          "messages": [
+            {
+              "id": "experience-avoid-14-past-0",
+              "role": "user",
+              "text": "나무 판 표면을 매끄럽게 하고 싶어.",
+              "timestamp": "2025-02-02T14:00:00+09:00"
+            },
+            {
+              "id": "experience-avoid-14-past-1",
+              "role": "assistant",
+              "text": "받침에 얇은 종이를 붙여보자.",
+              "timestamp": "2025-02-02T14:01:00+09:00"
+            }
+          ]
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "나무 판에는 아직 아무 방법도 써보지 않았어.",
+    "review_actions": [],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [],
+      "turn_ids": [],
+      "allowed_claims": [
+        "현재 사용자 발화에 맞춰 답하거나 확인할 수 없는 부분을 밝힌다"
+      ],
+      "forbidden_claims": [
+        "조수의 제안이 효과적이었다고 말한다"
+      ],
+      "forbidden_changes": [],
+      "corrections": [],
+      "required_evidence_refs": [],
+      "connection_policy": "avoid",
+      "prior_response_considerations": [
+        "조수의 제안이 효과적이었다고 말한다"
+      ]
+    }
+  },
+  {
+    "id": "experience-avoid-15",
+    "group": "experience",
+    "family": "english_switch",
+    "gate": "required",
+    "now": "2025-04-04T16:05:00+09:00",
+    "seed_state": {
+      "facts": [],
+      "topics": [],
+      "memories": [
+        {
+          "id": "experience-avoid-15-past",
+          "summary": "I painted my paper kite green.",
+          "timestamp": "2025-02-02T14:05:00+09:00",
+          "entity_names": [
+            "Paper kite"
+          ],
+          "messages": [
+            {
+              "id": "experience-avoid-15-past-0",
+              "role": "user",
+              "text": "I painted my paper kite green.",
+              "timestamp": "2025-02-02T14:00:00+09:00"
+            },
+            {
+              "id": "experience-avoid-15-past-1",
+              "role": "assistant",
+              "text": "여러 방법을 생각해볼 수 있겠네.",
+              "timestamp": "2025-02-02T14:01:00+09:00"
+            }
+          ]
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "New topic: how does a compass work?",
+    "review_actions": [],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [],
+      "turn_ids": [],
+      "allowed_claims": [
+        "현재 사용자 발화에 맞춰 답하거나 확인할 수 없는 부분을 밝힌다"
+      ],
+      "forbidden_claims": [
+        "과거 연 경험을 현재 질문에 끌어온다"
+      ],
+      "forbidden_changes": [],
+      "corrections": [],
+      "required_evidence_refs": [],
+      "connection_policy": "avoid",
+      "prior_response_considerations": [
+        "과거 연 경험을 현재 질문에 끌어온다"
+      ]
+    }
+  },
+  {
+    "id": "experience-avoid-16",
+    "group": "experience",
+    "family": "japanese_switch",
+    "gate": "required",
+    "now": "2025-04-04T16:05:00+09:00",
+    "seed_state": {
+      "facts": [],
+      "topics": [],
+      "memories": [
+        {
+          "id": "experience-avoid-16-past",
+          "summary": "紙の箱を青く塗った。",
+          "timestamp": "2025-02-02T14:05:00+09:00",
+          "entity_names": [
+            "紙の箱"
+          ],
+          "messages": [
+            {
+              "id": "experience-avoid-16-past-0",
+              "role": "user",
+              "text": "紙の箱を青く塗った。",
+              "timestamp": "2025-02-02T14:00:00+09:00"
+            },
+            {
+              "id": "experience-avoid-16-past-1",
+              "role": "assistant",
+              "text": "여러 방법을 생각해볼 수 있겠네.",
+              "timestamp": "2025-02-02T14:01:00+09:00"
+            }
+          ]
+        }
+      ]
+    },
+    "sessions": [],
+    "query": "別の話にしよう。虹の仕組みを知りたい。",
+    "review_actions": [],
+    "expected": {
+      "memory_ids": [],
+      "fact_ids": [],
+      "turn_ids": [],
+      "allowed_claims": [
+        "현재 사용자 발화에 맞춰 답하거나 확인할 수 없는 부분을 밝힌다"
+      ],
+      "forbidden_claims": [
+        "과거 상자 경험을 현재 질문에 끌어온다"
+      ],
+      "forbidden_changes": [],
+      "corrections": [],
+      "required_evidence_refs": [],
+      "connection_policy": "avoid",
+      "prior_response_considerations": [
+        "과거 상자 경험을 현재 질문에 끌어온다"
+      ]
+    }
+  }
+]
