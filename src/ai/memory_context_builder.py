@@ -624,18 +624,34 @@ async def build_memory_context(
     settings_config = _settings_config(client)
     normalized_query = str(query or "").strip()
     normalized_recent_context = str(recent_context or "").strip()
+    experience_enabled = normalize_bool_setting(settings_config.get("experience_memory_enabled", False), default=False)
+    query_cache = None
+    if experience_enabled:
+        from .memory import RequestEmbeddingCache
+        from .memory_types import MemoryContextTrace
+        query_cache = RequestEmbeddingCache()
+        if trace is None:
+            trace = MemoryContextTrace()
     max_topic_memory_context = normalize_int_setting(
         settings_config.get("max_topic_memory_context", 2),
         default=2,
         min_value=0,
         max_value=10,
     )
-    topic_memory_block = await build_topic_memory_context_block(
-        client,
-        normalized_query,
-        top_k=max_topic_memory_context,
-        prompt_language=prompt_language,
-    )
+    topic_results = []
+    knowledge = getattr(client, "knowledge_map_manager", None)
+    if experience_enabled and knowledge and hasattr(knowledge, "format_context_block") and max_topic_memory_context > 0:
+        try:
+            topic_kwargs = {"query_cache": query_cache} if "query_cache" in inspect.signature(knowledge.async_search).parameters else {}
+            topic_results = await knowledge.async_search(normalized_query, top_k=max_topic_memory_context, **topic_kwargs)
+            topic_memory_block = knowledge.format_context_block(topic_results, language=prompt_language)
+        except Exception as error:
+            topic_memory_block = ""
+            trace.excluded["experience_topic"] = type(error).__name__
+    else:
+        topic_memory_block = await build_topic_memory_context_block(
+            client, normalized_query, top_k=max_topic_memory_context, prompt_language=prompt_language,
+        )
     setattr(client, "_last_loaded_topic_memory_context", topic_memory_block)
     goal_block = build_goal_context_block(client, prompt_language)
     mood_enabled = normalize_bool_setting(
@@ -840,9 +856,15 @@ async def build_memory_context(
 
     similar_memories = []
     def trace_kwargs(method, stage=None):
-        if trace is None or "trace" not in inspect.signature(method).parameters:
-            return {}
-        return {"trace": trace, **({"trace_stage": stage} if stage else {})}
+        parameters = inspect.signature(method).parameters
+        values = {}
+        if query_cache is not None and "query_cache" in parameters:
+            values["query_cache"] = query_cache
+        if trace is not None and "trace" in parameters:
+            values["trace"] = trace
+            if stage and "trace_stage" in parameters:
+                values["trace_stage"] = stage
+        return values
     activated_ids = set()
     raw_memory_ids = set()
     activation_attempted = False
@@ -860,6 +882,7 @@ async def build_memory_context(
         else:
             similar_memories = await memory_manager.find_similar(
                 normalized_query, top_k=max_similar, min_similarity=min_sim, mark_retrieved=False,
+                **trace_kwargs(memory_manager.find_similar),
             )
     except Exception as error:
         print(f"[LLM] memory_search category=memory_search_failed exception_class={type(error).__name__}")
@@ -867,12 +890,14 @@ async def build_memory_context(
             try:
                 similar_memories = await memory_manager.find_similar(
                     normalized_query, top_k=max_similar, min_similarity=min_sim, mark_retrieved=False,
+                    **trace_kwargs(memory_manager.find_similar),
                 )
             except Exception as error:
                 print(f"[LLM] memory_search category=memory_fallback_failed exception_class={type(error).__name__}")
     primary_memories = list(similar_memories)
     supplemental_memories = []
     recall_plan = None
+    unresolved_recall = False
     if trace is not None:
         trace.candidates["primary"] = [str(getattr(memory, "id", "")) for memory, _ in primary_memories]
         trace.calls["primary_search"] = 1
@@ -883,6 +908,7 @@ async def build_memory_context(
         entities = collect_known_entities(getattr(memory_manager, "memories", []), topics)
         recall_plan = resolve_followup_recall(normalized_query, recent_memory_messages, entities)
         if recall_plan is None and is_narrow_recall_query(normalized_query):
+            unresolved_recall = True
             # 보완 검색만 차단하면 기존 프로필·기억을 보고 답변 모델이 대상을 다시 추측할 수 있다.
             context_parts.append(
                 "\n[MEMORY_REFERENCE_UNRESOLVED]\n"
@@ -907,6 +933,7 @@ async def build_memory_context(
                     extra = await memory_manager.find_similar(
                         recall_plan.expanded_query, top_k=selection_limit,
                         min_similarity=min_sim, mark_retrieved=False,
+                        **trace_kwargs(memory_manager.find_similar),
                     )
                     supplemental_memories = [(memory, score) for memory, score in extra
                                              if memory_matches_recall(memory, recall_plan)]
@@ -935,6 +962,7 @@ async def build_memory_context(
             context_parts.append(f"- {memory.summary}")
             print("[LLM] similar_memory_selected")
 
+    raw_chunks = []
     if max_raw_chunks > 0 and hasattr(memory_manager, "find_relevant_raw_chunks"):
         try:
             raw_chunks = await memory_manager.find_relevant_raw_chunks(
@@ -946,29 +974,54 @@ async def build_memory_context(
                 chunk_turns=raw_chunk_turns,
                 **trace_kwargs(memory_manager.find_relevant_raw_chunks),
             )
-            if raw_chunks:
-                print(f"[LLM] raw chunk {len(raw_chunks)}개 선택")
-                context_parts.append(f"\n[{labels['raw_chunks']}]")
-                for index, (chunk, _score, _score_meta) in enumerate(raw_chunks, start=1):
-                    chunk_memory_id = str(getattr(chunk, "memory_id", "") or "")
-                    if chunk_memory_id:
-                        raw_memory_ids.add(chunk_memory_id)
-                    if trace is not None and chunk_memory_id:
-                        trace.raw_chunks.append((chunk_memory_id, chunk.start_turn_index, chunk.end_turn_index))
-                    chunk_messages = getattr(chunk, "messages", []) or []
-                    chunk_time = getattr(chunk_messages[0], "timestamp", "") if chunk_messages else ""
-                    context_parts.append(
-                        f"- {labels['chunk']} {index} (turn {chunk.start_turn_index}-{chunk.end_turn_index}) "
-                        f"[source: {getattr(chunk, 'memory_id', '')}; time: {chunk_time}]"
-                    )
-                    for line in str(chunk.text or "").splitlines():
-                        context_parts.append(f"  {line}")
-                    print(f"[LLM] raw_chunk_selected index={index}")
-
-            else:
-                print("[LLM] raw chunk 없음")
         except Exception as e:
             print(f"[LLM] raw_chunk_search category=raw_chunk_error exception_class={type(e).__name__}")
+
+    if experience_enabled and not unresolved_recall:
+        from .experience_memory import retrieve_experiences, render_experiences, allocate_raw_budget
+        from .knowledge_map_types import TopicMemorySearchResult
+        try:
+            experiences = await retrieve_experiences(
+                memory_manager, normalized_query, recent_memory_messages, topic_results, primary_memories,
+                query_cache=query_cache, trace=trace, raw_limit=max_raw_chunks,
+            )
+            # 검색 중 주제 객체가 교체됐을 수 있으므로 현재 저장 객체로 출처를 검증한다.
+            current_topics = [TopicMemorySearchResult(topic) for topic in getattr(knowledge, "topics", [])]
+            _, valid_experiences = render_experiences(experiences, memory_manager.memories, current_topics)
+            allocated_raw, allocated_experiences = allocate_raw_budget(raw_chunks, valid_experiences, max_raw_chunks)
+            experience_block, selected_experiences = render_experiences(allocated_experiences, memory_manager.memories, current_topics)
+            if experience_block:
+                raw_chunks = allocated_raw
+                context_parts.append("\n" + experience_block)
+                trace.experience_chars = len(experience_block)
+                from dataclasses import asdict
+                for experience in selected_experiences:
+                    for ref in experience.refs:
+                        trace.experience_refs.append(asdict(ref))
+                        raw_memory_ids.add(ref.memory_id)
+                        if ref.turn_indexes:
+                            trace.raw_chunks.append((ref.memory_id, min(ref.turn_indexes), max(ref.turn_indexes)))
+        except Exception as error:
+            trace.excluded["experience"] = type(error).__name__
+            print(f"[LLM] experience_memory_failed exception_class={type(error).__name__}")
+
+    if raw_chunks:
+        context_parts.append(f"\n[{labels['raw_chunks']}]")
+        for index, (chunk, _score, _score_meta) in enumerate(raw_chunks, start=1):
+            chunk_memory_id = str(getattr(chunk, "memory_id", "") or "")
+            if chunk_memory_id:
+                raw_memory_ids.add(chunk_memory_id)
+            if trace is not None and chunk_memory_id:
+                trace.raw_chunks.append((chunk_memory_id, chunk.start_turn_index, chunk.end_turn_index))
+            chunk_messages = getattr(chunk, "messages", []) or []
+            chunk_time = getattr(chunk_messages[0], "timestamp", "") if chunk_messages else ""
+            context_parts.append(
+                f"- {labels['chunk']} {index} (turn {chunk.start_turn_index}-{chunk.end_turn_index}) "
+                f"[source: {getattr(chunk, 'memory_id', '')}; time: {chunk_time}]"
+            )
+            for line in str(chunk.text or "").splitlines():
+                context_parts.append(f"  {line}")
+            print(f"[LLM] raw_chunk_selected index={index}")
 
     recent_memories = unique_summaries(memory_manager.get_recent(count=max_recent))
     if recent_memories:

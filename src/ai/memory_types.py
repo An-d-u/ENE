@@ -24,6 +24,9 @@ class MemoryContextTrace:
     excluded: dict[str, str] = field(default_factory=dict)
     calls: dict[str, int] = field(default_factory=dict)
     usage_recorded: bool | None = None
+    experience_refs: list[dict[str, Any]] = field(default_factory=list)
+    experience_chars: int = 0
+    timings: dict[str, float] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return asdict(self)

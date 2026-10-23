@@ -306,7 +306,7 @@ class KnowledgeMapManager:
 
         return self._search_with_scores(query_text, top_k=top_k)
 
-    async def async_search(self, query: str, top_k: int = 2) -> list[TopicMemorySearchResult]:
+    async def async_search(self, query: str, top_k: int = 2, *, query_cache=None) -> list[TopicMemorySearchResult]:
         query_text = _visible_text(query)
         if not query_text or top_k <= 0:
             return []
@@ -315,7 +315,8 @@ class KnowledgeMapManager:
 
         try:
             query_embedding = _normalize_embedding_vector(
-                await self.embedding_generator.embed(query_text)
+                await query_cache.embed(self.embedding_generator, query_text) if query_cache is not None
+                else await self.embedding_generator.embed(query_text)
             )
         except Exception:
             return self.search_direct(query_text, top_k=top_k)

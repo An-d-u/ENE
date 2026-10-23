@@ -61,6 +61,25 @@ class MemoryActivationResult:
     direct_match_score: float = 0.0
 
 
+class RequestEmbeddingCache:
+    """요청 하나에서 같은 제공자·모델·용도의 입력만 재사용한다."""
+
+    def __init__(self):
+        self.values = {}
+        self.hits = 0
+        self.misses = 0
+
+    async def embed(self, generator, text, purpose="query"):
+        key = (getattr(generator, "provider", ""), getattr(generator, "model", ""), purpose, text)
+        if key in self.values:
+            self.hits += 1
+            return self.values[key]
+        self.misses += 1
+        value = await generator.embed(text)
+        self.values[key] = value
+        return value
+
+
 class MemoryManager:
     """장기기억 관리자"""
     
@@ -79,7 +98,7 @@ class MemoryManager:
         self.embedding_generator = embedding_generator
         self.date_query_parser = DateQueryParser()
         self.memories: List[MemoryEntry] = []
-        self._raw_chunk_embedding_cache: Dict[tuple[str, int, int, str], List[float]] = {}
+        self._raw_chunk_embedding_cache: Dict[tuple, List[float]] = {}
         
         # 파일에서 기억 로드
         self.load()
@@ -296,6 +315,7 @@ class MemoryManager:
         min_similarity: float = 0.5,
         *,
         mark_retrieved: bool = True,
+        query_cache=None,
     ) -> List[Tuple[MemoryEntry, float]]:
         """
         유사 기억 검색
@@ -312,6 +332,7 @@ class MemoryManager:
             query,
             top_k=top_k,
             min_similarity=min_similarity,
+            **({"query_cache": query_cache} if query_cache is not None else {}),
         )
         result = [(memory, final_score) for memory, final_score, _ in ranked]
         if mark_retrieved:
@@ -362,6 +383,7 @@ class MemoryManager:
         query: str,
         top_k: int = 3,
         min_similarity: float = 0.5,
+        query_cache=None,
     ) -> List[Tuple[MemoryEntry, float, float]]:
         """기억 검색 후보를 최종 점수와 순수 유사도로 함께 반환한다."""
         if not self.embedding_generator:
@@ -379,7 +401,8 @@ class MemoryManager:
         
         try:
             # 쿼리 임베딩
-            query_embedding = await self.embedding_generator.embed(query)
+            query_embedding = (await query_cache.embed(self.embedding_generator, query) if query_cache is not None
+                               else await self.embedding_generator.embed(query))
             query_memory_type = self._infer_query_memory_type(query)
             
             # 유사도 계산
@@ -426,6 +449,7 @@ class MemoryManager:
         mark_retrieved: bool = True,
         trace=None,
         trace_stage="activation",
+        query_cache=None,
     ) -> List[MemoryActivationResult]:
         """유사도 위에 별칭/트리거/최근 대화 신호를 얹어 기억을 고른다."""
         max_results = max(0, int(top_k or 0))
@@ -437,6 +461,7 @@ class MemoryManager:
             latest_query,
             top_k=candidate_k,
             min_similarity=min_similarity,
+            **({"query_cache": query_cache} if query_cache is not None else {}),
         )
         direct_match_scores = self._direct_activation_match_scores(latest_query)
         ranked: list[MemoryActivationResult] = []
@@ -911,6 +936,7 @@ class MemoryManager:
         supplemental_memories=None,
         recall_plan=None,
         trace=None,
+        query_cache=None,
     ) -> List[Tuple[MemoryChunk, float, dict[str, float]]]:
         """후보 memory 안에서 최신 사용자 메시지 중심 raw chunk를 선별한다."""
         normalized_query = str(latest_query or "").strip()
@@ -981,19 +1007,22 @@ class MemoryManager:
         supplemental_embedding = None
         if self.embedding_generator and normalized_query:
             try:
-                query_embedding = await self.embedding_generator.embed(normalized_query)
+                query_embedding = (await query_cache.embed(self.embedding_generator, normalized_query) if query_cache is not None
+                                   else await self.embedding_generator.embed(normalized_query))
             except Exception as error:
                 print(f"[Memory] 최신 메시지 chunk 검색 임베딩 실패: {error}")
         if self.embedding_generator and normalized_recent:
             try:
-                recent_embedding = await self.embedding_generator.embed(normalized_recent)
+                recent_embedding = (await query_cache.embed(self.embedding_generator, normalized_recent) if query_cache is not None
+                                    else await self.embedding_generator.embed(normalized_recent))
             except Exception as error:
                 print(f"[Memory] 최근 문맥 chunk 검색 임베딩 실패: {error}")
 
         await self._ensure_chunk_embeddings([chunk for chunk, _ in all_chunks])
         if self.embedding_generator and supplemental_query:
             try:
-                supplemental_embedding = await self.embedding_generator.embed(supplemental_query)
+                supplemental_embedding = (await query_cache.embed(self.embedding_generator, supplemental_query) if query_cache is not None
+                                          else await self.embedding_generator.embed(supplemental_query))
             except Exception:
                 supplemental_embedding = None
 
@@ -1120,9 +1149,10 @@ class MemoryManager:
             chunk.embedding = embedding
             self._raw_chunk_embedding_cache[cache_key] = embedding
 
-    def _raw_chunk_cache_key(self, chunk: MemoryChunk) -> tuple[str, int, int, str]:
+    def _raw_chunk_cache_key(self, chunk: MemoryChunk) -> tuple:
         """raw chunk 캐시 키를 만든다."""
         return (
+            *self._current_embedding_source(),
             str(chunk.memory_id or "").strip(),
             int(chunk.start_turn_index),
             int(chunk.end_turn_index),

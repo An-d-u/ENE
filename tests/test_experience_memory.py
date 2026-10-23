@@ -68,3 +68,107 @@ def test_revision_detects_edits_and_deletions_but_not_usage():
     evidence = collect_history_evidence([result], [item])[0]
     item.original_messages[0].text = "수정한 원문"
     assert not evidence_is_current(evidence, [item], [result])
+
+
+def test_query_uses_only_recent_user_evidence_and_bounds_search_text():
+    from src.ai.experience_memory import build_experience_query
+    frame = build_experience_query("균형을 다시 잡으려 해", [
+        {"role": "user", "text": "나무 모빌을 만들고 있어", "turn_id": "u"},
+        {"role": "assistant", "text": "금속 돛 얘기도 해보자", "turn_id": "a"},
+    ])
+    assert "나무 모빌" in frame.expanded_query and "금속 돛" not in frame.expanded_query
+    assert frame.evidence_turn_ids == ("u",)
+    bounded = build_experience_query("가" * 2000, [{"role": "user", "text": "나" * 2000, "turn_id": "u"}])
+    assert len(bounded.expanded_query) <= 1840
+
+
+def test_explicit_topic_switch_clears_earlier_search_context():
+    from src.ai.experience_memory import build_experience_query
+    frame = build_experience_query("다른 이야기로 넘어가자. 구름은 왜 생겨?", [
+        {"role": "user", "text": "나무 모빌 균형", "turn_id": "u"}])
+    assert "모빌" not in frame.expanded_query
+    assert not frame.evidence_turn_ids
+
+
+def test_request_cache_is_request_scoped_and_separates_provider_and_model():
+    from src.ai.memory import RequestEmbeddingCache
+    class Generator:
+        provider = "synthetic"
+        model = "one"
+        calls = 0
+        async def embed(self, text):
+            self.calls += 1
+            return [float(self.calls)]
+    async def run():
+        generator = Generator()
+        cache = RequestEmbeddingCache()
+        assert await cache.embed(generator, "입력") == await cache.embed(generator, "입력")
+        assert generator.calls == 1
+        generator.model = "two"
+        assert await cache.embed(generator, "입력") == [2.0]
+        assert await RequestEmbeddingCache().embed(generator, "입력") == [3.0]
+    asyncio.run(run())
+
+
+def test_retrieval_preserves_user_advice_and_reaction_without_recall_cue(tmp_path):
+    from src.ai.experience_memory import retrieve_experiences
+    from src.ai.memory import MemoryManager
+    manager = MemoryManager(tmp_path / "memory.json")
+    manager.memories = [memory()]
+    result = asyncio.run(retrieve_experiences(manager, "나무 모빌의 균형을 맞추고 싶어", [], [], [(manager.memories[0], .8)]))
+    assert len(result) == 1
+    assert [m.role for m in result[0].messages] == ["user", "assistant", "user"]
+    assert result[0].refs[0].turn_indexes == (0, 1, 2)
+
+
+def test_assistant_only_match_does_not_become_user_experience(tmp_path):
+    from src.ai.experience_memory import retrieve_experiences
+    from src.ai.memory import MemoryManager
+    manager = MemoryManager(tmp_path / "memory.json")
+    manager.memories = [memory(messages=[{"role": "user", "text": "안녕"},
+                                       {"role": "assistant", "text": "나무 모빌의 균형을 맞췄었지"}])]
+    assert not asyncio.run(retrieve_experiences(manager, "나무 모빌 균형", [], [], [(manager.memories[0], 1.0)]))
+
+
+def test_cancellation_does_not_publish_late_embeddings(tmp_path):
+    from src.ai.experience_memory import retrieve_experiences
+    from src.ai.memory import MemoryManager
+    class Generator:
+        provider = "synthetic"
+        model = "slow"
+        async def embed(self, text):
+            await asyncio.sleep(30)
+            return [1.0, 0.0]
+    async def run():
+        manager = MemoryManager(tmp_path / "memory.json", Generator())
+        manager.memories = [memory()]
+        task = asyncio.create_task(retrieve_experiences(manager, "나무 모빌 균형", [], [], [(manager.memories[0], .8)]))
+        await asyncio.sleep(0)
+        task.cancel()
+        import pytest
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert not manager._raw_chunk_embedding_cache
+    asyncio.run(run())
+
+
+def test_unrelated_short_question_does_not_inherit_previous_subject(tmp_path):
+    from src.ai.experience_memory import retrieve_experiences
+    from src.ai.memory import MemoryManager
+    manager = MemoryManager(tmp_path / "memory.json")
+    manager.memories = [memory()]
+    recent = [{"role": "user", "text": "나무 모빌 균형을 맞추고 있었어", "turn_id": "u"}]
+    assert not asyncio.run(retrieve_experiences(manager, "구름은 왜 하얘?", recent, [], [(manager.memories[0], .8)]))
+
+
+def test_experience_trace_has_source_ids_and_bounded_inputs(tmp_path):
+    from src.ai.experience_memory import retrieve_experiences
+    from src.ai.memory import MemoryManager
+    from src.ai.memory_types import MemoryContextTrace
+    manager = MemoryManager(tmp_path / "memory.json")
+    manager.memories = [memory()]
+    trace = MemoryContextTrace()
+    asyncio.run(retrieve_experiences(manager, "나무 모빌 균형", [], [], [(manager.memories[0], .8)], trace=trace))
+    assert trace.candidates["experience_memories"] == ["past"]
+    assert trace.calls["experience_chunk_inputs"] <= 6
+    assert trace.timings["experience_ms"] >= 0
