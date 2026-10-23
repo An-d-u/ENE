@@ -982,10 +982,11 @@ async def build_memory_context(
             print(f"[LLM] raw_chunk_search category=raw_chunk_error exception_class={type(e).__name__}")
 
     if experience_enabled and not unresolved_recall:
-        from .experience_memory import retrieve_experiences, render_experiences, allocate_raw_budget, memory_revision
+        from .experience_memory import retrieve_experiences, render_experiences, allocate_raw_budget, memory_revision, is_experience_followup
         from .knowledge_map_types import TopicMemorySearchResult
         raw_ids = {row[0].memory_id for row in raw_chunks}
         raw_revisions = {memory.id: memory_revision(memory) for memory in memory_manager.memories if memory.id in raw_ids}
+        experience_followup = is_experience_followup(normalized_query, recent_memory_messages)
         def current_raw(rows):
             sources = {memory.id: memory for memory in memory_manager.memories if memory.id in raw_ids}
             return [row for row in rows if row[0].memory_id in sources
@@ -998,9 +999,9 @@ async def build_memory_context(
             raw_chunks = current_raw(raw_chunks)
             # 검색 중 주제 객체가 교체됐을 수 있으므로 현재 저장 객체로 출처를 검증한다.
             current_topics = [TopicMemorySearchResult(topic) for topic in getattr(knowledge, "topics", [])]
-            _, valid_experiences = render_experiences(experiences, memory_manager.memories, current_topics)
+            _, valid_experiences = render_experiences(experiences, memory_manager.memories, current_topics, followup=experience_followup)
             allocated_raw, allocated_experiences = allocate_raw_budget(raw_chunks, valid_experiences, max_raw_chunks)
-            experience_block, selected_experiences = render_experiences(allocated_experiences, memory_manager.memories, current_topics)
+            experience_block, selected_experiences = render_experiences(allocated_experiences, memory_manager.memories, current_topics, followup=experience_followup)
             if experience_block:
                 raw_chunks = allocated_raw
                 context_parts.append("\n" + experience_block)

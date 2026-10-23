@@ -120,3 +120,19 @@ def test_cancellation_discards_executor_result_without_trace_or_usage(tmp_path):
         assert client.memory_manager.memories[0].retrieval_count == 0
         assert not (tmp_path / "memory_retrieval_trace.jsonl").exists()
     asyncio.run(run())
+
+
+def test_followup_rule_uses_current_conversation_not_assistant_in_past_memory(tmp_path):
+    client = client_for(tmp_path)
+    initial = asyncio.run(build_memory_context(client, "나무 모빌 균형"))
+    assert "[지금 대화의 후속 응답]" not in initial
+    followup = asyncio.run(build_memory_context(client, "이번에도 균형을 맞추려면?", recent_memory_messages=[
+        {"role": "user", "text": "나무 모빌을 다시 꺼냈어", "turn_id": "current-u"},
+        {"role": "assistant", "text": "전에 무게를 맞춰서 수평이 됐었지", "turn_id": "current-a"},
+    ]))
+    assert "[지금 대화의 후속 응답]" in followup
+    switched = asyncio.run(build_memory_context(client, "다른 이야기로 넘어가자. 나무 모빌 균형", recent_memory_messages=[
+        {"role": "user", "text": "나무 모빌", "turn_id": "current-u"},
+        {"role": "assistant", "text": "무게를 맞췄었지", "turn_id": "current-a"},
+    ]))
+    assert "[지금 대화의 후속 응답]" not in switched
