@@ -982,13 +982,20 @@ async def build_memory_context(
             print(f"[LLM] raw_chunk_search category=raw_chunk_error exception_class={type(e).__name__}")
 
     if experience_enabled and not unresolved_recall:
-        from .experience_memory import retrieve_experiences, render_experiences, allocate_raw_budget
+        from .experience_memory import retrieve_experiences, render_experiences, allocate_raw_budget, memory_revision
         from .knowledge_map_types import TopicMemorySearchResult
+        raw_ids = {row[0].memory_id for row in raw_chunks}
+        raw_revisions = {memory.id: memory_revision(memory) for memory in memory_manager.memories if memory.id in raw_ids}
+        def current_raw(rows):
+            sources = {memory.id: memory for memory in memory_manager.memories if memory.id in raw_ids}
+            return [row for row in rows if row[0].memory_id in sources
+                    and memory_revision(sources[row[0].memory_id]) == raw_revisions.get(row[0].memory_id)]
         try:
             experiences = await retrieve_experiences(
                 memory_manager, normalized_query, recent_memory_messages, topic_results, primary_memories,
                 query_cache=query_cache, trace=trace, raw_limit=max_raw_chunks,
             )
+            raw_chunks = current_raw(raw_chunks)
             # 검색 중 주제 객체가 교체됐을 수 있으므로 현재 저장 객체로 출처를 검증한다.
             current_topics = [TopicMemorySearchResult(topic) for topic in getattr(knowledge, "topics", [])]
             _, valid_experiences = render_experiences(experiences, memory_manager.memories, current_topics)
@@ -1008,6 +1015,8 @@ async def build_memory_context(
         except Exception as error:
             trace.excluded["experience"] = type(error).__name__
             print(f"[LLM] experience_memory_failed exception_class={type(error).__name__}")
+        finally:
+            raw_chunks = current_raw(raw_chunks)
 
     if raw_chunks:
         context_parts.append(f"\n[{labels['raw_chunks']}]")

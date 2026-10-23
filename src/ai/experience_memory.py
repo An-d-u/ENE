@@ -144,15 +144,20 @@ def _user_text(messages):
 
 def _experience_window(manager, memory, query):
     """같은 대화 안에서 사용자 발화에 근거한 한 구간만 선택한다."""
-    chunks = manager.build_raw_chunks(memory, chunk_turns=8)
+    segments = []
+    current_messages = []
+    for message in memory.original_messages:
+        if current_messages and message.role == "user" and _TOPIC_SWITCH.search(message.text):
+            segments.append(current_messages)
+            current_messages = []
+        current_messages.append(message)
+    if current_messages:
+        segments.append(current_messages)
+    chunks = [chunk for messages in segments
+              for chunk in manager.build_raw_chunks(replace(memory, original_messages=messages), chunk_turns=8)]
     eligible = []
     for chunk in chunks:
         messages = list(chunk.messages)
-        # 화제가 바뀐 뒤의 반응을 앞선 제안과 합치지 않는다.
-        for index, message in enumerate(messages[1:], 1):
-            if message.role == "user" and _TOPIC_SWITCH.search(message.text):
-                messages = messages[:index]
-                break
         if not _user_text(messages):
             continue
         current = manager._create_raw_chunk(memory, messages)
@@ -218,17 +223,21 @@ async def retrieve_experiences(manager, query, recent_messages, topic_results, p
         chunk = _experience_window(manager, memory, frame.expanded_query)
         if chunk is not None:
             user_chunk = manager._create_raw_chunk(memory, [m for m in chunk.messages if m.role == "user"])
-            windows.append((memory, chunk, user_chunk, candidate_score((memory, score))))
+            windows.append((memory, chunk, user_chunk, candidate_score((memory, score)), memory_revision(memory)))
     windows.sort(key=lambda item: item[3] + manager._raw_recall_overlap(frame.expanded_query, item[2].text), reverse=True)
     windows = windows[:6]
+    chunk_inputs = sum(manager._raw_chunk_cache_key(item[2]) not in manager._raw_chunk_embedding_cache for item in windows)
     if generator:
         await manager._ensure_chunk_embeddings([item[2] for item in windows])
     evidence = []
-    for memory, chunk, user_chunk, _ in windows:
+    for memory, chunk, user_chunk, _, source_revision in windows:
         lexical = manager._raw_recall_overlap(frame.expanded_query, _user_text(chunk.messages))
         latest_lexical = manager._raw_recall_overlap(query, _user_text(chunk.messages))
         semantic = manager._cosine_if_available(query_vector, user_chunk.embedding)
         latest_semantic = manager._cosine_if_available(latest_vector, user_chunk.embedding)
+        if trace is not None:
+            trace.experience_scores[memory.id] = {"user_lexical": lexical, "user_semantic": semantic,
+                                                 "latest_lexical": latest_lexical, "latest_semantic": latest_semantic}
         # 최근 문맥만 맞고 현재 질문에서 멀어진 자료는 제외한다.
         contextual_reference = bool(frame.evidence_turn_ids and _REFERENCE.search(query))
         relevant = max(lexical, semantic) >= .35 and (max(latest_lexical, latest_semantic) >= .12 or contextual_reference)
@@ -248,7 +257,7 @@ async def retrieve_experiences(manager, query, recent_messages, topic_results, p
             continue
         prior = history_by_id.get(memory.id)
         ref = (replace(prior.refs[0], turn_indexes=tuple(m.turn_index for m in selected_messages)) if prior
-               else EvidenceRef(memory.id, chunk.conversation_id, tuple(m.turn_index for m in selected_messages), None, None, memory_revision(memory)))
+               else EvidenceRef(memory.id, chunk.conversation_id, tuple(m.turn_index for m in selected_messages), None, None, source_revision))
         evidence.append(ExperienceEvidence((ref,), prior.event_at if prior else None,
                        selected_messages[0].timestamp or memory.timestamp or None, tuple(selected_messages),
                        prior.historical_state if prior else None, "raw", .7 * max(semantic, lexical) + .3 * max(latest_semantic, latest_lexical)))
@@ -269,7 +278,8 @@ async def retrieve_experiences(manager, query, recent_messages, topic_results, p
             seen.add(item.refs[0].memory_id)
     if trace is not None:
         trace.calls["experience_query_inputs"] = max(0, cache.misses - initial_misses)
-        trace.calls["experience_chunk_inputs"] = len(windows) if generator else 0
+        trace.calls["experience_chunk_inputs"] = chunk_inputs if generator else 0
+        trace.calls["experience_chunk_cache_hits"] = len(windows) - chunk_inputs if generator else 0
         trace.timings["experience_ms"] = round((perf_counter() - started) * 1000, 3)
     return unique[:2]
 
@@ -297,7 +307,8 @@ def render_experiences(items, memories, topic_results, *, max_chars=2800, max_it
         payload = {"source": [asdict(ref) for ref in item.refs], "event_at": item.event_at,
                    "recorded_at": item.recorded_at, "source_quality": item.source_quality,
                    "historical_state": item.historical_state,
-                   "messages": [{"role": message.role, "text": message.text} for message in item.messages]}
+                   "messages": [{"role": message.role, "text": message.text, "recorded_at": message.timestamp or None}
+                                for message in item.messages]}
         part = json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n"
         if len(block) + len(part) > max_chars:
             continue
@@ -307,41 +318,26 @@ def render_experiences(items, memories, topic_results, *, max_chars=2800, max_it
 
 
 def allocate_raw_budget(raw_chunks, experiences, limit):
-    """현재 질문의 첫 원문 근거를 보존하고 같은 발화를 중복 출력하지 않는다."""
+    """현재 질문의 원문 근거 전부를 보존하고 같은 발화를 중복 출력하지 않는다."""
     limit = max(0, limit)
-    selected_raw, selected_experiences = [], []
     if limit == 0:
         return [], [item for item in experiences if not item.messages][:2]
-    remaining = list(experiences)
-    if raw_chunks:
-        first = raw_chunks[0][0]
-        covered = next((item for item in remaining if any(
-            ref.memory_id == first.memory_id and set(range(first.start_turn_index, first.end_turn_index + 1)) <= set(ref.turn_indexes)
-            for ref in item.refs)), None)
-        if covered:
-            selected_experiences.append(covered)
-            remaining.remove(covered)
-        else:
-            selected_raw.append(raw_chunks[0])
-    used = len(selected_raw) + sum(bool(item.messages) for item in selected_experiences)
-    for item in remaining:
+    selected_raw, selected_experiences = list(raw_chunks[:limit]), []
+    for item in experiences:
         if len(selected_experiences) >= 2:
             break
-        overlaps = any(ref.memory_id == chunk.memory_id and
-                       set(ref.turn_indexes) & set(range(chunk.start_turn_index, chunk.end_turn_index + 1))
-                       for ref in item.refs for chunk, _, _ in selected_raw)
-        if overlaps or (item.messages and used >= limit):
+        covered, partial_overlap = [], False
+        for row in selected_raw:
+            chunk = row[0]
+            raw_indexes = set(range(chunk.start_turn_index, chunk.end_turn_index + 1))
+            indexes = {index for ref in item.refs if ref.memory_id == chunk.memory_id for index in ref.turn_indexes}
+            if raw_indexes <= indexes:
+                covered.append(row)
+            elif raw_indexes & indexes:
+                partial_overlap = True
+        used = len(selected_raw) + sum(bool(value.messages) for value in selected_experiences)
+        if partial_overlap or used - len(covered) + bool(item.messages) > limit:
             continue
+        selected_raw = [row for row in selected_raw if row not in covered]
         selected_experiences.append(item)
-        used += bool(item.messages)
-    for row in raw_chunks[1:]:
-        if used >= limit:
-            break
-        chunk = row[0]
-        overlaps = any(ref.memory_id == chunk.memory_id and
-                       set(ref.turn_indexes) & set(range(chunk.start_turn_index, chunk.end_turn_index + 1))
-                       for item in selected_experiences for ref in item.refs)
-        if not overlaps:
-            selected_raw.append(row)
-            used += 1
     return selected_raw, selected_experiences

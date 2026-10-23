@@ -1121,6 +1121,7 @@ class MemoryManager:
 
         uncached_chunks: list[MemoryChunk] = []
         uncached_texts: list[str] = []
+        uncached_keys: list[tuple] = []
         for chunk in chunks:
             cache_key = self._raw_chunk_cache_key(chunk)
             cached_embedding = self._raw_chunk_embedding_cache.get(cache_key)
@@ -1129,6 +1130,7 @@ class MemoryManager:
                 continue
             uncached_chunks.append(chunk)
             uncached_texts.append(chunk.text)
+            uncached_keys.append(cache_key)
 
         if not uncached_chunks:
             return
@@ -1144,8 +1146,16 @@ class MemoryManager:
             print(f"[Memory] raw chunk 임베딩 생성 실패: {error}")
             return
 
-        for chunk, embedding in zip(uncached_chunks, embeddings):
-            cache_key = self._raw_chunk_cache_key(chunk)
+        if len(embeddings) != len(uncached_chunks) or any(not vector for vector in embeddings):
+            print("[Memory] raw chunk 임베딩 배치가 불완전해 캐시에 저장하지 않습니다.")
+            return
+        if len({len(vector) for vector in embeddings}) != 1:
+            print("[Memory] raw chunk 임베딩 차원이 일치하지 않습니다.")
+            return
+        # 대기 중 제공자가 바뀌면 이전 응답을 새 제공자의 캐시에 넣지 않는다.
+        if any(key[:2] != self._current_embedding_source() for key in uncached_keys):
+            return
+        for chunk, embedding, cache_key in zip(uncached_chunks, embeddings, uncached_keys):
             chunk.embedding = embedding
             self._raw_chunk_embedding_cache[cache_key] = embedding
 

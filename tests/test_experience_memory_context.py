@@ -1,6 +1,7 @@
 """기존 원문 예산과 현재 상태를 지키는 경험 전달."""
 import asyncio
 from types import SimpleNamespace
+import pytest
 
 from src.ai.memory import MemoryManager
 from src.ai.memory_context_builder import build_memory_context
@@ -68,3 +69,54 @@ def test_rendered_raw_blocks_share_one_budget(tmp_path):
     asyncio.run(build_memory_context(client, "나무 모빌 균형", trace=trace))
     assert len(trace.raw_chunks) == 1
     assert len(trace.experience_refs) == 1
+
+
+@pytest.mark.parametrize("change", ["delete", "edit"])
+def test_experience_wait_cannot_resurrect_stale_regular_raw(tmp_path, monkeypatch, change):
+    client = client_for(tmp_path)
+    async def change_source(*args, **kwargs):
+        if change == "delete":
+            client.memory_manager.memories.clear()
+        else:
+            client.memory_manager.memories[0].original_messages[1].text = "수정된 제안"
+        return []
+    monkeypatch.setattr("src.ai.experience_memory.retrieve_experiences", change_source)
+    trace = MemoryContextTrace()
+    context = asyncio.run(build_memory_context(client, "나무 모빌 균형", trace=trace))
+    assert "양쪽 무게를 맞춰보자." not in context
+    assert not trace.raw_chunks
+
+
+def test_cancellation_discards_executor_result_without_trace_or_usage(tmp_path):
+    from threading import Event
+    class DelayedGenerator:
+        provider, model = "synthetic", "delayed"
+        def __init__(self):
+            self.started, self.release = Event(), Event()
+            self.calls = 0
+        async def embed(self, text):
+            self.calls += 1
+            def delayed():
+                self.started.set()
+                self.release.wait(5)
+                return [1.0, 0.0]
+            return await asyncio.get_running_loop().run_in_executor(None, delayed)
+    async def run():
+        client = client_for(tmp_path)
+        generator = DelayedGenerator()
+        client.memory_manager.embedding_generator = generator
+        task = asyncio.create_task(build_memory_context(client, "나무 모빌 균형"))
+        try:
+            while not generator.started.is_set():
+                await asyncio.sleep(.001)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        finally:
+            generator.release.set()
+        await asyncio.sleep(.01)
+        assert generator.calls == 1
+        assert not client.memory_manager._raw_chunk_embedding_cache
+        assert client.memory_manager.memories[0].retrieval_count == 0
+        assert not (tmp_path / "memory_retrieval_trace.jsonl").exists()
+    asyncio.run(run())

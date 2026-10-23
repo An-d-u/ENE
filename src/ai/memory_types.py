@@ -26,6 +26,7 @@ class MemoryContextTrace:
     usage_recorded: bool | None = None
     experience_refs: list[dict[str, Any]] = field(default_factory=list)
     experience_chars: int = 0
+    experience_scores: dict[str, dict[str, float]] = field(default_factory=dict)
     timings: dict[str, float] = field(default_factory=dict)
 
     def to_dict(self) -> dict:

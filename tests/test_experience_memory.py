@@ -172,3 +172,80 @@ def test_experience_trace_has_source_ids_and_bounded_inputs(tmp_path):
     assert trace.candidates["experience_memories"] == ["past"]
     assert trace.calls["experience_chunk_inputs"] <= 6
     assert trace.timings["experience_ms"] >= 0
+
+
+def test_extra_embedding_cap_counts_cache_misses_and_rejects_partial_batch(tmp_path):
+    from src.ai.experience_memory import retrieve_experiences
+    from src.ai.memory import MemoryManager, RequestEmbeddingCache
+    from src.ai.memory_types import MemoryContextTrace
+    from scripts.memory_quality_eval import SyntheticEmbedding
+    class Generator(SyntheticEmbedding):
+        batch_sizes = []
+        partial = False
+        async def embed_batch(self, texts):
+            self.batch_sizes.append(len(texts))
+            values = await super().embed_batch(texts)
+            return values[:-1] if self.partial else values
+    async def run():
+        generator = Generator()
+        manager = MemoryManager(tmp_path / "memory.json", generator)
+        manager.memories = [memory(str(index)) for index in range(30)]
+        cache = RequestEmbeddingCache()
+        for round_index in range(2):
+            trace = MemoryContextTrace()
+            await retrieve_experiences(manager, "나무 모빌 균형", [], [], [], query_cache=cache, trace=trace)
+            assert len(trace.candidates["experience_memories"]) == 24
+            assert trace.calls["experience_chunk_inputs"] == (6 if round_index == 0 else 0)
+        assert generator.batch_sizes == [6]
+        manager._raw_chunk_embedding_cache.clear()
+        generator.partial = True
+        chunks = [manager.build_raw_chunks(item)[0] for item in manager.memories[:2]]
+        await manager._ensure_chunk_embeddings(chunks)
+        assert not manager._raw_chunk_embedding_cache
+        assert all(not chunk.embedding for chunk in chunks)
+    asyncio.run(run())
+
+
+def test_topic_switch_keeps_later_relevant_exchange(tmp_path):
+    from src.ai.experience_memory import retrieve_experiences
+    from src.ai.memory import MemoryManager
+    manager = MemoryManager(tmp_path / "memory.json")
+    item = memory(messages=[
+        {"role": "user", "text": "구름을 그렸어.", "turn_index": 0},
+        {"role": "assistant", "text": "둥글게 그렸구나.", "turn_index": 1},
+        {"role": "user", "text": "다른 이야기로 넘어가자. 나무 모빌이 기울어.", "turn_index": 2},
+        {"role": "assistant", "text": "양쪽 무게를 맞춰보자.", "turn_index": 3},
+        {"role": "user", "text": "맞추니 수평이 됐어.", "turn_index": 4},
+    ])
+    manager.memories = [item]
+    evidence = asyncio.run(retrieve_experiences(manager, "나무 모빌 균형", [], [], [(item, .8)]))
+    assert evidence[0].refs[0].turn_indexes == (2, 3, 4)
+
+
+def test_experience_never_evicts_existing_multi_source_answer_evidence(tmp_path):
+    from src.ai.experience_memory import retrieve_experiences, allocate_raw_budget
+    from src.ai.memory import MemoryManager
+    manager = MemoryManager(tmp_path / "memory.json")
+    manager.memories = [memory(identity) for identity in ("a", "b", "c")]
+    raw = [(manager.build_raw_chunks(item)[0], .99, {}) for item in manager.memories[:2]]
+    manager.memories = manager.memories[2:]
+    evidence = asyncio.run(retrieve_experiences(manager, "나무 모빌 균형", [], [], [(manager.memories[0], .8)]))
+    assert evidence
+    selected_raw, selected_experiences = allocate_raw_budget(raw, evidence, 2)
+    assert [row[0].memory_id for row in selected_raw] == ["a", "b"]
+    assert not selected_experiences
+
+
+def test_embedding_wait_cannot_sign_old_messages_with_new_revision(tmp_path):
+    from src.ai.experience_memory import retrieve_experiences, render_experiences
+    from src.ai.memory import MemoryManager
+    from scripts.memory_quality_eval import SyntheticEmbedding
+    class Generator(SyntheticEmbedding):
+        async def embed_batch(self, texts):
+            manager.memories[0].original_messages = []
+            return await super().embed_batch(texts)
+    manager = MemoryManager(tmp_path / "memory.json", Generator())
+    manager.memories = [memory()]
+    evidence = asyncio.run(retrieve_experiences(manager, "나무 모빌 균형", [], [], []))
+    block, selected = render_experiences(evidence, manager.memories, [])
+    assert not block and not selected

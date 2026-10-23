@@ -11,7 +11,7 @@ from src.core.app_paths import write_bytes_data_atomic
 
 _WRITE_LOCK = Lock()
 _FIELDS = ("fact_ids", "summary_ids", "raw_chunks", "candidates", "excluded", "calls",
-           "usage_recorded", "experience_refs", "experience_chars", "timings")
+           "usage_recorded", "experience_refs", "experience_chars", "experience_scores", "timings")
 
 
 def save_retrieval_trace(path, request_id, trace, *, max_rows=200, max_bytes=1024 * 1024):
