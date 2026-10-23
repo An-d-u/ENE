@@ -9,6 +9,9 @@ import json
 import inspect
 from datetime import datetime, timedelta
 import math
+from pathlib import Path
+from time import perf_counter
+from uuid import uuid4
 
 from .life_record_types import LifeRecord
 from .mood_engine import AFFECTS, RELATION_CATEGORIES
@@ -611,6 +614,7 @@ async def build_memory_context(
     memory_request_id: str | None = None,
 ) -> str:
     """클라이언트 상태에서 LLM에 붙일 메모리 컨텍스트를 구성한다."""
+    context_started = perf_counter()
     life_record_block = _load_life_record_context_block(
         client,
         include_life_record_context=include_life_record_context,
@@ -1089,8 +1093,24 @@ async def build_memory_context(
             if trace is not None:
                 trace.usage_recorded = recorded
         result = "\n".join([memory_rules, *context_parts])
+        if experience_enabled:
+            _persist_experience_trace(memory_manager, trace, memory_request_id, context_started)
         print(f"[LLM] 총 메모리 컨텍스트: {len(result)}자")
         return result
 
+    if experience_enabled:
+        _persist_experience_trace(memory_manager, trace, memory_request_id, context_started)
     print("[LLM] 사용 가능한 기억 없음")
     return ""
+
+
+def _persist_experience_trace(manager, trace, request_id, started):
+    """저장 경로가 있는 실제 매니저에서만 진단한다."""
+    memory_file = getattr(manager, "memory_file", None)
+    if not memory_file:
+        return
+    from .memory_trace_store import save_retrieval_trace
+    trace.timings["context_ms"] = round((perf_counter() - started) * 1000, 3)
+    saved = save_retrieval_trace(Path(memory_file).with_name("memory_retrieval_trace.jsonl"), request_id or uuid4().hex, trace)
+    if not saved:
+        print("[LLM] retrieval_trace_save_failed")

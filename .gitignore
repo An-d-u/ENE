@@ -82,6 +82,9 @@ note_runs/
 # Config files
 config.json
 memory.json
+memory_retrieval_trace.jsonl
+memory_retrieval_trace.jsonl.write.lock
+memory_retrieval_trace.jsonl.*.tmp
 user_profile.json
 calendar.json
 .env*
