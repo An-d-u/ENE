@@ -123,3 +123,23 @@ def test_followup_failure_and_missing_turn_review_cannot_enable():
     assert assess_experience(report, review, manifest, baseline, baseline_review)["status"] == "fail"
     review["cases"][0]["turns"] = []
     assert assess_experience(report, review, manifest, baseline, baseline_review)["status"] == "pending"
+
+
+def test_legacy_suite_counts_only_rendered_experience_turns(monkeypatch):
+    """기존 평가도 경험 블록에 실제 전달된 발화만 근거로 인정한다."""
+    case = deepcopy(cases()[0])
+    case["group"] = "raw_detail"
+    case["sessions"] = []
+    source = case["seed_state"]["memories"][0]
+    first, last = source["messages"][0]["id"], source["messages"][2]["id"]
+    case["expected"]["turn_ids"] = [first, last]
+    case["expected"]["memory_ids"] = [source["id"]]
+
+    async def selected_experience(_client, _query, *, trace, **kwargs):
+        trace.experience_refs = [{"memory_id": source["id"], "turn_indexes": [0]}]
+        return source["messages"][0]["text"]
+
+    monkeypatch.setattr("src.ai.memory_context_builder.build_memory_context", selected_experience)
+    result = asyncio.run(evaluate([case], mode="mock", config={"experience_mode": "enabled"}))
+    assert result["cases"][0]["missing_evidence"]["memory_ids"] == []
+    assert result["cases"][0]["missing_evidence"]["turn_ids"] == [last]

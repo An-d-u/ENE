@@ -417,7 +417,14 @@ async def _run_case(case, root, mode, config, budget, embedding_cache=None):
         seed = next((item for item in seeds if item["id"] == mid), None)
         if seed:
             selected_turns.extend(message["id"] for message in seed["messages"][start:end + 1])
-    selected = {"memory_ids": trace.summary_ids, "fact_ids": trace.fact_ids, "turn_ids": selected_turns}
+    selected_memory_ids = set(trace.summary_ids)
+    for ref in trace.experience_refs:
+        seed = next((item for item in seeds if item["id"] == ref["memory_id"]), None)
+        if seed:
+            selected_memory_ids.add(seed["id"])
+            selected_turns.extend(message["id"] for index, message in enumerate(seed["messages"])
+                                  if index in ref["turn_indexes"])
+    selected = {"memory_ids": selected_memory_ids, "fact_ids": trace.fact_ids, "turn_ids": selected_turns}
     missing = {key: sorted(set(case["expected"][key]) - set(values)) for key, values in selected.items()}
     return {
         "id": case["id"], "gate": case["gate"], "group": case["group"],
