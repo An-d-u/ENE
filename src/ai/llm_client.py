@@ -792,14 +792,8 @@ class GeminiClient:
             current = int(generation_params.get("max_tokens") or 0)
         except (TypeError, ValueError):
             current = 0
-        if current <= 0:
-            return GEMINI_MAX_OUTPUT_TOKENS
-        if current >= GEMINI_MAX_OUTPUT_TOKENS:
-            return current
-        return min(
-            GEMINI_MAX_OUTPUT_TOKENS,
-            max(current + 512, current * 2),
-        )
+        # 추론도 출력 예산을 사용하므로 길이 초과의 유일한 재시도에는 충분한 여유를 준다.
+        return max(current, GEMINI_MAX_OUTPUT_TOKENS)
 
     def _normalized_enum_text(self, value) -> str:
         if value is None:
@@ -1096,6 +1090,8 @@ class GeminiClient:
     ) -> LLM_RESPONSE_TUPLE:
         """Gemini 자동 history를 한 턴 단위 transaction으로 검증하고 확정한다."""
         self._last_response_delivery_metadata = ResponseDeliveryMetadata.empty()
+        diagnostics = {"outcome": "error", "attempts": []}
+        self._last_response_diagnostics = diagnostics
         settings_snapshot = (
             copy.deepcopy(settings_source)
             if settings_source is not None
@@ -1120,6 +1116,25 @@ class GeminiClient:
             enabled=requirements.enable_mood_analysis,
             mood_event_context=mood_event_context,
         )
+
+        def record_response(response, attempt, params) -> ProviderResponse:
+            normalized = self._provider_response(response, attempt.mode)
+            try:
+                thought_tokens = self._debug_field(
+                    getattr(response, "usage_metadata", None), "thoughts_token_count"
+                )
+            except Exception:
+                thought_tokens = None
+            diagnostics["attempts"].append({
+                "phase": attempt.phase,
+                "response_mode": attempt.mode.value,
+                "status": normalized.status.value,
+                "finish_reason": normalized.finish_reason,
+                "output_token_limit": params.get("max_tokens", 0),
+                "token_usage": normalized.usage,
+                "thought_tokens": thought_tokens if is_valid_token_count(thought_tokens) else None,
+            })
+            return normalized
 
         def requester(attempt: ResponseAttempt) -> ProviderResponse:
             nonlocal non_repair_attempts
@@ -1150,7 +1165,7 @@ class GeminiClient:
                     self._record_response_turn_usage(None)
                     raise
                 self._record_and_print_response_turn_usage(response, label="제한 복구")
-                return self._provider_response(response, attempt.mode)
+                return record_response(response, attempt, generation_snapshot)
 
             attempt_params = dict(generation_snapshot)
             if attempt.expand_output_budget:
@@ -1201,7 +1216,7 @@ class GeminiClient:
                     ) from failure
                 raise
             self._record_and_print_response_turn_usage(response, label=label)
-            return self._provider_response(response, attempt.mode)
+            return record_response(response, attempt, attempt_params)
 
         try:
             result = execute_final_response(
@@ -1215,6 +1230,7 @@ class GeminiClient:
                 mood_preview=mood_preview,
             )
         except InvalidFinalResponseError:
+            diagnostics["outcome"] = "fallback"
             self._restore_history_snapshot(
                 history_snapshot,
                 response_mode=self._resolve_response_mode(settings_snapshot),
@@ -1233,6 +1249,7 @@ class GeminiClient:
 
         self._replace_latest_user_history_text(history_user_content)
         self._replace_latest_model_history_with_visible_reply(result.payload[0])
+        diagnostics["outcome"] = "validated"
         self._last_response_delivery_metadata = result.metadata
         final_mode = ResponseMode(result.metadata.response_mode)
         self._last_runtime_prompt_signature = self._runtime_prompt_signature(
@@ -1240,6 +1257,12 @@ class GeminiClient:
             settings_source=settings_snapshot,
         )
         return result.payload
+
+    def get_last_response_diagnostics(self) -> dict:
+        """원문 없이 SDK 응답을 받은 시도의 복사본을 반환한다. 전송 예외·내부 재시도 수는 별도 집계한다."""
+        return copy.deepcopy(getattr(
+            self, "_last_response_diagnostics", {"outcome": "unavailable", "attempts": []}
+        ))
 
     def get_last_response_delivery_metadata(self) -> ResponseDeliveryMetadata:
         return getattr(
@@ -1335,6 +1358,7 @@ class GeminiClient:
         Returns:
             (응답 텍스트, 감정 태그, TTS 텍스트, 이벤트 리스트, analysis 메타, 약속 리스트, 속마음, 목표 업데이트) 튜플
         """
+        self._last_response_diagnostics = {"outcome": "error", "attempts": []}
         # 메모리 컨텍스트 구성
         search_query = str(memory_search_text or "").strip() or message
         primary_query = str(latest_user_message or "").strip() or search_query
@@ -1402,6 +1426,7 @@ class GeminiClient:
     ) -> LLM_RESPONSE_TUPLE:
         """이미지 final 응답의 전처리부터 usage transaction으로 처리한다."""
         self._last_response_delivery_metadata = ResponseDeliveryMetadata.empty()
+        self._last_response_diagnostics = {"outcome": "error", "attempts": []}
         self._begin_response_turn_usage()
         try:
             return await self._send_message_with_images_transaction(
@@ -1790,6 +1815,7 @@ class GeminiClient:
         Returns:
             (응답 텍스트, 감정 태그, TTS 텍스트, 이벤트 리스트, analysis 메타, 약속 리스트, 속마음, 목표 업데이트) 튜플
         """
+        self._last_response_diagnostics = {"outcome": "error", "attempts": []}
         clean_history = history_user_content if history_user_content is not None else message
         request_message = message
         if request_device is not None:

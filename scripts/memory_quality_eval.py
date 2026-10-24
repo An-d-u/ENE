@@ -306,6 +306,14 @@ def restore_recent_conversation(client, sessions):
         raise RuntimeError("평가의 최근 대화 이력을 구성하지 못했습니다")
 
 
+def response_diagnostics(client, mode):
+    """답변 품질과 제공자 생성 실패를 분리할 원문 없는 진단을 읽는다."""
+    if mode == "mock":
+        return {"outcome": "not_called", "attempts": []}
+    getter = getattr(client, "get_last_response_diagnostics", None)
+    return getter() if callable(getter) else {"outcome": "unavailable", "attempts": []}
+
+
 async def _run_case(case, root, mode, config, budget, embedding_cache=None):
     from src.ai.embedding import create_embedding_generator
     from src.ai.ene_profile import EneProfile
@@ -438,6 +446,7 @@ async def _run_case(case, root, mode, config, budget, embedding_cache=None):
         "embedding_usage": embedding.embedding_usage,
         "response_history": "unsummarized_sessions",
         "answer": answer, "answer_grade": "ungraded",
+        "response_diagnostics": response_diagnostics(client, mode),
         "input_chars": len(composed), "token_usage": getattr(client, "_last_token_usage", None) or "unknown",
     }
 
@@ -487,6 +496,7 @@ async def _run_experience_dialogue(case, client, manager, profile, settings, mod
                 if ref.get("history_revision"):
                     selected_refs.add(f"history:{ref['memory_id']}:{ref['history_revision']}")
         turns.append({"query": turn["query"], "answer": answer, "trace": trace.to_dict(),
+                      "response_diagnostics": response_diagnostics(client, mode),
                       "context": context, "input_chars": len(composed), "retrieval_ms": round(retrieval_ms, 3),
                       "token_usage": getattr(client, "_last_token_usage", None) or "unknown",
                       "previous_response_source": ("generated" if mode == "live" else "mock") if index else None})

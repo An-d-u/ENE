@@ -410,7 +410,7 @@ def test_gemini_policy_regeneration_keeps_expanded_request_budget(gemini_harness
     assert [
         config["max_output_tokens"]
         for config in gemini_harness.sdk.send_message_configs[1:]
-    ] == [768, 768]
+    ] == [8192, 8192]
 
 
 def test_gemini_success_history_stores_visible_reply_not_raw_envelope(
@@ -588,6 +588,100 @@ def test_gemini_candidate_absence_returns_fallback_and_resets_metadata(
     assert "빈 후보 합성 입력" not in str(client.get_conversation_history())
 
 
+def test_gemini_length_recovery_delivers_experience_without_adding_attempts(gemini_harness):
+    """추론과 구조화 출력이 작은 두 예산을 소진해도 한 번의 복구로 전달한다."""
+    reply = "지난번 구슬의 양쪽 무게를 맞췄을 때 안정됐으니, 새 장식도 균형을 확인해봐요."
+
+    def response_for_budget():
+        request = gemini_harness.sdk.send_message_configs[-1] or gemini_harness.created_configs[-1]
+        if request["max_output_tokens"] < 4096:
+            return gemini_harness.response('{"reply":"합성 미완성', finish_reason="MAX_TOKENS")
+        return gemini_harness.response(valid_envelope_json(reply=reply))
+
+    client = gemini_harness.client(
+        [response_for_budget, response_for_budget, valid_envelope_json(reply="다음 합성 답변")],
+        max_tokens=1024,
+    )
+    assert client.send_message("새 장식이 기울어져요.")[0] == reply
+    assert len(gemini_harness.sdk.send_message_configs) == 2
+    assert gemini_harness.sdk.send_message_configs[-1]["max_output_tokens"] == 8192
+    assert client.generation_params["max_tokens"] == 1024
+    history = str(client.get_conversation_history())
+    assert "합성 미완성" not in history
+    assert reply in history
+    assert client.send_message("다음 합성 질문")[0] == "다음 합성 답변"
+    assert gemini_harness.created_configs[-1]["max_output_tokens"] == 1024
+
+
+def test_gemini_attempt_diagnostics_distinguish_length_fallback_and_reset(gemini_harness):
+    secret = "synthetic-private-response-marker"
+    truncated = gemini_harness.response(secret, finish_reason="MAX_TOKENS")
+    client = gemini_harness.client([truncated, truncated], max_tokens=1024)
+
+    assert client.send_message("합성 진단 질문")[1] == "confused"
+    diagnostics = client.get_last_response_diagnostics()
+    assert diagnostics["outcome"] == "fallback"
+    assert [row["phase"] for row in diagnostics["attempts"]] == ["primary", "regenerate"]
+    assert [row["output_token_limit"] for row in diagnostics["attempts"]] == [1024, 8192]
+    assert all(row["status"] == "incomplete" and row["finish_reason"] == "max_tokens"
+               for row in diagnostics["attempts"])
+    assert secret not in str(diagnostics)
+    assert "합성 진단 질문" not in str(diagnostics)
+    diagnostics["attempts"].clear()
+    assert len(client.get_last_response_diagnostics()["attempts"]) == 2
+
+    gemini_harness.sdk.chat_responses.append(gemini_harness.response(valid_envelope_json(reply="완성 합성 답변")))
+    client.send_message("다음 합성 질문")
+    diagnostics = client.get_last_response_diagnostics()
+    assert diagnostics["outcome"] == "validated"
+    assert len(diagnostics["attempts"]) == 1
+    assert diagnostics["attempts"][0]["status"] == "complete"
+
+
+def test_gemini_invalid_json_does_not_expand_budget_and_diagnostics_hide_values(gemini_harness):
+    client = gemini_harness.client(["synthetic-private-invalid-json"] * 2, max_tokens=1024)
+    client.send_message("형식 오류 합성 질문")
+    diagnostics = client.get_last_response_diagnostics()
+    assert diagnostics["outcome"] == "fallback"
+    assert all(row["status"] == "complete" and row["output_token_limit"] == 1024
+               for row in diagnostics["attempts"])
+    assert "synthetic-private" not in str(diagnostics)
+
+
+@pytest.mark.parametrize("entry", ["text", "memory", "image"])
+def test_gemini_preparation_failure_clears_previous_response_diagnostics(gemini_harness, monkeypatch, entry):
+    import asyncio
+    client = gemini_harness.client([valid_envelope_json(reply="첫 합성 응답")])
+    client.send_message("첫 합성 입력")
+    assert client.get_last_response_diagnostics()["outcome"] == "validated"
+
+    async def fail_memory(*args, **kwargs):
+        raise RuntimeError("synthetic-preparation-failure")
+
+    def fail_refresh(*args, **kwargs):
+        raise RuntimeError("synthetic-preparation-failure")
+
+    monkeypatch.setattr(client, "_build_memory_context", fail_memory)
+    if entry == "text":
+        monkeypatch.setattr(client, "_refresh_chat_session_for_runtime_prompt_if_needed", fail_refresh)
+        with pytest.raises(RuntimeError):
+            client.send_message("다음 합성 입력")
+    elif entry == "memory":
+        with pytest.raises(RuntimeError):
+            asyncio.run(client.send_message_with_memory("다음 합성 입력"))
+    else:
+        import base64
+        from io import BytesIO
+        from PIL import Image
+        image_bytes = BytesIO()
+        Image.new("RGB", (1, 1)).save(image_bytes, format="PNG")
+        data_url = "data:image/png;base64," + base64.b64encode(image_bytes.getvalue()).decode("ascii")
+        result = asyncio.run(client.send_message_with_images("다음 합성 입력", [{"dataUrl": data_url}]))
+        assert result[0] == "이미지를 처리하는 중에 문제가 생겼어요."
+    assert client.get_last_response_diagnostics() == {"outcome": "error", "attempts": []}
+    assert len(gemini_harness.sdk.send_message_configs) == 1
+
+
 def test_gemini_unknown_finish_reason_regenerates_without_downgrade(
     gemini_harness,
 ):
@@ -608,7 +702,7 @@ def test_gemini_unknown_finish_reason_regenerates_without_downgrade(
     ("initial_budget", "expected_retry_budget"),
     [
         (0, 8192),
-        (256, 768),
+        (256, 8192),
         (8192, 8192),
         (16384, 16384),
     ],
@@ -773,7 +867,7 @@ def test_gemini_length_retry_does_not_stick_expanded_budget(gemini_harness):
         client.send_message("First synthetic prompt")[0] == "Completed synthetic reply"
     )
     assert gemini_harness.created_configs[-1]["max_output_tokens"] == 256
-    assert gemini_harness.sdk.send_message_configs[-1]["max_output_tokens"] == 768
+    assert gemini_harness.sdk.send_message_configs[-1]["max_output_tokens"] == 8192
 
     assert client.send_message("Next synthetic prompt")[0] == "Next synthetic reply"
     assert gemini_harness.sdk.send_message_configs[-1] is None

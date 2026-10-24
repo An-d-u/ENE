@@ -3,6 +3,7 @@ import asyncio
 from copy import deepcopy
 import json
 from pathlib import Path
+import pytest
 
 from scripts.memory_quality_eval import evaluate
 
@@ -23,6 +24,7 @@ def test_mock_experience_run_reports_evidence_and_never_grades_answers():
     assert row["answer_grade"] == "ungraded"
     assert row["evaluation_now"] == cases()[0]["now"]
     assert row["turns"][1]["previous_response_source"] == "mock"
+    assert row["turns"][0]["response_diagnostics"] == {"outcome": "not_called", "attempts": []}
 
 
 def test_followup_context_uses_generated_response_not_expected_text(monkeypatch):
@@ -43,6 +45,31 @@ def test_followup_context_uses_generated_response_not_expected_text(monkeypatch)
     assert observed[1][-1]["role"] == "assistant"
     assert observed[1][-1]["text"] == "생성한 합성 응답"
     assert result["cases"][0]["turns"][1]["previous_response_source"] == "generated"
+
+
+@pytest.mark.parametrize("group", ["experience", "raw_detail"])
+def test_evaluation_preserves_response_diagnostics_for_each_turn(monkeypatch, group):
+    """근거 회수와 응답 생성 실패를 보고서에서 구별하고 후속 턴도 보존한다."""
+    from src.ai.llm_client import GeminiClient
+    from scripts.memory_quality_eval import SyntheticEmbedding
+    case = deepcopy(cases()[0])
+    case["group"] = group
+    states = iter(["fallback", "validated"])
+
+    def send(client, *args, **kwargs):
+        client._last_response_diagnostics = {"outcome": next(states), "attempts": []}
+        return ("합성 결과",)
+
+    monkeypatch.setattr(GeminiClient, "send_message", send)
+    monkeypatch.setenv("ENE_EVAL_EMBEDDING_KEY", "synthetic-key")
+    monkeypatch.setattr("src.ai.embedding.create_embedding_generator", lambda **kwargs: SyntheticEmbedding())
+    result = asyncio.run(evaluate([case], mode="live", config={"experience_mode": "enabled",
+                         "embedding_provider": "mock", "embedding_model": "lexical-hash"}))
+    row = result["cases"][0]
+    entries = row["turns"] if group == "experience" else [row]
+    assert [entry["response_diagnostics"]["outcome"] for entry in entries] == (
+        ["fallback", "validated"] if group == "experience" else ["fallback"]
+    )
 
 
 def reviewed_report(mode="enabled", baseline=False):
