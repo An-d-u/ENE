@@ -628,7 +628,7 @@ async def build_memory_context(
     settings_config = _settings_config(client)
     normalized_query = str(query or "").strip()
     normalized_recent_context = str(recent_context or "").strip()
-    experience_enabled = normalize_bool_setting(settings_config.get("experience_memory_enabled", False), default=False)
+    experience_enabled = normalize_bool_setting(settings_config.get("experience_memory_enabled", True), default=True)
     query_cache = None
     if experience_enabled:
         from .memory import RequestEmbeddingCache
@@ -981,7 +981,7 @@ async def build_memory_context(
         except Exception as e:
             print(f"[LLM] raw_chunk_search category=raw_chunk_error exception_class={type(e).__name__}")
 
-    if experience_enabled and not unresolved_recall:
+    if experience_enabled and not unresolved_recall and hasattr(memory_manager, "memories"):
         from .experience_memory import retrieve_experiences, render_experiences, allocate_raw_budget, memory_revision, is_experience_followup
         from .knowledge_map_types import TopicMemorySearchResult
         raw_ids = {row[0].memory_id for row in raw_chunks}

@@ -30,8 +30,18 @@ def test_enabled_context_preserves_advice_reaction_once_with_sources(tmp_path):
     assert client.memory_manager.memories[0].retrieval_count == 1
 
 
-def test_feature_disabled_has_no_experience_search_or_block(tmp_path):
-    client = client_for(tmp_path, enabled=False)
+def test_missing_setting_enables_grounded_experiences_by_default(tmp_path):
+    client = client_for(tmp_path)
+    del client.settings.config["experience_memory_enabled"]
+    trace = MemoryContextTrace()
+    context = asyncio.run(build_memory_context(client, "나무 모빌 균형", trace=trace))
+    assert "[과거 대화 경험]" in context
+    assert trace.experience_refs[0]["memory_id"] == "past"
+
+
+@pytest.mark.parametrize("enabled", [False, "false", 0])
+def test_feature_disabled_has_no_experience_search_or_block(tmp_path, enabled):
+    client = client_for(tmp_path, enabled=enabled)
     trace = MemoryContextTrace()
     context = asyncio.run(build_memory_context(client, "나무 모빌 균형", trace=trace))
     assert "[과거 대화 경험]" not in context

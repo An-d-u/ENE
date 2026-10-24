@@ -197,4 +197,5 @@ def test_context_includes_each_memory_summary_only_once():
         return [(memory, 0.8)]
     manager = SimpleNamespace(get_important=lambda: [memory], get_recent=lambda **kwargs: [memory], find_similar=find_similar)
     context = asyncio.run(build_memory_context(SimpleNamespace(memory_manager=manager), "가상 부품"))
+    assert "[과거 대화 경험]" not in context
     assert context.count(memory.summary) == 1
