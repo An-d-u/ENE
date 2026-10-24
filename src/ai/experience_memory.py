@@ -120,10 +120,8 @@ def build_experience_query(latest_query, recent_memory_messages) -> ExperienceQu
             text = str(message.get("text") or "").strip()
             if not text or text == latest_query:
                 continue
-            if _TOPIC_SWITCH.search(text):
-                break
             recent.append((message["turn_id"], text))
-            if len(recent) == 2:
+            if _TOPIC_SWITCH.search(text) or len(recent) == 2:
                 break
     remaining = 600
     selected = []
@@ -311,8 +309,14 @@ def is_experience_followup(query, recent_messages):
     """과거 원문과 별개로 지금 대화에 사용자 근거와 조수 응답이 있는지 확인한다."""
     if _TOPIC_SWITCH.search(query) or not (_REFERENCE.search(query) or re.search(r"그럼|그러면|이어서|다음|\bthen\b", query, re.I)):
         return False
-    return (bool(build_experience_query(query, recent_messages).evidence_turn_ids)
-            and any(message.get("role") == "assistant" and message.get("text") for message in recent_messages or []))
+    if not build_experience_query(query, recent_messages).evidence_turn_ids:
+        return False
+    for message in reversed(recent_messages or []):
+        if message.get("role") == "user" and _TOPIC_SWITCH.search(str(message.get("text") or "")):
+            break
+        if message.get("role") == "assistant" and message.get("text"):
+            return True
+    return False
 
 
 def render_experiences(items, memories, topic_results, *, max_chars=2800, max_items=2, followup=False):

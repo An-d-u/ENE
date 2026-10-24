@@ -63,6 +63,26 @@ def test_unresolved_recall_cannot_be_answered_by_experience_bypass(tmp_path):
     assert "[과거 대화 경험]" not in context
 
 
+@pytest.mark.parametrize("has_new_reply", [False, True])
+def test_short_question_after_topic_switch_retrieves_new_subject_experience(tmp_path, has_new_reply):
+    client = client_for(tmp_path)
+    trace = MemoryContextTrace()
+    messages = [
+        {"role": "user", "text": "철사 풍차를 조립하고 있어.", "turn_id": "old"},
+        {"role": "assistant", "text": "풍차 날개를 이야기하자.", "turn_id": "old-assistant"},
+        {"role": "user", "text": "다른 주제. 나무 모빌 균형.", "turn_id": "switch"},
+    ]
+    if has_new_reply:
+        messages.append({"role": "assistant", "text": "계속 이야기해 주세요.", "turn_id": "assistant"})
+    context = asyncio.run(build_memory_context(client, "이번에도?", trace=trace, recent_memory_messages=messages))
+    assert "[과거 대화 경험]" in context
+    assert ("[지금 대화의 후속 응답]" in context) == has_new_reply
+    assert "양쪽 무게를 맞춰보자." in context
+    assert "맞추니 수평이 됐어." in context
+    assert {ref["memory_id"] for ref in trace.experience_refs} == {"past"}
+    assert "철사 풍차" not in context
+
+
 def test_render_drops_changed_sources_and_rejects_overlong_claims(tmp_path):
     from src.ai.experience_memory import retrieve_experiences, render_experiences
     client = client_for(tmp_path)

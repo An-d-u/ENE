@@ -1,6 +1,7 @@
 """경험 근거의 출처·이력·일반 문맥 계약."""
 import asyncio
 from types import SimpleNamespace
+import pytest
 
 from src.ai.knowledge_map import KnowledgeMapManager
 from src.ai.knowledge_map_types import TopicMemoryTopic, TopicMemoryClue, TopicMemoryHistoryItem, TopicMemorySearchResult
@@ -88,6 +89,37 @@ def test_explicit_topic_switch_clears_earlier_search_context():
         {"role": "user", "text": "나무 모빌 균형", "turn_id": "u"}])
     assert "모빌" not in frame.expanded_query
     assert not frame.evidence_turn_ids
+
+
+@pytest.mark.parametrize(("transition", "query"), [
+    ("다른 주제. 유리 구슬 장식을 다시 만들고 있어.", "이번에도 같은 방식으로 할까?"),
+    ("New topic: I am making a glass bead ornament again.", "Should I use the same method?"),
+    ("別の話にしよう。ガラス玉の飾りをまた作っている。", "同じ方法にしようか？"),
+])
+def test_recent_topic_switch_keeps_new_subject_and_excludes_older_context(transition, query):
+    from src.ai.experience_memory import build_experience_query
+    frame = build_experience_query(query, [
+        {"role": "user", "text": "철사 풍차를 만들고 있었어.", "turn_id": "old"},
+        {"role": "user", "text": transition, "turn_id": "switch"},
+        {"role": "assistant", "text": "풍차 날개를 이야기하자.", "turn_id": "assistant"},
+    ])
+    assert frame.latest_query == query
+    assert frame.expanded_query == transition + "\n" + query
+    assert frame.evidence_turn_ids == ("switch",)
+
+
+def test_recent_topic_switch_keeps_later_user_turn_within_context_limit():
+    from src.ai.experience_memory import build_experience_query
+    transition = "다른 주제. 유리 구슬 장식을 만들 거야."
+    later = "이번 것은 더 작게 만들고 싶어."
+    query = "같은 방식으로 해볼까?"
+    frame = build_experience_query(query, [
+        {"role": "user", "text": "다른 주제. 철사 풍차 이야기야.", "turn_id": "old-switch"},
+        {"role": "user", "text": transition, "turn_id": "switch"},
+        {"role": "user", "text": later, "turn_id": "later"},
+    ])
+    assert frame.expanded_query == "\n".join((transition, later, query))
+    assert frame.evidence_turn_ids == ("switch", "later")
 
 
 def test_request_cache_is_request_scoped_and_separates_provider_and_model():
