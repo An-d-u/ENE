@@ -1187,6 +1187,11 @@ class GeminiClient:
                     generation_params=attempt_params,
                     settings_source=settings_snapshot,
                 )
+                if attempt.expand_output_budget and self.model_name.removeprefix(
+                    "models/"
+                ).startswith(("gemini-3-", "gemini-3.")):
+                    # 길이 초과 재시도에서 추론이 늘어난 출력 예산까지 소진하지 않게 한다.
+                    request_config["thinking_config"] = {"thinking_level": "low"}
                 if attempt.phase == "policy_regenerate":
                     appendix = build_mood_policy_retry_appendix(
                         attempt.policy_error_code,

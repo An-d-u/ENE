@@ -1331,3 +1331,47 @@ def test_gemini_usage_property_failure_records_one_unknown_attempt(
     )
     assert recorded_attempts == [unknown_usage]
     assert client.get_last_token_usage() == unknown_usage
+
+
+@pytest.mark.parametrize('model', ['gemini-3.8-flash', 'gemini-3-flash-preview', 'models/gemini-3.1-pro-preview'])
+def test_length_recovery_limits_thinking_and_restores_next_turn(gemini_harness, model):
+    reply = '전에 양쪽 구슬 무게를 맞춰 안정됐으니 새 장식의 균형도 확인해봐요.'
+    def response_for_thinking():
+        config = gemini_harness.sdk.send_message_configs[-1] or gemini_harness.created_configs[-1]
+        if config.get('thinking_config', {}).get('thinking_level') != 'low':
+            return gemini_harness.response('{"reply":"잘린 합성', finish_reason='MAX_TOKENS')
+        return gemini_harness.response(valid_envelope_json(reply=reply))
+    client = gemini_harness.client([response_for_thinking, response_for_thinking, valid_envelope_json(reply='다음 답변')], max_tokens=1024)
+    client.model_name = model
+    assert client.send_message('새 장식이 기울어졌어요.')[0] == reply
+    assert len(gemini_harness.sdk.send_message_configs) == 2
+    retry = gemini_harness.sdk.send_message_configs[-1]
+    assert retry['max_output_tokens'] == 8192
+    assert retry['thinking_config'] == {'thinking_level': 'low'}
+    assert all('thinking_config' not in config for config in gemini_harness.created_configs)
+    assert '잘린 합성' not in str(client.get_conversation_history())
+    assert client.send_message('다음 합성 질문')[0] == '다음 답변'
+    assert gemini_harness.sdk.send_message_configs[-1] is None
+    assert 'thinking_config' not in gemini_harness.created_configs[-1]
+
+@pytest.mark.parametrize('model', ['gemini-2.5-flash', 'gemini-synthetic', 'gemini-30-flash'])
+def test_length_recovery_does_not_add_thinking_to_other_models(gemini_harness, model):
+    client = gemini_harness.client([gemini_harness.response('', finish_reason='MAX_TOKENS'), valid_envelope_json()], max_tokens=1024)
+    client.model_name = model
+    client.send_message('합성 질문')
+    assert 'thinking_config' not in gemini_harness.sdk.send_message_configs[-1]
+
+def test_format_recovery_keeps_default_thinking(gemini_harness):
+    client = gemini_harness.client(['합성 형식 오류', valid_envelope_json()], max_tokens=1024)
+    client.model_name = 'gemini-3.8-flash'
+    client.send_message('합성 질문')
+    assert len(gemini_harness.sdk.send_message_configs) == 2
+    assert 'thinking_config' not in gemini_harness.sdk.send_message_configs[-1]
+    assert gemini_harness.sdk.send_message_configs[-1]['max_output_tokens'] == 1024
+
+def test_refusal_does_not_trigger_low_thinking_retry(gemini_harness):
+    client = gemini_harness.client([gemini_harness.response('', finish_reason='SAFETY')], max_tokens=1024)
+    client.model_name = 'gemini-3.8-flash'
+    with pytest.raises(ProviderRefusalError):
+        client.send_message('합성 질문')
+    assert len(gemini_harness.sdk.send_message_configs) == 1
