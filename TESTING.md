@@ -5,6 +5,7 @@
 ```powershell
 python -m pip install --upgrade pip
 pip install -r requirements-dev.txt
+python -m pip check
 python -m coverage run --source=src --omit="src/core/app.py,src/core/audio_player.py,src/core/global_ptt.py,src/core/overlay_window.py,src/core/bridge_workers.py,src/core/bridge_mixins/attachments.py,src/core/bridge_mixins/away.py,src/core/bridge_mixins/memory_summary.py,src/core/bridge_mixins/mood.py,src/core/bridge_mixins/obsidian.py,src/ui/drag_bar.py,src/ui/settings_dialog_hotkeys.py,src/ui/settings_dialog_profile.py,src/ui/settings_dialog_prompt.py,src/ui/settings_dialog_theme.py,src/ui/settings_dialog_tts.py,src/ui/settings_dialog_widgets.py,src/ai/http_llm_clients.py,src/ai/http_llm_common.py,src/ai/http_llm_openai.py,src/ai/http_llm_custom_providers.py,src/ai/http_llm_anthropic.py,src/ai/http_llm_ollama.py,src/ai/llm_client.py" -m pytest -q
 if ($LASTEXITCODE -ne 0) { throw "테스트 실패: $LASTEXITCODE" }
 python -m coverage report --show-missing --skip-empty --fail-under=80
@@ -12,6 +13,22 @@ if ($LASTEXITCODE -ne 0) { throw "커버리지 기준 미달: $LASTEXITCODE" }
 ```
 
 이 커버리지 게이트는 GUI, 오디오 장치, 외부 HTTP 런타임처럼 CI에서 안정적으로 재현하기 어려운 표면을 제외한 선별 대상 기준이다.
+
+## 의존성 환경 검증
+
+`tests/test_dependency_contracts.py`는 설치된 모든 직접 런타임 의존성이
+`requirements.txt`의 버전 조건을 만족하는지 확인한다. 또한 정상 합성 PNG·JPEG·JPEG2000의
+첨부 처리와 SDK 이미지 변환, PDF 텍스트 추출, Gemini 길이 복구 설정을 실제 설치 패키지로 검증한다.
+모델 API나 실제 사용자 파일은 사용하지 않는다. 테스트 전에는 위 설치 명령으로 가상 환경을 맞춘다.
+
+```powershell
+python -m pytest tests/test_dependency_contracts.py tests/test_chat_attachments.py tests/test_gemini_structured_outputs.py tests/test_companion_tls_identity.py tests/test_companion_tls_storage.py tests/test_companion_tls_gateway.py -q
+```
+
+Pillow 하한 13.0.0은 [번들 OpenJPEG 보안 수정](https://github.com/python-pillow/Pillow/security/advisories/GHSA-78g4-xqwv-q3g8),
+pypdf 하한 6.21.2는 [xref 처리 보안 수정](https://github.com/py-pdf/pypdf/releases/tag/6.21.2)을 포함한다.
+google-genai 하한 2.9.0은 Gemini 길이 복구의 `thinking_level` 설정을 실제 SDK로 검증한 기준이다.
+cryptography는 선언된 정확한 버전으로 TLS 인증서·키 저장·연결 테스트를 수행해야 한다.
 
 ## 정적 검사
 
