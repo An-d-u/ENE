@@ -92,19 +92,19 @@ def build_away_nudge_prompt(
         return (
             f"Status notice: {prompt_user_name} has not talked to you for the last {idle}. "
             f"{input_note}, so they may still be using the computer. "
-            f"Look at the latest full-screen image just attached and reply with one short line "
-            f"that gently shows you would like {prompt_user_name} to talk to you a little."
+            "Look at the latest full-screen image just attached and naturally start a conversation "
+            "with one short remark about what is on the screen."
         )
     if normalized_language == "ja":
         return (
             f"状態通知: {prompt_user_name}は直近{idle}、あなたに話しかけていません。"
             f"{input_note}。まだPCを使っている可能性があります。"
-            f"添付された最新の全画面画像を見て、{prompt_user_name}に少し話しかけてほしい気持ちが"
-            f"伝わる短い一言を返してください。"
+            "添付された最新の全画面画像を見て、画面に映っている内容に触れながら、"
+            "短い一言で自然に話しかけてください。"
         )
     return (
         f"상태 알림: {prompt_user_name}{korean_subject_particle(prompt_user_name)} 최근 {idle} 동안 너에게 말을 걸지 않았어. "
         f"{input_note}. 아직 컴퓨터를 쓰고 있을 가능성이 있어. "
-        f"방금 첨부한 최신 전체 화면 1장을 보고, {prompt_user_name}{korean_subject_particle(prompt_user_name)} 너에게 말을 조금 걸어줬으면 좋겠다는 "
-        f"티가 나는 짧은 한마디를 해줘."
+        "방금 첨부한 최신 전체 화면 1장을 보고, 화면 속 내용과 관련해서 "
+        "자연스럽게 짧은 한마디로 말을 걸어줘."
     )

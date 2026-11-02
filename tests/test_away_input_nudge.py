@@ -28,7 +28,7 @@ class _DummyAwayBridge(AwayNudgeBridgeMixin):
     def _with_prompt_time(self, timestamp, prompt):
         return f"[현재 시각: {timestamp}]\n{prompt}"
 
-    def _capture_full_desktop_hidden_overlay(self):
+    def _capture_full_desktop_without_overlay(self):
         self.capture_count += 1
         return object(), "data:image/png;base64,latest"
 
@@ -90,7 +90,7 @@ def test_away_capture_rechecks_arbiter_after_reentrant_overlay_events(monkeypatc
         bridge.away_check_in_progress = False
         return object(), "data:image/png;base64,should-not-escape"
 
-    bridge._capture_full_desktop_hidden_overlay = capture_with_reentrant_chat
+    bridge._capture_full_desktop_without_overlay = capture_with_reentrant_chat
     monkeypatch.setattr(
         "src.core.bridge_mixins.away.get_system_idle_seconds",
         lambda: (_ for _ in ()).throw(

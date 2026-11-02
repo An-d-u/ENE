@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import QApplication
 from ...ai.persona_names import resolve_prompt_persona_names
 from ..away_nudge import build_away_nudge_prompt
 from ..system_idle import get_system_idle_seconds
+from ..window_capture import exclude_window_from_capture
 
 
 class AwayNudgeBridgeMixin:
@@ -106,7 +107,7 @@ class AwayNudgeBridgeMixin:
             self._cancel_away_pipeline()
             return
 
-        latest_result = self._capture_full_desktop_hidden_overlay()
+        latest_result = self._capture_full_desktop_without_overlay()
         if latest_result is None:
             print("[Bridge] Away capture 실패")
             self._cancel_away_pipeline()
@@ -163,32 +164,39 @@ class AwayNudgeBridgeMixin:
 
         self.away_check_in_progress = False
 
-    def _capture_full_desktop_hidden_overlay(self):
-        """ENE 창을 잠시 숨긴 뒤 전체 모니터를 합성 캡처한다."""
-        overlay = self.parent() if self.parent() else None
+    def _capture_full_desktop_without_overlay(self):
+        """ENE 창을 캡처에서 제외하고, 지원하지 않으면 잠시 숨긴다."""
+        overlay = self.parent()
         was_visible = False
+        window_id = None
         if overlay and hasattr(overlay, "isVisible"):
             try:
                 was_visible = bool(overlay.isVisible())
                 if was_visible:
-                    overlay.hide()
-                    QApplication.processEvents()
-            except Exception:
-                was_visible = False
+                    window_id = int(overlay.winId())
+            except (AttributeError, RuntimeError, TypeError, ValueError):
+                pass
 
-        try:
-            image = self._capture_full_desktop_image()
-            if image is None:
-                return None
-            data_url = self._qimage_to_data_url(image)
-            return image, data_url
-        finally:
-            if overlay and was_visible:
-                try:
-                    overlay.show()
+        with exclude_window_from_capture(window_id) as excluded:
+            hidden_for_capture = False
+            try:
+                if overlay and was_visible and not excluded:
+                    overlay.hide()
+                    hidden_for_capture = True
                     QApplication.processEvents()
-                except Exception:
-                    pass
+                image = self._capture_full_desktop_image()
+            finally:
+                if hidden_for_capture:
+                    try:
+                        overlay.show()
+                        QApplication.processEvents()
+                    except RuntimeError:
+                        pass
+
+        if image is None:
+            return None
+        data_url = self._qimage_to_data_url(image)
+        return image, data_url
 
     def _capture_full_desktop_image(self):
         """모든 모니터를 하나의 이미지로 합성한다."""

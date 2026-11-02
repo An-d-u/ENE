@@ -26,7 +26,7 @@ def test_build_away_nudge_prompt_for_recent_english_input():
 
     assert "Master has not talked to you for the last 12 minutes" in prompt
     assert "keyboard or mouse input happened within the last 5 minutes" in prompt
-    assert "would like Master to talk to you a little" in prompt
+    assert "one short remark about what is on the screen" in prompt
 
 
 def test_build_away_nudge_prompt_uses_custom_user_name():
@@ -38,7 +38,7 @@ def test_build_away_nudge_prompt_uses_custom_user_name():
     )
 
     assert "Captain has not talked to you for the last 12 minutes" in prompt
-    assert "would like Captain to talk to you a little" in prompt
+    assert "one short remark about what is on the screen" in prompt
     assert "Master" not in prompt
 
 
