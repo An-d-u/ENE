@@ -22,13 +22,19 @@ if ($LASTEXITCODE -ne 0) { throw "커버리지 기준 미달: $LASTEXITCODE" }
 모델 API나 실제 사용자 파일은 사용하지 않는다. 테스트 전에는 위 설치 명령으로 가상 환경을 맞춘다.
 
 ```powershell
-python -m pytest tests/test_dependency_contracts.py tests/test_chat_attachments.py tests/test_gemini_structured_outputs.py tests/test_companion_tls_identity.py tests/test_companion_tls_storage.py tests/test_companion_tls_gateway.py -q
+python -m pytest tests/test_dependency_contracts.py tests/test_dependency_security_regressions.py tests/test_chat_attachments.py tests/test_gemini_structured_outputs.py tests/test_companion_tls_identity.py tests/test_companion_tls_storage.py tests/test_companion_tls_gateway.py tests/test_tts_client.py -q
 ```
 
 Pillow 하한 13.0.0은 [번들 OpenJPEG 보안 수정](https://github.com/python-pillow/Pillow/security/advisories/GHSA-78g4-xqwv-q3g8),
-pypdf 하한 6.21.2는 [xref 처리 보안 수정](https://github.com/py-pdf/pypdf/releases/tag/6.21.2)을 포함한다.
+pypdf 하한 6.21.4는 [xref EOF와 페이지 트리 처리 보안 수정](https://github.com/py-pdf/pypdf/releases/tag/6.21.4)을 포함한다.
+aiohttp 하한 3.14.5는 [WebSocket 자원 소모 수정](https://github.com/aio-libs/aiohttp/security/advisories/GHSA-2g87-pp6c-29x5)과
+[후속 제어 프레임 오류 수정](https://github.com/aio-libs/aiohttp/releases/tag/v3.14.5)을 포함한다.
 google-genai 하한 2.9.0은 Gemini 길이 복구의 `thinking_level` 설정을 실제 SDK로 검증한 기준이다.
 cryptography는 선언된 정확한 버전으로 TLS 인증서·키 저장·연결 테스트를 수행해야 한다.
+
+`tests/test_dependency_security_regressions.py`는 수십 바이트의 합성 불완전 PDF가 첨부 오류로 종료되는지
+별도 프로세스에서 10초 제한으로 확인한다. 빈 WebSocket 메시지도 수신 큐의 읽기 중단을 유발하고,
+큐를 비우면 읽기가 재개되는지 실제 설치된 aiohttp 구현으로 확인한다. 외부 서버나 사용자 파일을 사용하지 않는다.
 
 ## 정적 검사
 
