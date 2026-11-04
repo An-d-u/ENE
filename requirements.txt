@@ -1,5 +1,10 @@
-PyQt6>=6.6.0
-PyQt6-WebEngine>=6.6.0
+# Windows에서는 Qt와 WebEngine DLL을 검증된 동일 런타임 버전으로 맞춘다.
+PyQt6==6.11.0; sys_platform == "win32"
+PyQt6-WebEngine==6.11.0; sys_platform == "win32"
+PyQt6-Qt6==6.11.2; sys_platform == "win32"
+PyQt6-WebEngine-Qt6==6.11.2; sys_platform == "win32"
+PyQt6>=6.6.0; sys_platform != "win32"
+PyQt6-WebEngine>=6.6.0; sys_platform != "win32"
 google-genai>=2.9.0
 voyageai>=0.2.0
 numpy>=1.24.0
