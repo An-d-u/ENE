@@ -1,4 +1,7 @@
 {
+  "settings.behavior.debug.title": "Debug",
+  "settings.behavior.debug.enable": "Save debug logs",
+  "settings.behavior.debug.hint": "Applies after saving. Records full prompts, models, generation times and original errors in log inside the ENE application folder. Logs may contain conversations and personal information; review before sharing.",
   "settings.tts.output.reason.audio_focus_lost": "Phone audio focus was lost",
   "settings.tts.output.reason.audio_route_changed": "Stopped after phone audio device changed",
   "settings.tts.output.target.label": "Playback device:",

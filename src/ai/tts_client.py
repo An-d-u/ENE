@@ -9,11 +9,46 @@ import aiohttp
 import asyncio
 import io
 import wave
+from contextlib import aclosing
 from dataclasses import dataclass
+from functools import wraps
 from pathlib import Path
 from typing import AsyncIterator, Protocol, runtime_checkable
 
 from ..core.app_paths import resolve_runtime_resource_path
+from ..core.debug_logging import debug_request, debug_logging_enabled, record_debug_error
+
+
+def _tts_debug_request(client, text, *, streaming=False):
+    """서버가 노출하지 않는 모델명은 추측하지 않고 설정 식별자를 남긴다."""
+    def payload():
+        values = {"text": client._normalize_tts_text(text), "streaming": streaming}
+        for name in ("voice", "reference_id", "character_name", "onnx_model_dir", "ref_audio_path",
+                     "ref_text", "ref_language", "model_language", "target_language"):
+            if hasattr(client, name):
+                values[name] = getattr(client, name)
+        return values
+    # 스트리밍은 청크 소비자와 종료 작업이 다른 실행 맥락일 수 있다.
+    return debug_request("tts", client.provider_name, getattr(client, "model", None), payload,
+                         bind_context=not streaming)
+
+
+def _trace_tts_generation(method):
+    @wraps(method)
+    async def generate(client, text):
+        with _tts_debug_request(client, text):
+            return await method(client, text)
+    return generate
+
+
+def _trace_tts_stream(method):
+    @wraps(method)
+    async def stream(client, text):
+        with _tts_debug_request(client, text, streaming=True):
+            async with aclosing(method(client, text)) as chunks:
+                async for chunk in chunks:
+                    yield chunk
+    return stream
 
 
 @runtime_checkable
@@ -284,6 +319,7 @@ class GPTSoVITSHTTPClient(BaseTTSClient):
             "text_split_method": self.text_split_method,
         }
 
+    @_trace_tts_generation
     async def generate_speech(self, text: str) -> bytes:
         params = self._build_request_payload(text)
 
@@ -303,6 +339,7 @@ class GPTSoVITSHTTPClient(BaseTTSClient):
         except aiohttp.ClientError as e:
             raise RuntimeError(f"TTS API connection error: {e}")
 
+    @_trace_tts_stream
     async def stream_speech(self, text: str) -> AsyncIterator[bytes]:
         params = self._build_request_payload(text)
 
@@ -418,6 +455,7 @@ class GenieTTSHTTPClient(BaseTTSClient):
         )
         self._initialized = True
 
+    @_trace_tts_generation
     async def generate_speech(self, text: str) -> bytes:
         normalized_text = self._normalize_tts_text(text)
         if not normalized_text:
@@ -469,6 +507,7 @@ class OpenAISpeechClient(BaseTTSClient):
         self.require_api_key = bool(require_api_key)
         print(f"[TTS][{self.provider_name}] API: {self.api_url} / model={self.model} / voice={self.voice}")
 
+    @_trace_tts_generation
     async def generate_speech(self, text: str) -> bytes:
         normalized_text = self._normalize_tts_text(text)
         if not normalized_text:
@@ -542,6 +581,7 @@ class ElevenLabsSpeechClient(BaseTTSClient):
         self.output_format = str(output_format or "pcm_44100").strip() or "pcm_44100"
         print(f"[TTS][ElevenLabs] API: {self.api_url} / model={self.model} / voice={self.voice}")
 
+    @_trace_tts_generation
     async def generate_speech(self, text: str) -> bytes:
         normalized_text = self._normalize_tts_text(text)
         if not normalized_text:
@@ -615,6 +655,7 @@ class FishAudioSpeechClient(BaseTTSClient):
         self.reference_id = str(reference_id or "").strip()
         self.speed = float(speed or 1.0)
 
+    @_trace_tts_generation
     async def generate_speech(self, text: str) -> bytes:
         normalized_text = self._normalize_tts_text(text)
         if not normalized_text:
@@ -646,6 +687,12 @@ class FishAudioSpeechClient(BaseTTSClient):
                     timeout=aiohttp.ClientTimeout(total=60),
                 ) as response:
                     if response.status != 200:
+                        if debug_logging_enabled():
+                            try:
+                                record_debug_error(error_body=await response.text(), status_code=response.status)
+                            except Exception:
+                                # 진단 본문을 읽지 못해도 기존 사용자용 오류는 유지한다.
+                                pass
                         # 서버 오류 원문에는 키나 합성 텍스트가 포함될 수 있다.
                         message = {
                             401: "API 키가 올바른지 확인하세요.",
@@ -657,9 +704,11 @@ class FishAudioSpeechClient(BaseTTSClient):
                         }.get(response.status, "서버 요청에 실패했습니다. 잠시 후 다시 시도하세요.")
                         raise RuntimeError(f"Fish Audio 오류 ({response.status}): {message}")
                     raw_audio = await response.read()
-        except asyncio.TimeoutError:
+        except asyncio.TimeoutError as failure:
+            record_debug_error(exception=failure)
             raise RuntimeError("Fish Audio 응답 대기 시간을 초과했습니다. 잠시 후 다시 시도하세요.") from None
-        except aiohttp.ClientError:
+        except aiohttp.ClientError as failure:
+            record_debug_error(exception=failure)
             raise RuntimeError("Fish Audio 연결에 실패했습니다. 네트워크와 API URL을 확인하세요.") from None
 
         if not raw_audio or len(raw_audio) % 2:

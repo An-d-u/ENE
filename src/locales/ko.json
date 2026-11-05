@@ -1,4 +1,7 @@
 {
+  "settings.behavior.debug.title": "디버그",
+  "settings.behavior.debug.enable": "디버그 로그 저장",
+  "settings.behavior.debug.hint": "저장 후 적용됩니다. ENE 실행 폴더의 log에 프롬프트 전문, 모델, 생성 시간, 오류 원문을 기록합니다. 대화와 개인정보가 포함될 수 있으므로 공유 전에 내용을 확인하세요.",
   "settings.tts.output.reason.audio_focus_lost": "휴대폰 오디오 포커스를 잃음",
   "settings.tts.output.reason.audio_route_changed": "휴대폰 오디오 장치 변경으로 중단",
   "settings.tts.output.target.label": "재생 기기:",

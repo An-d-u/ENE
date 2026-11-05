@@ -44,6 +44,7 @@ release/
 pip-wheel-metadata/
 
 # Local runtime files
+log/
 backups/
 .worktrees/
 .antigravityrules

@@ -26,6 +26,8 @@ from uuid import UUID
 
 import requests
 
+from ..core.debug_logging import debug_request, debug_logging_enabled, record_debug_error
+
 from ..conversation_format import prepend_message_time
 from .memory_context_builder import build_memory_context as build_common_memory_context
 from .openai_model_policy import normalize_reasoning_effort
@@ -1262,10 +1264,22 @@ def _post_with_safe_errors(
     provider_name: str,
     url: str,
     post_request: Callable[..., object],
+    debug_model: str | None = None,
     **kwargs,
 ):
     try:
-        return post_request(url, **kwargs)
+        payload = kwargs.get("json", {})
+        model = debug_model or (payload.get("model") if isinstance(payload, dict) else None)
+        with debug_request("llm", provider_name, model, payload):
+            response = post_request(url, **kwargs)
+            if debug_logging_enabled():
+                try:
+                    if isinstance(response.status_code, int) and response.status_code >= 400:
+                        record_debug_error(error_body=response.text, status_code=response.status_code)
+                except Exception:
+                    # 진단 본문을 읽는 실패는 기존 응답 처리를 방해하지 않는다.
+                    pass
+            return response
     except requests.RequestException as failure:
         if isinstance(failure, requests.Timeout):
             error_type = requests.Timeout

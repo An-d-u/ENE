@@ -596,6 +596,7 @@ class SettingsDialogValuesMixin:
             self._refresh_theme_editor_state()
 
             self.show_drag_bar_check.setChecked(self._original_settings.get("show_drag_bar", True))
+            self.debug_mode_check.setChecked(self._original_settings.get("debug_mode", False))
             self.show_recent_reroll_button_check.setChecked(
                 self._original_settings.get("show_recent_reroll_button", True)
             )
@@ -1082,6 +1083,7 @@ class SettingsDialogValuesMixin:
             "show_recent_reroll_button": self.show_recent_reroll_button_check.isChecked(),
             "show_recent_edit_button": self.show_recent_edit_button_check.isChecked(),
             "show_token_usage_bubble": self.show_token_usage_bubble_check.isChecked(),
+            "debug_mode": self.debug_mode_check.isChecked(),
             "typing_effect_enabled": self.typing_effect_check.isChecked(),
             "typing_effect_speed": str(self.typing_effect_speed_combo.currentData() or "normal"),
             "message_split_enabled": self.message_split_check.isChecked(),

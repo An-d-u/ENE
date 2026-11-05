@@ -36,6 +36,7 @@ class Settings:
     """Application settings manager."""
 
     DEFAULT_CONFIG = {
+        "debug_mode": False,
         "companion_enabled": False,
         "companion_port": 8765,
         "window_x": 100,

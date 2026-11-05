@@ -772,6 +772,21 @@ def build_behavior_tab(dialog):
     )
     layout.addWidget(life_record_group)
 
+    debug_group = QGroupBox("디버그")
+    self._bind_group_title(debug_group, "settings.behavior.debug.title", "디버그")
+    debug_layout = QVBoxLayout(debug_group)
+    self.debug_mode_check = self._create_toggle(
+        "디버그 로그 저장", key="settings.behavior.debug.enable",
+    )
+    self.debug_mode_check.toggled.connect(self._on_setting_changed)
+    debug_layout.addWidget(self.debug_mode_check)
+    debug_layout.addWidget(self._build_hint_label(
+        "저장 후 적용됩니다. ENE 실행 폴더의 log에 프롬프트 전문, 모델, 생성 시간, 오류 원문을 기록합니다. "
+        "대화와 개인정보가 포함될 수 있으므로 공유 전에 내용을 확인하세요.",
+        key="settings.behavior.debug.hint",
+    ))
+    layout.addWidget(debug_group)
+
     layout.addStretch()
     scroll.setWidget(widget)
     return scroll

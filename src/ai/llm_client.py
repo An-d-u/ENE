@@ -11,6 +11,8 @@ from uuid import UUID
 
 from google import genai
 
+from ..core.debug_logging import debug_request
+
 from ..conversation_format import prepend_message_time
 from .memory_context_builder import (
     _format_context_full_date as _format_context_full_date,
@@ -429,7 +431,29 @@ class GeminiClient:
         }
         if history is not None:
             kwargs["history"] = history
+        self._debug_chat_config = kwargs["config"]
         return self.client.chats.create(**kwargs)
+
+    def _generate_content(self, **kwargs):
+        """동기 SDK 요청은 오류를 변환하기 전에 계측한다."""
+        with debug_request("llm", "gemini", kwargs.get("model"), kwargs):
+            return self.client.models.generate_content(**kwargs)
+
+    async def _generate_content_async(self, **kwargs):
+        """비동기 단발 생성도 같은 기록 경계를 사용한다."""
+        with debug_request("llm", "gemini", kwargs.get("model"), kwargs):
+            return await self.client.aio.models.generate_content(**kwargs)
+
+    def _send_chat_message(self, contents, **kwargs):
+        """시스템 지침과 SDK가 실제로 재전송하는 대화 기록을 함께 저장한다."""
+        def payload():
+            return {
+                "config": kwargs.get("config") or getattr(self, "_debug_chat_config", {}),
+                "history": self.chat.get_history(curated=True),
+                "contents": contents,
+            }
+        with debug_request("llm", "gemini", getattr(self, "model_name", None), payload):
+            return self.chat.send_message(contents, **kwargs)
 
     def _normalize_generation_params(self, params: dict | None) -> dict:
         defaults = {
@@ -543,7 +567,7 @@ class GeminiClient:
         )
 
     def _request_summary_text(self, prompt: str) -> str:
-        response = self.client.models.generate_content(
+        response = self._generate_content(
             model=self.model_name,
             contents=prompt,
             config=self._build_summary_config(request_kind=LLMRequestKind.SUMMARY),
@@ -557,7 +581,7 @@ class GeminiClient:
         print(
             f"[LLM] category=summary_retry missing_count={missing_count or 0}"
         )
-        retry_response = self.client.models.generate_content(
+        retry_response = self._generate_content(
             model=self.model_name,
             contents=self._summary_retry_prompt(prompt, missing_sections),
             config=self._build_summary_config(request_kind=LLMRequestKind.SUMMARY),
@@ -572,7 +596,7 @@ class GeminiClient:
         include_sub_prompt: bool,
     ) -> str:
         """히스토리를 남기지 않는 일회성 생성 호출."""
-        response = self.client.models.generate_content(
+        response = self._generate_content(
             model=self.model_name,
             contents=message,
             config=self._build_chat_config(
@@ -619,7 +643,7 @@ class GeminiClient:
         native_failed = False
         fallback_required = False
         try:
-            response = await self.client.aio.models.generate_content(
+            response = await self._generate_content_async(
                 model=self.model_name,
                 contents=prompt,
                 config=self._build_life_record_config(
@@ -649,7 +673,7 @@ class GeminiClient:
             result_mode = ResponseMode.LEGACY_TAGS
             fallback_failed = False
             try:
-                response = await self.client.aio.models.generate_content(
+                response = await self._generate_content_async(
                     model=self.model_name,
                     contents=prompt,
                     config=self._build_life_record_config(
@@ -1152,7 +1176,7 @@ class GeminiClient:
                     else None
                 )
                 try:
-                    response = self.client.models.generate_content(
+                    response = self._generate_content(
                         model=self.model_name,
                         contents=prompt,
                         config=self._build_repair_config(
@@ -1203,9 +1227,9 @@ class GeminiClient:
             non_repair_attempts += 1
             try:
                 if request_config is None:
-                    response = self.chat.send_message(contents)
+                    response = GeminiClient._send_chat_message(self, contents)
                 else:
-                    response = self.chat.send_message(
+                    response = GeminiClient._send_chat_message(self,
                         contents,
                         config=request_config,
                     )
@@ -1599,7 +1623,7 @@ class GeminiClient:
                 )
                 return result
             self._refresh_chat_session_for_runtime_prompt_if_needed()
-            response = self.chat.send_message(contents)
+            response = GeminiClient._send_chat_message(self, contents)
             self._log_turn_token_usage(response, label="멀티모달")
             
             response_text = self._extract_response_text_or_empty(response, label="멀티모달")
@@ -1855,7 +1879,7 @@ class GeminiClient:
                 return result
 
             self._refresh_chat_session_for_runtime_prompt_if_needed()
-            response = self.chat.send_message(request_message)
+            response = GeminiClient._send_chat_message(self, request_message)
             self._log_turn_token_usage(response, label="텍스트")
             response_text = self._extract_response_text_or_empty(response, label="텍스트")
             if history_user_content is not None or request_message != message:

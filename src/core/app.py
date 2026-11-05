@@ -25,6 +25,7 @@ from .life_session_tracker import (
 )
 from .local_time import TIMEZONE_UNAVAILABLE, resolve_local_time_context
 from .settings import Settings
+from .debug_logging import configure_debug_logging
 from .system_theme import get_theme_preset, get_windows_theme_mode
 from .overlay_window import OverlayWindow
 from .global_ptt import GlobalPTTController
@@ -110,6 +111,7 @@ class ENEApplication(QObject):
         
         # 설정 관리자
         self.settings = Settings()
+        configure_debug_logging(self.settings)
         self.i18n = configure_i18n(language=str(self.settings.get("ui_language", "auto")))
         self._last_system_theme_mode = None
         self._apply_followed_system_theme(save=True)
@@ -893,6 +895,7 @@ class ENEApplication(QObject):
                 except Exception:
                     return {"status": "rejected", "reason": "storage_failed"}
         self.overlay_window.apply_new_settings(new_settings)
+        configure_debug_logging(self.settings)
         if hasattr(self.overlay_window, "bridge") and self.overlay_window.bridge:
             refresh_proactive_settings = getattr(self.overlay_window.bridge, "refresh_proactive_settings", None)
             if callable(refresh_proactive_settings):

@@ -1,4 +1,7 @@
 {
+  "settings.behavior.debug.title": "デバッグ",
+  "settings.behavior.debug.enable": "デバッグログを保存",
+  "settings.behavior.debug.hint": "保存後に適用されます。ENE実行フォルダーのlogにプロンプト全文、モデル、生成時間、元のエラーを記録します。会話や個人情報を含むため、共有前に内容を確認してください。",
   "settings.tts.output.reason.audio_focus_lost": "スマートフォンの音声フォーカスを失いました",
   "settings.tts.output.reason.audio_route_changed": "スマートフォンの音声デバイス変更により停止",
   "settings.tts.output.target.label": "再生先:",

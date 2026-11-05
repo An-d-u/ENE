@@ -143,7 +143,7 @@ class GoogleCloudClient(_CommonMixin):
         if generation_params["max_tokens"] > 0:
             payload["generation_config"]["maxOutputTokens"] = generation_params["max_tokens"]
         timeout = request_descriptor.timeout_seconds if request_descriptor is not None else 60
-        response = _post_with_safe_errors(self.provider_name, self._endpoint(), requests.post, headers=self._headers(), json=payload, timeout=timeout)
+        response = _post_with_safe_errors(self.provider_name, self._endpoint(), requests.post, debug_model=self.model_name, headers=self._headers(), json=payload, timeout=timeout)
         _raise_for_status_with_detail(response, self.provider_name)
         data = response.json()
         candidates = data.get("candidates", []) or []
@@ -183,7 +183,7 @@ class GoogleCloudClient(_CommonMixin):
         }
         if self.generation_params["max_tokens"] > 0:
             payload["generation_config"]["maxOutputTokens"] = self.generation_params["max_tokens"]
-        response = _post_with_safe_errors(self.provider_name, self._endpoint(), requests.post, headers=self._headers(), json=payload, timeout=60)
+        response = _post_with_safe_errors(self.provider_name, self._endpoint(), requests.post, debug_model=self.model_name, headers=self._headers(), json=payload, timeout=60)
         _raise_for_status_with_detail(response, self.provider_name)
         data = response.json()
         candidates = data.get("candidates", []) or []
@@ -235,6 +235,7 @@ class GoogleCloudClient(_CommonMixin):
                 descriptor.profile.model,
             ),
             requests.post,
+            debug_model=descriptor.profile.model,
             headers=headers,
             json=payload,
             timeout=descriptor.timeout_seconds,
