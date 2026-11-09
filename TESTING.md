@@ -25,11 +25,13 @@ if ($LASTEXITCODE -ne 0) { throw "커버리지 기준 미달: $LASTEXITCODE" }
 python -m pytest tests/test_dependency_contracts.py tests/test_dependency_security_regressions.py tests/test_chat_attachments.py tests/test_gemini_structured_outputs.py tests/test_companion_tls_identity.py tests/test_companion_tls_storage.py tests/test_companion_tls_gateway.py tests/test_tts_client.py -q
 ```
 
-Pillow 하한 13.0.0은 [번들 OpenJPEG 보안 수정](https://github.com/python-pillow/Pillow/security/advisories/GHSA-78g4-xqwv-q3g8),
-pypdf 하한 6.21.4는 [xref EOF와 페이지 트리 처리 보안 수정](https://github.com/py-pdf/pypdf/releases/tag/6.21.4)을 포함한다.
+Pillow 하한 13.0.0은 [번들 OpenJPEG 보안 수정](https://github.com/python-pillow/Pillow/security/advisories/GHSA-78g4-xqwv-q3g8)을 포함한다.
+pypdf 하한 7.0.0은 [객체 스트림의 중복 오프셋으로 인한 자원 고갈 수정](https://github.com/advisories/GHSA-59jv-x5x2-gg4c)을 포함한다.
+certifi 하한 2026.10.19는 [emSign ECC 루트 제거와 영향받지 않은 루트 복원](https://github.com/advisories/GHSA-6q48-6c7w-9gw2)을 반영한다.
 aiohttp 하한 3.14.5는 [WebSocket 자원 소모 수정](https://github.com/aio-libs/aiohttp/security/advisories/GHSA-2g87-pp6c-29x5)과
 [후속 제어 프레임 오류 수정](https://github.com/aio-libs/aiohttp/releases/tag/v3.14.5)을 포함한다.
 google-genai 하한 2.9.0은 Gemini 길이 복구의 `thinking_level` 설정을 실제 SDK로 검증한 기준이다.
+[3.x의 기본 API 버전과 HTTP 클라이언트 변경](https://github.com/googleapis/python-genai/releases/tag/v3.0.0)에 대한 호환성을 검증할 때까지 2.x 범위로 제한한다.
 cryptography는 선언된 정확한 버전으로 TLS 인증서·키 저장·연결 테스트를 수행해야 한다.
 
 `tests/test_dependency_security_regressions.py`는 수십 바이트의 합성 불완전 PDF가 첨부 오류로 종료되는지
