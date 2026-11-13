@@ -8,6 +8,7 @@ import inspect
 from typing import Callable, Dict, List, Mapping, Protocol, Tuple, runtime_checkable
 
 from .response_protocol import OneShotGenerationResult
+from .native_model_policy import ANTHROPIC_DEFAULT_MODEL, resolve_anthropic_model
 
 LLM_RESPONSE_TUPLE = Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict], str, Dict[str, str], List[Dict], str, Dict[str, object] | None]
 SUMMARY_RESPONSE_TUPLE = (
@@ -336,7 +337,7 @@ def _build_anthropic_client(
 
     return AnthropicClient(
         api_key=api_key,
-        model_name=model_name or "claude-3-5-sonnet-latest",
+        model_name=resolve_anthropic_model(model_name),
         endpoint="https://api.anthropic.com/v1/messages",
         generation_params=generation_params,
         memory_manager=memory_manager,
@@ -366,8 +367,6 @@ def _build_ollama_client(
     from .http_llm_clients import OllamaClient
 
     endpoint = "http://127.0.0.1:11434/api/chat"
-    if settings:
-        endpoint = str(settings.get("custom_api_url", endpoint) or endpoint)
     return OllamaClient(
         api_key=api_key,
         model_name=model_name or "llama3.1",
@@ -410,7 +409,9 @@ def _build_custom_api_client(
     format_value = _normalized_custom_api_format(settings)
     endpoint = str(settings.get("custom_api_url", "") if settings else "").strip()
     if not endpoint:
-        if format_value == LLMFormat.OPENAI_RESPONSE_API.value:
+        if format_value == LLMFormat.OLLAMA.value:
+            endpoint = "http://127.0.0.1:11434/api/chat"
+        elif format_value == LLMFormat.OPENAI_RESPONSE_API.value:
             endpoint = "http://127.0.0.1:8000/v1/responses"
         elif format_value == LLMFormat.ANTHROPIC.value:
             endpoint = "http://127.0.0.1:8000/v1/messages"
@@ -576,7 +577,7 @@ PROVIDER_CATALOG: Dict[str, LLMProviderMeta] = {
         provider="anthropic",
         display_name="Anthropic Claude",
         format=LLMFormat.ANTHROPIC,
-        default_model="claude-3-5-sonnet-latest",
+        default_model=ANTHROPIC_DEFAULT_MODEL,
         key_identifier="anthropic",
         capabilities=[LLMCapability.IMAGE_INPUT, LLMCapability.STREAMING, LLMCapability.THINKING],
     ),
@@ -602,7 +603,7 @@ PROVIDER_CATALOG: Dict[str, LLMProviderMeta] = {
         format=LLMFormat.OLLAMA,
         default_model="llama3.1",
         key_identifier="ollama",
-        capabilities=[LLMCapability.STREAMING],
+        capabilities=[],
     ),
     "custom_api": LLMProviderMeta(
         provider="custom_api",
@@ -635,6 +636,15 @@ def get_llm_provider_catalog() -> dict[str, LLMProviderMeta]:
 def get_llm_provider_meta(provider: str) -> LLMProviderMeta | None:
     normalized = (provider or "").strip().lower()
     return PROVIDER_CATALOG.get(normalized)
+
+
+def llm_requires_api_key(provider: str, settings=None) -> bool:
+    """Ollama 포맷은 로컬·원격 모두 서버 정책에 따라 인증을 선택한다."""
+    normalized = str(provider or "").strip().lower()
+    return not (
+        normalized == "ollama"
+        or (normalized == "custom_api" and _normalized_custom_api_format(settings) == LLMFormat.OLLAMA.value)
+    )
 
 
 def _filter_builder_kwargs(builder: ProviderBuilder, kwargs: dict) -> dict:
@@ -693,6 +703,10 @@ def create_llm_client(
     meta = PROVIDER_CATALOG.get(provider)
     if meta is not None:
         capability_values = {capability.value for capability in meta.capabilities}
+        if getattr(client, "wire_format", None) == "ollama":
+            capability_values.discard(LLMCapability.STREAMING.value)
+            if settings and settings.get("ollama_image_input_enabled", False) is True:
+                capability_values.add(LLMCapability.IMAGE_INPUT.value)
         try:
             client.llm_capabilities = {
                 capability.value: capability.value in capability_values

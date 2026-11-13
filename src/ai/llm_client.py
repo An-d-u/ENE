@@ -10,6 +10,7 @@ from typing import Tuple, List, Dict, Mapping
 from uuid import UUID
 
 from google import genai
+from .native_model_policy import native_sampling_params
 
 from ..core.debug_logging import debug_request
 
@@ -227,7 +228,7 @@ class GeminiClient:
             calendar_manager: 캘린더 매니저 인스턴스 (옵션)
         """
         # genai 클라이언트 초기화
-        self.client = genai.Client(api_key=api_key)
+        self.client = genai.Client(api_key=api_key, http_options={"api_version": "v1beta"})
         self.model_name = model_name
         self.generation_params = self._normalize_generation_params(generation_params)
         self.memory_manager = memory_manager
@@ -503,8 +504,7 @@ class GeminiClient:
         )
         config = {
             "system_instruction": system_instruction,
-            "temperature": params["temperature"],
-            "top_p": params["top_p"],
+            **native_sampling_params("gemini", self.model_name, params),
         }
         if params["max_tokens"] > 0:
             config["max_output_tokens"] = params["max_tokens"]
@@ -528,8 +528,7 @@ class GeminiClient:
         """생활 기록 one-shot의 native 또는 엄격 JSON 텍스트 config를 만든다."""
         config = {
             "system_instruction": system_instruction,
-            "temperature": generation_params["temperature"],
-            "top_p": generation_params["top_p"],
+            **native_sampling_params("gemini", self.model_name, generation_params),
         }
         if generation_params["max_tokens"] > 0:
             config["max_output_tokens"] = generation_params["max_tokens"]
@@ -552,8 +551,7 @@ class GeminiClient:
             raise ValueError("요약 config에는 SUMMARY request kind가 필요합니다.")
 
         return {
-            "temperature": 0.5,
-            "top_p": self.generation_params["top_p"],
+            **native_sampling_params("gemini", self.model_name, {**self.generation_params, "temperature": 0.5}),
             "max_output_tokens": self._summary_output_token_budget(),
         }
 
@@ -1068,8 +1066,7 @@ class GeminiClient:
         generation_params: dict,
     ) -> dict:
         config = {
-            "temperature": generation_params["temperature"],
-            "top_p": generation_params["top_p"],
+            **native_sampling_params("gemini", self.model_name, generation_params),
         }
         if generation_params.get("max_tokens", 0) > 0:
             config["max_output_tokens"] = generation_params["max_tokens"]

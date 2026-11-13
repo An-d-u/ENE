@@ -167,6 +167,12 @@ def build_llm_tab(dialog):
     )
     self.llm_gpt_5_6_hint.setVisible(False)
     model_form.addRow(self.llm_gpt_5_6_hint)
+    self.llm_native_sampling_hint = self._build_hint_label(
+        "이 공급자·모델에는 Temperature와 Top P를 보내지 않습니다. 저장된 값은 다른 모델에서 유지됩니다.",
+        key="settings.llm.model_group.native_sampling_hint",
+    )
+    self.llm_native_sampling_hint.setVisible(False)
+    model_form.addRow(self.llm_native_sampling_hint)
     layout.addWidget(model_group)
 
     self.custom_api_group = QGroupBox("Custom API")
@@ -208,7 +214,7 @@ def build_llm_tab(dialog):
         "settings.llm.custom_api_group.request_model.placeholder",
         "모델명",
     )
-    self.custom_api_request_model_edit.textChanged.connect(self._on_setting_changed)
+    self.custom_api_request_model_edit.textChanged.connect(self._on_custom_api_changed)
     self._add_form_row(
         custom_form,
         "settings.llm.custom_api_group.request_model.label",
@@ -224,6 +230,7 @@ def build_llm_tab(dialog):
         ("Mistral", LLMFormat.MISTRAL.value),
         ("Google Cloud", LLMFormat.GOOGLE_CLOUD.value),
         ("Cohere", LLMFormat.COHERE.value),
+        ("Ollama", LLMFormat.OLLAMA.value),
     ]
     for index, (label, value) in enumerate(custom_format_options):
         self.custom_api_format_combo.addItem(label, value)
@@ -233,7 +240,7 @@ def build_llm_tab(dialog):
             f"settings.llm.custom_api_group.format.{value}",
             label,
         )
-    self.custom_api_format_combo.currentIndexChanged.connect(self._on_setting_changed)
+    self.custom_api_format_combo.currentIndexChanged.connect(self._on_custom_api_changed)
     self._add_form_row(custom_form, "settings.llm.custom_api_group.format.label", "포맷:", self.custom_api_format_combo)
     custom_form.addRow(
         self._build_hint_label(
@@ -244,6 +251,21 @@ def build_llm_tab(dialog):
 
     self.custom_api_group.setVisible(False)
     layout.addWidget(self.custom_api_group)
+
+    self.ollama_group = QGroupBox("Ollama")
+    self._bind_group_title(self.ollama_group, "settings.llm.ollama_group.title", "Ollama")
+    ollama_layout = QVBoxLayout(self.ollama_group)
+    self.ollama_image_input_check = self._create_toggle(
+        "이미지 입력 사용 (비전 모델 전용)", key="settings.llm.ollama_group.image_input",
+    )
+    self.ollama_image_input_check.toggled.connect(self._on_setting_changed)
+    ollama_layout.addWidget(self.ollama_image_input_check)
+    ollama_layout.addWidget(self._build_hint_label(
+        "로컬 Ollama는 127.0.0.1:11434에 연결하며 API 키 없이 사용할 수 있습니다. 다른 주소는 Custom API의 Ollama 포맷을 선택하세요. 이미지 입력은 선택한 모델이 지원할 때만 켜세요.",
+        key="settings.llm.ollama_group.hint",
+    ))
+    self.ollama_group.setVisible(False)
+    layout.addWidget(self.ollama_group)
 
     web_search_group = QGroupBox("Web Search")
     self._bind_group_title(web_search_group, "settings.llm.web_search_group.title", "Web Search")

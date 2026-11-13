@@ -37,6 +37,7 @@ from ..ui.settings_dialog import SettingsDialog
 from ..ai.mood_manager import MoodManager
 from ..ai.ene_goal_manager import EneGoalManager
 from ..ai.proactive_conversation_manager import ProactiveConversationManager
+from ..ai.llm_provider import llm_requires_api_key
 from .app_llm_bootstrap import (
     LLMRuntimeDependencies,
     create_llm_runtime_client,
@@ -413,7 +414,7 @@ class ENEApplication(QObject):
         try:
             llm_config = resolve_llm_bootstrap_config(self.settings)
 
-            if not llm_config.api_key:
+            if not llm_config.api_key and llm_requires_api_key(llm_config.provider, self.settings):
                 print(f"WARNING: LLM API 키가 비어있습니다. provider={llm_config.provider}")
                 self.llm_client = None
                 return

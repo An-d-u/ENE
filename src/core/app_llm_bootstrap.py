@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ..ai.llm_provider import LLMProviderConfig, create_llm_client
+from ..ai.native_model_policy import resolve_anthropic_model
 from ..ai.openai_model_policy import normalize_reasoning_effort, resolve_openai_model_policy
 
 
@@ -77,7 +78,7 @@ def resolve_llm_bootstrap_config(
     if not isinstance(llm_models, dict):
         llm_models = {}
     llm_model = str(llm_models.get(llm_provider, "")).strip()
-    if not llm_model:
+    if not llm_model and llm_provider != "ollama":
         llm_model = str(settings.get("llm_model", "")).strip()
     if llm_provider == "custom_api":
         llm_model = str(settings.get("custom_api_request_model", "")).strip() or llm_model
@@ -101,7 +102,7 @@ def resolve_llm_bootstrap_config(
     return LLMProviderConfig(
         provider=llm_provider,
         api_key=api_key,
-        model_name=llm_model,
+        model_name=resolve_anthropic_model(llm_model) if llm_provider == "anthropic" else llm_model,
         generation_params=_resolve_generation_params(settings, llm_provider, llm_model),
     )
 

@@ -780,6 +780,7 @@
           }
         },
         "gpt_5_6_hint": "GPT-5.6 does not send Temperature or Top P and uses Reasoning Effort instead.",
+        "native_sampling_hint": "Temperature and Top P are omitted for this provider/model. Saved values remain available for other models.",
         "hint": "Temperature and Top P adjust creativity, while Max Tokens limits response length."
       },
       "custom_api_group": {
@@ -803,9 +804,15 @@
           "anthropic": "Anthropic Claude",
           "mistral": "Mistral",
           "google_cloud": "Google Cloud",
-          "cohere": "Cohere"
+          "cohere": "Cohere",
+          "ollama": "Ollama"
         },
         "hint": "This section is only used when the Custom API provider is selected."
+      },
+      "ollama_group": {
+        "title": "Ollama",
+        "image_input": "Enable image input (vision models only)",
+        "hint": "Local Ollama connects to 127.0.0.1:11434 and needs no API key. For another address, select the Ollama format under Custom API. Enable image input only when your selected model supports it."
       },
       "web_search_group": {
         "title": "Web Search",

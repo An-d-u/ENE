@@ -5,6 +5,24 @@ import pytest
 from src.core.settings import Settings
 
 
+@pytest.mark.parametrize("replacement_params", [None, {"temperature": 0.8, "top_p": 0.9, "max_tokens": 4096}])
+def test_retired_claude_default_migration_preserves_generation_settings(tmp_path, replacement_params):
+    old_model = "claude-3-5-sonnet-latest"
+    new_model = "claude-sonnet-4-6"
+    old_params = {"temperature": 0.3, "top_p": 0.7, "max_tokens": 1234}
+    provider_params = {old_model: old_params}
+    if replacement_params is not None:
+        provider_params[new_model] = replacement_params
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({
+        "llm_provider": "anthropic", "llm_models": {"anthropic": old_model},
+        "llm_model_params": {"anthropic": provider_params},
+    }), encoding="utf-8")
+    settings = Settings(config_path=str(config_path), secret_path=str(tmp_path / "api_keys.json"))
+    assert settings.get("llm_models")["anthropic"] == new_model
+    assert settings.get("llm_model_params")["anthropic"][new_model] == (replacement_params or old_params)
+
+
 def test_image_avatar_defaults_are_present():
     assert Settings.DEFAULT_CONFIG["avatar_mode"] == "live2d"
     assert Settings.DEFAULT_CONFIG["image_avatar_folder"] == ""

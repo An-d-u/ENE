@@ -5,6 +5,7 @@ Loads and saves user settings to JSON.
 import json
 from copy import deepcopy
 from pathlib import Path
+from ..ai.native_model_policy import ANTHROPIC_DEFAULT_MODEL, resolve_anthropic_model
 from .companion.audio_route import normalize_output_target
 
 from .app_paths import (
@@ -143,7 +144,7 @@ class Settings:
         "llm_models": {
             "gemini": "gemini-3-flash-preview",
             "openai": "gpt-4o-mini",
-            "anthropic": "claude-3-5-sonnet-latest",
+            "anthropic": ANTHROPIC_DEFAULT_MODEL,
             "openrouter": "openai/gpt-4o-mini",
             "deepseek": "deepseek-chat",
             "ollama": "llama3.1",
@@ -159,7 +160,7 @@ class Settings:
                 "__default__": {"temperature": 0.9, "top_p": 1.0, "max_tokens": 2048},
             },
             "anthropic": {
-                "claude-3-5-sonnet-latest": {"temperature": 0.9, "top_p": 1.0, "max_tokens": 2048},
+                ANTHROPIC_DEFAULT_MODEL: {"temperature": 0.9, "top_p": 1.0, "max_tokens": 2048},
                 "__default__": {"temperature": 0.9, "top_p": 1.0, "max_tokens": 2048},
             },
             "openrouter": {
@@ -181,6 +182,7 @@ class Settings:
         "custom_api_url": "",
         "custom_api_request_model": "",
         "custom_api_format": "openai_compatible",
+        "ollama_image_input_enabled": False,
         "gemini_api_key": "",
         "summarize_threshold": 10,
         "enable_tts": True,
@@ -363,6 +365,8 @@ class Settings:
             loaded_models = loaded_config.get("llm_models", {})
             if isinstance(loaded_models, dict):
                 base_models.update(loaded_models)
+            previous_anthropic_model = str(base_models["anthropic"] or "").strip()
+            base_models["anthropic"] = resolve_anthropic_model(previous_anthropic_model)
             merged["llm_models"] = base_models
 
             base_params = json.loads(json.dumps(self.DEFAULT_CONFIG["llm_model_params"]))
@@ -375,6 +379,12 @@ class Settings:
                     for model_name, params in provider_params.items():
                         if isinstance(params, dict):
                             store[model_name] = params
+            if previous_anthropic_model != base_models["anthropic"] and isinstance(loaded_params, dict):
+                anthropic_params = loaded_params.get("anthropic", {})
+                if isinstance(anthropic_params, dict) and base_models["anthropic"] not in anthropic_params:
+                    previous_params = anthropic_params.get(previous_anthropic_model, anthropic_params.get("__default__"))
+                    if isinstance(previous_params, dict):
+                        base_params["anthropic"][base_models["anthropic"]] = deepcopy(previous_params)
             merged["llm_model_params"] = base_params
 
             base_tts_configs = json.loads(json.dumps(self.DEFAULT_CONFIG["tts_provider_configs"]))

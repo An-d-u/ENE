@@ -234,7 +234,7 @@ class OllamaClient(_CommonMixin):
         ):
             payload["format"] = request_descriptor.schema
         timeout = request_descriptor.timeout_seconds if request_descriptor is not None else 60
-        response = _post_with_safe_errors(self.provider_name, self.endpoint, requests.post, json=payload, timeout=timeout)
+        response = _post_with_safe_errors(self.provider_name, self.endpoint, requests.post, headers=self._headers(), json=payload, timeout=timeout)
         _raise_for_status_with_detail(response, self.provider_name)
         data = response.json()
         if request_descriptor is None:
@@ -272,7 +272,7 @@ class OllamaClient(_CommonMixin):
         }
         if self.generation_params["max_tokens"] > 0:
             payload["options"]["num_predict"] = self.generation_params["max_tokens"]
-        response = _post_with_safe_errors(self.provider_name, self.endpoint, requests.post, json=payload, timeout=60)
+        response = _post_with_safe_errors(self.provider_name, self.endpoint, requests.post, headers=self._headers(), json=payload, timeout=60)
         _raise_for_status_with_detail(response, self.provider_name)
         data = response.json()
         return str(data.get("message", {}).get("content", "")).strip()

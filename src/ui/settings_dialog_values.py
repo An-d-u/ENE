@@ -11,6 +11,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication, QFileDialog, QListWidgetItem, QMessageBox
 
 from ..ai.llm_provider import LLMFormat
+from ..ai.native_model_policy import supports_native_sampling, resolve_anthropic_model
 from ..ai.openai_model_policy import normalize_reasoning_effort, resolve_openai_model_policy
 from ..core.app_paths import relativize_for_storage
 from ..core.hotkey_utils import normalize_hotkey_text
@@ -194,6 +195,11 @@ class SettingsDialogValuesMixin:
         is_custom_api = normalized == "custom_api"
         if hasattr(self, "custom_api_group"):
             self.custom_api_group.setVisible(is_custom_api)
+        if hasattr(self, "ollama_group"):
+            self.ollama_group.setVisible(
+                normalized == "ollama"
+                or (is_custom_api and self.custom_api_format_combo.currentData() == LLMFormat.OLLAMA.value)
+            )
         for attr_name in (
             "llm_api_key_label",
             "llm_api_key_row",
@@ -226,6 +232,14 @@ class SettingsDialogValuesMixin:
     def _on_llm_api_key_changed(self, text: str):
         provider = str(self.llm_provider_combo.currentData() or "gemini")
         self._llm_api_keys[provider] = text
+        self._on_setting_changed()
+
+    def _on_custom_api_changed(self, *_):
+        if self._loading:
+            return
+        provider = str(self.llm_provider_combo.currentData() or "gemini")
+        self._sync_llm_custom_api_visibility(provider)
+        self._refresh_llm_model_policy_controls(provider, self.llm_model_edit.text())
         self._on_setting_changed()
 
     def _on_llm_model_changed(self, text: str):
@@ -448,16 +462,21 @@ class SettingsDialogValuesMixin:
 
     def _refresh_llm_model_policy_controls(self, provider: str, model_name: str):
         policy = resolve_openai_model_policy(provider, model_name)
-        self.llm_temperature_spin.setEnabled(policy.supports_temperature)
-        self.llm_temperature_label.setEnabled(policy.supports_temperature)
-        self.llm_top_p_spin.setEnabled(policy.supports_top_p)
-        self.llm_top_p_label.setEnabled(policy.supports_top_p)
+        native_provider = provider
+        if provider == "custom_api" and self.custom_api_format_combo.currentData() == LLMFormat.ANTHROPIC.value:
+            native_provider = "anthropic"
+        native_sampling = supports_native_sampling(native_provider, model_name)
+        self.llm_temperature_spin.setEnabled(policy.supports_temperature and native_sampling)
+        self.llm_temperature_label.setEnabled(policy.supports_temperature and native_sampling)
+        self.llm_top_p_spin.setEnabled(policy.supports_top_p and native_sampling)
+        self.llm_top_p_label.setEnabled(policy.supports_top_p and native_sampling)
 
         shows_reasoning_effort = policy.supports_reasoning_effort
         self.llm_reasoning_effort_label.setVisible(shows_reasoning_effort)
         self.llm_reasoning_effort_combo.setVisible(shows_reasoning_effort)
         self.llm_gpt_5_6_hint.setVisible(shows_reasoning_effort)
-        self.llm_model_params_hint.setVisible(not shows_reasoning_effort)
+        self.llm_model_params_hint.setVisible(not shows_reasoning_effort and native_sampling)
+        self.llm_native_sampling_hint.setVisible(not native_sampling)
 
     def _apply_model_params_to_widgets(self, provider: str, model_name: str):
         params = self._get_model_params(provider, model_name)
@@ -905,6 +924,13 @@ class SettingsDialogValuesMixin:
                 self._llm_models["custom_api"] = custom_api_model
 
             selected_provider = str(self.llm_provider_combo.currentData() or "gemini")
+            previous_anthropic_model = self._llm_models.get("anthropic", "")
+            anthropic_model = resolve_anthropic_model(previous_anthropic_model)
+            anthropic_params = self._llm_model_params["anthropic"]
+            if previous_anthropic_model != anthropic_model and anthropic_model not in anthropic_params:
+                anthropic_params[anthropic_model] = dict(self._get_model_params("anthropic", previous_anthropic_model))
+            self._llm_models["anthropic"] = anthropic_model
+            self._active_model_key_by_provider["anthropic"] = self._model_param_key(anthropic_model)
             self.llm_model_edit.setText(str(self._llm_models.get(selected_provider, "")))
             self._apply_model_params_to_widgets(selected_provider, self.llm_model_edit.text())
 
@@ -915,6 +941,8 @@ class SettingsDialogValuesMixin:
             format_index = self.custom_api_format_combo.findData(custom_api_format)
             if format_index >= 0:
                 self.custom_api_format_combo.setCurrentIndex(format_index)
+            self.ollama_image_input_check.setChecked(self._original_settings.get("ollama_image_input_enabled", False) is True)
+            self._refresh_llm_model_policy_controls(selected_provider, self.llm_model_edit.text())
 
             self.web_search_enabled_check.setChecked(self._original_settings.get("web_search_enabled", False))
             self.web_search_auto_enabled_check.setChecked(
@@ -1190,6 +1218,7 @@ class SettingsDialogValuesMixin:
             "llm_model_params": dict(self._llm_model_params),
             "llm_api_keys": dict(self._llm_api_keys),
             "custom_api_url": self.custom_api_url_edit.text().strip(),
+            "ollama_image_input_enabled": self.ollama_image_input_check.isChecked(),
             "custom_api_key_or_password": self.custom_api_key_or_password_edit.text().strip(),
             "custom_api_request_model": self.custom_api_request_model_edit.text().strip(),
             "custom_api_format": str(self.custom_api_format_combo.currentData() or LLMFormat.OPENAI_COMPATIBLE.value),

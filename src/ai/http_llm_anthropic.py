@@ -239,8 +239,6 @@ class AnthropicClient(_CommonMixin):
         payload = {
             "model": self.model_name,
             "max_tokens": max(1, generation_params["max_tokens"] or DEFAULT_GENERATION_PARAMS["max_tokens"]),
-            "temperature": generation_params["temperature"],
-            "top_p": generation_params["top_p"],
             "system": context.system_prompt,
             "messages": messages,
         }
@@ -281,8 +279,6 @@ class AnthropicClient(_CommonMixin):
         payload = {
             "model": self.model_name,
             "max_tokens": max(1, self.generation_params["max_tokens"] or DEFAULT_GENERATION_PARAMS["max_tokens"]),
-            "temperature": self.generation_params["temperature"],
-            "top_p": self.generation_params["top_p"],
             "system": context.system_prompt,
             "messages": [{"role": "user", "content": [{"type": "text", "text": str(context.user_content)}]}],
         }

@@ -830,6 +830,7 @@ def test_gemini_send_message_with_memory_auto_no_search_marks_status_and_still_u
 def test_gemini_chat_config_uses_final_reply_with_legacy_mode(monkeypatch):
     captured = {}
     dummy = types.SimpleNamespace(
+        model_name="gemini-synthetic",
         generation_params={"temperature": 0.5, "top_p": 0.8, "max_tokens": 512},
         _runtime_prompt_settings_source=lambda: {},
     )

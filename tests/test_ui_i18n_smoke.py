@@ -1008,6 +1008,41 @@ def test_settings_dialog_custom_api_hides_duplicate_key_and_model_controls(monke
         dialog.close()
 
 
+def test_settings_dialog_native_provider_controls(monkeypatch):
+    _get_qapp()
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        monkeypatch.setattr(SettingsDialog, "_load_prompt_configuration", lambda self: None)
+        dialog = SettingsDialog({
+            "llm_provider": "ollama", "llm_models": {"ollama": "synthetic-vision"},
+            "ollama_image_input_enabled": True, "tts_provider": "gpt_sovits_http",
+        })
+        try:
+            assert not dialog.ollama_group.isHidden()
+            assert dialog.ollama_image_input_check.isChecked()
+            assert dialog._get_current_values()["ollama_image_input_enabled"] is True
+            dialog.llm_provider_combo.setCurrentIndex(dialog.llm_provider_combo.findData("gemini"))
+            assert dialog.ollama_group.isHidden()
+            dialog.llm_model_edit.setText("gemini-4-argon")
+            assert not dialog.llm_temperature_spin.isEnabled()
+            assert not dialog.llm_top_p_spin.isEnabled()
+            assert not dialog.llm_native_sampling_hint.isHidden()
+            dialog.llm_model_edit.setText("gemini-2.5-flash")
+            assert dialog.llm_temperature_spin.isEnabled()
+            dialog.llm_provider_combo.setCurrentIndex(dialog.llm_provider_combo.findData("anthropic"))
+            assert not dialog.llm_temperature_spin.isEnabled()
+            dialog.llm_provider_combo.setCurrentIndex(dialog.llm_provider_combo.findData("custom_api"))
+            dialog.custom_api_format_combo.setCurrentIndex(dialog.custom_api_format_combo.findData("ollama"))
+            assert not dialog.ollama_group.isHidden()
+            assert dialog._get_current_values()["custom_api_format"] == "ollama"
+            dialog.custom_api_format_combo.setCurrentIndex(dialog.custom_api_format_combo.findData("anthropic"))
+            assert dialog.ollama_group.isHidden()
+            assert not dialog.llm_temperature_spin.isEnabled()
+        finally:
+            dialog.close()
+
+
 def test_settings_dialog_applies_openai_gpt_5_6_policy_and_restores_model_values(monkeypatch):
     _get_qapp()
     locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"

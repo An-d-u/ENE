@@ -182,7 +182,7 @@ class GeminiEmbeddingGenerator:
         if client is None:
             from google import genai
 
-            client = genai.Client(api_key=api_key)
+            client = genai.Client(api_key=api_key, http_options={"api_version": "v1beta"})
         self.client = client
         self.provider = "gemini"
         self.model = str(model or "gemini-embedding-2").strip() or "gemini-embedding-2"

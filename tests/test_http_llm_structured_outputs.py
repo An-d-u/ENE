@@ -1826,7 +1826,8 @@ def test_anthropic_final_reply_uses_output_config_json_schema(monkeypatch):
 def test_local_ollama_final_reply_uses_schema_object_format(monkeypatch):
     captured = []
 
-    def fake_post(_url, *, json=None, timeout=None):
+    def fake_post(_url, *, headers=None, json=None, timeout=None):
+        assert headers == {"Content-Type": "application/json"}
         captured.append(json)
         return DummyHTTPResponse(
             {

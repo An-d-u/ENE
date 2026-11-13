@@ -31,6 +31,23 @@
 
 OpenAI-compatible 형식이라는 이유만으로 OpenRouter, DeepSeek, 임의 Custom API를 같은 capability로 취급하지 않는다. capability는 제공자, wire format, endpoint의 원문 없는 fingerprint, 모델, schema version 조합별로 분리한다.
 
+## Ollama·Gemini·Claude 연결 설정과 검증 범위
+
+2026-11-13 기준 공급자 연결 정책은 다음과 같다. 요청 형식 검증과 실제 모델 호출 성공은 구분한다.
+
+- **로컬 Ollama:** 공급자 `Ollama`는 키 없이 시작하며 `http://127.0.0.1:11434/api/chat`에 연결한다. 이전 `custom_api_url`이나 다른 공급자의 공용 모델 설정은 사용하지 않는다. 기본 모델은 `llama3.1`이다.
+- **원격 또는 다른 포트의 Ollama:** 공급자 `Custom API`, 포맷 `Ollama`를 선택하고 전체 `/api/chat` 주소와 모델명을 입력한다. 키는 서버가 요구할 때만 입력한다. 입력한 키는 대화·이미지·요약·생활기록 요청에 모두 Bearer 인증으로 전달된다. 기존에 `Ollama` 공급자와 Custom API 주소를 함께 사용했다면 이 설정으로 변경해야 한다.
+- **Ollama 이미지:** 설정의 `이미지 입력 사용 (비전 모델 전용)`을 선택한다. 내부 설정은 `ollama_image_input_enabled`이며 기본값은 `false`다. 모델 지원 여부를 자동 조회하지 않으므로 실제 비전 모델을 선택한 경우에만 켠다. 모든 Ollama 요청은 `stream: false`이며 스트리밍 기능으로 표시하지 않는다.
+- **Gemini 샘플링:** `gemini-3.6` 이상, `gemini-3.5-flash-lite`, 후속 주 버전 및 `gemini-*-latest` 별칭에는 `temperature`와 `top_p`를 보내지 않는다. 대화·요약·복구·생활기록에 같은 정책을 사용한다. 이전 모델의 저장값은 유지하며 해당 최신 모델을 선택하면 설정 화면에서 조절을 비활성화한다.
+- **Gemini SDK:** 의존성은 `google-genai>=2.9.0,<4`다. SDK 3.x의 기본 API 버전 변경과 무관하게 대화와 임베딩은 `v1beta`를 명시한다. SDK 기본 HTTP·인증서 처리는 그대로 사용하며 TLS 검증을 끄지 않는다.
+- **Claude:** 기본 모델은 `claude-sonnet-4-6`이다. 이전 기본 별칭 `claude-3-5-sonnet-latest`는 시작 시 대체하고 설정 화면에도 새 기본값을 표시한다. 다른 명시적 모델명과 Custom API의 모델명은 유지한다. Anthropic 형식은 대화·요약·복구·생활기록에서 샘플링 파라미터를 생략하며 `max_tokens`는 유지한다.
+
+`tests/test_native_provider_compatibility.py`는 설정 격리·빈 키·인증·파라미터를 합성 데이터로 검증한다. `tests/test_gemini_sdk_transport.py`는 실제 설치 SDK와 로컬 HTTP 서버로 텍스트·이미지·JSON·비동기 생활기록·임베딩의 직렬화와 응답 처리를 확인한다. SDK 2.9.0과 3.3.0에서 이 전송 검증을 수행했다. 로컬 서버의 합성 모델명은 실제 서비스에서 지원되는 모델이라는 뜻이 아니다.
+
+실제 Ollama 모델 서버와 유료 Gemini·Claude API는 이 검증에서 호출하지 않았다. 모델별 응답 품질·권한·외부 HTTPS 인증서 및 프록시 환경은 별도 실제 호출 확인이 필요하다. SDK 버전을 바꿀 때는 전송 테스트와 전체 테스트를 다시 실행한다.
+
+정책 근거: [Google SDK 3.0 변경](https://github.com/googleapis/python-genai/releases/tag/v3.0.0), [Gemini 샘플링 변경](https://aistudio.google.com/docs/whats-new-gemini-3.6#api-changes-and-parameter-updates), [Claude 모델 상태](https://platform.claude.com/docs/en/about-claude/model-deprecations), [Claude 샘플링 제한](https://platform.claude.com/docs/en/build-with-claude/thinking).
+
 ## 명시적 미지원과 일시 오류
 
 구조화 모드를 낮추는 근거는 API가 생성 시작 전에 반환한 명시적인 unsupported 또는 unknown parameter 오류뿐이다. ENE가 인식하는 해당 400·404·422 응답이면 그 조합을 프로세스 메모리에서 `legacy_tags`로 기록하고 같은 턴을 한 번 다시 요청한다.

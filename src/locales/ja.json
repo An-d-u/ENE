@@ -778,6 +778,7 @@
           }
         },
         "gpt_5_6_hint": "GPT-5.6ではTemperatureとTop Pを送信せず、推論強度を使用します。",
+        "native_sampling_hint": "このプロバイダー・モデルにはTemperatureとTop Pを送信しません。保存値は他のモデルで維持されます。",
         "hint": "Temperature and Top P adjust creativity, while Max Tokens limits response length."
       },
       "custom_api_group": {
@@ -801,9 +802,15 @@
           "anthropic": "Anthropic Claude",
           "mistral": "Mistral",
           "google_cloud": "Google Cloud",
-          "cohere": "Cohere"
+          "cohere": "Cohere",
+          "ollama": "Ollama"
         },
         "hint": "This section is only used when the Custom API provider is selected."
+      },
+      "ollama_group": {
+        "title": "Ollama",
+        "image_input": "画像入力を有効にする（ビジョンモデル専用）",
+        "hint": "ローカルOllamaは127.0.0.1:11434に接続し、APIキーなしで使用できます。別のアドレスにはCustom APIのOllama形式を選択してください。画像入力は選択したモデルが対応している場合のみ有効にしてください。"
       },
       "web_search_group": {
         "title": "Web検索",
