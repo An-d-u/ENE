@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ...ai.prompt import get_available_emotions
+from ..diagnostic_share_dialog import open_diagnostic_share
 
 
 def build_behavior_tab(dialog):
@@ -785,6 +786,10 @@ def build_behavior_tab(dialog):
         "대화와 개인정보가 포함될 수 있으므로 공유 전에 내용을 확인하세요.",
         key="settings.behavior.debug.hint",
     ))
+    self.diagnostic_share_button = QPushButton()
+    self._bind_widget_text(self.diagnostic_share_button, "settings.behavior.debug.share", "진단 공유본 만들기")
+    self.diagnostic_share_button.clicked.connect(lambda: open_diagnostic_share(self))
+    debug_layout.addWidget(self.diagnostic_share_button)
     layout.addWidget(debug_group)
 
     layout.addStretch()
