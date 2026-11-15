@@ -1,0 +1,154 @@
+[
+  {
+    "name": "get",
+    "valid": true,
+    "body": {
+      "type": "observation_intervals_get",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "11111111-1111-4111-8111-111111111111",
+      "connection_generation": "22222222-2222-4222-8222-222222222222",
+      "conversation_id": "33333333-3333-4333-8333-333333333333",
+      "query_id": "44444444-4444-4444-8444-444444444444"
+    }
+  },
+  {
+    "name": "set",
+    "valid": true,
+    "body": {
+      "type": "observation_intervals_set",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "11111111-1111-4111-8111-111111111111",
+      "connection_generation": "22222222-2222-4222-8222-222222222222",
+      "conversation_id": "33333333-3333-4333-8333-333333333333",
+      "query_id": "44444444-4444-4444-8444-444444444444",
+      "sample_seconds": 86400,
+      "request_seconds": 1
+    }
+  },
+  {
+    "name": "saved",
+    "valid": true,
+    "body": {
+      "type": "observation_intervals_state",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "11111111-1111-4111-8111-111111111111",
+      "connection_generation": "22222222-2222-4222-8222-222222222222",
+      "conversation_id": "33333333-3333-4333-8333-333333333333",
+      "query_id": "44444444-4444-4444-8444-444444444444",
+      "revision": 2,
+      "saved": true,
+      "sample_seconds": 30,
+      "request_seconds": 300
+    }
+  },
+  {
+    "name": "save_failed",
+    "valid": true,
+    "body": {
+      "type": "observation_intervals_state",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "11111111-1111-4111-8111-111111111111",
+      "connection_generation": "22222222-2222-4222-8222-222222222222",
+      "conversation_id": "33333333-3333-4333-8333-333333333333",
+      "query_id": "44444444-4444-4444-8444-444444444444",
+      "revision": 3,
+      "saved": false,
+      "sample_seconds": 30,
+      "request_seconds": 300
+    }
+  },
+  {
+    "name": "pc_change",
+    "valid": true,
+    "body": {
+      "type": "observation_intervals_state",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "11111111-1111-4111-8111-111111111111",
+      "connection_generation": "22222222-2222-4222-8222-222222222222",
+      "conversation_id": "33333333-3333-4333-8333-333333333333",
+      "revision": 4,
+      "saved": true,
+      "sample_seconds": 30,
+      "request_seconds": 300
+    }
+  },
+  {
+    "name": "zero",
+    "valid": false,
+    "body": {
+      "type": "observation_intervals_set",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "11111111-1111-4111-8111-111111111111",
+      "connection_generation": "22222222-2222-4222-8222-222222222222",
+      "conversation_id": "33333333-3333-4333-8333-333333333333",
+      "query_id": "44444444-4444-4444-8444-444444444444",
+      "sample_seconds": 0,
+      "request_seconds": 300
+    }
+  },
+  {
+    "name": "too_long",
+    "valid": false,
+    "body": {
+      "type": "observation_intervals_set",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "11111111-1111-4111-8111-111111111111",
+      "connection_generation": "22222222-2222-4222-8222-222222222222",
+      "conversation_id": "33333333-3333-4333-8333-333333333333",
+      "query_id": "44444444-4444-4444-8444-444444444444",
+      "sample_seconds": 30,
+      "request_seconds": 86401
+    }
+  },
+  {
+    "name": "bool_as_seconds",
+    "valid": false,
+    "body": {
+      "type": "observation_intervals_set",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "11111111-1111-4111-8111-111111111111",
+      "connection_generation": "22222222-2222-4222-8222-222222222222",
+      "conversation_id": "33333333-3333-4333-8333-333333333333",
+      "query_id": "44444444-4444-4444-8444-444444444444",
+      "sample_seconds": 30,
+      "request_seconds": true
+    }
+  },
+  {
+    "name": "decimal",
+    "valid": false,
+    "body": {
+      "type": "observation_intervals_set",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "11111111-1111-4111-8111-111111111111",
+      "connection_generation": "22222222-2222-4222-8222-222222222222",
+      "conversation_id": "33333333-3333-4333-8333-333333333333",
+      "query_id": "44444444-4444-4444-8444-444444444444",
+      "sample_seconds": 2.5,
+      "request_seconds": 300
+    }
+  },
+  {
+    "name": "missing_query_id",
+    "valid": false,
+    "body": {
+      "type": "observation_intervals_set",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "11111111-1111-4111-8111-111111111111",
+      "connection_generation": "22222222-2222-4222-8222-222222222222",
+      "conversation_id": "33333333-3333-4333-8333-333333333333",
+      "sample_seconds": 30,
+      "request_seconds": 300
+    }
+  }
+]

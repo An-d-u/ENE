@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ...ai.prompt import get_available_emotions
+from ...core.observation_intervals import MAX_INTERVAL_SECONDS
 from ..diagnostic_share_dialog import open_diagnostic_share
 
 
@@ -721,6 +722,24 @@ def build_behavior_tab(dialog):
     self._add_form_row(away_layout, "settings.behavior.away.retry_limit.label", "추가 재실행 횟수:", self.away_retry_limit_spin)
 
     layout.addWidget(away_group)
+
+    observation_group = QGroupBox()
+    self._bind_group_title(observation_group, "settings.behavior.observation.title", "화면을 보고 먼저 말 걸기")
+    observation_layout = QFormLayout(observation_group)
+    self.observation_sample_seconds_spin = QSpinBox()
+    self.observation_request_seconds_spin = QSpinBox()
+    for spin, key, label in (
+        (self.observation_sample_seconds_spin, "sample", "화면 변화 확인 간격"),
+        (self.observation_request_seconds_spin, "request", "모델 호출 최소 간격"),
+    ):
+        spin.setRange(1, MAX_INTERVAL_SECONDS)
+        self._bind_suffix(spin, "settings.behavior.observation.seconds", " 초")
+        self._add_form_row(observation_layout, f"settings.behavior.observation.{key}", label, spin)
+    observation_layout.addRow(self._build_hint_label(
+        "PC 창과 휴대폰 카메라에 함께 적용합니다. 기본값은 화면 확인 30초, 모델 호출 5분입니다.",
+        key="settings.behavior.observation.hint",
+    ))
+    layout.addWidget(observation_group)
 
     life_record_group = QGroupBox("생활 기록")
     self._bind_group_title(

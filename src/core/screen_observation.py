@@ -3,41 +3,56 @@ import json
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QImage
+from .observation_intervals import DEFAULT_REQUEST_SECONDS, DEFAULT_SAMPLE_SECONDS
 
 
 class ObservationSchedule:
-    sample_seconds = 15
-    request_seconds = 60
     quiet_seconds = 180
 
-    def __init__(self):
-        self.previous = None
-        self.next_sample = 0.0
-        self.next_request = 0.0
+    def __init__(self, sample_seconds=DEFAULT_SAMPLE_SECONDS, request_seconds=DEFAULT_REQUEST_SECONDS):
+        self.configure(sample_seconds, request_seconds)
+        self.last_request = None
+        self.reset_scene()
+
+    def configure(self, sample_seconds, request_seconds):
+        self.sample_seconds = sample_seconds
+        self.request_seconds = request_seconds
+
+    @property
+    def next_sample(self):
+        return 0.0 if self.last_sample is None else self.last_sample + self.sample_seconds
+
+    @property
+    def next_request(self):
+        return 0.0 if self.last_request is None else self.last_request + self.request_seconds
+
+    def mark_requested(self, now):
+        self.last_request = now
 
     def reset_scene(self):
         self.previous = None
-        self.next_sample = 0.0
+        self.last_sample = None
 
     def candidate(self, image, now):
-        if image is None or image.isNull() or now < self.next_sample:
+        if now < self.next_sample:
             return False
-        self.next_sample = now + self.sample_seconds
+        self.last_sample = now
+        if image is None or image.isNull():
+            return False
         tiny = image.scaled(32, 18, Qt.AspectRatioMode.IgnoreAspectRatio,
                             Qt.TransformationMode.SmoothTransformation)
         tiny = tiny.convertToFormat(QImage.Format.Format_RGB888)
         current = tiny.constBits().asstring(tiny.sizeInBytes())
-        if now < self.next_request:
-            return False
-        previous, self.previous = self.previous, current
+        previous = self.previous
         if previous is None:
+            self.previous = current
             return False
         # 커서 점멸 같은 국소 변화는 무시하고 여러 픽셀의 색 변화를 본다.
         changed = sum(abs(a - b) >= 24 for a, b in zip(previous, current))
-        if changed < len(current) * 0.08:
-            return False
-        self.next_request = now + self.request_seconds
-        return True
+        if now >= self.next_request:
+            self.previous = current
+            return changed >= len(current) * 0.08
+        return False
 
 
 def observation_prompt(language, tts_language, *, mobile=False):

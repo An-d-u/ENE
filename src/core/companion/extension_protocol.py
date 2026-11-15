@@ -8,7 +8,8 @@ from .protocol import MAX_TEXT_BYTES, ProtocolError, integer_value, text_value, 
 from .input_protocol import INPUT_TYPES, INPUT_FROM_PHONE, input_feature, normalize_input
 
 
-CAPABILITIES = ("audio_pcm_v1", "character_v1", "character_controls_v1", "chat_actions_v1", "message_thoughts_v1", "chat_display_v1", "chat_progress_v1", "chat_images_v1", "stt_input_v1", "camera_v1")
+CAPABILITIES = ("audio_pcm_v1", "character_v1", "character_controls_v1", "chat_actions_v1", "message_thoughts_v1", "chat_display_v1", "chat_progress_v1", "chat_images_v1", "stt_input_v1", "camera_v1", "observation_intervals_v1")
+INTERVAL_TYPES = frozenset({"observation_intervals_get", "observation_intervals_set", "observation_intervals_state"})
 PROGRESS_TYPES = frozenset({"chat_progress_request", "chat_progress_state"})
 DISPLAY_TYPES = frozenset({"chat_display_request", "chat_display_state"})
 THOUGHT_TYPES = frozenset({"thought_request", "thought_response", "thought_invalidated"})
@@ -56,6 +57,7 @@ EXTENSION_TYPES = (
     | THOUGHT_TYPES
     | DISPLAY_TYPES
     | PROGRESS_TYPES
+    | INTERVAL_TYPES
     | INPUT_TYPES
     | {"extensions_ready", "extension_error"}
 )
@@ -76,6 +78,8 @@ FROM_PHONE = frozenset(
         "thought_request",
         "chat_display_request",
         "chat_progress_request",
+        "observation_intervals_get",
+        "observation_intervals_set",
     }
 ) | INPUT_FROM_PHONE
 FROM_PC = EXTENSION_TYPES - FROM_PHONE | {"audio_cancel"}
@@ -137,7 +141,7 @@ class ExtensionContext:
 def wire_limit(kind):
     return (
         2048
-        if kind in SMALL_TYPES
+        if kind in SMALL_TYPES or kind in INTERVAL_TYPES
         else 49152
         if kind == "character_settings_patch"
         else 65536
@@ -255,6 +259,16 @@ def normalize_extension(kind, body):
         ) != set(capabilities):
             raise ProtocolError()
         result["capabilities"] = capabilities
+    elif kind in INTERVAL_TYPES:
+        result["conversation_id"] = uuid_value(get("conversation_id"))
+        if kind != "observation_intervals_state" or "query_id" in body:
+            result["query_id"] = uuid_value(get("query_id"))
+        if kind != "observation_intervals_get":
+            for key in ("sample_seconds", "request_seconds"):
+                result[key] = integer_value(get(key), 1, 86400)
+        if kind == "observation_intervals_state":
+            result["revision"] = integer_value(get("revision"), 1)
+            result["saved"] = _bool(get("saved"))
     elif kind in PROGRESS_TYPES:
         result["conversation_id"] = uuid_value(get("conversation_id"))
         if kind == "chat_progress_state":
@@ -423,6 +437,8 @@ def normalize_extension(kind, body):
 def feature_for(kind, fields):
     if kind in INPUT_TYPES:
         return input_feature(kind, fields)
+    if kind in INTERVAL_TYPES:
+        return "observation_intervals_v1"
     if kind in PROGRESS_TYPES:
         return "chat_progress_v1"
     if kind in DISPLAY_TYPES:

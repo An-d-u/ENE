@@ -5,6 +5,42 @@ import pytest
 from src.core.settings import Settings
 
 
+@pytest.mark.parametrize("stored,expected", [
+    ({}, (30, 300)),
+    ({"observation_sample_seconds": True, "observation_request_seconds": 919}, (30, 919)),
+    ({"observation_sample_seconds": 7, "observation_request_seconds": "5"}, (7, 300)),
+    ({"observation_sample_seconds": 0, "observation_request_seconds": 86401}, (30, 300)),
+])
+def test_observation_intervals_load_each_field_independently(tmp_path, stored, expected):
+    config = tmp_path / "synthetic.json"
+    config.write_text(json.dumps(stored), encoding="utf-8")
+    settings = Settings(config_path=str(config), secret_path=str(tmp_path / "secrets.json"))
+    assert (settings.get("observation_sample_seconds"), settings.get("observation_request_seconds")) == expected
+
+
+def test_observation_intervals_commit_validates_and_preserves_last_saved_pair(tmp_path, monkeypatch):
+    config, secret = tmp_path / "settings.json", tmp_path / "secrets.json"
+    settings = Settings(config_path=str(config), secret_path=str(secret))
+    settings.commit_observation_intervals(86400, 1)
+    assert not secret.exists()
+    restored = Settings(config_path=str(config), secret_path=str(secret))
+    assert (restored.get("observation_sample_seconds"), restored.get("observation_request_seconds")) == (86400, 1)
+    with pytest.raises(ValueError):
+        settings.commit_observation_intervals(True, 1)
+    with pytest.raises(ValueError):
+        settings.commit_observation_intervals(1, 86401)
+
+    def fail(*args):
+        raise OSError("합성 저장 실패")
+
+    monkeypatch.setattr("src.core.settings.save_json_data_atomic", fail)
+    with pytest.raises(OSError):
+        settings.commit_observation_intervals(22, 10)
+    assert settings.get("observation_sample_seconds") == 86400
+    assert settings.get("observation_request_seconds") == 1
+    assert json.loads(config.read_text(encoding="utf-8"))["observation_request_seconds"] == 1
+
+
 @pytest.mark.parametrize("replacement_params", [None, {"temperature": 0.8, "top_p": 0.9, "max_tokens": 4096}])
 def test_retired_claude_default_migration_preserves_generation_settings(tmp_path, replacement_params):
     old_model = "claude-3-5-sonnet-latest"

@@ -55,6 +55,8 @@ class CompanionController(QObject):
         ) + (("stt_input_v1",) if hasattr(owner, "submit_extension") else ())
         if callable(getattr(owner, "submit_mobile_camera_question", None)):
             self._capabilities += ("camera_v1",)
+        if callable(getattr(owner, "set_observation_intervals", None)):
+            self._capabilities += ("observation_intervals_v1",)
         self._character = getattr(owner, "_companion_character", None)
         self.state = GatewayState(False, None, False, None, None)
         self._store_factory, self._endpoint_provider = store_factory, endpoint_provider

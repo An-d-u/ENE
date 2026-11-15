@@ -1,6 +1,7 @@
 """사용자 대화에 양보하는 단발 화면 관찰과 안부의 실행 순서."""
 from threading import Thread
 from time import monotonic
+from math import gcd
 
 from PyQt6.QtCore import pyqtSlot
 
@@ -9,6 +10,30 @@ from ..screen_observation import ObservationSchedule, observation_prompt, parse_
 
 
 class ObservationBridgeMixin:
+    def _sync_observation_timer(self):
+        # 기존 5초 안부 확인과 사용자가 선택한 초 단위 관찰을 한 타이머로 처리한다.
+        self.away_timer.setInterval(gcd(5, self._observation_schedule.sample_seconds) * 1000)
+
+    def observation_intervals_state(self):
+        schedule = self._observation_schedule
+        return schedule.sample_seconds, schedule.request_seconds
+
+    def set_observation_intervals(self, sample_seconds, request_seconds):
+        """PC와 앱의 변경을 같은 저장 경로로 받아 현재 관찰에도 반영한다."""
+        try:
+            self.settings.commit_observation_intervals(sample_seconds, request_seconds)
+        except Exception:
+            return False
+        if (sample_seconds, request_seconds) != self.observation_intervals_state():
+            self._observation_schedule.configure(sample_seconds, request_seconds)
+            self._sync_observation_timer()
+            self.observation_intervals_changed.emit(sample_seconds, request_seconds)
+            adapter = getattr(self, "_companion_adapter", None)
+            if adapter is not None:
+                adapter.publish_extension("observation_intervals_state", dict(conversation_id=self.head().conversation_id,
+                    sample_seconds=sample_seconds, request_seconds=request_seconds, saved=True))
+        return True
+
     def _sync_pc_observation_capture(self):
         session = getattr(self, "_screen_share", None)
         set_allowed = getattr(session, "set_observation_allowed", None)
@@ -110,20 +135,21 @@ class ObservationBridgeMixin:
         try:
             image = session.snapshot()
         except (OSError, RuntimeError):
-            return False
+            image = None
         if self._ambient_context() != context or not schedule.candidate(image, now):
             return False
         frame = self._screen_frame_for("observe", image)
         if not frame.read():
             return False
-        return self._launch_screen_observation(context, frame)
+        return self._launch_screen_observation(context, frame, now=now)
 
-    def _launch_screen_observation(self, context, frame, *, mobile=False):
+    def _launch_screen_observation(self, context, frame, *, now, mobile=False):
         client = self.llm_client
         language = self._prompt_language()
         prompt = observation_prompt(language, resolve_tts_language(self.settings, language), mobile=mobile)
         self._observation_pending = context
         self._observation_frame = frame
+        self._observation_schedule.mark_requested(now)
         signal = self.screen_observation_finished
 
         def observe():

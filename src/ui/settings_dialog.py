@@ -264,6 +264,9 @@ class SettingsDialog(
         self._setup_ui()
         self._install_no_wheel_handlers()
         self._load_values()
+        interval_changes = getattr(bridge, "observation_intervals_changed", None)
+        if interval_changes is not None:
+            interval_changes.connect(self.sync_observation_intervals)
         self._connect_tts_audio_bridge()
         self._connect_goal_bridge()
         self._request_goal_items()

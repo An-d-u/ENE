@@ -55,6 +55,8 @@ class QtGatewayAdapter(QObject):
     def __init__(self, owner, parent=None, *, timeout=5):
         super().__init__(parent)
         self._owner = owner
+        self._interval_values = None
+        self._interval_revision = 0
         self._timeout = timeout
         self._gateway = None
         self._registration = 0
@@ -381,6 +383,17 @@ class QtGatewayAdapter(QObject):
                 )
             except ProtocolError as error:
                 raise AdapterError(error.code) from None
+            if command.message.type in {"observation_intervals_get", "observation_intervals_set"}:
+                fields = command.message.fields
+                saved = True
+                if command.message.type == "observation_intervals_set":
+                    saved = self._owner.set_observation_intervals(fields["sample_seconds"], fields["request_seconds"])
+                sample, request = self._owner.observation_intervals_state()
+                return WireMessage("observation_intervals_state", {
+                    **vars(current), "query_id": fields["query_id"], "saved": saved,
+                    "sample_seconds": sample, "request_seconds": request,
+                    "revision": self._observation_revision(sample, request),
+                })
             if command.message.type == "camera_share":
                 return self._owner.mobile_camera_share(context, command.message)
             if command.message.type in {"camera_question", "camera_observation"}:
@@ -413,11 +426,20 @@ class QtGatewayAdapter(QObject):
                 # PC 재생 복구가 실패해도 연결 차단과 대기 호출 회수는 계속한다.
                 print("[Companion] audio_disconnect_cleanup_failed")
 
+    def _observation_revision(self, sample, request):
+        """조회 응답과 PC에서 발생한 변경 알림의 순서가 바뀌어도 최신값을 구별한다."""
+        if self._interval_values != (sample, request):
+            self._interval_values = (sample, request)
+            self._interval_revision += 1
+        return self._interval_revision
+
     def publish_extension(self, kind, fields):
         """현재 Qt 연결 식별자를 붙인다. 협상 여부는 서버 세션에서 다시 검사한다."""
         self._require_qt()
         if not self._enabled or self._blocked or self._connection is None:
             return
+        if kind == "observation_intervals_state":
+            fields = {**fields, "revision": self._observation_revision(fields["sample_seconds"], fields["request_seconds"])}
         self.publish({
             **fields, "type": kind, "protocol_version": 1,
             "registration_generation": self._registration,

@@ -2262,6 +2262,37 @@ def test_settings_dialog_clamps_away_input_grace_to_idle_minutes():
         dialog.close()
 
 
+def test_shared_observation_intervals_refresh_an_open_dialog_without_overwriting_edits():
+    from PyQt6.QtCore import QObject, pyqtSignal
+
+    class IntervalBridge(QObject):
+        observation_intervals_changed = pyqtSignal(int, int)
+
+    _get_qapp()
+    bridge = IntervalBridge()
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        dialog = SettingsDialog({"ui_language": "ko"}, bridge=bridge)
+        sample, request = dialog.observation_sample_seconds_spin, dialog.observation_request_seconds_spin
+        assert (sample.value(), request.value()) == (30, 300)
+        assert (sample.minimum(), sample.maximum(), request.minimum(), request.maximum()) == (1, 86400, 1, 86400)
+        assert sample.suffix().strip() == request.suffix().strip() == "초"
+        bridge.observation_intervals_changed.emit(24, 330)
+        assert (sample.value(), request.value()) == (24, 330)
+        sample.setValue(45)
+        bridge.observation_intervals_changed.emit(26, 710)
+        assert (sample.value(), request.value()) == (45, 710)
+        saved = {}
+        def save(values, baseline):
+            saved.update(values)
+            return {"status": "accepted", "values": values}
+        dialog.set_save_handler(save)
+        dialog._save_settings()
+        assert saved["observation_sample_seconds"] == 45
+        assert "observation_request_seconds" not in saved
+
+
 def test_settings_dialog_exposes_typing_effect_controls_and_saves_values():
     _get_qapp()
     locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"

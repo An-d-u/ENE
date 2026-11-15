@@ -47,6 +47,58 @@ class CameraWorker(FakeWorker):
     screen_unavailable = pyqtSignal(str, str)
 
 
+def run_paired_exchange(owner, qt_app, tmp_path, capability, exercise):
+    controller = CompanionController(owner, store_factory=lambda: RegistrationStore(tmp_path / "registration.json"),
+        endpoint_provider=lambda port: (Endpoint("192.0.2.12", port),), discovery_factory=NoDiscovery)
+    owner.companion_event.connect(controller.adapter.publish)
+    controller.start(port=0, host="127.0.0.1", test_port=True)
+    outcome = Future()
+    thread = None
+    try:
+        spin(qt_app, lambda: controller.state.running)
+        controller.request_qr()
+        spin(qt_app, lambda: controller.state.qr is not None)
+        ticket = controller.state.qr
+
+        async def exchange():
+            anchor = TrustAnchor.parse(ticket.ca_certificate, ticket.server_id, utc_now())
+            base = f"https://{anchor.hostname}:{controller.state.port}/companion/v1"
+            async with LoopbackClient(anchor) as client:
+                pair = await client.ws_connect(base + "/pair")
+                await pair.send_json(dict(type="pair_request", protocol_version=1, pairing_id=ticket.pairing_id,
+                    secret=ticket.secret, device_name="합성 카메라 단말"))
+                await matching(pair, "pair_pending")
+                approved = await pair.receive_json(timeout=5)
+                ws, ready, ext, headers = await media_connection(client, base, approved["token"], (capability,))
+                scope = {key: ext[key] for key in ("protocol_version", "registration_generation", "server_epoch", "connection_generation")}
+                scope["conversation_id"] = ready["conversation_id"]
+
+                await exercise(client, base, ws, ready, headers, scope)
+                await ws.close()
+
+        def phone():
+            try:
+                asyncio.run(exchange())
+                outcome.set_result(None)
+            except BaseException as exc:
+                outcome.set_exception(exc)
+
+        thread = threading.Thread(target=phone, name="synthetic-camera-peer")
+        thread.start()
+        spin(qt_app, lambda: controller.state.pending is not None or outcome.done())
+        if outcome.done():
+            outcome.result()
+        pending = controller.state.pending
+        controller.approve(pending.pairing_id, pending.connection_id)
+        spin(qt_app, outcome.done, timeout=18)
+        outcome.result()
+    finally:
+        controller.stop()
+        spin(qt_app, lambda: not controller.has_thread, timeout=7)
+        if thread is not None:
+            thread.join(timeout=1)
+
+
 def test_camera_then_desktop_then_phone_without_camera(bridge, qt_app, tmp_path, monkeypatch):
     monkeypatch.setattr(chat_flow, "AIWorker", CameraWorker)
     owner = bridge
@@ -83,94 +135,77 @@ def test_camera_then_desktop_then_phone_without_camera(bridge, qt_app, tmp_path,
 
     owner._start_ai_worker = record
     desktop = DesktopAction()
-    controller = CompanionController(owner, store_factory=lambda: RegistrationStore(tmp_path / "registration.json"),
-        endpoint_provider=lambda port: (Endpoint("192.0.2.12", port),), discovery_factory=NoDiscovery)
-    owner.companion_event.connect(controller.adapter.publish)
-    controller.start(port=0, host="127.0.0.1", test_port=True)
-    outcome = Future()
-    thread = None
-    try:
-        spin(qt_app, lambda: controller.state.running)
-        controller.request_qr()
-        spin(qt_app, lambda: controller.state.qr is not None)
-        ticket = controller.state.qr
 
-        async def exchange():
-            anchor = TrustAnchor.parse(ticket.ca_certificate, ticket.server_id, utc_now())
-            base = f"https://{anchor.hostname}:{controller.state.port}/companion/v1"
-            async with LoopbackClient(anchor) as client:
-                pair = await client.ws_connect(base + "/pair")
-                await pair.send_json(dict(type="pair_request", protocol_version=1, pairing_id=ticket.pairing_id,
-                    secret=ticket.secret, device_name="합성 카메라 단말"))
-                await matching(pair, "pair_pending")
-                approved = await pair.receive_json(timeout=5)
-                ws, ready, ext, headers = await media_connection(client, base, approved["token"], ("camera_v1",))
-                scope = {key: ext[key] for key in ("protocol_version", "registration_generation", "server_epoch", "connection_generation")}
-                scope["conversation_id"] = ready["conversation_id"]
+    async def exercise(client, base, ws, ready, headers, scope):
+        async def share(generation, enabled):
+            await ws.send_json(dict(**scope, type="camera_share", generation=generation, lens="back",
+                                    question=enabled, observe=enabled))
+            return await matching(ws, "camera_state", generation=generation)
 
-                async def share(generation, enabled):
-                    await ws.send_json(dict(**scope, type="camera_share", generation=generation, lens="back",
-                                            question=enabled, observe=enabled))
-                    return await matching(ws, "camera_state", generation=generation)
+        async def upload(generation, number):
+            digest = sha256(phone_jpeg).hexdigest()
+            await ws.send_json(dict(**scope, type="input_reserve", purpose="camera", generation=generation,
+                                    command_id=sample_id(number), byte_length=len(phone_jpeg), sha256=digest))
+            slot = await matching(ws, "input_reserved")
+            async with client.put(base + "/input/" + slot["upload_id"], headers=headers, data=phone_jpeg) as response:
+                assert response.status == 200
+            return dict(upload_id=slot["upload_id"], sha256=digest, byte_length=len(phone_jpeg), mime="image/jpeg")
 
-                async def upload(generation, number):
-                    digest = sha256(phone_jpeg).hexdigest()
-                    await ws.send_json(dict(**scope, type="input_reserve", purpose="camera", generation=generation,
-                                            command_id=sample_id(number), byte_length=len(phone_jpeg), sha256=digest))
-                    slot = await matching(ws, "input_reserved")
-                    async with client.put(base + "/input/" + slot["upload_id"], headers=headers, data=phone_jpeg) as response:
-                        assert response.status == 200
-                    return dict(upload_id=slot["upload_id"], sha256=digest, byte_length=len(phone_jpeg), mime="image/jpeg")
+        await share(1, False)
+        state = await share(2, True)
+        assert state["available"] and state["model"] == "synthetic-vision"
+        assert not state["observe_allowed"]
+        await ws.send_json(dict(**scope, type="camera_question", generation=2, request_id=sample_id(32),
+            text="첫 타일의 모양을 알려 주세요.", frame=await upload(2, 31)))
+        receipt = await matching(ws, "request_status", request_id=sample_id(32))
+        assert receipt["state"] == "accepted", receipt
+        await desktop.run(lambda: owner.worker.reply())
+        # 양쪽 관찰을 켜도 휴대폰에서 보낸 질문에는 해당 카메라 한 장만 전달한다.
+        assert submitted == [("mobile", phone_jpeg)] and not captures
+        assert (await share(3, True))["observe_allowed"]
+        await ws.send_json(dict(**scope, type="camera_observation", generation=3, frame=await upload(3, 35)))
+        assert await asyncio.to_thread(observation_done.wait, 3)
+        assert observed == [phone_jpeg] and not captures
+        assert await desktop.run(lambda: pc(owner, 33, text="두 번째 타일은 어느 색인가요?")["state"]) == "accepted"
+        await desktop.run(lambda: owner.worker.reply())
+        assert submitted[-1] == ("pc", pc_jpeg) and len(captures) == 1
+        await matching(ws, "camera_state", generation=3, observe_allowed=False)
+        state = await share(4, False)
+        assert not state["observe_allowed"]
+        await ws.send_json(dict(type="send_text", protocol_version=1, server_epoch=ready["server_epoch"],
+            conversation_id=ready["conversation_id"], request_id=sample_id(34), text="다음 도형으로 넘어갑니다."))
+        await matching(ws, "request_status", request_id=sample_id(34), state="accepted")
+        await desktop.run(lambda: owner.worker.reply())
+        assert submitted[-1] == ("mobile", None) and len(captures) == 1
+        assert not await desktop.run(lambda: bool(owner._ambient_context()))
 
-                await share(1, False)
-                state = await share(2, True)
-                assert state["available"] and state["model"] == "synthetic-vision"
-                assert not state["observe_allowed"]
-                await ws.send_json(dict(**scope, type="camera_question", generation=2, request_id=sample_id(32),
-                    text="첫 타일의 모양을 알려 주세요.", frame=await upload(2, 31)))
-                receipt = await matching(ws, "request_status", request_id=sample_id(32))
-                assert receipt["state"] == "accepted", receipt
-                await desktop.run(lambda: owner.worker.reply())
-                # 양쪽 관찰을 켜도 휴대폰에서 보낸 질문에는 해당 카메라 한 장만 전달한다.
-                assert submitted == [("mobile", phone_jpeg)] and not captures
-                assert (await share(3, True))["observe_allowed"]
-                await ws.send_json(dict(**scope, type="camera_observation", generation=3, frame=await upload(3, 35)))
-                assert await asyncio.to_thread(observation_done.wait, 3)
-                assert observed == [phone_jpeg] and not captures
-                assert await desktop.run(lambda: pc(owner, 33, text="두 번째 타일은 어느 색인가요?")["state"]) == "accepted"
-                await desktop.run(lambda: owner.worker.reply())
-                assert submitted[-1] == ("pc", pc_jpeg) and len(captures) == 1
-                await matching(ws, "camera_state", generation=3, observe_allowed=False)
-                state = await share(4, False)
-                assert not state["observe_allowed"]
-                await ws.send_json(dict(type="send_text", protocol_version=1, server_epoch=ready["server_epoch"],
-                    conversation_id=ready["conversation_id"], request_id=sample_id(34), text="다음 도형으로 넘어갑니다."))
-                await matching(ws, "request_status", request_id=sample_id(34), state="accepted")
-                await desktop.run(lambda: owner.worker.reply())
-                assert submitted[-1] == ("mobile", None) and len(captures) == 1
-                assert not await desktop.run(lambda: bool(owner._ambient_context()))
-                await ws.close()
+    run_paired_exchange(owner, qt_app, tmp_path, "camera_v1", exercise)
+    assert not owner._message_attachment_records
+    assert len(owner.chat_state.public_transcript.capture().messages) == 6
 
-        def phone():
-            try:
-                asyncio.run(exchange())
-                outcome.set_result(None)
-            except BaseException as exc:
-                outcome.set_exception(exc)
+def test_paired_phone_and_pc_share_persisted_intervals_without_camera(bridge, qt_app, tmp_path):
+    from src.core.settings import Settings
 
-        thread = threading.Thread(target=phone, name="synthetic-camera-peer")
-        thread.start()
-        spin(qt_app, lambda: controller.state.pending is not None or outcome.done())
-        if outcome.done():
-            outcome.result()
-        pending = controller.state.pending
-        controller.approve(pending.pairing_id, pending.connection_id)
-        spin(qt_app, outcome.done, timeout=18)
-        outcome.result()
-        assert not owner._message_attachment_records
-        assert len(owner.chat_state.public_transcript.capture().messages) == 6
-    finally:
-        controller.stop()
-        spin(qt_app, lambda: not controller.has_thread, timeout=7)
-        if thread is not None:
-            thread.join(timeout=1)
+    config, secret = str(tmp_path / "settings.json"), str(tmp_path / "keys.json")
+    bridge.settings = Settings(config, secret)
+    desktop = DesktopAction()
+
+    async def exercise(client, base, ws, ready, headers, scope):
+        query = sample_id(82)
+        await ws.send_json(dict(**scope, type="observation_intervals_get", query_id=query))
+        initial = await matching(ws, "observation_intervals_state", query_id=query)
+        assert (initial["sample_seconds"], initial["request_seconds"]) == (30, 300)
+        query = sample_id(83)
+        await ws.send_json(dict(**scope, type="observation_intervals_set", query_id=query,
+                                sample_seconds=8, request_seconds=121))
+        reply = await matching(ws, "observation_intervals_state", query_id=query)
+        assert reply["saved"] and (reply["sample_seconds"], reply["request_seconds"]) == (8, 121)
+        assert await desktop.run(bridge.observation_intervals_state) == (8, 121)
+        assert await desktop.run(lambda: bridge.set_observation_intervals(12, 90))
+        broadcast = await matching(ws, "observation_intervals_state", sample_seconds=12, request_seconds=90)
+        assert broadcast["revision"] > reply["revision"] and "query_id" not in broadcast
+
+    run_paired_exchange(bridge, qt_app, tmp_path, "observation_intervals_v1", exercise)
+    saved = Settings(config, secret)
+    assert (saved.get("observation_sample_seconds"), saved.get("observation_request_seconds")) == (12, 90)
+    assert not getattr(bridge, "_mobile_camera", None) and not getattr(bridge, "_screen_share", None)

@@ -17,6 +17,7 @@ from .bridge_state import BridgeStateAliasMixin
 from .bridge_workers import AIWorker  # noqa: F401  # 기존 import 경로 호환용 재노출
 from .bridge_mixins.attachments import AttachmentBridgeMixin
 from .screen_observation import ObservationSchedule
+from .observation_intervals import normalize_observation_intervals
 from .bridge_mixins.screen_observation import ObservationBridgeMixin
 from .bridge_mixins.screen import ScreenBridgeMixin
 from .bridge_mixins.mobile_camera import MobileCameraBridgeMixin
@@ -101,6 +102,7 @@ class WebBridge(
     proactive_items_updated = pyqtSignal(str)  # 선제 대화 예약 목록 JSON
     goal_items_updated = pyqtSignal(str)  # 목표 목록 JSON
     screen_observation_finished = pyqtSignal(object, str)
+    observation_intervals_changed = pyqtSignal(int, int)
     screen_share_state_changed = pyqtSignal(str)
     goal_notice = pyqtSignal(str, str)  # (메시지, 레벨)
     
@@ -112,9 +114,9 @@ class WebBridge(
         self.worker = None
         self.settings = settings
         from .companion.audio_route import normalize_output_target
-        output_config = getattr(settings, "config", settings if isinstance(settings, dict) else {})
+        configuration = getattr(settings, "config", settings if isinstance(settings, dict) else {})
         self.tts_output_target = normalize_output_target(
-            output_config.get("tts_output_target", "auto")
+            configuration.get("tts_output_target", "auto")
         )
         self.mood_manager = None
         self.goal_manager = None
@@ -141,9 +143,9 @@ class WebBridge(
         self.proactive_timer.start()
 
         self.away_timer = QTimer(self)
-        self._observation_schedule = ObservationSchedule()
+        self._observation_schedule = ObservationSchedule(*normalize_observation_intervals(configuration))
         self.screen_observation_finished.connect(self._finish_screen_observation)
-        self.away_timer.setInterval(5_000)
+        self._sync_observation_timer()
         self.away_timer.timeout.connect(self._poll_ambient_conversations)
         
         # 설정에서 임계값 로드 (기본값: 10)

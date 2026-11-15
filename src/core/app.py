@@ -898,6 +898,12 @@ class ENEApplication(QObject):
                     commit_device_context(enabled)
                 except Exception:
                     return {"status": "rejected", "reason": "storage_failed"}
+        if "observation_sample_seconds" in new_settings or "observation_request_seconds" in new_settings:
+            sample, request = bridge.observation_intervals_state()
+            intervals = (new_settings.get("observation_sample_seconds", sample),
+                         new_settings.get("observation_request_seconds", request))
+            if intervals != (sample, request) and not bridge.set_observation_intervals(*intervals):
+                return {"status": "rejected", "reason": "storage_failed"}
         self.overlay_window.apply_new_settings(new_settings)
         configure_debug_logging(self.settings)
         if hasattr(self.overlay_window, "bridge") and self.overlay_window.bridge:

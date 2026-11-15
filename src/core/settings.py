@@ -7,6 +7,10 @@ from copy import deepcopy
 from pathlib import Path
 from ..ai.native_model_policy import ANTHROPIC_DEFAULT_MODEL, resolve_anthropic_model
 from .companion.audio_route import normalize_output_target
+from .observation_intervals import (
+    DEFAULT_REQUEST_SECONDS, DEFAULT_SAMPLE_SECONDS, REQUEST_SECONDS_KEY, SAMPLE_SECONDS_KEY,
+    normalize_observation_intervals, valid_interval_seconds,
+)
 
 from .app_paths import (
     get_user_file,
@@ -260,6 +264,8 @@ class Settings:
                 "volume": 1.0,
             },
         },
+        SAMPLE_SECONDS_KEY: DEFAULT_SAMPLE_SECONDS,
+        REQUEST_SECONDS_KEY: DEFAULT_REQUEST_SECONDS,
         "enable_away_nudge": True,
         "away_idle_minutes": 60,
         "away_input_grace_minutes": 5,
@@ -351,6 +357,7 @@ class Settings:
                 if k not in self.SECRET_KEYS
             }
             merged = {**self.DEFAULT_CONFIG, **loaded_config}
+            merged[SAMPLE_SECONDS_KEY], merged[REQUEST_SECONDS_KEY] = normalize_observation_intervals(merged)
             if merged.get("structured_response_mode") not in {"auto", "legacy"}:
                 merged["structured_response_mode"] = "auto"
             merged["tts_output_target"] = normalize_output_target(merged.get("tts_output_target"))
@@ -605,6 +612,14 @@ class Settings:
     def commit_tts_output_target(self, value):
         """다음 발화 선택은 디스크 저장이 성공한 뒤에만 확정한다."""
         candidate = {**self.config, "tts_output_target": normalize_output_target(value)}
+        save_json_data_atomic(self.config_path, candidate)
+        self.config = candidate
+
+    def commit_observation_intervals(self, sample_seconds: int, request_seconds: int):
+        """두 기기의 관찰 간격은 함께 저장하고 성공한 경우에만 메모리에 반영한다."""
+        if not valid_interval_seconds(sample_seconds) or not valid_interval_seconds(request_seconds):
+            raise ValueError("invalid_observation_intervals")
+        candidate = {**self.config, SAMPLE_SECONDS_KEY: sample_seconds, REQUEST_SECONDS_KEY: request_seconds}
         save_json_data_atomic(self.config_path, candidate)
         self.config = candidate
 

@@ -145,6 +145,5 @@ class MobileCameraBridgeMixin:
         if not frame.read() or observation is None:
             frame.close()
             return
-        schedule.next_request = now + schedule.request_seconds
         self._mobile_observation_current = lambda: store.camera_current(share.scope, share.generation, "observe")
-        self._launch_screen_observation(observation, frame, mobile=True)
+        self._launch_screen_observation(observation, frame, now=now, mobile=True)

@@ -1193,6 +1193,13 @@
         },
         "end_duration": "Emotion hold time:"
       },
+      "observation": {
+        "title": "画面を見て話しかける",
+        "sample": "画面の変化を確認する間隔",
+        "request": "モデル呼び出しの最短間隔",
+        "seconds": " 秒",
+        "hint": "PCのウィンドウとスマートフォンのカメラに共通の設定です。初期設定では30秒ごとに変化を確認し、モデルの呼び出しは5分に1回までです。"
+      },
       "away": {
         "title": "Away / idle detection",
         "enable": "離席時にチャットにひと言残す",

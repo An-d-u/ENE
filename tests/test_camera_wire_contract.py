@@ -9,11 +9,13 @@ from src.core.companion.extension_protocol import ExtensionContext, validate_ext
 from src.core.companion.protocol import ProtocolError, decode_message, encode_message
 
 
-CASES = json.loads((Path(__file__).parents[1] / "contracts/companion/v1/camera_cases.json").read_text(encoding="utf-8"))
+ROOT = Path(__file__).parents[1] / "contracts/companion/v1"
+CASES = [(feature, case) for feature in ("camera", "observation_intervals")
+         for case in json.loads((ROOT / f"{feature}_cases.json").read_text(encoding="utf-8"))]
 
 
-@pytest.mark.parametrize("case", CASES, ids=[item["name"] for item in CASES])
-def test_camera_contract(case):
+@pytest.mark.parametrize("feature,case", CASES, ids=[f"{feature}/{case['name']}" for feature, case in CASES])
+def test_camera_contract(feature, case):
     body = case["body"]
     if not case["valid"]:
         with pytest.raises(ProtocolError):
@@ -23,12 +25,13 @@ def test_camera_contract(case):
     assert json.loads(encode_message(message)) == body
     context = ExtensionContext(*(body[key] for key in (
         "registration_generation", "server_epoch", "connection_generation", "conversation_id")))
-    source, other = ("from_pc", "from_phone") if body["type"] == "camera_state" else ("from_phone", "from_pc")
-    validate_extension(message, context, {"camera_v1"}, direction=source)
+    source, other = ("from_pc", "from_phone") if body["type"].endswith("_state") else ("from_phone", "from_pc")
+    negotiated = {feature + "_v1"}
+    validate_extension(message, context, negotiated, direction=source)
     for current, capabilities, direction in (
         (context, {"chat_images_v1"}, source),
-        (replace(context, conversation_id=body["server_epoch"]), {"camera_v1"}, source),
-        (context, {"camera_v1"}, other),
+        (replace(context, conversation_id=body["server_epoch"]), negotiated, source),
+        (context, negotiated, other),
     ):
         with pytest.raises(ProtocolError):
             validate_extension(message, current, capabilities, direction=direction)

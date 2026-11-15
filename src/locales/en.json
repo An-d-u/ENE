@@ -1245,6 +1245,13 @@
         },
         "end_duration": "Emotion hold time:"
       },
+      "observation": {
+        "title": "Proactive screen and camera chat",
+        "sample": "Scene change check interval",
+        "request": "Minimum interval between model calls",
+        "seconds": " s",
+        "hint": "These settings apply to the PC window and phone camera. By default, ENE checks for changes every 30 seconds and calls the model at most once every 5 minutes."
+      },
       "away": {
         "title": "Away / idle detection",
         "enable": "Leave a chat greeting after inactivity",

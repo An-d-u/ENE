@@ -15,10 +15,12 @@ def test_static_silence_changes_and_budget():
     schedule = ObservationSchedule()
     first, second = scene("navy"), scene("white")
     assert not schedule.candidate(first, 0)
-    assert not schedule.candidate(first, 15)
+    assert not schedule.candidate(first, 29)
     assert schedule.candidate(second, 30)
+    schedule.mark_requested(30)
     assert not schedule.candidate(first, 45)
-    assert schedule.candidate(first, 90)
+    assert not schedule.candidate(first, 90)
+    assert schedule.candidate(first, 330)
 
 
 def test_only_explicit_spoken_reply_is_displayable():
@@ -117,7 +119,7 @@ def test_capture_to_background_judgment_to_single_visible_message(bridge):
     bridge.llm_client = SimpleNamespace(observe_screen_once=observe)
     changed = QSignalSpy(bridge.chat_display_event)
     assert not bridge._start_screen_observation(0)
-    assert bridge._start_screen_observation(15)
+    assert bridge._start_screen_observation(30)
     assert len(changed) or changed.wait(2000)
     messages = json.loads(bridge.get_companion_chat_state())["messages"]
     assert len(messages) == len(sent) == 1

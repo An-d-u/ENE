@@ -16,6 +16,7 @@ from ..ai.openai_model_policy import normalize_reasoning_effort, resolve_openai_
 from ..core.app_paths import relativize_for_storage
 from ..core.hotkey_utils import normalize_hotkey_text
 from ..core.image_avatar import build_image_avatar_payload
+from ..core.observation_intervals import REQUEST_SECONDS_KEY, SAMPLE_SECONDS_KEY, normalize_observation_intervals
 from ..core.system_theme import THEME_PRESETS, get_windows_theme_mode
 
 
@@ -501,6 +502,15 @@ class SettingsDialogValuesMixin:
             return
         self._preview_settings()
 
+    def sync_observation_intervals(self, sample_seconds: int, request_seconds: int):
+        """다른 기기에서 저장한 값은 바로 표시하되 아직 저장하지 않은 편집은 보존한다."""
+        previous_sample, previous_request = normalize_observation_intervals(self._original_settings)
+        if self.observation_sample_seconds_spin.value() == previous_sample:
+            self.observation_sample_seconds_spin.setValue(sample_seconds)
+        if self.observation_request_seconds_spin.value() == previous_request:
+            self.observation_request_seconds_spin.setValue(request_seconds)
+        self._original_settings.update({SAMPLE_SECONDS_KEY: sample_seconds, REQUEST_SECONDS_KEY: request_seconds})
+
     def _refresh_typing_effect_controls(self, enabled: bool | None = None):
         is_enabled = bool(self.typing_effect_check.isChecked()) if enabled is None else bool(enabled)
         if hasattr(self, "typing_effect_speed_label") and self.typing_effect_speed_label:
@@ -815,6 +825,9 @@ class SettingsDialogValuesMixin:
             self.head_pat_end_emotion_duration_spin.setValue(
                 int(self._original_settings.get("head_pat_end_emotion_duration_sec", 5))
             )
+            sample, request = normalize_observation_intervals(self._original_settings)
+            self.observation_sample_seconds_spin.setValue(sample)
+            self.observation_request_seconds_spin.setValue(request)
             self.enable_away_nudge_check.setChecked(self._original_settings.get("enable_away_nudge", True))
             away_idle_minutes = int(self._original_settings.get("away_idle_minutes", 60))
             self.away_idle_minutes_spin.setValue(away_idle_minutes)
@@ -1196,6 +1209,8 @@ class SettingsDialogValuesMixin:
             "head_pat_end_emotion": resolved_emotion,
             "head_pat_end_emotion_duration_sec": self.head_pat_end_emotion_duration_spin.value(),
             "enable_away_nudge": self.enable_away_nudge_check.isChecked(),
+            SAMPLE_SECONDS_KEY: self.observation_sample_seconds_spin.value(),
+            REQUEST_SECONDS_KEY: self.observation_request_seconds_spin.value(),
             "away_idle_minutes": self.away_idle_minutes_spin.value(),
             "away_input_grace_minutes": min(
                 self.away_input_grace_minutes_spin.value(),
@@ -1254,6 +1269,11 @@ class SettingsDialogValuesMixin:
             self._theme_color_edits[invalid_key].setFocus()
             return
         values = self._get_current_values()
+        sample, request = normalize_observation_intervals(getattr(self, "_original_settings", {}))
+        if values.get(SAMPLE_SECONDS_KEY) == sample:
+            del values[SAMPLE_SECONDS_KEY]
+        if values.get(REQUEST_SECONDS_KEY) == request:
+            del values[REQUEST_SECONDS_KEY]
         handler = getattr(self, "_settings_save_handler", None)
         try:
             result = handler(values, getattr(self, "_character_baseline", None)) if callable(handler) else None
