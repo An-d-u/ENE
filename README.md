@@ -56,7 +56,8 @@ It is not meant to be a generic chat window. ENE is built around presence: a cha
 - Browse checked Obsidian files and include selected context in prompts.
 - Extract calendar-like events and conversation activity signals.
 - Use TTS providers, browser speech, streaming TTS, push-to-talk interruption, and model-aware lip-sync.
-- Detect long idle periods and optionally send proactive away nudges.
+- Leave a quiet chat greeting after inactivity. Away greetings use no screen capture.
+- On Windows, open **Share** from the chat input or overlay to choose a window. Enable screen questions, proactive observations, or both. Voice questions use the frame from the end of recording. The panel shows the receiving model and its location. Stop sharing to end both modes.
 - Configure model, prompt, profile, TTS, theme, hotkeys, memory, Obsidian, goals, and behavior from the settings window.
 
 ## Current Status

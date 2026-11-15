@@ -8,7 +8,7 @@ from .protocol import MAX_TEXT_BYTES, ProtocolError, integer_value, text_value, 
 from .input_protocol import INPUT_TYPES, INPUT_FROM_PHONE, input_feature, normalize_input
 
 
-CAPABILITIES = ("audio_pcm_v1", "character_v1", "character_controls_v1", "chat_actions_v1", "message_thoughts_v1", "chat_display_v1", "chat_progress_v1", "chat_images_v1", "stt_input_v1")
+CAPABILITIES = ("audio_pcm_v1", "character_v1", "character_controls_v1", "chat_actions_v1", "message_thoughts_v1", "chat_display_v1", "chat_progress_v1", "chat_images_v1", "stt_input_v1", "camera_v1")
 PROGRESS_TYPES = frozenset({"chat_progress_request", "chat_progress_state"})
 DISPLAY_TYPES = frozenset({"chat_display_request", "chat_display_state"})
 THOUGHT_TYPES = frozenset({"thought_request", "thought_response", "thought_invalidated"})

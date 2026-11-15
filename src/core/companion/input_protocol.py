@@ -8,9 +8,13 @@ IMAGE_TYPES = frozenset({"chat_images_send", "chat_images_request", "chat_images
                          "chat_images_invalidated", "chat_images_limits_request", "chat_images_limits"})
 STT_TYPES = frozenset({"stt_limits_request", "stt_limits", "stt_begin", "stt_ready",
                       "stt_transcribe", "stt_result", "stt_cancel"})
-INPUT_TYPES = UPLOAD_TYPES | IMAGE_TYPES | STT_TYPES
+CAMERA_TYPES = frozenset({"camera_share", "camera_state", "camera_question", "camera_observation"})
+UPLOAD_FEATURES = {"image": "chat_images_v1", "pcm": "stt_input_v1", "camera": "camera_v1"}
+UPLOAD_LIMITS = {"image": 4 * 1024 * 1024, "pcm": 960000, "camera": 1024 * 1024}
+INPUT_TYPES = UPLOAD_TYPES | IMAGE_TYPES | STT_TYPES | CAMERA_TYPES
 INPUT_FROM_PHONE = frozenset({"input_reserve", "input_cancel", "chat_images_send", "chat_images_request",
-                             "chat_images_limits_request", "stt_limits_request", "stt_begin", "stt_transcribe", "stt_cancel"})
+                             "chat_images_limits_request", "stt_limits_request", "stt_begin", "stt_transcribe", "stt_cancel",
+                             "camera_share", "camera_question", "camera_observation"})
 
 
 def input_feature(kind, body):
@@ -18,7 +22,9 @@ def input_feature(kind, body):
         return "chat_images_v1"
     if kind in STT_TYPES:
         return "stt_input_v1"
-    return "chat_images_v1" if body.get("purpose") == "image" else "stt_input_v1"
+    if kind in CAMERA_TYPES:
+        return "camera_v1"
+    return UPLOAD_FEATURES.get(body.get("purpose"))
 
 
 def normalize_input(kind, body):
@@ -32,14 +38,36 @@ def normalize_input(kind, body):
                 "stt_limits_request", "stt_limits"}:
         result["query_id"] = uuid_value(get("query_id"))
     if kind in UPLOAD_TYPES:
-        purpose = result["purpose"] = _choice(get("purpose"), {"image", "pcm"})
+        purpose = result["purpose"] = _choice(get("purpose"), UPLOAD_FEATURES)
         if kind == "input_reserve":
-            length = result["byte_length"] = integer_value(get("byte_length"), 1, 4194304 if purpose == "image" else 960000)
+            length = result["byte_length"] = integer_value(get("byte_length"), 1, UPLOAD_LIMITS[purpose])
+            if purpose == "camera":
+                result["generation"] = integer_value(get("generation"), 1)
             if purpose == "pcm" and length % 2:
                 raise ProtocolError()
             result["sha256"] = _digest(get("sha256"))
         else:
             result["upload_id"] = uuid_value(get("upload_id"))
+    elif kind in CAMERA_TYPES:
+        result["generation"] = integer_value(get("generation"), 1)
+        if kind == "camera_share":
+            result.update(lens=_choice(get("lens"), {"front", "back"}), question=_bool(get("question")),
+                          observe=_bool(get("observe")))
+        elif kind == "camera_state":
+            result.update(available=_bool(get("available")), observe_allowed=_bool(get("observe_allowed")),
+                          model=text_value(get("model"), max_bytes=256), remote=_bool(get("remote")))
+            if result["observe_allowed"] and not result["available"]:
+                raise ProtocolError()
+        else:
+            frame = _object(get("frame"))
+            if set(frame) != {"upload_id", "sha256", "byte_length", "mime"}:
+                raise ProtocolError()
+            result["frame"] = dict(upload_id=uuid_value(frame["upload_id"]), sha256=_digest(frame["sha256"]),
+                                   byte_length=integer_value(frame["byte_length"], 1, UPLOAD_LIMITS["camera"]),
+                                   mime=_choice(frame["mime"], {"image/jpeg"}))
+            if kind == "camera_question":
+                result.update(request_id=uuid_value(get("request_id")),
+                              text=text_value(get("text"), max_bytes=MAX_TEXT_BYTES, nonblank=True))
     elif kind == "chat_images_send":
         result.update(request_id=uuid_value(get("request_id")), text=text_value(get("text"), max_bytes=MAX_TEXT_BYTES))
         images = get("images")

@@ -219,6 +219,7 @@ class CompanionBridgeMixin:
         return self._companion_audio.receive(context, message)
 
     def _companion_connection_closed(self):
+        self._revoke_mobile_camera(disconnect=True)
         pat = getattr(self, "_companion_head_pat", None)
         if pat is not None:
             pat.disconnected()
@@ -300,6 +301,8 @@ class CompanionBridgeMixin:
         attachments=(),
         head_pat_count_before_message=None,
         _mobile_images=None,
+        _voice_token=None,
+        _mobile_camera_frame=None,
     ):
         """중복 확인과 기존 생활 기록 gate 진입을 같은 Qt 호출에서 수행한다."""
         if QThread.currentThread() != self.thread():
@@ -367,6 +370,7 @@ class CompanionBridgeMixin:
                 if existing.body_hash != body_hash
                 else self._companion_request_status(ref)
             )
+        self._invalidate_automatic_reply()
         if self.life_record_state.phase != "idle" or (
             self.worker and self.worker.isRunning()
         ):
@@ -376,6 +380,7 @@ class CompanionBridgeMixin:
         if verified_images and getattr(self.llm_client, "supports_image_input", None) is False:
             return reject("image_input_unsupported")
         ledger.reserve(ref.key, body_hash)
+        screen_frame = None
         try:
             if verified_images:
                 try:
@@ -398,10 +403,24 @@ class CompanionBridgeMixin:
                 head_pat_count_before_message=head_pat_count_before_message,
                 request_ref=ref,
             )
+            if ref.source == "pc" and request_type == "text" and not attachments:
+                if _voice_token is None:
+                    screen_frame = self._capture_question_frame()
+                else:
+                    screen_frame = self._screen_voice_frames[_voice_token]
+                    self._screen_voice_frames[_voice_token] = None
+            elif ref.source == "mobile" and request_type == "text" and _mobile_camera_frame is not None:
+                screen_frame = _mobile_camera_frame()
+            if screen_frame is not None:
+                prepared = replace(prepared, screen_frame=screen_frame)
             if not self._dispatch_general_request(prepared):
+                if screen_frame is not None:
+                    screen_frame.close()
                 ledger.discard_reservation(ref.key)
                 return reject("busy")
         except Exception:
+            if screen_frame is not None:
+                screen_frame.close()
             state = self.life_record_state
             owned_operation = next(
                 (
@@ -474,6 +493,8 @@ class CompanionBridgeMixin:
         self._companion_finish_request(ref, succeeded=succeeded, code=code)
 
     def _companion_begin_shutdown(self):
+        self._revoke_mobile_camera(disconnect=True)
+        self._discard_all_screen_voice()
         pat = getattr(self, "_companion_head_pat", None)
         if pat is not None:
             pat.close()
@@ -540,6 +561,7 @@ class CompanionBridgeMixin:
         self.companion_event.emit(event)
         if state.request_ledger.lookup(request_ref.key) is not None:
             state.request_ledger.mark_accepted(request_ref.key, event.message.id)
+            self._remember_observation_device(request_ref)
             self._emit_companion_request_status(request_ref)
         return event.message.id
 
@@ -582,6 +604,11 @@ class CompanionBridgeMixin:
 
     def _reset_companion_conversation(self):
         """명시적인 초기화만 공개 기록과 요청 식별자를 폐기한다."""
+        self._invalidate_automatic_reply()
+        self._discard_all_screen_voice()
+        self._revoke_mobile_camera(disconnect=True)
+        self._last_question_device = None
+        self._sync_pc_observation_capture()
         audio = getattr(self, "_companion_audio", None)
         if audio is not None:
             audio.cancel("conversation_reset", release=False)

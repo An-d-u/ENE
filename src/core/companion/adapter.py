@@ -381,6 +381,17 @@ class QtGatewayAdapter(QObject):
                 )
             except ProtocolError as error:
                 raise AdapterError(error.code) from None
+            if command.message.type == "camera_share":
+                return self._owner.mobile_camera_share(context, command.message)
+            if command.message.type in {"camera_question", "camera_observation"}:
+                from .input_uploads import UploadStore
+
+                if not isinstance(command.input_store, UploadStore) or command.input_store.context != current:
+                    raise AdapterError("invalid_input_store")
+                if command.message.type == "camera_question":
+                    accepted = self._owner.submit_mobile_camera_question(context, command.message, command.input_store)
+                    return accepted.to_wire()
+                return self._owner.submit_mobile_camera_observation(context, command.message, command.input_store)
             handler = getattr(self._owner, "submit_extension", None)
             if not callable(handler):
                 raise AdapterError("unsupported_command")

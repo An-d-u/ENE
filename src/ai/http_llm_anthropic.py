@@ -4,13 +4,13 @@ import copy
 from typing import Mapping
 from .input_device_context import append_input_device_context
 import requests
+from .http_llm_screen import _ScreenClientMixin
 from .http_llm_common import (
     DEFAULT_GENERATION_PARAMS,
     HTTPFinalRequestDescriptor,
     HTTPStructuredOneShotRequestDescriptor,
     HTTPStructuredOneShotResponse,
     LLM_RESPONSE_TUPLE,
-    _CommonMixin,
     _normalize_generation_params,
     _post_with_safe_errors,
     _raise_for_status_with_detail,
@@ -43,7 +43,7 @@ def _anthropic_output_schema(schema: dict) -> dict:
     return copied
 
 
-class AnthropicClient(_CommonMixin):
+class AnthropicClient(_ScreenClientMixin):
     def __init__(
         self,
         *,
@@ -255,7 +255,11 @@ class AnthropicClient(_CommonMixin):
                 }
             }
         timeout = request_descriptor.timeout_seconds if request_descriptor is not None else 60
-        response = _post_with_safe_errors(self.provider_name, self.endpoint, requests.post, headers=self._headers(), json=payload, timeout=timeout)
+        response = _post_with_safe_errors(
+            self.provider_name, self.endpoint, requests.post,
+            request_descriptor=request_descriptor,
+            headers=self._headers(), json=payload, timeout=timeout,
+        )
         _raise_for_status_with_detail(response, self.provider_name)
         data = response.json()
         if request_descriptor is None:

@@ -1,4 +1,7 @@
 {
+  "screen.frame_missing": "共有したウィンドウを確認できないため、テキストのみで回答します。",
+  "screen.no_windows": "共有できるウィンドウがありません。",
+  "screen.select_window": "共有するウィンドウを選択",
   "settings.behavior.debug.share": "共有用の診断レポートを作成",
   "settings.debug_share.date": "ログの日付",
   "settings.debug_share.hint": "選択した日の直近の結果を最大100件表示します。以下の内容がそのまま保存されます。",
@@ -1192,7 +1195,7 @@
       },
       "away": {
         "title": "Away / idle detection",
-        "enable": "Enable idle-detection nudges",
+        "enable": "離席時にチャットにひと言残す",
         "idle_minutes": {
           "label": "Idle time:",
           "suffix": " min"

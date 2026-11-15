@@ -1,124 +1,41 @@
+from datetime import datetime, timedelta
+from unittest.mock import Mock
+
+import pytest
+
 from src.core.bridge_mixins.away import AwayNudgeBridgeMixin
-from src.core.bridge_state import LifeRecordBridgeState
 
 
-class _DummyAwayBridge(AwayNudgeBridgeMixin):
+class AwayBridge(AwayNudgeBridgeMixin):
     def __init__(self):
-        self.away_check_in_progress = False
-        self.away_idle_minutes = 10
-        self.away_input_grace_minutes = 3
-        self.away_additional_retry_limit = 0
-        self.away_trigger_count_since_last_user_msg = 0
-        self.away_already_triggered_since_last_user_msg = False
-        self.last_away_trigger_at = None
-        self.worker = None
         self.settings = None
-        self.started_worker = None
-        self.capture_count = 0
-
-    def parent(self):
-        return None
-
-    def _prompt_language(self):
-        return "ko"
-
-    def _now_timestamp(self):
-        return "2026-05-25 12:00"
-
-    def _with_prompt_time(self, timestamp, prompt):
-        return f"[현재 시각: {timestamp}]\n{prompt}"
-
-    def _capture_full_desktop_without_overlay(self):
-        self.capture_count += 1
-        return object(), "data:image/png;base64,latest"
-
-    def _calculate_image_diff_percent(self, _image_a, _image_b):
-        raise AssertionError("화면 차이율 비교는 더 이상 호출되면 안 됩니다.")
-
-    def _start_ai_worker(self, message_with_time, images_data):
-        self.started_worker = {
-            "message_with_time": message_with_time,
-            "images": images_data,
-        }
+        self.worker = None
+        self._display_away_greeting = Mock()
+        self._prompt_language = lambda: "ko"
+        self.refresh_away_settings()
+        self.user_message_count = 1
+        self.away_check_in_progress = False
+        self.away_trigger_count_since_last_user_msg = 0
+        self.last_away_trigger_at = None
+        self.last_user_message_at = datetime.now() - timedelta(hours=2)
 
 
-def test_away_nudge_uses_no_recent_input_for_away_tone(monkeypatch):
-    bridge = _DummyAwayBridge()
-    monkeypatch.setattr("src.core.bridge_mixins.away.get_system_idle_seconds", lambda: 3 * 60)
-
-    bridge._start_away_capture_pipeline()
-
-    assert bridge.capture_count == 1
-    assert bridge.started_worker is not None
-    assert "현재 자리 비움 상태야" in bridge.started_worker["message_with_time"]
-    assert "최근 3분 동안 마우스/키보드 입력도 없었어" in bridge.started_worker["message_with_time"]
-    assert bridge._last_request_payload["include_life_record_context"] is False
+@pytest.mark.parametrize("system_idle, expected", [(None, 0), (299, 0), (300, 1)])
+def test_away_leaves_at_most_one_chat_message(monkeypatch, system_idle, expected):
+    bridge = AwayBridge()
+    monkeypatch.setattr("src.core.bridge_mixins.away.get_system_idle_seconds", lambda: system_idle)
+    bridge._check_away_nudge_condition()
+    bridge._check_away_nudge_condition()
+    assert bridge._display_away_greeting.call_count == expected
+    assert bridge.away_trigger_count_since_last_user_msg == expected
+    assert bridge.worker is None
 
 
-def test_away_nudge_uses_recent_input_for_active_tone(monkeypatch):
-    bridge = _DummyAwayBridge()
-    monkeypatch.setattr("src.core.bridge_mixins.away.get_system_idle_seconds", lambda: (3 * 60) - 1)
-
-    bridge._start_away_capture_pipeline()
-
-    assert bridge.capture_count == 1
-    assert bridge.started_worker is not None
-    assert "최근 10분 동안 너에게 말을 걸지 않았어" in bridge.started_worker["message_with_time"]
-    assert "마우스나 키보드 입력은 있었어" in bridge.started_worker["message_with_time"]
-
-
-def test_away_nudge_uses_input_grace_instead_of_idle_minutes(monkeypatch):
-    bridge = _DummyAwayBridge()
-    monkeypatch.setattr("src.core.bridge_mixins.away.get_system_idle_seconds", lambda: 4 * 60)
-
-    bridge._start_away_capture_pipeline()
-
-    assert bridge.started_worker is not None
-    assert "현재 자리 비움 상태야" in bridge.started_worker["message_with_time"]
-
-
-def test_away_capture_rechecks_arbiter_after_reentrant_overlay_events(monkeypatch):
-    bridge = _DummyAwayBridge()
-    bridge.life_record_state = LifeRecordBridgeState()
-    bridge._life_operation_accepts_input = (
-        lambda: bridge.life_record_state.phase == "idle"
-    )
-
-    def capture_with_reentrant_chat():
-        operation_id = bridge.life_record_state.try_begin_operation("normal_reply")
-        assert operation_id is not None
-        bridge.away_check_in_progress = False
-        return object(), "data:image/png;base64,should-not-escape"
-
-    bridge._capture_full_desktop_without_overlay = capture_with_reentrant_chat
-    monkeypatch.setattr(
-        "src.core.bridge_mixins.away.get_system_idle_seconds",
-        lambda: (_ for _ in ()).throw(
-            AssertionError("post-capture side effects must not run")
-        ),
-    )
-
-    bridge._start_away_capture_pipeline()
-
-    assert bridge.started_worker is None
-    assert not hasattr(bridge, "_last_request_payload")
-    assert bridge.away_trigger_count_since_last_user_msg == 0
-    assert bridge.last_away_trigger_at is None
-
-
-def test_refresh_away_settings_clamps_input_grace_to_idle_minutes():
-    class _Settings:
-        config = {
-            "enable_away_nudge": True,
-            "away_idle_minutes": 10,
-            "away_input_grace_minutes": 30,
-            "away_additional_retry_limit": 0,
-        }
-
-    bridge = _DummyAwayBridge()
-    bridge.settings = _Settings()
-
-    bridge.refresh_away_settings()
-
-    assert bridge.away_idle_minutes == 10
-    assert bridge.away_input_grace_minutes == 10
+def test_away_waits_for_first_conversation_and_resets_on_activity(monkeypatch):
+    bridge = AwayBridge()
+    monkeypatch.setattr("src.core.bridge_mixins.away.get_system_idle_seconds", lambda: 9999)
+    bridge.user_message_count = 0
+    bridge._check_away_nudge_condition()
+    bridge._mark_user_activity()
+    bridge._check_away_nudge_condition()
+    bridge._display_away_greeting.assert_not_called()

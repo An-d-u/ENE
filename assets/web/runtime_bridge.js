@@ -5,6 +5,7 @@
 if (typeof QWebChannel !== 'undefined') {
     new QWebChannel(qt.webChannelTransport, function (channel) {
         window.pyBridge = channel.objects.bridge;
+        window.eneScreenShare?.connect(window.pyBridge);
         if (window.pyBridge.head_pat_state) {
             window.pyBridge.head_pat_state.connect(raw => {
                 try { window.eneCharacter?.applyHeadPat(JSON.parse(raw)); } catch (_) { /* 오래된 문서의 상태는 폐기한다. */ }

@@ -349,6 +349,7 @@ function applyUiStringsToStaticNodes() {
 window.applyENEUiStrings = function applyENEUiStrings(config) {
     currentUiStrings = mergeUiStrings(config);
     window.eneUiStrings = currentUiStrings;
+    window.eneScreenShare?.setLanguage(currentUiStrings.resolvedLanguage);
     if (document.documentElement) {
         document.documentElement.lang = currentUiStrings.resolvedLanguage;
     }

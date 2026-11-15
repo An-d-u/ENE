@@ -48,6 +48,9 @@ class Element {
     }
     addEventListener(name, callback) { this.listeners[name] = callback; }
     click() { if (!this.disabled) this.listeners.click?.(); }
+    showModal() { this.open = true; }
+    close() { this.open = false; this.listeners.close?.(); }
+    focus() { context.document.activeElement = this; }
     matches(selector) {
         const not = selector.match(/:not\((.+)\)$/);
         if (not) return this.matches(selector.slice(0, not.index)) && !this.matches(not[1]);
@@ -70,7 +73,8 @@ const body = new Element('body');
 const elements = {};
 const web = path.join(__dirname, '..', 'assets', 'web');
 const html = fs.readFileSync(path.join(web, 'index.html'), 'utf8');
-for (const id of ['chat-container', 'chat-messages', 'chat-input', 'send-button', 'attach-button', 'image-input', 'loading-indicator', 'image-preview-container', 'toast-container']) {
+const screenShareIds = Array.from(html.matchAll(/id="(screen-share-[\w-]+)"/g), match => match[1]);
+for (const id of ['chat-container', 'chat-messages', 'chat-input', 'send-button', 'attach-button', 'image-input', 'loading-indicator', 'image-preview-container', 'toast-container', ...screenShareIds]) {
     // 선택 조건에 영향을 주는 분류와 data 속성을 실제 HTML에서 가져온다.
     const openingTag = html.match(new RegExp(`<([a-z][\\w-]*)\\b[^>]*\\bid="${id}"[^>]*>`, 'i'));
     if (!openingTag) throw Error(`채팅 HTML 요소를 찾을 수 없음: ${id}`);
@@ -85,6 +89,10 @@ const label = new Element('span'); label.className = 'typing-text'; elements['lo
 const signal = () => ({callbacks: [], connect(callback) {this.callbacks.push(callback);}, emit(...values) {this.callbacks.forEach(callback => callback(...values));}});
 const calls = [];
 const bridge = {
+    screenCalls: [], screen_share_state_changed: signal(),
+    get_screen_share_state(callback) { this.screenStateCallback = callback; },
+    configure_screen_share(question, observe) { this.screenCalls.push([question, observe]); },
+    stop_screen_share() { this.screenCalls.push('stop'); },
     chat_display_event: signal(), chat_admission_result: signal(),
     message_received: signal(), expression_changed: signal(), request_pending_changed: signal(),
     get_companion_chat_state(callback) { callback(JSON.stringify({server_epoch: 'epoch', conversation_id: 'conversation', conversation_revision: 0, event_seq: 0, messages: [], processing: {phase: 'idle'}})); },
@@ -104,6 +112,9 @@ const context = {
     createAttachmentId: () => `attachment-${nextId++}`, setTimeout, clearTimeout, result: null, calls, bridge,
 };
 vm.createContext(context);
+if (html.includes('src="runtime_screen_share.js"')) {
+    vm.runInContext(fs.readFileSync(path.join(web, 'runtime_screen_share.js'), 'utf8'), context, {filename: 'runtime_screen_share.js'});
+}
 for (const name of ['runtime_chat_state.js', 'runtime_message_helpers.js', 'runtime_chat_panel_controls.js', 'runtime_message_rendering.js', 'runtime_companion_chat.js']) {
     vm.runInContext(fs.readFileSync(path.join(web, name), 'utf8'), context, {filename: name});
 }

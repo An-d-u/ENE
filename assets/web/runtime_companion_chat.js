@@ -91,7 +91,7 @@ function createCompanionChatRuntime(host) {
             host.notice('sync_required');
             return null;
         }
-        const requestId = host.newId();
+        const requestId = input.voiceToken || host.newId();
         const submission = { ...input, draft: host.readDraft(), accepted: false };
         submissions.set(requestId, submission);
         updatePending();
@@ -99,9 +99,11 @@ function createCompanionChatRuntime(host) {
             host.send({
                 ...head, request_id: requestId, text: input.text,
                 attachments: input.attachments || [],
+                ...(input.voiceToken ? { voice_token: input.voiceToken } : {}),
             }, receiveAdmission);
         } catch (_error) {
             receiveAdmission({ request_id: requestId, state: 'rejected', code: 'connection_failed' });
+            return null;
         }
         return requestId;
     }
@@ -191,12 +193,11 @@ function connectCompanionChatBridge(bridge) {
             applyEmotion(message);
         },
         remove: messageId => { const node = findMessage(messageId); if (node) node.remove(); },
-        send: (payload, callback) => dispatchBridgeCall(() => {
-            bridge.submit_pc_chat(JSON.stringify(payload), raw => {
-                const result = typeof raw === 'string' ? JSON.parse(raw) : raw;
-                callback({ ...result, request_id: payload.request_id });
-            });
-        }, () => callback({ request_id: payload.request_id, state: 'rejected', code: 'connection_failed' })),
+        // 숨겨진 오버레이에서 애니메이션 프레임이 멈춰도 입력을 즉시 접수한다.
+        send: (payload, callback) => bridge.submit_pc_chat(JSON.stringify(payload), raw => {
+            const result = typeof raw === 'string' ? JSON.parse(raw) : raw;
+            callback({ ...result, request_id: payload.request_id });
+        }),
         setPending: setRequestPending,
         notice,
     });

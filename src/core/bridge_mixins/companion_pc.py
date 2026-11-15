@@ -46,6 +46,46 @@ class CompanionRetry:
 
 
 class CompanionPCBridgeMixin:
+    @property
+    def _screen_ptt_busy(self):
+        return bool(getattr(self, "_screen_voice_frames", None))
+
+    def _begin_screen_voice(self, token):
+        if not hasattr(self, "_screen_voice_frames"):
+            self._screen_voice_frames = {}
+        self._screen_voice_frames[token] = None
+        self._invalidate_automatic_reply()
+
+    def _freeze_screen_voice(self, token):
+        frames = getattr(self, "_screen_voice_frames", {})
+        if token in frames:
+            frames[token] = self._capture_question_frame()
+
+    @pyqtSlot(str)
+    def discard_screen_voice(self, token):
+        frame = getattr(self, "_screen_voice_frames", {}).pop(token, None)
+        if frame is not None:
+            frame.close()
+
+    def _discard_all_screen_voice(self):
+        for token in tuple(getattr(self, "_screen_voice_frames", ())):
+            self.discard_screen_voice(token)
+
+    def _publish_pc_only_message(self, message):
+        self.chat_state.pc_messages[message["id"]] = message
+        head = self._pc_chat_head()
+        head.pop("event_seq", None)
+        self.chat_display_event.emit(
+            json.dumps({**head, "op": "append", "message": message}, ensure_ascii=False)
+        )
+
+    def _display_away_greeting(self, text):
+        self._publish_pc_only_message({
+            "id": str(uuid4()), "role": "assistant", "text": text, "request_id": None,
+            "displayed_at": datetime.now(timezone.utc).isoformat(),
+            "local_only": True, "attachments": [],
+        })
+
     def _pc_chat_head(self):
         captured = self.chat_state.public_transcript.capture()
         return {
@@ -132,6 +172,7 @@ class CompanionPCBridgeMixin:
     @pyqtSlot(str, result=str)
     def submit_pc_chat(self, raw):
         """PC가 발급한 요청 UUID와 원래 초안만 공통 수락 함수에 전달한다."""
+        voice_token = None
         try:
             payload = json.loads(raw)
             if not isinstance(payload, dict):
@@ -142,6 +183,10 @@ class CompanionPCBridgeMixin:
                 conversation_id=uuid_value(payload.get("conversation_id")),
                 request_id=uuid_value(payload.get("request_id")),
             )
+            if "voice_token" in payload:
+                if uuid_value(payload["voice_token"]) != ref.request_id:
+                    raise ProtocolError()
+                voice_token = ref.request_id
             attachments = payload.get("attachments", [])
             if not isinstance(attachments, list) or not all(
                 isinstance(item, dict) for item in attachments
@@ -156,7 +201,10 @@ class CompanionPCBridgeMixin:
                     parse_obs_command,
                 )
             )
-            if file_command:
+            if (voice_token is not None and voice_token not in getattr(self, "_screen_voice_frames", {})
+                    and self.chat_state.request_ledger.lookup(ref.key) is None):
+                result = AdmissionResult(ref, "rejected", code="stale_session")
+            elif file_command:
                 result = self._submit_pc_file_command(ref, text)
             else:
                 result = self.submit_chat_request(
@@ -164,6 +212,7 @@ class CompanionPCBridgeMixin:
                     request_ref=ref,
                     request_type="attachments" if attachments else "text",
                     attachments=attachments,
+                    _voice_token=voice_token,
                 )
             return json.dumps(
                 {**result.to_wire().to_dict(), "current": self._pc_chat_head()}
@@ -176,6 +225,9 @@ class CompanionPCBridgeMixin:
                     "current": self._pc_chat_head(),
                 }
             )
+        finally:
+            if voice_token is not None:
+                self.discard_screen_voice(voice_token)
 
     def _submit_pc_file_command(self, ref, text):
         """파일 명령은 PC에서만 실행하고 사용자 원문은 공개 기록에 넣지 않는다."""
@@ -196,6 +248,7 @@ class CompanionPCBridgeMixin:
                 if previous.body_hash == body_hash
                 else reject("request_conflict")
             )
+        self._invalidate_automatic_reply()
         if self.life_record_state.phase != "idle" or (
             self.worker and self.worker.isRunning()
         ):
@@ -232,13 +285,8 @@ class CompanionPCBridgeMixin:
             "local_only": True,
             "attachments": [],
         }
-        self.chat_state.pc_messages[message["id"]] = message
-        head = self._pc_chat_head()
-        head.pop("event_seq", None)
         ledger.mark_accepted(ref.key, message["id"])
-        self.chat_display_event.emit(
-            json.dumps({**head, "op": "append", "message": message}, ensure_ascii=False)
-        )
+        self._publish_pc_only_message(message)
         self._emit_companion_request_status(ref)
         try:
             handler(text)
@@ -351,6 +399,7 @@ class CompanionPCBridgeMixin:
         existing = state.request_ledger.lookup(ref.key)
         if existing is not None:
             return self._companion_request_status(ref) if existing.body_hash == body_hash else reject("request_conflict")
+        self._invalidate_automatic_reply()
         actions = self._ensure_companion_chat_actions()
         captured, user_id, assistant_id, previous_ref = actions.targets()
         target = user_id if kind == "edit" else assistant_id

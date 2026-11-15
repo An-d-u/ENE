@@ -3,6 +3,7 @@ Gemini LLM 클라이언트 (google-genai SDK 사용)
 """
 
 import copy
+from dataclasses import dataclass
 from datetime import datetime
 import hashlib
 import re
@@ -13,6 +14,7 @@ from google import genai
 from .native_model_policy import native_sampling_params
 
 from ..core.debug_logging import debug_request
+from ..core.screen_frame import SCREEN_UNAVAILABLE_HINT, ScreenFrame
 
 from ..conversation_format import prepend_message_time
 from .memory_context_builder import (
@@ -106,6 +108,29 @@ LLM_RESPONSE_TUPLE = Tuple[
 SUMMARY_MIN_OUTPUT_TOKENS = 4096
 GEMINI_MAX_OUTPUT_TOKENS = 8192
 _GEMINI_RESPONSE_CAPABILITY_REGISTRY = ResponseCapabilityRegistry()
+
+
+@dataclass(frozen=True, repr=False)
+class _ScreenPrompt:
+    prompt: str
+    frame: ScreenFrame | None
+
+    def generate(self, client, *, model, history, config, allow_text_fallback):
+        """이미지를 SDK 채팅이나 디버그 기록에 맡기지 않고 이번 전송에만 추가한다."""
+        jpeg = self.frame.read() if self.frame is not None else None
+        if jpeg:
+            parts = [genai.types.Part.from_bytes(data=jpeg, mime_type="image/jpeg"),
+                     genai.types.Part.from_text(text=self.prompt)]
+        elif allow_text_fallback:
+            parts = [genai.types.Part.from_text(text=f"{SCREEN_UNAVAILABLE_HINT}\n\n{self.prompt}")]
+        else:
+            return None
+        # SDK 자체 HTTP 재시도는 직렬화한 본문을 그대로 재사용하므로 한 번으로 제한한다.
+        return client.models.generate_content(
+            model=model,
+            contents=[*history, genai.types.Content(role="user", parts=parts)],
+            config={**config, "http_options": {"retry_options": {"attempts": 1}}},
+        )
 
 
 def _mood_policy_callbacks(
@@ -227,8 +252,11 @@ class GeminiClient:
             settings: 설정 매니저 인스턴스 (옵션)
             calendar_manager: 캘린더 매니저 인스턴스 (옵션)
         """
-        # genai 클라이언트 초기화
-        self.client = genai.Client(api_key=api_key, http_options={"api_version": "v1beta"})
+        # SDK는 동기 HTTP 클라이언트를 한 번만 만든다. 화면 본문을 다른 주소로 재전송하지 않는다.
+        self.client = genai.Client(
+            api_key=api_key,
+            http_options={"api_version": "v1beta", "client_args": {"follow_redirects": False}},
+        )
         self.model_name = model_name
         self.generation_params = self._normalize_generation_params(generation_params)
         self.memory_manager = memory_manager
@@ -1195,12 +1223,13 @@ class GeminiClient:
                 )
             request_config = None
             if non_repair_attempts:
-                self._restore_history_snapshot(
-                    history_snapshot,
-                    response_mode=attempt.mode,
-                    generation_params=generation_snapshot,
-                    settings_source=settings_snapshot,
-                )
+                if not isinstance(contents, _ScreenPrompt):
+                    self._restore_history_snapshot(
+                        history_snapshot,
+                        response_mode=attempt.mode,
+                        generation_params=generation_snapshot,
+                        settings_source=settings_snapshot,
+                    )
                 request_config = self._build_chat_config(
                     include_sub_prompt=True,
                     request_kind=LLMRequestKind.FINAL_REPLY,
@@ -1223,7 +1252,12 @@ class GeminiClient:
                     )
             non_repair_attempts += 1
             try:
-                if request_config is None:
+                if isinstance(contents, _ScreenPrompt):
+                    response = contents.generate(
+                        self.client, model=self.model_name, history=history_snapshot,
+                        config=request_config or self._debug_chat_config, allow_text_fallback=True,
+                    )
+                elif request_config is None:
                     response = GeminiClient._send_chat_message(self, contents)
                 else:
                     response = GeminiClient._send_chat_message(self,
@@ -1273,11 +1307,22 @@ class GeminiClient:
             )
             raise
 
-        self._replace_latest_user_history_text(history_user_content)
-        self._replace_latest_model_history_with_visible_reply(result.payload[0])
+        final_mode = ResponseMode(result.metadata.response_mode)
+        if isinstance(contents, _ScreenPrompt):
+            # 화면은 SDK 이력에 한 번도 추가하지 않고 검증된 대화 텍스트만 확정한다.
+            self._restore_history_snapshot(
+                [*history_snapshot,
+                 {"role": "user", "parts": [{"text": history_user_content}]},
+                 {"role": "model", "parts": [{"text": result.payload[0]}]}],
+                response_mode=final_mode,
+                generation_params=generation_snapshot,
+                settings_source=settings_snapshot,
+            )
+        else:
+            self._replace_latest_user_history_text(history_user_content)
+            self._replace_latest_model_history_with_visible_reply(result.payload[0])
         diagnostics["outcome"] = "validated"
         self._last_response_delivery_metadata = result.metadata
-        final_mode = ResponseMode(result.metadata.response_mode)
         self._last_runtime_prompt_signature = self._runtime_prompt_signature(
             response_mode=final_mode,
             settings_source=settings_snapshot,
@@ -1360,6 +1405,24 @@ class GeminiClient:
         )
         return self._parse_response(response_text)
 
+    async def send_screen_question(
+        self, message: str, screen_frame: ScreenFrame | None, *args, **kwargs,
+    ) -> LLM_RESPONSE_TUPLE:
+        """사용자 대화 문맥을 유지하면서 이번 질문에만 현재 화면을 제공한다."""
+        return await self.send_message_with_memory(
+            message, *args, _screen_prompt=_ScreenPrompt(message, screen_frame), **kwargs,
+        )
+
+    def observe_screen_once(self, prompt: str, screen_frame: ScreenFrame | None) -> str:
+        """일반 대화와 독립된 단발 관찰은 이력과 사용량을 변경하지 않는다."""
+        try:
+            response = _ScreenPrompt(prompt, screen_frame).generate(
+                self.client, model=self.model_name, history=[], config={}, allow_text_fallback=False,
+            )
+            return (response.text or "") if response is not None else ""
+        except Exception:
+            return ""
+
     async def send_message_with_memory(
         self,
         message: str,
@@ -1374,6 +1437,7 @@ class GeminiClient:
         memory_request_id: str | None = None,
         mood_event_context: Mapping[str, str] | None = None,
         request_device: str | None = None,
+        _screen_prompt: _ScreenPrompt | None = None,
     ) -> LLM_RESPONSE_TUPLE:
         """
         메모리를 활용한 메시지 전송
@@ -1431,6 +1495,7 @@ class GeminiClient:
             enhanced_message,
             history_user_content=message,
             **({"request_device": request_device} if request_device is not None else {}),
+            **({"_screen_prompt": _screen_prompt} if _screen_prompt is not None else {}),
             mood_event_context=mood_event_context,
         )
 
@@ -1831,6 +1896,7 @@ class GeminiClient:
         *,
         mood_event_context: Mapping[str, str] | None = None,
         request_device: str | None = None,
+        _screen_prompt: _ScreenPrompt | None = None,
     ) -> LLM_RESPONSE_TUPLE:
         """
         메시지 전송 및 응답 받기
@@ -1865,7 +1931,8 @@ class GeminiClient:
                     response_mode=response_mode,
                 )
                 result = self._execute_final_response(
-                    request_message,
+                    (_ScreenPrompt(request_message, _screen_prompt.frame)
+                     if _screen_prompt is not None else request_message),
                     history_user_content=clean_history,
                     label="텍스트",
                     settings_source=settings_snapshot,

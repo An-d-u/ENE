@@ -10,11 +10,12 @@ from uuid import uuid4
 
 from PIL import Image
 
+from .input_protocol import UPLOAD_LIMITS
 from .protocol import ProtocolError, uuid_value
 
 
-IMAGE_BYTES = 4 * 1024 * 1024
-PCM_BYTES = 960000
+IMAGE_BYTES = UPLOAD_LIMITS["image"]
+PCM_BYTES = UPLOAD_LIMITS["pcm"]
 TOTAL_BYTES = 4 * IMAGE_BYTES + PCM_BYTES
 UPLOAD_TTL = 120
 
@@ -45,12 +46,14 @@ def verify_input(body, purpose, expected_hash):
         if not 0 < len(body) <= PCM_BYTES or len(body) % 2:
             raise InputError("invalid_audio")
         return VerifiedInput(body, expected_hash, "audio/pcm")
-    if purpose != "image" or not 0 < len(body) <= IMAGE_BYTES:
+    if purpose not in {"image", "camera"} or not 0 < len(body) <= UPLOAD_LIMITS[purpose]:
         raise InputError("invalid_image")
     try:
         with Image.open(BytesIO(body)) as image:
             if (image.format not in {"PNG", "JPEG"} or getattr(image, "n_frames", 1) != 1
                     or not 0 < image.width <= 2048 or not 0 < image.height <= 2048):
+                raise InputError("invalid_image")
+            if purpose == "camera" and (image.format != "JPEG" or max(image.size) > 1280 or min(image.size) > 720):
                 raise InputError("invalid_image")
             mime = "image/png" if image.format == "PNG" else "image/jpeg"
             width, height = image.size
@@ -90,6 +93,7 @@ class _Slot:
     length: int
     digest: str
     expires: float
+    observation_epoch: int | None = None
     buffer: BytesIO | None = field(default=None)
     received: int = 0
     verified: VerifiedInput | None = None
@@ -106,6 +110,10 @@ class UploadStore:
         self._slots = {}
         self._active = None
         self._closed = False
+        self._camera_generation = 0
+        self._camera_requested = frozenset()
+        self._camera_modes = frozenset()
+        self._observation_epoch = 0
 
     @property
     def reserved_bytes(self):
@@ -145,14 +153,59 @@ class UploadStore:
             raise InputError("upload_not_found", 404)
         return slot
 
-    def reserve(self, context, command_id, purpose, byte_length, digest):
+    def configure_camera(self, context, generation, *, question, observe):
+        """렌즈나 공유 모드를 바꾸면 이전 수신·검증·전송 권한을 함께 폐기한다."""
+        with self._lock:
+            self._check(context)
+            if type(generation) is not int or generation <= self._camera_generation:
+                raise InputError("stale_extension", 409)
+            self._camera_generation = generation
+            self._camera_requested = frozenset(mode for mode, enabled in (("question", question), ("observe", observe))
+                                               if enabled)
+            self._camera_modes = frozenset()
+            self._discard_camera_slots()
+
+    def _discard_camera_slots(self):
+        for key, slot in tuple(self._slots.items()):
+            if slot.purpose == "camera":
+                self._discard(key)
+
+    def camera_availability(self, context, generation, *, available, observe_allowed):
+        """모델과 관찰 기기가 바뀌면 이전 권한으로 예약한 장면을 재사용하지 않는다."""
+        with self._lock:
+            if self._closed or self.context != context or self._camera_generation != generation:
+                return
+            if not available:
+                # 모델 교체 뒤에는 새 공유 동작만 카메라를 다시 허용한다.
+                self._camera_requested = frozenset()
+            allowed = self._camera_requested
+            if not observe_allowed:
+                allowed = allowed - {"observe"}
+            if ("observe" in allowed) != ("observe" in self._camera_modes):
+                self._observation_epoch += 1
+            self._camera_modes = allowed
+            if not allowed:
+                self._discard_camera_slots()
+
+    def camera_current(self, context, generation, mode):
+        with self._lock:
+            return (not self._closed and self.context == context and self._camera_generation == generation
+                    and mode in self._camera_modes)
+
+    def _require_camera(self, generation):
+        if not self._camera_modes or type(generation) is not int or generation != self._camera_generation:
+            raise InputError("stale_extension", 409)
+
+    def reserve(self, context, command_id, purpose, byte_length, digest, *, generation=None):
         with self._lock:
             self._check(context)
             try:
                 uuid_value(command_id)
             except ProtocolError:
                 raise InputError("invalid_request") from None
-            limit = IMAGE_BYTES if purpose == "image" else PCM_BYTES if purpose == "pcm" else 0
+            if purpose == "camera":
+                self._require_camera(generation)
+            limit = UPLOAD_LIMITS.get(purpose, 0)
             if (type(byte_length) is not int or not 0 < byte_length <= limit
                     or (purpose == "pcm" and byte_length % 2)
                     or not isinstance(digest, str) or re.fullmatch("[a-f0-9]{64}", digest) is None):
@@ -166,7 +219,9 @@ class UploadStore:
                 raise InputError("input_limit", 429)
             self._budget.acquire(byte_length)
             key = str(uuid4())
-            self._slots[key] = _Slot(command_id, purpose, byte_length, digest, self._clock() + UPLOAD_TTL)
+            epoch = self._observation_epoch if purpose == "camera" and "observe" in self._camera_modes else None
+            self._slots[key] = _Slot(command_id, purpose, byte_length, digest, self._clock() + UPLOAD_TTL,
+                                     observation_epoch=epoch)
             return key
 
     def purpose(self, context, key):
@@ -226,9 +281,13 @@ class UploadStore:
                 if slot.removed:
                     self._budget.release(slot.length)
 
-    def claim(self, context, descriptors, purpose):
+    def claim(self, context, descriptors, purpose, *, generation=None, mode="question"):
         with self._lock:
             self._check(context)
+            if purpose == "camera":
+                self._require_camera(generation)
+                if mode not in self._camera_modes:
+                    raise InputError("stale_extension", 409)
             limit = 4 if purpose == "image" else 1
             if not 1 <= len(descriptors) <= limit:
                 raise InputError("invalid_request")
@@ -238,6 +297,8 @@ class UploadStore:
             result = []
             for key, declared in zip(keys, descriptors):
                 slot = self._slot(context, key)
+                if purpose == "camera" and mode == "observe" and slot.observation_epoch != self._observation_epoch:
+                    raise InputError("stale_extension", 409)
                 item = slot.verified
                 if item is None:
                     raise InputError("upload_not_ready", 409)
@@ -259,6 +320,9 @@ class UploadStore:
             for key in tuple(self._slots):
                 self._discard(key)
             self.context = context
+            self._camera_generation = 0
+            self._camera_requested = frozenset()
+            self._camera_modes = frozenset()
 
     def close(self):
         with self._lock:

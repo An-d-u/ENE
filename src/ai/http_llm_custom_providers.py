@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Mapping
 from .input_device_context import append_input_device_context
 import requests
+from .http_llm_screen import _ScreenClientMixin
 from .http_llm_common import (
     HTTPFinalRequestDescriptor,
     HTTPStructuredOneShotRequestDescriptor,
@@ -23,7 +24,7 @@ from .response_protocol import (
 )
 
 
-class GoogleCloudClient(_CommonMixin):
+class GoogleCloudClient(_ScreenClientMixin):
     def __init__(
         self,
         *,
@@ -143,7 +144,11 @@ class GoogleCloudClient(_CommonMixin):
         if generation_params["max_tokens"] > 0:
             payload["generation_config"]["maxOutputTokens"] = generation_params["max_tokens"]
         timeout = request_descriptor.timeout_seconds if request_descriptor is not None else 60
-        response = _post_with_safe_errors(self.provider_name, self._endpoint(), requests.post, debug_model=self.model_name, headers=self._headers(), json=payload, timeout=timeout)
+        response = _post_with_safe_errors(
+            self.provider_name, self._endpoint(), requests.post,
+            debug_model=self.model_name, request_descriptor=request_descriptor,
+            headers=self._headers(), json=payload, timeout=timeout,
+        )
         _raise_for_status_with_detail(response, self.provider_name)
         data = response.json()
         candidates = data.get("candidates", []) or []

@@ -114,6 +114,8 @@ class OverlayWindow(QWidget):
             QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True
         )
         self.web_view.loadFinished.connect(self._on_page_loaded)
+        self.web_view.loadStarted.connect(self.bridge.screen_controls_disconnected)
+        self.web_view.renderProcessTerminated.connect(self.bridge.screen_controls_disconnected)
 
         html_path = self._get_html_path()
         if html_path.exists():
@@ -1133,19 +1135,23 @@ class OverlayWindow(QWidget):
     def set_llm_client(self, llm_client):
         self.bridge.set_llm_client(llm_client)
 
-    def send_voice_text(self, text: str):
+    def send_voice_text(self, text: str, token: str):
         """PTT로 인식된 텍스트를 웹 채팅 전송 경로로 주입한다."""
         if not self._page_loaded:
             print("[Overlay] 음성 텍스트 전송 실패: 웹 페이지 미로딩")
+            self.bridge.discard_screen_voice(token)
             return
         payload = json.dumps(str(text or ""), ensure_ascii=False)
-        self.web_view.page().runJavaScript(
-            "(function(){"
-            "if (typeof window.submitVoiceText === 'function') {"
-            f"window.submitVoiceText({payload});"
-            "}"
-            "})();"
-        )
+        script = f"typeof window.submitVoiceText === 'function' && window.submitVoiceText({payload}, {json.dumps(token)});"
+
+        def dispatched(request_id):
+            if request_id != token and not self._shutting_down:
+                self.bridge.discard_screen_voice(token)
+
+        try:
+            self.web_view.page().runJavaScript(script, 0, dispatched)
+        except RuntimeError:
+            self.bridge.discard_screen_voice(token)
 
     def show_toast(self, message: str, level: str = "info"):
         """웹 UI 토스트로 상태 메시지를 표시한다."""

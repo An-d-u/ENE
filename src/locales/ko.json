@@ -1,4 +1,7 @@
 {
+  "screen.frame_missing": "공유한 창을 확인할 수 없어 텍스트로 답합니다.",
+  "screen.no_windows": "공유할 수 있는 창이 없습니다.",
+  "screen.select_window": "공유할 창 선택",
   "settings.behavior.debug.share": "진단 공유본 만들기",
   "settings.debug_share.date": "로그 날짜",
   "settings.debug_share.hint": "선택한 날짜의 최근 완료 기록 100건까지 표시합니다. 아래 내용이 그대로 저장됩니다.",
@@ -1246,7 +1249,7 @@
       },
       "away": {
         "title": "자리 비움 / 유휴 감지",
-        "enable": "유휴 감지 자동 말걸기 활성화",
+        "enable": "자리 비움 때 채팅에 안부 남기기",
         "idle_minutes": {
           "label": "유휴 시간:",
           "suffix": " 분"

@@ -16,6 +16,10 @@ from ..ai.prompt_language import resolve_prompt_language
 from .bridge_state import BridgeStateAliasMixin
 from .bridge_workers import AIWorker  # noqa: F401  # 기존 import 경로 호환용 재노출
 from .bridge_mixins.attachments import AttachmentBridgeMixin
+from .screen_observation import ObservationSchedule
+from .bridge_mixins.screen_observation import ObservationBridgeMixin
+from .bridge_mixins.screen import ScreenBridgeMixin
+from .bridge_mixins.mobile_camera import MobileCameraBridgeMixin
 from .bridge_mixins.away import AwayNudgeBridgeMixin
 from .bridge_mixins.chat_flow import ChatFlowBridgeMixin
 from .bridge_mixins.companion import CompanionBridgeMixin
@@ -45,6 +49,9 @@ def _prompt_time_header(timestamp: str, language: str) -> str:
 class WebBridge(
     CompanionPCBridgeMixin,
     CompanionBridgeMixin,
+    ObservationBridgeMixin,
+    MobileCameraBridgeMixin,
+    ScreenBridgeMixin,
     AwayNudgeBridgeMixin,
     AttachmentBridgeMixin,
     Live2DParameterBridgeMixin,
@@ -93,6 +100,8 @@ class WebBridge(
     promise_items_updated = pyqtSignal(str)  # 예정 목록 JSON
     proactive_items_updated = pyqtSignal(str)  # 선제 대화 예약 목록 JSON
     goal_items_updated = pyqtSignal(str)  # 목표 목록 JSON
+    screen_observation_finished = pyqtSignal(object, str)
+    screen_share_state_changed = pyqtSignal(str)
     goal_notice = pyqtSignal(str, str)  # (메시지, 레벨)
     
     def __init__(self, settings=None, parent=None):
@@ -132,8 +141,10 @@ class WebBridge(
         self.proactive_timer.start()
 
         self.away_timer = QTimer(self)
-        self.away_timer.setInterval(10_000)
-        self.away_timer.timeout.connect(self._check_away_nudge_condition)
+        self._observation_schedule = ObservationSchedule()
+        self.screen_observation_finished.connect(self._finish_screen_observation)
+        self.away_timer.setInterval(5_000)
+        self.away_timer.timeout.connect(self._poll_ambient_conversations)
         
         # 설정에서 임계값 로드 (기본값: 10)
         if settings and hasattr(settings, 'config'):
@@ -161,7 +172,14 @@ class WebBridge(
     
     def set_llm_client(self, client):
         """LLM 클라이언트 설정"""
+        changed = self.llm_client is not client
+        if changed:
+            self._revoke_mobile_camera()
         self.llm_client = client
+        if changed:
+            self.stop_screen_share()
+        else:
+            self._emit_screen_share_state()
         if self.llm_client and self.mood_manager:
             self.llm_client.mood_manager = self.mood_manager
         if self.llm_client and self.goal_manager:

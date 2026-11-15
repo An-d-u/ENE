@@ -37,6 +37,7 @@ from ..bridge_state import LifeRecordBridgeState
 from ..companion.requests import RequestRef
 from ..life_session_tracker import InactiveStartCandidate
 from ..local_time import resolve_local_time_context
+from ..screen_frame import ScreenFrame
 
 
 _LANGUAGES = frozenset({"ko", "en", "ja"})
@@ -97,6 +98,7 @@ class PreparedChatRequest:
     head_pat_count_before_message: int = 0
     prior_token_usage: Mapping[str, Any] | None = None
     request_ref: RequestRef | None = None
+    screen_frame: ScreenFrame | None = None
 
     def __post_init__(self) -> None:
         if self.received_at.tzinfo is None or self.received_at.utcoffset() is None:
@@ -187,7 +189,11 @@ class LifeRecordBridgeMixin:
         shutdown = getattr(self, "_companion_begin_shutdown", None)
         if callable(shutdown):
             shutdown()
-        return self._get_life_record_state().begin_shutdown()
+        state = self._get_life_record_state()
+        frame = getattr(state.pending_request, "screen_frame", None)
+        if frame is not None:
+            frame.close()
+        return state.begin_shutdown()
 
     def _life_operation_accepts_input(self) -> bool:
         return self._get_life_record_state().phase == "idle"
@@ -1038,6 +1044,8 @@ class LifeRecordBridgeMixin:
             self._finish_life_record_without_reply(operation_id)
             return
         if not state.transition_operation(operation_id, "resuming_reply"):
+            if pending.screen_frame is not None:
+                pending.screen_frame.close()
             return
         try:
             self._emit_life_record_stage("thinking")
@@ -1046,6 +1054,8 @@ class LifeRecordBridgeMixin:
         try:
             self._commit_prepared_chat_request(pending, emit_pending_state=False)
         except Exception:
+            if pending.screen_frame is not None:
+                pending.screen_frame.close()
             self._finish_life_record_without_reply(operation_id)
 
     @staticmethod
@@ -1165,7 +1175,10 @@ class LifeRecordBridgeMixin:
 
     def _finish_life_record_without_reply(self, operation_id: int) -> None:
         state = self._get_life_record_state()
+        frame = getattr(state.pending_request, "screen_frame", None)
         if state.finish_operation(operation_id):
+            if frame is not None:
+                frame.close()
             finish_companion = getattr(self, "_companion_finish_operation", None)
             if callable(finish_companion):
                 finish_companion(operation_id)

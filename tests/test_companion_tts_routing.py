@@ -29,6 +29,7 @@ def routed_bridge(request, monkeypatch):
     jobs, transfers, played = [], [], []
 
     class TTSJob(QObject):
+        finished = pyqtSignal()
         tts_ready = pyqtSignal(bytes, list)
         error_occurred = pyqtSignal(str)
         stream_format_ready = pyqtSignal(int, int, int)
@@ -58,6 +59,7 @@ def routed_bridge(request, monkeypatch):
         def ready(self, raw):
             self.running = False
             self.tts_ready.emit(raw, [])
+            self.finished.emit()
 
     monkeypatch.setattr(tts, "TTSWorker", TTSJob)
     monkeypatch.setattr(tts, "StreamingTTSWorker", TTSJob)
@@ -593,7 +595,7 @@ def test_controller_only_advertises_installed_media_boundaries(routed_bridge):
 
     bridge, _, _, _, _ = routed_bridge
     controller = CompanionController(bridge)
-    assert controller._capabilities == ("audio_pcm_v1", "character_v1", "character_controls_v1", "chat_actions_v1", "message_thoughts_v1", "chat_display_v1", "chat_progress_v1", "chat_images_v1", "stt_input_v1")
+    assert controller._capabilities == ("audio_pcm_v1", "character_v1", "character_controls_v1", "chat_actions_v1", "message_thoughts_v1", "chat_display_v1", "chat_progress_v1", "chat_images_v1", "stt_input_v1", "camera_v1")
     assert controller._character is bridge._companion_character
 
 

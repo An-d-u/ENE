@@ -1396,6 +1396,8 @@ class MemorySummaryBridgeMixin:
         self._is_rerolling = False
         self._get_attachment_session().clear()
         self._sync_attachment_session_aliases()
+        self.last_user_message_at = None
+        self.user_message_count = 0
         self.away_already_triggered_since_last_user_msg = False
         self.away_trigger_count_since_last_user_msg = 0
         self.last_away_trigger_at = None

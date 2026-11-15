@@ -691,7 +691,7 @@ def build_behavior_tab(dialog):
     away_layout.setContentsMargins(10, 15, 10, 10)
 
     self.enable_away_nudge_check = self._create_toggle(
-        "유휴 감지 자동 말걸기 활성화",
+        "자리 비움 때 채팅에 안부 남기기",
         key="settings.behavior.away.enable",
     )
     self.enable_away_nudge_check.toggled.connect(self._on_setting_changed)

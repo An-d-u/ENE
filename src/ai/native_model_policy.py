@@ -1,9 +1,47 @@
-"""Gemini와 Anthropic의 기본 모델 및 샘플링 요청 정책."""
+"""선택 모델의 화면 입력 지원과 네이티브 공급자의 요청 정책."""
 
 import re
 
 
 ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-4-6"
+
+# 일반 대화 API에서 이미지 입력과 텍스트 출력을 함께 지원하는 모델 ID만 허용한다.
+# 공급자 공식 모델 목록과 OpenRouter의 모델별 입력 형식을 기준으로 갱신한다.
+_SCREEN_MODELS = {
+    "gemini": {
+        "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro",
+        "gemini-3-flash-preview", "gemini-3.1-pro-preview", "gemini-3.1-flash-lite",
+        "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash",
+        "gemini-4-carbon", "gemini-4-argon", "gemini-4-hydrogen",
+    },
+    "openai": {
+        "gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano",
+        "o1", "o1-pro", "o3", "o4-mini",
+        "gpt-5", "gpt-5-mini", "gpt-5-nano", "gpt-5.1", "gpt-5.2", "gpt-5.2-pro",
+        "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gpt-5.4-pro", "gpt-5.5", "gpt-5.5-pro",
+        "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6-astra", "gpt-6-sol",
+        "gpt-6-luna", "gpt-6.1-sol", "gpt-6.1-terra",
+    },
+    "anthropic": {
+        ANTHROPIC_DEFAULT_MODEL, "claude-sonnet-4-5", "claude-haiku-4-5", "claude-haiku-4-5-20251001",
+        "claude-opus-4-5", "claude-opus-4-6", "claude-opus-4-7", "claude-opus-4-8",
+        "claude-opus-5", "claude-sonnet-5", "claude-fable-5", "claude-fable-5-1", "claude-fable-5-2",
+        "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5",
+    },
+    "openrouter": {
+        "openai/gpt-4o-mini", "openai/gpt-4o", "openai/gpt-4.1", "openai/gpt-4.1-mini",
+        "google/gemini-2.5-flash", "google/gemini-2.5-pro", "google/gemini-3.8-flash",
+        "anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6",
+    },
+}
+
+
+def supports_screen_model(provider: str, model_name: str) -> bool:
+    """자유 입력 별칭, 자동 라우팅 및 미확인 모델은 화면 전송 전에 제외한다."""
+    model = str(model_name or "").strip()
+    if provider == "gemini":
+        model = model.removeprefix("models/")
+    return model in _SCREEN_MODELS.get(provider, ())
 
 
 def resolve_anthropic_model(model_name: str) -> str:

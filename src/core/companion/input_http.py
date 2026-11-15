@@ -7,6 +7,7 @@ from aiohttp import web
 from .connection_resources import MediaError
 from .adapter import AdapterError
 from .image_thumbnail import thumbnail
+from .input_protocol import UPLOAD_FEATURES
 from .input_uploads import InputError
 from .media_http import media_response, validate_policy
 from .protocol import ProtocolError, uuid_value
@@ -41,7 +42,7 @@ class InputHttp:
                 raise InputError("invalid_request") from None
             context = session.extension_context
             purpose = session.uploads.purpose(context, key)
-            if ("chat_images_v1" if purpose == "image" else "stt_input_v1") not in session.capabilities:
+            if UPLOAD_FEATURES.get(purpose) not in session.capabilities:
                 raise InputError("not_found", 404)
             task = session.resources.acquire("upload")
             session.uploads.begin(context, key, request.content_length)

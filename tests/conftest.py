@@ -21,6 +21,7 @@ def _shared_qt_application():
 
 _HTTP_LLM_TEST_MODULES = {
     "test_http_llm_clients_multimodal_history",
+    "test_http_screen_transport",
     "test_http_llm_clients_openai",
     "test_http_llm_clients_provider_parity",
     "test_http_llm_privacy_logging",

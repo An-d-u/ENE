@@ -208,11 +208,15 @@ function sendMessage() {
 }
 
 // Python 전역 PTT가 호출하는 텍스트 전송 진입점.
-function submitVoiceText(text) {
+function submitVoiceText(text, voiceToken) {
     if (window.eneCompanionChat) {
         const message = (text || '').trim();
-        if (message) window.eneCompanionChat.submit({ text: message, attachments: [], voice: true });
-        return;
+        return message && window.eneCompanionChat.submit({ text: message, attachments: [], voice: true, voiceToken });
+    }
+    if (voiceToken) {
+        chatInput.value += (chatInput.value ? '\n' : '') + text;
+        autoResizeTextarea();
+        return null;
     }
     if (isRequestPending) return;
 

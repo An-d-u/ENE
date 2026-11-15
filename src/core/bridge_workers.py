@@ -398,6 +398,7 @@ class AIWorker(QThread):
 
     response_ready = pyqtSignal(str, str, str, list, str, str, list, str, str, list, str, str)  # (텍스트, 감정, TTS 텍스트, 이벤트, 분석 JSON, 토큰 JSON, 약속 리스트, 생각, 목표 업데이트 JSON, 선제 대화 리스트, 제스처, 무드 분석 JSON)
     error_occurred = pyqtSignal(str)  # 오류 메시지
+    screen_unavailable = pyqtSignal(str, str)
 
     def __init__(
         self,
@@ -424,8 +425,10 @@ class AIWorker(QThread):
         *,
         recent_memory_messages: list[dict] | None = None,
         memory_request_id: str | None = None,
+        screen_frame=None,
     ):
         super().__init__()
+        self.screen_frame = screen_frame
         self.llm_client = llm_client
         self.message = message
         self.use_memory = use_memory
@@ -555,18 +558,19 @@ class AIWorker(QThread):
                 print("[AI Worker] /diary 모드")
                 response_payload = loop.run_until_complete(self._run_diary_flow())
             # 이미지가 있으면 멀티모달로 처리
-            elif self.images:
+            elif self.images or self.screen_frame is not None:
                 self._ensure_image_input_supported()
-                print(f"[AI Worker] 이미지 {len(self.images)}개 포함 - 멀티모달 모드")
+                send_images = (self.llm_client.send_screen_question if self.screen_frame is not None
+                               else self.llm_client.send_message_with_images)
                 response_payload = loop.run_until_complete(
-                    self.llm_client.send_message_with_images(
+                    send_images(
                         self.message,
-                        self.images,
-                        self.memory_search_text,
-                        self.latest_user_message,
-                        self.recent_memory_context,
-                        self.head_pat_count_before_message,
-                        **self._recall_kwargs(self.llm_client.send_message_with_images),
+                        self.screen_frame if self.screen_frame is not None else self.images,
+                        memory_search_text=self.memory_search_text,
+                        latest_user_message=self.latest_user_message,
+                        recent_memory_context=self.recent_memory_context,
+                        head_pat_count_before_message=self.head_pat_count_before_message,
+                        **self._recall_kwargs(send_images),
                         progress_callback=self.progress_callback,
                         mood_event_context=self.mood_event_context or None,
                         **device_kwargs,
@@ -691,6 +695,12 @@ class AIWorker(QThread):
                 return
             self.error_occurred.emit(public_error)
         finally:
+            if self.screen_frame is not None:
+                if self.screen_frame.missing_on_read and not self._is_cancelled():
+                    from .i18n import tr
+                    self.screen_unavailable.emit(tr("screen.frame_missing"), "info")
+                self.screen_frame.close()
+                self.screen_frame = None
             if loop is not None:
                 loop.close()
 

@@ -237,6 +237,19 @@ class ProactiveConversationManager:
             self.save()
         return cancelled
 
+    def has_due(self, now: str | datetime | None = None) -> bool:
+        """다른 자동 발화가 이미 도래한 예약에 양보하도록 읽기만 한다."""
+        current = _coerce_datetime(now)
+        for item in self.items:
+            if item.status in {"scheduled", "queued"}:
+                try:
+                    elapsed = (current - _coerce_datetime(item.trigger_at)).total_seconds()
+                except (ValueError, TypeError):
+                    continue
+                if 0 <= elapsed < DUE_WINDOW_MINUTES * 60:
+                    return True
+        return False
+
     def refresh_due_statuses(
         self,
         now: str | datetime | None = None,

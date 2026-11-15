@@ -483,6 +483,8 @@ body.thought-feature-disabled .message-thought {
     flex-direction: column;
     align-items: flex-end;
     gap: 8px;
+    max-height: calc(100vh - 96px);
+    overflow-y: auto;
     opacity: 0;
     pointer-events: none;
     transform: translateY(-8px) scale(0.96);
@@ -545,6 +547,7 @@ body.thought-feature-disabled .message-thought {
     pointer-events: none;
 }
 
+#screen-share-floating-btn,
 #manual-summarize-floating-btn,
 #obs-note-floating-btn,
 #mood-toggle-floating-btn,
@@ -1842,6 +1845,7 @@ body.thought-feature-disabled .message-thought {
 }
 
 /* 첨부 버튼 */
+#screen-share-button,
 #attach-button {
     padding: 8px 10px;
     border: none;
@@ -1856,8 +1860,119 @@ body.thought-feature-disabled .message-thought {
     align-self: center;
 }
 
+#screen-share-button:hover,
 #attach-button:hover {
     background: rgba(255, 255, 255, 0.2);
+}
+
+#screen-share-button.is-sharing {
+    background: var(--ene-accent);
+    color: #fff;
+}
+
+#screen-share-button {
+    gap: 5px;
+    flex-shrink: 0;
+}
+
+#screen-share-panel,
+#screen-share-indicator {
+    border: 1px solid var(--ene-floating-panel-border);
+    border-radius: 14px;
+    background: var(--ene-life-panel-bg);
+    color: var(--ene-life-text);
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+    font: 14px/1.4 system-ui, sans-serif;
+}
+
+#screen-share-panel {
+    margin: auto;
+    width: min(330px, calc(100vw - 24px));
+    max-height: calc(100vh - 64px);
+    padding: 16px;
+    overflow: auto;
+}
+
+#screen-share-panel::backdrop {
+    background: rgba(0, 0, 0, 0.25);
+}
+
+#screen-share-panel header,
+#screen-share-panel label,
+#screen-share-indicator:not([hidden]) {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+#screen-share-panel header {
+    justify-content: space-between;
+    font-size: 16px;
+}
+
+#screen-share-panel label {
+    min-height: 44px;
+    cursor: pointer;
+}
+
+#screen-share-panel input {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    accent-color: var(--ene-accent);
+}
+
+#screen-share-destination,
+#screen-share-status,
+#screen-share-detail {
+    color: var(--ene-life-muted-text);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+}
+
+#screen-share-destination:not(:empty) {
+    margin: 4px 0 8px;
+}
+
+#screen-share-stop:not([hidden]) {
+    margin-top: 10px;
+}
+
+#screen-share-indicator {
+    max-width: min(320px, calc(100vw - 68px));
+    padding: 8px 10px;
+    pointer-events: auto;
+}
+
+.screen-share-info {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+#screen-share-window {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#screen-share-panel button,
+#screen-share-overlay-stop {
+    padding: 5px 10px;
+    min-height: 32px;
+    flex-shrink: 0;
+    cursor: pointer;
+    border: 1px solid var(--ene-floating-panel-border);
+    border-radius: 8px;
+    background: var(--ene-floating-panel-button-bg);
+    color: inherit;
+}
+
+#screen-share-panel button:hover,
+#screen-share-overlay-stop:hover,
+#screen-share-floating-btn:hover {
+    background: var(--ene-floating-panel-button-hover);
 }
 
 .lucide-icon {

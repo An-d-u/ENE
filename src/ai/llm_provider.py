@@ -8,7 +8,7 @@ import inspect
 from typing import Callable, Dict, List, Mapping, Protocol, Tuple, runtime_checkable
 
 from .response_protocol import OneShotGenerationResult
-from .native_model_policy import ANTHROPIC_DEFAULT_MODEL, resolve_anthropic_model
+from .native_model_policy import ANTHROPIC_DEFAULT_MODEL, resolve_anthropic_model, supports_screen_model
 
 LLM_RESPONSE_TUPLE = Tuple[str, str, str | None, List[Dict], Dict[str, str], List[Dict], str, Dict[str, str], List[Dict], str, Dict[str, object] | None]
 SUMMARY_RESPONSE_TUPLE = (
@@ -713,6 +713,11 @@ def create_llm_client(
                 for capability in LLMCapability
             }
             client.supports_image_input = bool(client.llm_capabilities[LLMCapability.IMAGE_INPUT.value])
+            if _BUILTIN_PROVIDER_BUILDERS.get(provider) is builder:
+                client.screen_model_supported = client.supports_image_input and (
+                    getattr(client, "wire_format", "") == "ollama"
+                    or supports_screen_model(provider, client.model_name)
+                )
         except Exception:
             pass
     return client

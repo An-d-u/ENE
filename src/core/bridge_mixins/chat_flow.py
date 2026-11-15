@@ -34,6 +34,8 @@ from ...ai.mood_engine import (
 )
 from ..bridge_workers import AIWorker
 from ..companion.requests import RequestRef
+from ..i18n import tr
+from ..screen_frame import SCREEN_UNAVAILABLE_HINT
 from .life_records import LifeRecordBridgeMixin, PreparedChatRequest
 from ..chat_attachments import (
     build_attachment_context_block,
@@ -399,6 +401,7 @@ class ChatFlowBridgeMixin:
         prior_token_usage: Mapping[str, object] | None = None,
         *,
         emit_pending_state: bool = True,
+        screen_frame=None,
         mood_event_id: str = "",
         mood_occurred_at: str = "",
         request_ref=None,
@@ -440,6 +443,7 @@ class ChatFlowBridgeMixin:
                 message_with_context,
                 request_device=request_device,
                 images=images_data or [],
+                **({"screen_frame": screen_frame} if screen_frame is not None else {}),
                 memory_search_text=memory_search_text,
                 latest_user_message=latest_user_message,
                 recent_memory_context=recent_memory_context,
@@ -458,6 +462,8 @@ class ChatFlowBridgeMixin:
                     "occurred_at_utc": mood_occurred_at,
                 },
             )
+            if screen_frame is not None:
+                self.worker.screen_unavailable.connect(self.summary_notice)
             self.worker.response_ready.connect(
                 partial(
                     self._on_response_ready,
@@ -873,6 +879,8 @@ class ChatFlowBridgeMixin:
         is_current = getattr(self, "_companion_request_is_current", None)
         if request.request_ref is not None and callable(is_current):
             if not is_current(request.request_ref):
+                if request.screen_frame is not None:
+                    request.screen_frame.close()
                 return
         if request.request_type == "attachments":
             commit_attachments = getattr(self, "_commit_prepared_attachment_request", None)
@@ -935,6 +943,7 @@ class ChatFlowBridgeMixin:
 
         self._last_request_payload = {
             "type": "text",
+            "screen_used": False,
             "message": request.message,
             "message_with_time": message_with_time,
             "images": [],
@@ -971,7 +980,16 @@ class ChatFlowBridgeMixin:
             worker_kwargs["emit_pending_state"] = False
         if request.request_ref is not None:
             worker_kwargs["request_ref"] = request.request_ref
-        self._start_ai_worker(message_with_time, **worker_kwargs)
+        if request.screen_frame is not None:
+            if request.screen_frame.read() is None:
+                request.screen_frame.close()
+                self.summary_notice.emit(tr("screen.frame_missing"), "info")
+                message_with_time += f"\n\n{SCREEN_UNAVAILABLE_HINT}"
+            else:
+                self._last_request_payload["screen_used"] = True
+                worker_kwargs["screen_frame"] = request.screen_frame
+        if self._start_ai_worker(message_with_time, **worker_kwargs) is False:
+            raise RuntimeError("worker_start_declined")
         print("[Bridge] Worker thread started")
 
     @pyqtSlot()
@@ -1033,7 +1051,7 @@ class ChatFlowBridgeMixin:
         self._is_rerolling = True
         self.reroll_state_changed.emit(True)
         self._start_ai_worker(
-            payload["message_with_time"],
+            ChatFlowBridgeMixin._screen_retry_prompt(self, payload["message_with_time"], payload),
             payload.get("images") or [],
             memory_search_text=str(payload.get("memory_search_text", "") or ""),
             latest_user_message=str(payload.get("latest_user_message", "") or ""),
@@ -1049,6 +1067,12 @@ class ChatFlowBridgeMixin:
             **({"request_ref": _companion_ref} if _companion_ref is not None else {}),
         )
         print("[Bridge] Reroll started")
+
+    def _screen_retry_prompt(self, message, payload):
+        if payload.get("screen_used") is True:
+            self.summary_notice.emit("이전 화면은 보관하지 않아 텍스트로 다시 답합니다.", "info")
+            return f"{message}\n\n{SCREEN_UNAVAILABLE_HINT}"
+        return message
 
     def _rollback_last_turn_pair_for_retry(self) -> bool:
         """리롤/수정 재요청 전에 직전 user+assistant 턴을 되돌린다."""
@@ -1194,6 +1218,7 @@ class ChatFlowBridgeMixin:
         )
         self._last_request_payload = {
             "type": payload_type,
+            "screen_used": previous_payload.get("screen_used") is True,
             "message": edited_message,
             "message_id": message_id,
             "message_with_time": message_with_time,
@@ -1215,7 +1240,7 @@ class ChatFlowBridgeMixin:
         self._is_rerolling = True
         self.reroll_state_changed.emit(True)
         self._start_ai_worker(
-            message_with_time,
+            ChatFlowBridgeMixin._screen_retry_prompt(self, message_with_time, previous_payload),
             images,
             memory_search_text=memory_search_text,
             latest_user_message=memory_search_inputs["latest_user_message"],

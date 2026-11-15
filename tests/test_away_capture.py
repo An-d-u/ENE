@@ -1,94 +1,47 @@
-from contextlib import contextmanager
+import json
+from datetime import datetime, timedelta
+from unittest.mock import Mock
 
-import pytest
-
-from src.core.bridge_mixins import away
-
-
-class _Overlay:
-    def __init__(self, visible=True):
-        self.visible = visible
-        self.visibility_changes = []
-
-    def isVisible(self):
-        return self.visible
-
-    def winId(self):
-        return 123
-
-    def hide(self):
-        self.visible = False
-        self.visibility_changes.append(False)
-
-    def show(self):
-        self.visible = True
-        self.visibility_changes.append(True)
+from src.core.bridge_mixins.away import AwayNudgeBridgeMixin
+from tests.test_companion_bridge_transcript import bridge  # noqa: F401
 
 
-class _CaptureBridge(away.AwayNudgeBridgeMixin):
-    def __init__(self, overlay, capture):
-        self.overlay = overlay
-        self.capture = capture
+def test_away_repeats_only_after_configured_interval_and_without_capture(monkeypatch):
+    class Bridge(AwayNudgeBridgeMixin):
+        def _prompt_language(self):
+            return "ko"
 
-    def parent(self):
-        return self.overlay
-
-    def _capture_full_desktop_image(self):
-        return self.capture()
-
-    def _qimage_to_data_url(self, _image):
-        return "data:image/png;base64,synthetic"
-
-
-@pytest.mark.parametrize("supported", [True, False])
-@pytest.mark.parametrize("capture_result", ["success", "empty", "error"])
-def test_capture_keeps_overlay_visible_when_supported_and_restores_state(monkeypatch, supported, capture_result):
-    overlay = _Overlay()
-    exclusion = {"active": False, "restored": False}
-
-    @contextmanager
-    def exclude(window_id):
-        assert window_id == 123
-        exclusion["active"] = supported
-        try:
-            yield supported
-        finally:
-            exclusion["active"] = False
-            exclusion["restored"] = True
-
-    def capture():
-        assert overlay.visible is supported
-        assert exclusion["active"] is supported
-        if capture_result == "error":
-            raise RuntimeError("합성 캡처 실패")
-        return None if capture_result == "empty" else object()
-
-    monkeypatch.setattr(away, "exclude_window_from_capture", exclude)
-    bridge = _CaptureBridge(overlay, capture)
-
-    if capture_result == "error":
-        with pytest.raises(RuntimeError, match="합성 캡처 실패"):
-            bridge._capture_full_desktop_without_overlay()
-    else:
-        result = bridge._capture_full_desktop_without_overlay()
-        assert (result is None) is (capture_result == "empty")
-
-    assert overlay.visible
-    assert overlay.visibility_changes == ([] if supported else [False, True])
-    assert exclusion == {"active": False, "restored": True}
+    bridge = Bridge()
+    bridge.settings = None
+    bridge.worker = None
+    bridge._display_away_greeting = Mock()
+    bridge.refresh_away_settings()
+    bridge.away_additional_retry_limit = 1
+    bridge.user_message_count = 1
+    bridge.away_trigger_count_since_last_user_msg = 0
+    bridge.away_check_in_progress = False
+    bridge.last_user_message_at = datetime.now() - timedelta(hours=2)
+    bridge.last_away_trigger_at = None
+    monkeypatch.setattr("src.core.bridge_mixins.away.get_system_idle_seconds", lambda: 600)
+    bridge._start_away_capture_pipeline = Mock(side_effect=AssertionError("화면 접근"))
+    bridge._check_away_nudge_condition()
+    bridge._check_away_nudge_condition()
+    assert bridge._display_away_greeting.call_count == 1
+    bridge.last_away_trigger_at -= timedelta(hours=2)
+    bridge._check_away_nudge_condition()
+    assert bridge._display_away_greeting.call_count == 2
+    bridge.last_away_trigger_at -= timedelta(hours=2)
+    bridge._check_away_nudge_condition()
+    assert bridge._display_away_greeting.call_count == 2
+    bridge._start_away_capture_pipeline.assert_not_called()
 
 
-@pytest.mark.parametrize("overlay", [None, _Overlay(visible=False)])
-def test_capture_does_not_show_previously_hidden_overlay(monkeypatch, overlay):
-    @contextmanager
-    def exclude(window_id):
-        assert window_id is None
-        yield False
-
-    monkeypatch.setattr(away, "exclude_window_from_capture", exclude)
-    bridge = _CaptureBridge(overlay, object)
-
-    assert bridge._capture_full_desktop_without_overlay() is not None
-    if overlay is not None:
-        assert not overlay.visible
-        assert overlay.visibility_changes == []
+def test_away_greeting_survives_pc_transcript_refresh(bridge, monkeypatch):
+    bridge.last_user_message_at = datetime.now() - timedelta(hours=2)
+    bridge.user_message_count = 1
+    monkeypatch.setattr("src.core.bridge_mixins.away.get_system_idle_seconds", lambda: 900)
+    bridge._check_away_nudge_condition()
+    saved = json.loads(bridge.get_companion_chat_state())["messages"]
+    assert len(saved) == 1 and saved[0]["role"] == "assistant"
+    assert saved[0]["local_only"] and saved[0]["attachments"] == []
+    assert bridge._last_request_payload is None

@@ -406,6 +406,9 @@ class CompanionSession:
                 self.resources.observe_character(value["state_revision"], value["model_version"])
             if message.type == "audio_start":
                 self.stt_input.cancel()
+            if message.type == "camera_state":
+                self.uploads.camera_availability(self.extension_context, value["generation"],
+                                                 available=value["available"], observe_allowed=value["observe_allowed"])
             self.queue(message, control=True)
             return
         if message.type == "resync_required":
@@ -652,6 +655,14 @@ class CompanionSession:
                     )
                 except ProtocolError:
                     continue
+                if message.type == "camera_share":
+                    # Qt 명령 큐가 밀려 있어도 공유 해제 직후 이전 프레임의 전송을 막는다.
+                    fields = message.fields
+                    try:
+                        self.uploads.configure_camera(self.extension_context, fields["generation"],
+                                                      question=fields["question"], observe=fields["observe"])
+                    except InputError:
+                        continue
                 try:
                     if message.type == "chat_actions_request":
                         queued = self._queued_chat_query
@@ -746,7 +757,8 @@ class CompanionSession:
                     fields = message.fields
                     if message.type == "input_reserve":
                         key = self.uploads.reserve(self.extension_context, fields["command_id"], fields["purpose"],
-                                                  fields["byte_length"], fields["sha256"])
+                                                  fields["byte_length"], fields["sha256"],
+                                                  generation=fields.get("generation"))
                         self.queue({
                             "type": "input_reserved", "protocol_version": 1,
                             "registration_generation": self.context.registration_generation,
@@ -766,11 +778,23 @@ class CompanionSession:
                         await self.stt_input.receive(message)
                     finally:
                         if message.type == "stt_transcribe":
-                            self._release_input_ids((message.fields["upload_id"],))
+                            self._release_input_ids((message.fields["upload_id"],), "pcm")
+                    continue
+                if message.type in {"camera_question", "camera_observation"}:
+                    try:
+                        if not self.synced:
+                            if message.type == "camera_question":
+                                self._chat_action_error(message, "rejected", "sync_required")
+                            continue
+                        result = await self.adapter.call("extension", self.context, message=message, input_store=self.uploads)
+                        if result is not None:
+                            self.publish(result)
+                    finally:
+                        self._release_input_ids((message.fields["frame"]["upload_id"],), "camera")
                     continue
                 if message.type in {"chat_action", "chat_images_send"} and not self.synced:
                     if message.type == "chat_images_send":
-                        self._release_input_ids(tuple(item["upload_id"] for item in message.fields["images"]))
+                        self._release_input_ids(tuple(item["upload_id"] for item in message.fields["images"]), "image")
                     self._chat_action_error(message, "rejected", "sync_required")
                     continue
                 snapshot_id = None
@@ -791,7 +815,7 @@ class CompanionSession:
                         result = await self.adapter.call("send_images", self.context, message=message, input_store=self.uploads)
                     finally:
                         # claim된 입력은 별도 불변 객체다. 중복·거절·예외의 미수락 슬롯만 회수한다.
-                        self._release_input_ids(tuple(item["upload_id"] for item in message.fields["images"]))
+                        self._release_input_ids(tuple(item["upload_id"] for item in message.fields["images"]), "image")
                 else:
                     result = await self.adapter.call("extension", self.context, message=message)
                 if result is not None:
@@ -801,7 +825,7 @@ class CompanionSession:
             except ProtocolError:
                 continue
             except Exception as error:
-                if message.type in {"chat_action", "chat_images_send"}:
+                if message.type in {"chat_action", "chat_images_send", "camera_question"}:
                     from .adapter import AdapterError
 
                     self._chat_action_error(message, "rejected" if isinstance(error, AdapterError) else "unknown",
@@ -830,10 +854,11 @@ class CompanionSession:
             "request_id": message.fields["request_id"], "state": state, "code": code,
         }, control=True)
 
-    def _release_input_ids(self, ids):
+    def _release_input_ids(self, ids, purpose):
         for key in ids:
             try:
-                self.uploads.cancel(self.extension_context, key)
+                if self.uploads.purpose(self.extension_context, key) == purpose:
+                    self.uploads.cancel(self.extension_context, key)
             except InputError:
                 pass
 

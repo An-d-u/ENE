@@ -224,6 +224,9 @@ class ProactiveBridgeMixin:
         if self.proactive_manager and proactive_id:
             self.proactive_manager.set_status(proactive_id, "triggered")
             ProactiveBridgeMixin._emit_proactive_items_updated(self)
+        invalidate = getattr(self, "_invalidate_automatic_reply", None)
+        if callable(invalidate):
+            invalidate()
         self._mark_proactive_fire_started(payload)
         self._active_proactive_id = proactive_id or None
         language = self._prompt_language()

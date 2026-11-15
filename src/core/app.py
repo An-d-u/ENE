@@ -640,6 +640,8 @@ class ENEApplication(QObject):
             self.global_ptt = GlobalPTTController(self.settings.config)
             self.global_ptt.transcription_ready.connect(self._on_ptt_transcription_ready)
             self.global_ptt.recording_started.connect(self._on_ptt_recording_started)
+            self.global_ptt.recording_completed.connect(self.overlay_window.bridge._freeze_screen_voice)
+            self.global_ptt.recording_discarded.connect(self.overlay_window.bridge.discard_screen_voice)
             self.global_ptt.notice.connect(self._on_ptt_notice)
             self.global_ptt.start()
             print("OK: 전역 PTT 초기화 성공")
@@ -699,13 +701,13 @@ class ENEApplication(QObject):
             self._settings_dialog._original_settings = current_settings
             self._settings_dialog._load_values()
 
-    def _on_ptt_transcription_ready(self, text: str):
+    def _on_ptt_transcription_ready(self, text: str, token: str):
         """STT 결과 텍스트를 기존 채팅 경로로 전달"""
         cleaned = str(text or "").strip()
         if not cleaned:
             return
         if hasattr(self, "overlay_window") and self.overlay_window:
-            self.overlay_window.send_voice_text(cleaned)
+            self.overlay_window.send_voice_text(cleaned, token)
 
     def _on_ptt_notice(self, message: str, level: str = "info"):
         """PTT 상태를 토스트/로그로 전달"""
@@ -713,12 +715,13 @@ class ENEApplication(QObject):
         if hasattr(self, "overlay_window") and self.overlay_window:
             self.overlay_window.show_toast(message, level)
 
-    def _on_ptt_recording_started(self):
-        """PTT 녹음 시작 시 설정에 따라 TTS 출력을 중단한다."""
-        if not bool(self.interrupt_tts_on_ptt):
-            return
+    def _on_ptt_recording_started(self, token: str):
+        """녹음 중 자동 발화를 막고 설정에 따라 TTS 출력을 중단한다."""
         if hasattr(self, "overlay_window") and self.overlay_window and hasattr(self.overlay_window, "bridge"):
-            self.overlay_window.bridge.interrupt_tts_for_ptt()
+            bridge = self.overlay_window.bridge
+            bridge._begin_screen_voice(token)
+            if self.interrupt_tts_on_ptt:
+                bridge.interrupt_tts_for_ptt()
     
     def _show_settings_dialog(self, section_id: str | None = None):
         """설정 다이얼로그 표시 (비모달)"""
@@ -1224,6 +1227,7 @@ class ENEApplication(QObject):
             self._shutdown_safe_getattr(self, "companion_controller"),
             self._shutdown_safe_getattr(bridge, "worker"),
             self._shutdown_safe_getattr(bridge, "tts_worker"),
+            *self._shutdown_safe_getattr(bridge, "_observation_tts_workers", ()),
             self._shutdown_safe_getattr(bridge, "_summary_review_worker"),
             self._shutdown_safe_getattr(bridge, "obs_tree_worker"),
             self._shutdown_safe_getattr(bridge, "obs_checked_files_worker"),
@@ -1346,6 +1350,9 @@ class ENEApplication(QObject):
         if getattr(self, "_shutdown_worker_producers_stopped", False):
             return
         self._shutdown_worker_producers_stopped = True
+        stop_sharing = self._shutdown_safe_getattr(bridge, "stop_screen_share")
+        if callable(stop_sharing):
+            stop_sharing()
         stop_away = self._shutdown_safe_getattr(bridge, "stop_away_monitor")
         if callable(stop_away):
             try:

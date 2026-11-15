@@ -3,12 +3,12 @@ from __future__ import annotations
 from typing import Mapping
 from .input_device_context import append_input_device_context
 import requests
+from .http_llm_screen import _ScreenClientMixin
 from .http_llm_common import (
     HTTPFinalRequestDescriptor,
     HTTPStructuredOneShotRequestDescriptor,
     HTTPStructuredOneShotResponse,
     LLM_RESPONSE_TUPLE,
-    _CommonMixin,
     _normalize_generation_params,
     _official_profile_for_endpoint,
     _post_with_safe_errors,
@@ -47,7 +47,7 @@ def _life_record_model_policy_provider(
     return provider
 
 
-class OpenAICompatibleClient(_CommonMixin):
+class OpenAICompatibleClient(_ScreenClientMixin):
     def __init__(
         self,
         *,
@@ -387,7 +387,11 @@ class OpenAICompatibleClient(_CommonMixin):
             payload["max_tokens"] = generation_params["max_tokens"]
         self._apply_structured_response_payload(payload, request_descriptor)
         timeout = request_descriptor.timeout_seconds if request_descriptor is not None else 60
-        response = _post_with_safe_errors(self.provider_name, self.endpoint, requests.post, headers=self._headers(), json=payload, timeout=timeout)
+        response = _post_with_safe_errors(
+            self.provider_name, self.endpoint, requests.post,
+            request_descriptor=request_descriptor,
+            headers=self._headers(), json=payload, timeout=timeout,
+        )
         _raise_for_status_with_detail(response, self.provider_name)
         data = response.json()
         if request_descriptor is None:
@@ -547,7 +551,7 @@ class OpenAICompatibleClient(_CommonMixin):
         )
 
 
-class OpenAIResponseAPIClient(_CommonMixin):
+class OpenAIResponseAPIClient(_ScreenClientMixin):
     def __init__(
         self,
         *,
@@ -868,7 +872,11 @@ class OpenAIResponseAPIClient(_CommonMixin):
             )
         self._apply_generation_payload(payload, generation_params)
         timeout = request_descriptor.timeout_seconds if request_descriptor is not None else 60
-        response = _post_with_safe_errors(self.provider_name, self.endpoint, requests.post, headers=self._headers(), json=payload, timeout=timeout)
+        response = _post_with_safe_errors(
+            self.provider_name, self.endpoint, requests.post,
+            request_descriptor=request_descriptor,
+            headers=self._headers(), json=payload, timeout=timeout,
+        )
         _raise_for_status_with_detail(response, self.provider_name)
         data = response.json()
         if request_descriptor is None:

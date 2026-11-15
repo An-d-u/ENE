@@ -1,0 +1,196 @@
+[
+  {
+    "name": "off",
+    "valid": true,
+    "body": {
+      "type": "camera_share",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "11111111-1111-4111-8111-111111111111",
+      "connection_generation": "22222222-2222-4222-8222-222222222222",
+      "conversation_id": "33333333-3333-4333-8333-333333333333",
+      "generation": 1,
+      "question": false,
+      "observe": false,
+      "lens": "back"
+    }
+  },
+  {
+    "name": "front_observe",
+    "valid": true,
+    "body": {
+      "type": "camera_share",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "11111111-1111-4111-8111-111111111111",
+      "connection_generation": "22222222-2222-4222-8222-222222222222",
+      "conversation_id": "33333333-3333-4333-8333-333333333333",
+      "generation": 4,
+      "question": false,
+      "observe": true,
+      "lens": "front"
+    }
+  },
+  {
+    "name": "local_model",
+    "valid": true,
+    "body": {
+      "type": "camera_state",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "11111111-1111-4111-8111-111111111111",
+      "connection_generation": "22222222-2222-4222-8222-222222222222",
+      "conversation_id": "33333333-3333-4333-8333-333333333333",
+      "generation": 4,
+      "available": true,
+      "observe_allowed": false,
+      "model": "synthetic-vision",
+      "remote": false
+    }
+  },
+  {
+    "name": "reserve_camera",
+    "valid": true,
+    "body": {
+      "type": "input_reserve",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "11111111-1111-4111-8111-111111111111",
+      "connection_generation": "22222222-2222-4222-8222-222222222222",
+      "conversation_id": "33333333-3333-4333-8333-333333333333",
+      "command_id": "44444444-4444-4444-8444-444444444444",
+      "purpose": "camera",
+      "generation": 4,
+      "byte_length": 845,
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    }
+  },
+  {
+    "name": "phone_question",
+    "valid": true,
+    "body": {
+      "type": "camera_question",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "11111111-1111-4111-8111-111111111111",
+      "connection_generation": "22222222-2222-4222-8222-222222222222",
+      "conversation_id": "33333333-3333-4333-8333-333333333333",
+      "generation": 4,
+      "request_id": "66666666-6666-4666-8666-666666666666",
+      "text": "도형의 개수를 세어 주세요.",
+      "frame": {
+        "upload_id": "55555555-5555-4555-8555-555555555555",
+        "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "byte_length": 845,
+        "mime": "image/jpeg"
+      }
+    }
+  },
+  {
+    "name": "phone_observation",
+    "valid": true,
+    "body": {
+      "type": "camera_observation",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "11111111-1111-4111-8111-111111111111",
+      "connection_generation": "22222222-2222-4222-8222-222222222222",
+      "conversation_id": "33333333-3333-4333-8333-333333333333",
+      "generation": 4,
+      "frame": {
+        "upload_id": "55555555-5555-4555-8555-555555555555",
+        "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "byte_length": 845,
+        "mime": "image/jpeg"
+      }
+    }
+  },
+  {
+    "name": "unknown_lens",
+    "valid": false,
+    "body": {
+      "type": "camera_share",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "11111111-1111-4111-8111-111111111111",
+      "connection_generation": "22222222-2222-4222-8222-222222222222",
+      "conversation_id": "33333333-3333-4333-8333-333333333333",
+      "generation": 4,
+      "question": true,
+      "observe": false,
+      "lens": "default"
+    }
+  },
+  {
+    "name": "unsigned_generation",
+    "valid": false,
+    "body": {
+      "type": "camera_share",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "11111111-1111-4111-8111-111111111111",
+      "connection_generation": "22222222-2222-4222-8222-222222222222",
+      "conversation_id": "33333333-3333-4333-8333-333333333333",
+      "generation": 0,
+      "question": true,
+      "observe": false,
+      "lens": "back"
+    }
+  },
+  {
+    "name": "reserve_requires_generation",
+    "valid": false,
+    "body": {
+      "type": "input_reserve",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "11111111-1111-4111-8111-111111111111",
+      "connection_generation": "22222222-2222-4222-8222-222222222222",
+      "conversation_id": "33333333-3333-4333-8333-333333333333",
+      "command_id": "44444444-4444-4444-8444-444444444444",
+      "purpose": "camera",
+      "byte_length": 845,
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    }
+  },
+  {
+    "name": "frame_size_limit",
+    "valid": false,
+    "body": {
+      "type": "camera_observation",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "11111111-1111-4111-8111-111111111111",
+      "connection_generation": "22222222-2222-4222-8222-222222222222",
+      "conversation_id": "33333333-3333-4333-8333-333333333333",
+      "generation": 4,
+      "frame": {
+        "upload_id": "55555555-5555-4555-8555-555555555555",
+        "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "byte_length": 1048577,
+        "mime": "image/jpeg"
+      }
+    }
+  },
+  {
+    "name": "jpeg_required",
+    "valid": false,
+    "body": {
+      "type": "camera_question",
+      "protocol_version": 1,
+      "registration_generation": 1,
+      "server_epoch": "11111111-1111-4111-8111-111111111111",
+      "connection_generation": "22222222-2222-4222-8222-222222222222",
+      "conversation_id": "33333333-3333-4333-8333-333333333333",
+      "generation": 4,
+      "request_id": "66666666-6666-4666-8666-666666666666",
+      "text": "정사각형이 보이나요?",
+      "frame": {
+        "upload_id": "55555555-5555-4555-8555-555555555555",
+        "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "byte_length": 845,
+        "mime": "image/png"
+      }
+    }
+  }
+]

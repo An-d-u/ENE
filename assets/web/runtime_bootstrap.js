@@ -308,6 +308,7 @@ window.stopBrowserTTS = function stopBrowserTTS() {
     }
     try {
         window.speechSynthesis.cancel();
+        window.pyBridge?.set_browser_speaking?.(false);
         return true;
     } catch (error) {
         console.warn('Failed to stop browser TTS:', error);
@@ -341,12 +342,16 @@ window.playBrowserTTS = function playBrowserTTS(payload) {
             utterance.lang = voice.lang || utterance.lang;
         }
 
+        const finishSpeech = () => window.pyBridge?.set_browser_speaking?.(Boolean(window.speechSynthesis.speaking));
+        utterance.onend = finishSpeech;
         utterance.onstart = () => {
+            window.pyBridge?.set_browser_speaking?.(true);
             if (typeof window.notifySyntheticGestureSpeechActivity === 'function') {
                 window.notifySyntheticGestureSpeechActivity();
             }
         };
         utterance.onerror = (event) => {
+            finishSpeech();
             console.warn('Browser TTS error:', event.error || event);
             showToast('브라우저 기본 TTS 재생에 실패했습니다.', 'error');
         };

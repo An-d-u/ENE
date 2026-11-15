@@ -904,6 +904,7 @@ class HTTPFinalRequestDescriptor:
     schema_name: str = ""
     schema: dict | None = None
     timeout_seconds: float = 60.0
+    prepare_screen_payload: Callable[[dict], None] | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
@@ -1265,10 +1266,16 @@ def _post_with_safe_errors(
     url: str,
     post_request: Callable[..., object],
     debug_model: str | None = None,
+    request_descriptor: HTTPFinalRequestDescriptor | None = None,
     **kwargs,
 ):
     try:
         payload = kwargs.get("json", {})
+        if request_descriptor is not None and request_descriptor.prepare_screen_payload is not None:
+            # 리디렉션 재전송과 서버가 화면을 반사한 오류 본문의 디버그 저장을 막는다.
+            kwargs["allow_redirects"] = False
+            request_descriptor.prepare_screen_payload(payload)
+            return post_request(url, **kwargs)
         model = debug_model or (payload.get("model") if isinstance(payload, dict) else None)
         with debug_request("llm", provider_name, model, payload):
             response = post_request(url, **kwargs)

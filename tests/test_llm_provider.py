@@ -459,3 +459,47 @@ def test_create_llm_client_sets_image_input_capability(monkeypatch, provider, ex
 
     assert client.supports_image_input is expected
     assert client.llm_capabilities[LLMCapability.IMAGE_INPUT.value] is expected
+
+
+@pytest.mark.parametrize(
+    ("provider", "model", "screen", "attachments"),
+    [
+        ("gemini", "models/gemini-3.8-flash", True, True),
+        ("gemini", "gemini-3-flash-preview", True, True),
+        ("gemini", "gemini-embedding-001", False, True),
+        ("gemini", "gemini-3.8-flash-tts", False, True),
+        ("gemini", "gemini-future-preview", False, True),
+        ("anthropic", "", True, True),
+        ("anthropic", "claude-2.1", False, True),
+        ("openai", "gpt-4o-mini", True, True),
+        ("openai", "gpt-4o-mini-tts", False, True),
+        ("openai", "o3-mini", False, True),
+        ("openai", "gpt-6.1-terra", True, True),
+        ("openrouter", "openai/gpt-4o-mini", True, True),
+        ("openrouter", "anthropic/claude-sonnet-4.6", True, True),
+        ("openrouter", "deepseek/deepseek-chat", False, True),
+        ("openrouter", "openrouter/auto", False, True),
+        ("openrouter", "synthetic/gpt-4o-mini", False, True),
+        ("deepseek", "deepseek-chat", False, False),
+        ("custom_api", "gpt-4o-mini", False, False),
+    ],
+)
+def test_screen_capability_uses_selected_model_without_changing_manual_attachments(
+    monkeypatch, provider, model, screen, attachments,
+):
+    if provider == "gemini":
+        from types import SimpleNamespace
+        monkeypatch.setattr("src.ai.llm_client.GeminiClient", lambda **kwargs: SimpleNamespace(**kwargs))
+    client = create_llm_client(LLMProviderConfig(provider=provider, api_key="synthetic-key", model_name=model))
+    assert client.screen_model_supported is screen
+    assert client.supports_image_input is attachments
+
+
+@pytest.mark.parametrize("provider", ("ollama", "custom_api"))
+@pytest.mark.parametrize("enabled", (False, True))
+def test_ollama_screen_capability_uses_existing_selected_model_opt_in(provider, enabled):
+    client = create_llm_client(
+        LLMProviderConfig(provider=provider, model_name="synthetic-local-model"),
+        settings={"custom_api_format": "ollama", "ollama_image_input_enabled": enabled},
+    )
+    assert client.screen_model_supported is enabled

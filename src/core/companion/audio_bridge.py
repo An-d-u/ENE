@@ -17,7 +17,7 @@ from .requests import RequestRef
 @dataclass(frozen=True)
 class _Intent:
     request_ref: RequestRef
-    normal_operation_id: int
+    normal_operation_id: int | None
     operation_id: str
     utterance_id: str
     pc_only: bool
@@ -106,7 +106,9 @@ class CompanionAudioBridge(QObject):
         ):
             return
         operation = completion.get("normal_operation_id")
-        if type(operation) is not int:
+        if type(operation) is not int and not isinstance(
+            getattr(worker, "screen_observation_context", None), tuple
+        ):
             return
         worker.companion_audio_intent = _Intent(
             completion["request_ref"],
@@ -136,8 +138,13 @@ class CompanionAudioBridge(QObject):
         if not isinstance(active, tuple) or len(active) != 2:
             return None
         intent = getattr(active[1], "companion_audio_intent", None)
-        state = self.owner.life_record_state
-        if not isinstance(intent, _Intent) or not state.matches_operation(
+        if not isinstance(intent, _Intent):
+            return None
+        if intent.normal_operation_id is None:
+            context = getattr(active[1], "screen_observation_context", None)
+            if context is None or context != getattr(self.owner, "_observation_voice", None):
+                return None
+        elif not self.owner.life_record_state.matches_operation(
             intent.normal_operation_id, "normal_reply"
         ):
             return None

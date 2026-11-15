@@ -5,6 +5,8 @@ import json
 import time
 from functools import partial
 
+from PyQt6.QtCore import pyqtSlot
+
 from ...ai.prompt_language import resolve_prompt_language, resolve_tts_language
 from ...ai.response_protocol import is_valid_token_count
 from ...ai.viseme_stream_analyzer import VisemeStreamAnalyzer
@@ -260,19 +262,35 @@ class TTSBridgeMixin:
             "[Bridge] tts_start_failed category=local_error "
             f"exception_class={type(exc).__name__}"
         )
+        if getattr(self, "_observation_tts_workers", None):
+            self._observation_tts_workers.discard(self.tts_worker)
         self.tts_worker = None
         self._active_tts_operation = (operation_id, None)
         self._on_tts_error("tts_start_failed", operation_id=operation_id)
 
     def _create_tts_worker(self, worker_type, text: str, operation_id):
         try:
-            return worker_type(self.tts_client, text)
+            worker = worker_type(self.tts_client, text)
+            if getattr(self, "_observation_voice", None) is not None:
+                worker.screen_observation_context = self._observation_voice
+                if not hasattr(self, "_observation_tts_workers"):
+                    self._observation_tts_workers = set()
+                worker.finished.connect(self._observation_tts_finished)
+                self._observation_tts_workers.add(worker)
+            return worker
         except Exception as exc:
             self._recover_tts_start_failure(operation_id, exc)
             return None
 
-    def _play_tts(self, text: str):
+    @pyqtSlot()
+    def _observation_tts_finished(self):
+        self._observation_tts_workers.discard(self.sender())
+
+    def _play_tts(self, text: str, *, observation_context=None, observation_ref=None):
         """립싱크를 포함한 TTS 재생 (비동기 스레드)"""
+        if getattr(self, "_observation_voice", None) is not None:
+            self.interrupt_tts_for_ptt()
+        self._observation_voice = observation_context
         self._tts_interrupted_for_ptt = False
         if getattr(self.tts_client, "uses_browser_playback", False):
             audio_bridge = getattr(self, "_companion_audio", None)
@@ -297,6 +315,8 @@ class TTSBridgeMixin:
         self._stream_audio_format = None
         self._reset_stream_sync_state()
         completion = getattr(self, "_pending_response_completion", None)
+        if observation_context is not None:
+            completion = {"request_ref": observation_ref}
         operation_id = (
             completion.get("normal_operation_id")
             if isinstance(completion, dict)
@@ -721,6 +741,13 @@ class TTSBridgeMixin:
         return not self._matches_tts_operation(operation_id, tts_worker)
 
     def _matches_tts_operation(self, operation_id=None, tts_worker=None) -> bool:
+        context = getattr(tts_worker, "screen_observation_context", None)
+        if isinstance(context, tuple):
+            return (
+                context == getattr(self, "_observation_voice", None)
+                and getattr(self, "_active_tts_operation", None) == (operation_id, tts_worker)
+                and (context[0] != "mobile" or self._observation_still_current(context))
+            )
         if operation_id is None:
             return True
         active_operation = getattr(self, "_active_tts_operation", None)
@@ -840,12 +867,20 @@ class TTSBridgeMixin:
         cancelled_completion = getattr(self, "_pending_response_completion", None)
         if audio_bridge is not None:
             audio_bridge.cancel("interrupted", release=False)
-        # 생성 중인 TTS 결과가 곧 도착할 수 있으면 다음 오디오 재생을 1회 스킵한다.
-        self._tts_interrupted_for_ptt = bool(self.pending_response) or bool(
-            self.tts_worker and self.tts_worker.isRunning()
-        )
-        if self.tts_worker and self.tts_worker.isRunning():
-            stop_worker = getattr(self.tts_worker, "request_stop", None)
+        observation = getattr(self, "_observation_voice", None)
+        worker = self.tts_worker
+        generating = bool(worker and worker.isRunning())
+        self._tts_interrupted_for_ptt = observation is None and (bool(self.pending_response) or generating)
+        if observation is not None:
+            self._observation_voice = None
+            if worker is not None and getattr(worker, "screen_observation_context", None) == observation:
+                # 공급자의 현재 요청이 끝날 때까지 Qt 종료 감시가 워커를 소유한다.
+                if generating:
+                    worker.requestInterruption()
+                self._clear_tts_operation(None, worker)
+                self.tts_worker = None
+        if generating:
+            stop_worker = getattr(worker, "request_stop", None)
             if callable(stop_worker):
                 stop_worker()
 
@@ -875,6 +910,8 @@ class TTSBridgeMixin:
             "})();"
         )
 
+        if observation is not None:
+            return
         # 보류 중 텍스트가 있으면 즉시 표시
         self._flush_pending_response_if_any()
         if audio_bridge is not None and cancelled_completion is getattr(

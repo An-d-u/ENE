@@ -1,4 +1,7 @@
 {
+  "screen.frame_missing": "The shared window is unavailable. Answering from text only.",
+  "screen.no_windows": "No windows are available to share.",
+  "screen.select_window": "Choose a window to share",
   "settings.behavior.debug.share": "Create diagnostic report",
   "settings.debug_share.date": "Log date",
   "settings.debug_share.hint": "Shows up to 100 recent results for the selected day. The file will contain exactly the text below.",
@@ -1244,7 +1247,7 @@
       },
       "away": {
         "title": "Away / idle detection",
-        "enable": "Enable idle-detection nudges",
+        "enable": "Leave a chat greeting after inactivity",
         "idle_minutes": {
           "label": "Idle time:",
           "suffix": " min"
