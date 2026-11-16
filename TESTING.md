@@ -31,7 +31,18 @@ certifi 하한 2026.10.19는 [emSign ECC 루트 제거와 영향받지 않은 �
 aiohttp 하한 3.14.5는 [WebSocket 자원 소모 수정](https://github.com/aio-libs/aiohttp/security/advisories/GHSA-2g87-pp6c-29x5)과
 [후속 제어 프레임 오류 수정](https://github.com/aio-libs/aiohttp/releases/tag/v3.14.5)을 포함한다.
 google-genai 하한 2.9.0은 Gemini 길이 복구의 `thinking_level` 설정을 실제 SDK로 검증한 기준이다.
-[3.x의 기본 API 버전과 HTTP 클라이언트 변경](https://github.com/googleapis/python-genai/releases/tag/v3.0.0)에 대한 호환성을 검증할 때까지 2.x 범위로 제한한다.
+선언 범위는 `>=2.9.0,<4`로 2.x와 3.x를 허용한다. 대화와 Gemini 임베딩 클라이언트는
+`v1beta`를 명시해 [3.x의 기본 API 버전 변경](https://github.com/googleapis/python-genai/releases/tag/v3.0.0)에 대응한다.
+Gemini 전송 검사는 SDK 2.x와 3.x 환경에서 각각 실행한다.
+루프백 HTTP 서버와 합성 응답으로 대화·이미지·구조화 응답·임베딩 전송을 확인하고,
+화면 검사는 이미지 바이트, MIME 형식, 권한 철회와 이력 경계를 검증한다.
+MIME 필드는 `types.Blob.model_validate`로 읽어 SDK의 `mimeType`과 `mime_type` 표기를 모두 처리한다.
+실제 제공자 API와 모델의 동작은 별도 검증이 필요하다.
+
+```powershell
+python -m pytest tests/test_gemini_sdk_transport.py tests/test_gemini_screen_transport.py tests/test_gemini_structured_outputs.py -q
+```
+
 cryptography는 선언된 정확한 버전으로 TLS 인증서·키 저장·연결 테스트를 수행해야 한다.
 
 `tests/test_dependency_security_regressions.py`는 수십 바이트의 합성 불완전 PDF가 첨부 오류로 종료되는지

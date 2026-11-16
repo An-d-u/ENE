@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 
 from google import genai
+from google.genai import types
 import httpx
 from PIL import Image
 import pytest
@@ -94,7 +95,10 @@ def test_screen_question_only_sends_jpeg_once_and_preserves_user_turn(sdk, monke
         assert question["contents"][0]["parts"] == [{"text": "가상의 이전 질문"}]
         assert question["systemInstruction"]["parts"] == [{"text": "합성 역할 지침"}]
         parts = question["contents"][-1]["parts"]
-        assert [p["inlineData"] for p in parts if "inlineData" in p] == [{"mimeType": "image/jpeg", "data": marker}]
+        attachments = [p["inlineData"] for p in parts if "inlineData" in p]
+        assert len(attachments) == 1
+        assert types.Blob.model_validate(attachments[0]).mime_type == "image/jpeg"
+        assert attachments[0]["data"] == marker
         assert "합성 도형 문맥" in parts[-1]["text"] and "PC" in parts[-1]["text"]
         for curated in (True, False):
             history = client.chat.get_history(curated=curated)
@@ -148,7 +152,8 @@ def test_missing_screen_preserves_the_prior_manual_attachment(sdk):
     for body in requests:
         attachments = [part["inlineData"] for turn in body["contents"] for part in turn["parts"]
                        if "inlineData" in part]
-        assert len(attachments) == 1 and attachments[0]["mimeType"] == "image/png"
+        assert len(attachments) == 1
+        assert types.Blob.model_validate(attachments[0]).mime_type == "image/png"
         assert base64.urlsafe_b64decode(attachments[0]["data"]) == manual.getvalue()
     assert SCREEN_UNAVAILABLE_HINT in requests[1]["contents"][-1]["parts"][-1]["text"]
     assert SCREEN_UNAVAILABLE_HINT not in str(requests[2])
