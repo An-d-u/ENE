@@ -43,6 +43,8 @@ class CharacterPlayback:
         if not self._current():
             self.ref, self.player = None, None
             return
+        if self.phone_active:
+            self.owner.speech_playback_changed.emit(True)
         # 이전 장치에서 늦게 전달된 종료 콜백은 새 발화를 종료하지 못한다.
         identity = self.ref
         for name in ("playback_finished", "playback_error"):
@@ -142,4 +144,6 @@ class CharacterPlayback:
         if self.active:
             self._mouth(0.0)
             self._publish(False)
+            if self.phone_active:
+                self.owner.speech_playback_changed.emit(False)
         self.ref, self.player, self.output, self.mouth = None, None, "none", 0.0

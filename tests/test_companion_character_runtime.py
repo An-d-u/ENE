@@ -146,6 +146,143 @@ assert.equal(calls.filter(x=>x==='createApp').length,1);character.dispose();
 """)
 
 
+def test_desktop_pose_motion_uses_viewer_curves_in_the_cubism_update_cycle():
+    case = r"""
+host.kind = 'pc';
+vm.runInContext(ENGINE, ctx);
+const bank = MOTION_DATA;
+const motion = context.eneResponseMotion;
+const ids = ['ParamAngleY', 'ParamBodyAngleY', 'ParamBodyAngleZ'];
+context.fetch = async path => ({ok:true, json:async()=>String(path).endsWith('response-accent.json') ? bank : {Parameters:[]}});
+const character = context.createCharacter(host, canvas);
+snapshot.expression_ids.push('smile');
+await character.applySnapshot(snapshot);
+const core = context.live2dModel.internalModel.coreModel;
+core.getParameterIds = () => ids;
+core.getParameterIndex = key => ids.indexOf(key);
+core.getParameterDefaultValue = () => 2;
+vm.runInContext('trackingParamSupport = null', ctx);
+context.setIdleMotionEnabled(false);
+context.setExpressiveMotionConfig(false);
+async function configure(preset='lively', head=1, body=1, enabled=true) {
+    await motion.configure({mode:'accent', preset, head, body, enabled, repeatLimit:3, gestureHead:1.5, gestureBody:0});
+}
+async function reply(head, body, tag='smile', replyMotion=true) {
+    motion.reset();
+    await configure('lively', head, body);
+    await context.changeExpression(tag, {responseMotion:replyMotion});
+    const start = now;
+    const frames = [];
+    for (const age of [0, 200, 1000, 2450, 2700]) {
+        now = start + age;
+        values.clear();
+        listeners.get('model:beforeMotionUpdate')();
+        vm.runInContext('expressionRuntimeState.updateHook()', ctx);
+        frames.push(ids.map(id=>values.get(id) ?? 0));
+    }
+    return frames;
+}
+const both = await reply(1,1);
+values.set('ParamBodyAngleZ',8);
+listeners.get('model:afterMotionUpdate')();
+assert.equal(values.get('ParamBodyAngleZ'),2);
+assert.equal(both[0][0],0);
+assert.ok(Math.abs(both[1][0])>1 && Math.abs(both[1][1])>.1);
+assert.ok(Math.abs(both[3][0] - (-4.12 * .57 * .5)) < .00001);
+assert.equal(both[4][0],0);
+assert.ok(both.every(frame=>frame[2]===2));
+const bodyOnly = await reply(0,1), headOnly = await reply(1,0);
+assert.ok(bodyOnly.every((frame,i)=>frame[0]===0 && frame[1]===both[i][1]));
+assert.ok(headOnly.every((frame,i)=>frame[1]===0 && frame[0]===both[i][0]));
+for (const frames of [await reply(1,1,'bright'), await reply(1,1,'smile',false)]) {
+    assert.ok(frames.every(([h,b])=>h===0 && b===0));
+}
+await configure('restrained',1,1,false);
+assert.equal(motion.gestureClip('nod'), bank.gestures['short-ack']);
+assert.equal(motion.echoLimit(),3);
+const offsets = {angleY:2,bodyY:3,bodyZ:9};
+motion.scaleGesture(offsets);
+assert.deepEqual(offsets,{angleY:3,bodyY:0,bodyZ:0});
+await configure('standard');
+const clip = motion.gestureClip('nod');
+assert.equal(clip,bank.gestures.nod);
+const gesture = motion.gestureOffsets(clip,.3330000042915344/clip.duration);
+assert.ok(Math.abs(gesture.angleX - ((-1.04 + 3)*.7)) < .000001);
+assert.equal(gesture.bodyZ,undefined);
+assert.equal(motion.idleWeight(true,20),0);
+assert.equal(motion.idleWeight(false,500),.5);
+assert.equal(motion.idleWeight(false,500),1);
+await motion.configure({mode:'classic'});
+assert.equal(motion.gestureClip('nod'),null);
+assert.equal(motion.echoLimit(),null);
+assert.equal(motion.idleWeight(false,16),1);
+character.dispose();
+"""
+    bank = (WEB / "motions/response-accent.json").read_text(encoding="utf-8")
+    engine = (WEB / "runtime_response_motion.js").read_text(encoding="utf-8")
+    run_character(case.replace("ENGINE", json.dumps(engine)).replace("MOTION_DATA", bank))
+
+
+def test_desktop_pose_resolves_model_overrides_without_merging_expression_names():
+    engine = (WEB / "runtime_response_motion.js").read_text(encoding="utf-8")
+    run_character(r"""
+vm.runInContext(ENGINE,ctx);
+const motion = context.eneResponseMotion;
+const clip = amplitude => ({duration:1,tracks:{angleX:[0,0,0,1,amplitude]}});
+const bank = {aliases:{joy:'joy',smile:'joy',sad:'sad',eyeclose:'sad'}, gestures:{nod:{}},
+    emotions:{'joy.standard':clip(10),'sad.standard':clip(-10),'joy.gentle':clip(5)}};
+let finishLoad;
+context.fetch = () => new Promise(resolve => {finishLoad = () => resolve({ok:true,json:async()=>bank});});
+const configure = (emotionOverrides, preset='standard') =>
+    motion.configure({mode:'accent',enabled:true,preset,emotionOverrides});
+const sample = () => motion.emotionOffsets(now+400,16)?.angleX ?? 0;
+const play = name => {motion.start(name);return sample();};
+const pending = configure({'soft-smile':'sad',soft_smile:'joy',smile:'none'});
+motion.start('Soft_Smile');
+assert.equal(sample(),0);
+finishLoad();
+await pending;
+const earlyReply = sample();
+const joy = play('joy'), sad = play('sad');
+assert.ok(joy>0 && sad<0);
+assert.equal(earlyReply,joy);
+assert.equal(play(' Soft_Smile '),joy);
+assert.equal(play('soft-smile'),sad);
+assert.equal(play('smile'),0);
+assert.equal(play('ｅｙｅ＿ｃｌｏｓｅ'),sad);
+assert.equal(play('constructor'),0);
+assert.equal(play('unknown'),0);
+assert.equal(motion.gestureClip('nod'),bank.gestures.nod);
+await configure({soft_smile:'sad',smile:'invalid'});
+assert.equal(play('soft_smile'),sad);
+assert.equal(play('smile'),joy);
+await configure({smile:'none'});
+assert.equal(sample(),0);
+await configure(undefined,'gentle');
+assert.equal(play('soft_smile'),0);
+assert.equal(play('smile'),joy/2);
+await configure(JSON.parse('{"__proto__":"joy"}'));
+assert.equal(play('__proto__'),joy);
+""".replace("ENGINE", json.dumps(engine)))
+
+
+def test_desktop_pose_bank_covers_all_presets_and_supported_axes():
+    bank = json.loads((WEB / "motions/response-accent.json").read_text(encoding="utf-8"))
+    emotions = "joy shy sad confused angry worried sulk smug love pervert pathetic eyeclose dizzy".split()
+    presets = ("standard", "restrained", "lively", "gentle")
+    assert set(bank["aliases"].values()) == set(emotions)
+    assert all(bank["aliases"][emotion] == emotion for emotion in emotions)
+    assert set(bank["emotions"]) == {f"{key}.{preset}" for key in emotions for preset in presets}
+    assert set(bank["gestures"]) == {
+        "nod", "tilt", "shake", "sway", "surprise", "short-ack", "lean-in",
+        "thoughtful-tilt", "gentle-no", "small-surprise",
+    }
+    axes = {"angleX", "angleY", "angleZ", "bodyX", "bodyY", "eyeX", "eyeY"}
+    for clip in (*bank["emotions"].values(), *bank["gestures"].values()):
+        assert clip["duration"] > 0
+        assert clip["tracks"] and set(clip["tracks"]) <= axes
+
+
 def test_cancelled_initial_model_cannot_replace_new_binding_model():
     run_character(r"""
 host.kind='phone';const waits=[];
@@ -598,6 +735,9 @@ vm.runInContext("const DEFAULT_MODEL_PATH='https://synthetic.invalid/model.model
 vm.runInContext(PC_ENTRY,ctx);
 await Promise.resolve(); await Promise.resolve();
 assert.ok(calls.includes('https://synthetic.invalid/model.model3.json'));
+context.eneModelConfig.expressionFiles={'quiet smile #2':'Quiet Smile #2.exp3.json'};
+const url = vm.runInContext("characterHost.assetUrl('expression','quiet smile #2')", ctx);
+assert.ok(url.endsWith('/emotions/Quiet%20Smile%20%232.exp3.json'));
 vm.runInContext("characterHost.emitInput({type:'head_pat_input', model_generation:'synthetic',interaction_id:'synthetic',phase:'start',seq:0,intensity:.3})",ctx);
 assert.equal(count,0);assert.equal(submitted.length,1);
 context.eneCharacter.dispose();

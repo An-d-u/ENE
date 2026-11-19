@@ -3,6 +3,75 @@ import json
 import pytest
 
 from src.core.settings import Settings
+from src.core.response_motion import response_motion_config
+
+
+def test_response_motion_settings_round_trip_and_recover_invalid_values(tmp_path):
+    paths = {"config_path": str(tmp_path / "settings.json"), "secret_path": str(tmp_path / "secret.json")}
+    settings = Settings(**paths)
+    assert response_motion_config(settings)["mode"] == "classic"
+    settings.update({"response_motion_mode": "follow", "enable_emotion_motion": False,
+                     "emotion_motion_preset": "gentle", "emotion_motion_head_strength": 0,
+                     "response_gesture_body_strength": 1.75})
+    settings.save()
+    restored = Settings(**paths)
+    assert restored.get("response_motion_mode") == "accent"
+    assert response_motion_config(restored) == {
+        "mode": "accent", "enabled": False, "preset": "gentle", "repeatLimit": 0, "emotionOverrides": {},
+        "head": 0, "body": 1, "gestureHead": 1, "gestureBody": 1.75,
+    }
+    damaged = {"response_motion_mode": [], "emotion_motion_preset": {},
+               "emotion_motion_head_strength": "0", "response_gesture_body_strength": float("nan")}
+    assert response_motion_config(damaged) == response_motion_config({})
+
+
+def test_response_gesture_repeat_limit_follows_saved_model(tmp_path):
+    paths = {"config_path": str(tmp_path / "settings.json"), "secret_path": str(tmp_path / "secret.json")}
+    model_a = "samples/blue/avatar.model3.json"
+    model_b = "samples/green/avatar.model3.json"
+    settings = Settings(**paths)
+    settings.update({"model_json_path": model_a, "response_gesture_repeat_limits": {
+        model_a.replace("/", "\\"): 3, model_b: 1,
+        "samples/wrong-type": True, "samples/too-many": 4, "samples/float": 2.5,
+    }})
+    settings.save()
+    restored = Settings(**paths)
+    assert response_motion_config(restored)["repeatLimit"] == 3
+    for model, expected in [(model_b, 1), ("samples/unseen", 0), ("samples/wrong-type", 0),
+                            ("samples/too-many", 0), ("samples/float", 0)]:
+        restored.set("model_json_path", model)
+        assert response_motion_config(restored)["repeatLimit"] == expected
+
+
+def test_expression_motion_overrides_round_trip_independently_per_model(tmp_path):
+    model_a = "samples/blue/avatar.model3.json"
+    model_b = "samples/green/avatar.model3.json"
+    paths = {"config_path": str(tmp_path / "settings.json"), "secret_path": str(tmp_path / "secret.json")}
+    settings = Settings(**paths)
+    settings.update({"model_json_path": model_a, "emotion_motion_overrides": {
+        model_a.replace("/", "\\"): {" soft_smile ": "shy", "soft-smile": "joy", "Happy": "none",
+                                     "old": "removed_motion", "bad": [], "": "joy"},
+        model_b: {"soft_smile": "worried"}, "samples/bad": None,
+    }})
+    settings.save()
+    restored = Settings(**paths)
+    assert response_motion_config(restored)["emotionOverrides"] == {
+        "soft_smile": "shy", "soft-smile": "joy", "happy": "none",
+    }
+    restored.set("model_json_path", model_b)
+    assert response_motion_config(restored)["emotionOverrides"] == {"soft_smile": "worried"}
+    restored.set("model_json_path", "samples/third/avatar.model3.json")
+    assert response_motion_config(restored)["emotionOverrides"] == {}
+
+
+def test_expression_motion_defaults_match_the_bundled_clips():
+    from src.core.response_motion import automatic_emotion_motion, emotion_motion_ids
+
+    assert len(emotion_motion_ids()) == 13
+    assert automatic_emotion_motion("  ＨＡＰＰＹ ") == "joy"
+    assert automatic_emotion_motion("Eye_Close") == "eyeclose"
+    assert automatic_emotion_motion("수줍음") == "shy"
+    assert automatic_emotion_motion("soft_smile") is None
 
 
 @pytest.mark.parametrize("stored,expected", [

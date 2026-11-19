@@ -302,11 +302,17 @@ if ('speechSynthesis' in window) {
     }
 }
 
+let activeBrowserUtterance = null;
+
 window.stopBrowserTTS = function stopBrowserTTS() {
     if (!('speechSynthesis' in window)) {
         return false;
     }
     try {
+        if (activeBrowserUtterance) {
+            activeBrowserUtterance = null;
+            window.setSyntheticGestureSpeechPlayback?.(false);
+        }
         window.speechSynthesis.cancel();
         window.pyBridge?.set_browser_speaking?.(false);
         return true;
@@ -342,15 +348,24 @@ window.playBrowserTTS = function playBrowserTTS(payload) {
             utterance.lang = voice.lang || utterance.lang;
         }
 
-        const finishSpeech = () => window.pyBridge?.set_browser_speaking?.(Boolean(window.speechSynthesis.speaking));
+        activeBrowserUtterance = utterance;
+        const finishSpeech = () => {
+            if (activeBrowserUtterance !== utterance) return;
+            activeBrowserUtterance = null;
+            window.setSyntheticGestureSpeechPlayback?.(false);
+            window.pyBridge?.set_browser_speaking?.(Boolean(window.speechSynthesis.speaking));
+        };
         utterance.onend = finishSpeech;
         utterance.onstart = () => {
+            if (activeBrowserUtterance !== utterance) return;
             window.pyBridge?.set_browser_speaking?.(true);
+            window.setSyntheticGestureSpeechPlayback?.(true);
             if (typeof window.notifySyntheticGestureSpeechActivity === 'function') {
                 window.notifySyntheticGestureSpeechActivity();
             }
         };
         utterance.onerror = (event) => {
+            if (activeBrowserUtterance !== utterance) return;
             finishSpeech();
             console.warn('Browser TTS error:', event.error || event);
             showToast('브라우저 기본 TTS 재생에 실패했습니다.', 'error');
@@ -359,6 +374,8 @@ window.playBrowserTTS = function playBrowserTTS(payload) {
         return true;
     } catch (error) {
         console.warn('Failed to play browser TTS:', error);
+        activeBrowserUtterance = null;
+        window.setSyntheticGestureSpeechPlayback?.(false);
         showToast('브라우저 기본 TTS 재생에 실패했습니다.', 'error');
         return false;
     }

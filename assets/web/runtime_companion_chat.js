@@ -17,12 +17,12 @@ function createCompanionChatRuntime(host) {
         host.setPending(backendPending || processing.phase !== 'idle' || submissions.size > 0);
     }
 
-    function upsert(message) {
+    function upsert(message, responseMotion = false) {
         const previous = messages.get(message.id);
         const combined = { ...previous, ...message };
         messages.set(message.id, combined);
-        if (previous) host.update(combined);
-        else host.render(combined);
+        if (previous) host.update(combined, responseMotion);
+        else host.render(combined, responseMotion);
     }
 
     function applySnapshot(snapshot) {
@@ -42,7 +42,7 @@ function createCompanionChatRuntime(host) {
                 host.remove(messageId);
             }
         }
-        snapshot.messages.forEach(upsert);
+        snapshot.messages.forEach(message => upsert(message));
         processing = snapshot.processing || { phase: 'idle' };
         if (typeof snapshot.backend_pending === 'boolean') backendPending = snapshot.backend_pending;
         updatePending();
@@ -56,7 +56,7 @@ function createCompanionChatRuntime(host) {
         if (event.conversation_revision < revision) return false;
         if (Number.isSafeInteger(event.event_seq)) eventSeq = event.event_seq;
         revision = event.conversation_revision;
-        if (event.op === 'append' || event.op === 'replace') upsert(event.message);
+        if (event.op === 'append' || event.op === 'replace') upsert(event.message, true);
         if (event.processing) processing = event.processing;
         updatePending();
         return true;
@@ -151,11 +151,11 @@ function connectCompanionChatBridge(bridge) {
         };
         showToast(messages[code] || '요청을 처리하지 못했습니다. 내용을 확인한 뒤 다시 시도해 주세요.', 'error');
     };
-    function applyEmotion(message) {
+    function applyEmotion(message, responseMotion) {
         if (message.role !== 'assistant') return;
         cancelPendingPatEmotionRestore();
         baseEmotionTag = message.emotion || 'normal';
-        changeExpression(baseEmotionTag);
+        changeExpression(baseEmotionTag, {responseMotion});
     }
     const runtime = createCompanionChatRuntime({
         newId,
@@ -172,15 +172,15 @@ function connectCompanionChatBridge(bridge) {
             markDraftChanged();
             autoResizeTextarea();
         },
-        render: message => {
+        render: (message, responseMotion) => {
             const node = addMessage(message.text, message.role, message.attachments || [], new Date(message.displayed_at), {
                 messageId: message.id, thought: message.thought || '', excludeFromReroll: Boolean(message.local_only),
             });
             node.dataset.companionManaged = 'true';
             if (message.local_only) node.dataset.editExcluded = 'true';
-            applyEmotion(message);
+            applyEmotion(message, responseMotion);
         },
-        update: message => {
+        update: (message, responseMotion) => {
             const node = findMessage(message.id);
             if (!node) return;
             const attachments = message.attachments || getMessageVisualAttachments(node);
@@ -190,7 +190,7 @@ function connectCompanionChatBridge(bridge) {
                 renderMessageBubbleSegments(node, message.text, { attachments, thought, immediate: true });
             }
             updateRerollButtonState();
-            applyEmotion(message);
+            applyEmotion(message, responseMotion);
         },
         remove: messageId => { const node = findMessage(messageId); if (node) node.remove(); },
         // 숨겨진 오버레이에서 애니메이션 프레임이 멈춰도 입력을 즉시 접수한다.

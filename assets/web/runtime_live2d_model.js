@@ -26,6 +26,7 @@ function removeCurrentModelArtifacts() {
     currentModelFailedToken = 0;
     detachExpressionUpdateHook();
     if (window.live2dModel) {
+        stopSyntheticGesture();
         const removedModel = window.live2dModel;
         window.live2dModel = null;
         try { app.stage.removeChild(removedModel); } catch (_) { /* 이미 잃은 컨텍스트도 회수한다. */ }

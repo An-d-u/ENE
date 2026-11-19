@@ -22,7 +22,77 @@ from PyQt6.QtWidgets import (
 
 from ...ai.prompt import get_available_emotions
 from ...core.observation_intervals import MAX_INTERVAL_SECONDS
+from ...core.response_motion import emotion_motion_ids
 from ..diagnostic_share_dialog import open_diagnostic_share
+
+
+def _add_motion_strength(dialog, layout, key, fallback):
+    spin = QSpinBox()
+    spin.setRange(0, 200)
+    spin.setSingleStep(5)
+    spin.setSuffix("%")
+    spin.valueChanged.connect(dialog._on_setting_changed)
+    dialog._add_form_row(layout, "settings.behavior.response_motion." + key, fallback, spin)
+    return spin
+
+
+def _add_response_motion_controls(dialog, form):
+    prefix = "settings.behavior.response_motion."
+
+    def choice(layout, label, fallback, items):
+        combo = QComboBox()
+        for value, name in items:
+            combo.addItem(name, value)
+            dialog._bind_combo_item(combo, combo.count() - 1, prefix + value, name)
+        dialog._add_form_row(layout, prefix + label, fallback, combo)
+        combo.currentIndexChanged.connect(dialog._on_setting_changed)
+        return combo
+
+    dialog.response_motion_mode_combo = choice(form, "mode", "움직임 방식", [
+        ("classic", "기존 ENE"), ("accent", "포즈 중심"),
+    ])
+    dialog.emotion_motion_preset_combo = choice(form, "preset", "동작 프리셋", [
+        ("standard", "기본"), ("restrained", "절제형"), ("lively", "발랄형"), ("gentle", "부드러운형"),
+    ])
+    dialog.emotion_motion_check = dialog._create_toggle("표정에 감정 동작 더하기", key=prefix + "enable")
+    form.addRow(dialog.emotion_motion_check)
+    details = dialog.response_motion_details = QWidget()
+    inner = QFormLayout(details)
+    inner.setContentsMargins(0, 0, 0, 0)
+    expressions = QHBoxLayout()
+    dialog.motion_expression_combo = QComboBox()
+    dialog._bind_placeholder(dialog.motion_expression_combo, prefix + "no_expressions", "표정 파일 없음")
+    expressions.addWidget(dialog.motion_expression_combo, 1)
+    dialog.refresh_motion_expressions_button = QPushButton()
+    dialog._bind_widget_text(dialog.refresh_motion_expressions_button, "settings.common.refresh", "새로고침")
+    expressions.addWidget(dialog.refresh_motion_expressions_button)
+    dialog._add_form_row(inner, prefix + "expression", "모델 표정", expressions).setBuddy(dialog.motion_expression_combo)
+    target = dialog.expression_motion_target_combo = QComboBox()
+    target.addItem("", "auto")
+    target.addItem("", "none")
+    dialog._bind_combo_item(target, 1, prefix + "expression_only", "표정만 사용")
+    for motion_id in emotion_motion_ids():
+        target.addItem(motion_id, motion_id)
+        dialog._bind_combo_item(target, target.count() - 1, prefix + "names." + motion_id, motion_id)
+    dialog._add_form_row(inner, prefix + "target", "연결할 감정 동작", target)
+    dialog.motion_expression_combo.currentIndexChanged.connect(dialog._show_expression_motion_target)
+    target.currentIndexChanged.connect(dialog._on_expression_motion_target_changed)
+    dialog.refresh_motion_expressions_button.clicked.connect(dialog._refresh_motion_expressions)
+    dialog.refresh_motion_expressions_button.clicked.connect(dialog._on_setting_changed)
+    dialog.emotion_motion_head_spin = _add_motion_strength(dialog, inner, "head", "감정 동작 고개 강도")
+    dialog.emotion_motion_body_spin = _add_motion_strength(dialog, inner, "body", "감정 동작 몸통 강도")
+    form.addRow(details)
+
+    def refresh():
+        styled = dialog.response_motion_mode_combo.currentData() != "classic"
+        form.setRowVisible(dialog.emotion_motion_preset_combo, styled)
+        dialog.emotion_motion_check.setVisible(styled)
+        details.setVisible(styled and dialog.emotion_motion_check.isChecked())
+
+    dialog.response_motion_mode_combo.currentIndexChanged.connect(refresh)
+    dialog.emotion_motion_check.toggled.connect(refresh)
+    dialog.emotion_motion_check.toggled.connect(dialog._on_setting_changed)
+    refresh()
 
 
 def build_behavior_tab(dialog):
@@ -435,6 +505,7 @@ def build_behavior_tab(dialog):
     gesture_layout = QFormLayout(gesture_widget)
     gesture_layout.setSpacing(8)
     gesture_layout.setContentsMargins(0, 0, 0, 0)
+    _add_response_motion_controls(self, gesture_layout)
 
     self.enable_synthetic_gestures_check = self._create_toggle(
         "응답 제스처 사용",
@@ -455,6 +526,29 @@ def build_behavior_tab(dialog):
         "동작 배율:",
         self.synthetic_gesture_scale_spin,
     )
+    self.response_gesture_head_spin = _add_motion_strength(self, gesture_layout, "gesture_head", "응답 제스처 고개 강도")
+    self.response_gesture_body_spin = _add_motion_strength(self, gesture_layout, "gesture_body", "응답 제스처 몸통 강도")
+
+    self.response_gesture_repeat_spin = QSpinBox()
+    self.response_gesture_repeat_spin.setRange(0, 3)
+    self._bind_tooltip(
+        self.response_gesture_repeat_spin, "settings.behavior.response_motion.repeat_hint",
+        "0이면 첫 동작만 재생합니다. 음성이 계속되면 첫 동작 강도의 100%, 90%, 80%로 차례로 반복합니다.",
+    )
+    self.response_gesture_repeat_spin.valueChanged.connect(self._on_gesture_repeat_changed)
+    self._add_form_row(gesture_layout, "settings.behavior.response_motion.repeat_limit",
+                       "이 모델의 최대 추가 반복 횟수", self.response_gesture_repeat_spin)
+
+    def show_gesture_strengths():
+        checked = self.enable_synthetic_gestures_check.isChecked()
+        gesture_layout.setRowVisible(self.response_gesture_head_spin, checked)
+        gesture_layout.setRowVisible(self.response_gesture_body_spin, checked)
+        gesture_layout.setRowVisible(self.response_gesture_repeat_spin,
+                                     checked and self.response_motion_mode_combo.currentData() == "accent")
+
+    self.enable_synthetic_gestures_check.toggled.connect(show_gesture_strengths)
+    self.response_motion_mode_combo.currentIndexChanged.connect(show_gesture_strengths)
+    show_gesture_strengths()
 
     self.enable_idle_synthetic_gestures_check = self._create_toggle(
         "유휴 제스처 사용",

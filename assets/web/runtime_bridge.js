@@ -91,6 +91,7 @@ if (typeof QWebChannel !== 'undefined') {
                 }
             });
         }
+        window.pyBridge.speech_playback_changed?.connect(window.setSyntheticGestureSpeechPlayback);
         window.pyBridge.message_received.connect(function (text, emotion, thought) {
             console.log(`Received from Python: chars=${String(text || '').length} emotion=${emotion} thought=${Boolean(thought)}`);
             const receivedAt = new Date();
@@ -108,7 +109,7 @@ if (typeof QWebChannel !== 'undefined') {
             updateRerollButtonState();
             cancelPendingPatEmotionRestore();
             baseEmotionTag = (typeof emotion === 'string' && emotion.trim()) ? emotion.trim() : 'normal';
-            changeExpression(emotion);
+            changeExpression(emotion, {responseMotion: true});
         });
         window.pyBridge.expression_changed.connect(function (emotion) {
             console.log(`Expression changed: ${emotion}`);
@@ -142,6 +143,7 @@ if (typeof QWebChannel !== 'undefined') {
 
         if (window.pyBridge.reroll_state_changed) {
             window.pyBridge.reroll_state_changed.connect(function (active) {
+                if (active) window.cancelPendingResponseGesture?.();
                 if (window.eneCompanionChat) return;
                 shouldReplaceNextAssistant = Boolean(active);
                 setRequestPending(Boolean(active));

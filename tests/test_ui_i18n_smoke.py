@@ -2427,6 +2427,80 @@ def test_settings_dialog_exposes_prompt_feature_toggles_and_saves_values():
         dialog.close()
 
 
+def test_model_expression_motion_editor_auto_manual_and_expression_only(tmp_path):
+    _get_qapp()
+    configure_i18n(language="ko", system_locale="ko_KR")
+    models = []
+    for name in ("lantern", "cloud"):
+        folder = tmp_path / name
+        (folder / "emotions").mkdir(parents=True)
+        model = folder / "model.model3.json"
+        model.write_text("{}", encoding="utf-8")
+        for expression in ("happy", "quiet_wave"):
+            (folder / "emotions" / f"{expression}.exp3.json").write_text("{}", encoding="utf-8")
+        models.append(model.as_posix())
+    first, second = models
+    initial = {"ui_language": "ko", "model_json_path": first, "response_motion_mode": "accent",
+               "emotion_motion_overrides": {first: {"absent_file": "sad"}}}
+    with _stub_prompt_module():
+        from src.ui.settings_dialog import SettingsDialog
+
+        dialog = SettingsDialog(initial)
+        expression = dialog.motion_expression_combo
+        motion = dialog.expression_motion_target_combo
+        assert expression.currentText() == "happy"
+        assert motion.currentData() == "auto" and "기쁨" in motion.currentText()
+        assert motion.count() == 15
+        motion.setCurrentIndex(motion.findData("none"))
+        expression.setCurrentIndex(expression.findData("quiet_wave"))
+        assert motion.currentData() == "auto" and "표정만 사용" in motion.currentText()
+        motion.setCurrentIndex(motion.findData("worried"))
+        first_snapshot = dialog._get_current_values()["emotion_motion_overrides"]
+        assert first_snapshot[first] == {"absent_file": "sad", "happy": "none", "quiet_wave": "worried"}
+
+        dialog.model_json_path_edit.setText(second)
+        expression.setCurrentIndex(expression.findData("quiet_wave"))
+        assert motion.currentData() == "auto"
+        motion.setCurrentIndex(motion.findData("love"))
+        dialog.model_json_path_edit.setText(first)
+        expression.setCurrentIndex(expression.findData("happy"))
+        assert motion.currentData() == "none"
+        motion.setCurrentIndex(motion.findData("auto"))
+        assert first_snapshot[first]["happy"] == "none"
+        assert initial["emotion_motion_overrides"] == {first: {"absent_file": "sad"}}
+        (Path(first).parent / "emotions/Quiet-Wave.exp3.json").write_text("{}", encoding="utf-8")
+        (Path(first).parent / "emotions/Quiet Smile #2.exp3.json").write_text("{}", encoding="utf-8")
+        dialog.refresh_motion_expressions_button.click()
+        expression.setCurrentIndex(expression.findData("quiet smile #2"))
+        assert expression.currentText() == "Quiet Smile #2"
+        motion.setCurrentIndex(motion.findData("shy"))
+        expression.setCurrentIndex(expression.findData("quiet-wave"))
+        assert expression.currentText() == "Quiet-Wave"
+        assert motion.currentData() == "auto"
+        dialog.ui_language_combo.setCurrentIndex(dialog.ui_language_combo.findData("en"))
+        assert "Expression only" in motion.currentText()
+        expression.setCurrentIndex(expression.findData("quiet_wave"))
+        assert motion.currentData() == "worried"
+        values = dialog._get_current_values()
+        assert values["emotion_motion_overrides"] == {
+            first: {"absent_file": "sad", "quiet_wave": "worried", "quiet smile #2": "shy"},
+            second: {"quiet_wave": "love"},
+        }
+        dialog.model_json_path_edit.setText((tmp_path / "missing.model3.json").as_posix())
+        assert expression.count() == 0 and not motion.isEnabled()
+        assert dialog._get_current_values()["emotion_motion_overrides"] == values["emotion_motion_overrides"]
+        dialog._cancel_settings()
+
+        reopened = SettingsDialog(values)
+        reopened.motion_expression_combo.setCurrentIndex(reopened.motion_expression_combo.findData("quiet_wave"))
+        assert reopened.expression_motion_target_combo.currentData() == "worried"
+        saved = []
+        reopened.settings_changed.connect(saved.append)
+        reopened.set_save_handler(lambda draft, baseline: {"status": "accepted", "values": draft})
+        reopened._save_settings()
+        assert saved[0]["emotion_motion_overrides"] == values["emotion_motion_overrides"]
+
+
 def test_settings_dialog_exposes_synthetic_gesture_controls_and_saves_values():
     _get_qapp()
     locales_dir = Path(__file__).resolve().parents[1] / "src" / "locales"
@@ -2454,6 +2528,21 @@ def test_settings_dialog_exposes_synthetic_gesture_controls_and_saves_values():
         )
 
         assert dialog.motion_group.title() == "동작 설정"
+        assert dialog.response_motion_mode_combo.currentData() == "classic"
+        assert dialog.response_motion_details.isHidden()
+        assert dialog.response_motion_mode_combo.findData("follow") == -1
+        assert dialog.response_gesture_repeat_spin.isHidden()
+        dialog.response_motion_mode_combo.setCurrentIndex(dialog.response_motion_mode_combo.findData("accent"))
+        dialog.emotion_motion_check.setChecked(False)
+        assert dialog.emotion_motion_preset_combo.isVisibleTo(dialog.motion_group)
+        assert not dialog.emotion_motion_head_spin.isVisibleTo(dialog.motion_group)
+        assert not dialog.emotion_motion_body_spin.isVisibleTo(dialog.motion_group)
+        dialog.emotion_motion_preset_combo.setCurrentIndex(dialog.emotion_motion_preset_combo.findData("gentle"))
+        assert dialog._get_current_values()["emotion_motion_preset"] == "gentle"
+        dialog.emotion_motion_check.setChecked(True)
+        assert not dialog.response_motion_details.isHidden()
+        dialog.emotion_motion_head_spin.setValue(0)
+        dialog.emotion_motion_body_spin.setValue(175)
         assert dialog.motion_response_label.text() == "응답 동작"
         assert dialog.motion_idle_label.text() == "상시/대기 동작"
         assert dialog.motion_interaction_label.text() == "상호작용"
@@ -2468,7 +2557,20 @@ def test_settings_dialog_exposes_synthetic_gesture_controls_and_saves_values():
         assert dialog.expressive_pose_transitions_check.isChecked() is True
 
         dialog.enable_synthetic_gestures_check.setChecked(True)
+        assert not dialog.response_gesture_repeat_spin.isHidden()
+        model_a = "samples/blue/avatar.model3.json"
+        model_b = "samples/green/avatar.model3.json"
+        dialog.model_json_path_edit.setText(model_a)
+        assert dialog.response_gesture_repeat_spin.value() == 0
+        dialog.response_gesture_repeat_spin.setValue(3)
+        dialog.model_json_path_edit.setText(model_b)
+        assert dialog.response_gesture_repeat_spin.value() == 0
+        dialog.response_gesture_repeat_spin.setValue(1)
+        dialog.model_json_path_edit.setText(model_a)
+        assert dialog.response_gesture_repeat_spin.value() == 3
         dialog.synthetic_gesture_scale_spin.setValue(1.8)
+        dialog.response_gesture_head_spin.setValue(150)
+        dialog.response_gesture_body_spin.setValue(0)
         dialog.enable_idle_synthetic_gestures_check.setChecked(False)
         dialog.expressive_motion_check.setChecked(False)
         dialog.expressive_motion_strength_spin.setValue(1.8)
@@ -2481,6 +2583,14 @@ def test_settings_dialog_exposes_synthetic_gesture_controls_and_saves_values():
         current_values = dialog._get_current_values()
         assert current_values["enable_synthetic_gestures"] is True
         assert current_values["synthetic_gesture_scale"] == 1.8
+        assert current_values["response_gesture_head_strength"] == 1.5
+        assert current_values["response_gesture_body_strength"] == 0
+        assert current_values["response_motion_mode"] == "accent"
+        assert current_values["response_gesture_repeat_limits"] == {model_a: 3, model_b: 1}
+        assert current_values["enable_emotion_motion"] is True
+        assert current_values["emotion_motion_preset"] == "gentle"
+        assert current_values["emotion_motion_head_strength"] == 0
+        assert current_values["emotion_motion_body_strength"] == 1.75
         assert current_values["enable_idle_synthetic_gestures"] is False
         assert current_values["idle_synthetic_gesture_frequency"] == "low"
         assert current_values["enable_expressive_motion"] is False
@@ -5292,9 +5402,19 @@ def test_overlay_window_syncs_synthetic_gesture_scale_to_webview(tmp_path):
     overlay.web_view = _FakeWebView()
     overlay._page_loaded = True
 
-    OverlayWindow._sync_idle_motion_settings_to_js(overlay, {"synthetic_gesture_scale": 1.7})
+    model = "samples/blue/avatar.model3.json"
+    OverlayWindow._sync_idle_motion_settings_to_js(overlay, {
+        "synthetic_gesture_scale": 1.7, "response_motion_mode": "accent",
+        "model_json_path": model, "response_gesture_repeat_limits": {model: 2},
+        "emotion_motion_overrides": {model: {"__proto__": "shy", "soft_smile": "none"}},
+    })
 
     assert any("window.setSyntheticGestureScale(1.700);" in code for code in captured)
+    motion = next(code for code in captured if "eneResponseMotion?.configure" in code)
+    encoded = motion.split("?.configure(JSON.parse(", 1)[1].removesuffix("));")
+    config = json.loads(json.loads(encoded))
+    assert (config["mode"], config["repeatLimit"]) == ("accent", 2)
+    assert config["emotionOverrides"] == {"__proto__": "shy", "soft_smile": "none"}
 
 
 def test_overlay_window_syncs_expressive_motion_settings_to_webview():

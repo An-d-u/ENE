@@ -11,7 +11,10 @@ window.eneCharacter = window.createCharacter({
     kind: 'pc', defaultModelPath: DEFAULT_MODEL_PATH,
     currentModel() { return window.eneModelConfig?.companionModelGeneration || ''; },
     assetUrl(kind, id) {
-        return kind === 'expression' ? new URL(`${id}.exp3.json`, currentEmotionsBasePath).href : id;
+        if (kind !== 'expression') return id;
+        const files = window.eneModelConfig?.expressionFiles ?? {};
+        const file = Object.hasOwn(files, id) ? files[id] : `${id}.exp3.json`;
+        return new URL(encodeURIComponent(file), currentEmotionsBasePath).href;
     },
     emitInput(value) {
         if (value.type === 'head_pat_input') {

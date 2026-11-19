@@ -534,6 +534,7 @@ class SettingsDialog(
         self._refresh_combo_item_bindings()
         for setter, key, fallback in self._ui_text_bindings:
             setter(self._translated_text(key, fallback))
+        self._show_expression_motion_target()
         self._refresh_ui_language_combo_labels()
         self._refresh_ptt_language_combo_labels()
         self._refresh_provider_combo_labels()

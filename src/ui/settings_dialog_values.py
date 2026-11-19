@@ -7,7 +7,7 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QSignalBlocker, Qt
 from PyQt6.QtWidgets import QApplication, QFileDialog, QListWidgetItem, QMessageBox
 
 from ..ai.llm_provider import LLMFormat
@@ -16,6 +16,11 @@ from ..ai.openai_model_policy import normalize_reasoning_effort, resolve_openai_
 from ..core.app_paths import relativize_for_storage
 from ..core.hotkey_utils import normalize_hotkey_text
 from ..core.image_avatar import build_image_avatar_payload
+from ..core.model_emotions import discover_model_expression_files, resolve_model_json_path
+from ..core.response_motion import (
+    automatic_emotion_motion, normalize_emotion_motion_overrides, normalize_response_repeat_limits,
+    response_motion_config, response_motion_model_key,
+)
 from ..core.observation_intervals import REQUEST_SECONDS_KEY, SAMPLE_SECONDS_KEY, normalize_observation_intervals
 from ..core.system_theme import THEME_PRESETS, get_windows_theme_mode
 
@@ -44,6 +49,71 @@ class SettingsDialogValuesMixin:
         if not selected:
             return
         self.model_json_path_edit.setText(self._normalize_path_for_storage(selected))
+
+    def _on_response_motion_model_changed(self, path: str):
+        if self._loading:
+            return
+        model_key = response_motion_model_key(path)
+        with QSignalBlocker(self.response_gesture_repeat_spin):
+            self.response_gesture_repeat_spin.setValue(self._response_gesture_repeat_limits.get(model_key, 0))
+        self._refresh_motion_expressions()
+        self._on_setting_changed()
+
+    def _refresh_motion_expressions(self):
+        path = self.model_json_path_edit.text()
+        try:
+            model = resolve_model_json_path({"model_json_path": path}, base_path=self._bundle_root)
+            expressions = discover_model_expression_files(model) if model.is_file() else {}
+        except (OSError, ValueError, RuntimeError):
+            expressions = {}
+        combo = self.motion_expression_combo
+        previous = combo.currentData()
+        with QSignalBlocker(combo):
+            combo.clear()
+            for expression, filename in expressions.items():
+                combo.addItem(filename[:-len(".exp3.json")], expression)
+            if expressions:
+                combo.setCurrentIndex(max(0, combo.findData(previous)))
+        combo.setEnabled(bool(expressions))
+        self._show_expression_motion_target()
+
+    def _show_expression_motion_target(self):
+        expression = self.motion_expression_combo.currentData()
+        target = self.expression_motion_target_combo
+        target.setEnabled(bool(expression))
+        automatic = automatic_emotion_motion(expression) if expression else None
+        auto_label = target.itemText(target.findData(automatic or "none"))
+        key = response_motion_model_key(self.model_json_path_edit.text())
+        selected = self._emotion_motion_overrides.get(key, {}).get(expression, "auto")
+        with QSignalBlocker(target):
+            target.setItemText(0, self._translated_text_format(
+                "settings.behavior.response_motion.automatic", "자동 ({motion})", motion=auto_label))
+            target.setCurrentIndex(target.findData(selected) if expression else -1)
+
+    def _on_expression_motion_target_changed(self):
+        expression = self.motion_expression_combo.currentData()
+        if self._loading or not expression:
+            return
+        key = response_motion_model_key(self.model_json_path_edit.text())
+        choice = self.expression_motion_target_combo.currentData()
+        overrides = self._emotion_motion_overrides.setdefault(key, {})
+        if choice == "auto":
+            overrides.pop(expression, None)
+            if not overrides:
+                self._emotion_motion_overrides.pop(key)
+        else:
+            overrides[expression] = choice
+        self._on_setting_changed()
+
+    def _on_gesture_repeat_changed(self, count: int):
+        if self._loading:
+            return
+        model_key = response_motion_model_key(self.model_json_path_edit.text())
+        if count:
+            self._response_gesture_repeat_limits[model_key] = count
+        else:
+            self._response_gesture_repeat_limits.pop(model_key, None)
+        self._on_setting_changed()
 
     def _browse_image_avatar_folder(self):
         raw_folder = self.image_avatar_folder_edit.text().strip()
@@ -695,6 +765,21 @@ class SettingsDialogValuesMixin:
             self.synthetic_gesture_scale_spin.setValue(
                 float(self._original_settings.get("synthetic_gesture_scale", 1.0))
             )
+            motion = response_motion_config(self._original_settings)
+            self._response_gesture_repeat_limits = normalize_response_repeat_limits(
+                self._original_settings.get("response_gesture_repeat_limits")
+            )
+            self._emotion_motion_overrides = normalize_emotion_motion_overrides(
+                self._original_settings.get("emotion_motion_overrides")
+            )
+            self.response_gesture_repeat_spin.setValue(motion["repeatLimit"])
+            self.response_motion_mode_combo.setCurrentIndex(self.response_motion_mode_combo.findData(motion["mode"]))
+            self.emotion_motion_check.setChecked(motion["enabled"])
+            self.emotion_motion_preset_combo.setCurrentIndex(self.emotion_motion_preset_combo.findData(motion["preset"]))
+            self.emotion_motion_head_spin.setValue(round(motion["head"] * 100))
+            self.emotion_motion_body_spin.setValue(round(motion["body"] * 100))
+            self.response_gesture_head_spin.setValue(round(motion["gestureHead"] * 100))
+            self.response_gesture_body_spin.setValue(round(motion["gestureBody"] * 100))
             self.enable_idle_synthetic_gestures_check.setChecked(
                 self._original_settings.get("enable_idle_synthetic_gestures", False)
             )
@@ -857,6 +942,7 @@ class SettingsDialogValuesMixin:
                     str(self._original_settings.get("model_json_path", "assets/live2d_models/hiyori/runtime/hiyori_pro_t11.model3.json"))
                 )
             )
+            self._refresh_motion_expressions()
             avatar_mode = str(self._original_settings.get("avatar_mode", "live2d") or "live2d").strip().lower()
             if avatar_mode not in {"live2d", "image"}:
                 avatar_mode = "live2d"
@@ -1139,6 +1225,15 @@ class SettingsDialogValuesMixin:
             "enable_conversation_promises": self.enable_conversation_promises_check.isChecked(),
             "enable_synthetic_gestures": self.enable_synthetic_gestures_check.isChecked(),
             "synthetic_gesture_scale": self.synthetic_gesture_scale_spin.value(),
+            "response_motion_mode": self.response_motion_mode_combo.currentData(),
+            "enable_emotion_motion": self.emotion_motion_check.isChecked(),
+            "emotion_motion_preset": self.emotion_motion_preset_combo.currentData(),
+            "emotion_motion_head_strength": self.emotion_motion_head_spin.value() / 100,
+            "emotion_motion_body_strength": self.emotion_motion_body_spin.value() / 100,
+            "response_gesture_head_strength": self.response_gesture_head_spin.value() / 100,
+            "response_gesture_body_strength": self.response_gesture_body_spin.value() / 100,
+            "response_gesture_repeat_limits": dict(self._response_gesture_repeat_limits),
+            "emotion_motion_overrides": {key: values.copy() for key, values in self._emotion_motion_overrides.items()},
             "enable_idle_synthetic_gestures": self.enable_idle_synthetic_gestures_check.isChecked(),
             "idle_synthetic_gesture_frequency": str(
                 self.idle_synthetic_gesture_frequency_combo.currentData() or "normal"

@@ -35,6 +35,8 @@ let pendingSpeechGestureFallbackTimer = 0;
 let currentSpeechGestureKey = "";
 let speechGestureActivityStartedAt = 0;
 let speechGesturePrimaryPlayed = false;
+let currentSpeechGestureClip = null;
+let speechPlaybackActive = false;
 let speechGestureEchoCount = 0;
 let speechGestureEchoTimer = 0;
 let speechGestureInactivityTimer = 0;
@@ -234,10 +236,16 @@ function resetSyntheticSpeechGestureSession() {
     currentSpeechGestureKey = "";
     speechGestureActivityStartedAt = 0;
     speechGesturePrimaryPlayed = false;
+    currentSpeechGestureClip = null;
     speechGestureEchoCount = 0;
     lastSpeechGestureEchoAt = 0;
     clearSyntheticGestureEchoTimer();
     clearSyntheticGestureInactivityTimer();
+}
+
+function cancelPendingResponseGesture() {
+    clearPendingSyntheticSpeechGesture();
+    resetSyntheticSpeechGestureSession();
 }
 
 function clearPendingSyntheticSpeechGesture() {
@@ -259,8 +267,7 @@ function playPendingSyntheticSpeechGesture() {
         return false;
     }
     const played = playSyntheticGesture(gestureKey, { clearPending: false });
-    if (played) {
-        currentSpeechGestureKey = gestureKey;
+    if (played && currentSpeechGestureKey === gestureKey) {
         speechGesturePrimaryPlayed = true;
     }
     return played;
@@ -285,24 +292,25 @@ function scheduleSyntheticGestureDuringSpeech(rawKey) {
         return false;
     }
 
-    clearPendingSyntheticSpeechGesture();
-    resetSyntheticSpeechGestureSession();
+    cancelPendingResponseGesture();
     pendingSpeechGestureKey = requestedKey;
     currentSpeechGestureKey = requestedKey;
     pendingSpeechGestureFallbackTimer = setTimeout(function () {
         pendingSpeechGestureFallbackTimer = 0;
         queuePendingSyntheticSpeechGesture(0);
     }, SPEECH_GESTURE_FALLBACK_DELAY_MS);
+    if (speechPlaybackActive && window.eneResponseMotion?.echoLimit?.() != null) {
+        notifySyntheticGestureSpeechActivity();
+    }
     return true;
 }
 
 function getSyntheticGestureEchoLimit(key) {
-    return Math.max(0, Number(SPEECH_GESTURE_ECHO_LIMITS[key] ?? 2) || 0);
+    return Math.max(SPEECH_GESTURE_ECHO_LIMITS[key] ?? 2, window.eneResponseMotion?.echoLimit?.() ?? 0);
 }
 
 function getSyntheticGestureEchoScale(index) {
-    const scale = SPEECH_GESTURE_ECHO_SCALES[Math.max(0, index)] ?? SPEECH_GESTURE_ECHO_SCALES[SPEECH_GESTURE_ECHO_SCALES.length - 1];
-    return Math.max(0.25, Math.min(0.75, Number(scale) || 0.45));
+    return window.eneResponseMotion?.echoScale?.(index) ?? SPEECH_GESTURE_ECHO_SCALES[index];
 }
 
 function playSyntheticGestureEchoIfReady() {
@@ -311,7 +319,9 @@ function playSyntheticGestureEchoIfReady() {
         return false;
     }
     const nowMs = performance.now();
-    if (nowMs - lastSyntheticSpeechActivityAt > SPEECH_GESTURE_ECHO_ACTIVITY_GRACE_MS) {
+    const poseLimit = window.eneResponseMotion?.echoLimit?.();
+    if (poseLimit != null ? !speechPlaybackActive :
+        nowMs - lastSyntheticSpeechActivityAt > SPEECH_GESTURE_ECHO_ACTIVITY_GRACE_MS) {
         return false;
     }
     if (activeGestureKey) {
@@ -320,6 +330,11 @@ function playSyntheticGestureEchoIfReady() {
     }
     const echoLimit = getSyntheticGestureEchoLimit(currentSpeechGestureKey);
     if (speechGestureEchoCount >= echoLimit) {
+        return false;
+    }
+    // 첫 자세의 복귀와 대기 타이밍은 유지하고, 다음 동작을 시작할 때 상한을 적용한다.
+    if (poseLimit != null && speechGestureEchoCount >= poseLimit) {
+        speechGestureEchoCount = echoLimit;
         return false;
     }
     const scale = getSyntheticGestureEchoScale(speechGestureEchoCount);
@@ -362,10 +377,25 @@ function scheduleSyntheticGestureSpeechInactivityReset() {
     clearSyntheticGestureInactivityTimer();
     speechGestureInactivityTimer = setTimeout(function () {
         speechGestureInactivityTimer = 0;
-        if (performance.now() - lastSyntheticSpeechActivityAt > SPEECH_GESTURE_ECHO_ACTIVITY_GRACE_MS) {
+        if (speechPlaybackActive && currentSpeechGestureKey && window.eneResponseMotion?.echoLimit?.() != null) {
+            // 브라우저 TTS와 문장 사이의 쉼에는 입모양 신호가 오지 않아도 재생이 계속된다.
+            notifySyntheticGestureSpeechActivity();
+        } else if (performance.now() - lastSyntheticSpeechActivityAt > SPEECH_GESTURE_ECHO_ACTIVITY_GRACE_MS) {
             resetSyntheticSpeechGestureSession();
         }
     }, SPEECH_GESTURE_ECHO_ACTIVITY_GRACE_MS + 80);
+}
+
+function setSyntheticGestureSpeechPlayback(active) {
+    speechPlaybackActive = Boolean(active);
+    if (window.eneResponseMotion?.echoLimit?.() == null) return;
+    if (active) {
+        if (!currentSpeechGestureKey) currentSpeechGestureKey = pendingSpeechGestureKey;
+        if (currentSpeechGestureKey) notifySyntheticGestureSpeechActivity();
+    } else {
+        // 아주 짧은 답변도 예약한 첫 제스처는 끝까지 재생한다.
+        resetSyntheticSpeechGestureSession();
+    }
 }
 
 function notifySyntheticGestureSpeechActivity() {
@@ -396,8 +426,7 @@ function isSyntheticGestureActive() {
 function stopSyntheticGesture(options = {}) {
     const hadActiveGesture = Boolean(activeGestureKey);
     if (options.clearPending !== false) {
-        clearPendingSyntheticSpeechGesture();
-        resetSyntheticSpeechGestureSession();
+        cancelPendingResponseGesture();
     }
     activeGestureKey = "";
     if (activeGestureFrame) {
@@ -497,7 +526,11 @@ function playSyntheticGesture(rawKey, options = {}) {
     stopSyntheticGesture({ clearPending: options.clearPending !== false });
     activeGestureKey = key;
     const startedAt = performance.now();
-    const durationMs = Math.max(300, Number(gesture.durationMs / GESTURE_SPEED) || (1000 / GESTURE_SPEED));
+    const response = !IDLE_SYNTHETIC_GESTURES.includes(key);
+    const clip = response && (speechGesturePrimaryPlayed && key === currentSpeechGestureKey
+        ? currentSpeechGestureClip : window.eneResponseMotion?.gestureClip?.(key));
+    if (response && key === currentSpeechGestureKey) currentSpeechGestureClip = clip;
+    const durationMs = clip?.useClipDuration ? clip.duration * 1000 : gesture.durationMs / GESTURE_SPEED;
     const instanceScale = Math.max(0.1, Math.min(1.25, Number(options.scale) || 1.0));
     const clearPendingOnFinish = options.clearPending !== false;
 
@@ -510,7 +543,10 @@ function playSyntheticGesture(rawKey, options = {}) {
             return;
         }
         const t = Math.max(0, Math.min(1, (nowMs - startedAt) / durationMs));
-        const offsets = scaleGestureOffsets(sampleKeyframes(gesture.frames, t), gestureEnvelope(t) * instanceScale);
+        const base = sampleKeyframes(gesture.frames, t);
+        const pose = clip ? {...base, ...window.eneResponseMotion.gestureOffsets(clip, t)} : base;
+        const offsets = scaleGestureOffsets(pose, gestureEnvelope(t) * instanceScale);
+        if (response) window.eneResponseMotion?.scaleGesture(offsets);
         window.setSyntheticGestureOffsets(offsets);
         if (t >= 1) {
             stopSyntheticGesture({ clearPending: clearPendingOnFinish });
@@ -526,6 +562,8 @@ function playSyntheticGesture(rawKey, options = {}) {
 window.playSyntheticGesture = playSyntheticGesture;
 window.scheduleSyntheticGestureDuringSpeech = scheduleSyntheticGestureDuringSpeech;
 window.notifySyntheticGestureSpeechActivity = notifySyntheticGestureSpeechActivity;
+window.setSyntheticGestureSpeechPlayback = setSyntheticGestureSpeechPlayback;
+window.cancelPendingResponseGesture = cancelPendingResponseGesture;
 window.setSyntheticGestureScale = setSyntheticGestureScale;
 window.setIdleSyntheticGestureConfig = setIdleSyntheticGestureConfig;
 window.stopSyntheticGesture = stopSyntheticGesture;

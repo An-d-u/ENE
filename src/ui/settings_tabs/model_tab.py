@@ -190,7 +190,7 @@ def build_model_tab(dialog):
         "settings.model.path.placeholder",
         "예: assets/live2d_models/hiyori/runtime/hiyori_pro_t11.model3.json",
     )
-    self.model_json_path_edit.textChanged.connect(self._on_setting_changed)
+    self.model_json_path_edit.textChanged.connect(self._on_response_motion_model_changed)
     model_path_row.addWidget(self.model_json_path_edit, 1)
 
     browse_model_btn = QPushButton("찾아보기")

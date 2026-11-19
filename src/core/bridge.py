@@ -80,6 +80,7 @@ class WebBridge(
     chat_display_event = pyqtSignal(str)  # 공개 ID와 PC 전용 표시 정보
     chat_admission_result = pyqtSignal(str)  # PC 초안 정리를 위한 JSON 결과
     gesture_requested = pyqtSignal(str)  # 합성 Live2D 제스처 키
+    speech_playback_changed = pyqtSignal(bool)  # 실제 음성 출력 시작·종료
     request_pending_changed = pyqtSignal(bool)  # LLM 응답 생성 진행 상태
     request_pending_stage_changed = pyqtSignal(str)  # thinking/searching
     life_record_notice = pyqtSignal(str)  # 안전한 생활 기록 상태 코드
@@ -223,6 +224,14 @@ class WebBridge(
     def set_tts(self, tts_client, audio_player):
         """TTS 클라이언트 및 오디오 플레이어 설정"""
         self.tts_client = tts_client
+        if self.audio_player is not audio_player:
+            previous = getattr(self.audio_player, "playback_active_changed", None)
+            if previous is not None:
+                previous.disconnect(self.speech_playback_changed)
+                self.speech_playback_changed.emit(False)
+            current = getattr(audio_player, "playback_active_changed", None)
+            if current is not None:
+                current.connect(self.speech_playback_changed)
         self.audio_player = audio_player
         self._companion_tts_settings_changed()
         print(f"[Bridge] TTS client set: {tts_client is not None}")

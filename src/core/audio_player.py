@@ -29,6 +29,7 @@ class AudioPlayer(QObject):
     
     playback_finished = pyqtSignal()  # 재생 완료 시그널
     playback_error = pyqtSignal(str)  # 재생 오류 시그널
+    playback_active_changed = pyqtSignal(bool)
     
     def __init__(self, output_device_id: str = "", volume: float = 0.8):
         super().__init__()
@@ -44,6 +45,8 @@ class AudioPlayer(QObject):
         # 시그널 연결
         self.player.mediaStatusChanged.connect(self._on_media_status_changed)
         self.player.errorOccurred.connect(self._on_error)
+        self._playback_active = False
+        self.player.playbackStateChanged.connect(self._on_media_playback_state_changed)
         
         # 임시 파일 경로
         self.temp_file = None
@@ -224,6 +227,16 @@ class AudioPlayer(QObject):
         if self.player.playbackState() != self._media_player_class.PlaybackState.StoppedState:
             self.player.stop()
         self._stop_stream_playback()
+        self._set_playback_active(False)
+
+    def _set_playback_active(self, active: bool):
+        if self._playback_active != active:
+            self._playback_active = active
+            self.playback_active_changed.emit(active)
+
+    def _on_media_playback_state_changed(self, state):
+        if self.stream_sink is None:
+            self._set_playback_active(state == self._media_player_class.PlaybackState.PlayingState)
 
     def set_output_device(self, output_device_id: str):
         """재생 출력 장치를 설정한다. 비어 있으면 시스템 기본 장치를 사용한다."""
@@ -265,6 +278,8 @@ class AudioPlayer(QObject):
     def _on_error(self, error, error_string):
         """에러 발생 이벤트"""
         print(f"[AudioPlayer] Error: {error_string}")
+        if self.stream_sink is None:
+            self._set_playback_active(False)
         self.playback_error.emit(error_string)
 
     def _flush_stream_pcm(self):
@@ -320,6 +335,9 @@ class AudioPlayer(QObject):
         if self._stream_pending_pcm:
             self._flush_stream_pcm()
 
+        if QAudio is not None and state == QAudio.State.ActiveState and self.stream_sink is not None:
+            self._set_playback_active(True)
+
         if (
             QAudio is not None
             and state == QAudio.State.IdleState
@@ -328,6 +346,7 @@ class AudioPlayer(QObject):
         ):
             print("[AudioPlayer] Streaming playback finished")
             self._stop_stream_playback()
+            self._set_playback_active(False)
             self.playback_finished.emit()
             return
 
@@ -337,6 +356,7 @@ class AudioPlayer(QObject):
             and error not in (None, QAudio.Error.NoError, QAudio.Error.UnderrunError)
         ):
             error_text = f"Streaming audio error: {error}"
+            self._set_playback_active(False)
             print(f"[AudioPlayer] {error_text}")
             self.playback_error.emit(error_text)
     

@@ -38,6 +38,7 @@ def test_overlay_window_resolve_model_path_payload_includes_available_emotions(t
     emotions_dir.mkdir(parents=True, exist_ok=True)
     (emotions_dir / "normal.exp3.json").write_text("{}", encoding="utf-8-sig")
     (emotions_dir / "joy.exp3.json").write_text("{}", encoding="utf-8-sig")
+    (emotions_dir / "Quiet Smile #2.exp3.json").write_text("{}", encoding="utf-8")
 
     window = OverlayWindow.__new__(OverlayWindow)
     window.settings = type("DummySettings", (), {"config": {}})()
@@ -48,7 +49,8 @@ def test_overlay_window_resolve_model_path_payload_includes_available_emotions(t
         {"model_json_path": "assets/live2d_models/sample/sample.model3.json"},
     )
 
-    assert payload["availableEmotions"] == ["normal", "joy"]
+    assert payload["availableEmotions"] == ["normal", "joy", "quiet smile #2"]
+    assert payload["expressionFiles"]["quiet smile #2"] == "Quiet Smile #2.exp3.json"
     assert payload["emotionsBasePath"].endswith("/emotions/")
 
 

@@ -7,6 +7,10 @@ from copy import deepcopy
 from pathlib import Path
 from ..ai.native_model_policy import ANTHROPIC_DEFAULT_MODEL, resolve_anthropic_model
 from .companion.audio_route import normalize_output_target
+from .response_motion import (
+    RESPONSE_MOTION_DEFAULTS, normalize_emotion_motion_overrides,
+    normalize_response_motion_mode, normalize_response_repeat_limits,
+)
 from .observation_intervals import (
     DEFAULT_REQUEST_SECONDS, DEFAULT_SAMPLE_SECONDS, REQUEST_SECONDS_KEY, SAMPLE_SECONDS_KEY,
     normalize_observation_intervals, valid_interval_seconds,
@@ -65,6 +69,7 @@ class Settings:
         "enable_schedule_recognition": True,
         "enable_conversation_promises": True,
         "enable_synthetic_gestures": True,
+        **RESPONSE_MOTION_DEFAULTS,
         "synthetic_gesture_scale": 1.0,
         "enable_idle_synthetic_gestures": False,
         "idle_synthetic_gesture_frequency": "normal",
@@ -357,6 +362,11 @@ class Settings:
                 if k not in self.SECRET_KEYS
             }
             merged = {**self.DEFAULT_CONFIG, **loaded_config}
+            merged["response_motion_mode"] = normalize_response_motion_mode(merged["response_motion_mode"])
+            merged["response_gesture_repeat_limits"] = normalize_response_repeat_limits(
+                merged["response_gesture_repeat_limits"]
+            )
+            merged["emotion_motion_overrides"] = normalize_emotion_motion_overrides(merged["emotion_motion_overrides"])
             merged[SAMPLE_SECONDS_KEY], merged[REQUEST_SECONDS_KEY] = normalize_observation_intervals(merged)
             if merged.get("structured_response_mode") not in {"auto", "legacy"}:
                 merged["structured_response_mode"] = "auto"

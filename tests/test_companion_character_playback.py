@@ -24,6 +24,8 @@ def playback(request, monkeypatch):
 
 def test_phone_uses_consumed_frames_and_closes_after_750ms(playback):
     (bridge, context, jobs, transfers, played), now, _, events, mouths = playback
+    speech_states = []
+    bridge.speech_playback_changed.connect(speech_states.append)
     start_reply(bridge)
     jobs[0].ready(wav(b"\0\0" * 24000))
     offer = next(item for item in transfers if item.kind == "offer")
@@ -44,6 +46,7 @@ def test_phone_uses_consumed_frames_and_closes_after_750ms(playback):
     assert mouths[-1] == 0.4
     bridge.submit_extension(context, wire(offer.ref, "audio_finished", played_frames=24000))
     assert mouths[-1] == 0.0 and not events[-1][1]["active"]
+    assert speech_states == [True, False]
     assert not bridge._companion_audio.timer.isActive()
 
 

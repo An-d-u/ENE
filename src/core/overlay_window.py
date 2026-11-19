@@ -20,8 +20,9 @@ from .live2d_parameter_overrides import (
     empty_live2d_parameter_payload,
     normalize_live2d_parameter_override_payload,
 )
-from .model_emotions import DEFAULT_MODEL_JSON_PATH, get_available_model_emotions, resolve_model_json_path
+from .model_emotions import DEFAULT_MODEL_JSON_PATH, discover_model_expression_files, resolve_model_json_path
 from .model_tracking_params import load_model_tracking_parameter_map_for_model_json
+from .response_motion import response_motion_config
 
 
 _LIFE_RECORD_UI_KEYS = {
@@ -193,19 +194,19 @@ class OverlayWindow(QWidget):
 
         model_path = resolve_model_json_path(settings_source=source, base_path=base_path)
         image_avatar_payload = build_image_avatar_payload(source, base_path=base_path)
+        expression_files = {}
         if avatar_mode == "image":
             available_emotions = image_avatar_payload.get("availableEmotions", ["normal"])
         else:
-            available_emotions = get_available_model_emotions(
-                settings_source=source,
-                base_path=base_path,
-            )
+            expression_files = discover_model_expression_files(model_path)
+            available_emotions = list(expression_files) or ["normal"]
 
         return {
             "avatarMode": avatar_mode,
             "modelPath": model_path.as_uri(),
             "emotionsBasePath": model_path.parent.joinpath("emotions").resolve().as_uri().rstrip("/") + "/",
             "availableEmotions": available_emotions,
+            "expressionFiles": expression_files,
             "imageAvatar": image_avatar_payload,
         }
 
@@ -308,6 +309,7 @@ class OverlayWindow(QWidget):
             "modelPath": path_payload["modelPath"],
             "emotionsBasePath": path_payload["emotionsBasePath"],
             "availableEmotions": path_payload["availableEmotions"],
+            "expressionFiles": path_payload["expressionFiles"],
             "imageAvatar": path_payload["imageAvatar"],
             "modelKey": self._resolve_model_key(source),
             "parameterOverrides": parameter_overrides,
@@ -337,6 +339,7 @@ class OverlayWindow(QWidget):
             f"                modelPath: {json.dumps(payload['modelPath'])},\n"
             f"                emotionsBasePath: {json.dumps(payload['emotionsBasePath'])},\n"
             f"                availableEmotions: {json.dumps(payload['availableEmotions'])},\n"
+            f"                expressionFiles: JSON.parse({json.dumps(json.dumps(payload.get('expressionFiles', {})))}),\n"
             f"                imageAvatar: {json.dumps(payload['imageAvatar'], ensure_ascii=False)},\n"
             f"{preview_emotion_line}"
             f"                modelKey: {json.dumps(payload['modelKey'])},\n"
@@ -816,7 +819,7 @@ class OverlayWindow(QWidget):
         if self._page_loaded:
             self._sync_theme_to_js(new_settings)
             self._sync_ui_strings_to_js(new_settings)
-            self._sync_idle_motion_settings_to_js(new_settings)
+            self._sync_idle_motion_settings_to_js(preview_source)
             self._sync_reroll_button_visibility_to_js(new_settings)
             self._sync_edit_button_visibility_to_js(new_settings)
             self._sync_manual_summary_button_visibility_to_js(new_settings)
@@ -953,6 +956,8 @@ class OverlayWindow(QWidget):
 
         source = settings_override if settings_override is not None else self.settings.config
         enabled = "true" if bool(source.get("enable_idle_motion", True)) else "false"
+        response_motion = json.dumps(response_motion_config(source), allow_nan=False)
+        self.web_view.page().runJavaScript(f"window.eneResponseMotion?.configure(JSON.parse({json.dumps(response_motion)}));")
         builtin_enabled = "true" if bool(source.get("enable_builtin_idle_motion", True)) else "false"
         auto_eye_blink_enabled = "true" if bool(source.get("enable_auto_eye_blink", True)) else "false"
         strength = float(source.get("idle_motion_strength", 1.0))

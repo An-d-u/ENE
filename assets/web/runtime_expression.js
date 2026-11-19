@@ -8,6 +8,8 @@
 const expressionRuntimeState = {
     boundModel: null,
     updateHook: null,
+    motionHook: null,
+    afterMotionHook: null,
     definitionCache: new Map(),
     transition: null
 };
@@ -33,12 +35,17 @@ function resetExpressionTransitionState() {
 }
 
 function detachExpressionUpdateHook() {
+    window.eneResponseMotion?.reset();
     const internalModel = expressionRuntimeState.boundModel && expressionRuntimeState.boundModel.internalModel;
     if (internalModel && expressionRuntimeState.updateHook && typeof internalModel.off === 'function') {
         internalModel.off('beforeModelUpdate', expressionRuntimeState.updateHook);
+        if (expressionRuntimeState.motionHook) internalModel.off('beforeMotionUpdate', expressionRuntimeState.motionHook);
+        if (expressionRuntimeState.afterMotionHook) internalModel.off('afterMotionUpdate', expressionRuntimeState.afterMotionHook);
     }
     expressionRuntimeState.boundModel = null;
     expressionRuntimeState.updateHook = null;
+    expressionRuntimeState.motionHook = null;
+    expressionRuntimeState.afterMotionHook = null;
 }
 
 function attachExpressionUpdateHook(model) {
@@ -49,8 +56,21 @@ function attachExpressionUpdateHook(model) {
         return false;
     }
 
+    if (window.eneResponseMotion) {
+        expressionRuntimeState.motionHook = () => {
+            if (window.eneResponseMotion.usesPose() && characterCanAnimate()) {
+                applyMouseTrackingFrame(performance.now());
+                window.eneResponseMotion.render(internalModel.coreModel);
+            }
+        };
+        internalModel.on('beforeMotionUpdate', expressionRuntimeState.motionHook);
+        // 내장 Idle이 바꾼 몸통 Z축이 물리 계산의 입력으로 남지 않게 한다.
+        expressionRuntimeState.afterMotionHook = () => window.eneResponseMotion.render(internalModel.coreModel);
+        internalModel.on('afterMotionUpdate', expressionRuntimeState.afterMotionHook);
+    }
     expressionRuntimeState.updateHook = () => {
         applyCurrentExpressionState();
+        window.eneResponseMotion?.render(internalModel.coreModel);
     };
     internalModel.on('beforeModelUpdate', expressionRuntimeState.updateHook);
     expressionRuntimeState.boundModel = model;
@@ -260,6 +280,10 @@ async function changeExpression(emotion, options = {}) {
         const durationMs = Number.isFinite(options.durationMs)
             ? Math.max(0, Number(options.durationMs))
             : null;
+        if (options.responseMotion) {
+            window.cancelPendingResponseGesture?.();
+            window.eneResponseMotion?.start(resolvedEmotion);
+        }
         const generation = ++characterExpressionGeneration;
         const nextExpression = await loadExpressionDefinition(resolvedEmotion);
         if (characterDisposed || model !== window.live2dModel || generation !== characterExpressionGeneration) return;

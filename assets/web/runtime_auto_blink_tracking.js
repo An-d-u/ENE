@@ -194,12 +194,19 @@ window.setMouseTrackingEnabled = function (enabled) {
 // 매 프레임 마우스/idle/쓰다듬기 상태를 합성해 파라미터를 적용한다.
 function updateMouseTracking(nowMs) {
     if (!characterCanAnimate()) { characterTrackingFrame = 0; return; }
+    // 포즈 중심에서는 Cubism이 이 프레임을 그릴 때 한 번만 합성한다.
+    if (!window.eneResponseMotion?.usesPose() || !expressionRuntimeState.motionHook) {
+        applyMouseTrackingFrame(nowMs);
+    }
+    characterTrackingFrame = requestAnimationFrame(updateMouseTracking);
+}
+
+function applyMouseTrackingFrame(nowMs) {
     ensureHeadPatEventBindings();
 
     const coreModel = getTrackingCoreModel();
     if (!coreModel) {
         lastMouseUpdateAt = nowMs;
-        characterTrackingFrame = requestAnimationFrame(updateMouseTracking);
         return;
     }
 
@@ -227,7 +234,9 @@ function updateMouseTracking(nowMs) {
     const shouldApplyHeadPatEyeOverride = shouldApplyHeadPatEyeOverrideNow(hasHeadPatBlend);
 
     let idleOffsets = null;
-    if (idleMotionEnabled && !isSpeakingNow(nowMs)) {
+    const playIdle = idleMotionEnabled && !isSpeakingNow(nowMs);
+    const idleWeight = window.eneResponseMotion?.idleWeight(!playIdle, dtMs) ?? 1;
+    if (playIdle) {
         idleMotionPhase += dtMs / 1000.0 * Math.PI * 2 * idleMotionSpeedHz;
         const pulse = 0.65 + (Math.sin(idleMotionPhase * 0.21 + 0.9) * 0.35);
         const angleXDynamic =
@@ -242,18 +251,19 @@ function updateMouseTracking(nowMs) {
         const breathWave = Math.sin(idleMotionPhase * 1.1 + 0.35);
 
         idleOffsets = {
-            angleX: Math.max(-18, Math.min(18, angleXDynamic)),
-            angleY: Math.max(-12, Math.min(12, angleYDynamic)),
-            bodyX: Math.max(-10, Math.min(10, bodyXDynamic)),
-            breath: Math.max(-1, Math.min(1, breathWave * idleMotionBreath))
+            angleX: Math.max(-18, Math.min(18, angleXDynamic)) * idleWeight,
+            angleY: Math.max(-12, Math.min(12, angleYDynamic)) * idleWeight,
+            bodyX: Math.max(-10, Math.min(10, bodyXDynamic)) * idleWeight,
+            breath: Math.max(-1, Math.min(1, breathWave * idleMotionBreath)) * idleWeight
         };
     }
 
     const expressiveOffsets = typeof buildExpressiveStyleMotionOffsets === 'function'
         ? buildExpressiveStyleMotionOffsets(nowMs, dtMs)
         : null;
+    const emotionOffsets = window.eneResponseMotion?.emotionOffsets(nowMs, dtMs);
     const trackingOffsets = typeof addMotionOffsets === 'function'
-        ? addMotionOffsets(idleOffsets, expressiveOffsets)
+        ? addMotionOffsets(idleOffsets, expressiveOffsets, emotionOffsets)
         : (idleOffsets || expressiveOffsets);
     const baseTrackingOffsets = trackingOffsets || createFallbackTrackingOffsets();
     applyRootMotionOffsets(trackingOffsets, hasHeadPatEffect);
@@ -287,7 +297,5 @@ function updateMouseTracking(nowMs) {
         }
     } catch (_) {
     }
-
-    characterTrackingFrame = requestAnimationFrame(updateMouseTracking);
 }
 console.log("Mouse tracking initialized");

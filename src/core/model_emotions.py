@@ -66,28 +66,23 @@ def resolve_model_json_path(
     )
 
 
-def discover_model_emotions(model_json_path: str | Path) -> list[str]:
-    """모델과 같은 폴더의 emotions 디렉터리에서 실제 표정 파일 이름을 수집한다."""
+def discover_model_expression_files(model_json_path: str | Path) -> dict[str, str]:
+    """대화용 표정 이름과 디스크의 실제 파일명을 연결한다."""
     model_path = Path(model_json_path)
     emotions_dir = model_path.parent / "emotions"
-    if not emotions_dir.exists() or not emotions_dir.is_dir():
-        return []
+    if not emotions_dir.is_dir():
+        return {}
 
-    discovered: set[str] = set()
-    for path in emotions_dir.glob("*.exp3.json"):
+    discovered: dict[str, str] = {}
+    for path in sorted(emotions_dir.glob("*.exp3.json")):
         emotion = _normalize_emotion_name(path.name[: -len(".exp3.json")])
-        if emotion:
-            discovered.add(emotion)
+        if emotion and path.is_file() and (emotion not in discovered or path.name == f"{emotion}.exp3.json"):
+            discovered[emotion] = path.name
+    return {key: discovered[key] for key in sorted(discovered, key=lambda name: (name != "normal", name))}
 
-    if not discovered:
-        return []
 
-    ordered: list[str] = []
-    if "normal" in discovered:
-        ordered.append("normal")
-        discovered.remove("normal")
-    ordered.extend(sorted(discovered))
-    return ordered
+def discover_model_emotions(model_json_path: str | Path) -> list[str]:
+    return list(discover_model_expression_files(model_json_path))
 
 
 def get_available_model_emotions(

@@ -407,17 +407,17 @@ def parse_llm_response(
     response_text, explicit_tts_text = extract_tts_metadata(response_text)
     response_text, gesture = extract_gesture_metadata(response_text)
 
-    emotion_pattern = r"\[(\w+)\]"
-    matches = re.findall(emotion_pattern, response_text)
-    clean_text = re.sub(emotion_pattern, "", response_text).strip()
-
-    emotion = "normal"
     normalized_emotions = {str(item).lower() for item in requirements.allowed_emotions}
-    for match in matches:
-        low = match.lower()
-        if low in normalized_emotions:
-            emotion = low
-            break
+    # 일반 단어 태그는 기존처럼 숨기고, 기호가 있는 태그는 등록한 파일명만 인식한다.
+    custom_names = sorted(
+        (name for name in normalized_emotions if not re.fullmatch(r"\w+", name)),
+        key=len, reverse=True,
+    )
+    alternatives = [re.escape(name) for name in custom_names] + [r"\w+"]
+    emotion_pattern = re.compile(r"\[(" + "|".join(alternatives) + r")\]", re.IGNORECASE)
+    matches = (match.group(1).lower() for match in emotion_pattern.finditer(response_text))
+    emotion = next((name for name in matches if name in normalized_emotions), "normal")
+    clean_text = emotion_pattern.sub("", response_text).strip()
 
     if explicit_tts_text:
         tts_text = explicit_tts_text

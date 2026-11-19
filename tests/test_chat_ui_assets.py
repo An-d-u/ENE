@@ -79,6 +79,7 @@ EXPECTED_RUNTIME_SCRIPTS = [
     "runtime_live2d_model.js",
     "runtime_image_avatar.js",
     "runtime_motion_state.js",
+    "runtime_response_motion.js",
     "runtime_gesture_engine.js",
     "runtime_head_pat.js",
     "runtime_auto_blink_tracking.js",
@@ -1366,9 +1367,9 @@ def test_tracking_runtime_exposes_expressive_style_motion_layer():
     assert "expressiveSpeechMotionEnergyFiltered += (expressiveSpeechEnergySmoothed - expressiveSpeechMotionEnergyFiltered) * speechMotionDamping;" in script
     assert "function addMotionOffsets" in script
     assert "buildExpressiveStyleMotionOffsets(nowMs, dtMs)" in tracking_script
-    assert "addMotionOffsets(idleOffsets, expressiveOffsets)" in tracking_script
-    assert "if (idleMotionEnabled && !isSpeakingNow(nowMs))" in tracking_script
-    assert "if (!hasHeadPatEffect && idleMotionEnabled && !isSpeakingNow(nowMs))" not in tracking_script
+    assert "addMotionOffsets(idleOffsets, expressiveOffsets, emotionOffsets)" in tracking_script
+    assert "const playIdle = idleMotionEnabled && !isSpeakingNow(nowMs);" in tracking_script
+    assert "idleWeight(!playIdle, dtMs)" in tracking_script
     assert "const expressiveOffsets = typeof buildExpressiveStyleMotionOffsets === 'function'" in tracking_script
     assert "const expressiveOffsets = !hasHeadPatEffect && typeof buildExpressiveStyleMotionOffsets === 'function'" not in tracking_script
     assert "const motionFadeScale = hasHeadPatEffect ? Math.max(0.65, 1 - (patMotionBlend * 0.35)) : 1;" in tracking_script

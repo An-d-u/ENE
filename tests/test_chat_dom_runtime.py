@@ -27,6 +27,24 @@ result = {last: chatMessages.lastElementChild.id, visible: loadingIndicator.styl
     assert result == {"last": "loading-indicator", "visible": "inline-flex"}
 
 
+def test_response_motion_runs_for_each_reply_and_reroll_and_skips_history():
+    result = run_dom_case("""
+const events = [];
+changeExpression = (emotion, options) => events.push([emotion, options.responseMotion]);
+const runtime = window.eneCompanionChat;
+const head = {server_epoch:'epoch', conversation_id:'conversation'};
+const message = {id:'sample-a', role:'assistant', text:'가상 표본', emotion:'smile', displayed_at:'2099-01-01T00:00:00Z'};
+runtime.applySnapshot({...head, conversation_revision:1, event_seq:1, messages:[message]});
+const newer = {...message, id:'sample-b'};
+const append = {...head, conversation_revision:2, event_seq:2, op:'append', message:newer};
+runtime.applyEvent(append);
+runtime.applyEvent(append);
+runtime.applyEvent({...append, conversation_revision:3, event_seq:3, op:'replace'});
+result = events;
+""")
+    assert result == [["smile", False], ["smile", True], ["smile", True]]
+
+
 def test_message_append_keeps_pending_indicator_last_without_another_status_event():
     result = run_dom_case("""
 setRequestPending(true);

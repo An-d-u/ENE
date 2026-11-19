@@ -30,6 +30,19 @@ def test_parse_response_extracts_code_generated_event_tag():
     assert promises == []
 
 
+def test_legacy_emotion_tags_match_registered_expression_filenames_literally():
+    for name in ("기대-조금", "gentle smile", "look#1", "calm.v2+", "pose[2]"):
+        result = parse_llm_response(
+            f"[참고-번호] 그림을 골랐어요. [{name.upper()}][joy][unknown] [gesture:nod]\n"
+            "[tts]별도 낭독문[/tts]",
+            requirements=make_requirements(
+                allowed_emotions=("normal", "joy", name), enable_gesture=True, tts_language="ja", require_tts_text=True,
+            ),
+        )
+        assert result[:3] == ("[참고-번호] 그림을 골랐어요.", name, "별도 낭독문")
+        assert result[9] == "nod"
+
+
 def test_parse_response_strips_disabled_schedule_and_promise_tags_without_metadata():
     parsed = parse_llm_response(
         "알겠어요. [event:2026-03-15|프로젝트 회의|] "
