@@ -22,7 +22,7 @@ from .live2d_parameter_overrides import (
 )
 from .model_emotions import DEFAULT_MODEL_JSON_PATH, discover_model_expression_files, resolve_model_json_path
 from .model_tracking_params import load_model_tracking_parameter_map_for_model_json
-from .response_motion import response_motion_config
+from .response_motion import RESPONSE_MOTION_DEFAULTS, response_motion_config
 
 
 _LIFE_RECORD_UI_KEYS = {
@@ -706,7 +706,7 @@ class OverlayWindow(QWidget):
             )
             model_config["companionModelGeneration"] = prepare(
                 path, model_config["availableEmotions"],
-                {key: self.settings.get(key) for key in SETTING_KEYS},
+                {key: self.settings.get(key) for key in SETTING_KEYS | RESPONSE_MOTION_DEFAULTS.keys() | {"model_json_path"}},
                 model_config["parameterOverrides"].get("values", {}),
                 reuse=reuse_companion,
             )

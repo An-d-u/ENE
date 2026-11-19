@@ -204,6 +204,19 @@ def test_cancellation_invalid_json_and_unknown_reference_fail_closed(tmp_path):
         build_bundle(path)
 
 
+def test_extra_expression_uses_original_filename_and_custom_definition(tmp_path):
+    path = synthetic_model(tmp_path)
+    expressions = tmp_path / "emotions"
+    expressions.mkdir()
+    for name in ("Glow #2 (50%)", "Bright"):
+        (expressions / f"{name}.exp3.json").write_text('{"Parameters":[],"Type":"synthetic"}', encoding="utf-8")
+    bundle = build_bundle(path, emotions=("glow #2 (50%)", "bright", "normal"))
+    refs = json.loads(bundle.asset(bundle.entry_asset_id).body)["FileReferences"]["Expressions"]
+    assert {ref["Name"] for ref in refs} == {"glow #2 (50%)", "bright"}
+    for ref in refs:
+        assert json.loads(bundle.asset(ref["File"]).body)["Type"] == "synthetic"
+
+
 def test_non_model_file_extension_and_nonfinite_json_are_not_transferred(tmp_path):
     path = synthetic_model(tmp_path)
     value = json.loads(path.read_text(encoding="utf-8"))

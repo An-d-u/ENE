@@ -43,6 +43,8 @@ def test_qt_tts_to_authenticated_pcm_keeps_one_output_and_one_completion(
     bridge.settings = store
     path = synthetic_model(tmp_path / "model")
     store.set("model_json_path", str(path))
+    store.set("response_motion_mode", "accent")
+    store.set("emotion_motion_overrides", {str(path): {"bright": "none"}})
     character = bridge._ensure_companion_character()
     bridge._companion_prepare_character(path, (), store.config, {})
     bridge.character_catalog_requested.connect(lambda raw: bridge.report_companion_character_catalog(json.dumps({
@@ -127,6 +129,8 @@ def test_qt_tts_to_authenticated_pcm_keeps_one_output_and_one_completion(
                 async with client.get(base + "/character/manifest", headers=headers) as response:
                     fresh = await response.json()
                 assert fresh["settings"]["head_pat_strength"] == 1.7
+                assert fresh["response_motion"]["mode"] == "accent"
+                assert fresh["response_motion"]["emotionOverrides"] == {"bright": "none"}
                 assert fresh["settings_revision"] >= result["settings_revision"]
                 pat = {**envelope, "type": "head_pat", "model_version": manifest["model_version"],
                     "interaction_id": sample_id(903), "interaction_no": 1, "phase": "start", "seq": 0, "intensity": .4}
@@ -141,15 +145,19 @@ def test_qt_tts_to_authenticated_pcm_keeps_one_output_and_one_completion(
                     "server_epoch": ready["server_epoch"], "conversation_id": ready["conversation_id"],
                     "request_id": sample_id(901), "text": "합성 도형의 위치를 안내합니다."})
                 assistant_ids = []
+                response_actions = []
                 while True:
                     frame = await ws.receive_json(timeout=3)
                     assert not (frame["type"] == "request_status" and frame["state"] == "completed")
                     if frame["type"] == "event" and frame["op"] == "append" and frame["payload"]["role"] == "assistant":
                         assistant_ids.append(frame["payload"]["id"])
+                    if frame["type"] == "character_action" and frame["kind"] == "expression":
+                        response_actions.append((frame["action_id"], frame.get("response_motion")))
                     if frame["type"] == "audio_offer":
                         offer = frame
                         break
                 assert offer["message_id"] in assistant_ids
+                assert response_actions == [("normal", True)]
                 async with client.get(base + "/audio/" + offer["utterance_id"], headers=headers) as response:
                     assert response.status == 200
                     assert response.headers["Cache-Control"] == "no-store"

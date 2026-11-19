@@ -14,6 +14,7 @@ from .extension_protocol import (
     normalize_settings,
 )
 from .protocol import ProtocolError, uuid_value
+from ..response_motion import emotion_motion_ids, response_motion_config
 from ..settings import Settings
 
 
@@ -87,6 +88,7 @@ class CharacterState:
         self.bundle = None
         self.status = "unavailable"
         self.settings = _settings({})
+        self._response_motion = response_motion_config({})
         self.parameters = {}
         self.catalog = []
         self.expressions = []
@@ -114,6 +116,15 @@ class CharacterState:
             return {}
         return {key: value if value in self.expressions else "normal" for key, value in self._head_pat_defaults.items()}
 
+    def set_response_motion(self, settings):
+        config = response_motion_config(settings)
+        if config == self._response_motion:
+            return False
+        self._response_motion = config
+        self.settings_revision += 1
+        self.state_revision += 1
+        return True
+
     def unavailable(self, status="unavailable"):
         if status not in {"unavailable", "unsupported", "loading"}:
             raise CharacterStateError("invalid_status")
@@ -129,6 +140,7 @@ class CharacterState:
         self.unavailable("loading")
         self.generation, self.bundle = generation, bundle
         self.settings = _settings(settings)
+        self.set_response_motion(settings)
         self.parameters = dict(parameters)
         self.set_head_pat_defaults(settings)
         self.settings_revision += 1
@@ -184,8 +196,20 @@ class CharacterState:
     def snapshot(self):
         ready = self.status == "ready" and self.bundle is not None
         bundle = self.bundle if ready else None
+        motion = {}
+        if ready:
+            overrides = self._response_motion["emotionOverrides"]
+            allowed = {"none", *emotion_motion_ids()}
+            motion["response_motion"] = {
+                **self._response_motion,
+                "emotionOverrides": {
+                    name: overrides[name.strip().lower()] for name in self.expressions
+                    if overrides.get(name.strip().lower()) in allowed
+                },
+            }
         return deepcopy(
             {
+                **motion,
                 "model_id": bundle.model_id if bundle else None,
                 "model_version": bundle.model_version if bundle else None,
                 "runtime_version": bundle.runtime_version if bundle else 1,

@@ -65,6 +65,7 @@ def test_repository_bundle_has_only_pinned_runtime_and_notices():
     validate(ROOT, manifest)
     targets = {item["target"] for item in manifest["files"]}
     assert "index.html" in targets and "runtime_character_host.js" in targets
+    assert {"runtime_response_motion.js", "motions/response-accent.json"} <= targets
     assert "script.js" not in targets and "runtime_bootstrap.js" not in targets
     assert not any(
         "model" in name and name != "runtime_live2d_model.js" for name in targets

@@ -62,6 +62,16 @@
       "sha256": "ea74d33afce662b7748b2cab354a8c27cb49cb787d304ef72e3a13dcf3e30eca"
     },
     {
+      "source": "assets/web/runtime_response_motion.js",
+      "target": "runtime_response_motion.js",
+      "sha256": "559f942caf656a02608bcd177fea488572e1fb52897ae20c0c1e245a58babb80"
+    },
+    {
+      "source": "assets/web/motions/response-accent.json",
+      "target": "motions/response-accent.json",
+      "sha256": "967241e8debe5f8662c72b3c049839d76039a7812f61e47c945475ba59935eed"
+    },
+    {
       "source": "assets/web/runtime_gesture_engine.js",
       "target": "runtime_gesture_engine.js",
       "sha256": "126ccc5575ae314c0f3914d2488c5b0f2176bca27885f99824d0bd3d8d7f6902"
@@ -94,7 +104,7 @@
     {
       "source": "assets/web/runtime_character_host.js",
       "target": "runtime_character_host.js",
-      "sha256": "93aa6482521c94185dde763ba68234ed6b24dac13580c9bca5718c3e5007dacf"
+      "sha256": "a2d07faea5e554b078f8c9a7d6a856d816baf46a744aeef1aa2c32827cd40e4c"
     },
     {
       "source": "assets/web/lib/pixi.min.js",
@@ -119,12 +129,12 @@
     {
       "source": "assets/web/character/index.html",
       "target": "index.html",
-      "sha256": "15f6cde2e21d50991ea7585bf37b23af33e79cfdf522b818fe95a6e2953a00a7"
+      "sha256": "5fe3d39f32839e2f06b45ed3f8b8e5bf829192dcb6ca278502db9de3935d655e"
     },
     {
       "source": "assets/web/character/entry.js",
       "target": "entry.js",
-      "sha256": "a18082fbaa5534b1c6af5495dca5a750b867de1685b592f7173c0c650356601a"
+      "sha256": "49129b7b601f0d472545c7e3f89dba24936f371430ea3025ae9cb51ae2f8fb75"
     },
     {
       "source": "assets/web/character/style.css",

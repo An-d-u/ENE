@@ -98,6 +98,50 @@ def test_pc_default_expression_change_reuses_model_but_invalidates_settings_revi
     bridge.deactivate()
 
 
+def test_confirmed_response_motion_is_scoped_to_model_and_catalog_after_reuse_and_reconnect(tmp_path):
+    app = QApplication.instance() or QApplication([])
+    owner = Owner()
+    bridge = CompanionCharacterBridge(owner)
+    path = synthetic_model(tmp_path / "first")
+    other = synthetic_model(tmp_path / "second")
+    settings = {
+        "model_json_path": str(path),
+        "response_motion_mode": "accent", "emotion_motion_preset": "gentle",
+        "response_gesture_repeat_limits": {str(path): 2, str(other): 1},
+        "emotion_motion_overrides": {str(path): {"bright": "joy", "missing": "sad"}, str(other): {"bright": "none"}},
+    }
+    def ready():
+        wait_until(app, lambda: not bridge.is_running)
+        assert bridge.catalog({"generation": bridge.state.generation, "model_version": bridge.state.bundle.model_version,
+                               "parameters": CATALOG, "expressions": ["normal", "bright"], "gestures": ["nod"]})
+        return json.loads(bridge.state.capture().body)["response_motion"]
+
+    generation = bridge.select(path, (), settings, {})
+    bridge.activate()
+    assert "response_motion" not in bridge.state.snapshot()
+    assert ready() == {"mode": "accent", "enabled": True, "preset": "gentle", "head": 1, "body": 1,
+                       "gestureHead": 1, "gestureBody": 1, "repeatLimit": 2, "emotionOverrides": {"bright": "joy"}}
+    bridge.preview(True)
+    assert bridge.state.snapshot()["response_motion"]["preset"] == "gentle"
+    revision = bridge.state.settings_revision
+    settings = {**settings, "emotion_motion_preset": "lively", "response_gesture_head_strength": 1.5}
+    assert bridge.select(path, (), settings, {}, reuse=True) == generation
+    assert bridge.state.settings_revision > revision and not bridge.is_running
+    assert owner.sent[-1][1]["reason"] == "settings_changed"
+    bridge.deactivate()
+    assert "response_motion" not in bridge.state.snapshot()
+    bridge.activate()
+    assert ready()["gestureHead"] == 1.5
+    bridge.select(other, (), {**settings, "model_json_path": str(other)}, {}, reuse=True)
+    config = ready()
+    assert (config["preset"], config["repeatLimit"], config["emotionOverrides"]) == ("lively", 1, {"bright": "none"})
+    owner.message_received.emit("", "bright", "")
+    assert owner.sent[-1][1]["response_motion"] is True
+    owner.expression_changed.emit("bright")
+    assert "response_motion" not in owner.sent[-1][1]
+    bridge.deactivate()
+
+
 def test_replacement_has_one_worker_and_discards_late_result(tmp_path):
     app = QApplication.instance() or QApplication([])
     owner = Owner()

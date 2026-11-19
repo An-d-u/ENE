@@ -12,6 +12,7 @@ SCRIPTS = [
     "runtime_character_state.js",
     "runtime_live2d_model.js",
     "runtime_motion_state.js",
+    "runtime_response_motion.js",
     "runtime_gesture_engine.js",
     "runtime_head_pat.js",
     "runtime_auto_blink_tracking.js",
@@ -146,10 +147,78 @@ assert.equal(calls.filter(x=>x==='createApp').length,1);character.dispose();
 """)
 
 
+def test_phone_document_loads_the_shared_response_motion_engine():
+    page = (WEB / "character/index.html").read_text(encoding="utf-8")
+    assert page.index('src="runtime_response_motion.js"') < page.index('src="runtime_character_host.js"')
+
+
+def test_phone_applies_confirmed_model_motion_only_to_live_reply_expressions():
+    run_character(r"""
+host.kind='phone';
+const motion=context.eneResponseMotion;
+const clip = angle => ({duration:1,tracks:{angleY:[0,0,0,1,angle]}});
+const bank = {aliases:{bright:'joy'},emotions:{'joy.standard':clip(10),'sad.standard':clip(-10)},gestures:{}};
+let bankReads=0;
+context.fetch=async path=>{
+    if(path==='motions/response-accent.json'){bankReads++;return {ok:true,json:async()=>bank};}
+    return {ok:true,json:async()=>({Parameters:[]})};
+};
+const character=context.createCharacter(host,canvas);
+const placement={scale:1,xPercent:50,yPercent:50};
+const configured={...snapshot,expression_ids:['normal','bright','Quiet #2'],default_expression:'bright',
+    response_motion:{mode:'accent',enabled:true,preset:'standard',head:.5,body:1,
+        gestureHead:1,gestureBody:1,repeatLimit:2,emotionOverrides:{'Quiet #2':'sad'}}};
+const send=(id,live=true,restoreCurrent=false)=>character.applyAction({kind:'expression',model_version:snapshot.model_version,
+    action_id:id,duration_ms:0,response_motion:live},{restoreCurrent});
+const angle=()=>motion.emotionOffsets(now+500,16)?.angleY??0;
+await character.applySnapshot(configured);
+assert.equal(bankReads,1);assert.equal(angle(),0);
+await send('bright',false);assert.equal(angle(),0);
+await send('bright',true,true);assert.equal(angle(),0);
+await send('bright');const joy=angle();assert.ok(joy>0);
+await send('Quiet #2');assert.equal(angle(),-joy);
+await character.applySnapshot({...configured,response_motion:{...configured.response_motion,emotionOverrides:{bright:'none'}}});
+await send('bright');assert.equal(angle(),0);
+await character.applySnapshot(configured);await send('bright');assert.equal(angle(),joy);
+character.applyPresentation({placement,visible:false});
+character.applyPresentation({placement,visible:true});assert.equal(angle(),0);
+await send('bright');character.invalidatePending();assert.equal(angle(),0);
+await character.applySnapshot(snapshot);assert.equal(motion.usesPose(),false);
+assert.equal(bankReads,1);character.dispose();
+""")
+
+
+def test_phone_pose_gesture_repeats_during_playback_and_stops_on_hide_or_audio_end():
+    run_character(r"""
+host.kind='phone';
+context.fetch=async()=>({ok:true,json:async()=>({aliases:{},emotions:{},gestures:{}})});
+const character=context.createCharacter(host,canvas);
+const config={mode:'accent',enabled:true,preset:'standard',head:1,body:1,gestureHead:1,gestureBody:1,repeatLimit:1};
+await character.applySnapshot({...snapshot,response_motion:config});
+const run=source=>vm.runInContext(source,ctx);
+const fire=source=>{const key=run(source),callback=timers.get(key);assert.ok(callback);timers.delete(key);return callback();};
+const gesture=()=>character.applyAction({kind:'gesture',action_id:'nod',model_version:snapshot.model_version});
+const playback=active=>character.applyPlayback({active,mouth_open:0});
+const placement={scale:1,xPercent:50,yPercent:50};
+await gesture();assert.equal(run('pendingSpeechGestureKey'),'nod');
+playback(true);assert.equal(run('speechPlaybackActive'),true);
+fire('pendingSpeechGestureTimer');assert.equal(run('activeGestureKey'),'nod');
+now+=4000;await tick();assert.equal(run('activeGestureKey'),'');
+playback(true);fire('speechGestureEchoTimer');assert.equal(run('activeGestureKey'),'nod');
+now+=4000;await tick();playback(true);fire('speechGestureEchoTimer');assert.equal(run('activeGestureKey'),'');
+playback(false);assert.equal(run('speechPlaybackActive'),false);assert.equal(run('currentSpeechGestureKey'),'');
+playback(true);await gesture();character.applyPresentation({placement,visible:false});
+assert.equal(run('speechPlaybackActive'),false);
+assert.equal(run('pendingSpeechGestureKey'), '');assert.equal(timers.size,0);
+character.applyPresentation({placement,visible:true});assert.equal(run('activeGestureKey'),'');
+await character.applySnapshot(snapshot);await gesture();assert.equal(run('activeGestureKey'),'nod');
+character.dispose();
+""")
+
+
 def test_desktop_pose_motion_uses_viewer_curves_in_the_cubism_update_cycle():
     case = r"""
 host.kind = 'pc';
-vm.runInContext(ENGINE, ctx);
 const bank = MOTION_DATA;
 const motion = context.eneResponseMotion;
 const ids = ['ParamAngleY', 'ParamBodyAngleY', 'ParamBodyAngleZ'];
@@ -219,14 +288,11 @@ assert.equal(motion.idleWeight(false,16),1);
 character.dispose();
 """
     bank = (WEB / "motions/response-accent.json").read_text(encoding="utf-8")
-    engine = (WEB / "runtime_response_motion.js").read_text(encoding="utf-8")
-    run_character(case.replace("ENGINE", json.dumps(engine)).replace("MOTION_DATA", bank))
+    run_character(case.replace("MOTION_DATA", bank))
 
 
 def test_desktop_pose_resolves_model_overrides_without_merging_expression_names():
-    engine = (WEB / "runtime_response_motion.js").read_text(encoding="utf-8")
     run_character(r"""
-vm.runInContext(ENGINE,ctx);
 const motion = context.eneResponseMotion;
 const clip = amplitude => ({duration:1,tracks:{angleX:[0,0,0,1,amplitude]}});
 const bank = {aliases:{joy:'joy',smile:'joy',sad:'sad',eyeclose:'sad'}, gestures:{nod:{}},
@@ -263,7 +329,7 @@ assert.equal(play('soft_smile'),0);
 assert.equal(play('smile'),joy/2);
 await configure(JSON.parse('{"__proto__":"joy"}'));
 assert.equal(play('__proto__'),joy);
-""".replace("ENGINE", json.dumps(engine)))
+""")
 
 
 def test_desktop_pose_bank_covers_all_presets_and_supported_axes():
@@ -603,13 +669,16 @@ def test_phone_resume_snapshot_cannot_overwrite_newer_expression_during_asset_re
 context.location.origin='https://appassets.androidplatform.net';
 const replies=[];context.eneCharacterNative={postMessage:x=>replies.push(JSON.parse(x))};
 const generation='00000000-0000-4000-8000-000000000001';
+snapshot.expression_ids.push('Quiet #2');
 let releaseRead, delayRead=false;
+const readExpressions=[];
 context.fetch=async url=>{
     if(url.endsWith(snapshot.entry_asset_id)) {
         if(delayRead) await new Promise(resolve=>{releaseRead=resolve;});
         return {ok:true,json:async()=>({FileReferences:{Expressions:[
-            {Name:'normal',File:'c'.repeat(64)},{Name:'bright',File:'d'.repeat(64)}]}})};
+            {Name:'normal',File:'c'.repeat(64)},{Name:'Quiet #2',File:'d'.repeat(64)}]}})};
     }
+    readExpressions.push(url);
     return {ok:true,json:async()=>({Parameters:[]})};
 };
 vm.runInContext(PHONE_ENTRY,ctx);
@@ -619,10 +688,11 @@ const original=context.live2dModel;
 const placement={scale:1.5,xPercent:25,yPercent:75};
 await send('presentation',{placement,visible:false});await send('presentation',{placement,visible:TEST_VISIBLE});
 delayRead=true;const refresh=send('snapshot',{...snapshot,action_seq:3});
-await send('action',{model_version:snapshot.model_version,kind:'expression',action_id:'bright',action_seq:4,duration_ms:0});
+await send('action',{model_version:snapshot.model_version,kind:'expression',action_id:'Quiet #2',action_seq:4,duration_ms:0,response_motion:true});
 await send('action',{model_version:snapshot.model_version,kind:'gesture',action_id:'nod',action_seq:5});
 releaseRead();await refresh;
-assert.equal(vm.runInContext('currentEmotionTag',ctx),'bright');
+assert.equal(vm.runInContext('currentEmotionTag',ctx),'quiet #2');
+assert.equal(readExpressions.length,1);assert.ok(readExpressions[0].endsWith('/assets/'+'d'.repeat(64)));
 assert.equal(vm.runInContext('activeGestureKey',ctx),'');
 assert.equal(context.live2dModel,original);assert.equal(calls.filter(x=>x.endsWith(snapshot.entry_asset_id)).length,1);
 assert.equal(replies.at(-1).type,'ready');

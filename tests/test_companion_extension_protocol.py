@@ -55,6 +55,15 @@ def test_capability_intersection_dependency_and_default_disabled():
     ) == {"audio_pcm_v1"}
 
 
+def test_response_expression_action_keeps_optional_boolean_only_on_expressions():
+    sample = {**SAMPLES["character_action"], "kind": "expression"}
+    assert "response_motion" not in decode_message(json.dumps(sample)).to_dict()
+    assert decode_message(json.dumps({**sample, "response_motion": True})).to_dict()["response_motion"] is True
+    for changes in ({"response_motion": 1}, {"kind": "gesture", "response_motion": True}):
+        with pytest.raises(ProtocolError):
+            decode_message(json.dumps({**sample, **changes}))
+
+
 @pytest.mark.parametrize(
     "changes",
     [

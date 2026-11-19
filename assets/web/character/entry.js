@@ -75,7 +75,9 @@
                     const model = await response.json();
                     if (disposed || generation !== current) return;
                     for (const item of model.FileReferences?.Expressions || []) {
-                        if (snapshot.expression_ids?.includes(item.Name) && assetId(item.File)) expressions.set(item.Name, item.File);
+                        if (snapshot.expression_ids?.includes(item.Name) && assetId(item.File)) {
+                            expressions.set(item.Name.trim().toLowerCase(), item.File);
+                        }
                     }
                 }
                 if (disposed || generation !== current) return;

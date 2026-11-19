@@ -35,7 +35,7 @@ UUID는 기존 계약 검사기를 재사용하고 숫자는 boolean과 구분�
 | `audio_cancel` | 양방향 | 위 참조 ID, `reason` |
 | `character_changed` | PC→APP | `state_revision`(양수), `model_version`(SHA-256 또는 null), `reason` |
 | `character_snapshot_request` | APP→PC | 추가 필드 없음; 합쳐서 요청하며 동시 1개 |
-| `character_action` | PC→APP | `action_seq`(단조 증가), `model_version`, `kind`(`expression/gesture`), `action_id`(공개 허용 ID), `duration_ms`(0~30000) |
+| `character_action` | PC→APP | `action_seq`(단조 증가), `model_version`, `kind`(`expression/gesture`), `action_id`(공개 허용 ID), `duration_ms`(0~30000). 새 대화 응답의 표정에는 선택 필드 `response_motion: true`를 보낸다. |
 | `character_playback` | PC→APP | `conversation_id`, `message_id`, `utterance_id`, `output`(`pc/phone/none`), `played_ms`(0~180000), `mouth_open`, `active`(bool) |
 | `head_pat` | APP→PC | `model_version`, `interaction_id`(UUID), `interaction_no`(단조 증가), `seq`, `phase`(`start/update/end/cancel`), `intensity`(0~1) |
 | `head_pat_state` | PC→APP | 같은 세션/모델/순서 필드, `source`(`pc/phone`), `phase`(`accepted/update/ended/cancelled/rejected`), `intensity`, `reason` |
@@ -60,6 +60,8 @@ UUID는 기존 계약 검사기를 재사용하고 숫자는 boolean과 구분�
 
 - `GET /companion/v1/audio/{utterance_id}`: `Content-Type: application/octet-stream`, `X-ENE-Audio-Format: pcm_s16le`, `X-ENE-Sample-Rate`, `X-ENE-Channels`. 프레임 정렬된 PCM만 읽고 offer와 헤더 일치를 검사한다. HTTP 종료와 `audio_source_end.total_frames`가 모두 일치해야 정상 종료다. 동시 1개·음성 ID당 최초 소비 1회; 재접속·Range 재생 없음.
 - `GET /companion/v1/character/manifest`: 스냅샷 `{model_id, model_version, runtime_version, state_revision, settings_revision, action_seq, settings, parameters, parameter_catalog, expression_ids, gesture_ids, default_expression, assets, entry_asset_id, status}`. `action_seq`는 캡처 시점의 마지막 일회성 사건 번호다. 미지원/모델 없음은 `status`와 빈 목록, null 모델 ID로 표현한다. 전체 256KiB.
+- 준비된 스냅샷의 선택 필드 `response_motion`은 현재 모델의 PC 저장값을 전달한다. `mode`는 `classic/accent`, `preset`은 `standard/restrained/lively/gentle`, `enabled`는 감정 동작 사용 여부다. `head/body`와 `gestureHead/gestureBody`는 감정 동작과 응답 제스처의 고개·몸통 강도(0~2), `repeatLimit`는 최대 추가 반복(0~3)이다. `emotionOverrides`에는 현재 모델의 공개 표정에 직접 지정한 동작 ID 또는 `none`만 담는다. 지정하지 않은 표정은 APK 내 자동 연결표를 따른다. 필드가 없는 구형 PC에 연결하면 기존 방식으로 재생한다.
+- 복원하는 표정과 쓰다듬기에는 응답용 감정 동작을 시작하지 않는다. 휴대폰에서 이 설정을 수정하는 patch는 제공하지 않는다.
 - `assets` 원소는 `{id, sha256, size, mime}`. `parameter_catalog`는 최대 256개 `{id,min,max,default}`이고 표시 문자열도 길이 128 이내다. 순서 변화가 버전을 바꾸지 않도록 정렬한다. 모델 경로나 표시 이름은 포함하지 않는다.
 - `GET /companion/v1/character/assets/{asset_id}`: 현재 manifest에 있는 자산만 제공한다. 자산 ID는 원본 바이트 SHA-256, 전달 해시는 안전한 참조로 변환한 뒤 계산한다. JSON 내 파일 참조는 같은 자산 묶음의 ID 상대 경로로 바꾸고 원래 파일명을 보내지 않는다. 지원하지 않는 선택적 Sound 참조는 제거하고 그 음향 파일은 전달하지 않는다.
 

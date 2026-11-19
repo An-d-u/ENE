@@ -106,7 +106,7 @@ window.createCharacter = function createCharacter(host, canvas) {
         characterPresentationVisible = value.visible;
         if (!value.visible) {
             cancelHeadPatInteraction(); cancelPendingPatEmotionRestore();
-            clearIdleSyntheticGestureTimer(); stopSyntheticGesture(); setMouthOpen(0);
+            stopCharacterMotion();
             cancelAnimationFrame(characterTrackingFrame); characterTrackingFrame = 0;
             if (window.live2dModel) window.live2dModel.autoUpdate = false;
             app.stop();
@@ -141,6 +141,13 @@ window.createCharacter = function createCharacter(host, canvas) {
         if (parameterHook) parameterModel?.off('beforeModelUpdate', parameterHook);
         parameterModel = null; parameterHook = null;
     }
+    function stopCharacterMotion() {
+        clearIdleSyntheticGestureTimer();
+        stopSyntheticGesture();
+        setSyntheticGestureSpeechPlayback(false);
+        window.eneResponseMotion?.reset();
+        setMouthOpen(0);
+    }
     function reset() {
         cancelHeadPatInteraction();
         loadingModel = null;
@@ -150,9 +157,8 @@ window.createCharacter = function createCharacter(host, canvas) {
         characterExpressionReads.clear();
         expressionRuntimeState.definitionCache.clear();
         setIdleSyntheticGestureConfig(false, 'normal');
-        stopSyntheticGesture();
+        stopCharacterMotion();
         cancelPendingPatEmotionRestore();
-        setMouthOpen(0);
         detachParameters();
         removeCurrentModelArtifacts();
         currentModelPath = ''; currentEmotionsBasePath = '';
@@ -165,7 +171,7 @@ window.createCharacter = function createCharacter(host, canvas) {
         characterExpressionReads.forEach(controller => controller.abort());
         characterExpressionReads.clear();
         cancelHeadPatInteraction(); cancelPendingPatEmotionRestore();
-        clearIdleSyntheticGestureTimer(); stopSyntheticGesture(); setMouthOpen(0);
+        stopCharacterMotion();
         // 준비된 모델은 보존한다. 아직 반환되지 않은 SDK 생성 결과만 무효화한다.
         if (loadingModel && !window.live2dModel) {
             currentModelLoadToken++; loadingModel = null; currentModelPath = '';
@@ -209,9 +215,16 @@ window.createCharacter = function createCharacter(host, canvas) {
         snapshot = next;
         applyParameters(next);
         applySettings(next.settings, next.head_pat_defaults);
+        // 모션 설정은 PC에서 확정한 현재 모델의 스냅샷에만 들어온다.
+        const config = next.response_motion;
+        const motionReady = phone && window.eneResponseMotion?.configure(config ? {
+            ...config,
+            emotionOverrides: Object.fromEntries(Object.entries(config.emotionOverrides || {})
+                .map(([id, target]) => [id.trim().toLowerCase(), target])),
+        } : {mode:'classic'});
         const loading = loadingModel || (loadingModel = window.applyENEModelSettings({modelPath: host.assetUrl('model', next.entry_asset_id),
             emotionsBasePath: '', availableEmotions: next.expression_ids || ['normal']}));
-        await loading;
+        await Promise.all([loading, motionReady]);
         if (loadingModel === loading) loadingModel = null;
         if (disposed || generation !== snapshotGeneration) return false;
         // 전용 WebView는 PC 매개변수 창을 적재하지 않으므로 적용 hook도 직접 소유한다.
@@ -235,17 +248,25 @@ window.createCharacter = function createCharacter(host, canvas) {
         // 준비 중에는 현재 표정 하나만 복원한다. 숨긴 제스처나 애니메이션은 재생하지 않는다.
         if (!characterCanAnimate() && !(restoreCurrent && action.kind === 'expression')) return false;
         if (action.kind === 'expression' && snapshot.expression_ids?.includes(action.action_id)) {
-            await changeExpression(action.action_id, {durationMs: restoreCurrent ? 0 : Math.min(30000, Math.max(0, Number(action.duration_ms) || 0))});
+            await changeExpression(action.action_id, {
+                durationMs: restoreCurrent ? 0 : Math.min(30000, Math.max(0, Number(action.duration_ms) || 0)),
+                responseMotion: !restoreCurrent && action.response_motion === true,
+            });
             return !disposed;
         }
         if (action.kind === 'gesture' && snapshot.gesture_ids?.includes(action.action_id)) {
+            if (window.eneResponseMotion?.usesPose() && !IDLE_SYNTHETIC_GESTURES.includes(action.action_id)) {
+                return scheduleSyntheticGestureDuringSpeech(action.action_id);
+            }
             return playSyntheticGesture(action.action_id);
         }
         return false;
     }
     function applyPlayback(value) {
         if (disposed) return false;
-        const mouth = characterCanAnimate() && value?.active && Number.isFinite(value.mouth_open) ? Math.min(1, Math.max(0, value.mouth_open)) : 0;
+        const active = characterCanAnimate() && value?.active === true;
+        setSyntheticGestureSpeechPlayback(active);
+        const mouth = active && Number.isFinite(value.mouth_open) ? Math.min(1, Math.max(0, value.mouth_open)) : 0;
         applyMouthPose({source: 'rms', open: mouth});
         return true;
     }

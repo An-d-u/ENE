@@ -369,6 +369,10 @@ def normalize_extension(kind, body):
             action_id=text_value(get("action_id"), max_bytes=128, nonblank=True),
             duration_ms=integer_value(get("duration_ms"), 0, 30000),
         )
+        if "response_motion" in body:
+            if result["kind"] != "expression":
+                raise ProtocolError()
+            result["response_motion"] = _bool(get("response_motion"))
     elif kind == "character_playback":
         result.update(
             {

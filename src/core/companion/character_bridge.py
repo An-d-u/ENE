@@ -43,7 +43,7 @@ class CompanionCharacterBridge(QObject):
         owner.expression_changed.connect(self.expression)
         owner.gesture_requested.connect(lambda key: self.action("gesture", key, 0))
         owner.message_received.connect(
-            lambda _text, emotion, _thought: self.expression(emotion)
+            lambda _text, emotion, _thought: self.expression(emotion, response_motion=True)
         )
 
     @property
@@ -57,7 +57,9 @@ class CompanionCharacterBridge(QObject):
             and self._selection.emotions == tuple(emotions)
         ):
             self._preview = False
-            if self._sync_head_pat_defaults():
+            self._confirmed_settings = dict(settings)
+            motion_changed = self.state.set_response_motion(settings)
+            if self._sync_head_pat_defaults() or motion_changed:
                 self.changed("settings_changed")
             self._sync_head_pat()
             return self._selection.generation
@@ -146,7 +148,7 @@ class CompanionCharacterBridge(QObject):
             except Exception:
                 return {"status": "rejected", "reason": "storage_failed"}
             self.state.commit_settings(confirmed, self.state.parameters)
-            self._confirmed_settings = dict(confirmed)
+            self._confirmed_settings.update(confirmed)
             self.changed("settings_changed")
         return {"status": "accepted", "settings": self.settings_baseline()["settings"]}
 
@@ -163,7 +165,7 @@ class CompanionCharacterBridge(QObject):
             key: fields[key] for key in ("command_id", "model_version", "expected_revision", "changes", "parameters")
         })
         if self.state.settings_revision != before:
-            self._confirmed_settings = dict(self.state.settings)
+            self._confirmed_settings.update(self.state.settings)
             self._confirmed_parameters = dict(self.state.parameters)
             self.changed("settings_changed")
             if not self._preview:
@@ -305,14 +307,16 @@ class CompanionCharacterBridge(QObject):
         if adapter is not None:
             adapter.publish_extension(kind, fields)
 
-    def expression(self, expression):
-        self.action("expression", expression, 0)
+    def expression(self, expression, *, response_motion=False):
+        self.action("expression", expression, 0, response_motion=response_motion)
 
-    def action(self, kind, key, duration):
+    def action(self, kind, key, duration, *, response_motion=False):
         if not self._active or self._preview:
             return
         value = self.state.action(kind, key, duration)
         if value is not None:
+            if response_motion and kind == "expression":
+                value["response_motion"] = True
             self._publish("character_action", value)
 
     def emergency_join(self, timeout=0.2):

@@ -13,6 +13,7 @@ RUNTIME = (
     "runtime_character_state.js",
     "runtime_live2d_model.js",
     "runtime_motion_state.js",
+    "runtime_response_motion.js",
     "runtime_gesture_engine.js",
     "runtime_head_pat.js",
     "runtime_auto_blink_tracking.js",
@@ -30,6 +31,7 @@ NOTICES = (
     "THIRD-PARTY.md",
 )
 ALLOWED = {f"assets/web/{name}": name for name in RUNTIME}
+ALLOWED["assets/web/motions/response-accent.json"] = "motions/response-accent.json"
 ALLOWED.update({f"assets/web/lib/{name}": f"lib/{name}" for name in LIBRARIES})
 ALLOWED.update(
     {

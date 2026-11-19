@@ -13,6 +13,8 @@ import threading
 
 from PIL import Image
 
+from ..model_emotions import discover_model_expression_files
+
 
 class AssetError(ValueError):
     """로컬 경로·파일 내용 대신 고정 오류 코드만 전달한다."""
@@ -84,11 +86,12 @@ def _file_identity(info):
     return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, stamp)
 
 
-def _checked_path(root, relative):
+def _checked_path(root, relative, *, discovered_expression=False):
     if (
         not isinstance(relative, str)
         or not relative
-        or any(c in relative for c in ("%", "\\", ":", "\x00", "?", "#"))
+        or any(c in relative for c in ("\\", ":", "\x00"))
+        or (not discovered_expression and any(c in relative for c in ("%", "?", "#")))
     ):
         raise AssetError("invalid_asset_path")
     parts = PurePosixPath(relative).parts
@@ -187,12 +190,14 @@ def _encode(value):
         raise AssetError("invalid_asset_json") from None
 
 
-def _name(value):
+def _name(value, *, expression=False):
     if (
         not isinstance(value, str)
-        or not value
+        or not value.strip()
         or len(value.encode("utf-8")) > 128
-        or not re.fullmatch(r"[\w-]+", value)
+        or value in {"__proto__", "constructor", "prototype", ".", ".."}
+        or any(ord(c) < 32 or c in "/\\:" for c in value)
+        or (not expression and not re.fullmatch(r"[\w-]+", value))
     ):
         raise AssetError("invalid_asset_id")
     return value
@@ -214,10 +219,14 @@ def build_bundle(
     signatures = {}
     assets = {}
     total = 0
+    local_expression_paths = set()
+
+    def checked_path(relative):
+        return _checked_path(root, relative, discovered_expression=relative in local_expression_paths)
 
     def read(relative):
         nonlocal total
-        path = _checked_path(root, relative)
+        path = checked_path(relative)
         if relative not in source:
             if len(source) >= limits.files:
                 raise AssetError("asset_count_limit")
@@ -321,16 +330,27 @@ def build_bundle(
         for item in raw_expressions:
             if not isinstance(item, dict):
                 raise AssetError("invalid_expression")
-            name = _name(item.get("Name"))
+            name = _name(item.get("Name"), expression=True)
             if name in expressions:
                 raise AssetError("invalid_expression")
-            expressions[name] = binary(item.get("File"), "expression")
+            expressions[name] = item.get("File")
+        local_files = {}
+        if emotions and (root / "emotions").exists():
+            _checked_path(root, "emotions")
+            local_files = discover_model_expression_files(model_path)
         for name in emotions:
-            name = _name(name)
-            if name != "normal" and name not in expressions:
-                expressions[name] = binary(f"emotions/{name}.exp3.json", "expression")
+            name = _name(name, expression=True)
+            if name == "normal":
+                continue
+            if name in local_files:
+                # 디스크에서 발견한 실제 파일명만 그대로 연다. 앱에는 해시 참조만 보낸다.
+                relative = f"emotions/{local_files[name]}"
+                local_expression_paths.add(relative)
+                expressions[name] = relative
+            elif name not in expressions:
+                raise AssetError("invalid_expression")
         converted["Expressions"] = [
-            {"Name": name, "File": value} for name, value in sorted(expressions.items())
+            {"Name": name, "File": binary(relative, "expression")} for name, relative in sorted(expressions.items())
         ]
         motions = refs.get("Motions", {})
         if not isinstance(motions, dict) or len(motions) > 256:
@@ -360,7 +380,7 @@ def build_bundle(
         entry = add(raw_model, _encode(result), "application/json")
         for relative, expected in signatures.items():
             _cancelled(cancel)
-            if _signature(_checked_path(root, relative)) != expected:
+            if _signature(checked_path(relative)) != expected:
                 raise AssetError("asset_changed")
         ordered = tuple(assets[key] for key in sorted(assets))
         version = sha256(
