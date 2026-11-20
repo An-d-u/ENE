@@ -210,6 +210,14 @@ body.is-chat-resizing {
     width: fit-content;
 }
 
+.visual-summary > summary {
+    width: fit-content;
+    padding: 3px 6px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.visual-summary-body,
 .message-thought-body {
     margin-top: 6px;
     max-width: min(100%, 360px);

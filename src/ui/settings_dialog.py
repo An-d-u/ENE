@@ -267,6 +267,9 @@ class SettingsDialog(
         interval_changes = getattr(bridge, "observation_intervals_changed", None)
         if interval_changes is not None:
             interval_changes.connect(self.sync_observation_intervals)
+        visual_changes = getattr(bridge, "visual_context_changed", None)
+        if visual_changes is not None:
+            visual_changes.connect(self.sync_visual_context_turns)
         self._connect_tts_audio_bridge()
         self._connect_goal_bridge()
         self._request_goal_items()

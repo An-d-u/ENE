@@ -3,7 +3,7 @@ Gemini LLM 클라이언트 (google-genai SDK 사용)
 """
 
 import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 import hashlib
 import re
@@ -15,6 +15,7 @@ from .native_model_policy import native_sampling_params
 
 from ..core.debug_logging import debug_request
 from ..core.screen_frame import SCREEN_UNAVAILABLE_HINT, ScreenFrame
+from .visual_summary import extract_visual_summary, summary_instruction, summary_schema
 
 from ..conversation_format import prepend_message_time
 from .memory_context_builder import (
@@ -125,6 +126,12 @@ class _ScreenPrompt:
             parts = [genai.types.Part.from_text(text=f"{SCREEN_UNAVAILABLE_HINT}\n\n{self.prompt}")]
         else:
             return None
+        if allow_text_fallback:
+            config = dict(config)
+            schema = config.get("response_json_schema")
+            config["system_instruction"] = str(config.get("system_instruction", "")) + summary_instruction(structured=bool(schema))
+            if schema:
+                config["response_json_schema"] = summary_schema(schema)
         # SDK 자체 HTTP 재시도는 직렬화한 본문을 그대로 재사용하므로 한 번으로 제한한다.
         return client.models.generate_content(
             model=model,
@@ -1168,6 +1175,8 @@ class GeminiClient:
 
         def record_response(response, attempt, params) -> ProviderResponse:
             normalized = self._provider_response(response, attempt.mode)
+            if isinstance(contents, _ScreenPrompt) and contents.frame is not None and attempt.phase != "repair":
+                normalized, contents.frame.visual_summary = extract_visual_summary(normalized, attempt.mode)
             try:
                 thought_tokens = self._debug_field(
                     getattr(response, "usage_metadata", None), "thoughts_token_count"
@@ -1323,6 +1332,9 @@ class GeminiClient:
             self._replace_latest_model_history_with_visible_reply(result.payload[0])
         diagnostics["outcome"] = "validated"
         self._last_response_delivery_metadata = result.metadata
+        if isinstance(contents, _ScreenPrompt) and contents.frame is not None:
+            self._last_response_delivery_metadata = replace(
+                result.metadata, visual_summary=contents.frame.summary_note())
         self._last_runtime_prompt_signature = self._runtime_prompt_signature(
             response_mode=final_mode,
             settings_source=settings_snapshot,

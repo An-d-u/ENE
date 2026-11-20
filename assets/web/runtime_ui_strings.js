@@ -204,6 +204,7 @@ function mergeUiStrings(config) {
             no: summaryConfirm.no || DEFAULT_UI_STRINGS.summaryConfirm.no,
             yes: summaryConfirm.yes || DEFAULT_UI_STRINGS.summaryConfirm.yes
         },
+        visualSummary: source.visualSummary || DEFAULT_UI_STRINGS.visualSummary,
         thoughts: {
             button: thoughts.button || DEFAULT_UI_STRINGS.thoughts.button,
             buttonTitle: thoughts.buttonTitle || DEFAULT_UI_STRINGS.thoughts.buttonTitle,

@@ -21,7 +21,7 @@ from ..core.response_motion import (
     automatic_emotion_motion, normalize_emotion_motion_overrides, normalize_response_repeat_limits,
     response_motion_config, response_motion_model_key,
 )
-from ..core.observation_intervals import REQUEST_SECONDS_KEY, SAMPLE_SECONDS_KEY, normalize_observation_intervals
+from ..core.observation_intervals import REQUEST_SECONDS_KEY, SAMPLE_SECONDS_KEY, normalize_observation_intervals, visual_context_turns
 from ..core.system_theme import THEME_PRESETS, get_windows_theme_mode
 
 
@@ -581,6 +581,11 @@ class SettingsDialogValuesMixin:
             self.observation_request_seconds_spin.setValue(request_seconds)
         self._original_settings.update({SAMPLE_SECONDS_KEY: sample_seconds, REQUEST_SECONDS_KEY: request_seconds})
 
+    def sync_visual_context_turns(self, turns):
+        if self.visual_context_turns_spin.value() == visual_context_turns(self._original_settings):
+            self.visual_context_turns_spin.setValue(turns)
+        self._original_settings["visual_context_turns"] = turns
+
     def _refresh_typing_effect_controls(self, enabled: bool | None = None):
         is_enabled = bool(self.typing_effect_check.isChecked()) if enabled is None else bool(enabled)
         if hasattr(self, "typing_effect_speed_label") and self.typing_effect_speed_label:
@@ -913,6 +918,7 @@ class SettingsDialogValuesMixin:
             sample, request = normalize_observation_intervals(self._original_settings)
             self.observation_sample_seconds_spin.setValue(sample)
             self.observation_request_seconds_spin.setValue(request)
+            self.visual_context_turns_spin.setValue(visual_context_turns(self._original_settings))
             self.enable_away_nudge_check.setChecked(self._original_settings.get("enable_away_nudge", True))
             away_idle_minutes = int(self._original_settings.get("away_idle_minutes", 60))
             self.away_idle_minutes_spin.setValue(away_idle_minutes)
@@ -1306,6 +1312,7 @@ class SettingsDialogValuesMixin:
             "enable_away_nudge": self.enable_away_nudge_check.isChecked(),
             SAMPLE_SECONDS_KEY: self.observation_sample_seconds_spin.value(),
             REQUEST_SECONDS_KEY: self.observation_request_seconds_spin.value(),
+            "visual_context_turns": self.visual_context_turns_spin.value(),
             "away_idle_minutes": self.away_idle_minutes_spin.value(),
             "away_input_grace_minutes": min(
                 self.away_input_grace_minutes_spin.value(),
@@ -1369,6 +1376,8 @@ class SettingsDialogValuesMixin:
             del values[SAMPLE_SECONDS_KEY]
         if values.get(REQUEST_SECONDS_KEY) == request:
             del values[REQUEST_SECONDS_KEY]
+        if values.get("visual_context_turns") == visual_context_turns(getattr(self, "_original_settings", {})):
+            del values["visual_context_turns"]
         handler = getattr(self, "_settings_save_handler", None)
         try:
             result = handler(values, getattr(self, "_character_baseline", None)) if callable(handler) else None

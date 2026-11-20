@@ -204,6 +204,7 @@ class ResponseDeliveryMetadata:
     schema_version: str = ""
     promises_authoritative: bool = False
     repair_performed: bool = False
+    visual_summary: str = field(default="", repr=False)
 
     @classmethod
     def empty(cls) -> "ResponseDeliveryMetadata":

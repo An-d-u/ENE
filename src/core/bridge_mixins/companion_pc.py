@@ -104,6 +104,7 @@ class CompanionPCBridgeMixin:
         text=None,
         emotion=None,
         thought=None,
+        visual_summary=None,
         attachments=None,
         local_only=False,
     ):
@@ -112,6 +113,8 @@ class CompanionPCBridgeMixin:
             message["emotion"] = emotion
         if thought is not None:
             message["thought"] = thought
+        if visual_summary is not None:
+            message["visual_summary"] = visual_summary
         if text is not None:
             message["text"] = text
         if attachments is not None:
@@ -470,7 +473,8 @@ class CompanionPCBridgeMixin:
         retry.displayed = True
         self.chat_state.public_assistant_ids[request_ref.key] = retry.assistant_id
         self.chat_state.failed_assistant_ids.pop(retry.previous_ref.key, None)
-        self._emit_pc_message(event, emotion=emotion, thought=thought)
+        self._emit_pc_message(event, emotion=emotion, thought=thought,
+                              visual_summary=self._visual_summary_for_request(request_ref))
         self.companion_event.emit(event)
         return True
 

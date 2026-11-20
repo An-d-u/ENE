@@ -174,7 +174,8 @@ function connectCompanionChatBridge(bridge) {
         },
         render: (message, responseMotion) => {
             const node = addMessage(message.text, message.role, message.attachments || [], new Date(message.displayed_at), {
-                messageId: message.id, thought: message.thought || '', excludeFromReroll: Boolean(message.local_only),
+                messageId: message.id, thought: message.thought || '', visualSummary: message.visual_summary || '',
+                excludeFromReroll: Boolean(message.local_only),
             });
             node.dataset.companionManaged = 'true';
             if (message.local_only) node.dataset.editExcluded = 'true';
@@ -185,8 +186,11 @@ function connectCompanionChatBridge(bridge) {
             if (!node) return;
             const attachments = message.attachments || getMessageVisualAttachments(node);
             const thought = message.thought === undefined ? getMessageThoughtText(node) : message.thought;
+            const visualSummary = message.visual_summary ?? node.dataset.visualSummary ?? '';
             if (getMessageLogicalText(node) !== message.text || getMessageThoughtText(node) !== thought
+                || (node.dataset.visualSummary || '') !== visualSummary
                 || JSON.stringify(getMessageVisualAttachments(node)) !== JSON.stringify(attachments)) {
+                node.dataset.visualSummary = visualSummary;
                 renderMessageBubbleSegments(node, message.text, { attachments, thought, immediate: true });
             }
             updateRerollButtonState();

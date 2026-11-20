@@ -27,6 +27,28 @@ result = {last: chatMessages.lastElementChild.id, visible: loadingIndicator.styl
     assert result == {"last": "loading-indicator", "visible": "inline-flex"}
 
 
+def test_visual_summary_disclosure_survives_disabled_thoughts_and_clears_on_replace():
+    result = run_dom_case("""
+thoughtFeatureEnabled = false;
+currentUiStrings.visualSummary = '본 장면';
+const runtime = window.eneCompanionChat;
+const head = {server_epoch:'epoch', conversation_id:'conversation'};
+const message = {id:'visual-a', role:'assistant', text:'합성 답변', thought:'다른 메모',
+    visual_summary:'<합성 도형>', displayed_at:'2099-01-01T00:00:00Z'};
+runtime.applySnapshot({...head, conversation_revision:1, event_seq:1, messages:[message]});
+await new Promise(resolve => setTimeout(resolve, 0));
+const details = chatMessages.querySelector('details');
+const label = details.querySelector('summary').textContent;
+const body = details.querySelector('.visual-summary-body').textContent;
+const thought = Boolean(chatMessages.querySelector('.message-thought-btn'));
+runtime.applyEvent({...head, op:'replace', event_seq:2, conversation_revision:2,
+    message:{...message, visual_summary:''}});
+await new Promise(resolve => setTimeout(resolve, 0));
+result = [label, body, thought, Boolean(chatMessages.querySelector('details'))];
+""")
+    assert result == ["본 장면", "<합성 도형>", False, False]
+
+
 def test_response_motion_runs_for_each_reply_and_reroll_and_skips_history():
     result = run_dom_case("""
 const events = [];

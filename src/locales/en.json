@@ -388,6 +388,7 @@
   "chat.actions.live2dParameters.title": "Live2D parameters",
   "chat.actions.goals": "Goals",
   "chat.actions.goals.title": "ENE goals",
+  "chat.visual_summary": "View scene summary",
   "chat.thoughts.button": "Thoughts",
   "chat.thoughts.button.title": "Show ENE thoughts",
   "chat.thoughts.panel.title": "Thoughts",
@@ -1283,6 +1284,11 @@
         "end_duration": "Emotion hold time:"
       },
       "observation": {
+        "context_title": "Scenes from your questions",
+        "turns": " turns",
+        "context_off": "Exclude from follow-up questions",
+        "context_turns": "Turns to include scene summaries",
+        "context_hint": "Defaults to 5 turns. Each follow-up question counts, including text-only questions. Open the summary on its reply to read it later.",
         "title": "Proactive screen and camera chat",
         "sample": "Scene change check interval",
         "request": "Minimum interval between model calls",

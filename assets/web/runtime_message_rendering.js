@@ -40,6 +40,21 @@ function renderMessageThoughtDisclosure(messageDiv, stack, thought) {
     }
 }
 
+function renderVisualSummary(messageDiv, stack) {
+    stack.querySelector('.visual-summary')?.remove();
+    if (!messageDiv.dataset.visualSummary) return;
+    const details = document.createElement('details');
+    details.className = 'visual-summary';
+    const button = document.createElement('summary');
+    button.textContent = currentUiStrings.visualSummary;
+    const body = document.createElement('div');
+    body.className = 'visual-summary-body';
+    body.textContent = messageDiv.dataset.visualSummary;
+    details.appendChild(button);
+    details.appendChild(body);
+    stack.appendChild(details);
+}
+
 function renderMessageBubbleSegments(messageDiv, text, { attachments = null, immediate = false, thought = null } = {}) {
     if (!messageDiv) {
         return Promise.resolve();
@@ -87,6 +102,7 @@ function renderMessageBubbleSegments(messageDiv, text, { attachments = null, imm
     chatMessages.scrollTop = chatMessages.scrollHeight;
     return animationQueue.then(() => {
         renderMessageThoughtDisclosure(messageDiv, stack, resolvedThought);
+        renderVisualSummary(messageDiv, stack);
         updateMessageThoughtButtons();
         chatMessages.scrollTop = chatMessages.scrollHeight;
     });
@@ -359,6 +375,7 @@ function addMessage(text, role, attachments = [], timestamp = new Date(), option
     }
     setMessageLogicalText(messageDiv, text);
     setMessageThoughtText(messageDiv, role === 'assistant' ? (options.thought || '') : '');
+    messageDiv.dataset.visualSummary = role === 'assistant' ? (options.visualSummary || '') : '';
     messageDiv._messageAttachments = normalizeMessageAttachments(attachments);
     const bubbleStack = getMessageBubbleStack(messageDiv);
 

@@ -425,6 +425,9 @@ class ChatFlowBridgeMixin:
 
         try:
             message_with_context = self._with_ene_thought_context(message_with_time)
+            visual_context = getattr(self, "_with_visual_context", None)
+            if callable(visual_context):
+                message_with_context = visual_context(message_with_context, request_ref)
             message_with_context = self._with_tts_output_reminder(message_with_context)
             # 바인딩의 합성 출처가 아니라 실제 수락된 요청과 저장 설정만 사용한다.
             settings = getattr(self, "settings", None)
@@ -1550,6 +1553,8 @@ class ChatFlowBridgeMixin:
         
         # 대화 버퍼에 응답 추가 (+ 타임스탬프)
         self._append_conversation("assistant", text)
+        if type(response_metadata) is ResponseDeliveryMetadata and response_metadata.visual_summary:
+            self._remember_visual_context(response_metadata.visual_summary, request_ref)
         remember_loaded_topic = getattr(self, "_remember_loaded_topic_memory_context_for_summary", None)
         if not callable(remember_loaded_topic):
             remember_loaded_topic = lambda: ChatFlowBridgeMixin._remember_loaded_topic_memory_context_for_summary(self)

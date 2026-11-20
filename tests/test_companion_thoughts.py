@@ -48,6 +48,17 @@ def test_response_limit_and_status_cannot_smuggle_text():
             decode_message(json.dumps(wire("thought_response", status=status, text=text)))
 
 
+def test_summary_is_available_with_thoughts_off_only_for_the_current_message(display):
+    owner, bridge, answer, user = display
+    owner.chat_state.pc_messages[answer.id]["visual_summary"] = "합성 타일은 삼각형이다."
+    bridge.settings_changed(False)
+    result = bridge.response(wire(message_id=answer.id))
+    assert result["status"] == "empty" and result["text"] == ""
+    assert result["visual_summary"] == "합성 타일은 삼각형이다."
+    for invalid in [wire(message_id=user.id), wire(message_id=answer.id, conversation_revision=1)]:
+        assert not bridge.response(invalid).get("visual_summary")
+
+
 @pytest.fixture
 def display():
     from src.core.companion.thoughts_bridge import CompanionThoughtsBridge

@@ -93,7 +93,8 @@ def test_screen_question_only_sends_jpeg_once_and_preserves_user_turn(sdk, monke
         assert len(result) == 11 and result[0] == "가상 기호 응답"
         question = requests[1]
         assert question["contents"][0]["parts"] == [{"text": "가상의 이전 질문"}]
-        assert question["systemInstruction"]["parts"] == [{"text": "합성 역할 지침"}]
+        instruction = question["systemInstruction"]["parts"][0]["text"]
+        assert instruction.startswith("합성 역할 지침") and "visual_summary" in instruction
         parts = question["contents"][-1]["parts"]
         attachments = [p["inlineData"] for p in parts if "inlineData" in p]
         assert len(attachments) == 1
@@ -138,6 +139,17 @@ def test_screen_regeneration_checks_revoked_guard_and_sends_hint(sdk):
     assert "inlineData" not in str(requests[1])
     assert SCREEN_UNAVAILABLE_HINT in requests[1]["contents"][-1]["parts"][0]["text"]
     assert SCREEN_UNAVAILABLE_HINT not in str(client.get_conversation_history())
+
+
+def test_gemini_keeps_visual_summary_separate_from_visible_history(sdk):
+    marker = "합성 도형은 왼쪽에 있다."
+    body = json.loads(valid_envelope_json())
+    body["visual_summary"] = marker
+    client, requests = sdk(lambda _: response(json.dumps(body)))
+    result = asyncio.run(client.send_screen_question("도형", ScreenFrame(jpeg(), lambda: True)))
+    assert len(requests) == 1 and marker not in str(result)
+    assert client.get_last_response_delivery_metadata().visual_summary.endswith(marker)
+    assert marker not in str(client.get_conversation_history())
 
 
 def test_missing_screen_preserves_the_prior_manual_attachment(sdk):

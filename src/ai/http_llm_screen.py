@@ -16,6 +16,7 @@ from .http_llm_common import (
     is_explicit_structured_output_unsupported,
 )
 from .input_device_context import append_input_device_context
+from .visual_summary import extract_visual_summary, summary_instruction, summary_schema
 from .response_pipeline import ResponseAttempt
 from .response_protocol import (
     LLMRequestKind, ProviderProfile, ProviderResponse, ResponseMode, ResponseStatus,
@@ -95,12 +96,23 @@ class _ScreenClientMixin(_CommonMixin):
 
     def _request_screen(self, descriptor: HTTPFinalRequestDescriptor, frame: ScreenFrame) -> str | ProviderResponse:
         request = getattr(self, _REQUEST_METHODS[self.wire_format])
+        summarize = (descriptor.context.request_kind is LLMRequestKind.FINAL_REPLY
+                     and descriptor.attempt.phase != "repair")
+        if summarize:
+            frame.visual_summary = ""
+            descriptor = replace(descriptor,
+                context=replace(descriptor.context, system_prompt=descriptor.context.system_prompt +
+                    summary_instruction(structured=descriptor.attempt.mode is not ResponseMode.LEGACY_TAGS)),
+                schema=summary_schema(descriptor.schema) if descriptor.schema else None)
         with_screen = replace(
             descriptor,
             prepare_screen_payload=lambda payload: _prepare_screen_payload(payload, descriptor, frame),
         )
         try:
-            return request(descriptor.context.user_content, request_descriptor=with_screen)
+            response = request(descriptor.context.user_content, request_descriptor=with_screen)
+            if summarize:
+                response, frame.visual_summary = extract_visual_summary(response, descriptor.attempt.mode)
+            return response
         except requests.HTTPError as failure:
             # 원본 요청/응답을 품은 HTTPError는 호출자나 재시도에 보관하지 않는다.
             profile = ProviderProfile(self.provider_name, self.wire_format, self.endpoint, self.model_name)
@@ -149,11 +161,15 @@ class _ScreenClientMixin(_CommonMixin):
                 request_device=request_device, mood_event_context=mood_event_context,
             )
         enhanced = append_input_device_context(enhanced, request_device, self._prompt_language())
-        return self._execute_final_response(
+        result = self._execute_final_response(
             lambda descriptor: self._request_screen(descriptor, screen_frame),
             user_content=enhanced, history_user_content=message,
             provider_format=self.wire_format, mood_event_context=mood_event_context,
         )
+        if self._last_response_delivery_metadata.response_mode:
+            self._last_response_delivery_metadata = replace(self._last_response_delivery_metadata,
+                                                            visual_summary=screen_frame.summary_note())
+        return result
 
     def observe_screen_once(self, prompt: str, screen_frame: ScreenFrame | None) -> str:
         """대화, 기억, 도구, 진단 상태를 조회하거나 갱신하지 않는 단발 관찰."""

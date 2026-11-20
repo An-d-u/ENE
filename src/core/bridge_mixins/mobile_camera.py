@@ -98,7 +98,8 @@ class MobileCameraBridgeMixin:
         if not authorized():
             return ScreenFrame(None, authorized)
         verified, = store.claim(share.scope, [descriptor], "camera", generation=share.generation, mode=mode)
-        frame = ScreenFrame(verified.body, authorized)
+        frame = ScreenFrame(verified.body, authorized,
+                            source="전면 카메라" if share.lens == "front" else "후면 카메라")
         if not hasattr(self, "_mobile_camera_frames"):
             self._mobile_camera_frames = WeakSet()
         self._mobile_camera_frames.add(frame)

@@ -43,12 +43,15 @@ class CompanionThoughtsBridge:
         enabled = self._display_enabled
         if enabled is None:
             enabled = self.owner._are_ene_thoughts_enabled()
-        if not enabled:
-            return result
         public = next((item for item in captured.messages if item.id == fields["message_id"]), None)
         displayed = state.pc_messages.get(fields["message_id"], {})
         if (public is None or public.role != "assistant" or displayed.get("role") != "assistant"
                 or displayed.get("id") != public.id or displayed.get("local_only")):
+            return result
+        summary = displayed.get("visual_summary", "")
+        if summary and isinstance(summary, str) and len(summary.encode("utf-8")) <= 2048:
+            result["visual_summary"] = summary
+        if not enabled:
             return result
         value = displayed.get("thought", "")
         if not isinstance(value, str) or not value.strip():

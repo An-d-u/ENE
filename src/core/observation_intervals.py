@@ -5,6 +5,12 @@ DEFAULT_REQUEST_SECONDS = 300
 MAX_INTERVAL_SECONDS = 86400
 SAMPLE_SECONDS_KEY = "observation_sample_seconds"
 REQUEST_SECONDS_KEY = "observation_request_seconds"
+DEFAULT_VISUAL_CONTEXT_TURNS = 5
+
+
+def visual_context_turns(settings):
+    value = settings.get("visual_context_turns", DEFAULT_VISUAL_CONTEXT_TURNS)
+    return value if type(value) is int and 0 <= value <= 20 else DEFAULT_VISUAL_CONTEXT_TURNS
 
 
 def valid_interval_seconds(value: object) -> bool:

@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QColor, QImage
 
+from src.ai.response_protocol import ResponseDeliveryMetadata
 from src.core.bridge_mixins import chat_flow
 from src.core.companion.controller import CompanionController
 from src.core.companion.network import Endpoint
@@ -45,6 +46,14 @@ class DesktopAction(QObject):
 
 class CameraWorker(FakeWorker):
     screen_unavailable = pyqtSignal(str, str)
+
+    def __init__(self, client, message, **kwargs):
+        super().__init__(client, message, **kwargs)
+        self.message = message
+        frame = kwargs.get("screen_frame")
+        if frame and frame.source == "후면 카메라":
+            frame.visual_summary = "검은 격자 위에 청록색 모형이 있다."
+            self.response_metadata = ResponseDeliveryMetadata(visual_summary=frame.summary_note())
 
 
 def run_paired_exchange(owner, qt_app, tmp_path, capability, exercise):
@@ -102,6 +111,7 @@ def run_paired_exchange(owner, qt_app, tmp_path, capability, exercise):
 def test_camera_then_desktop_then_phone_without_camera(bridge, qt_app, tmp_path, monkeypatch):
     monkeypatch.setattr(chat_flow, "AIWorker", CameraWorker)
     owner = bridge
+    owner.settings["visual_context_turns"] = 1
     phone_jpeg = picture((96, 64), "JPEG")
     desktop_image = QImage(96, 64, QImage.Format.Format_RGB32)
     desktop_image.fill(QColor("gold"))
@@ -167,6 +177,7 @@ def test_camera_then_desktop_then_phone_without_camera(bridge, qt_app, tmp_path,
         assert await asyncio.to_thread(observation_done.wait, 3)
         assert observed == [phone_jpeg] and not captures
         assert await desktop.run(lambda: pc(owner, 33, text="두 번째 타일은 어느 색인가요?")["state"]) == "accepted"
+        assert "검은 격자 위에 청록색 모형이 있다." in await desktop.run(lambda: owner.worker.message)
         await desktop.run(lambda: owner.worker.reply())
         assert submitted[-1] == ("pc", pc_jpeg) and len(captures) == 1
         await matching(ws, "camera_state", generation=3, observe_allowed=False)
@@ -175,6 +186,9 @@ def test_camera_then_desktop_then_phone_without_camera(bridge, qt_app, tmp_path,
         await ws.send_json(dict(type="send_text", protocol_version=1, server_epoch=ready["server_epoch"],
             conversation_id=ready["conversation_id"], request_id=sample_id(34), text="다음 도형으로 넘어갑니다."))
         await matching(ws, "request_status", request_id=sample_id(34), state="accepted")
+        assert "검은 격자 위에 청록색 모형이 있다." not in await desktop.run(lambda: owner.worker.message)
+        assert any("검은 격자" in note for note in await desktop.run(lambda: [
+            item.get("visual_summary", "") for item in owner.chat_state.pc_messages.values()]))
         await desktop.run(lambda: owner.worker.reply())
         assert submitted[-1] == ("mobile", None) and len(captures) == 1
         assert not await desktop.run(lambda: bool(owner._ambient_context()))
@@ -195,17 +209,21 @@ def test_paired_phone_and_pc_share_persisted_intervals_without_camera(bridge, qt
         await ws.send_json(dict(**scope, type="observation_intervals_get", query_id=query))
         initial = await matching(ws, "observation_intervals_state", query_id=query)
         assert (initial["sample_seconds"], initial["request_seconds"]) == (30, 300)
+        assert initial["visual_context_turns"] == 5
         query = sample_id(83)
         await ws.send_json(dict(**scope, type="observation_intervals_set", query_id=query,
-                                sample_seconds=8, request_seconds=121))
+                                sample_seconds=8, request_seconds=121, visual_context_turns=0))
         reply = await matching(ws, "observation_intervals_state", query_id=query)
         assert reply["saved"] and (reply["sample_seconds"], reply["request_seconds"]) == (8, 121)
+        assert reply["visual_context_turns"] == 0
         assert await desktop.run(bridge.observation_intervals_state) == (8, 121)
         assert await desktop.run(lambda: bridge.set_observation_intervals(12, 90))
         broadcast = await matching(ws, "observation_intervals_state", sample_seconds=12, request_seconds=90)
         assert broadcast["revision"] > reply["revision"] and "query_id" not in broadcast
+        assert broadcast["visual_context_turns"] == 0
 
     run_paired_exchange(bridge, qt_app, tmp_path, "observation_intervals_v1", exercise)
     saved = Settings(config, secret)
     assert (saved.get("observation_sample_seconds"), saved.get("observation_request_seconds")) == (12, 90)
+    assert saved.get("visual_context_turns") == 0
     assert not getattr(bridge, "_mobile_camera", None) and not getattr(bridge, "_screen_share", None)

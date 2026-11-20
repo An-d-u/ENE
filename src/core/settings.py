@@ -13,7 +13,7 @@ from .response_motion import (
 )
 from .observation_intervals import (
     DEFAULT_REQUEST_SECONDS, DEFAULT_SAMPLE_SECONDS, REQUEST_SECONDS_KEY, SAMPLE_SECONDS_KEY,
-    normalize_observation_intervals, valid_interval_seconds,
+    normalize_observation_intervals, valid_interval_seconds, visual_context_turns,
 )
 
 from .app_paths import (
@@ -271,6 +271,7 @@ class Settings:
         },
         SAMPLE_SECONDS_KEY: DEFAULT_SAMPLE_SECONDS,
         REQUEST_SECONDS_KEY: DEFAULT_REQUEST_SECONDS,
+        "visual_context_turns": 5,
         "enable_away_nudge": True,
         "away_idle_minutes": 60,
         "away_input_grace_minutes": 5,
@@ -368,6 +369,7 @@ class Settings:
             )
             merged["emotion_motion_overrides"] = normalize_emotion_motion_overrides(merged["emotion_motion_overrides"])
             merged[SAMPLE_SECONDS_KEY], merged[REQUEST_SECONDS_KEY] = normalize_observation_intervals(merged)
+            merged["visual_context_turns"] = visual_context_turns(merged)
             if merged.get("structured_response_mode") not in {"auto", "legacy"}:
                 merged["structured_response_mode"] = "auto"
             merged["tts_output_target"] = normalize_output_target(merged.get("tts_output_target"))
@@ -625,11 +627,15 @@ class Settings:
         save_json_data_atomic(self.config_path, candidate)
         self.config = candidate
 
-    def commit_observation_intervals(self, sample_seconds: int, request_seconds: int):
+    def commit_observation_intervals(self, sample_seconds: int, request_seconds: int, *, visual_context_turns=None):
         """두 기기의 관찰 간격은 함께 저장하고 성공한 경우에만 메모리에 반영한다."""
         if not valid_interval_seconds(sample_seconds) or not valid_interval_seconds(request_seconds):
             raise ValueError("invalid_observation_intervals")
         candidate = {**self.config, SAMPLE_SECONDS_KEY: sample_seconds, REQUEST_SECONDS_KEY: request_seconds}
+        if visual_context_turns is not None:
+            if type(visual_context_turns) is not int or not 0 <= visual_context_turns <= 20:
+                raise ValueError("invalid_visual_context_turns")
+            candidate["visual_context_turns"] = visual_context_turns
         save_json_data_atomic(self.config_path, candidate)
         self.config = candidate
 

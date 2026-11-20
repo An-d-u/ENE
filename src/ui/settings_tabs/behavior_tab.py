@@ -835,6 +835,21 @@ def build_behavior_tab(dialog):
     ))
     layout.addWidget(observation_group)
 
+    visual_group = QGroupBox()
+    self._bind_group_title(visual_group, "settings.behavior.observation.context_title", "질문할 때 본 장면")
+    visual_layout = QFormLayout(visual_group)
+    self.visual_context_turns_spin = QSpinBox()
+    self.visual_context_turns_spin.setRange(0, 20)
+    self._bind_suffix(self.visual_context_turns_spin, "settings.behavior.observation.turns", " 턴")
+    self._register_text_binding(self.visual_context_turns_spin.setSpecialValueText,
+                                "settings.behavior.observation.context_off", "다음 대화에 포함 안 함")
+    self._add_form_row(visual_layout, "settings.behavior.observation.context_turns",
+                       "화면 정보 유지 턴 수", self.visual_context_turns_spin)
+    visual_layout.addRow(self._build_hint_label(
+        "기본 5턴. 화면 없이 질문해도 한 턴으로 셉니다. 본 장면 버튼에서는 해당 답변의 요약을 볼 수 있습니다.",
+        key="settings.behavior.observation.context_hint"))
+    layout.addWidget(visual_group)
+
     life_record_group = QGroupBox("생활 기록")
     self._bind_group_title(
         life_record_group,

@@ -390,6 +390,7 @@
   "chat.actions.live2dParameters.title": "Live2D 파라미터",
   "chat.actions.goals": "목표",
   "chat.actions.goals.title": "에네 목표",
+  "chat.visual_summary": "본 장면",
   "chat.thoughts.button": "생각",
   "chat.thoughts.button.title": "에네 생각 보기",
   "chat.thoughts.panel.title": "생각",
@@ -1285,6 +1286,11 @@
         "end_duration": "감정 유지 시간:"
       },
       "observation": {
+        "context_title": "질문할 때 본 장면",
+        "turns": " 턴",
+        "context_off": "다음 대화에 포함 안 함",
+        "context_turns": "화면 정보 유지 턴 수",
+        "context_hint": "기본 5턴. 화면 없이 질문해도 한 턴으로 셉니다. 본 장면 버튼에서는 해당 답변의 요약을 볼 수 있습니다.",
         "title": "화면을 보고 먼저 말 걸기",
         "sample": "화면 변화 확인 간격",
         "request": "모델 호출 최소 간격",

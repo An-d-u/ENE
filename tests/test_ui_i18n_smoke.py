@@ -2267,6 +2267,7 @@ def test_shared_observation_intervals_refresh_an_open_dialog_without_overwriting
 
     class IntervalBridge(QObject):
         observation_intervals_changed = pyqtSignal(int, int)
+        visual_context_changed = pyqtSignal(int)
 
     _get_qapp()
     bridge = IntervalBridge()
@@ -2274,6 +2275,13 @@ def test_shared_observation_intervals_refresh_an_open_dialog_without_overwriting
         from src.ui.settings_dialog import SettingsDialog
 
         dialog = SettingsDialog({"ui_language": "ko"}, bridge=bridge)
+        turns = dialog.visual_context_turns_spin
+        assert (turns.minimum(), turns.maximum(), turns.value()) == (0, 20, 5)
+        bridge.visual_context_changed.emit(7)
+        assert turns.value() == 7
+        turns.setValue(0)
+        bridge.visual_context_changed.emit(9)
+        assert turns.value() == 0
         sample, request = dialog.observation_sample_seconds_spin, dialog.observation_request_seconds_spin
         assert (sample.value(), request.value()) == (30, 300)
         assert (sample.minimum(), sample.maximum(), request.minimum(), request.maximum()) == (1, 86400, 1, 86400)
@@ -2290,6 +2298,7 @@ def test_shared_observation_intervals_refresh_an_open_dialog_without_overwriting
         dialog.set_save_handler(save)
         dialog._save_settings()
         assert saved["observation_sample_seconds"] == 45
+        assert saved["visual_context_turns"] == 0
         assert "observation_request_seconds" not in saved
 
 

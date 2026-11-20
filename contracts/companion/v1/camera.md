@@ -23,6 +23,8 @@ PC 질문에는 선택한 PC 창, 앱 질문에는 그 휴대폰에서 선택한
 
 ## 공유 관찰 간격
 
+화면 질문의 답변에는 해당 장면을 설명하는 짧은 메모를 붙일 수 있다. `observation_intervals_state`와 `observation_intervals_set`은 선택 필드 `visual_context_turns`(0~20, 기본 5)를 지원한다. 저장 요청에서 필드를 생략하면 현재 설정을 유지한다. 0은 이후 질문에서 참고하지 않는다는 뜻이다. 사용자는 메시지에 붙은 메모를 계속 열어 볼 수 있다.
+
 PC와 앱은 `observation_intervals_v1`을 별도로 협상한다. 카메라 권한이나 공유를 켜지 않아도 페어링된 연결에서 이 설정을 조회하고 바꿀 수 있다. PC는 마지막으로 저장한 값을 보관한다.
 
 - `observation_intervals_get`은 앱이 `query_id`로 현재값을 요청한다. `observation_intervals_set`은 같은 요청 식별 방식으로 `sample_seconds`와 `request_seconds`를 함께 제출한다. 각각 1~86,400 사이의 정수다.

@@ -130,6 +130,7 @@ const DEFAULT_UI_STRINGS = {
         no: 'No',
         yes: 'Yes'
     },
+    visualSummary: 'View scene summary',
     thoughts: {
         button: 'Thoughts',
         buttonTitle: 'Show ENE thoughts',

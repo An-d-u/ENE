@@ -266,6 +266,8 @@ def normalize_extension(kind, body):
         if kind != "observation_intervals_get":
             for key in ("sample_seconds", "request_seconds"):
                 result[key] = integer_value(get(key), 1, 86400)
+            if "visual_context_turns" in body:
+                result["visual_context_turns"] = integer_value(get("visual_context_turns"), 0, 20)
         if kind == "observation_intervals_state":
             result["revision"] = integer_value(get("revision"), 1)
             result["saved"] = _bool(get("saved"))
@@ -294,6 +296,10 @@ def normalize_extension(kind, body):
             value = result["text"] = text_value(get("text"), max_bytes=MAX_THOUGHT_BYTES)
             if (status == "available" and not value.strip()) or (status != "available" and value != ""):
                 raise ProtocolError()
+            if "visual_summary" in body:
+                result["visual_summary"] = text_value(get("visual_summary"), max_bytes=2048)
+                if status == "stale" and result["visual_summary"]:
+                    raise ProtocolError()
     elif kind in CHAT_TYPES:
         result["conversation_id"] = uuid_value(get("conversation_id"))
         if kind == "chat_actions_request":

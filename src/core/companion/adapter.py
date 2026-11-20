@@ -387,12 +387,15 @@ class QtGatewayAdapter(QObject):
                 fields = command.message.fields
                 saved = True
                 if command.message.type == "observation_intervals_set":
-                    saved = self._owner.set_observation_intervals(fields["sample_seconds"], fields["request_seconds"])
+                    extra = {"visual_context_turns": fields["visual_context_turns"]} if "visual_context_turns" in fields else {}
+                    saved = self._owner.set_observation_intervals(fields["sample_seconds"], fields["request_seconds"], **extra)
                 sample, request = self._owner.observation_intervals_state()
+                read_turns = getattr(self._owner, "visual_context_state", None)
+                turns = {"visual_context_turns": read_turns()} if callable(read_turns) else {}
                 return WireMessage("observation_intervals_state", {
                     **vars(current), "query_id": fields["query_id"], "saved": saved,
                     "sample_seconds": sample, "request_seconds": request,
-                    "revision": self._observation_revision(sample, request),
+                    **turns, "revision": self._observation_revision(sample, request, turns.get("visual_context_turns")),
                 })
             if command.message.type == "camera_share":
                 return self._owner.mobile_camera_share(context, command.message)
@@ -426,10 +429,10 @@ class QtGatewayAdapter(QObject):
                 # PC 재생 복구가 실패해도 연결 차단과 대기 호출 회수는 계속한다.
                 print("[Companion] audio_disconnect_cleanup_failed")
 
-    def _observation_revision(self, sample, request):
+    def _observation_revision(self, sample, request, turns=None):
         """조회 응답과 PC에서 발생한 변경 알림의 순서가 바뀌어도 최신값을 구별한다."""
-        if self._interval_values != (sample, request):
-            self._interval_values = (sample, request)
+        if self._interval_values != (sample, request, turns):
+            self._interval_values = (sample, request, turns)
             self._interval_revision += 1
         return self._interval_revision
 
@@ -439,7 +442,7 @@ class QtGatewayAdapter(QObject):
         if not self._enabled or self._blocked or self._connection is None:
             return
         if kind == "observation_intervals_state":
-            fields = {**fields, "revision": self._observation_revision(fields["sample_seconds"], fields["request_seconds"])}
+            fields = {**fields, "revision": self._observation_revision(fields["sample_seconds"], fields["request_seconds"], fields.get("visual_context_turns"))}
         self.publish({
             **fields, "type": kind, "protocol_version": 1,
             "registration_generation": self._registration,

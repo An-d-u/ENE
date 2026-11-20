@@ -565,6 +565,7 @@ class OverlayWindow(QWidget):
                 "no": i18n.t("chat.summary.confirm.no"),
                 "yes": i18n.t("chat.summary.confirm.yes"),
             },
+            "visualSummary": i18n.t("chat.visual_summary"),
             "thoughts": {
                 "button": i18n.t("chat.thoughts.button"),
                 "buttonTitle": i18n.t("chat.thoughts.button.title"),

@@ -7,6 +7,7 @@ from PyQt6.QtCore import pyqtSlot
 
 from ...ai.prompt_language import resolve_tts_language
 from ..screen_observation import ObservationSchedule, observation_prompt, parse_observation
+from ..observation_intervals import visual_context_turns
 
 
 class ObservationBridgeMixin:
@@ -18,20 +19,28 @@ class ObservationBridgeMixin:
         schedule = self._observation_schedule
         return schedule.sample_seconds, schedule.request_seconds
 
-    def set_observation_intervals(self, sample_seconds, request_seconds):
+    def visual_context_state(self):
+        return visual_context_turns(getattr(self.settings, "config", {}))
+
+    def set_observation_intervals(self, sample_seconds, request_seconds, *, visual_context_turns=None):
         """PC와 앱의 변경을 같은 저장 경로로 받아 현재 관찰에도 반영한다."""
+        previous_turns = self.visual_context_state()
         try:
-            self.settings.commit_observation_intervals(sample_seconds, request_seconds)
+            extra = {} if visual_context_turns is None else {"visual_context_turns": visual_context_turns}
+            self.settings.commit_observation_intervals(sample_seconds, request_seconds, **extra)
         except Exception:
             return False
-        if (sample_seconds, request_seconds) != self.observation_intervals_state():
+        current_turns = self.visual_context_state()
+        if (sample_seconds, request_seconds) != self.observation_intervals_state() or current_turns != previous_turns:
             self._observation_schedule.configure(sample_seconds, request_seconds)
             self._sync_observation_timer()
             self.observation_intervals_changed.emit(sample_seconds, request_seconds)
+            self.visual_context_changed.emit(current_turns)
             adapter = getattr(self, "_companion_adapter", None)
             if adapter is not None:
                 adapter.publish_extension("observation_intervals_state", dict(conversation_id=self.head().conversation_id,
-                    sample_seconds=sample_seconds, request_seconds=request_seconds, saved=True))
+                    sample_seconds=sample_seconds, request_seconds=request_seconds,
+                    visual_context_turns=current_turns, saved=True))
         return True
 
     def _sync_pc_observation_capture(self):

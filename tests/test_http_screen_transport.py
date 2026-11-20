@@ -81,7 +81,8 @@ def test_screen_question_only_attaches_at_current_transmission(monkeypatch, cls)
 
     def post(url, **kwargs):
         wire.append(copy.deepcopy(kwargs))
-        return response(client.wire_format, legacy_final_reply(ANSWER))
+        summary = "[visual_summary]합성 도형은 원형이다.[/visual_summary]" if len(wire) == 1 else ""
+        return response(client.wire_format, legacy_final_reply(ANSWER) + summary)
 
     monkeypatch.setattr(requests, "post", post)
     result = asyncio.run(client.send_screen_question(
@@ -89,6 +90,7 @@ def test_screen_question_only_attaches_at_current_transmission(monkeypatch, cls)
         include_life_record_context=True, request_device="pc",
     ))
     assert result[0] == ANSWER
+    assert client.get_last_response_delivery_metadata().visual_summary.endswith("합성 도형은 원형이다.")
     assert context.await_args.kwargs["latest_user_message"] == "합성 최근 질문"
     assert context.await_args.kwargs["include_life_record_context"] is True
     assert wire[0]["allow_redirects"] is False

@@ -584,7 +584,8 @@ class CompanionBridgeMixin:
             if event is None:
                 return False
             self.chat_state.public_assistant_ids[request_ref.key] = event.message.id
-            self._emit_pc_message(event, text=text, emotion=emotion, thought=thought, local_only=file_result)
+            self._emit_pc_message(event, text=text, emotion=emotion, thought=thought, local_only=file_result,
+                                  visual_summary=self._visual_summary_for_request(request_ref))
             self.companion_event.emit(event)
         else:
             self.message_received.emit(text, emotion, thought)

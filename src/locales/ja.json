@@ -388,6 +388,7 @@
   "chat.actions.live2dParameters.title": "Live2Dパラメータ",
   "chat.actions.goals": "目標",
   "chat.actions.goals.title": "エネの目標",
+  "chat.visual_summary": "見た場面",
   "chat.thoughts.button": "思考",
   "chat.thoughts.button.title": "エネの思考を見る",
   "chat.thoughts.panel.title": "思考",
@@ -1231,6 +1232,11 @@
         "end_duration": "Emotion hold time:"
       },
       "observation": {
+        "context_title": "質問時に見た場面",
+        "turns": " ターン",
+        "context_off": "次の会話には含めない",
+        "context_turns": "画面情報を含めるターン数",
+        "context_hint": "初期値は5ターンです。画像のない質問も1ターンとして数えます。要約は各返答の「見た場面」から確認できます。",
         "title": "画面を見て話しかける",
         "sample": "画面の変化を確認する間隔",
         "request": "モデル呼び出しの最短間隔",

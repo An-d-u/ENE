@@ -34,6 +34,7 @@ from .bridge_mixins.obsidian import ObsidianBridgeMixin
 from .bridge_mixins.proactive import ProactiveBridgeMixin
 from .bridge_mixins.promise import PromiseBridgeMixin
 from .bridge_mixins.thoughts import ThoughtBridgeMixin
+from .bridge_mixins.visual_context import VisualContextBridgeMixin
 from .bridge_mixins.tts import TTSBridgeMixin
 from .obs_settings import ObsSettings
 
@@ -65,6 +66,7 @@ class WebBridge(
     PromiseBridgeMixin,
     ProactiveBridgeMixin,
     ThoughtBridgeMixin,
+    VisualContextBridgeMixin,
     TTSBridgeMixin,
     BridgeStateAliasMixin,
     QObject,
@@ -104,6 +106,7 @@ class WebBridge(
     goal_items_updated = pyqtSignal(str)  # 목표 목록 JSON
     screen_observation_finished = pyqtSignal(object, str)
     observation_intervals_changed = pyqtSignal(int, int)
+    visual_context_changed = pyqtSignal(int)
     screen_share_state_changed = pyqtSignal(str)
     goal_notice = pyqtSignal(str, str)  # (메시지, 레벨)
     
