@@ -532,27 +532,27 @@
       },
       "theme": {
         "title": "Theme Settings",
-        "description": "Light, dark, and palette."
+        "description": "Appearance and color palettes"
       },
       "model": {
         "title": "Model Settings",
-        "description": "Placement and Live2D path."
+        "description": "Avatar placement, expressions, gestures, and touch"
       },
       "llm": {
         "title": "LLM Settings",
-        "description": "Provider and response style."
+        "description": "Providers, credentials, models, web search, and embeddings"
       },
       "tts": {
-        "title": "TTS Settings",
-        "description": "Provider and speech synthesis."
+        "title": "Voice settings",
+        "description": "Speech synthesis, playback devices, and microphone shortcuts"
       },
       "behavior": {
         "title": "Behavior Settings",
-        "description": "Buttons, PTT, and motion."
+        "description": "Chat display, ENE’s responses, detection, and logs"
       },
       "memory": {
         "title": "Memory",
-        "description": "Long-term, topic, user, and ENE memories."
+        "description": "Conversation statistics, long-term memory, topics, and profiles"
       },
       "topic_memory": {
         "title": "Topic Memory",
@@ -568,7 +568,7 @@
       },
       "prompt": {
         "title": "Prompt",
-        "description": "Prompts and emotion rules."
+        "description": "Base instructions, living environment, and emotion rules"
       }
     },
     "window": {
@@ -704,6 +704,21 @@
         "dark": {
           "short": "Dark"
         }
+      },
+      "studio": {
+        "mode": "Appearance",
+        "system": "System",
+        "palettes": "Color palettes",
+        "edit": "Adjust colors",
+        "custom": "Custom",
+        "sample_in": "Which color did you choose?",
+        "sample_out": "I like this one.",
+        "light_classic": "Sky · Blue",
+        "light_sand": "Cream · Sand",
+        "light_mint": "Mint · Sage",
+        "dark_midnight": "Navy · Blue",
+        "dark_graphite": "Silver · Charcoal",
+        "dark_forest": "Green · Teal"
       }
     },
     "model": {
@@ -1341,7 +1356,40 @@
         "topic": "Topic Memory",
         "user_profile": "User Memory",
         "ene_profile": "ENE Memory",
-        "profile_memory": "User/ENE Memory"
+        "profile_memory": "User/ENE Memory",
+        "together": "Time together"
+      },
+      "journal": {
+        "as_of": "As of {date}",
+        "source": "Includes saved and current conversations with a timestamped question and reply.",
+        "first": "First conversation",
+        "since": "Day {count}",
+        "exchanges": "Conversation turns",
+        "turns": "{count} turns",
+        "turns_hint": "One question and reply make a turn",
+        "writing": "Characters written",
+        "characters": "{count} chars",
+        "characters_hint": "Questions and replies combined",
+        "days": "Days together",
+        "active_days": "{count} active days in {year}",
+        "calendar": "Daily activity in {year}, January to December. Each column runs from Monday to Sunday.",
+        "date_picker": "Select a date",
+        "less": "Less",
+        "more": "More",
+        "future": "Upcoming",
+        "before": "Before first conversation",
+        "busiest": "{turns} · Busiest day",
+        "hours": "When we talk",
+        "hourly": "Turns by hour",
+        "peak": "The busiest hour was {hour}–{end}, with {turns}.",
+        "empty": "No conversation activity to show yet.",
+        "records": "Records",
+        "longest": "Longest conversation",
+        "minutes": "{count} min",
+        "short_session": "Under 1 min",
+        "started": "Started {date} at {time} · {turns}",
+        "streak": "Longest streak",
+        "day_count": "{count} days"
       }
     },
     "prompt": {
@@ -1566,6 +1614,39 @@
         "title": "ENE Memory Manager",
         "body": "The ENE profile is not initialized yet, so the editor panel cannot be opened."
       }
+    },
+    "navigation": {
+      "title": "Preferences",
+      "menu": "Settings menu",
+      "close": "Close",
+      "display": "Display",
+      "conversation": "Conversation",
+      "memory": "Memory & instructions",
+      "preview": "Changes are previewed until you save."
+    },
+    "sections": {
+      "jump": "Jump to group",
+      "choose_group": "Select a group",
+      "chat_screen": "Chat display",
+      "chat_response": "Chat responses",
+      "goals_notes": "Goals & notes",
+      "detection_records": "Detection & logs",
+      "messages": "Message display",
+      "buttons": "Chat buttons",
+      "reactions": "Conversation starters and analysis",
+      "thoughts": "Thoughts and mood",
+      "model_placement": "Model & placement",
+      "idle_motion": "Idle motion",
+      "touch_gaze": "Touch & gaze",
+      "expression": "Expressions and emotion motion",
+      "gestures": "Response gestures",
+      "idle": "Idle animation",
+      "idle_gestures": "Idle gestures",
+      "expressive": "Expressive motion",
+      "tracking": "Mouse tracking",
+      "head_pat": "Head pat",
+      "output": "Voice output (TTS)",
+      "input": "Voice input (PTT)"
     }
   },
   "settings.topic_memory.empty.title": "Topic Memory",

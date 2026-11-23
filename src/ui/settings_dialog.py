@@ -122,16 +122,10 @@ class SettingsDialog(
             "chat_user_bubble_color": "#0071E3",
         }
         self._theme_color_edits: dict[str, QLineEdit] = {}
-        self._theme_preset_frames: dict[str, ClickableFrame] = {}
-        self._theme_preset_titles: dict[str, QLabel] = {}
-        self._theme_preset_meta: dict[str, QLabel] = {}
-        self._theme_preset_input: dict[str, QLabel] = {}
-        self._theme_preset_assistant: dict[str, QLabel] = {}
-        self._theme_preset_user: dict[str, QLabel] = {}
-        self._theme_variant_frames: dict[str, ClickableFrame] = {}
+        self._theme_preset_frames: dict[str, QPushButton] = {}
+        self._theme_variant_frames: dict[str, QPushButton] = {}
         self._theme_variant_titles: dict[str, QLabel] = {}
-        self._theme_variant_meta: dict[str, QLabel] = {}
-        self._theme_color_swatches: dict[str, ClickableFrame] = {}
+        self._theme_color_swatches: dict[str, QPushButton] = {}
         self._theme_color_reset_buttons: dict[str, QPushButton] = {}
         self._theme_color_titles: dict[str, str] = {}
         self._theme_picker_panels: dict[str, QFrame] = {}
@@ -190,17 +184,14 @@ class SettingsDialog(
         self._lazy_tab_index_to_id: dict[int, str] = {}
         self._section_header_map: dict[int, tuple[str, str]] = {}
         self._section_text_meta: dict[int, tuple[str, str, str, str]] = {}
-        self._section_nav_cards: dict[int, ClickableFrame] = {}
-        self._section_nav_titles: dict[int, QLabel] = {}
-        self._section_nav_meta: dict[int, QLabel] = {}
-        self._lazy_tab_header_labels: dict[str, tuple[QLabel, QLabel]] = {}
+        self._section_nav_cards: dict[int, QPushButton] = {}
+        self._together_panel = None
         self._ui_text_bindings: list[tuple[object, str, str]] = []
         self._combo_item_bindings: dict[QComboBox, list[tuple[int, str, str]]] = {}
         self._secret_toggle_pairs: list[tuple[QLineEdit, QPushButton]] = []
         self._theme_color_title_labels: dict[str, QLabel] = {}
-        self._theme_color_desc_labels: dict[str, QLabel] = {}
         self._theme_color_text_meta: dict[str, tuple[str, str, str, str]] = {}
-        self._prompt_tokenizer = tiktoken.get_encoding("cl100k_base") if tiktoken is not None else None
+        self._prompt_tokenizer = None
         self._theme_values = {
             key: self._normalize_theme_color(
                 str(self._original_settings.get(key, default_value)),
@@ -386,9 +377,9 @@ class SettingsDialog(
 
     def _apply_initial_screen_geometry(self) -> None:
         available = self._available_screen_geometry()
-        minimum_width = min(900, available.width())
+        minimum_width = min(680, available.width())
         minimum_height = min(640, available.height())
-        width = min(1460, available.width())
+        width = min(1160, available.width())
         height = min(860, available.height())
         self.setMinimumSize(minimum_width, minimum_height)
         self.setMaximumSize(available.size())
@@ -418,10 +409,10 @@ class SettingsDialog(
             title = self._translated_text(title_key, title_fallback)
             description = self._translated_text(description_key, description_fallback)
             self._section_header_map[index] = (title, description)
-            if index in self._section_nav_titles:
-                self._section_nav_titles[index].setText(title)
-            if index in self._section_nav_meta:
-                self._section_nav_meta[index].setText(description)
+            button = self._section_nav_cards[index]
+            button.setText(title)
+            button.setToolTip(description)
+            self.section_picker.setItemText(index, title)
         if hasattr(self, "content_stack"):
             self._update_section_nav_selection(self.content_stack.currentIndex())
 
@@ -433,25 +424,7 @@ class SettingsDialog(
             self._theme_color_titles[key] = title
             if key in self._theme_color_title_labels:
                 self._theme_color_title_labels[key].setText(title)
-            if key in self._theme_color_desc_labels:
-                self._theme_color_desc_labels[key].setText(description)
-
-    def _refresh_lazy_tab_headers(self) -> None:
-        stale_tab_ids = []
-        for tab_id, labels in self._lazy_tab_header_labels.items():
-            title_label, body_label = labels
-            index = next((idx for idx, current_tab_id in self._lazy_tab_index_to_id.items() if current_tab_id == tab_id), -1)
-            if index < 0:
-                stale_tab_ids.append(tab_id)
-                continue
-            title, description = self._section_header_map.get(index, ("", ""))
-            try:
-                title_label.setText(title)
-                body_label.setText(description)
-            except RuntimeError:
-                stale_tab_ids.append(tab_id)
-        for tab_id in stale_tab_ids:
-            self._lazy_tab_header_labels.pop(tab_id, None)
+                self._theme_color_title_labels[key].setToolTip(description)
 
     def _refresh_ui_language_combo_labels(self) -> None:
         if not hasattr(self, "ui_language_combo"):
@@ -543,7 +516,8 @@ class SettingsDialog(
         self._refresh_provider_combo_labels()
         self._refresh_fact_category_combo_labels()
         self._refresh_section_labels()
-        self._refresh_lazy_tab_headers()
+        if self._together_panel is not None:
+            self._together_panel.retranslate_ui()
         self._refresh_theme_color_texts()
         self._refresh_secret_toggle_buttons()
         self._refresh_theme_editor_state()
@@ -642,6 +616,14 @@ class SettingsDialog(
 
         return prompt_tab.build_prompt_tab(self)
 
+    def _load_prompt_tokenizer(self):
+        if tiktoken is not None:
+            try:
+                self._prompt_tokenizer = tiktoken.get_encoding("cl100k_base")
+            except (OSError, ValueError):
+                # 오프라인에서 어휘 파일을 가져올 수 없으면 기존 문자 수 기반 추정치를 사용한다.
+                self._prompt_tokenizer = None
+
     def _read_text_file(self, path: Path) -> str:
         return read_text_data(path, encoding="utf-8-sig")
 
@@ -731,6 +713,11 @@ class SettingsDialog(
 
         self.setGeometry(x, y, width, height)
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "sidebar"):
+            self._update_navigation_width()
+
     def mousePressEvent(self, event):
         if self._capturing_ptt_hotkey:
             event.accept()
@@ -777,6 +764,10 @@ class SettingsDialog(
                 self._ptt_hotkey_value = normalize_hotkey_text(hotkey_text, default="alt")
                 self._stop_ptt_hotkey_capture()
                 self._on_setting_changed()
+            event.accept()
+            return
+        if event.key() == Qt.Key.Key_Escape:
+            self._cancel_settings()
             event.accept()
             return
         super().keyPressEvent(event)

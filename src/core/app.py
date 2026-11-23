@@ -993,6 +993,8 @@ class ENEApplication(QObject):
         if old_tts_config != new_tts_config:
             self._refresh_tts_runtime_bindings()
         if bridge is not None:
+            if "summarize_threshold" in new_settings and new_settings["summarize_threshold"] != getattr(bridge, "summarize_threshold", None):
+                bridge.set_summarize_threshold(new_settings["summarize_threshold"])
             from .companion.audio_route import normalize_output_target
             bridge.tts_output_target = normalize_output_target(new_settings.get(
                 "tts_output_target", self.settings.get("tts_output_target", "auto")

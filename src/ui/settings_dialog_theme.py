@@ -6,11 +6,12 @@ from __future__ import annotations
 
 import re
 
-from PyQt6.QtCore import QPoint, Qt
+from PyQt6.QtCore import QPoint, QSignalBlocker, QSize, Qt
 from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import QApplication, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSlider, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QApplication, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSizePolicy, QSlider, QVBoxLayout, QWidget
 
 from ..core.system_theme import THEME_PRESETS, THEME_VARIANT_PRESETS, get_theme_preset, get_windows_theme_mode
+from .settings_theme_art import PALETTE_ART, PaletteArtwork, theme_icon
 from .settings_dialog_widgets import ClickableFrame, ThemeColorPickerPopup
 
 
@@ -73,54 +74,60 @@ class SettingsDialogThemeMixin:
             button.setEnabled(enabled)
         if not enabled:
             self._close_all_theme_pickers()
-        for frame in self._theme_preset_frames.values():
-            frame.setEnabled(True)
-            frame.setCursor(Qt.CursorShape.PointingHandCursor if enabled else Qt.CursorShape.ArrowCursor)
+            if self._theme_editor_active:
+                self.theme_color_dialog.reject()
+        self.theme_edit_button.setEnabled(enabled)
 
-    def _apply_theme_mode(self, mode: str, *, emit_preview: bool = True) -> None:
-        normalized_mode = str(mode or "").strip().lower()
-        if normalized_mode not in THEME_PRESETS:
-            normalized_mode = "light"
+    def _set_palette_values(self, values, *, emit_preview=True):
         self._close_all_theme_pickers()
-        self._theme_mode = normalized_mode
-        preset = get_theme_preset(normalized_mode)
-        self._theme_values.update(preset)
-
-        for key, value in preset.items():
-            if key not in self._theme_color_edits:
-                continue
-            line_edit = self._theme_color_edits[key]
-            was_blocked = line_edit.blockSignals(True)
-            line_edit.setText(value)
-            line_edit.blockSignals(was_blocked)
-
+        self._theme_live_update_timer.stop()
+        self._theme_values.update(values)
+        for key, edit in self._theme_color_edits.items():
+            with QSignalBlocker(edit):
+                edit.setText(self._theme_values[key])
         self._apply_stylesheet()
         self._refresh_theme_editor_state()
         if emit_preview and not self._loading:
             self._preview_settings()
 
-    def _on_theme_mode_selected(self, mode: str) -> None:
+    def _apply_theme_mode(self, mode: str, *, emit_preview: bool = True) -> None:
+        self._theme_mode = mode if mode in THEME_PRESETS else "light"
+        self._theme_base_variant = None
+        self._set_palette_values(get_theme_preset(self._theme_mode), emit_preview=emit_preview)
+
+    def _remember_manual_palette(self):
+        if not self._follow_system_theme:
+            mode = self._theme_mode
+            variant = self._theme_base_variant or self._current_theme_variant_id(mode)
+            self._theme_mode_choices[mode] = variant
+            self._theme_palette_drafts[(mode, variant)] = dict(self._theme_values)
+
+    def _select_manual_palette(self, mode, variant):
+        self._remember_manual_palette()
         self._follow_system_theme = False
-        if hasattr(self, "follow_system_theme_check"):
-            self.follow_system_theme_check.blockSignals(True)
-            self.follow_system_theme_check.setChecked(False)
-            self.follow_system_theme_check.blockSignals(False)
+        self._theme_mode = mode
+        self._theme_base_variant = variant
         self._set_theme_editors_enabled(True)
-        self._apply_theme_mode(mode)
+        bundle = THEME_VARIANT_PRESETS[mode].get(variant, THEME_PRESETS[mode])
+        self._set_palette_values(self._theme_palette_drafts.get((mode, variant), bundle["colors"]))
+
+    def _on_theme_mode_selected(self, mode: str) -> None:
+        if mode == "system":
+            self._on_follow_system_theme_toggled(True)
+        elif not self._follow_system_theme and self._theme_mode == mode:
+            self._refresh_theme_editor_state()
+        else:
+            default_variant = next(iter(THEME_VARIANT_PRESETS[mode]))
+            self._select_manual_palette(mode, self._theme_mode_choices.get(mode, default_variant))
 
     def _on_follow_system_theme_toggled(self, checked: bool) -> None:
-        self._follow_system_theme = bool(checked)
-        self._set_theme_editors_enabled(not self._follow_system_theme)
-        if self._follow_system_theme:
-            self._apply_theme_mode(get_windows_theme_mode(), emit_preview=False)
-            self._refresh_theme_editor_state()
-            if not self._loading:
-                self._preview_settings()
+        if not checked:
+            self._on_theme_mode_selected(self._theme_mode)
             return
-
-        self._refresh_theme_editor_state()
-        if not self._loading:
-            self._preview_settings()
+        self._remember_manual_palette()
+        self._follow_system_theme = True
+        self._set_theme_editors_enabled(False)
+        self._apply_theme_mode(get_windows_theme_mode())
 
     def _pick_theme_color(self, key: str) -> None:
         if self._follow_system_theme:
@@ -152,7 +159,7 @@ class SettingsDialogThemeMixin:
             self._theme_border_color(self._theme_values["settings_card_bg_color"], 0.10),
         )
         popup.set_recommended_colors(self._recommended_theme_swatches(key), self._theme_border_color)
-        popup.set_color(self._theme_values.get(key, self._theme_defaults[key]), emit_signal=False)
+        popup.set_color(self._normalize_theme_color(self._theme_color_edits[key].text(), self._theme_values[key]), emit_signal=False)
         popup.adjustSize()
 
         anchor = swatch.mapToGlobal(QPoint(swatch.width() + 10, 0))
@@ -180,7 +187,7 @@ class SettingsDialogThemeMixin:
     def _ensure_theme_picker_popup(self) -> ThemeColorPickerPopup:
         if self._theme_picker_popup is None:
             self._theme_picker_popup = ThemeColorPickerPopup(
-                self,
+                self.theme_color_dialog,
                 fallback_title=self._translated_text("settings.theme.picker.popup.title", "색상 선택"),
             )
             self._theme_picker_popup.colorChanged.connect(self._on_theme_popup_color_changed)
@@ -327,33 +334,8 @@ class SettingsDialogThemeMixin:
         return panel
 
     def _apply_theme_variant(self, mode: str, variant_id: str) -> None:
-        variant_bundle = THEME_VARIANT_PRESETS.get(mode, {}).get(variant_id)
-        if not variant_bundle:
-            return
-
-        self._follow_system_theme = False
-        if hasattr(self, "follow_system_theme_check"):
-            self.follow_system_theme_check.blockSignals(True)
-            self.follow_system_theme_check.setChecked(False)
-            self.follow_system_theme_check.blockSignals(False)
-        self._set_theme_editors_enabled(True)
-
-        self._close_all_theme_pickers()
-        self._theme_mode = mode
-        palette = variant_bundle["colors"]
-        self._theme_values.update(palette)
-        for key, value in palette.items():
-            if key not in self._theme_color_edits:
-                continue
-            line_edit = self._theme_color_edits[key]
-            was_blocked = line_edit.blockSignals(True)
-            line_edit.setText(value)
-            line_edit.blockSignals(was_blocked)
-
-        self._apply_stylesheet()
-        self._refresh_theme_editor_state()
-        if not self._loading:
-            self._preview_settings()
+        if variant_id in THEME_VARIANT_PRESETS.get(mode, {}):
+            self._select_manual_palette(mode, variant_id)
 
     def _current_theme_variant_id(self, mode: str) -> str | None:
         for variant_id, bundle in THEME_VARIANT_PRESETS.get(mode, {}).items():
@@ -367,307 +349,248 @@ class SettingsDialogThemeMixin:
 
     def _build_theme_color_editor(self, key: str, title: str, description: str) -> QWidget:
         container = QWidget()
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
+        row = QHBoxLayout(container)
+        row.setContentsMargins(0, 3, 0, 3)
+        row.setSpacing(8)
         self._theme_color_titles[key] = title
         self._theme_color_text_meta[key] = (
-            f"settings.theme.color.{key}.title",
-            title,
-            f"settings.theme.color.{key}.description",
-            description,
+            f"settings.theme.color.{key}.title", title,
+            f"settings.theme.color.{key}.description", description,
         )
-
         title_label = QLabel(title)
+        title_label.setWordWrap(True)
         self._theme_color_title_labels[key] = title_label
-        title_label.setStyleSheet("font-size: 13px; font-weight: 700; color: #111827;")
-        layout.addWidget(title_label)
-
-        desc_label = QLabel(description)
-        self._theme_color_desc_labels[key] = desc_label
-        desc_label.setWordWrap(True)
-        desc_label.setStyleSheet("font-size: 12px; font-weight: 600; color: #6B7280;")
-        layout.addWidget(desc_label)
-
-        row = QHBoxLayout()
-        row.setSpacing(8)
+        title_label.setToolTip(description)
+        row.addWidget(title_label, 1)
 
         line_edit = QLineEdit()
+        line_edit.setFixedWidth(90)
         line_edit.setPlaceholderText(self._theme_defaults[key])
         line_edit.setMaxLength(7)
-        line_edit.textChanged.connect(lambda text, field_key=key: self._on_theme_color_field_changed(field_key, text))
+        line_edit.textChanged.connect(lambda text: self._on_theme_color_field_changed(key, text))
+        title_label.setBuddy(line_edit)
         self._theme_color_edits[key] = line_edit
-        row.addWidget(line_edit, 1)
+        row.addWidget(line_edit)
 
-        swatch = ClickableFrame()
-        swatch.setFixedSize(38, 38)
+        swatch = QPushButton()
+        swatch.setFixedSize(30, 30)
         swatch.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._register_text_binding(swatch.setAccessibleName, f"settings.theme.color.{key}.title", title)
         self._bind_tooltip(swatch, "settings.theme.color.swatch.tooltip", "클릭해서 색상 선택")
-        swatch.clicked.connect(lambda field_key=key: self._pick_theme_color(field_key))
+        swatch.clicked.connect(lambda: self._pick_theme_color(key))
         self._theme_color_swatches[key] = swatch
-        setattr(self, f"{key}_swatch", swatch)
         row.addWidget(swatch)
 
-        reset_button = QPushButton("기본값")
-        self._bind_widget_text(reset_button, "settings.theme.color.reset", "기본값")
-        reset_button.setMinimumWidth(84)
-        reset_button.clicked.connect(
-            lambda _checked=False, field_key=key: self._theme_color_edits[field_key].setText(self._theme_defaults[field_key])
-        )
-        self._theme_color_reset_buttons[key] = reset_button
-        row.addWidget(reset_button)
-        layout.addLayout(row)
+        reset = self._bind_widget_text(QPushButton(), "settings.theme.color.reset", "기본값")
+        reset.clicked.connect(lambda: line_edit.setText(self._theme_editor_defaults()[key]))
+        self._theme_color_reset_buttons[key] = reset
+        row.addWidget(reset)
         return container
 
-    def _build_theme_mode_preview(self, mode: str, title: str, description: str) -> QFrame:
-        frame = ClickableFrame()
-        frame.clicked.connect(lambda selected_mode=mode: self._on_theme_mode_selected(selected_mode))
-        frame.setCursor(Qt.CursorShape.PointingHandCursor)
-        layout = QVBoxLayout(frame)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(10)
+    def _theme_editor_defaults(self):
+        variant_id = self._theme_base_variant or self._current_theme_variant_id(self._theme_mode)
+        bundle = THEME_VARIANT_PRESETS[self._theme_mode].get(variant_id, THEME_PRESETS[self._theme_mode])
+        return bundle["colors"]
 
-        title_label = QLabel(title)
-        title_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        layout.addWidget(title_label)
-        self._theme_preset_titles[mode] = title_label
+    def _open_theme_color_editor(self):
+        if self._follow_system_theme:
+            return
+        self._theme_base_variant = self._theme_base_variant or self._current_theme_variant_id(self._theme_mode)
+        self._theme_editor_active = True
+        self._refresh_theme_editor_state()
+        self.theme_color_dialog.open()
 
-        meta_label = QLabel(description)
-        meta_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        meta_label.setWordWrap(True)
-        layout.addWidget(meta_label)
-        self._theme_preset_meta[mode] = meta_label
+    def _finish_theme_color_editor(self, result):
+        self._close_all_theme_pickers()
+        self._theme_editor_active = False
+        if result == QDialog.DialogCode.Accepted:
+            values = {key: self._normalize_theme_color(edit.text(), self._theme_values[key])
+                      for key, edit in self._theme_color_edits.items()}
+            self._set_palette_values(values)
+        else:
+            for key, edit in self._theme_color_edits.items():
+                with QSignalBlocker(edit):
+                    edit.setText(self._theme_values[key])
+            self._refresh_theme_editor_state()
 
-        sample_row = QHBoxLayout()
-        sample_row.setSpacing(10)
-        assistant = QLabel("응답")
-        self._bind_widget_text(assistant, "settings.theme.preview.assistant", "응답")
-        assistant.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        assistant.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        sample_row.addWidget(assistant, 1)
-        user = QLabel("사용자")
-        self._bind_widget_text(user, "settings.theme.preview.user", "사용자")
-        user.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        user.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        sample_row.addWidget(user, 1)
-        layout.addLayout(sample_row)
-        self._theme_preset_assistant[mode] = assistant
-        self._theme_preset_user[mode] = user
+    def _build_theme_mode_preview(self, mode: str) -> QPushButton:
+        button = QPushButton()
+        button.setCheckable(True)
+        button.setAutoDefault(False)
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        if mode == "system":
+            self._bind_widget_text(button, "settings.theme.studio.system", "시스템")
+        else:
+            self._bind_widget_text(button, f"settings.theme.mode.{mode}.short", "라이트" if mode == "light" else "다크")
+        button.clicked.connect(lambda: self._on_theme_mode_selected(mode))
+        self._theme_preset_frames[mode] = button
+        return button
 
-        input_preview = QLabel("입력 필드 예시")
-        self._bind_widget_text(input_preview, "settings.theme.preview.input", "입력 필드 예시")
-        input_preview.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        layout.addWidget(input_preview)
-        self._theme_preset_input[mode] = input_preview
+    def _build_theme_variant_preview(self, mode: str, variant_id: str, title: str) -> QPushButton:
+        button = QPushButton(self.theme_palette_grid)
+        button.setObjectName("ThemePaletteCard")
+        button.setCheckable(True)
+        button.setAutoDefault(False)
+        button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.clicked.connect(lambda: self._apply_theme_variant(mode, variant_id))
+        row = QHBoxLayout(button)
+        row.setContentsMargins(12, 9, 12, 9)
+        row.setSpacing(10)
+        first, second, subtitle = PALETTE_ART[variant_id]
+        art = PaletteArtwork(compact=True)
+        art.set_colors(first, second, THEME_VARIANT_PRESETS[mode][variant_id]["colors"]["theme_accent_color"])
+        row.addWidget(art)
+        copy = QVBoxLayout()
+        copy.setSpacing(1)
+        heading = QLabel(title)
+        self._theme_variant_titles[variant_id] = heading
+        heading.setStyleSheet("font-size: 13px; font-weight: 750;")
+        copy.addWidget(heading)
+        sub = self._create_form_label(f"settings.theme.studio.{variant_id}", subtitle)
+        sub.setObjectName("ThemeCardSubtitle")
+        copy.addWidget(sub)
+        row.addLayout(copy, 1)
+        tick = QLabel()
+        tick.setObjectName("ThemeCardCheck")
+        tick.setFixedSize(17, 17)
+        tick.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        row.addWidget(tick)
+        for child in (art, heading, sub, tick):
+            child.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._theme_variant_frames[variant_id] = button
+        return button
 
-        self._theme_preset_frames[mode] = frame
-        return frame
+    def _refresh_theme_color_controls(self):
+        invalid = False
+        for key, edit in self._theme_color_edits.items():
+            raw = edit.text().strip()
+            color = self._normalize_theme_color(raw, self._theme_values[key])
+            self._theme_color_swatches[key].setStyleSheet(
+                f"background: {color}; border: 1px solid {self._theme_border_color(color, 0.25)}; border-radius: 8px;"
+            )
+            if not self._is_valid_theme_color(raw):
+                invalid = True
+        self.theme_color_apply_button.setEnabled(not invalid)
+        self.theme_status_label.setVisible(invalid)
+        self.theme_status_label.setText(self._translated_text(
+            "settings.theme.status.invalid_hex", "모든 테마 값은 `#RRGGBB` 형식의 6자리 HEX 코드여야 합니다."
+        ))
 
-    def _build_theme_variant_preview(self, mode: str, variant_id: str, title: str, description: str) -> QFrame:
-        frame = ClickableFrame()
-        frame.clicked.connect(lambda selected_mode=mode, selected_variant=variant_id: self._apply_theme_variant(selected_mode, selected_variant))
-        frame.setCursor(Qt.CursorShape.PointingHandCursor)
+    def _style_theme_studio(self):
+        values = self._theme_values
+        card, field = values["settings_card_bg_color"], values["settings_input_bg_color"]
+        accent = values["theme_accent_color"]
+        ink, muted = self._theme_text_color(card), self._theme_muted_text_color(card)
+        border = self._theme_border_color(card, 0.16)
+        self.theme_section_rule.setStyleSheet(f"background: {border}; border: none;")
+        self.theme_color_dialog.setStyleSheet(
+            f"QDialog#ThemeColorDialog, QScrollArea, QScrollArea > QWidget > QWidget {{ background: {card}; color: {ink}; }}"
+            f"QLabel {{ background: transparent; color: {ink}; }}"
+            f"QPushButton#ThemeApply:enabled {{background: {accent}; color: {self._theme_text_color(accent)};}}"
+        )
+        self.theme_edit_button.setIcon(theme_icon("edit", muted))
+        self.theme_edit_button.setIconSize(QSize(14, 14))
+        self.theme_segments.setStyleSheet(
+            f"QFrame#ThemeSegments {{background: {field}; border: 1px solid {border}; border-radius: 10px;}}"
+            f"QPushButton {{background: transparent; color: {muted}; border: 1px solid transparent;"
+            "border-radius: 7px; padding: 4px 9px; font-size: 12px; min-height: 19px;}"
+            f"QPushButton:checked {{background: {card}; color: {ink}; border-color: {border}; font-weight: 700;}}"
+            f"QPushButton:focus {{border-color: {accent};}}"
+        )
+        self.theme_edit_button.setStyleSheet(
+            f"QPushButton {{background: transparent; color: {muted}; border: 1px solid transparent; padding: 4px;}}"
+            f"QPushButton:hover, QPushButton:focus {{color: {accent}; border-color: {accent};}}"
+            f"QPushButton:disabled {{color: {self._theme_rgba(ink, 0.4)};}}"
+        )
+        self.theme_palette_grid.setStyleSheet(
+            f"QPushButton#ThemePaletteCard {{background: {card}; color: {ink}; border: 1px solid {border};"
+            "border-radius: 13px; padding: 0; min-height: 58px;}"
+            f"QPushButton#ThemePaletteCard:checked {{background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
+            f"stop:0 {card},stop:1 {field}); border: 1px solid {accent};}}"
+            f"QPushButton#ThemePaletteCard:hover, QPushButton#ThemePaletteCard:focus {{border: 2px solid {accent};}}"
+            f"QLabel {{background: transparent; color: {ink}; border: none;}}"
+            f"QLabel#ThemeCardSubtitle {{color: {muted}; font-size: 11px;}}"
+            f"QLabel#ThemeCardCheck {{background: {accent}; color: {self._theme_text_color(accent)};"
+            "border-radius: 8px; font-size: 11px; font-weight: 800;}"
+        )
+    def _refresh_theme_choices(self, active):
+        card = self._theme_values["settings_card_bg_color"]
+        check = theme_icon("check", self._theme_text_color(self._theme_values["theme_accent_color"])).pixmap(13, 13)
+        for mode, button in self._theme_preset_frames.items():
+            selected = (mode == "system") if self._follow_system_theme else (mode == self._theme_mode)
+            button.setChecked(selected)
+            color = self._theme_text_color(card) if selected else self._theme_muted_text_color(card)
+            button.setIcon(theme_icon(mode, color))
+            button.setIconSize(QSize(14, 14))
+            if mode == "system":
+                description = self._translated_text("settings.theme.follow_system", "현재 윈도우 앱 테마(라이트/다크)를 따라가기")
+            else:
+                status = self._theme_status_suffix("selected", "현재 선택됨") if selected else self._theme_status_suffix("apply", "클릭해서 적용")
+                if self._follow_system_theme and self._theme_mode == mode:
+                    status = self._theme_status_suffix("follow_system", "윈도우와 동기화 중")
+                description = f"{self._resolve_theme_bundle_text(THEME_PRESETS[mode], 'description')} · {status}"
+            button.setToolTip(description)
+        for mode, variants in THEME_VARIANT_PRESETS.items():
+            for key, bundle in variants.items():
+                button = self._theme_variant_frames[key]
+                title = self._resolve_theme_bundle_text(bundle, "title")
+                self._theme_variant_titles[key].setText(title)
+                selected = key == active
+                status = self._theme_status_suffix("current_palette", "현재 팔레트") if selected else self._theme_status_suffix("apply", "클릭해서 적용")
+                description = f"{self._resolve_theme_bundle_text(bundle, 'description')} · {status}"
+                button.setToolTip(description)
+                button.setAccessibleName(title)
+                button.setAccessibleDescription(description)
+                button.setChecked(selected)
+                mark = button.findChild(QLabel, "ThemeCardCheck")
+                mark.setPixmap(check)
+                mark.setVisible(selected)
+        self.theme_palette_grid.show_mode(self._theme_mode)
 
-        layout = QVBoxLayout(frame)
-        layout.setContentsMargins(14, 14, 14, 14)
-        layout.setSpacing(8)
-
-        title_label = QLabel(title)
-        title_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        layout.addWidget(title_label)
-        self._theme_variant_titles[variant_id] = title_label
-
-        meta_label = QLabel(description)
-        meta_label.setWordWrap(True)
-        meta_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        layout.addWidget(meta_label)
-        self._theme_variant_meta[variant_id] = meta_label
-
-        swatch_row = QHBoxLayout()
-        swatch_row.setSpacing(6)
-        for palette_key in ("settings_window_bg_color", "settings_card_bg_color", "chat_panel_bg_color", "theme_accent_color"):
-            swatch = QFrame()
-            swatch.setFixedSize(22, 22)
-            swatch.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-            setattr(self, f"{variant_id}_{palette_key}_swatch", swatch)
-            swatch_row.addWidget(swatch)
-        swatch_row.addStretch()
-        layout.addLayout(swatch_row)
-
-        self._theme_variant_frames[variant_id] = frame
-        return frame
+    def _refresh_theme_hero(self, active):
+        values = self._theme_values
+        card, accent = values["settings_card_bg_color"], values["theme_accent_color"]
+        if active:
+            name = self._resolve_theme_bundle_text(THEME_VARIANT_PRESETS[self._theme_mode][active], "title")
+        elif values == get_theme_preset(self._theme_mode):
+            name = self._resolve_theme_bundle_text(THEME_PRESETS[self._theme_mode], "title")
+        else:
+            name = self._translated_text("settings.theme.studio.custom", "사용자 지정")
+        self.theme_palette_name.setText(name)
+        base = active or self._theme_base_variant
+        first, second = PALETTE_ART[base][:2] if base in PALETTE_ART else ("#FAC9AD", "#C6B1EB")
+        self.theme_hero.set_colors(first, second, accent)
+        for dot, color in zip(self.theme_pigments, (first, second, card, accent)):
+            dot.setStyleSheet(f"background: {color}; border: 1px solid #FFF8EF; border-radius: 10px;")
+            dot.setToolTip(color)
+        panel = values["chat_panel_bg_color"]
+        self.theme_chat_preview.setStyleSheet(
+            f"QFrame#ThemeSampleChat {{background: {panel}; border: 1px solid {self._theme_border_color(panel)}; border-radius: 11px;}}"
+            f"QLabel {{background: transparent; color: {self._theme_text_color(panel)}; font-size: 11px; font-weight: 700;}}"
+        )
+        for bubble, color in ((self.theme_chat_assistant, values["chat_assistant_bubble_color"]),
+                              (self.theme_chat_user, values["chat_user_bubble_color"])):
+            bubble.setStyleSheet(f"background: {color}; color: {self._theme_text_color(color)}; border-radius: 7px; padding: 4px 8px; font-size: 11px;")
+        self.theme_chat_input.setStyleSheet(
+            f"background: {values['chat_input_bg_color']}; border: 1px solid {self._theme_border_color(panel)}; border-radius: 5px;"
+        )
 
     def _refresh_theme_editor_state(self) -> None:
-        invalid_keys = []
-        settings_card = self._theme_values["settings_card_bg_color"]
-        settings_input = self._theme_values["settings_input_bg_color"]
-        for key, line_edit in self._theme_color_edits.items():
-            raw_value = line_edit.text().strip()
-            is_valid = self._is_valid_theme_color(raw_value)
-            color_value = self._theme_values[key] if is_valid else self._theme_defaults[key]
-            swatch = getattr(self, f"{key}_swatch", None)
-            if swatch is not None:
-                swatch.setStyleSheet(
-                    f"background: {color_value}; border: 1px solid rgba(17, 24, 39, 0.10); border-radius: 12px;"
-                )
-            panel = self._theme_picker_panels.get(key)
-            if panel is not None:
-                panel.setStyleSheet(
-                    f"QFrame#ThemePickerPanel {{ background: {settings_input}; border: 1px solid {self._theme_border_color(settings_card, 0.10)}; border-radius: 18px; }}"
-                    f" QLabel {{ color: {self._theme_text_color(settings_card)}; font-size: 12px; font-weight: 700; }}"
-                )
-                self._sync_theme_picker_controls(key)
-            if not is_valid and raw_value:
-                invalid_keys.append(key)
-
-        if self._theme_picker_popup is not None and self._theme_picker_popup.isVisible() and self._theme_picker_active_key:
-            active_key = self._theme_picker_active_key
-            self._theme_picker_popup.apply_theme(
-                self._theme_values["settings_window_bg_color"],
-                self._theme_values["settings_card_bg_color"],
-                self._theme_values["settings_input_bg_color"],
-                self._theme_values["theme_accent_color"],
-                self._theme_text_color(self._theme_values["settings_card_bg_color"]),
-                self._theme_muted_text_color(self._theme_values["settings_card_bg_color"]),
-                self._theme_border_color(self._theme_values["settings_card_bg_color"], 0.10),
-            )
-            self._theme_picker_popup.set_recommended_colors(
-                self._recommended_theme_swatches(active_key),
-                self._theme_border_color,
-            )
-            self._theme_picker_popup.set_color(self._theme_values.get(active_key, self._theme_defaults[active_key]), emit_signal=False)
-
-        for mode, preset_bundle in THEME_PRESETS.items():
-            frame = self._theme_preset_frames.get(mode)
-            if frame is None:
-                continue
-
-            preset = preset_bundle.get("colors", preset_bundle)
-            settings_window = preset["settings_window_bg_color"]
-            settings_card = preset["settings_card_bg_color"]
-            settings_input = preset["settings_input_bg_color"]
-            chat_panel = preset["chat_panel_bg_color"]
-            chat_input = preset["chat_input_bg_color"]
-            chat_assistant = preset["chat_assistant_bubble_color"]
-            chat_user = preset["chat_user_bubble_color"]
-            is_active = self._theme_mode == mode
-
-            frame.setStyleSheet(
-                f"background: {settings_window}; "
-                f"border: 1px solid {self._theme_border_color(settings_window, 0.12)}; "
-                "border-radius: 22px;"
-            )
-            self._theme_preset_titles[mode].setText(self._resolve_theme_bundle_text(preset_bundle, "title"))
-            self._theme_preset_titles[mode].setStyleSheet(
-                f"color: {self._theme_text_color(settings_window)}; font-size: 15px; font-weight: 800;"
-            )
-            base_description = self._resolve_theme_bundle_text(preset_bundle, "description")
-            meta_suffix = (
-                self._theme_status_suffix("follow_system", "윈도우와 동기화 중")
-                if self._follow_system_theme and self._theme_mode == mode
-                else (
-                    self._theme_status_suffix("selected", "현재 선택됨")
-                    if is_active
-                    else self._theme_status_suffix("apply", "클릭해서 적용")
-                )
-            )
-            self._theme_preset_meta[mode].setText(
-                f"{base_description} · {meta_suffix}"
-            )
-            self._theme_preset_meta[mode].setStyleSheet(
-                f"color: {self._theme_muted_text_color(settings_window)}; font-size: 12px; font-weight: 600;"
-            )
-            self._theme_preset_assistant[mode].setStyleSheet(
-                f"background: {chat_assistant}; color: {self._theme_text_color(chat_assistant)}; "
-                "border-radius: 16px; padding: 10px 14px; font-size: 12px; font-weight: 700;"
-            )
-            self._theme_preset_user[mode].setStyleSheet(
-                f"background: {chat_user}; color: {self._theme_text_color(chat_user)}; "
-                "border-radius: 16px; padding: 10px 14px; font-size: 12px; font-weight: 700;"
-            )
-            self._theme_preset_input[mode].setStyleSheet(
-                f"background: {settings_input if mode == 'light' else chat_input}; "
-                f"color: {self._theme_text_color(settings_input if mode == 'light' else chat_input)}; "
-                f"border: 1px solid {self._theme_border_color(settings_card if mode == 'light' else chat_panel, 0.14)}; "
-                "border-radius: 14px; padding: 10px 12px; font-size: 12px; font-weight: 600;"
-            )
-
-        for mode, variant_map in THEME_VARIANT_PRESETS.items():
-            active_variant_id = self._current_theme_variant_id(mode)
-            for variant_id, bundle in variant_map.items():
-                frame = self._theme_variant_frames.get(variant_id)
-                if frame is None:
-                    continue
-
-                palette = bundle["colors"]
-                window_color = palette["settings_window_bg_color"]
-                card_color = palette["settings_card_bg_color"]
-                is_active = self._theme_mode == mode and active_variant_id == variant_id
-                border_color = self._theme_border_color(window_color, 0.18 if is_active else 0.10)
-                frame.setStyleSheet(
-                    f"background: {card_color}; "
-                    f"border: 1px solid {border_color}; "
-                    "border-radius: 18px;"
-                )
-                self._theme_variant_titles[variant_id].setText(self._resolve_theme_bundle_text(bundle, "title"))
-                self._theme_variant_titles[variant_id].setStyleSheet(
-                    f"color: {self._theme_text_color(card_color)}; font-size: 13px; font-weight: 800;"
-                )
-                suffix = (
-                    self._theme_status_suffix("current_palette", "현재 팔레트")
-                    if is_active
-                    else self._theme_status_suffix("apply", "클릭해서 적용")
-                )
-                self._theme_variant_meta[variant_id].setText(
-                    f"{self._resolve_theme_bundle_text(bundle, 'description')} · {suffix}"
-                )
-                self._theme_variant_meta[variant_id].setStyleSheet(
-                    f"color: {self._theme_muted_text_color(card_color)}; font-size: 11px; font-weight: 600;"
-                )
-
-                for palette_key in ("settings_window_bg_color", "settings_card_bg_color", "chat_panel_bg_color", "theme_accent_color"):
-                    swatch = getattr(self, f"{variant_id}_{palette_key}_swatch", None)
-                    if swatch is None:
-                        continue
-                    swatch.setStyleSheet(
-                        f"background: {palette[palette_key]}; "
-                        f"border: 1px solid {self._theme_border_color(palette[palette_key], 0.20)}; "
-                        "border-radius: 11px;"
-                    )
-
-        if hasattr(self, "theme_status_label"):
-            if invalid_keys:
-                self.theme_status_label.setStyleSheet("color: #B42318; font-size: 12px; font-weight: 600;")
-                self.theme_status_label.setText(
-                    self._translated_text(
-                        "settings.theme.status.invalid_hex",
-                        "모든 테마 값은 `#RRGGBB` 형식의 6자리 HEX 코드여야 합니다.",
-                    )
-                )
-            else:
-                self.theme_status_label.setStyleSheet("color: #6B7280; font-size: 12px; font-weight: 600;")
-                if self._follow_system_theme:
-                    current_mode_text = (
-                        self._translated_text("settings.theme.mode.light.short", "라이트")
-                        if self._theme_mode == "light"
-                        else self._translated_text("settings.theme.mode.dark.short", "다크")
-                    )
-                    self.theme_status_label.setText(
-                        self._translated_text_format(
-                            "settings.theme.status.follow_system_detail",
-                            "현재 윈도우 앱 테마({mode})를 따라가고 있습니다.",
-                            mode=current_mode_text,
-                        )
-                    )
-                else:
-                    self.theme_status_label.setText(
-                        self._translated_text(
-                            "settings.theme.status.shared_mode",
-                            "설정창과 채팅창이 같은 테마 모드로 함께 움직이도록 구성되어 있습니다.",
-                        )
-                    )
+        if not hasattr(self, "theme_color_dialog"):
+            return
+        if self._loading:
+            self._theme_base_variant = None
+        self._refresh_theme_color_controls()
+        self._style_theme_studio()
+        active = self._current_theme_variant_id(self._theme_mode)
+        self._refresh_theme_choices(active)
+        self._refresh_theme_hero(active)
 
     def _on_theme_color_field_changed(self, key: str, text: str) -> None:
+        if self._theme_editor_active:
+            self._refresh_theme_color_controls()
+            return
         if self._is_valid_theme_color(text):
             self._theme_values[key] = self._normalize_theme_color(text, fallback=self._theme_defaults[key])
             self._schedule_theme_live_update()

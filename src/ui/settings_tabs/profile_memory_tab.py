@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ...ai.response_protocol import LLMRequestKind
+from .section_navigation import add_group_navigation
 
 
 PROFILE_MEMORY_SOURCE = "memory_organizer"
@@ -327,7 +328,7 @@ def build_profile_memory_tab(dialog):
     layout.addStretch()
 
     scroll.setWidget(widget)
-    return scroll
+    return add_group_navigation(self, scroll)
 
 
 def _call_builder(builder, dialog):
@@ -350,6 +351,7 @@ def _build_organizer_card(dialog):
     title = QLabel()
     dialog._bind_widget_text(title, "settings.profile_memory.organizer.title", "기억 정리")
     title.setObjectName("FooterTitle")
+    title.setProperty("settingsJumpTitle", True)
     layout.addWidget(title)
 
     body = QLabel()

@@ -530,27 +530,27 @@
       },
       "theme": {
         "title": "テーマ設定",
-        "description": "ライト、ダーク、パレット"
+        "description": "表示モードとカラーパレット"
       },
       "model": {
         "title": "モデル設定",
-        "description": "配置と Live2D パス"
+        "description": "アバターの配置、表情、ジェスチャー、タッチ反応"
       },
       "llm": {
         "title": "LLM 設定",
-        "description": "プロバイダーと応答スタイル"
+        "description": "プロバイダー、認証、モデル、ウェブ検索と埋め込み"
       },
       "tts": {
-        "title": "TTS 設定",
-        "description": "プロバイダーと音声合成"
+        "title": "音声設定",
+        "description": "音声合成、再生デバイス、マイク入力のショートカット"
       },
       "behavior": {
         "title": "動作設定",
-        "description": "ボタン、PTT、モーション"
+        "description": "チャット表示、ENEの反応、検知と記録"
       },
       "memory": {
         "title": "メモリ管理",
-        "description": "長期記憶、トピック記憶、ユーザー記憶、ENE記憶"
+        "description": "会話の統計、長期記憶、トピックとプロフィール"
       },
       "topic_memory": {
         "title": "トピック記憶管理",
@@ -566,7 +566,7 @@
       },
       "prompt": {
         "title": "プロンプト設定",
-        "description": "プロンプトと感情ルール"
+        "description": "基本指示、生活環境と感情ルール"
       }
     },
     "window": {
@@ -702,6 +702,21 @@
         "dark": {
           "short": "Dark"
         }
+      },
+      "studio": {
+        "mode": "表示モード",
+        "system": "システム",
+        "palettes": "カラーパレット",
+        "edit": "色の詳細設定",
+        "custom": "カスタム",
+        "sample_in": "どの色を選びましたか？",
+        "sample_out": "この色がいいな。",
+        "light_classic": "空色・ブルー",
+        "light_sand": "クリーム・サンド",
+        "light_mint": "ミント・セージ",
+        "dark_midnight": "ネイビー・ブルー",
+        "dark_graphite": "シルバー・チャコール",
+        "dark_forest": "グリーン・青緑"
       }
     },
     "model": {
@@ -1289,7 +1304,40 @@
         "topic": "トピック記憶",
         "user_profile": "ユーザー記憶",
         "ene_profile": "ENE記憶",
-        "profile_memory": "ユーザー/ENE記憶"
+        "profile_memory": "ユーザー/ENE記憶",
+        "together": "一緒に過ごした時間"
+      },
+      "journal": {
+        "as_of": "{date} 現在",
+        "source": "保存済みの会話と現在の会話のうち、質問・返答と時刻を確認できる記録を集計します。",
+        "first": "初めて話した日",
+        "since": "{count}日目",
+        "exchanges": "交わした会話",
+        "turns": "{count}ターン",
+        "turns_hint": "質問と返答の1組が1ターン",
+        "writing": "一緒に書いた文字",
+        "characters": "{count}字",
+        "characters_hint": "質問と返答の合計文字数",
+        "days": "話した日",
+        "active_days": "{year}年に会話した日数 {count}日",
+        "calendar": "{year}年の日別の会話。1月から12月まで、各列は月曜日から日曜日の順です。",
+        "date_picker": "確認する日付",
+        "less": "少",
+        "more": "多",
+        "future": "集計前",
+        "before": "最初の会話より前",
+        "busiest": "{turns} · 最も多く話した日",
+        "hours": "よく話す時間",
+        "hourly": "時間帯別の会話数",
+        "peak": "最もよく話したのは{hour}〜{end}時で、合計{turns}でした。",
+        "empty": "集計できる会話の記録はまだありません。",
+        "records": "記録",
+        "longest": "最も長い会話",
+        "minutes": "{count}分",
+        "short_session": "1分未満",
+        "started": "{date} {time}開始 · {turns}",
+        "streak": "最長の連続会話",
+        "day_count": "{count}日"
       }
     },
     "prompt": {
@@ -1514,6 +1562,39 @@
         "title": "ENE記憶管理",
         "body": "エネプロフィールがまだ初期化されていないため、編集パネルを開けません。"
       }
+    },
+    "navigation": {
+      "title": "環境設定",
+      "menu": "設定メニュー",
+      "close": "閉じる",
+      "display": "画面",
+      "conversation": "会話",
+      "memory": "記憶と指示",
+      "preview": "変更は保存するまでプレビューに反映されます。"
+    },
+    "sections": {
+      "jump": "グループに移動",
+      "choose_group": "グループを選択",
+      "chat_screen": "チャット画面",
+      "chat_response": "会話の反応",
+      "goals_notes": "目標・ノート",
+      "detection_records": "検知・記録",
+      "messages": "メッセージ表示",
+      "buttons": "チャットボタン",
+      "reactions": "会話の開始と分析",
+      "thoughts": "思考と気分",
+      "model_placement": "モデル・配置",
+      "idle_motion": "待機時の動作",
+      "touch_gaze": "タッチ・視線",
+      "expression": "表情と感情モーション",
+      "gestures": "応答ジェスチャー",
+      "idle": "待機モーション",
+      "idle_gestures": "待機ジェスチャー",
+      "expressive": "表現モーション",
+      "tracking": "マウス追跡",
+      "head_pat": "頭をなでる",
+      "output": "音声出力 (TTS)",
+      "input": "音声入力 (PTT)"
     }
   },
   "settings.topic_memory.empty.title": "トピック記憶管理",

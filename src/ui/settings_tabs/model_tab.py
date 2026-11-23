@@ -9,27 +9,31 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
-    QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QListWidget,
     QPushButton,
-    QScrollArea,
     QSlider,
     QVBoxLayout,
     QWidget,
 )
 
+from .model_motion import idle_motion_page, response_motion_page, touch_gaze_page
+from .section_navigation import scroll_page, section_tabs
+
 
 def build_model_tab(dialog):
-    self = dialog
-    scroll = QScrollArea()
-    scroll.setWidgetResizable(True)
-    scroll.setFrameShape(QFrame.Shape.NoFrame)
-    scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
-    
+    return section_tabs(dialog, "model", (
+        ("settings.sections.model_placement", "모델·배치", _placement_page(dialog)),
+        ("settings.behavior.motion.response_title", "응답 동작", response_motion_page(dialog)),
+        ("settings.sections.idle_motion", "대기 동작", idle_motion_page(dialog)),
+        ("settings.sections.touch_gaze", "터치·시선", touch_gaze_page(dialog)),
+    ))
+
+
+def _placement_page(self):
     widget = QWidget()
     layout = QVBoxLayout(widget)
     layout.setSpacing(12)
@@ -52,12 +56,6 @@ def build_model_tab(dialog):
     self._bind_group_title(preset_group, "settings.model.quick.title", "빠른 배치")
     preset_group_layout = QVBoxLayout(preset_group)
     preset_group_layout.setSpacing(10)
-    preset_group_layout.addWidget(
-        self._build_hint_label(
-            "자주 쓰는 위치를 먼저 고른 뒤, 아래 슬라이더로 세밀하게 맞추면 더 편합니다.",
-            key="settings.model.quick.hint",
-        )
-    )
 
     preset_layout = QHBoxLayout()
     center_btn = QPushButton("중앙")
@@ -89,12 +87,6 @@ def build_model_tab(dialog):
     self.model_scale_spin.valueChanged.connect(self._on_setting_changed)
     self._add_form_row(scale_form, "settings.model.scale.label", "스케일:", self.model_scale_spin)
     scale_layout.addLayout(scale_form)
-    scale_layout.addWidget(
-        self._build_hint_label(
-            "1.00x를 기준으로 모델 전체 크기를 조정합니다.",
-            key="settings.model.scale.hint",
-        )
-    )
 
     self.scale_slider = QSlider(Qt.Orientation.Horizontal)
     self.scale_slider.setRange(10, 200)
@@ -111,12 +103,6 @@ def build_model_tab(dialog):
     x_layout = QVBoxLayout()
     x_layout.setSpacing(8)
     x_layout.setContentsMargins(10, 15, 10, 10)
-    x_layout.addWidget(
-        self._build_hint_label(
-            "모델을 화면의 왼쪽과 오른쪽 사이에서 조정합니다.",
-            key="settings.model.position_x.hint",
-        )
-    )
     x_info = QHBoxLayout()
     left_label = QLabel("왼쪽")
     self._bind_widget_text(left_label, "settings.model.position_x.left", "왼쪽")
@@ -143,12 +129,6 @@ def build_model_tab(dialog):
     y_layout = QVBoxLayout()
     y_layout.setSpacing(8)
     y_layout.setContentsMargins(10, 15, 10, 10)
-    y_layout.addWidget(
-        self._build_hint_label(
-            "모델을 화면의 위쪽과 아래쪽 사이에서 조정합니다.",
-            key="settings.model.position_y.hint",
-        )
-    )
     y_info = QHBoxLayout()
     top_label = QLabel("위쪽")
     self._bind_widget_text(top_label, "settings.model.position_y.top", "위쪽")
@@ -301,6 +281,4 @@ def build_model_tab(dialog):
     layout.addWidget(image_avatar_group)
 
     layout.addStretch()
-    scroll.setWidget(widget)
-    return scroll
-
+    return scroll_page(widget)

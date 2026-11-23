@@ -16,6 +16,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from .section_navigation import add_group_navigation, scroll_page
+
 
 def build_window_tab(dialog):
     self = dialog
@@ -73,12 +75,6 @@ def build_window_tab(dialog):
     self._bind_group_title(quick_group, "settings.window.quick.title", "빠른 배치")
     quick_layout = QVBoxLayout(quick_group)
     quick_layout.setSpacing(10)
-    quick_layout.addWidget(
-        self._build_hint_label(
-            "자주 쓰는 위치를 먼저 고른 뒤, 아래에서 좌표와 크기를 미세 조정할 수 있습니다.",
-            key="settings.window.quick.hint",
-        )
-    )
 
     preset_layout = QHBoxLayout()
     preset_layout.setSpacing(10)
@@ -138,5 +134,4 @@ def build_window_tab(dialog):
     layout.addWidget(size_group)
 
     layout.addStretch()
-    return widget
-
+    return add_group_navigation(self, scroll_page(widget))

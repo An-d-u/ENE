@@ -17,7 +17,10 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from ...core.conversation_activity import conversation_activity
 from ..memory_dialog import MemoryDialog
+from .conversation_journal import ConversationJournal
+from .section_navigation import add_group_navigation
 
 
 def build_memory_tab(dialog):
@@ -29,6 +32,8 @@ def build_memory_tab(dialog):
 
     tabs = QTabWidget()
     tabs.setObjectName("memoryManagementTabs")
+    tabs.setDocumentMode(True)
+    tabs.setUsesScrollButtons(True)
     _add_translated_tab(
         self,
         tabs,
@@ -56,6 +61,14 @@ def build_memory_tab(dialog):
         "사용자/ENE 기억",
         "profile_memory",
     )
+    self._together_panel = ConversationJournal(
+        self, lambda: conversation_activity(self._bridge, self._memory_manager),
+    )
+    _add_translated_tab(
+        self, tabs, self._together_panel,
+        "settings.memory.tabs.together", "함께한 시간", "together",
+    )
+    tabs.setCurrentWidget(self._together_panel)
     layout.addWidget(tabs)
     return widget
 
@@ -101,6 +114,7 @@ def _build_long_term_memory_tab(dialog):
     title = QLabel()
     self._bind_widget_text(title, "settings.memory.search_scope.title", "기억 검색 범위")
     title.setObjectName("FooterTitle")
+    title.setProperty("settingsJumpTitle", True)
     search_layout.addWidget(title)
 
     body = QLabel()
@@ -161,6 +175,8 @@ def _build_long_term_memory_tab(dialog):
         )
         panel.apply_theme(dict(self._theme_values))
         self._embedded_memory_panel = panel
+        if hasattr(panel, "tuning_edited"):
+            panel.tuning_edited.connect(self._on_setting_changed)
         panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         panel.setMinimumSize(0, 0)
         layout.addWidget(panel)
@@ -189,4 +205,4 @@ def _build_long_term_memory_tab(dialog):
 
     layout.addStretch()
     scroll.setWidget(widget)
-    return scroll
+    return add_group_navigation(self, scroll)

@@ -43,6 +43,7 @@ def build_user_profile_tab(dialog, embedded: bool = False):
     title = QLabel()
     self._bind_widget_text(title, "settings.profile.header.title", "사용자 기억 관리")
     title.setObjectName("FooterTitle")
+    title.setProperty("settingsJumpTitle", embedded)
     header_layout.addWidget(title)
 
     body = QLabel()

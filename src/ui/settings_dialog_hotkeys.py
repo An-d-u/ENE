@@ -107,6 +107,7 @@ class SettingsDialogHotkeyMixin:
 
     def _update_ptt_hotkey_ui(self):
         self.global_ptt_hotkey_value_label.setText(hotkey_to_display(self._ptt_hotkey_value, default="alt"))
+        self.global_ptt_hotkey_hint_label.setVisible(self._capturing_ptt_hotkey)
         if self._capturing_ptt_hotkey:
             self.global_ptt_hotkey_set_button.setText(
                 self._translated_text("settings.behavior.ptt.hotkey.waiting", "입력 대기 중...")
@@ -120,12 +121,6 @@ class SettingsDialogHotkeyMixin:
         else:
             self.global_ptt_hotkey_set_button.setText(
                 self._translated_text("settings.behavior.ptt.hotkey.set", "단축키 설정")
-            )
-            self.global_ptt_hotkey_hint_label.setText(
-                self._translated_text(
-                    "settings.behavior.ptt.hotkey.hint",
-                    "누르고 있는 동안만 녹음됩니다.",
-                )
             )
 
     def _start_ptt_hotkey_capture(self):

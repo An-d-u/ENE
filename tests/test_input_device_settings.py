@@ -4,7 +4,7 @@ import re
 from types import SimpleNamespace
 import pytest
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QGroupBox, QMessageBox
+from PyQt6.QtWidgets import QGroupBox, QMessageBox, QTabWidget
 
 from src.core.settings import Settings
 from tests.test_fish_audio_settings_ui import dialog_factory  # noqa: F401
@@ -33,10 +33,12 @@ def test_context_group_and_keyboard_translation(dialog_factory):
     group = toggle.parentWidget()
     assert isinstance(group, QGroupBox)
     assert group.title() == "대화 컨텍스트"
+    tabs = dialog.findChild(QTabWidget, "behaviorSectionTabs")
+    assert tabs.tabText(1) == "대화 반응" and tabs.widget(1).isAncestorOf(group)
     parent_layout = group.parentWidget().layout()
     assert (
         parent_layout.itemAt(parent_layout.indexOf(group) - 1).widget().title()
-        == "표시 요소"
+        == "생각과 기분"
     )
     for language in ("en", "ja"):
         dialog._set_dialog_preview_language(language)

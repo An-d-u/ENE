@@ -8,11 +8,9 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
-    QFrame,
     QGroupBox,
     QLabel,
     QLineEdit,
-    QScrollArea,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -20,15 +18,11 @@ from PyQt6.QtWidgets import (
 
 from ...ai.llm_provider import LLMFormat, get_llm_provider_catalog
 from ...ai.openai_model_policy import OPENAI_REASONING_EFFORTS
+from .section_navigation import add_group_navigation, scroll_page
 
 
 def build_llm_tab(dialog):
     self = dialog
-    scroll = QScrollArea()
-    scroll.setWidgetResizable(True)
-    scroll.setFrameShape(QFrame.Shape.NoFrame)
-    scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
-
     widget = QWidget()
     layout = QVBoxLayout(widget)
     layout.setSpacing(12)
@@ -72,11 +66,6 @@ def build_llm_tab(dialog):
         "API 키:",
         self.llm_api_key_row,
     )
-    self.llm_api_key_hint = self._build_hint_label(
-        "민감한 값은 기본적으로 숨겨집니다. 현재 선택한 공급자 기준으로 저장됩니다.",
-        key="settings.llm.provider_group.api_key.hint",
-    )
-    provider_form.addRow(self.llm_api_key_hint)
     layout.addWidget(provider_group)
 
     model_group = QGroupBox("모델과 응답 스타일")
@@ -434,5 +423,4 @@ def build_llm_tab(dialog):
     restart_layout.addWidget(self.llm_restart_info)
     layout.addWidget(restart_group)
     layout.addStretch()
-    scroll.setWidget(widget)
-    return scroll
+    return add_group_navigation(self, scroll_page(widget))

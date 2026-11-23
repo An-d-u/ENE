@@ -8,28 +8,55 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
-    QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPlainTextEdit,
     QPushButton,
-    QScrollArea,
     QSpinBox,
-    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
+from .section_navigation import group_page, scroll_page, section_tabs
+
+
+class _ProviderPages(QWidget):
+    """선택한 공급자의 폼만 레이아웃의 크기 계산에 포함한다."""
+
+    def __init__(self):
+        super().__init__()
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self._current = None
+
+    def addWidget(self, page):
+        self.layout().addWidget(page)
+        page.hide()
+        if self._current is None:
+            self.setCurrentWidget(page)
+
+    def currentWidget(self):
+        return self._current
+
+    def setCurrentWidget(self, page):
+        if self._current is page:
+            return
+        if self._current is not None:
+            self._current.hide()
+        self._current = page
+        page.show()
+
 
 def build_tts_tab(dialog):
-    self = dialog
-    scroll = QScrollArea()
-    scroll.setWidgetResizable(True)
-    scroll.setFrameShape(QFrame.Shape.NoFrame)
-    scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+    return section_tabs(dialog, "tts", (
+        ("settings.sections.output", "음성 출력 (TTS)", _output_page(dialog)),
+        ("settings.sections.input", "음성 입력 (PTT)", _input_page(dialog)),
+    ))
 
+
+def _output_page(self):
     widget = QWidget()
     layout = QVBoxLayout(widget)
     layout.setSpacing(12)
@@ -131,7 +158,7 @@ def build_tts_tab(dialog):
         )
     )
     self._tts_provider_pages = {}
-    self.tts_provider_stack = QStackedWidget()
+    self.tts_provider_stack = _ProviderPages()
 
     gpt_page = QWidget()
     gpt_layout = QVBoxLayout(gpt_page)
@@ -785,5 +812,58 @@ def build_tts_tab(dialog):
     layout.addWidget(playback_group)
 
     layout.addStretch()
-    scroll.setWidget(widget)
-    return scroll
+    return scroll_page(widget)
+
+
+def _input_page(self):
+    ptt_group = QGroupBox("음성 입력 (전역 PTT)")
+    self._bind_group_title(ptt_group, "settings.behavior.ptt.title", "음성 입력 (전역 PTT)")
+    ptt_layout = QFormLayout(ptt_group)
+    ptt_layout.setSpacing(8)
+    ptt_layout.setContentsMargins(10, 15, 10, 10)
+
+    self.enable_global_ptt_check = self._create_toggle(
+        "전역 Push-to-Talk 활성화",
+        key="settings.behavior.ptt.enable",
+    )
+    self.enable_global_ptt_check.toggled.connect(self._on_setting_changed)
+    ptt_layout.addRow(self.enable_global_ptt_check)
+
+    self.interrupt_tts_on_ptt_check = self._create_toggle(
+        "PTT 시작 시 ENE 음성 출력 끊기",
+        key="settings.behavior.ptt.interrupt_tts",
+    )
+    self.interrupt_tts_on_ptt_check.toggled.connect(self._on_setting_changed)
+    ptt_layout.addRow(self.interrupt_tts_on_ptt_check)
+
+    ptt_hotkey_row = QHBoxLayout()
+    self.global_ptt_hotkey_value_label = QLabel("")
+    self.global_ptt_hotkey_value_label.setMinimumWidth(140)
+    self.global_ptt_hotkey_value_label.setObjectName("ValueBadge")
+    ptt_hotkey_row.addWidget(self.global_ptt_hotkey_value_label)
+
+    self.global_ptt_hotkey_set_button = QPushButton("단축키 설정")
+    self.global_ptt_hotkey_set_button.clicked.connect(self._start_ptt_hotkey_capture)
+    ptt_hotkey_row.addWidget(self.global_ptt_hotkey_set_button)
+
+    self.global_ptt_hotkey_reset_button = QPushButton("기본값")
+    self._bind_widget_text(self.global_ptt_hotkey_reset_button, "settings.behavior.ptt.hotkey.reset", "기본값")
+    self.global_ptt_hotkey_reset_button.clicked.connect(self._reset_ptt_hotkey)
+    ptt_hotkey_row.addWidget(self.global_ptt_hotkey_reset_button)
+    self._add_form_row(ptt_layout, "settings.behavior.ptt.hotkey.label", "PTT 단축키:", ptt_hotkey_row)
+
+    self.ptt_language_combo = QComboBox()
+    for value, key, fallback in (
+        ("ko", "settings.behavior.ptt.language.ko", "한국어"),
+        ("en", "settings.behavior.ptt.language.en", "영어"),
+        ("ja", "settings.behavior.ptt.language.ja", "일본어"),
+    ):
+        self.ptt_language_combo.addItem(self._translated_text(key, fallback), value)
+    self.ptt_language_combo.currentIndexChanged.connect(self._on_setting_changed)
+    self._add_form_row(ptt_layout, "settings.behavior.ptt.language.label", "입력 언어:", self.ptt_language_combo)
+
+    self.global_ptt_hotkey_hint_label = QLabel("")
+    self.global_ptt_hotkey_hint_label.setWordWrap(True)
+    self.global_ptt_hotkey_hint_label.setObjectName("InlineHint")
+    ptt_layout.addRow(self.global_ptt_hotkey_hint_label)
+    return group_page(ptt_group)

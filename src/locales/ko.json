@@ -534,27 +534,27 @@
       },
       "theme": {
         "title": "테마 설정",
-        "description": "라이트, 다크, 팔레트"
+        "description": "라이트·다크 모드와 색상 팔레트"
       },
       "model": {
         "title": "모델 설정",
-        "description": "배치와 Live2D 경로"
+        "description": "아바타 배치, 표정과 제스처, 터치 반응"
       },
       "llm": {
         "title": "LLM 설정",
-        "description": "공급자와 응답 스타일"
+        "description": "공급자와 인증, 모델, 웹 검색과 임베딩"
       },
       "tts": {
-        "title": "TTS 설정",
-        "description": "공급자와 음성 합성"
+        "title": "음성 설정",
+        "description": "음성 합성과 재생 기기, 마이크 입력 단축키"
       },
       "behavior": {
         "title": "동작 설정",
-        "description": "버튼, PTT, 모션"
+        "description": "대화창 표시, ENE의 반응, 상황 감지와 기록"
       },
       "memory": {
         "title": "기억 관리",
-        "description": "장기 기억, 주제 기억, 사용자 기억, ENE 기억"
+        "description": "대화 통계, 장기 기억, 주제 기억과 프로필"
       },
       "topic_memory": {
         "title": "주제 기억 관리",
@@ -570,7 +570,7 @@
       },
       "prompt": {
         "title": "프롬프트 설정",
-        "description": "프롬프트와 감정 규칙"
+        "description": "기본 지침, 생활 환경과 감정 규칙"
       }
     },
     "window": {
@@ -706,6 +706,21 @@
         "dark": {
           "short": "다크"
         }
+      },
+      "studio": {
+        "mode": "화면 모드",
+        "system": "시스템",
+        "palettes": "컬러 팔레트",
+        "edit": "세부 색상 조정",
+        "custom": "사용자 지정",
+        "sample_in": "어떤 색을 골랐어요?",
+        "sample_out": "지금 이 색이 좋아.",
+        "light_classic": "하늘 · 블루",
+        "light_sand": "크림 · 모래",
+        "light_mint": "민트 · 세이지",
+        "dark_midnight": "남색 · 블루",
+        "dark_graphite": "실버 · 차콜",
+        "dark_forest": "그린 · 청록"
       }
     },
     "model": {
@@ -1343,7 +1358,40 @@
         "topic": "주제 기억",
         "user_profile": "사용자 기억",
         "ene_profile": "ENE 기억",
-        "profile_memory": "사용자/ENE 기억"
+        "profile_memory": "사용자/ENE 기억",
+        "together": "함께한 시간"
+      },
+      "journal": {
+        "as_of": "{date} 기준",
+        "source": "보관된 대화와 현재 대화 중 질문·답변과 시각을 확인할 수 있는 기록을 집계합니다.",
+        "first": "처음 대화한 날",
+        "since": "{count}일째",
+        "exchanges": "주고받은 대화",
+        "turns": "{count}턴",
+        "turns_hint": "질문과 답변 한 쌍이 1턴",
+        "writing": "함께 쓴 글",
+        "characters": "{count}자",
+        "characters_hint": "질문과 답변을 합친 글자 수",
+        "days": "만난 날들",
+        "active_days": "{year}년 대화한 날 {count}일",
+        "calendar": "{year}년 날짜별 대화. 1월부터 12월까지 각 열은 월요일부터 일요일 순서입니다.",
+        "date_picker": "확인할 날짜",
+        "less": "적음",
+        "more": "많음",
+        "future": "집계 전",
+        "before": "첫 대화 전",
+        "busiest": "{turns} · 가장 많이 대화한 날",
+        "hours": "주로 만난 시간",
+        "hourly": "시간대별 대화 횟수",
+        "peak": "가장 많이 대화한 시간은 {hour}–{end}시로, 총 {turns}을 주고받았어요.",
+        "empty": "아직 집계할 대화 기록이 없습니다.",
+        "records": "기록",
+        "longest": "가장 긴 대화",
+        "minutes": "{count}분",
+        "short_session": "1분 미만",
+        "started": "{date} {time} 시작 · {turns}",
+        "streak": "최장 연속 대화",
+        "day_count": "{count}일"
       }
     },
     "prompt": {
@@ -1568,6 +1616,39 @@
         "title": "ENE 기억 관리",
         "body": "에네 프로필이 아직 초기화되지 않아 편집 패널을 열 수 없습니다."
       }
+    },
+    "navigation": {
+      "title": "환경설정",
+      "menu": "설정 메뉴",
+      "close": "닫기",
+      "display": "화면",
+      "conversation": "대화",
+      "memory": "기억과 지침",
+      "preview": "변경사항은 저장 전까지 미리보기에 반영됩니다."
+    },
+    "sections": {
+      "jump": "그룹 이동",
+      "choose_group": "그룹 선택",
+      "chat_screen": "대화 화면",
+      "chat_response": "대화 반응",
+      "goals_notes": "목표·노트",
+      "detection_records": "감지·기록",
+      "messages": "메시지 표시",
+      "buttons": "대화창 버튼",
+      "reactions": "대화 시작과 해석",
+      "thoughts": "생각과 기분",
+      "model_placement": "모델·배치",
+      "idle_motion": "대기 동작",
+      "touch_gaze": "터치·시선",
+      "expression": "표정과 감정 동작",
+      "gestures": "응답 제스처",
+      "idle": "대기 모션",
+      "idle_gestures": "유휴 제스처",
+      "expressive": "생동감 모션",
+      "tracking": "마우스 추적",
+      "head_pat": "머리 쓰다듬기",
+      "output": "음성 출력 (TTS)",
+      "input": "음성 입력 (PTT)"
     }
   },
   "settings.topic_memory.empty.title": "주제 기억 관리",

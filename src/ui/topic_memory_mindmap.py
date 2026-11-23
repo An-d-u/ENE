@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QSplitter,
     QTextBrowser,
+    QWIDGETSIZE_MAX,
     QVBoxLayout,
     QWidget,
 )
@@ -229,8 +230,9 @@ class _MindmapNodeItem(_GraphItemPropertiesMixin, QGraphicsPathItem):
 
 
 class TopicMemoryMindmapPanel(QWidget):
-    def __init__(self, manager: Any | None = None, parent: QWidget | None = None):
+    def __init__(self, manager: Any | None = None, parent: QWidget | None = None, *, translate=t):
         super().__init__(parent)
+        self._translate = translate
         self.manager = manager
         self._graph: TopicMemoryGraph | None = None
         self._selected_node_id: str | None = None
@@ -300,6 +302,7 @@ class TopicMemoryMindmapPanel(QWidget):
         canvas_layout.addWidget(self.view)
 
         body_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._body_splitter = body_splitter
         body_splitter.addWidget(canvas_frame)
         body_splitter.addWidget(detail_frame)
         body_splitter.setStretchFactor(0, 3)
@@ -314,6 +317,17 @@ class TopicMemoryMindmapPanel(QWidget):
         root_layout.addWidget(self.summary_label)
         root_layout.addWidget(body_splitter, 1)
         self._apply_theme_stylesheet()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        narrow = self.width() < 680
+        orientation = Qt.Orientation.Vertical if narrow else Qt.Orientation.Horizontal
+        if self._body_splitter.orientation() != orientation:
+            self._body_splitter.setOrientation(orientation)
+            detail = self._body_splitter.widget(1)
+            detail.setMinimumWidth(0 if narrow else 300)
+            detail.setMaximumWidth(QWIDGETSIZE_MAX if narrow else 430)
+            self._body_splitter.setSizes([320, 180] if narrow else [760, 360])
 
     def apply_theme(self, theme_values: dict | None = None) -> None:
         if isinstance(theme_values, dict):
@@ -424,8 +438,8 @@ class TopicMemoryMindmapPanel(QWidget):
         self._rebuild_graph()
 
     def retranslate_ui(self) -> None:
-        self.search_input.setPlaceholderText(t("memory.topic_map.search.placeholder"))
-        self.refresh_btn.setText(t("memory.topic_map.refresh"))
+        self.search_input.setPlaceholderText(self._translate("memory.topic_map.search.placeholder"))
+        self.refresh_btn.setText(self._translate("memory.topic_map.refresh"))
         self._refresh_state_filter_items()
         if self._graph is None:
             self._set_empty_summary()
@@ -462,7 +476,7 @@ class TopicMemoryMindmapPanel(QWidget):
 
         self.state_filter.blockSignals(True)
         self.state_filter.clear()
-        self.state_filter.addItem(t("memory.topic_map.state.all"), "all")
+        self.state_filter.addItem(self._translate("memory.topic_map.state.all"), "all")
         for state in states:
             self.state_filter.addItem(state, state)
         index = self.state_filter.findData(previous)
@@ -474,8 +488,8 @@ class TopicMemoryMindmapPanel(QWidget):
             self._topics(),
             query=self.search_input.text(),
             state_filter=self._current_state_filter(),
-            root_label=t("memory.topic_map.root.label"),
-            fallback_clue_label=t("memory.topic_map.clue.fallback"),
+            root_label=self._translate("memory.topic_map.root.label"),
+            fallback_clue_label=self._translate("memory.topic_map.clue.fallback"),
         )
 
         self.scene.clear()
@@ -600,10 +614,10 @@ class TopicMemoryMindmapPanel(QWidget):
     def _set_topic_detail(self, topic: TopicMemoryTopic, clues: list[TopicMemoryClue]) -> None:
         lines = []
         if topic.aliases:
-            lines.append(f"{t('memory.topic_map.detail.aliases')}: {', '.join(topic.aliases)}")
+            lines.append(f"{self._translate('memory.topic_map.detail.aliases')}: {', '.join(topic.aliases)}")
         if topic.retrieval_terms:
             lines.append(
-                f"{t('memory.topic_map.detail.retrieval_terms')}: {', '.join(topic.retrieval_terms)}"
+                f"{self._translate('memory.topic_map.detail.retrieval_terms')}: {', '.join(topic.retrieval_terms)}"
             )
         if clues:
             lines.append("")
@@ -618,39 +632,39 @@ class TopicMemoryMindmapPanel(QWidget):
     ) -> None:
         title_prefix = topic.keyword if topic is not None else clue.subject
         lines = [
-            f"{t('memory.topic_map.detail.state')}: {clue.state}",
-            f"{t('memory.topic_map.detail.type')}: {clue.type}",
-            f"{t('memory.topic_map.detail.confidence')}: {clue.confidence:.2f}",
+            f"{self._translate('memory.topic_map.detail.state')}: {clue.state}",
+            f"{self._translate('memory.topic_map.detail.type')}: {clue.type}",
+            f"{self._translate('memory.topic_map.detail.confidence')}: {clue.confidence:.2f}",
         ]
         if clue.source_memory_id:
-            lines.append(f"{t('memory.topic_map.detail.source')}: {clue.source_memory_id}")
+            lines.append(f"{self._translate('memory.topic_map.detail.source')}: {clue.source_memory_id}")
         if clue.text:
             lines.extend(["", clue.text])
         if clue.history:
             lines.append("")
-            lines.append(t("memory.topic_map.detail.history"))
+            lines.append(self._translate("memory.topic_map.detail.history"))
             lines.extend(f"- {item.state}: {item.text}" for item in clue.history)
         self.detail_title.setText(f"{title_prefix} - {clue.subject}")
         self.detail_body.setPlainText("\n".join(lines).strip())
 
     def _set_summary(self, topics: int, clues: int) -> None:
-        self.summary_label.setText(t("memory.topic_map.summary", topics=topics, clues=clues))
+        self.summary_label.setText(self._translate("memory.topic_map.summary", topics=topics, clues=clues))
 
     def _set_empty_summary(self) -> None:
         self._set_summary(0, 0)
 
     def _set_empty_detail(self) -> None:
-        self.detail_title.setText(t("memory.topic_map.empty.title"))
-        self.detail_body.setPlainText(t("memory.topic_map.empty.body"))
+        self.detail_title.setText(self._translate("memory.topic_map.empty.title"))
+        self.detail_body.setPlainText(self._translate("memory.topic_map.empty.body"))
 
     def _set_unavailable_detail(self) -> None:
-        self.detail_title.setText(t("memory.topic_map.unavailable.title"))
-        self.detail_body.setPlainText(t("memory.topic_map.unavailable.body"))
+        self.detail_title.setText(self._translate("memory.topic_map.unavailable.title"))
+        self.detail_body.setPlainText(self._translate("memory.topic_map.unavailable.body"))
 
     def _set_error_detail(self) -> None:
         error = self._last_load_error or ""
-        self.detail_title.setText(t("memory.topic_map.error.title"))
-        self.detail_body.setPlainText(t("memory.topic_map.error.body", error=error))
+        self.detail_title.setText(self._translate("memory.topic_map.error.title"))
+        self.detail_body.setPlainText(self._translate("memory.topic_map.error.body", error=error))
 
     def _topics(self) -> list[TopicMemoryTopic]:
         topics = getattr(self.manager, "topics", []) if self.manager is not None else []

@@ -656,11 +656,11 @@ def test_settings_dialog_translates_metadata_in_english():
         browser_tts_index = dialog.tts_provider_combo.findData("browser_speech")
 
         assert dialog.windowTitle() == "ENE Settings"
-        assert dialog._theme_preset_meta["light"].text() == (
+        assert dialog._theme_preset_frames["light"].toolTip() == (
             "Balanced bright neutral palette for both settings and chat surfaces. · Currently selected"
         )
         assert dialog._theme_variant_titles["light_classic"].text() == "Clean Blue"
-        assert dialog._theme_variant_meta["light_classic"].text() == (
+        assert dialog._theme_variant_frames["light_classic"].toolTip() == (
             "Balanced bright neutral palette for everyday use. · Click to apply"
         )
         assert dialog.llm_provider_combo.itemText(gemini_index) == "Google Gemini API"
@@ -984,7 +984,6 @@ def test_settings_dialog_custom_api_hides_duplicate_key_and_model_controls(monke
         assert not dialog.custom_api_group.isHidden()
         assert dialog.llm_api_key_label.isHidden()
         assert dialog.llm_api_key_row.isHidden()
-        assert dialog.llm_api_key_hint.isHidden()
         assert dialog.llm_model_label.isHidden()
         assert dialog.llm_model_edit.isHidden()
         assert dialog.custom_api_key_or_password_edit.text() == "custom-secret"
@@ -1001,7 +1000,6 @@ def test_settings_dialog_custom_api_hides_duplicate_key_and_model_controls(monke
         assert dialog.custom_api_group.isHidden()
         assert not dialog.llm_api_key_label.isHidden()
         assert not dialog.llm_api_key_row.isHidden()
-        assert not dialog.llm_api_key_hint.isHidden()
         assert not dialog.llm_model_label.isHidden()
         assert not dialog.llm_model_edit.isHidden()
 
@@ -2536,25 +2534,26 @@ def test_settings_dialog_exposes_synthetic_gesture_controls_and_saves_values():
             }
         )
 
-        assert dialog.motion_group.title() == "동작 설정"
+        expression_group = dialog.response_motion_mode_combo.parentWidget()
+        assert expression_group.title() == "표정과 감정 동작"
         assert dialog.response_motion_mode_combo.currentData() == "classic"
         assert dialog.response_motion_details.isHidden()
         assert dialog.response_motion_mode_combo.findData("follow") == -1
         assert dialog.response_gesture_repeat_spin.isHidden()
         dialog.response_motion_mode_combo.setCurrentIndex(dialog.response_motion_mode_combo.findData("accent"))
         dialog.emotion_motion_check.setChecked(False)
-        assert dialog.emotion_motion_preset_combo.isVisibleTo(dialog.motion_group)
-        assert not dialog.emotion_motion_head_spin.isVisibleTo(dialog.motion_group)
-        assert not dialog.emotion_motion_body_spin.isVisibleTo(dialog.motion_group)
+        assert dialog.emotion_motion_preset_combo.isVisibleTo(expression_group)
+        assert not dialog.emotion_motion_head_spin.isVisibleTo(expression_group)
+        assert not dialog.emotion_motion_body_spin.isVisibleTo(expression_group)
         dialog.emotion_motion_preset_combo.setCurrentIndex(dialog.emotion_motion_preset_combo.findData("gentle"))
         assert dialog._get_current_values()["emotion_motion_preset"] == "gentle"
         dialog.emotion_motion_check.setChecked(True)
         assert not dialog.response_motion_details.isHidden()
         dialog.emotion_motion_head_spin.setValue(0)
         dialog.emotion_motion_body_spin.setValue(175)
-        assert dialog.motion_response_label.text() == "응답 동작"
-        assert dialog.motion_idle_label.text() == "상시/대기 동작"
-        assert dialog.motion_interaction_label.text() == "상호작용"
+        assert dialog.enable_synthetic_gestures_check.parentWidget().title() == "응답 제스처"
+        assert dialog.idle_motion_check.parentWidget().title() == "대기 모션"
+        assert dialog.head_pat_check.parentWidget().title() == "머리 쓰다듬기"
         assert dialog.enable_synthetic_gestures_check.isChecked() is False
         assert dialog.synthetic_gesture_scale_spin.value() == 1.4
         assert dialog.enable_idle_synthetic_gestures_check.isChecked() is True
@@ -2748,6 +2747,7 @@ def test_settings_dialog_retranslates_prompt_and_profile_lazy_tabs_in_japanese_p
             "長期記憶",
             "トピック記憶",
             "ユーザー/ENE記憶",
+            "一緒に過ごした時間",
         ]
         assert dialog.content_header_title.text() == "メモリ管理"
         assert dialog.ui_language_combo.itemText(0) == "システムの既定値"
@@ -4619,6 +4619,7 @@ def test_settings_memory_tab_passes_bridge_knowledge_map_manager(monkeypatch):
     dialog._theme_values = {}
     dialog._original_settings = {}
     dialog._embedded_memory_panel = None
+    dialog._register_text_binding = lambda setter, _key, fallback: setter(fallback)
     dialog._bind_widget_text = lambda *_args, **_kwargs: None
     dialog._bind_suffix = lambda *_args, **_kwargs: None
     dialog._bind_special_value_text = lambda *_args, **_kwargs: None
@@ -4682,6 +4683,7 @@ def test_settings_memory_tab_without_bridge_passes_none_knowledge_map_manager(mo
     dialog._theme_values = {}
     dialog._original_settings = {}
     dialog._embedded_memory_panel = None
+    dialog._register_text_binding = lambda setter, _key, fallback: setter(fallback)
     dialog._bind_widget_text = lambda *_args, **_kwargs: None
     dialog._bind_suffix = lambda *_args, **_kwargs: None
     dialog._bind_special_value_text = lambda *_args, **_kwargs: None
@@ -4744,14 +4746,18 @@ def test_settings_memory_section_unifies_memory_related_tabs(monkeypatch):
         "장기 기억",
         "주제 기억",
         "사용자/ENE 기억",
+        "함께한 시간",
     ]
-    assert [key for _setter, key, _fallback in text_bindings] == [
+    tab_bindings = [entry for entry in text_bindings if entry[1].startswith("settings.memory.tabs.")]
+    assert [key for _setter, key, _fallback in tab_bindings] == [
         "settings.memory.tabs.long_term",
         "settings.memory.tabs.topic",
         "settings.memory.tabs.profile_memory",
+        "settings.memory.tabs.together",
     ]
+    assert tab_widget.tabBar().tabData(tab_widget.currentIndex()) == "together"
 
-    first_setter, _key, _fallback = text_bindings[0]
+    first_setter, _key, _fallback = tab_bindings[0]
     first_setter("Long-Term Memory")
 
     assert tab_widget.tabText(0) == "Long-Term Memory"
@@ -4766,6 +4772,7 @@ def test_profile_memory_tab_contains_organize_button_and_embedded_panels(monkeyp
     monkeypatch.setattr(ene_profile_tab, "build_ene_profile_tab", lambda _dialog, embedded=False: QLabel("ene"))
 
     dialog = QWidget()
+    dialog._register_text_binding = lambda setter, _key, fallback: setter(fallback)
     dialog._bind_widget_text = lambda widget, _key, fallback: widget.setText(fallback)
     dialog._translated_text = lambda _key, fallback: fallback
     dialog._translated_text_format = lambda _key, fallback, **kwargs: fallback.format(**kwargs)
@@ -4944,7 +4951,7 @@ def test_settings_topic_memory_tab_uses_bridge_knowledge_map_manager(monkeypatch
     applied_themes = []
 
     class FakeTopicMemoryMindmapPanel(QWidget):
-        def __init__(self, knowledge_map_manager, parent=None):
+        def __init__(self, knowledge_map_manager, parent=None, *, translate):
             super().__init__(parent)
             created.append(knowledge_map_manager)
 

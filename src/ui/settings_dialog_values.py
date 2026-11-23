@@ -274,7 +274,6 @@ class SettingsDialogValuesMixin:
         for attr_name in (
             "llm_api_key_label",
             "llm_api_key_row",
-            "llm_api_key_hint",
             "llm_model_label",
             "llm_model_edit",
         ):
@@ -1202,6 +1201,7 @@ class SettingsDialogValuesMixin:
 
         return {
             **preserved_hidden_settings,
+            **(self._embedded_memory_panel.tuning_changes() if self._embedded_memory_panel is not None else {}),
             "ui_language": str(self.ui_language_combo.currentData() or "auto"),
             "assistant_display_name": self.assistant_display_name_edit.text().strip(),
             "user_address_name": self.user_address_name_edit.text().strip(),

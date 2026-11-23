@@ -20,7 +20,10 @@ def build_topic_memory_tab(dialog):
     layout.setSpacing(12)
 
     knowledge_map_manager = getattr(self._bridge, "knowledge_map_manager", None) if self._bridge else None
-    panel = TopicMemoryMindmapPanel(knowledge_map_manager, widget)
+    def translate(key, **values):
+        return self._translated_text_format(key, key, **values)
+
+    panel = TopicMemoryMindmapPanel(knowledge_map_manager, widget, translate=translate)
     panel.apply_theme(dict(getattr(self, "_theme_values", {}) or {}))
     self._embedded_topic_memory_panel = panel
     layout.addWidget(panel)

@@ -139,7 +139,7 @@ Common files:
 
 ## Life Records
 
-Life records can describe what ENE did in a text-based world between the end of a session containing an approved conversation summary and a later return. The feature is disabled by default. Enable it under `Settings → Behavior → Life records`; the default minimum time after the session ends is 60 minutes and can be changed there.
+Life records can describe what ENE did in a text-based world between the end of a session containing an approved conversation summary and a later return. The feature is disabled by default. Enable it under `Settings → Behavior → Detection & logs → Life records`; the default minimum time after the session ends is 60 minutes and can be changed there.
 
 Edit the freeform Markdown world under `Settings → Prompts → Life World`. The runtime file is `%AppData%/ENE/prompts/life_world.md`. If the world is intentionally empty, ENE skips generation and normal chat continues.
 
@@ -192,7 +192,7 @@ If you want ENE's spoken replies to stay closer to the current default companion
 
 ### Enable Streaming Mode
 
-To enable streaming mode, turn on the `Use GPT-SoVITS streaming TTS` option in the TTS settings.
+To enable streaming mode, turn on the `Use GPT-SoVITS streaming TTS` option under `Voice settings → Voice output (TTS)`.
 
 Streaming can make spoken replies feel more immediate because ENE can start speaking earlier instead of waiting for the full result first. It is useful when you want the companion to feel more responsive in back-and-forth conversation.
 
@@ -205,7 +205,7 @@ That said, it is still best to confirm that normal GPT-SoVITS playback works fir
 - `Text chat works but ENE does not speak`: Check that TTS itself is enabled, not only the provider settings.
 - `Streaming feels broken or delayed`: Turn streaming off first and verify that normal playback works. After that, re-enable streaming and test again.
 - `Voice quality is weak`: Try a cleaner reference audio sample, a more accurate transcript, and language values that match the sample exactly.
-- `The voice works but does not feel like ENE`: Adjust the spoken style through `sub_prompt_body.md`, then review the TTS settings again.
+- `The voice works but does not feel like ENE`: Adjust the spoken style through `sub_prompt_body.md`, then review the voice settings again.
 
 ## Image Avatar Mode
 

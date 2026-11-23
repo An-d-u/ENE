@@ -22,6 +22,9 @@ from PyQt6.QtWidgets import (
 )
 
 
+from .section_navigation import add_group_navigation
+
+
 def build_prompt_tab(dialog):
     """프롬프트 설정 탭 위젯을 구성한다."""
     scroll = QScrollArea()
@@ -39,30 +42,6 @@ def build_prompt_tab(dialog):
     dialog._prompt_grid = layout
     layout.setSpacing(12)
     layout.setContentsMargins(10, 10, 10, 10)
-
-    header = QFrame()
-    header.setMinimumWidth(0)
-    header.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-    header.setObjectName("FooterCard")
-    header_layout = QVBoxLayout(header)
-    header_layout.setContentsMargins(20, 18, 20, 18)
-    header_layout.setSpacing(6)
-
-    title = QLabel()
-    dialog._bind_widget_text(title, "settings.prompt.header.title", "프롬프트 설정")
-    title.setObjectName("FooterTitle")
-    header_layout.addWidget(title)
-
-    body = QLabel()
-    dialog._bind_widget_text(
-        body,
-        "settings.prompt.header.body",
-        "파이썬 파일 전체를 직접 수정하지 않고 BASE_SYSTEM_PROMPT, SUB_PROMPT, EMOTIONS와 감정 사용 가이드만 안전하게 관리합니다.",
-    )
-    body.setObjectName("FooterBody")
-    body.setWordWrap(True)
-    header_layout.addWidget(body)
-    layout.addWidget(header, 0, 0, 1, 2)
 
     base_group = QGroupBox("BASE_SYSTEM_PROMPT")
     base_group.setMinimumWidth(0)
@@ -86,7 +65,7 @@ def build_prompt_tab(dialog):
     dialog._base_prompt_token_label.setMinimumWidth(0)
     dialog._base_prompt_token_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
     base_layout.addWidget(dialog._base_prompt_token_label)
-    layout.addWidget(base_group, 1, 0)
+    layout.addWidget(base_group, 0, 0)
 
     sub_group = QGroupBox()
     sub_group.setMinimumWidth(0)
@@ -120,7 +99,7 @@ def build_prompt_tab(dialog):
     dialog._sub_prompt_token_label.setMinimumWidth(0)
     dialog._sub_prompt_token_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
     sub_layout.addWidget(dialog._sub_prompt_token_label)
-    layout.addWidget(sub_group, 1, 1)
+    layout.addWidget(sub_group, 0, 1)
     layout.setColumnStretch(0, 1)
     layout.setColumnStretch(1, 1)
 
@@ -196,7 +175,7 @@ def build_prompt_tab(dialog):
     life_world_default_btn.clicked.connect(dialog._load_default_life_world_prompt)
     life_world_footer.addWidget(life_world_default_btn)
     life_world_layout.addLayout(life_world_footer)
-    layout.addWidget(dialog._life_world_group, 2, 0, 1, 2)
+    layout.addWidget(dialog._life_world_group, 1, 0, 1, 2)
 
     emotion_group = QGroupBox()
     emotion_group.setMinimumWidth(0)
@@ -249,7 +228,7 @@ def build_prompt_tab(dialog):
 
     emotion_editor_col.addLayout(emotion_actions)
     emotion_layout.addLayout(emotion_editor_col, 1)
-    layout.addWidget(emotion_group, 3, 0, 1, 2)
+    layout.addWidget(emotion_group, 2, 0, 1, 2)
 
     footer_row = QHBoxLayout()
     footer_row.setSpacing(10)
@@ -283,10 +262,11 @@ def build_prompt_tab(dialog):
         "프롬프트 저장",
     )
     footer_row.addWidget(save_btn)
-    layout.addLayout(footer_row, 4, 0, 1, 2)
+    layout.addLayout(footer_row, 3, 0, 1, 2)
 
-    layout.setRowStretch(5, 1)
+    layout.setRowStretch(4, 1)
     scroll.setWidget(widget)
+    dialog._load_prompt_tokenizer()
     dialog._load_prompt_configuration()
     dialog._refresh_prompt_token_counts()
-    return scroll
+    return add_group_navigation(dialog, scroll)

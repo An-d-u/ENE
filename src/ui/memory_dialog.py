@@ -5,7 +5,7 @@ import asyncio
 from datetime import datetime
 import re
 
-from PyQt6.QtCore import QEvent, QPoint, QSize, Qt, QTimer
+from PyQt6.QtCore import QEvent, QPoint, QSignalBlocker, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QTextLayout
 from PyQt6.QtWidgets import (
     QAbstractSpinBox,
@@ -66,6 +66,8 @@ class MemoryPreviewLabel(QLabel):
 class MemoryDialog(QDialog):
     """기억 관리 다이얼로그"""
 
+    tuning_edited = pyqtSignal()
+
     def __init__(
         self,
         memory_manager,
@@ -84,6 +86,8 @@ class MemoryDialog(QDialog):
             else getattr(bridge, "knowledge_map_manager", None)
         )
         self._embedded = embedded
+        self._bind_settings_text = getattr(parent, "_bind_widget_text", None) if embedded else None
+        self._settings_translator = getattr(parent, "_translated_text_format", None) if embedded else None
         self._include_topic_memory_tab = include_topic_memory_tab
         self._theme_defaults = {
             "theme_accent_color": "#0071E3",
@@ -122,6 +126,7 @@ class MemoryDialog(QDialog):
         self._setup_ui()
         self._install_no_wheel_handlers()
         self._load_settings()
+        self._initial_tuning = self._tuning_values()
         self._load_memories()
 
     def _install_no_wheel_handlers(self) -> None:
@@ -138,12 +143,17 @@ class MemoryDialog(QDialog):
 
     def retranslate_ui(self) -> None:
         """현재 언어 설정에 맞춰 메모리 관리 UI 문구를 다시 적용한다."""
+        t = self._translate
         self.setWindowTitle(t("memory.window.title"))
         self.search_input.setPlaceholderText(t("memory.search.placeholder"))
         self.important_filter_btn.setText(t("memory.filter.important_only"))
         self.sort_button.setText(self._sort_button_text())
         self.refresh_btn.setText(t("memory.button.refresh"))
         self.rebuild_embeddings_btn.setText(t("memory.button.rebuild_embeddings"))
+        if self._embedded:
+            self.detail_toggle.setText(t("memory.inspector.title"))
+            self.source_filter.setAccessibleName(t("memory.detail.source"))
+            self.type_filter.setAccessibleName(t("memory.detail.type"))
         self._update_filter_button_texts()
         self._load_memories()
         if hasattr(self, "tabs"):
@@ -201,8 +211,7 @@ class MemoryDialog(QDialog):
         accent_border = self._theme_rgba(accent, 0.24)
         selected_bg = self._theme_rgba(accent, 0.08)
 
-        self.setStyleSheet(
-            """
+        sheet = """
             QDialog { background: __SETTINGS_WINDOW__; color: __PRIMARY_TEXT__; font-family: 'Malgun Gothic', 'Segoe UI Variable', 'Segoe UI', sans-serif; }
             QWidget { background: transparent; }
             QFrame#Surface { background: __SETTINGS_WINDOW__; border: 1px solid __WINDOW_BORDER__; border-radius: 30px; }
@@ -237,6 +246,17 @@ class MemoryDialog(QDialog):
             QScrollBar::handle:vertical { background: __SCROLLBAR__; border-radius: 5px; min-height: 42px; }
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; background: transparent; border: none; }
             """
+        if self._embedded:
+            sheet += """
+                QDialog, QFrame#Surface { background: transparent; border: none; }
+                QFrame#Card, QFrame#ListCard { border-radius: 13px; }
+                QFrame#MemoryItem { background: __SETTINGS_INPUT__; border-radius: 8px; }
+                QPushButton, QComboBox, QLineEdit, QSpinBox { min-height: 28px; padding: 2px 8px; border-radius: 8px; }
+                QLabel#CardTitle { font-size: 15px; }
+                QLabel#Body { font-size: 12px; }
+            """
+        self.setStyleSheet(
+            sheet
             .replace("__ACCENT__", accent)
             .replace("__ACCENT_HOVER__", accent_hover)
             .replace("__ACCENT_TEXT__", self._theme_text_color(accent))
@@ -257,8 +277,13 @@ class MemoryDialog(QDialog):
             .replace("__SCROLLBAR__", self._theme_rgba(muted_text, 0.40))
         )
 
+    def _translate(self, key, **values):
+        if self._settings_translator:
+            return self._settings_translator(key, key, **values)
+        return t(key, **values)
+
     def _count_text(self, count: int) -> str:
-        return t("memory.unit.count", count=f"{count:,}")
+        return self._translate("memory.unit.count", count=f"{count:,}")
 
     def _item_count_text(self, count: int) -> str:
         return t("memory.unit.items", count=f"{count:,}")
@@ -267,7 +292,7 @@ class MemoryDialog(QDialog):
         return t("memory.unit.messages", count=f"{count:,}")
 
     def _sort_button_text(self) -> str:
-        return t("memory.sort.newest") if self._sort_descending else t("memory.sort.oldest")
+        return self._translate("memory.sort.newest" if self._sort_descending else "memory.sort.oldest")
 
     def _profile_has_content(self, profile) -> bool:
         if profile is None:
@@ -305,9 +330,12 @@ class MemoryDialog(QDialog):
             0 if self._embedded else 18,
         )
         surface = CardFrame("Surface")
+        if self._embedded:
+            surface.setGraphicsEffect(None)
         root.addWidget(surface)
         layout = QVBoxLayout(surface)
-        layout.setContentsMargins(18, 18, 18, 18)
+        inset = 0 if self._embedded else 18
+        layout.setContentsMargins(inset, inset, inset, inset)
         layout.setSpacing(16)
         if not self._embedded:
             layout.addWidget(self._build_title_bar())
@@ -317,19 +345,38 @@ class MemoryDialog(QDialog):
         long_term_layout.setContentsMargins(0, 0, 0, 0)
         long_term_layout.setSpacing(16)
 
-        long_term_layout.addLayout(self._build_stats_row())
+        if self._embedded:
+            self.collection_title = QLabel(t("settings.memory.tabs.long_term"))
+            if self._bind_settings_text:
+                self._bind_settings_text(self.collection_title, "settings.memory.tabs.long_term", "장기 기억")
+            self.collection_title.setObjectName("CardTitle")
+            self.collection_title.setProperty("settingsJumpTitle", True)
+            long_term_layout.addWidget(self.collection_title)
+            self.memory_totals = QLabel()
+            self.memory_totals.setObjectName("Body")
+            self.memory_totals.setWordWrap(True)
+            long_term_layout.addWidget(self.memory_totals)
+        else:
+            long_term_layout.addLayout(self._build_stats_row())
         long_term_layout.addWidget(self._build_filter_card())
-
-        body_grid = QGridLayout()
-        body_grid.setHorizontalSpacing(14)
-        body_grid.setVerticalSpacing(14)
-        body_grid.addWidget(self._build_memory_list_card(), 0, 0, 2, 2)
-        body_grid.addWidget(self._build_inspector_card(), 0, 2)
-        body_grid.addWidget(self._build_tuning_card(), 1, 2)
-        body_grid.setColumnStretch(0, 1)
-        body_grid.setColumnStretch(1, 1)
-        body_grid.setColumnStretch(2, 1)
-        long_term_layout.addLayout(body_grid, 1)
+        if self._embedded:
+            long_term_layout.addWidget(self._build_memory_list_card())
+            self.memory_list.setMinimumHeight(150)
+            long_term_layout.addWidget(self._build_inspector_card())
+            long_term_layout.addWidget(self._build_tuning_card())
+            for card in self.long_term_memory_page.findChildren(CardFrame):
+                card.setGraphicsEffect(None)
+        else:
+            body_grid = QGridLayout()
+            body_grid.setHorizontalSpacing(14)
+            body_grid.setVerticalSpacing(14)
+            body_grid.addWidget(self._build_memory_list_card(), 0, 0, 2, 2)
+            body_grid.addWidget(self._build_inspector_card(), 0, 2)
+            body_grid.addWidget(self._build_tuning_card(), 1, 2)
+            body_grid.setColumnStretch(0, 1)
+            body_grid.setColumnStretch(1, 1)
+            body_grid.setColumnStretch(2, 1)
+            long_term_layout.addLayout(body_grid, 1)
 
         if self._include_topic_memory_tab:
             self.tabs = QTabWidget()
@@ -405,6 +452,7 @@ class MemoryDialog(QDialog):
         return grid
 
     def _build_filter_card(self) -> QWidget:
+        t = self._translate
         card = CardFrame("Card")
         layout = QVBoxLayout(card)
         layout.setContentsMargins(22, 20, 22, 20)
@@ -431,15 +479,28 @@ class MemoryDialog(QDialog):
 
         self.refresh_btn = QPushButton(t("memory.button.refresh"))
         self.refresh_btn.clicked.connect(self._load_memories)
-        top.addWidget(self.refresh_btn)
 
         self.rebuild_embeddings_btn = QPushButton(t("memory.button.rebuild_embeddings"))
         self.rebuild_embeddings_btn.clicked.connect(self._rebuild_embeddings)
-        top.addWidget(self.rebuild_embeddings_btn)
+        if not self._embedded:
+            top.addWidget(self.refresh_btn)
+            top.addWidget(self.rebuild_embeddings_btn)
         layout.addLayout(top)
 
         filter_row = QHBoxLayout()
         filter_row.setSpacing(10)
+        if self._embedded:
+            self.source_filter = QComboBox()
+            self.type_filter = QComboBox()
+            self.source_filter.setAccessibleName(t("memory.detail.source"))
+            self.type_filter.setAccessibleName(t("memory.detail.type"))
+            for combo in (self.source_filter, self.type_filter):
+                combo.currentIndexChanged.connect(self._on_filter_selected)
+                filter_row.addWidget(combo)
+            filter_row.addWidget(self.refresh_btn)
+            filter_row.addWidget(self.rebuild_embeddings_btn)
+            layout.addLayout(filter_row)
+            return card
 
         self.source_filter_btn = QPushButton("")
         self.source_filter_btn.clicked.connect(self._cycle_source_filter)
@@ -468,7 +529,8 @@ class MemoryDialog(QDialog):
         layout.setSpacing(12)
 
         top = QHBoxLayout()
-        top.addWidget(self._pill(t("memory.list.title"), "MutedPill"))
+        if not self._embedded:
+            top.addWidget(self._pill(t("memory.list.title"), "MutedPill"))
         top.addStretch()
 
         self.list_hint_label = QLabel(t("memory.list.latest_hint"))
@@ -484,12 +546,14 @@ class MemoryDialog(QDialog):
         return card
 
     def _build_inspector_card(self) -> QWidget:
+        t = self._translate
         card = CardFrame("Card")
         layout = QVBoxLayout(card)
         layout.setContentsMargins(22, 22, 22, 22)
         layout.setSpacing(14)
 
-        layout.addWidget(self._pill(t("memory.inspector.title"), "BluePill"), alignment=Qt.AlignmentFlag.AlignLeft)
+        if not self._embedded:
+            layout.addWidget(self._pill(t("memory.inspector.title"), "BluePill"), alignment=Qt.AlignmentFlag.AlignLeft)
 
         self.inspector_title = QLabel(t("memory.empty.title"))
         self.inspector_title.setObjectName("CardTitle")
@@ -506,26 +570,36 @@ class MemoryDialog(QDialog):
         self.inspector_tags_row.addStretch()
         layout.addLayout(self.inspector_tags_row)
 
+        details = QWidget()
+        fields = QVBoxLayout(details)
+        fields.setContentsMargins(0, 0, 0, 0)
+        if self._embedded:
+            self.detail_toggle = QPushButton(t("memory.inspector.title"))
+            self.detail_toggle.setCheckable(True)
+            self.detail_toggle.toggled.connect(details.setVisible)
+            details.hide()
+            layout.addWidget(self.detail_toggle, alignment=Qt.AlignmentFlag.AlignLeft)
+        layout.addWidget(details)
         time_row, self.inspector_time_value = self._key_value_row(t("memory.detail.time"))
-        layout.addWidget(time_row)
+        fields.addWidget(time_row)
         source_row, self.inspector_source_value = self._key_value_row(t("memory.detail.source_count"))
-        layout.addWidget(source_row)
+        fields.addWidget(source_row)
         memory_source_row, self.inspector_memory_source_value = self._key_value_row(t("memory.detail.source"))
-        layout.addWidget(memory_source_row)
+        fields.addWidget(memory_source_row)
         memory_type_row, self.inspector_memory_type_value = self._key_value_row(t("memory.detail.type"))
-        layout.addWidget(memory_type_row)
+        fields.addWidget(memory_type_row)
         confidence_row, self.inspector_confidence_value = self._key_value_row(t("memory.detail.confidence"))
-        layout.addWidget(confidence_row)
+        fields.addWidget(confidence_row)
         migration_row, self.inspector_migration_value = self._key_value_row(t("memory.detail.migration"))
-        layout.addWidget(migration_row)
+        fields.addWidget(migration_row)
         entities_row, self.inspector_entities_value = self._key_value_row(t("memory.detail.entities"))
-        layout.addWidget(entities_row)
+        fields.addWidget(entities_row)
         importance_reason_row, self.inspector_importance_reason_value = self._key_value_row(t("memory.detail.importance_reason"))
-        layout.addWidget(importance_reason_row)
+        fields.addWidget(importance_reason_row)
         important_row, self.inspector_important_value = self._key_value_row(t("memory.detail.important"))
-        layout.addWidget(important_row)
+        fields.addWidget(important_row)
         embedding_row, self.inspector_embedding_value = self._key_value_row(t("memory.detail.embedding"))
-        layout.addWidget(embedding_row)
+        fields.addWidget(embedding_row)
 
         action_row = QHBoxLayout()
         action_row.setSpacing(10)
@@ -554,7 +628,10 @@ class MemoryDialog(QDialog):
         layout.setSpacing(14)
 
         title = QLabel(t("memory.tuning.title"))
+        if self._bind_settings_text:
+            self._bind_settings_text(title, "memory.tuning.title", "기억 검색 설정")
         title.setObjectName("CardTitle")
+        title.setProperty("settingsJumpTitle", self._embedded)
         layout.addWidget(title)
 
         body = QLabel(t("memory.tuning.body"))
@@ -790,7 +867,7 @@ class MemoryDialog(QDialog):
         return self._memory_source_filter_label(normalized)
 
     def _memory_source_filter_label(self, source: str) -> str:
-        translated = t(f"memory.filter.source.{source}")
+        translated = self._translate(f"memory.filter.source.{source}")
         return translated if translated != f"memory.filter.source.{source}" else source
 
     def _memory_type_label(self, memory_type: str | None) -> str:
@@ -801,7 +878,7 @@ class MemoryDialog(QDialog):
         return self._memory_type_filter_label(normalized)
 
     def _memory_type_filter_label(self, memory_type: str) -> str:
-        translated = t(f"memory.filter.type.{memory_type}")
+        translated = self._translate(f"memory.filter.type.{memory_type}")
         return translated if translated != f"memory.filter.type.{memory_type}" else memory_type
 
     def _memory_badge_label(self, category: str, value: str | None, fallback: str) -> str:
@@ -860,12 +937,30 @@ class MemoryDialog(QDialog):
         return values
 
     def _update_filter_button_texts(self) -> None:
+        if self._embedded:
+            for combo, keys, current, prefix, label in (
+                (self.source_filter, self._available_source_filters(), self._source_filter_value,
+                 "memory.filter.source.prefix", self._memory_source_filter_label),
+                (self.type_filter, self._available_type_filters(), self._type_filter_value,
+                 "memory.filter.type.prefix", self._memory_type_filter_label),
+            ):
+                with QSignalBlocker(combo):
+                    combo.clear()
+                    for key in keys:
+                        combo.addItem(self._translate(prefix, value=label(key)), key)
+                    combo.setCurrentIndex(combo.findData(current))
+            return
         self.source_filter_btn.setText(
             t("memory.filter.source.prefix", value=self._memory_source_filter_label(self._source_filter_value))
         )
         self.type_filter_btn.setText(
             t("memory.filter.type.prefix", value=self._memory_type_filter_label(self._type_filter_value))
         )
+
+    def _on_filter_selected(self):
+        self._source_filter_value = self.source_filter.currentData() or "all"
+        self._type_filter_value = self.type_filter.currentData() or "all"
+        self._apply_filters()
 
     def _cycle_filter_value(self, current_value: str, available_values: list[str]) -> str:
         if not available_values:
@@ -910,7 +1005,7 @@ class MemoryDialog(QDialog):
             widget.layout().activate()
             self._refresh_memory_widget_preview(widget)
             widget.layout().activate()
-            height = max(84, widget.sizeHint().height())
+            height = max(40 if self._embedded else 84, widget.sizeHint().height())
             item.setSizeHint(QSize(viewport_width, height))
 
     def _elide_memory_preview_to_lines(self, text: str, label: QLabel, max_lines: int = 4) -> str:
@@ -961,8 +1056,9 @@ class MemoryDialog(QDialog):
         if not source_text:
             return
 
-        label.setText(self._elide_memory_preview_to_lines(source_text, label, max_lines=4))
-        label.setFixedHeight(min(label.sizeHint().height(), (label.fontMetrics().lineSpacing() * 4) + 8))
+        lines = 1 if self._embedded else 4
+        label.setText(self._elide_memory_preview_to_lines(source_text, label, max_lines=lines))
+        label.setFixedHeight(min(label.sizeHint().height(), (label.fontMetrics().lineSpacing() * lines) + 8))
         label.updateGeometry()
 
     def _create_memory_widget(self, memory):
@@ -971,6 +1067,25 @@ class MemoryDialog(QDialog):
         card.style().unpolish(card)
         card.style().polish(card)
 
+        summary = MemoryPreviewLabel()
+        summary.setTextFormat(Qt.TextFormat.PlainText)
+        summary.setObjectName("Body")
+        summary.setWordWrap(False)
+        summary.setProperty("previewSourceText", self._memory_preview_text(memory))
+        summary.set_refresh_callback(lambda: self._refresh_memory_widget_preview(card))
+        card.summary_label = summary
+        if self._embedded:
+            card.setGraphicsEffect(None)
+            row = QHBoxLayout(card)
+            row.setContentsMargins(12, 7, 12, 7)
+            row.addWidget(summary, 1)
+            date_text = self._format_timestamp(memory.timestamp)
+            if memory.is_important:
+                date_text += " · " + self._translate("memory.badge.important")
+            row.addWidget(QLabel(date_text))
+            card.setAccessibleName(self._memory_preview_text(memory))
+            self._refresh_memory_widget_preview(card)
+            return card
         layout = QVBoxLayout(card)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(9)
@@ -999,13 +1114,7 @@ class MemoryDialog(QDialog):
         top.addStretch()
         layout.addLayout(top)
 
-        summary = MemoryPreviewLabel()
-        summary.setObjectName("Body")
-        summary.setWordWrap(False)
-        summary.setProperty("previewSourceText", self._memory_preview_text(memory))
-        summary.set_refresh_callback(lambda current_card=card: self._refresh_memory_widget_preview(current_card))
         layout.addWidget(summary)
-        card.summary_label = summary
 
         if memory.tags:
             tags_row = QHBoxLayout()
@@ -1019,6 +1128,15 @@ class MemoryDialog(QDialog):
 
     def _update_stats(self, total: int, important: int, with_embedding: int) -> None:
         coverage = f"{round((with_embedding / total) * 100) if total else 0}%"
+        if self._embedded:
+            self._metrics_text = " · ".join(
+                f"{self._translate(key)} {value}" for key, value in (
+                    ("memory.metric.total.label", f"{total:,}"), ("memory.metric.important.label", f"{important:,}"),
+                    ("memory.metric.embedding.label", coverage),
+                )
+            )
+            self._update_threshold_metric(self.threshold_spinbox.value())
+            return
         self.total_metric.value_label.setText(f"{total:,}")
         self.important_metric.value_label.setText(f"{important:,}")
         self.embedding_metric.value_label.setText(coverage)
@@ -1250,25 +1368,49 @@ class MemoryDialog(QDialog):
         )
 
     def _load_settings(self):
-        if not self.bridge:
-            return
-
         self._loading_settings = True
         try:
-            self.threshold_spinbox.setValue(int(getattr(self.bridge, "summarize_threshold", 10)))
-            if hasattr(self.bridge, "settings") and self.bridge.settings:
-                config = self.bridge.settings.config
-                self.important_spinbox.setValue(int(config.get("max_important_memories", 3)))
-                self.similar_spinbox.setValue(int(config.get("max_similar_memories", 3)))
-                self.similarity_spinbox.setValue(int(config.get("min_similarity", 0.35) * 100))
-                self.recent_spinbox.setValue(int(config.get("max_recent_memories", 2)))
-                self.raw_chunk_spinbox.setValue(int(config.get("max_raw_chunks_in_context", 2)))
+            settings = getattr(self.bridge, "settings", None)
+            config = getattr(settings, "config", {})
+            threshold = getattr(self.bridge, "summarize_threshold", 10)
+            if self._embedded:
+                config = {**config, **getattr(self.parent(), "_original_settings", {})}
+                threshold = config.get("summarize_threshold", threshold)
+            self.threshold_spinbox.setValue(int(threshold))
+            self.important_spinbox.setValue(int(config.get("max_important_memories", 3)))
+            self.similar_spinbox.setValue(int(config.get("max_similar_memories", 3)))
+            self.similarity_spinbox.setValue(round(config.get("min_similarity", 0.35) * 100))
+            self.recent_spinbox.setValue(int(config.get("max_recent_memories", 2)))
+            self.raw_chunk_spinbox.setValue(int(config.get("max_raw_chunks_in_context", 2)))
         finally:
             self._loading_settings = False
 
+    def _update_threshold_metric(self, value):
+        if self._embedded:
+            metrics = getattr(self, "_metrics_text", "")
+            self.memory_totals.setText(f"{metrics} · {self._translate('memory.metric.threshold.label')} {self._count_text(value)}")
+        else:
+            self.threshold_metric.value_label.setText(self._count_text(value))
+
+    def _tuning_values(self):
+        return {
+            "summarize_threshold": self.threshold_spinbox.value(),
+            "max_important_memories": self.important_spinbox.value(),
+            "max_similar_memories": self.similar_spinbox.value(),
+            "min_similarity": self.similarity_spinbox.value() / 100,
+            "max_recent_memories": self.recent_spinbox.value(),
+            "max_raw_chunks_in_context": self.raw_chunk_spinbox.value(),
+        }
+
+    def tuning_changes(self):
+        return {key: value for key, value in self._tuning_values().items() if value != self._initial_tuning[key]}
+
     def _on_threshold_changed(self, value):
-        self.threshold_metric.value_label.setText(self._count_text(value))
+        self._update_threshold_metric(value)
         if self._loading_settings:
+            return
+        if self._embedded:
+            self.tuning_edited.emit()
             return
         if self.bridge:
             setter = getattr(self.bridge, "set_summarize_threshold", None)
@@ -1285,6 +1427,9 @@ class MemoryDialog(QDialog):
 
     def _on_memory_setting_changed(self):
         if self._loading_settings:
+            return
+        if self._embedded:
+            self.tuning_edited.emit()
             return
         if not self.bridge or not hasattr(self.bridge, "settings") or not self.bridge.settings:
             return
