@@ -74,7 +74,7 @@ const elements = {};
 const web = path.join(__dirname, '..', 'assets', 'web');
 const html = fs.readFileSync(path.join(web, 'index.html'), 'utf8');
 const screenShareIds = Array.from(html.matchAll(/id="(screen-share-[\w-]+)"/g), match => match[1]);
-for (const id of ['chat-container', 'chat-messages', 'chat-input', 'send-button', 'attach-button', 'image-input', 'loading-indicator', 'image-preview-container', 'toast-container', ...screenShareIds]) {
+for (const id of ['chat-container', 'chat-messages', 'chat-input', 'send-button', 'attach-button', 'image-input', 'loading-indicator', 'image-preview-container', 'toast-container', 'floating-actions-toggle', ...screenShareIds]) {
     // 선택 조건에 영향을 주는 분류와 data 속성을 실제 HTML에서 가져온다.
     const openingTag = html.match(new RegExp(`<([a-z][\\w-]*)\\b[^>]*\\bid="${id}"[^>]*>`, 'i'));
     if (!openingTag) throw Error(`채팅 HTML 요소를 찾을 수 없음: ${id}`);

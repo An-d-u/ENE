@@ -6,7 +6,7 @@ SCREEN_UNAVAILABLE_HINT = "이번 요청에는 화면 이미지가 없습니다.
 
 
 class ScreenFrame:
-    def __init__(self, jpeg, authorized, *, source="PC 창"):
+    def __init__(self, jpeg, authorized, *, source="PC 화면"):
         self._jpeg = jpeg
         self._authorized = authorized
         self._lock = Lock()
@@ -22,7 +22,7 @@ class ScreenFrame:
         return f"{self.source} · {self.captured_at}\n{self.visual_summary}"
 
     def read(self):
-        """전송 직전에도 같은 창과 모드가 유효할 때만 JPEG를 읽는다."""
+        """전송 직전에도 같은 공유 대상과 모드가 유효할 때만 JPEG를 읽는다."""
         with self._lock:
             self._discard_if_stale()
             if not self._jpeg:

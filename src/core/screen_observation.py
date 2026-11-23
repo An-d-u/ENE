@@ -1,4 +1,4 @@
-"""선택한 창의 변화를 로컬에서 비교하고 자동 발화의 빈도를 제한한다."""
+"""선택한 화면의 변화를 로컬에서 비교하고 자동 발화의 빈도를 제한한다."""
 import json
 
 from PyQt6.QtCore import Qt
@@ -56,7 +56,7 @@ class ObservationSchedule:
 
 
 def observation_prompt(language, tts_language, *, mobile=False):
-    scene = "휴대폰 카메라" if mobile else "창"
+    scene = "휴대폰 카메라" if mobile else "PC 화면"
     return (
         f"사용자가 공유한 {scene}에서 방금 장면 변화가 감지되었습니다. "
         "결과나 작업 완료처럼 짧게 짚을 구체적인 이유가 보일 때만 한 문장으로 반응하세요. "

@@ -1,7 +1,10 @@
 {
-  "screen.frame_missing": "共有したウィンドウを確認できないため、テキストのみで回答します。",
-  "screen.no_windows": "共有できるウィンドウがありません。",
-  "screen.select_window": "共有するウィンドウを選択",
+  "screen.frame_missing": "共有した画面を確認できないため、テキストのみで回答します。",
+  "screen.no_sources": "共有できるモニターやウィンドウがありません。",
+  "screen.select_source": "共有する画面を選択",
+  "screen.displays": "画面全体（複数選択可）",
+  "screen.windows": "ウィンドウ",
+  "screen.monitor": "モニター {number}",
   "settings.behavior.debug.share": "共有用の診断レポートを作成",
   "settings.debug_share.date": "ログの日付",
   "settings.debug_share.hint": "選択した日の直近の結果を最大100件表示します。以下の内容がそのまま保存されます。",
@@ -1256,7 +1259,7 @@
         "sample": "画面の変化を確認する間隔",
         "request": "モデル呼び出しの最短間隔",
         "seconds": " 秒",
-        "hint": "PCのウィンドウとスマートフォンのカメラに共通の設定です。初期設定では30秒ごとに変化を確認し、モデルの呼び出しは5分に1回までです。"
+        "hint": "PCの共有画面とスマートフォンのカメラに共通の設定です。初期設定では30秒ごとに変化を確認し、モデルの呼び出しは5分に1回までです。"
       },
       "away": {
         "title": "Away / idle detection",

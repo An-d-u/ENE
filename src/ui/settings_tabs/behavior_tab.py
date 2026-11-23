@@ -380,7 +380,7 @@ def _detection_records(self):
         self._bind_suffix(spin, "settings.behavior.observation.seconds", " 초")
         self._add_form_row(observation_layout, f"settings.behavior.observation.{key}", label, spin)
     observation_layout.addRow(self._build_hint_label(
-        "PC 창과 휴대폰 카메라에 함께 적용합니다. 기본값은 화면 확인 30초, 모델 호출 5분입니다.",
+        "PC 화면과 휴대폰 카메라에 함께 적용합니다. 기본값은 화면 확인 30초, 모델 호출 5분입니다.",
         key="settings.behavior.observation.hint",
     ))
 

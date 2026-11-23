@@ -3,19 +3,18 @@
 from tests.test_chat_dom_runtime import run_dom_case
 
 
-def test_chat_and_overlay_open_controls_without_starting_capture():
+def test_only_quick_menu_opens_controls_without_starting_capture():
     result = run_dom_case("""
 const node = key => document.getElementById('screen-share-' + key);
-if (!node('button')) { result = {missing: true}; return; }
 bridge.screenStateCallback(JSON.stringify({available:true, model:'Demo Vision', remote:true, question:false, observe:false}));
-node('button').click();
-const fromChat = node('panel').open;
-node('close').click();
 node('floating-btn').click();
-result = {fromChat, fromOverlay:node('panel').open, target:node('destination').textContent,
+result = {fromChat:!!node('button'), fromOverlay:node('panel').open, target:node('destination').textContent,
     enabled:!node('question').disabled, badge:!node('indicator').hidden, calls:bridge.screenCalls};
+node('close').click();
+result.focus = document.activeElement?.id;
 """)
-    assert result == {"fromChat": True, "fromOverlay": True, "target": "외부 서버로 전송 · Demo Vision",
+    assert result == {"fromChat": False, "fromOverlay": True, "target": "외부 서버로 전송 · Demo Vision",
+                      "focus": "floating-actions-toggle",
                       "enabled": True, "badge": False, "calls": []}
 
 
@@ -25,7 +24,7 @@ const node = key => document.getElementById('screen-share-' + key);
 const state = {available:true, model:'Demo Vision', remote:false, question:false, observe:false, title:''};
 const emit = change => bridge.screen_share_state_changed.emit(JSON.stringify({...state, ...change}));
 emit({});
-node('button').click();
+node('floating-btn').click();
 node('question').checked = true;
 node('question').listeners.change();
 const beforePicker = {checked:node('question').checked, hidden:node('indicator').hidden};
@@ -63,7 +62,7 @@ bridge.screen_share_state_changed.emit(JSON.stringify({available:true, model:'De
     observe:true, question:false, title:'仮の図形'}));
 bridge.screenStateCallback(JSON.stringify({available:false, model:'', remote:false, question:false, observe:false}));
 const afterLateRead = node('window').textContent;
-node('button').click();
+node('floating-btn').click();
 bridge.screen_share_state_changed.emit(JSON.stringify({available:false, model:'', remote:false, question:false,
     observe:false, error:'capture_unavailable'}));
 const error = node('status').textContent;
@@ -72,5 +71,5 @@ window.eneScreenShare.connect({});
 result = {afterLateRead, error, unsupported:node('status').textContent, disabled:node('observe').disabled,
     stopped:node('indicator').hidden, calls:bridge.screenCalls};
 """)
-    assert result == {"afterLateRead": "仮の図形", "error": "選択したウィンドウを取得できません。",
-                      "unsupported": "Window sharing is unavailable.", "disabled": True, "stopped": True, "calls": []}
+    assert result == {"afterLateRead": "仮の図形", "error": "選択した共有対象をキャプチャできません。",
+                      "unsupported": "Screen sharing is unavailable.", "disabled": True, "stopped": True, "calls": []}

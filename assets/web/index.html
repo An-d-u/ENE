@@ -13,7 +13,7 @@
     <div id="overlay-notice-stack" aria-live="polite">
         <div id="screen-share-indicator" hidden>
             <div class="screen-share-info">
-                <strong id="screen-share-active">창 공유 중</strong>
+                <strong id="screen-share-active">화면 공유 중</strong>
                 <span id="screen-share-window"></span>
                 <span id="screen-share-detail"></span>
             </div>
@@ -47,12 +47,6 @@
                 </svg>
             </button>
             <input type="file" id="image-input" accept="image/*,.txt,.md,.pdf,.docx" multiple hidden>
-            <button id="screen-share-button" type="button" title="화면 공유" aria-label="화면 공유" aria-haspopup="dialog" aria-controls="screen-share-panel">
-                <svg class="lucide-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8m-4-4v4m-3-11 3-3 3 3m-3-3v6"/>
-                </svg>
-                <span id="screen-share-button-label">화면 공유</span>
-            </button>
 
             <textarea id="chat-input" placeholder="메시지를 입력하세요..." rows="1"></textarea>
             <button id="send-button">전송</button>
@@ -85,8 +79,8 @@
             <button id="screen-share-close" type="button" aria-label="닫기" autofocus>×</button>
         </header>
         <p id="screen-share-destination"></p>
-        <label><input id="screen-share-question" type="checkbox" disabled><span id="screen-share-question-label">질문할 때 창 보기</span></label>
-        <label><input id="screen-share-observe" type="checkbox" disabled><span id="screen-share-observe-label">창의 변화를 보고 먼저 말하기</span></label>
+        <label><input id="screen-share-question" type="checkbox" disabled><span id="screen-share-question-label">질문할 때 화면 보기</span></label>
+        <label><input id="screen-share-observe" type="checkbox" disabled><span id="screen-share-observe-label">화면의 변화를 보고 먼저 말하기</span></label>
         <p id="screen-share-status" role="status"></p>
         <button id="screen-share-stop" type="button" hidden>공유 종료</button>
     </dialog>

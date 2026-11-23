@@ -1,4 +1,4 @@
-"""PC에서 명시적으로 선택한 창의 공유 상태를 관리한다."""
+"""PC에서 명시적으로 선택한 화면의 공유 상태를 관리한다."""
 import ipaddress
 import json
 import sys

@@ -1,7 +1,10 @@
 {
-  "screen.frame_missing": "공유한 창을 확인할 수 없어 텍스트로 답합니다.",
-  "screen.no_windows": "공유할 수 있는 창이 없습니다.",
-  "screen.select_window": "공유할 창 선택",
+  "screen.frame_missing": "공유한 화면을 확인할 수 없어 텍스트로 답합니다.",
+  "screen.no_sources": "공유할 수 있는 모니터나 창이 없습니다.",
+  "screen.select_source": "공유할 화면 선택",
+  "screen.displays": "전체 화면 (여러 대 선택 가능)",
+  "screen.windows": "창",
+  "screen.monitor": "모니터 {number}",
   "settings.behavior.debug.share": "진단 공유본 만들기",
   "settings.debug_share.date": "로그 날짜",
   "settings.debug_share.hint": "선택한 날짜의 최근 완료 기록 100건까지 표시합니다. 아래 내용이 그대로 저장됩니다.",
@@ -1310,7 +1313,7 @@
         "sample": "화면 변화 확인 간격",
         "request": "모델 호출 최소 간격",
         "seconds": " 초",
-        "hint": "PC 창과 휴대폰 카메라에 함께 적용합니다. 기본값은 화면 확인 30초, 모델 호출 5분입니다."
+        "hint": "PC 화면과 휴대폰 카메라에 함께 적용합니다. 기본값은 화면 확인 30초, 모델 호출 5분입니다."
       },
       "away": {
         "title": "자리 비움 / 유휴 감지",

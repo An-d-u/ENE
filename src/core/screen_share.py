@@ -1,4 +1,4 @@
-"""사용자가 고른 Windows 창 하나의 수명과 메모리 안의 프레임을 관리한다."""
+"""사용자가 고른 Windows 창이나 모니터의 공유 세션을 관리한다."""
 
 from __future__ import annotations
 
@@ -9,10 +9,12 @@ import os
 import sys
 
 from PyQt6.QtCore import QObject, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QImage, QWindow
-from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QListWidget, QVBoxLayout, QWidget
+from PyQt6.QtGui import QGuiApplication, QImage, QWindow
+from PyQt6.QtWidgets import (QDialog, QDialogButtonBox, QLabel, QListWidget, QListWidgetItem,
+                             QTabWidget, QVBoxLayout, QWidget)
 
 from .i18n import tr
+from .screen_monitors import Monitor, MonitorSelection, WindowsMonitors
 
 
 @dataclass(frozen=True)
@@ -28,6 +30,7 @@ class _Windows:
         if sys.platform != "win32":
             raise RuntimeError("이 환경에서는 창을 공유할 수 없습니다.")
         user = ctypes.WinDLL("user32", use_last_error=True)
+        self.monitors = WindowsMonitors(user)
         dwm = ctypes.WinDLL("dwmapi", use_last_error=True)
         wts = ctypes.WinDLL("wtsapi32", use_last_error=True)
         kernel = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -111,12 +114,16 @@ class _Windows:
             return True
 
         if self.interactive():
+            targets.extend(self.monitors.options())
             self.enum(collect, 0)
         return targets
 
     def status(self, target):
         if not self.interactive():
             return "locked"
+        if isinstance(target, MonitorSelection):
+            valid = all(self.monitors.info(m.handle) == (m.device, m.rect) for m in target.monitors)
+            return "ready" if valid else "closed"
         pid = wt.DWORD()
         tid = self.owner(target.hwnd, ctypes.byref(pid))
         if not tid or tid != target.tid or pid.value != target.pid:
@@ -175,27 +182,55 @@ class _SessionEvents(QWidget):
 
 def _pick(parent, targets):
     dialog = QDialog(parent if isinstance(parent, QWidget) else None)
-    dialog.setWindowTitle(tr("screen.select_window"))
+    dialog.setWindowTitle(tr("screen.select_source"))
     dialog.resize(480, 340)
     layout = QVBoxLayout(dialog)
-    if not targets:
-        layout.addWidget(QLabel(tr("screen.no_windows")))
-    listing = QListWidget(dialog)
-    listing.setAccessibleName(dialog.windowTitle())
-    for target in targets:
-        listing.addItem(target.title)
-    layout.addWidget(listing)
+    monitors = [t for t in targets if isinstance(t, Monitor)]
+    windows = [t for t in targets if isinstance(t, _Target)]
+    tabs = QTabWidget()
+    displays = QListWidget()
+    displays.setAccessibleName(tr("screen.displays"))
+    for monitor in monitors:
+        item = QListWidgetItem(f"{monitor.title} · {monitor.rect.width()} × {monitor.rect.height()}", displays)
+        item.setCheckState(Qt.CheckState.Unchecked)
+    listing = QListWidget()
+    listing.setAccessibleName(tr("screen.windows"))
+    for window in windows:
+        listing.addItem(window.title)
+    if monitors:
+        tabs.addTab(displays, tr("screen.displays"))
+    if windows:
+        tabs.addTab(listing, tr("screen.windows"))
+    if tabs.count():
+        layout.addWidget(tabs)
+    else:
+        layout.addWidget(QLabel(tr("screen.no_sources")))
     buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
     buttons.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("settings.footer.cancel"))
     ok = buttons.button(QDialogButtonBox.StandardButton.Ok)
-    ok.setEnabled(False)
-    listing.currentRowChanged.connect(lambda row: ok.setEnabled(row >= 0))
+
+    def selection():
+        if tabs.currentWidget() is displays:
+            checked = tuple(m for i, m in enumerate(monitors)
+                            if displays.item(i).checkState() == Qt.CheckState.Checked)
+            return MonitorSelection(checked) if checked else None
+        if tabs.currentWidget() is listing and listing.currentRow() >= 0:
+            return windows[listing.currentRow()]
+        return None
+
+    def update_ok(*_):
+        ok.setEnabled(selection() is not None)
+
+    update_ok()
+    displays.itemChanged.connect(update_ok)
+    listing.currentRowChanged.connect(update_ok)
+    tabs.currentChanged.connect(update_ok)
     listing.itemDoubleClicked.connect(dialog.accept)
     buttons.accepted.connect(dialog.accept)
     buttons.rejected.connect(dialog.reject)
     layout.addWidget(buttons)
-    if dialog.exec() == QDialog.DialogCode.Accepted and listing.currentRow() >= 0:
-        return targets[listing.currentRow()]
+    if dialog.exec() == QDialog.DialogCode.Accepted:
+        return selection()
     return None
 
 
@@ -259,6 +294,12 @@ class ScreenShare(QObject):
         self._timer = QTimer(self)
         self._timer.setInterval(500)
         self._timer.timeout.connect(self.validate)
+        QGuiApplication.instance().screenRemoved.connect(self._screen_removed)
+
+    def _screen_removed(self, screen):
+        if isinstance(self._target, MonitorSelection) and any(
+                m.screen is screen for m in self._target.monitors):
+            self.stop()
 
     @property
     def title(self):
@@ -272,7 +313,12 @@ class ScreenShare(QObject):
             targets = self._api.targets()
             target = _pick(parent_widget, targets)
             if self.generation == epoch and target and self._api.status(target) == "ready":
-                self._events.watch(target, self._pause_minimized)
+                if isinstance(target, MonitorSelection):
+                    screens = QGuiApplication.screens()
+                    if not all(m.screen in screens for m in target.monitors):
+                        return False
+                else:
+                    self._events.watch(target, self._pause_minimized)
                 self._target = target
                 self._timer.start()
                 self.changed.emit()
@@ -345,6 +391,8 @@ class ScreenShare(QObject):
                 self.generation += 1
                 self._close_stream()
             return False
+        if isinstance(self._target, MonitorSelection):
+            return True
         if not self._stream:
             self._start_stream()
         return bool(self._stream)
@@ -362,7 +410,8 @@ class ScreenShare(QObject):
         if not self.validate():
             return None
         generation = self.generation
-        image = self._stream.image()
+        target = self._target
+        image = target.image() if isinstance(target, MonitorSelection) else self._stream.image()
         if image is None or image.isNull() or not self.can_send(generation):
             return None
         if max(image.width(), image.height()) > 1280:

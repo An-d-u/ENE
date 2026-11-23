@@ -174,6 +174,139 @@ def test_duplicate_titles_in_native_picker_select_the_second_identity():
     assert _pick(None, targets) is targets[1]
 
 
+@pytest.fixture
+def monitors():
+    from PyQt6.QtCore import QRect
+    from PyQt6.QtGui import QPixmap
+    from src.core.screen_monitors import Monitor
+
+    class Screen:
+        def __init__(self, color, x):
+            self.color = color
+            self.calls = 0
+            self.x = x
+
+        def geometry(self):
+            return QRect(self.x, 0, 800, 600)
+
+        def grabWindow(self, window):
+            assert window == 0
+            self.calls += 1
+            pixels = QPixmap(800, 600)
+            pixels.fill(QColor(self.color))
+            return pixels
+
+    return tuple(Monitor(i, f"DISPLAY{i}", QRect(x, 0, 800, 600), Screen(color, x), f"모니터 {i}")
+                 for i, x, color in [(1, -800, "red"), (2, 0, "green"), (3, 800, "blue")])
+
+
+@pytest.mark.parametrize("rows", [(0,), (1,), (0, 1), (0, 2)])
+def test_monitor_picker_requires_explicit_selection_and_captures_only_checked_displays(
+        monitors, rows):
+    from PyQt6.QtCore import QTimer
+    from PyQt6.QtWidgets import QApplication, QDialogButtonBox, QTabWidget
+    from src.core.screen_share import _pick, _Target
+
+    enabled = []
+
+    def select():
+        picker = QApplication.activeModalWidget()
+        tabs = picker.findChild(QTabWidget)
+        listing = tabs.currentWidget()
+        ok = picker.findChild(QDialogButtonBox).button(QDialogButtonBox.StandardButton.Ok)
+        enabled.append(ok.isEnabled())
+        for row in rows:
+            listing.item(row).setCheckState(Qt.CheckState.Checked)
+        enabled.append(ok.isEnabled())
+        picker.accept()
+
+    QTimer.singleShot(0, select)
+    chosen = _pick(None, [*monitors, _Target(7, 8, 9, "합성 창")])
+    assert enabled == [False, True]
+    assert chosen.monitors == tuple(monitors[i] for i in rows)
+    image = chosen.image()
+    assert [m.screen.calls for m in monitors] == [int(i in rows) for i in range(3)]
+    assert image.width() <= 1280
+    assert image.pixelColor(0, 0) == QColor(monitors[rows[0]].screen.color)
+    assert image.pixelColor(image.width() - 1, 0) == QColor(monitors[rows[-1]].screen.color)
+    if rows == (0, 2):
+        assert image.pixelColor(image.width() // 2, image.height() // 2) == QColor("black")
+
+
+def test_window_tab_ignores_checked_monitors(monitors):
+    from PyQt6.QtCore import QTimer
+    from PyQt6.QtWidgets import QApplication, QTabWidget
+    from src.core.screen_share import _pick, _Target
+
+    def select_window():
+        picker = QApplication.activeModalWidget()
+        tabs = picker.findChild(QTabWidget)
+        tabs.currentWidget().item(0).setCheckState(Qt.CheckState.Checked)
+        tabs.setCurrentIndex(1)
+        tabs.currentWidget().setCurrentRow(0)
+        picker.accept()
+
+    window = _Target(3, 11, 17, "합성 창")
+    QTimer.singleShot(0, select_window)
+    assert _pick(None, [*monitors, window]) is window
+    assert all(m.screen.calls == 0 for m in monitors)
+
+
+def test_failed_monitor_capture_discards_whole_image(monitors, monkeypatch):
+    from PyQt6.QtGui import QPixmap
+    from src.core.screen_monitors import MonitorSelection
+
+    monkeypatch.setattr(monitors[1].screen, "grabWindow", lambda _: QPixmap())
+    assert MonitorSelection(monitors[:2]).image() is None
+    assert monitors[2].screen.calls == 0
+
+
+def test_stale_qt_screen_origin_is_rejected_before_capture(monitors):
+    from src.core.screen_monitors import MonitorSelection
+
+    monitors[0].screen.x = monitors[1].rect.x()
+    assert MonitorSelection(monitors[:1]).image() is None
+    assert not monitors[0].screen.calls
+
+
+def test_monitor_session_stops_on_disconnect_and_invalidates_pending_frames(capture, monitors, monkeypatch):
+    from src.core import screen_share as mod
+    from src.core.screen_monitors import MonitorSelection
+
+    share, api, _ = capture
+    chosen = MonitorSelection(monitors[:2])
+    monkeypatch.setattr(mod, "_pick", lambda *_: chosen)
+    monkeypatch.setattr(mod.QGuiApplication, "screens", lambda: [m.screen for m in monitors])
+    assert share.choose(None)
+    share.set_modes(True, True)
+    assert share.snapshot() is not None
+    assert api.starts == 0
+    generation = share.generation
+    share._screen_removed(monitors[2].screen)
+    assert share.can_send(generation)
+    share._screen_removed(monitors[0].screen)
+    assert not share.can_send(generation)
+    assert not share.question and not share.observe and share.snapshot() is None
+
+
+def test_monitor_native_guard_rejects_changed_device_or_geometry(monitors):
+    from types import SimpleNamespace
+    from src.core.screen_monitors import MonitorSelection
+    from src.core.screen_share import _Windows
+
+    selected = MonitorSelection(monitors[:2])
+    current = {m.handle: (m.device, m.rect) for m in monitors}
+    api = SimpleNamespace(interactive=lambda: True,
+                          monitors=SimpleNamespace(info=current.get))
+    assert _Windows.status(api, selected) == "ready"
+    current[monitors[1].handle] = ("다른 장치", monitors[1].rect)
+    assert _Windows.status(api, selected) == "closed"
+    current[monitors[1].handle] = (monitors[1].device, monitors[2].rect)
+    assert _Windows.status(api, selected) == "closed"
+    api.interactive = lambda: False
+    assert _Windows.status(api, selected) == "locked"
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows 전용 창 캡처")
 def test_only_windows_graphics_capture_frames_are_accepted():
     from PyQt6.QtMultimedia import QVideoFrame, QVideoFrameFormat
@@ -241,7 +374,8 @@ app.exec()
         assert pid.value == child_pid
         # 실제 데스크톱의 다른 제목을 열거하지 않고 합성 창만 선택 목록에 주입한다.
         monkeypatch.setattr(share._api, "enum", lambda collect, _: collect(hwnd, 0))
-        monkeypatch.setattr(mod, "_pick", lambda parent, targets: targets[0])
+        monkeypatch.setattr(mod, "_pick", lambda parent, targets: next(
+            t for t in targets if isinstance(t, mod._Target) and t.hwnd == hwnd))
         assert share.choose(None)
         assert share._target.tid == tid and share.title == "합성 창"
         cover.setStyleSheet("background-color: #ff0000")
