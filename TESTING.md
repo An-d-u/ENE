@@ -26,8 +26,11 @@ python -m pytest tests/test_dependency_contracts.py tests/test_dependency_securi
 ```
 
 Pillow 하한 13.0.0은 [번들 OpenJPEG 보안 수정](https://github.com/python-pillow/Pillow/security/advisories/GHSA-78g4-xqwv-q3g8)을 포함한다.
-pypdf 하한 7.0.0은 [객체 스트림의 중복 오프셋으로 인한 자원 고갈 수정](https://github.com/advisories/GHSA-59jv-x5x2-gg4c)을 포함한다.
+pypdf 하한 7.1.1은 [교차참조 스트림·ASCIIHexDecode·인라인 이미지의 자원 사용 제한 수정](https://github.com/py-pdf/pypdf/releases/tag/7.1.1)을 포함한다.
 certifi 하한 2026.10.19는 [emSign ECC 루트 제거와 영향받지 않은 루트 복원](https://github.com/advisories/GHSA-6q48-6c7w-9gw2)을 반영한다.
+urllib3 하한 2.8.0은 [chunk 크기 줄의 무제한 버퍼링](https://github.com/urllib3/urllib3/security/advisories/GHSA-vxq7-64xx-v4gw)과
+[Deflate 응답 디코딩의 무한 반복](https://github.com/urllib3/urllib3/security/advisories/GHSA-gh4c-6fx4-qh6g)을 수정한다.
+Requests는 기본 응답 처리에서도 내부적으로 `urllib3.HTTPResponse.stream()`을 사용하므로 이 하한을 직접 선언한다.
 aiohttp 하한 3.14.5는 [WebSocket 자원 소모 수정](https://github.com/aio-libs/aiohttp/security/advisories/GHSA-2g87-pp6c-29x5)과
 [후속 제어 프레임 오류 수정](https://github.com/aio-libs/aiohttp/releases/tag/v3.14.5)을 포함한다.
 google-genai 하한 2.9.0은 Gemini 길이 복구의 `thinking_level` 설정을 실제 SDK로 검증한 기준이다.
