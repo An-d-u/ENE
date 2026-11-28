@@ -219,6 +219,7 @@ window.createCharacter = function createCharacter(host, canvas) {
         const config = next.response_motion;
         const motionReady = phone && window.eneResponseMotion?.configure(config ? {
             ...config,
+            overlapPercent: next.emotion_motion_overlap_percent,
             emotionOverrides: Object.fromEntries(Object.entries(config.emotionOverrides || {})
                 .map(([id, target]) => [id.trim().toLowerCase(), target])),
         } : {mode:'classic'});

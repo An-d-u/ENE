@@ -108,6 +108,7 @@ def test_confirmed_response_motion_is_scoped_to_model_and_catalog_after_reuse_an
         "model_json_path": str(path),
         "response_motion_mode": "accent", "emotion_motion_preset": "gentle",
         "response_gesture_repeat_limits": {str(path): 2, str(other): 1},
+        "emotion_motion_overlap_percentages": {str(path): 60, str(other): 0},
         "emotion_motion_overrides": {str(path): {"bright": "joy", "missing": "sad"}, str(other): {"bright": "none"}},
     }
     def ready():
@@ -122,6 +123,7 @@ def test_confirmed_response_motion_is_scoped_to_model_and_catalog_after_reuse_an
     assert ready() == {"mode": "accent", "enabled": True, "preset": "gentle", "head": 1, "body": 1,
                        "gestureHead": 1, "gestureBody": 1, "repeatLimit": 2, "emotionOverrides": {"bright": "joy"}}
     bridge.preview(True)
+    assert bridge.state.snapshot()["emotion_motion_overlap_percent"] == 60
     assert bridge.state.snapshot()["response_motion"]["preset"] == "gentle"
     revision = bridge.state.settings_revision
     settings = {**settings, "emotion_motion_preset": "lively", "response_gesture_head_strength": 1.5}
@@ -134,6 +136,7 @@ def test_confirmed_response_motion_is_scoped_to_model_and_catalog_after_reuse_an
     assert ready()["gestureHead"] == 1.5
     bridge.select(other, (), {**settings, "model_json_path": str(other)}, {}, reuse=True)
     config = ready()
+    assert bridge.state.snapshot()["emotion_motion_overlap_percent"] == 0
     assert (config["preset"], config["repeatLimit"], config["emotionOverrides"]) == ("lively", 1, {"bright": "none"})
     owner.message_received.emit("", "bright", "")
     assert owner.sent[-1][1]["response_motion"] is True

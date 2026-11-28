@@ -64,7 +64,7 @@
     {
       "source": "assets/web/runtime_response_motion.js",
       "target": "runtime_response_motion.js",
-      "sha256": "559f942caf656a02608bcd177fea488572e1fb52897ae20c0c1e245a58babb80"
+      "sha256": "3dc500b53a3d77cfb86d5a7db933365db28df7dc47ade150b263943b3bf20985"
     },
     {
       "source": "assets/web/motions/response-accent.json",
@@ -104,7 +104,7 @@
     {
       "source": "assets/web/runtime_character_host.js",
       "target": "runtime_character_host.js",
-      "sha256": "a2d07faea5e554b078f8c9a7d6a856d816baf46a744aeef1aa2c32827cd40e4c"
+      "sha256": "ecb979afb8243be61f0b7cd5fd0ffda340b8db4e9baaa474d78d700f15aea049"
     },
     {
       "source": "assets/web/lib/pixi.min.js",

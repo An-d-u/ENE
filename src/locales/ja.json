@@ -1108,6 +1108,8 @@
         "interaction_title": "インタラクション"
       },
       "response_motion": {
+        "overlap": "このモデルのジェスチャー中の感情モーション維持率",
+        "overlap_hint": "応答ジェスチャーと重なる間に残す感情モーションの割合です。初期値は28%です。",
         "gesture_head": "返答ジェスチャーの頭の強さ",
         "gesture_body": "返答ジェスチャーの胴体の強さ",
         "mode": "動きの方式",

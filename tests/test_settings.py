@@ -18,11 +18,27 @@ def test_response_motion_settings_round_trip_and_recover_invalid_values(tmp_path
     assert restored.get("response_motion_mode") == "accent"
     assert response_motion_config(restored) == {
         "mode": "accent", "enabled": False, "preset": "gentle", "repeatLimit": 0, "emotionOverrides": {},
-        "head": 0, "body": 1, "gestureHead": 1, "gestureBody": 1.75,
+        "head": 0, "body": 1, "gestureHead": 1, "gestureBody": 1.75, "overlapPercent": 28,
     }
     damaged = {"response_motion_mode": [], "emotion_motion_preset": {},
                "emotion_motion_head_strength": "0", "response_gesture_body_strength": float("nan")}
     assert response_motion_config(damaged) == response_motion_config({})
+
+
+def test_emotion_overlap_percent_round_trips_per_model(tmp_path):
+    paths = {"config_path": str(tmp_path / "settings.json"), "secret_path": str(tmp_path / "secret.json")}
+    settings = Settings(**paths)
+    assert response_motion_config(settings)["overlapPercent"] == 28
+    settings.set("emotion_motion_overlap_percentages", {
+        "blue\\sample.model3.json": 60, "green": 0, "red": 100, "invalid": 101,
+        "negative": -1, "flag": False, "text": "50", "fraction": 1.5,
+    })
+    settings.save()
+    restored = Settings(**paths)
+    for model, expected in [("blue/sample.model3.json", 60), ("green", 0), ("red", 100), ("new", 28),
+                            ("invalid", 28), ("negative", 28), ("flag", 28), ("text", 28), ("fraction", 28)]:
+        restored.set("model_json_path", model)
+        assert response_motion_config(restored)["overlapPercent"] == expected
 
 
 def test_response_gesture_repeat_limit_follows_saved_model(tmp_path):

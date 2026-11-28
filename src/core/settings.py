@@ -8,7 +8,7 @@ from pathlib import Path
 from ..ai.native_model_policy import ANTHROPIC_DEFAULT_MODEL, resolve_anthropic_model
 from .companion.audio_route import normalize_output_target
 from .response_motion import (
-    RESPONSE_MOTION_DEFAULTS, normalize_emotion_motion_overrides,
+    RESPONSE_MOTION_DEFAULTS, normalize_emotion_motion_overrides, normalize_emotion_overlap_percentages,
     normalize_response_motion_mode, normalize_response_repeat_limits,
 )
 from .observation_intervals import (
@@ -368,6 +368,9 @@ class Settings:
                 merged["response_gesture_repeat_limits"]
             )
             merged["emotion_motion_overrides"] = normalize_emotion_motion_overrides(merged["emotion_motion_overrides"])
+            merged["emotion_motion_overlap_percentages"] = normalize_emotion_overlap_percentages(
+                merged["emotion_motion_overlap_percentages"]
+            )
             merged[SAMPLE_SECONDS_KEY], merged[REQUEST_SECONDS_KEY] = normalize_observation_intervals(merged)
             merged["visual_context_turns"] = visual_context_turns(merged)
             if merged.get("structured_response_mode") not in {"auto", "legacy"}:

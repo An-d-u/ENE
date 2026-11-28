@@ -18,7 +18,8 @@ from ..core.hotkey_utils import normalize_hotkey_text
 from ..core.image_avatar import build_image_avatar_payload
 from ..core.model_emotions import discover_model_expression_files, resolve_model_json_path
 from ..core.response_motion import (
-    automatic_emotion_motion, normalize_emotion_motion_overrides, normalize_response_repeat_limits,
+    DEFAULT_EMOTION_OVERLAP_PERCENT, automatic_emotion_motion, normalize_emotion_motion_overrides,
+    normalize_emotion_overlap_percentages, normalize_response_repeat_limits,
     response_motion_config, response_motion_model_key,
 )
 from ..core.observation_intervals import REQUEST_SECONDS_KEY, SAMPLE_SECONDS_KEY, normalize_observation_intervals, visual_context_turns
@@ -56,6 +57,8 @@ class SettingsDialogValuesMixin:
         model_key = response_motion_model_key(path)
         with QSignalBlocker(self.response_gesture_repeat_spin):
             self.response_gesture_repeat_spin.setValue(self._response_gesture_repeat_limits.get(model_key, 0))
+        with QSignalBlocker(self.emotion_overlap_spin):
+            self.emotion_overlap_spin.setValue(self._emotion_overlap_percentages.get(model_key, DEFAULT_EMOTION_OVERLAP_PERCENT))
         self._refresh_motion_expressions()
         self._on_setting_changed()
 
@@ -103,6 +106,16 @@ class SettingsDialogValuesMixin:
                 self._emotion_motion_overrides.pop(key)
         else:
             overrides[expression] = choice
+        self._on_setting_changed()
+
+    def _on_emotion_overlap_changed(self, percent: int):
+        if self._loading:
+            return
+        key = response_motion_model_key(self.model_json_path_edit.text())
+        if percent == DEFAULT_EMOTION_OVERLAP_PERCENT:
+            self._emotion_overlap_percentages.pop(key, None)
+        else:
+            self._emotion_overlap_percentages[key] = percent
         self._on_setting_changed()
 
     def _on_gesture_repeat_changed(self, count: int):
@@ -770,6 +783,10 @@ class SettingsDialogValuesMixin:
                 float(self._original_settings.get("synthetic_gesture_scale", 1.0))
             )
             motion = response_motion_config(self._original_settings)
+            self._emotion_overlap_percentages = normalize_emotion_overlap_percentages(
+                self._original_settings.get("emotion_motion_overlap_percentages")
+            )
+            self.emotion_overlap_spin.setValue(motion["overlapPercent"])
             self._response_gesture_repeat_limits = normalize_response_repeat_limits(
                 self._original_settings.get("response_gesture_repeat_limits")
             )
@@ -1239,6 +1256,7 @@ class SettingsDialogValuesMixin:
             "response_gesture_head_strength": self.response_gesture_head_spin.value() / 100,
             "response_gesture_body_strength": self.response_gesture_body_spin.value() / 100,
             "response_gesture_repeat_limits": dict(self._response_gesture_repeat_limits),
+            "emotion_motion_overlap_percentages": dict(self._emotion_overlap_percentages),
             "emotion_motion_overrides": {key: values.copy() for key, values in self._emotion_motion_overrides.items()},
             "enable_idle_synthetic_gestures": self.enable_idle_synthetic_gestures_check.isChecked(),
             "idle_synthetic_gesture_frequency": str(

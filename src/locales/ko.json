@@ -1162,6 +1162,8 @@
         "interaction_title": "상호작용"
       },
       "response_motion": {
+        "overlap": "이 모델의 제스처 중 감정 동작 유지율",
+        "overlap_hint": "응답 제스처와 겹치는 동안 남겨 둘 감정 동작의 비율입니다. 기본값은 28%입니다.",
         "gesture_head": "응답 제스처 고개 강도",
         "gesture_body": "응답 제스처 몸통 강도",
         "mode": "움직임 방식",

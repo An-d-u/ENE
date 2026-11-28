@@ -65,6 +65,13 @@ def _add_response_motion_controls(dialog, form):
     dialog.refresh_motion_expressions_button.clicked.connect(dialog._on_setting_changed)
     dialog.emotion_motion_head_spin = _add_motion_strength(dialog, inner, "head", "감정 동작 고개 강도")
     dialog.emotion_motion_body_spin = _add_motion_strength(dialog, inner, "body", "감정 동작 몸통 강도")
+    overlap = dialog.emotion_overlap_spin = QSpinBox()
+    overlap.setRange(0, 100)
+    overlap.setSuffix("%")
+    dialog._bind_tooltip(overlap, prefix + "overlap_hint",
+                         "응답 제스처와 겹치는 동안 남겨 둘 감정 동작의 비율입니다. 기본값은 28%입니다.")
+    overlap.valueChanged.connect(dialog._on_emotion_overlap_changed)
+    dialog._add_form_row(inner, prefix + "overlap", "이 모델의 제스처 중 감정 동작 유지율", overlap)
     form.addRow(details)
 
     def refresh():

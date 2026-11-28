@@ -8,11 +8,13 @@ from pathlib import Path
 
 from .app_paths import get_bundle_root, relativize_for_storage
 
+DEFAULT_EMOTION_OVERLAP_PERCENT = 28
 RESPONSE_MOTION_DEFAULTS = {
     "response_motion_mode": "classic",
     "enable_emotion_motion": True,
     "emotion_motion_preset": "standard",
     "emotion_motion_overrides": {},
+    "emotion_motion_overlap_percentages": {},
     "emotion_motion_head_strength": 1.0,
     "emotion_motion_body_strength": 1.0,
     "response_gesture_head_strength": 1.0,
@@ -67,6 +69,16 @@ def normalize_response_repeat_limits(values) -> dict[str, int]:
     }
 
 
+def normalize_emotion_overlap_percentages(values) -> dict[str, int]:
+    if not isinstance(values, dict):
+        return {}
+    return {
+        response_motion_model_key(path): percent
+        for path, percent in values.items()
+        if isinstance(path, str) and path.strip() and type(percent) is int and 0 <= percent <= 100
+    }
+
+
 def normalize_emotion_motion_overrides(values) -> dict[str, dict[str, str]]:
     if not isinstance(values, dict) or not values:
         return {}
@@ -95,6 +107,7 @@ def response_motion_config(settings):
 
     repeats = normalize_response_repeat_limits(settings.get("response_gesture_repeat_limits"))
     overrides = normalize_emotion_motion_overrides(settings.get("emotion_motion_overrides"))
+    overlaps = normalize_emotion_overlap_percentages(settings.get("emotion_motion_overlap_percentages"))
     model_key = response_motion_model_key(settings.get("model_json_path"))
     preset = settings.get("emotion_motion_preset")
     return {
@@ -106,5 +119,6 @@ def response_motion_config(settings):
         "gestureHead": strength("response_gesture_head_strength"),
         "gestureBody": strength("response_gesture_body_strength"),
         "repeatLimit": repeats.get(model_key, 0),
+        "overlapPercent": overlaps.get(model_key, DEFAULT_EMOTION_OVERLAP_PERCENT),
         "emotionOverrides": overrides.get(model_key, {}),
     }

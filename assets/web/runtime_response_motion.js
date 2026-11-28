@@ -106,7 +106,7 @@ window.eneResponseMotion = (() => {
             return null;
         }
         const responding = activeGestureKey && !IDLE_SYNTHETIC_GESTURES.includes(activeGestureKey);
-        const target = responding ? .28 : 1;
+        const target = responding ? (config.overlapPercent ?? 28) / 100 : 1;
         active.weight += (target - active.weight) * (1 - Math.exp(-dtMs / 120));
         const tail = easeGestureInOut((clip.duration - age) / .30);
         return scaleAxes(sampleClip(clip, age, .57 * active.weight * tail), config.head, config.body);

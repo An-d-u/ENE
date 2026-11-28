@@ -2570,12 +2570,17 @@ def test_settings_dialog_exposes_synthetic_gesture_controls_and_saves_values():
         model_b = "samples/green/avatar.model3.json"
         dialog.model_json_path_edit.setText(model_a)
         assert dialog.response_gesture_repeat_spin.value() == 0
+        assert dialog.emotion_overlap_spin.value() == 28
+        dialog.emotion_overlap_spin.setValue(60)
         dialog.response_gesture_repeat_spin.setValue(3)
         dialog.model_json_path_edit.setText(model_b)
         assert dialog.response_gesture_repeat_spin.value() == 0
+        assert dialog.emotion_overlap_spin.value() == 28
+        dialog.emotion_overlap_spin.setValue(0)
         dialog.response_gesture_repeat_spin.setValue(1)
         dialog.model_json_path_edit.setText(model_a)
         assert dialog.response_gesture_repeat_spin.value() == 3
+        assert dialog.emotion_overlap_spin.value() == 60
         dialog.synthetic_gesture_scale_spin.setValue(1.8)
         dialog.response_gesture_head_spin.setValue(150)
         dialog.response_gesture_body_spin.setValue(0)
@@ -2595,6 +2600,9 @@ def test_settings_dialog_exposes_synthetic_gesture_controls_and_saves_values():
         assert current_values["response_gesture_body_strength"] == 0
         assert current_values["response_motion_mode"] == "accent"
         assert current_values["response_gesture_repeat_limits"] == {model_a: 3, model_b: 1}
+        assert current_values["emotion_motion_overlap_percentages"] == {model_a: 60, model_b: 0}
+        dialog.emotion_overlap_spin.setValue(28)
+        assert dialog._get_current_values()["emotion_motion_overlap_percentages"] == {model_b: 0}
         assert current_values["enable_emotion_motion"] is True
         assert current_values["emotion_motion_preset"] == "gentle"
         assert current_values["emotion_motion_head_strength"] == 0
@@ -5422,6 +5430,7 @@ def test_overlay_window_syncs_synthetic_gesture_scale_to_webview(tmp_path):
     OverlayWindow._sync_idle_motion_settings_to_js(overlay, {
         "synthetic_gesture_scale": 1.7, "response_motion_mode": "accent",
         "model_json_path": model, "response_gesture_repeat_limits": {model: 2},
+        "emotion_motion_overlap_percentages": {model: 60},
         "emotion_motion_overrides": {model: {"__proto__": "shy", "soft_smile": "none"}},
     })
 
@@ -5430,6 +5439,7 @@ def test_overlay_window_syncs_synthetic_gesture_scale_to_webview(tmp_path):
     encoded = motion.split("?.configure(JSON.parse(", 1)[1].removesuffix("));")
     config = json.loads(json.loads(encoded))
     assert (config["mode"], config["repeatLimit"]) == ("accent", 2)
+    assert config["overlapPercent"] == 60
     assert config["emotionOverrides"] == {"__proto__": "shy", "soft_smile": "none"}
 
 

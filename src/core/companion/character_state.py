@@ -200,8 +200,11 @@ class CharacterState:
         if ready:
             overrides = self._response_motion["emotionOverrides"]
             allowed = {"none", *emotion_motion_ids()}
+            # 기존 앱은 response_motion 내부 키를 엄격히 검사하고 새 최상위 필드는 건너뛴다.
+            config = self._response_motion.copy()
+            motion["emotion_motion_overlap_percent"] = config.pop("overlapPercent")
             motion["response_motion"] = {
-                **self._response_motion,
+                **config,
                 "emotionOverrides": {
                     name: overrides[name.strip().lower()] for name in self.expressions
                     if overrides.get(name.strip().lower()) in allowed

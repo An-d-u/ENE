@@ -147,6 +147,29 @@ assert.equal(calls.filter(x=>x==='createApp').length,1);character.dispose();
 """)
 
 
+def test_response_gesture_only_attenuates_emotion_to_configured_percent():
+    run_character(r"""
+const motion = context.eneResponseMotion;
+const clip = {duration:2,tracks:{angleY:[0,0,0,1,10]}};
+context.fetch = async () => ({ok:true,json:async()=>({aliases:{joy:'joy'},emotions:{'joy.standard':clip}})});
+for (const [option, expected] of [[{},28],[{overlapPercent:60},60],[{overlapPercent:0},0],[{overlapPercent:100},100]]) {
+    await motion.configure({mode:'accent',enabled:true,preset:'standard',...option});
+    motion.start('joy');
+    const offset = dt => motion.emotionOffsets(now+500,dt).angleY;
+    const full = offset(16);
+    assert.ok(full>0);
+    vm.runInContext("activeGestureKey='nod'",ctx);
+    const blended = offset(120)/full;
+    const target = expected/100;
+    assert.ok(Math.abs(blended - (target + (1-target)*Math.exp(-1))) < 1e-10);
+    assert.ok(Math.abs(offset(5000)/full-target) < 1e-10);
+    vm.runInContext("activeGestureKey='idle-tiny-nod'",ctx);
+    assert.ok(Math.abs(offset(5000)/full-1) < 1e-10);
+    vm.runInContext("activeGestureKey=''",ctx);
+}
+""")
+
+
 def test_phone_document_loads_the_shared_response_motion_engine():
     page = (WEB / "character/index.html").read_text(encoding="utf-8")
     assert page.index('src="runtime_response_motion.js"') < page.index('src="runtime_character_host.js"')
@@ -176,6 +199,13 @@ assert.equal(bankReads,1);assert.equal(angle(),0);
 await send('bright',false);assert.equal(angle(),0);
 await send('bright',true,true);assert.equal(angle(),0);
 await send('bright');const joy=angle();assert.ok(joy>0);
+for (const [extra,percent] of [[{emotion_motion_overlap_percent:60},60],[{},28]]) {
+    await character.applySnapshot({...configured,...extra});
+    await send('bright');
+    vm.runInContext("activeGestureKey='nod'",ctx);
+    assert.ok(Math.abs(motion.emotionOffsets(now+500,5000).angleY / joy - percent/100)<1e-10);
+    vm.runInContext("activeGestureKey=''",ctx);
+}
 await send('Quiet #2');assert.equal(angle(),-joy);
 await character.applySnapshot({...configured,response_motion:{...configured.response_motion,emotionOverrides:{bright:'none'}}});
 await send('bright');assert.equal(angle(),0);

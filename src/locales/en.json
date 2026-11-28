@@ -1160,6 +1160,8 @@
         "interaction_title": "Interaction"
       },
       "response_motion": {
+        "overlap": "Emotion motion retained during gestures for this model",
+        "overlap_hint": "Percentage of emotion motion to keep while a response gesture plays. The default is 28%.",
         "gesture_head": "Gesture head strength",
         "gesture_body": "Gesture torso strength",
         "mode": "Movement style",
