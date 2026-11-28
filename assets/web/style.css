@@ -500,6 +500,10 @@ body.thought-feature-disabled .message-thought {
     transition: opacity 0.18s ease, transform 0.18s ease;
 }
 
+#floating-actions-menu[hidden] {
+    display: none;
+}
+
 #floating-action-buttons.is-open #floating-actions-menu {
     opacity: 1;
     pointer-events: auto;

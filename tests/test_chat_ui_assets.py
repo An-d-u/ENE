@@ -3670,6 +3670,10 @@ def test_chat_resize_handle_markup_exists_above_messages():
     assert html.index('id="chat-resize-handle"') < html.index('id="chat-messages"')
 
 
+def test_closed_quick_menu_takes_no_space_over_chat_buttons():
+    assert "display: none;" in _rule_block("#floating-actions-menu[hidden]")
+
+
 def test_scheduled_promises_menu_markup_exists():
     html = (WEB_DIR / "index.html").read_text(encoding="utf-8-sig")
     assert 'id="promise-reminders-floating-btn"' in html
