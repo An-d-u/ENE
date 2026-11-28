@@ -11,12 +11,21 @@
 <body>
     <canvas id="live2d-canvas"></canvas>
     <div id="overlay-notice-stack" aria-live="polite">
-        <div id="screen-share-indicator" hidden>
-            <div class="screen-share-info">
+        <button id="screen-share-indicator" type="button" hidden popovertarget="screen-share-info" title="공유 중" aria-label="화면 공유 중, 상세 보기">
+            <svg class="lucide-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8m-4-4v4m-3-11 3-3 3 3m-3-3v6"/>
+            </svg>
+        </button>
+        <div id="screen-share-info" popover="auto" role="group" aria-labelledby="screen-share-active">
+            <header>
                 <strong id="screen-share-active">화면 공유 중</strong>
-                <span id="screen-share-window"></span>
-                <span id="screen-share-detail"></span>
-            </div>
+                <button id="screen-share-info-close" type="button" popovertarget="screen-share-info" popovertargetaction="hide" aria-label="닫기">×</button>
+            </header>
+            <dl>
+                <dt id="screen-share-source-label">공유 대상</dt><dd id="screen-share-window"></dd>
+                <dt id="screen-share-modes-label">사용 중</dt><dd id="screen-share-modes"></dd>
+                <dt id="screen-share-receiver-label">이미지 처리</dt><dd id="screen-share-receiver"></dd>
+            </dl>
             <button id="screen-share-overlay-stop" type="button">공유 종료</button>
         </div>
         <div id="token-usage-bubble" class="hidden"></div>

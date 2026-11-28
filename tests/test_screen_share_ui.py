@@ -42,15 +42,42 @@ emit({question:true,title:'가상 도형판'});
 node('close').click();
 setRequestPending(true);
 const active = {hidden:node('indicator').hidden, title:node('window').textContent,
-    detail:node('detail').textContent, canStop:!node('overlay-stop').disabled};
+    modes:node('modes').textContent, receiver:node('receiver').textContent, canStop:!node('overlay-stop').disabled};
 node('overlay-stop').click();
 emit({});
 result = {beforePicker, cancelled, active, stopped:node('indicator').hidden, calls:bridge.screenCalls};
 """)
     assert result == {
         "beforePicker": {"checked": False, "hidden": True}, "cancelled": True,
-        "active": {"hidden": False, "title": "가상 도형판", "detail": "질문 · 이 PC에서 처리 · Demo Vision", "canStop": True},
+        "active": {"hidden": False, "title": "가상 도형판", "modes": "질문", "receiver": "이 PC에서 처리 · Demo Vision", "canStop": True},
         "stopped": True, "calls": [[True, False], [False, True], [True, True], [True, False], "stop"],
+    }
+
+
+def test_active_icon_opens_details_and_dismisses_them_when_sharing_ends():
+    result = run_dom_case("""
+const node = key => document.getElementById('screen-share-' + key);
+const icon = node('indicator'), details = node('info');
+if (!details || icon.tagName !== 'BUTTON') { result = 'missing icon'; return; }
+const send = (question, observe, title) => bridge.screen_share_state_changed.emit(JSON.stringify({
+    available:true, model:'Demo Vision', remote:true, question, observe, title
+}));
+let dismissed = false;
+details.hidePopover = () => { dismissed = true; };
+send(true, true, '모니터 1, 모니터 2');
+const active = [!icon.hidden, icon.title, icon.attributes.popovertarget,
+    details.attributes.popover, node('window').textContent, node('modes').textContent, node('receiver').textContent];
+send(false, false, '');
+const ended = [icon.hidden, dismissed];
+send(false, true, '가상 창');
+window.eneScreenShare.setLanguage('en');
+result = {active, ended, next:[icon.hidden, icon.title, node('window').textContent, node('modes').textContent],
+    calls:bridge.screenCalls};
+""")
+    assert result == {
+        "active": [True, "공유 중", "screen-share-info", "auto", "모니터 1, 모니터 2", "질문 · 관찰",
+                   "외부 서버로 전송 · Demo Vision"],
+        "ended": [True, True], "next": [False, "Sharing", "가상 창", "Observation"], "calls": [],
     }
 
 
